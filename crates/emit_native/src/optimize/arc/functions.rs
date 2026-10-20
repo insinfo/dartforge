@@ -78,7 +78,20 @@ pub fn insert_arc_dart_functions(
     functions: &mut [Function],
     plans: &mut HashMap<String, DartFunctionPlan>,
 ) -> Result<(usize, usize), String> {
-    insert(functions, plans, InsertionOptions { prepare_calls: false, layouts: None, ancestry: None, variants: &HashMap::new(), receivers: &HashMap::new(), preserve_fields: &HashSet::new(), by_tables: true, externals: false })
+    insert(
+        functions,
+        plans,
+        InsertionOptions {
+            prepare_calls: false,
+            layouts: None,
+            ancestry: None,
+            variants: &HashMap::new(),
+            receivers: &HashMap::new(),
+            preserve_fields: &HashSet::new(),
+            by_tables: true,
+            externals: false,
+        },
+    )
 }
 
 /// Prepares missing invokes and inserts ARC into a closed set of Dart functions.
@@ -145,7 +158,20 @@ pub(super) fn prepare_functions(
     plans: &mut HashMap<String, DartFunctionPlan>,
     externals: bool,
 ) -> Result<(usize, usize), String> {
-    insert(functions, plans, InsertionOptions { prepare_calls: true, layouts: None, ancestry: None, variants: &HashMap::new(), receivers: &HashMap::new(), preserve_fields: &HashSet::new(), by_tables: true, externals })
+    insert(
+        functions,
+        plans,
+        InsertionOptions {
+            prepare_calls: true,
+            layouts: None,
+            ancestry: None,
+            variants: &HashMap::new(),
+            receivers: &HashMap::new(),
+            preserve_fields: &HashSet::new(),
+            by_tables: true,
+            externals,
+        },
+    )
 }
 
 /// Atomically prepares the lowering facts and the closed set of an ARC module.
@@ -226,13 +252,29 @@ pub(super) fn prepare_with_variants(
     super::slot_plans::remap_facts(&mut work, &slots.symbols);
     super::slot_plans::remap_plans(&mut new_set, &slots.symbols);
     super::produce_cfg_ref_slot_plans(&origin, &slots, &mut new_set)?;
-    let variants: HashMap<_, _> = variants.iter().map(|(s, vs)| (
-        slots.symbols.get(s).cloned().unwrap_or_else(|| s.clone()),
-        vs.iter().map(|v| slots.symbols.get(v).cloned().unwrap_or_else(|| v.clone())).collect::<Vec<_>>()
-    )).collect();
+    let variants: HashMap<_, _> = variants
+        .iter()
+        .map(|(s, vs)| {
+            (
+                slots.symbols.get(s).cloned().unwrap_or_else(|| s.clone()),
+                vs.iter()
+                    .map(|v| slots.symbols.get(v).cloned().unwrap_or_else(|| v.clone()))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect();
     for (s, vs) in &variants {
-        let signature = |name_str: &str| work.functions.iter().find(|f| f.symbol == name_str)
-            .map(|f| (f.params.iter().map(|(_, _, t)| *t).collect::<Vec<_>>(), f.return_ty));
+        let signature = |name_str: &str| {
+            work.functions
+                .iter()
+                .find(|f| f.symbol == name_str)
+                .map(|f| {
+                    (
+                        f.params.iter().map(|(_, _, t)| *t).collect::<Vec<_>>(),
+                        f.return_ty,
+                    )
+                })
+        };
         let base = signature(s);
         if vs.iter().any(|v| signature(v) != base) {
             return Err(format!("ARC slots: incompatible ABI in variants of {s}"));
@@ -260,15 +302,25 @@ pub(super) fn prepare_with_variants(
     // The layouts of the prepared SDK hold for checking the fields of its
     // objects (those of the module prevail).
     let mut layouts = work.arc_external_layouts.clone();
-    layouts.extend(module.arc_field_layouts.iter().map(|(c, l)| (*c, l.clone())));
+    layouts.extend(
+        module
+            .arc_field_layouts
+            .iter()
+            .map(|(c, l)| (*c, l.clone())),
+    );
     let ancestry = super::fields::PhysicalAncestry::from_module(&work);
     let total = insert(
         &mut prepared_set,
         &mut new_set,
         InsertionOptions {
-            prepare_calls: true, layouts: Some(&layouts), ancestry: Some(&ancestry),
-            variants: &variants, receivers: &receivers, preserve_fields: &preserve_fields,
-            by_tables: work.table_exceptions, externals: work.arc_external_callees,
+            prepare_calls: true,
+            layouts: Some(&layouts),
+            ancestry: Some(&ancestry),
+            variants: &variants,
+            receivers: &receivers,
+            preserve_fields: &preserve_fields,
+            by_tables: work.table_exceptions,
+            externals: work.arc_external_callees,
         },
     )?;
     slots.functions = prepared_set.clone();
@@ -306,7 +358,16 @@ fn insert(
     plans: &mut HashMap<String, DartFunctionPlan>,
     options: InsertionOptions<'_>,
 ) -> Result<(usize, usize), String> {
-    let InsertionOptions { prepare_calls, layouts, ancestry, variants, receivers, preserve_fields, by_tables, externals } = options;
+    let InsertionOptions {
+        prepare_calls,
+        layouts,
+        ancestry,
+        variants,
+        receivers,
+        preserve_fields,
+        by_tables,
+        externals,
+    } = options;
     let mut symbols = HashSet::new();
     for f in functions.iter() {
         if !symbols.insert(f.symbol.clone()) {
@@ -322,13 +383,26 @@ fn insert(
     let mut module = Module::new();
     module.functions = functions.to_vec();
     let mut new_plans = plans.clone();
-    let signatures: HashMap<_, _> = functions.iter().map(|f| (f.symbol.clone(),
-        (f.params.iter().map(|(_, _, ty)| *ty).collect::<Vec<_>>(), f.return_ty))).collect();
+    let signatures: HashMap<_, _> = functions
+        .iter()
+        .map(|f| {
+            (
+                f.symbol.clone(),
+                (
+                    f.params.iter().map(|(_, _, ty)| *ty).collect::<Vec<_>>(),
+                    f.return_ty,
+                ),
+            )
+        })
+        .collect();
     for f in &mut module.functions {
         // A block without an explicit return (the end of the body, the placeholder of the
         // lowering) in a non-void function returns the default value, as the
         // LLVM emitter already does; here it becomes explicit for the tokens.
-        if matches!(f.return_ty, Type::Ref | Type::I64 | Type::I8 | Type::I1 | Type::F64) {
+        if matches!(
+            f.return_ty,
+            Type::Ref | Type::I64 | Type::I8 | Type::I1 | Type::F64
+        ) {
             let pattern = super::super::operands::default_constant(f.return_ty);
             for b in &mut f.blocks {
                 if let Terminator::Return(r @ None) = &mut b.terminator {
@@ -341,7 +415,11 @@ fn insert(
         if let Some(layouts) = layouts {
             let plan = new_plans.get_mut(&f.symbol).unwrap();
             super::fields::prepare_with_ancestry(
-                f, layouts, plan, receivers.get(&f.symbol), preserve_fields,
+                f,
+                layouts,
+                plan,
+                receivers.get(&f.symbol),
+                preserve_fields,
                 !signatures.contains_key("dartforge_value_class")
                     && !signatures.contains_key("dartforge_is_subclass")
                     && !signatures.contains_key("dartforge_object_new")
@@ -377,16 +455,25 @@ fn insert(
             if !symbols.contains(public) || alternatives.iter().any(|s| !symbols.contains(s)) {
                 return Err(format!("ARC variants outside the set: {public}"));
             }
-            for alternative in alternatives { callers.entry(alternative).or_default().push(public); }
+            for alternative in alternatives {
+                callers.entry(alternative).or_default().push(public);
+            }
         }
-        let mut queue: Vec<_> = module.functions.iter()
+        let mut queue: Vec<_> = module
+            .functions
+            .iter()
             .filter(|f| !do_not_throw.contains(&f.symbol) || failure_in_prologue_or_exit(f))
-            .map(|f| f.symbol.as_str()).collect();
+            .map(|f| f.symbol.as_str())
+            .collect();
         let mut visited = HashSet::new();
         while let Some(sym_name) = queue.pop() {
-            if !visited.insert(sym_name) { continue; }
+            if !visited.insert(sym_name) {
+                continue;
+            }
             do_not_throw.remove(sym_name);
-            if let Some(previous_ones) = callers.get(sym_name) { queue.extend(previous_ones.iter().copied()); }
+            if let Some(previous_ones) = callers.get(sym_name) {
+                queue.extend(previous_ones.iter().copied());
+            }
         }
     }
     for f in &module.functions {
@@ -407,7 +494,12 @@ fn insert(
     }
     if prepare_calls {
         for f in &mut module.functions {
-            super::invocations::prepare(f, new_plans.get_mut(&f.symbol).unwrap(), &do_not_throw, by_tables)?;
+            super::invocations::prepare(
+                f,
+                new_plans.get_mut(&f.symbol).unwrap(),
+                &do_not_throw,
+                by_tables,
+            )?;
         }
     }
     let mut summaries: Vec<_> = module
@@ -417,7 +509,10 @@ fn insert(
         .collect();
     // Callees from another prepared image (`Module::arc_external_callees`).
     if externals {
-        summaries.extend(super::calls::external_summaries(&module.functions, &symbols)?);
+        summaries.extend(super::calls::external_summaries(
+            &module.functions,
+            &symbols,
+        )?);
     }
     let index = super::calls::DartFunctionIndex::new(&summaries)?;
     let mut total = (0, 0);
@@ -432,7 +527,8 @@ fn insert(
             &index,
             &mut new.classes,
             &mut new.tokens,
-        ).map_err(|error| format!("ARC contracts in {}: {error}", f.symbol))?;
+        )
+        .map_err(|error| format!("ARC contracts in {}: {error}", f.symbol))?;
         if prepare_calls {
             total.0 += super::borrows::protect(f, new)?;
             let (copies, drops) = super::edges::prepare(f, new)?;
@@ -446,13 +542,7 @@ fn insert(
             &new.tables,
             &new.scopes,
         )?;
-        verify_dart_function_contract(
-            f,
-            &new.classes,
-            &new.tokens,
-            &new.tables,
-            &new.scopes,
-        )?;
+        verify_dart_function_contract(f, &new.classes, &new.tokens, &new.tables, &new.scopes)?;
         new.owners_at_landing_pad =
             tokens_at_landing_pad_entry(f, &new.classes, &new.tables, &new.tokens)?;
         new.tables.foreign_cleanup = ForeignCleanup::new(f, new)?;
@@ -527,10 +617,7 @@ mod tests {
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 assert!(ir.contains("invoke i64 @folha("), "{ir}");
                 let verified = format!("{m:?}/{plans:?}");
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 assert_eq!(format!("{m:?}/{plans:?}"), verified);
             }
         }
@@ -547,9 +634,14 @@ mod tests {
                 let mut instructions = vec![(
                     ValueId(result),
                     if case == 2 && block == 2 {
-                        Instruction::CellGet { cell: Operand::Val(ValueId(0)) }
+                        Instruction::CellGet {
+                            cell: Operand::Val(ValueId(0)),
+                        }
                     } else if case == 6 && block == 2 {
-                        Instruction::LoadIndexed { base: Operand::Val(ValueId(0)), index: Operand::Constant(Constant::Int(0)) }
+                        Instruction::LoadIndexed {
+                            base: Operand::Val(ValueId(0)),
+                            index: Operand::Constant(Constant::Int(0)),
+                        }
                     } else if case == 5 && block == 2 {
                         Instruction::EnvGet {
                             env: Operand::Val(ValueId(0)),
@@ -702,8 +794,7 @@ mod tests {
                         scope: 0,
                     },
                 );
-                plan
-                    .tokens
+                plan.tokens
                     .instructions
                     .insert(ValueId(3), TokenEffect::default());
             }
@@ -717,16 +808,10 @@ mod tests {
                 );
                 assert_eq!(format!("{m:?}/{plans:?}"), before);
             } else if case == 3 {
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 assert_eq!(format!("{m:?}/{plans:?}"), before);
             } else {
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (2, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (2, 0));
                 for v in [2, 3, 4] {
                     assert_eq!(
                         plans["phi_multiplos_borrows"].classes[&ValueId(v)],
@@ -743,15 +828,15 @@ mod tests {
                     // (the numbering depends on how many blocks the preparation creates).
                     let origins: Vec<_> = incoming.iter().map(|(b, _)| b.0).collect();
                     assert_eq!(origins.len(), 2);
-                    assert!(origins.iter().all(|b| *b > 4) && origins[0] != origins[1], "{origins:?}");
+                    assert!(
+                        origins.iter().all(|b| *b > 4) && origins[0] != origins[1],
+                        "{origins:?}"
+                    );
                     assert!(m.functions[0].blocks[4].instructions.is_empty());
                     assert_eq!(plans["phi_multiplos_borrows"].tokens.pendings.len(), 2);
                 }
                 let prepared = format!("{m:?}/{plans:?}");
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 assert_eq!(format!("{m:?}/{plans:?}"), prepared);
                 crate::llvm::LlvmEmitter::new(&m).emit_all();
             }
@@ -879,13 +964,11 @@ mod tests {
             if case != 5 {
                 plan.tokens.ret = TokenReturn::Owned;
             }
-            plan
-                .scopes
+            plan.scopes
                 .before
                 .insert(ValueId(1), vec![ScopeChange::Open(1)]);
             for dest in [error, BlockId(2)] {
-                plan
-                    .scopes
+                plan.scopes
                     .edges
                     .insert((BlockId(0), dest), vec![ScopeChange::Close(1)]);
             }
@@ -924,18 +1007,12 @@ mod tests {
                 assert!(!p.scopes.edges.contains_key(&(BlockId(0), BlockId(2))));
                 assert!(p.scopes.edges.contains_key(&(BlockId(0), error)));
                 let prepared = format!("{m:?}/{plans:?}");
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 assert_eq!(format!("{m:?}/{plans:?}"), prepared);
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 assert!(ir.contains("call void @dartforge_arc_retain"));
             } else if case == 4 {
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 assert_eq!(format!("{m:?}/{plans:?}"), before);
             } else {
                 assert!(prepare_arc_dart_module(&mut m, &mut plans).is_err());
@@ -1021,10 +1098,7 @@ mod tests {
             let before = format!("{m:?}/{plans:?}");
             match case {
                 0 => {
-                    assert_eq!(
-                        prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                        (1, 1)
-                    );
+                    assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 1));
                     assert_eq!(
                         plans["caller_borrow"].classes[&ValueId(1)],
                         Ownership::Owned
@@ -1035,17 +1109,11 @@ mod tests {
                             < ir.find("@sink(i64 %v1)").unwrap()
                     );
                     let prepared = format!("{m:?}/{plans:?}");
-                    assert_eq!(
-                        prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                        (0, 0)
-                    );
+                    assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                     assert_eq!(format!("{m:?}/{plans:?}"), prepared);
                 }
                 2 => {
-                    assert_eq!(
-                        prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                        (0, 0)
-                    );
+                    assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                     assert_eq!(format!("{m:?}/{plans:?}"), before);
                 }
                 _ => {
@@ -1132,10 +1200,7 @@ mod tests {
         let mut p = DartFunctionPlan::default();
         p.tokens.ret = TokenReturn::Owned;
         let mut plans = HashMap::from([("diamante_borrow".into(), p)]);
-        assert_eq!(
-            prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-            (1, 0)
-        );
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 0));
         assert_eq!(
             plans["diamante_borrow"].classes[&ValueId(1)],
             Ownership::Owned
@@ -1145,10 +1210,7 @@ mod tests {
             Ownership::Owned
         );
         let prepared = format!("{m:?}/{plans:?}");
-        assert_eq!(
-            prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-            (0, 0)
-        );
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         assert_eq!(format!("{m:?}/{plans:?}"), prepared);
     }
 
@@ -1232,19 +1294,10 @@ mod tests {
             m.functions.push(f);
             let mut plans = HashMap::from([("borrow_campo".into(), DartFunctionPlan::default())]);
             if copy_before {
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             } else {
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (1, 1)
-                );
-                assert_eq!(
-                    plans["borrow_campo"].classes[&ValueId(1)],
-                    Ownership::Owned
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 1));
+                assert_eq!(plans["borrow_campo"].classes[&ValueId(1)], Ownership::Owned);
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 assert!(
                     ir.find("call void @dartforge_arc_retain").unwrap()
@@ -1253,10 +1306,7 @@ mod tests {
                 );
             }
             let before = format!("{m:?}/{plans:?}");
-            assert_eq!(
-                prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                (0, 0)
-            );
+            assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             assert_eq!(format!("{m:?}/{plans:?}"), before);
         }
     }
@@ -1307,10 +1357,7 @@ mod tests {
                 assert!(prepare_arc_dart_module(&mut m, &mut plans).is_err());
                 assert_eq!(format!("{m:?}/{plans:?}"), before);
             } else {
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (1, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 0));
                 assert_eq!(
                     plans["leitura_ref"].classes[&ValueId(1)],
                     Ownership::Borrowed {
@@ -1322,18 +1369,12 @@ mod tests {
                 assert!(ir.contains("call i64 @dartforge_arc_read_field_ref_v1(i64 %v0, i64 39)"));
                 assert!(ir.contains("call void @df.arc_retain_ref(i64 %v1)"));
                 let prepared = format!("{m:?}/{plans:?}");
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 assert_eq!(format!("{m:?}/{plans:?}"), prepared);
             }
             m.arc_memory = false;
             let before = format!("{m:?}/{plans:?}");
-            assert_eq!(
-                prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                (0, 0)
-            );
+            assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             assert_eq!(format!("{m:?}/{plans:?}"), before);
         }
     }
@@ -1425,10 +1466,7 @@ mod tests {
                 assert!(prepare_arc_dart_module(&mut m, &mut plans).is_err());
                 assert_eq!(format!("{m:?}/{plans:?}"), before);
             } else {
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 2)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 2));
                 let p = &plans["campos"];
                 for id in [0, 1] {
                     assert_eq!(p.classes[&ValueId(id)], Ownership::Owned);
@@ -1444,18 +1482,12 @@ mod tests {
                 assert!(ir.contains("call void @df.arc_release_ref(i64 %v0)"));
                 assert!(ir.contains("call void @df.arc_release_ref(i64 %v1)"));
                 let prepared = format!("{m:?}/{plans:?}");
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 assert_eq!(format!("{m:?}/{plans:?}"), prepared);
             }
             m.arc_memory = false;
             let before = format!("{m:?}/{plans:?}");
-            assert_eq!(
-                prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                (0, 0)
-            );
+            assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             assert_eq!(format!("{m:?}/{plans:?}"), before);
         }
     }
@@ -1526,7 +1558,9 @@ mod tests {
                 let mut classes = HashMap::new();
                 let mut tokens = TokenPlan::default();
                 let before = format!("{classes:?}/{tokens:?}");
-                assert!(produce_runtime_contracts(&m.functions[0], &mut classes, &mut tokens).is_err());
+                assert!(
+                    produce_runtime_contracts(&m.functions[0], &mut classes, &mut tokens).is_err()
+                );
                 assert_eq!(format!("{classes:?}/{tokens:?}"), before);
             }
             let before = format!("{m:?}/{plans:?}");
@@ -1534,10 +1568,7 @@ mod tests {
                 assert!(prepare_arc_dart_module(&mut m, &mut plans).is_err());
                 assert_eq!(format!("{m:?}/{plans:?}"), before);
             } else {
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 1)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 1));
                 let p = &plans["instancia"];
                 assert_eq!(p.classes[&ValueId(0)], Ownership::Owned);
                 assert_eq!(p.classes[&ValueId(1)], Ownership::Trivial);
@@ -1549,18 +1580,12 @@ mod tests {
                 assert!(ir.contains("call i64 @dartforge_arc_object_owned_v1(i64 123, i64 40)"));
                 assert!(ir.contains("call void @df.arc_release_ref(i64 %v0)"));
                 let prepared = format!("{m:?}/{plans:?}");
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 assert_eq!(format!("{m:?}/{plans:?}"), prepared);
             }
             m.arc_memory = false;
             let before = format!("{m:?}/{plans:?}");
-            assert_eq!(
-                prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                (0, 0)
-            );
+            assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             assert_eq!(format!("{m:?}/{plans:?}"), before);
         }
     }
@@ -1690,11 +1715,7 @@ mod tests {
                 ));
                 let p = &ps["unboxing"];
                 let mut tampered = p.tokens.clone();
-                tampered
-                    .instructions
-                    .get_mut(&ValueId(1))
-                    .unwrap()
-                    .may_fail = false;
+                tampered.instructions.get_mut(&ValueId(1)).unwrap().may_fail = false;
                 tampered.pendings.remove(&ValueId(1));
                 assert!(
                     verify_tokens(&fs[0], &p.classes, &p.tables, &tampered)
@@ -1902,73 +1923,118 @@ mod tests {
     #[test]
     fn control_and_nsm_preserve_owner_on_success_and_release_on_failure() {
         for name_str in ["dartforge_safepoint", "dartforge_nsm_call"] {
-        for case in 0..5 {
-            let mut m = Module::new();
-            m.arc_memory = case != 4;
-            m.functions.push(Function {
-                symbol: "controle".into(), name: "controle".into(), debug_info: None,
-                params: vec![(ValueId(0), "valor".into(), Type::Ref)], return_ty: Type::Ref,
-                blocks: vec![
-                    BasicBlock { id: BlockId(0), instructions: vec![
-                        (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref),
-                        (ValueId(2), Instruction::CallRuntime {
-                            name: name_str.into(), args: vec![],
-                            ret_ty: if case == 3 { Type::Ref } else { Type::Void },
-                        }, if case == 3 { Type::Ref } else { Type::Void }),
-                        (ValueId(3), Instruction::CallRuntime {
-                            name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8,
-                        }, Type::I8),
-                        (ValueId(4), Instruction::ICmp(
-                            if case == 2 { ICmpOp::Eq } else { ICmpOp::Ne },
-                            Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0)),
-                        ), Type::I1),
-                    ], terminator: Terminator::CondBranch {
-                        cond: Operand::Val(ValueId(4)), then_block: BlockId(2), else_block: BlockId(1),
-                    } },
-                    BasicBlock { id: BlockId(1), instructions: vec![],
-                        terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) },
-                    BasicBlock { id: BlockId(2), instructions: vec![],
-                        terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
-                ],
-            });
-            let mut plans = HashMap::from([("controle".into(), DartFunctionPlan::default())]);
-            plans.get_mut("controle").unwrap().tokens.ret = TokenReturn::Owned;
-            if case == 1 {
-                m.functions[0].blocks[0].instructions.truncate(2);
-                m.functions[0].blocks[0].terminator = Terminator::Branch(BlockId(1));
+            for case in 0..5 {
+                let mut m = Module::new();
+                m.arc_memory = case != 4;
+                m.functions.push(Function {
+                    symbol: "controle".into(),
+                    name: "controle".into(),
+                    debug_info: None,
+                    params: vec![(ValueId(0), "valor".into(), Type::Ref)],
+                    return_ty: Type::Ref,
+                    blocks: vec![
+                        BasicBlock {
+                            id: BlockId(0),
+                            instructions: vec![
+                                (
+                                    ValueId(1),
+                                    Instruction::ArcCopy {
+                                        value: Operand::Val(ValueId(0)),
+                                    },
+                                    Type::Ref,
+                                ),
+                                (
+                                    ValueId(2),
+                                    Instruction::CallRuntime {
+                                        name: name_str.into(),
+                                        args: vec![],
+                                        ret_ty: if case == 3 { Type::Ref } else { Type::Void },
+                                    },
+                                    if case == 3 { Type::Ref } else { Type::Void },
+                                ),
+                                (
+                                    ValueId(3),
+                                    Instruction::CallRuntime {
+                                        name: "dartforge_exception_pending".into(),
+                                        args: vec![],
+                                        ret_ty: Type::I8,
+                                    },
+                                    Type::I8,
+                                ),
+                                (
+                                    ValueId(4),
+                                    Instruction::ICmp(
+                                        if case == 2 { ICmpOp::Eq } else { ICmpOp::Ne },
+                                        Operand::Val(ValueId(3)),
+                                        Operand::Constant(Constant::Int(0)),
+                                    ),
+                                    Type::I1,
+                                ),
+                            ],
+                            terminator: Terminator::CondBranch {
+                                cond: Operand::Val(ValueId(4)),
+                                then_block: BlockId(2),
+                                else_block: BlockId(1),
+                            },
+                        },
+                        BasicBlock {
+                            id: BlockId(1),
+                            instructions: vec![],
+                            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                        },
+                        BasicBlock {
+                            id: BlockId(2),
+                            instructions: vec![],
+                            terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+                        },
+                    ],
+                });
+                let mut plans = HashMap::from([("controle".into(), DartFunctionPlan::default())]);
+                plans.get_mut("controle").unwrap().tokens.ret = TokenReturn::Owned;
+                if case == 1 {
+                    m.functions[0].blocks[0].instructions.truncate(2);
+                    m.functions[0].blocks[0].terminator = Terminator::Branch(BlockId(1));
+                }
+                let before = format!("{m:?}/{plans:?}");
+                let result = prepare_arc_dart_module(&mut m, &mut plans);
+                if (1..4).contains(&case) {
+                    assert!(result.is_err(), "caso {case}");
+                    assert_eq!(format!("{m:?}/{plans:?}"), before);
+                } else if case == 4 {
+                    assert_eq!(result.unwrap(), (0, 0));
+                    assert_eq!(format!("{m:?}/{plans:?}"), before);
+                } else {
+                    result.unwrap();
+                    assert_eq!(plans["controle"].tokens.pendings[&ValueId(2)], BlockId(2));
+                    let f = &m.functions[0];
+                    let error = f.blocks.iter().find(|b| b.id == BlockId(2)).unwrap();
+                    assert!(error.instructions.iter().any(|(_, i, _)| matches!(
+                        i,
+                        Instruction::ArcDrop {
+                            value: Operand::Val(ValueId(1))
+                        }
+                    )));
+                    let success = f.blocks.iter().find(|b| b.id == BlockId(1)).unwrap();
+                    assert!(!success.instructions.iter().any(|(_, i, _)| matches!(
+                        i,
+                        Instruction::ArcDrop {
+                            value: Operand::Val(ValueId(1))
+                        }
+                    )));
+                    let ready = format!("{m:?}");
+                    let plan = plans["controle"].clone();
+                    assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
+                    assert_eq!(format!("{m:?}"), ready);
+                    let after = &plans["controle"];
+                    assert_eq!(after.classes, plan.classes);
+                    assert_eq!(after.tokens.instructions, plan.tokens.instructions);
+                    assert_eq!(after.tokens.pendings, plan.tokens.pendings);
+                    assert_eq!(after.tokens.ret, plan.tokens.ret);
+                    assert_eq!(after.tables, plan.tables);
+                    assert_eq!(format!("{:?}", after.scopes), format!("{:?}", plan.scopes));
+                    assert_eq!(after.owners_at_landing_pad, plan.owners_at_landing_pad);
+                }
             }
-            let before = format!("{m:?}/{plans:?}");
-            let result = prepare_arc_dart_module(&mut m, &mut plans);
-            if (1..4).contains(&case) {
-                assert!(result.is_err(), "caso {case}");
-                assert_eq!(format!("{m:?}/{plans:?}"), before);
-            } else if case == 4 {
-                assert_eq!(result.unwrap(), (0, 0));
-                assert_eq!(format!("{m:?}/{plans:?}"), before);
-            } else {
-                result.unwrap();
-                assert_eq!(plans["controle"].tokens.pendings[&ValueId(2)], BlockId(2));
-                let f = &m.functions[0];
-                let error = f.blocks.iter().find(|b| b.id == BlockId(2)).unwrap();
-                assert!(error.instructions.iter().any(|(_, i, _)| matches!(i,
-                    Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })));
-                let success = f.blocks.iter().find(|b| b.id == BlockId(1)).unwrap();
-                assert!(!success.instructions.iter().any(|(_, i, _)| matches!(i,
-                    Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })));
-                let ready = format!("{m:?}");
-                let plan = plans["controle"].clone();
-                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
-                assert_eq!(format!("{m:?}"), ready);
-                let after = &plans["controle"];
-                assert_eq!(after.classes, plan.classes);
-                assert_eq!(after.tokens.instructions, plan.tokens.instructions);
-                assert_eq!(after.tokens.pendings, plan.tokens.pendings);
-                assert_eq!(after.tokens.ret, plan.tokens.ret);
-                assert_eq!(after.tables, plan.tables);
-                assert_eq!(format!("{:?}", after.scopes), format!("{:?}", plan.scopes));
-                assert_eq!(after.owners_at_landing_pad, plan.owners_at_landing_pad);
-            }
-        }
         }
     }
 
@@ -2332,7 +2398,8 @@ mod tests {
         assert_eq!(format!("{functions:?}"), before);
         assert_eq!(format!("{plans:?}"), plans_before);
         let (mut functions, mut plans) = set();
-        if let Instruction::CallStatic { symbol, .. } = &mut functions[1].blocks[0].instructions[0].1
+        if let Instruction::CallStatic { symbol, .. } =
+            &mut functions[1].blocks[0].instructions[0].1
         {
             *symbol = "caller".into();
         }
@@ -2357,18 +2424,60 @@ mod publication_tests {
     }
 
     // `call` in b0, the pending guard and the two exits.
-    fn saved(symbol: &str, params: Vec<(ValueId, String, Type)>, call: Instruction, ty: Type) -> Function {
+    fn saved(
+        symbol: &str,
+        params: Vec<(ValueId, String, Type)>,
+        call: Instruction,
+        ty: Type,
+    ) -> Function {
         Function {
-            symbol: symbol.into(), name: symbol.into(), debug_info: None, params, return_ty: ty,
+            symbol: symbol.into(),
+            name: symbol.into(),
+            debug_info: None,
+            params,
+            return_ty: ty,
             blocks: vec![
-                BasicBlock { id: BlockId(0), instructions: vec![
-                    (ValueId(1), call, ty),
-                    (ValueId(2), Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
-                    (ValueId(3), Instruction::ICmp(ICmpOp::Ne, val(2), Operand::Constant(Constant::Int(0))), Type::I1),
-                ], terminator: Terminator::CondBranch { cond: val(3), then_block: BlockId(1), else_block: BlockId(2) } },
-                BasicBlock { id: BlockId(1), instructions: vec![],
-                    terminator: Terminator::Return(Some(super::super::super::operands::default_constant(ty))) },
-                BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(val(1))) },
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (ValueId(1), call, ty),
+                        (
+                            ValueId(2),
+                            Instruction::CallRuntime {
+                                name: "dartforge_exception_pending".into(),
+                                args: vec![],
+                                ret_ty: Type::I8,
+                            },
+                            Type::I8,
+                        ),
+                        (
+                            ValueId(3),
+                            Instruction::ICmp(
+                                ICmpOp::Ne,
+                                val(2),
+                                Operand::Constant(Constant::Int(0)),
+                            ),
+                            Type::I1,
+                        ),
+                    ],
+                    terminator: Terminator::CondBranch {
+                        cond: val(3),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(
+                        super::super::super::operands::default_constant(ty),
+                    )),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(val(1))),
+                },
             ],
         }
     }
@@ -2377,18 +2486,32 @@ mod publication_tests {
     fn runtime_function_running_dart_goes_through_scope_thunk() {
         let mut m = Module::new();
         m.arc_memory = true;
-        m.functions.push(saved("unidade", vec![(ValueId(0), "s".into(), Type::Ref)],
+        m.functions.push(saved(
+            "unidade",
+            vec![(ValueId(0), "s".into(), Type::Ref)],
             Instruction::CallRuntime {
                 name: "dartforge_native_DartForge_string_codeUnitAt".into(),
-                args: vec![(val(0), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
+                args: vec![
+                    (val(0), Type::Ref),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                ],
                 ret_ty: Type::I64,
-            }, Type::I64));
+            },
+            Type::I64,
+        ));
         let mut plans = HashMap::from([("unidade".into(), DartFunctionPlan::default())]);
         prepare_arc_dart_module(&mut m, &mut plans).unwrap();
-        let name_str = super::super::NATIVE_SCOPE_PREFIX.to_string() + "dartforge_native_DartForge_string_codeUnitAt";
-        assert!(matches!(&m.functions[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. } if *name == name_str));
+        let name_str = super::super::NATIVE_SCOPE_PREFIX.to_string()
+            + "dartforge_native_DartForge_string_codeUnitAt";
+        assert!(
+            matches!(&m.functions[0].blocks[0].instructions[0].1, Instruction::CallRuntime { name, .. } if *name == name_str)
+        );
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-        assert!(ir.contains(&format!("define internal i64 @{name_str}(ptr")) || ir.contains(&format!("define internal i64 @{name_str}(i64")), "{ir}");
+        assert!(
+            ir.contains(&format!("define internal i64 @{name_str}(ptr"))
+                || ir.contains(&format!("define internal i64 @{name_str}(i64")),
+            "{ir}"
+        );
         assert!(ir.contains("call i64 @dartforge_arc_native_scope_open_v1()"));
         assert!(ir.contains("call void @dartforge_arc_native_scope_close_v1(i64 %e)"));
         // Idempotent: the thunk gets no other prefix.
@@ -2404,23 +2527,53 @@ mod publication_tests {
             m.arc_memory = true;
             // Recursive: the analysis sees it as fallible.
             let mut fallible = Function {
-                symbol: "falivel".into(), name: "falivel".into(), debug_info: None, params: vec![],
-                return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
-                    terminator: Terminator::Return(None) }],
+                symbol: "falivel".into(),
+                name: "falivel".into(),
+                debug_info: None,
+                params: vec![],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Return(None),
+                }],
             };
-            fallible.blocks[0].instructions.push((ValueId(0), Instruction::CallStatic {
-                symbol: "falivel".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
+            fallible.blocks[0].instructions.push((
+                ValueId(0),
+                Instruction::CallStatic {
+                    symbol: "falivel".into(),
+                    args: vec![],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ));
             let caller = Function {
-                symbol: "chamador".into(), name: "chamador".into(), debug_info: None, params: vec![],
-                return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                    (ValueId(0), Instruction::CallStatic { symbol: "falivel".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
-                ], terminator: Terminator::Return(None) }],
+                symbol: "chamador".into(),
+                name: "chamador".into(),
+                debug_info: None,
+                params: vec![],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(0),
+                        Instruction::CallStatic {
+                            symbol: "falivel".into(),
+                            args: vec![],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    )],
+                    terminator: Terminator::Return(None),
+                }],
             };
             m.functions = vec![caller, fallible];
             if by_tables {
                 crate::optimize::table_exceptions(&mut m);
             }
-            let mut plans: HashMap<_, _> = ["chamador", "falivel"].map(|s| (s.to_string(), DartFunctionPlan::default())).into();
+            let mut plans: HashMap<_, _> = ["chamador", "falivel"]
+                .map(|s| (s.to_string(), DartFunctionPlan::default()))
+                .into();
             prepare_arc_dart_module(&mut m, &mut plans).unwrap();
             let p = &plans["chamador"];
             if by_tables {
@@ -2430,7 +2583,9 @@ mod publication_tests {
                 assert!(p.tables.invocations.is_empty());
                 assert!(p.tokens.pendings.contains_key(&ValueId(0)));
                 let b0 = &m.functions[0].blocks[0];
-                assert!(matches!(&b0.instructions[1].1, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending"));
+                assert!(
+                    matches!(&b0.instructions[1].1, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_pending")
+                );
                 assert!(matches!(b0.terminator, Terminator::CondBranch { .. }));
             }
         }
@@ -2442,14 +2597,25 @@ mod publication_tests {
             let mut m = Module::new();
             m.arc_memory = true;
             m.arc_external_callees = externals;
-            m.functions.push(saved("programa", vec![(ValueId(0), "x".into(), Type::Ref)],
-                Instruction::CallStatic { symbol: "df.sdk.external".into(), args: vec![val(0)], ret_ty: Type::Ref },
-                Type::Ref));
+            m.functions.push(saved(
+                "programa",
+                vec![(ValueId(0), "x".into(), Type::Ref)],
+                Instruction::CallStatic {
+                    symbol: "df.sdk.external".into(),
+                    args: vec![val(0)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ));
             m.dart_ref_returns.insert("programa".into());
             let mut plans = HashMap::from([("programa".into(), DartFunctionPlan::default())]);
             let result = prepare_arc_dart_module(&mut m, &mut plans);
             if !externals {
-                assert!(result.unwrap_err().contains("Dart callee without a summary"));
+                assert!(
+                    result
+                        .unwrap_err()
+                        .contains("Dart callee without a summary")
+                );
                 continue;
             }
             result.unwrap();

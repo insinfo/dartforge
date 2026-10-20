@@ -11,7 +11,7 @@
 
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
-use crate::{resolve_outline, BodyInferrer};
+use crate::{BodyInferrer, resolve_outline};
 use dartforge_diagnostics::Diagnostic;
 use dartforge_elements::load::load_lenient;
 use dartforge_elements::model::{Program, UnitId};
@@ -70,7 +70,11 @@ pub fn dump(entry: &Path, sdk: &SdkLayout, packages: Option<&Path>) -> Dump {
         .iter()
         .enumerate()
         .filter(|(_, u)| !prog.library(u.library).is_sdk)
-        .filter_map(|(ui, u)| u.path.as_ref().map(|p| (p.to_string_lossy().replace('\\', "/"), ui)))
+        .filter_map(|(ui, u)| {
+            u.path
+                .as_ref()
+                .map(|p| (p.to_string_lossy().replace('\\', "/"), ui))
+        })
         .collect();
     order.sort();
     order.dedup_by(|a, b| a.0 == b.0);
@@ -85,11 +89,22 @@ pub fn dump(entry: &Path, sdk: &SdkLayout, packages: Option<&Path>) -> Dump {
         .collect();
     let mut warnings = diags_outline;
     warnings.extend(diags);
-    Dump { units, warnings, not_visited, inference_time }
+    Dump {
+        units,
+        warnings,
+        not_visited,
+        inference_time,
+    }
 }
 
 /// Lines of a unit, sorted by UTF-16 `(offset, length)`.
-pub fn unit_lines(prog: &Program, bodies: &BodyTypes, table: &TypeTable, interner: &Interner, u: UnitId) -> Vec<Line> {
+pub fn unit_lines(
+    prog: &Program,
+    bodies: &BodyTypes,
+    table: &TypeTable,
+    interner: &Interner,
+    u: UnitId,
+) -> Vec<Line> {
     let unit = prog.unit(u);
     let bt = &bodies.units[u.0 as usize];
     let utf16 = utf16_map(&unit.source);
@@ -102,7 +117,10 @@ pub fn unit_lines(prog: &Program, bodies: &BodyTypes, table: &TypeTable, interne
             let ty = bt.get_type(ast::ExprId(i as u32)).unwrap_or(NOT_VISITED);
             let typ = if ty == NOT_VISITED {
                 "?".to_string()
-            } else if bt.invalid_types.contains(&dartforge_frontend::ast::ExprId(i as u32)) {
+            } else if bt
+                .invalid_types
+                .contains(&dartforge_frontend::ast::ExprId(i as u32))
+            {
                 "InvalidType".to_string()
             } else {
                 display_string(table, ty, interner, prog)
@@ -112,7 +130,13 @@ pub fn unit_lines(prog: &Program, bodies: &BodyTypes, table: &TypeTable, interne
                 .map(|r| format_resolution(r, prog, interner))
                 .unwrap_or_else(|| "-".into());
             let (start, end) = (utf16(e.span.start), utf16(e.span.end));
-            Line { offset: start, length: end - start, no: name_in(&e.kind), ty: typ, resolution }
+            Line {
+                offset: start,
+                length: end - start,
+                no: name_in(&e.kind),
+                ty: typ,
+                resolution,
+            }
         })
         .collect();
     lines.sort_by_key(|l| (l.offset, l.length));
@@ -187,7 +211,9 @@ pub fn format_resolution(r: &Resolved, prog: &Program, i: &Interner) -> String {
         }
         Resolved::Prefix(_) => "PREFIX".into(),
         Resolved::Dynamic => "DYNAMIC".into(),
-        Resolved::ExtensionMember { member, .. } => format!("EXTENSION:{}", i.resolve(prog.function(*member).name)),
+        Resolved::ExtensionMember { member, .. } => {
+            format!("EXTENSION:{}", i.resolve(prog.function(*member).name))
+        }
         Resolved::Constructor(f) => format!("CONSTRUCTOR:{}", i.resolve(prog.function(*f).name)),
     }
 }
@@ -196,12 +222,25 @@ pub fn format_resolution(r: &Resolved, prog: &Program, i: &Interner) -> String {
 pub fn display_string(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> String {
     let q = |n: bool| if n { "?" } else { "" };
     match t.get(ty) {
-        Type::Intersection { param, bound } => format!("{} & {}", i.resolve(t.param(*param).name), display_string(t, *bound, i, p)),
+        Type::Intersection { param, bound } => format!(
+            "{} & {}",
+            i.resolve(t.param(*param).name),
+            display_string(t, *bound, i, p)
+        ),
         Type::Dynamic => "dynamic".into(),
         Type::Void => "void".into(),
         Type::Never => "Never".into(),
         Type::Null => "Null".into(),
-        Type::Interface { class, args, nullable } | Type::ExtensionType { decl: class, args, nullable } => {
+        Type::Interface {
+            class,
+            args,
+            nullable,
+        }
+        | Type::ExtensionType {
+            decl: class,
+            args,
+            nullable,
+        } => {
             let the_name = i.resolve(p.class(*class).name);
             if args.is_empty() {
                 format!("{the_name}{}", q(*nullable))
@@ -210,12 +249,27 @@ pub fn display_string(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> S
                 format!("{the_name}<{}>{}", a.join(", "), q(*nullable))
             }
         }
-        Type::FutureOr { arg, nullable } => format!("FutureOr<{}>{}", display_string(t, *arg, i, p), q(*nullable)),
-        Type::TypeParameter { param, nullable } => format!("{}{}", i.resolve(t.param(*param).name), q(*nullable)),
-        Type::Record { positional, named, nullable } => {
-            let mut parts: Vec<String> = positional.iter().map(|&x| display_string(t, x, i, p)).collect();
-            let mut named_args: Vec<(String, String)> =
-                named.iter().map(|(n, x)| (i.resolve(*n).to_string(), display_string(t, *x, i, p))).collect();
+        Type::FutureOr { arg, nullable } => format!(
+            "FutureOr<{}>{}",
+            display_string(t, *arg, i, p),
+            q(*nullable)
+        ),
+        Type::TypeParameter { param, nullable } => {
+            format!("{}{}", i.resolve(t.param(*param).name), q(*nullable))
+        }
+        Type::Record {
+            positional,
+            named,
+            nullable,
+        } => {
+            let mut parts: Vec<String> = positional
+                .iter()
+                .map(|&x| display_string(t, x, i, p))
+                .collect();
+            let mut named_args: Vec<(String, String)> = named
+                .iter()
+                .map(|(n, x)| (i.resolve(*n).to_string(), display_string(t, *x, i, p)))
+                .collect();
             named_args.sort();
             if !named_args.is_empty() {
                 let n: Vec<String> = named_args.iter().map(|(n, x)| format!("{x} {n}")).collect();
@@ -225,7 +279,14 @@ pub fn display_string(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> S
             }
             format!("({}){}", parts.join(", "), q(*nullable))
         }
-        Type::Function { type_params, ret, positional, optional, named, nullable } => {
+        Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            nullable,
+        } => {
             let mut s = format!("{} Function", display_string(t, *ret, i, p));
             if !type_params.is_empty() {
                 let tps: Vec<String> = type_params
@@ -234,7 +295,13 @@ pub fn display_string(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> S
                         let d = t.param(tp);
                         let the_name = i.resolve(d.name).to_string();
                         match t.get(d.bound) {
-                            Type::Interface { nullable: true, class, .. } if !d.explicit && i.resolve(p.class(*class).name) == "Object" => the_name,
+                            Type::Interface {
+                                nullable: true,
+                                class,
+                                ..
+                            } if !d.explicit && i.resolve(p.class(*class).name) == "Object" => {
+                                the_name
+                            }
                             Type::Dynamic => the_name,
                             _ => format!("{the_name} extends {}", display_string(t, d.bound, i, p)),
                         }
@@ -242,16 +309,30 @@ pub fn display_string(t: &TypeTable, ty: TypeId, i: &Interner, p: &Program) -> S
                     .collect();
                 s.push_str(&format!("<{}>", tps.join(", ")));
             }
-            let mut parts: Vec<String> = positional.iter().map(|&x| display_string(t, x, i, p)).collect();
+            let mut parts: Vec<String> = positional
+                .iter()
+                .map(|&x| display_string(t, x, i, p))
+                .collect();
             if !optional.is_empty() {
-                let o: Vec<String> = optional.iter().map(|&x| display_string(t, x, i, p)).collect();
+                let o: Vec<String> = optional
+                    .iter()
+                    .map(|&x| display_string(t, x, i, p))
+                    .collect();
                 parts.push(format!("[{}]", o.join(", ")));
             }
             if !named.is_empty() {
                 let mut n: Vec<(String, String)> = named
                     .iter()
                     .map(|(n, x, r)| {
-                        (i.resolve(*n).to_string(), format!("{}{} {}", if *r { "required " } else { "" }, display_string(t, *x, i, p), i.resolve(*n)))
+                        (
+                            i.resolve(*n).to_string(),
+                            format!(
+                                "{}{} {}",
+                                if *r { "required " } else { "" },
+                                display_string(t, *x, i, p),
+                                i.resolve(*n)
+                            ),
+                        )
                     })
                     .collect();
                 n.sort();
@@ -315,7 +396,9 @@ impl Comparison {
 pub fn compare_block(ours: &Block, oracle: &Block) -> Comparison {
     let mut c = Comparison::default();
     for (&(start, comp), the_ours) in ours {
-        let Some(orcs) = oracle.get(&(start, comp)) else { continue };
+        let Some(orcs) = oracle.get(&(start, comp)) else {
+            continue;
+        };
         let orcs: Vec<&(String, String)> = orcs.iter().filter(|o| o.1 != "-").collect();
         if orcs.is_empty() {
             continue;
@@ -336,7 +419,8 @@ pub fn compare_block(ours: &Block, oracle: &Block) -> Comparison {
             });
         }
     }
-    c.divergences.sort_by_key(|a| (a.start, std::cmp::Reverse(a.end)));
+    c.divergences
+        .sort_by_key(|a| (a.start, std::cmp::Reverse(a.end)));
     c
 }
 
@@ -344,7 +428,9 @@ pub fn compare_block(ours: &Block, oracle: &Block) -> Comparison {
 pub fn line_block(lines: &[Line]) -> Block {
     let mut b = Block::new();
     for l in lines {
-        b.entry((l.offset, l.length)).or_default().push((l.no.to_string(), l.ty.clone()));
+        b.entry((l.offset, l.length))
+            .or_default()
+            .push((l.no.to_string(), l.ty.clone()));
     }
     b
 }
@@ -362,8 +448,12 @@ pub fn expected_block(text: &str) -> Block {
         if c.len() < 6 {
             continue;
         }
-        let (Ok(start), Ok(comp)) = (c[2].parse(), c[3].parse()) else { continue };
-        b.entry((start, comp)).or_default().push((c[4].to_string(), c[5].replace('*', "")));
+        let (Ok(start), Ok(comp)) = (c[2].parse(), c[3].parse()) else {
+            continue;
+        };
+        b.entry((start, comp))
+            .or_default()
+            .push((c[4].to_string(), c[5].replace('*', "")));
     }
     b
 }

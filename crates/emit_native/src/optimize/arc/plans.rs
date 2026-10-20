@@ -229,7 +229,10 @@ mod tests {
         prepare_arc_dart_module(&mut m, &mut plans).unwrap();
         let caller = &m.functions[0];
         let landing_pad = m.tables[0].invocations[&ValueId(1)];
-        assert_eq!(plans["caller"].owners_at_landing_pad[&landing_pad], vec![ValueId(3)]);
+        assert_eq!(
+            plans["caller"].owners_at_landing_pad[&landing_pad],
+            vec![ValueId(3)]
+        );
         assert!(
             caller
                 .blocks

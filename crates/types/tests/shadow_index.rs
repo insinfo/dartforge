@@ -8,7 +8,9 @@ use dartforge_types::annotations::{ShadowIndex, is_shadowed_walk};
 use std::path::{Path, PathBuf};
 
 fn dart_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
     entries.sort();
     for p in entries {
@@ -30,7 +32,9 @@ fn index_answers_like_the_walk() {
     let step = (files.len() / 4000).max(1);
     let mut checked = 0usize;
     for path in files.iter().step_by(step) {
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
         let mut interner = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse(&text, &mut interner);
         let a = &parsed.ast;
@@ -52,7 +56,13 @@ fn index_answers_like_the_walk() {
         for (pos, n) in probes {
             let walk = is_shadowed_walk(a, &interner, pos, n);
             let fast = index.shadows(&interner, pos, n);
-            assert_eq!(walk, fast, "{}: `{}` at {pos}", path.display(), interner.resolve(n));
+            assert_eq!(
+                walk,
+                fast,
+                "{}: `{}` at {pos}",
+                path.display(),
+                interner.resolve(n)
+            );
             checked += 1;
         }
     }

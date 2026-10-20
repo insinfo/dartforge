@@ -15,31 +15,31 @@
 //!
 //! `DARTFORGE_OPTIMIZE_HIR=0` turns everything off (for comparison).
 
-mod cfg;
 pub mod arc;
+mod cfg;
+mod direct_locals;
 mod effects;
-pub(crate) mod scc;
 mod escape;
 mod inline;
-mod direct_locals;
 mod mem2reg;
 pub(crate) mod operands;
-mod simplify;
 mod representation_constants;
+pub(crate) mod scc;
+mod simplify;
 mod tables;
 
-#[cfg(test)]
-mod tests;
-#[cfg(test)]
-mod pre_prune_tests;
-mod physical_devirtualize;
 mod checked_double_roundtrip;
 mod constant_args;
 mod constant_specialize;
-pub(crate) mod primitive_clamp;
 pub(crate) mod enum_constants;
+mod physical_devirtualize;
+#[cfg(test)]
+mod pre_prune_tests;
+pub(crate) mod primitive_clamp;
 mod scalar_coalesce;
 mod string_lengths;
+#[cfg(test)]
+mod tests;
 
 use crate::hir::*;
 use std::collections::HashMap;
@@ -70,7 +70,6 @@ pub(crate) fn specialize_constants(module: &mut Module, requested_table_exceptio
     let specialized = constant_specialize::rewrite(module);
     propagated + specialized + primitive_clamp::rewrite(module)
 }
-
 
 fn prune_constant_cfg(module: &mut Module) {
     for function in &mut module.functions {
@@ -131,7 +130,12 @@ fn valid(f: &Function) -> bool {
 /// How many `CallStatic` sites each symbol has in the module.
 fn static_call_sites(module: &Module) -> HashMap<String, usize> {
     let mut sites: HashMap<String, usize> = HashMap::new();
-    for inst in module.functions.iter().flat_map(|f| &f.blocks).flat_map(|b| &b.instructions) {
+    for inst in module
+        .functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.instructions)
+    {
         if let Instruction::CallStatic { symbol, .. } = &inst.1 {
             *sites.entry(symbol.clone()).or_default() += 1;
         }
@@ -166,8 +170,10 @@ fn in_parallel(functions: &mut [Function], pass: &(dyn Fn(&mut Function) -> bool
     // Small chunks distributed on demand: the large functions (the
     // literals and the data tables) cluster together, and one chunk per thread
     // left one thread with almost all the work.
-    let chunks: Vec<std::sync::Mutex<&mut [Function]>> =
-        functions.chunks_mut(256).map(std::sync::Mutex::new).collect();
+    let chunks: Vec<std::sync::Mutex<&mut [Function]>> = functions
+        .chunks_mut(256)
+        .map(std::sync::Mutex::new)
+        .collect();
     let next_item = std::sync::atomic::AtomicUsize::new(0);
     std::thread::scope(|s| {
         let tasks: Vec<_> = (0..n)
@@ -190,7 +196,9 @@ fn in_parallel(functions: &mut [Function], pass: &(dyn Fn(&mut Function) -> bool
                     .expect("HIR passes thread")
             })
             .collect();
-        tasks.into_iter().fold(false, |acc, t| acc | t.join().expect("HIR pass panicked"))
+        tasks
+            .into_iter()
+            .fold(false, |acc, t| acc | t.join().expect("HIR pass panicked"))
     })
 }
 
@@ -220,27 +228,54 @@ pub fn optimize(module: &mut Module) {
         });
         // The cleanup may free SSA IDs that the next copies reuse.
         // Do not let a dead origin stick to a new instruction with that ID.
-        if module.arc_memory { arc::analysis::origins::prune(module); }
+        if module.arc_memory {
+            arc::analysis::origins::prune(module);
+        }
         let copies: HashMap<String, (Function, bool)> = module
             .functions
             .iter()
             // J05: a function compiled with debug information is not
             // inlined — the copied body would lose its position, and a breakpoint
             // in it would never stop.
-            .filter(|f| f.debug_info.is_none() && inline::copyable_with_policy(f, module.inline_policies.get(&f.symbol).copied()))
-            .map(|f| (f.symbol.clone(), (f.clone(), !do_not_throw.contains(&f.symbol))))
+            .filter(|f| {
+                f.debug_info.is_none()
+                    && inline::copyable_with_policy(
+                        f,
+                        module.inline_policies.get(&f.symbol).copied(),
+                    )
+            })
+            .map(|f| {
+                (
+                    f.symbol.clone(),
+                    (f.clone(), !do_not_throw.contains(&f.symbol)),
+                )
+            })
             .collect();
         // Cleanup may remove an allocation and a later copy may reuse its ID.
         // Only certificates still bound to the original allocation survive.
         module.async_frame_layouts.retain(|(owner, site, _, size)| {
-            module.functions.iter().find(|f| &f.symbol == owner).is_some_and(|f| f.blocks.iter()
-                .flat_map(|b| &b.instructions).any(|(id, inst, _)| id == site && matches!(inst,
+            module
+                .functions
+                .iter()
+                .find(|f| &f.symbol == owner)
+                .is_some_and(|f| {
+                    f.blocks
+                        .iter()
+                        .flat_map(|b| &b.instructions)
+                        .any(|(id, inst, _)| {
+                            id == site
+                                && matches!(inst,
                     Instruction::AllocObject {class_id, fields}
-                    if *class_id == crate::lower::async_sm::ASYNC_FRAME_ID && fields.len() == *size)))
+                    if *class_id == crate::lower::async_sm::ASYNC_FRAME_ID && fields.len() == *size)
+                        })
+                })
         });
         let mut frame_sources: HashMap<String, HashMap<ValueId, (String, usize)>> = HashMap::new();
         for (owner, site, body, size) in &module.async_frame_layouts {
-            frame_sources.entry(owner.clone()).or_default().insert(*site, (body.clone(), *size));
+            frame_sources
+                .entry(owner.clone())
+                .or_default()
+                .insert(*site, (body.clone(), *size));
         }
         let updated_frames = std::sync::Mutex::new(HashMap::new());
         let origins = &module.arc_sites;
@@ -252,12 +287,23 @@ pub fn optimize(module: &mut Module) {
         let changed = in_parallel(&mut module.functions, &|f| {
             let mut sites = origins.get(&f.symbol).cloned().unwrap_or_default();
             let mut frames = frame_sources.get(&f.symbol).cloned().unwrap_or_default();
-            let changed = inline::inlining_with_metadata(f, &copies, origins, &mut sites, &frame_sources, &mut frames, &call_sites);
+            let changed = inline::inlining_with_metadata(
+                f,
+                &copies,
+                origins,
+                &mut sites,
+                &frame_sources,
+                &mut frames,
+                &call_sites,
+            );
             if arc_memory && !sites.is_empty() {
                 updated.lock().unwrap().insert(f.symbol.clone(), sites);
             }
             if !frames.is_empty() {
-                updated_frames.lock().unwrap().insert(f.symbol.clone(), frames);
+                updated_frames
+                    .lock()
+                    .unwrap()
+                    .insert(f.symbol.clone(), frames);
             }
             // The inlined body of a direct local function leaves the local that
             // it received by address with only `Load`/`Store`: promotable.
@@ -267,9 +313,19 @@ pub fn optimize(module: &mut Module) {
             }
             changed
         });
-        if arc_memory { module.arc_sites.extend(updated.into_inner().unwrap()); }
-        module.async_frame_layouts = updated_frames.into_inner().unwrap().into_iter()
-            .flat_map(|(owner, frames)| frames.into_iter().map(move |(site, (body, size))| (owner.clone(), site, body, size))).collect();
+        if arc_memory {
+            module.arc_sites.extend(updated.into_inner().unwrap());
+        }
+        module.async_frame_layouts = updated_frames
+            .into_inner()
+            .unwrap()
+            .into_iter()
+            .flat_map(|(owner, frames)| {
+                frames
+                    .into_iter()
+                    .map(move |(site, (body, size))| (owner.clone(), site, body, size))
+            })
+            .collect();
         if !changed {
             break;
         }

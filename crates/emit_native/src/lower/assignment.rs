@@ -156,9 +156,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.unsupported(&format!("assignment to `{name}` without a setter"), span);
         };
         let (recv_op, receiver) = match recv {
-            Some(r) => (self.lower_target(ast, r), self.ctx.get_type_raw(self.unit_id, r)),
+            Some(r) => (
+                self.lower_target(ast, r),
+                self.ctx.get_type_raw(self.unit_id, r),
+            ),
             None => (
-                self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null)),
+                self.this_param
+                    .clone()
+                    .unwrap_or(Operand::Constant(Constant::Null)),
                 self.implicit_receiver(),
             ),
         };
@@ -171,7 +176,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             None
         };
         let v = self.combine(ast, op, cur, value);
-        self.call_extension(recv_op, setter.0 as usize, &[(None, v.clone())], receiver, None, span);
+        self.call_extension(
+            recv_op,
+            setter.0 as usize,
+            &[(None, v.clone())],
+            receiver,
+            None,
+            span,
+        );
         v
     }
 
@@ -206,9 +218,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // The old value (`a?.x++`) also goes through the join: null when the
         // chain branched.
         let mut old = self.old_value.take();
-        let (exit, mut entries) = std::mem::replace(&mut self.null_chain, saved_chain).expect("cadeia aberta");
-        let mut old_entries: Vec<(BlockId, Operand)> =
-            entries.iter().map(|(b, _)| (*b, Operand::Constant(Constant::Null))).collect();
+        let (exit, mut entries) =
+            std::mem::replace(&mut self.null_chain, saved_chain).expect("cadeia aberta");
+        let mut old_entries: Vec<(BlockId, Operand)> = entries
+            .iter()
+            .map(|(b, _)| (*b, Operand::Constant(Constant::Null)))
+            .collect();
         if !self.is_terminated() {
             v = self.coerce(v, Type::Ref);
             if let Some(a) = old.take() {
@@ -223,14 +238,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Operand::Constant(Constant::Null);
         }
         if old_entries.len() == entries.len() {
-            self.old_value = Some(self.emit(Instruction::Phi { incoming: old_entries, ty: Type::Ref }, Type::Ref));
+            self.old_value = Some(self.emit(
+                Instruction::Phi {
+                    incoming: old_entries,
+                    ty: Type::Ref,
+                },
+                Type::Ref,
+            ));
         }
-        self.emit(Instruction::Phi { incoming: entries, ty: Type::Ref }, Type::Ref)
+        self.emit(
+            Instruction::Phi {
+                incoming: entries,
+                ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
     /// `v = e` and `v op= e` on an unboxed SIMD local: the value and the operation
     /// as vectors; an operator without a vector form goes through the box.
-    fn assign_simd_local(&mut self, ast: &ast::Ast, sym: dartforge_intern::SymbolId, op: ast::AssignOp, value: Rhs, span: Span) -> Operand {
+    fn assign_simd_local(
+        &mut self,
+        ast: &ast::Ast,
+        sym: dartforge_intern::SymbolId,
+        op: ast::AssignOp,
+        value: Rhs,
+        span: Span,
+    ) -> Operand {
         let k = self.lookup_local(sym).map(|l| l.ty).expect("local SIMD");
         let v = match (op, value) {
             (ast::AssignOp::Assign, Rhs::Expr(e)) => self.lower_simd(ast, e, k),
@@ -249,7 +283,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 match simd_op {
                     Some(o) => {
                         let rhs = self.lower_simd(ast, e, k);
-                        self.emit(Instruction::Simd { op: o, args: vec![cur, rhs] }, k)
+                        self.emit(
+                            Instruction::Simd {
+                                op: o,
+                                args: vec![cur, rhs],
+                            },
+                            k,
+                        )
                     }
                     None => {
                         let boxed = self.coerce(cur, Type::Ref);
@@ -260,7 +300,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             (op, value) => {
                 let cur = matches!(op, ast::AssignOp::Compound(_))
-                    .then(|| self.read_local_by_name(sym).map(|c| self.coerce(c, Type::Ref)))
+                    .then(|| {
+                        self.read_local_by_name(sym)
+                            .map(|c| self.coerce(c, Type::Ref))
+                    })
                     .flatten();
                 let v = self.combine(ast, op, cur, value);
                 self.coerce(v, k)
@@ -294,12 +337,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 };
                 match resolved {
                     // Extension type setter with the implicit `this`.
-                    r @ Some(Resolved::Member { .. }) if self.resolved_member_te(r.as_ref()).is_some() => {
+                    r @ Some(Resolved::Member { .. })
+                        if self.resolved_member_te(r.as_ref()).is_some() =>
+                    {
                         match self.resolved_member_te(r.as_ref()) {
-                            Some(MemberRef::Function(f)) if !self.is_representation(MemberRef::Function(f)) => {
+                            Some(MemberRef::Function(f))
+                                if !self.is_representation(MemberRef::Function(f)) =>
+                            {
                                 self.assign_extension(ast, op, None, f, sym, value, span)
                             }
-                            _ => self.unsupported("assignment to the representation of an extension type", span),
+                            _ => self.unsupported(
+                                "assignment to the representation of an extension type",
+                                span,
+                            ),
                         }
                     }
                     Some(Resolved::Member { member, .. }) => {
@@ -369,7 +419,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if (*null_aware || Self::chain_has_null_aware(ast, *recv))
                     && self.handled_null_aware != Some(target)
                 {
-                    return self.assign_with_null_aware(ast, op, target, *recv, *null_aware, value, span);
+                    return self.assign_with_null_aware(
+                        ast,
+                        op,
+                        target,
+                        *recv,
+                        *null_aware,
+                        value,
+                        span,
+                    );
                 }
                 self.handled_null_aware = None;
                 // `prefix.x = v`: a top-level variable imported with a prefix.
@@ -416,13 +474,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             return self.store_global(vid, v, span);
                         }
                         Some(Resolved::ExtensionMember { member, .. })
-                            if self.ctx.program.functions[member.0 as usize].kind == FunctionKind::Setter =>
+                            if self.ctx.program.functions[member.0 as usize].kind
+                                == FunctionKind::Setter =>
                         {
-                            let e = self.ctx.program.functions[member.0 as usize].extension.expect("extension");
-                            let getter = self.ctx.program.extensions[e.0 as usize].static_members.get(&name.sym).copied();
+                            let e = self.ctx.program.functions[member.0 as usize]
+                                .extension
+                                .expect("extension");
+                            let getter = self.ctx.program.extensions[e.0 as usize]
+                                .static_members
+                                .get(&name.sym)
+                                .copied();
                             let cur = match (composite, getter) {
-                                (true, Some(g)) => Some(self.call_direct(g.0 as usize, None, Vec::new())),
-                                (true, None) => return self.unsupported("read without a static getter", span),
+                                (true, Some(g)) => {
+                                    Some(self.call_direct(g.0 as usize, None, Vec::new()))
+                                }
+                                (true, None) => {
+                                    return self.unsupported("read without a static getter", span);
+                                }
                                 _ => None,
                             };
                             let v = self.combine(ast, op, cur, value);
@@ -431,7 +499,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                         _ => {
                             let n = self.ctx.symbol_name(name.sym).to_string();
-                            return self.unsupported(&format!("assignment to extension `{n}`"), span);
+                            return self
+                                .unsupported(&format!("assignment to extension `{n}`"), span);
                         }
                     }
                 }
@@ -441,15 +510,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         MemberRef::Function(f) if !self.is_representation(m) => {
                             self.assign_extension(ast, op, Some(*recv), f, name.sym, value, span)
                         }
-                        _ => self.unsupported("assignment to the representation of an extension type", span),
+                        _ => self.unsupported(
+                            "assignment to the representation of an extension type",
+                            span,
+                        ),
                     };
                 }
                 // Extension setter (P4): a direct call with the receiver.
-                if let Some(Resolved::ExtensionMember { member, .. }) = self.ctx.get_resolved(self.unit_id, target).cloned()
+                if let Some(Resolved::ExtensionMember { member, .. }) =
+                    self.ctx.get_resolved(self.unit_id, target).cloned()
                     && !self.ctx.program.functions[member.0 as usize].static_
                     && super::user_function(self.ctx, member.0 as usize)
                 {
-                    return self.assign_extension(ast, op, Some(*recv), member, name.sym, value, span);
+                    return self.assign_extension(
+                        ast,
+                        op,
+                        Some(*recv),
+                        member,
+                        name.sym,
+                        value,
+                        span,
+                    );
                 }
                 // `C.x = v` (or `A.x = v` with `typedef A = C<…>`).
                 let target_is_class = self.static_target_class(*recv).is_some();
@@ -462,29 +543,45 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     };
                     let member = if matches!(member, MemberRef::Function(f)
                         if self.ctx.program.functions[f.0 as usize].kind != FunctionKind::Setter
-                            && self.ctx.program.functions[f.0 as usize].variable.is_none()) {
+                            && self.ctx.program.functions[f.0 as usize].variable.is_none())
+                    {
                         let key = format!("{}_=", self.ctx.symbol_name(name.sym));
-                        self.ctx.interner.lookup(&key)
-                            .and_then(|s| self.ctx.program.classes[class.0 as usize].static_members.get(&s).copied())
+                        self.ctx
+                            .interner
+                            .lookup(&key)
+                            .and_then(|s| {
+                                self.ctx.program.classes[class.0 as usize]
+                                    .static_members
+                                    .get(&s)
+                                    .copied()
+                            })
                             .map(MemberRef::Function)
                             .unwrap_or(member)
-                    } else { member };
+                    } else {
+                        member
+                    };
                     return self.assign_member(None, member, ast, op, value, span);
                 }
-                let Some((_, member)) = self.user_member(target, *recv, name.sym, true)
-                else {
+                let Some((_, member)) = self.user_member(target, *recv, name.sym, true) else {
                     let n = self.ctx.symbol_name(name.sym).to_string();
                     if self.dynamic_receiver(*recv) {
                         // Even a nonexistent setter goes through the selector: the
                         // runtime produces the `NoSuchMethodError`. The RHS is
                         // evaluated after the receiver, as in Dart.
                         let recv_op = self.lower_expr(ast, *recv);
-                        let cur = composite.then(|| self.call_by_name(
-                            recv_op.clone(), super::sdk_source::AccessKind::Read, &n, &[],
-                        ));
+                        let cur = composite.then(|| {
+                            self.call_by_name(
+                                recv_op.clone(),
+                                super::sdk_source::AccessKind::Read,
+                                &n,
+                                &[],
+                            )
+                        });
                         let v = self.combine(ast, op, cur, value);
                         self.call_by_name(
-                            recv_op, super::sdk_source::AccessKind::Write, &n,
+                            recv_op,
+                            super::sdk_source::AccessKind::Write,
+                            &n,
                             &[(None, v.clone())],
                         );
                         return v;
@@ -502,16 +599,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if (*null_aware || Self::chain_has_null_aware(ast, *t))
                     && self.handled_null_aware != Some(target)
                 {
-                    return self.assign_with_null_aware(ast, op, target, *t, *null_aware, value, span);
+                    return self.assign_with_null_aware(
+                        ast,
+                        op,
+                        target,
+                        *t,
+                        *null_aware,
+                        value,
+                        span,
+                    );
                 }
                 self.handled_null_aware = None;
                 // `super[i] op= v`: the `[]`/`[]=` operators of the superclass.
                 if matches!(ast.expr(*t).kind, ast::ExprKind::Super) {
                     let i_op = self.lower_expr(ast, *index);
-                    let (Some(get), Some(set)) = (self.ctx.interner.lookup("[]"), self.ctx.interner.lookup("[]=")) else {
+                    let (Some(get), Some(set)) = (
+                        self.ctx.interner.lookup("[]"),
+                        self.ctx.interner.lookup("[]="),
+                    ) else {
                         return self.unsupported("`super[]=` without an operator", span);
                     };
-                    let cur = composite.then(|| self.call_super_method(get, &[(None, i_op.clone())], span));
+                    let cur = composite
+                        .then(|| self.call_super_method(get, &[(None, i_op.clone())], span));
                     let v = self.combine(ast, op, cur, value);
                     self.call_super_method(set, &[(None, i_op), (None, v.clone())], span);
                     return v;
@@ -522,14 +631,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // Extension `[]=` (inference resolves the index to the
                 // `[]` of the extension; the `[]=` is that of the same extension).
                 if let Some(get) = self.extension_operator(target) {
-                    let set = self.ctx.interner.lookup("[]=").and_then(|k| self.accessor_of_same_owner(get, k));
+                    let set = self
+                        .ctx
+                        .interner
+                        .lookup("[]=")
+                        .and_then(|k| self.accessor_of_same_owner(get, k));
                     let Some(set) = set else {
                         return self.unsupported("missing extension operator []=", span);
                     };
                     let receiver = self.ctx.get_type_raw(self.unit_id, *t);
-                    let cur = composite.then(|| self.call_extension(t_op.clone(), get, &[(None, i_op.clone())], receiver, None, span));
+                    let cur = composite.then(|| {
+                        self.call_extension(
+                            t_op.clone(),
+                            get,
+                            &[(None, i_op.clone())],
+                            receiver,
+                            None,
+                            span,
+                        )
+                    });
                     let v = self.combine(ast, op, cur, value);
-                    self.call_extension(t_op, set.0 as usize, &[(None, i_op), (None, v.clone())], receiver, None, span);
+                    self.call_extension(
+                        t_op,
+                        set.0 as usize,
+                        &[(None, i_op), (None, v.clone())],
+                        receiver,
+                        None,
+                        span,
+                    );
                     return v;
                 }
                 if let Some(l) = self.indexable(self.ctx.get_type(self.unit_id, *t))
@@ -542,7 +671,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     self.access_fixed = fixed.clone();
                     let proven = self.proven_of(ast, *t, Some(*index));
                     self.access_proven = proven.clone();
-                    let cur = if composite { self.read_indexed(t_op.clone(), i_op.clone(), l, repr) } else { None };
+                    let cur = if composite {
+                        self.read_indexed(t_op.clone(), i_op.clone(), l, repr)
+                    } else {
+                        None
+                    };
                     self.access_proven = None;
                     self.access_fixed = None;
                     // SIMD list with a SIMD value of the same type: the value goes
@@ -561,7 +694,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         Some((e, k)) => self.lower_simd(ast, e, k),
                         None => self.combine(ast, op, cur, value),
                     };
-                    if !composite && simd.is_none() && let Rhs::Expr(e) = value {
+                    if !composite
+                        && simd.is_none()
+                        && let Rhs::Expr(e) = value
+                    {
                         self.implicit_operator_cast(e, &v, *t, "[]=", 1);
                     }
                     self.access_fixed = fixed;
@@ -572,8 +708,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     if stored {
                         return v;
                     }
-                    let v = if simd.is_some() { self.coerce(v, Type::Ref) } else { v };
-                    self.call_by_name_typed(t_op, *t, super::sdk_source::AccessKind::Call, "[]=", &[(None, i_op), (None, v.clone())]);
+                    let v = if simd.is_some() {
+                        self.coerce(v, Type::Ref)
+                    } else {
+                        v
+                    };
+                    self.call_by_name_typed(
+                        t_op,
+                        *t,
+                        super::sdk_source::AccessKind::Call,
+                        "[]=",
+                        &[(None, i_op), (None, v.clone())],
+                    );
                     return v;
                 }
                 // `[]=` (and the `[]` of the compound case) of a program class: through the
@@ -593,12 +739,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 // SDK `[]`/`[]=` through the dynamic class.
                 use super::sdk_source::AccessKind;
-                let cur = composite.then(|| self.call_by_name_typed(t_op.clone(), *t, AccessKind::Call, "[]", &[(None, i_op.clone())]));
+                let cur = composite.then(|| {
+                    self.call_by_name_typed(
+                        t_op.clone(),
+                        *t,
+                        AccessKind::Call,
+                        "[]",
+                        &[(None, i_op.clone())],
+                    )
+                });
                 let v = self.combine(ast, op, cur, value);
                 if !composite && let Rhs::Expr(e) = value {
                     self.implicit_operator_cast(e, &v, *t, "[]=", 1);
                 }
-                self.call_by_name_typed(t_op, *t, AccessKind::Call, "[]=", &[(None, i_op), (None, v.clone())]);
+                self.call_by_name_typed(
+                    t_op,
+                    *t,
+                    AccessKind::Call,
+                    "[]=",
+                    &[(None, i_op), (None, v.clone())],
+                );
                 v
             }
             _ => self.unsupported("assignment target", span),
@@ -651,17 +811,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let fid = f.0 as usize;
         let func = &self.ctx.program.functions[fid];
         if func.kind != FunctionKind::Setter || !super::user_function(self.ctx, fid) {
-            return self.unsupported("assignment to a member that is neither a field nor a setter", span);
+            return self.unsupported(
+                "assignment to a member that is neither a field nor a setter",
+                span,
+            );
         }
         let static_ty = func.static_;
         let name = self.ctx.symbol_name(func.name).to_string();
         let cid = func.class;
-        let obj = if static_ty { None } else { recv.or_else(|| self.this_param.clone()) };
+        let obj = if static_ty {
+            None
+        } else {
+            recv.or_else(|| self.this_param.clone())
+        };
         let cur = if composite {
             let getter = cid.and_then(|cid| {
                 if static_ty {
                     let sym = self.ctx.interner.lookup(&name)?;
-                    self.ctx.program.classes[cid.0 as usize].static_members.get(&sym).copied()
+                    self.ctx.program.classes[cid.0 as usize]
+                        .static_members
+                        .get(&sym)
+                        .copied()
                 } else {
                     // The getter may come from a superinterface (`List.last=`
                     // with the `last` of `Iterable`): the lookup is that of the interface
@@ -688,7 +858,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Some(self.call_member(receiver, getter_fid, &[], span))
                 }
             }
-        } else { None };
+        } else {
+            None
+        };
         let v = self.combine(ast, op, cur, value);
         if static_ty {
             let args = self.match_args(fid, &[(None, v.clone())]);
@@ -701,7 +873,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.call_member(obj, fid, &[(None, v.clone())], span);
         v
     }
-
 }
 
 /// The getter `name` of the interface of class `cid`: the class itself, the

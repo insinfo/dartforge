@@ -160,18 +160,22 @@ impl<'r> Assembler<'r> {
             Ok(r) => r,
             Err(e) => return self.fail(e),
         };
-        let prefix = r.uri.as_ref().map(|uri| match self.imports.iter().find(|(u, _)| u == uri) {
-            Some(&(_, n)) => n,
-            None => {
-                let n = self.names.len();
-                self.names.push(String::new());
-                self.imports.push((uri.clone(), n));
-                self.import_parts.push(Applied::Text(format!("import '{uri}' as ")));
-                self.import_parts.push(Applied::Name(n));
-                self.import_parts.push(Applied::Text(";\n".into()));
-                n
-            }
-        });
+        let prefix = r
+            .uri
+            .as_ref()
+            .map(|uri| match self.imports.iter().find(|(u, _)| u == uri) {
+                Some(&(_, n)) => n,
+                None => {
+                    let n = self.names.len();
+                    self.names.push(String::new());
+                    self.imports.push((uri.clone(), n));
+                    self.import_parts
+                        .push(Applied::Text(format!("import '{uri}' as ")));
+                    self.import_parts.push(Applied::Name(n));
+                    self.import_parts.push(Applied::Text(";\n".into()));
+                    n
+                }
+            });
         if r.kind == IdentifierKind::Instance {
             if !self.last.trim_end().ends_with('.') {
                 self.text("this.");
@@ -277,7 +281,11 @@ impl<V> Ordered<V> {
 /// Assembles the text of the augmentation library from `results` (in
 /// execution order: phase, then application). Fails if an identifier or type
 /// does not resolve, or if a type receives two `extends`.
-pub fn assemble(results: &[ExecutionResult], r: &dyn Resolver, header: Header<'_>) -> Result<String, String> {
+pub fn assemble(
+    results: &[ExecutionResult],
+    r: &dyn Resolver,
+    header: Header<'_>,
+) -> Result<String, String> {
     let mut m = Assembler {
         r,
         imports: Vec::new(),
@@ -323,7 +331,13 @@ pub fn assemble(results: &[ExecutionResult], r: &dyn Resolver, header: Header<'_
         }
     }
     let mut types: Vec<u64> = Vec::new();
-    for k in values.keys().chain(extends.keys()).chain(interfaces.keys()).chain(mixins.keys()).chain(members.keys()) {
+    for k in values
+        .keys()
+        .chain(extends.keys())
+        .chain(interfaces.keys())
+        .chain(mixins.keys())
+        .chain(members.keys())
+    {
         if !types.contains(&k) {
             types.push(k);
         }
@@ -335,7 +349,12 @@ pub fn assemble(results: &[ExecutionResult], r: &dyn Resolver, header: Header<'_
             words.push(' ');
         }
         let has_parameters = !t.parameters.is_empty();
-        m.text(&format!("augment {words}{} {}{}", t.keyword, t.name, if has_parameters { "" } else { " " }));
+        m.text(&format!(
+            "augment {words}{} {}{}",
+            t.keyword,
+            t.name,
+            if has_parameters { "" } else { " " }
+        ));
         if has_parameters {
             m.text("<");
             for (i, p) in t.parameters.iter().enumerate() {
@@ -402,7 +421,11 @@ pub fn assemble(results: &[ExecutionResult], r: &dyn Resolver, header: Header<'_
 /// A protocol `Code` (`{"k", "p"}`; a part is text, `{"i", "n"}`, `{"o"}` or
 /// nested code).
 pub fn code_from_json(v: &Value) -> Result<Code, String> {
-    let kind = v.get("k").and_then(Value::as_str).unwrap_or("raw").to_string();
+    let kind = v
+        .get("k")
+        .and_then(Value::as_str)
+        .unwrap_or("raw")
+        .to_string();
     let parts = v
         .get("p")
         .and_then(Value::as_array)
@@ -410,12 +433,14 @@ pub fn code_from_json(v: &Value) -> Result<Code, String> {
         .iter()
         .map(|p| match p {
             Value::String(s) => Ok(Part::Text(s.clone())),
-            Value::Object(o) if o.contains_key("i") => {
-                o["i"].as_u64().map(Part::Ident).ok_or_else(|| format!("invalid identifier: {p}"))
-            }
-            Value::Object(o) if o.contains_key("o") => {
-                o["o"].as_u64().map(Part::Omitted).ok_or_else(|| format!("invalid omitted type: {p}"))
-            }
+            Value::Object(o) if o.contains_key("i") => o["i"]
+                .as_u64()
+                .map(Part::Ident)
+                .ok_or_else(|| format!("invalid identifier: {p}")),
+            Value::Object(o) if o.contains_key("o") => o["o"]
+                .as_u64()
+                .map(Part::Omitted)
+                .ok_or_else(|| format!("invalid omitted type: {p}")),
             _ => code_from_json(p).map(Part::Code),
         })
         .collect::<Result<_, _>>()?;
@@ -423,10 +448,15 @@ pub fn code_from_json(v: &Value) -> Result<Code, String> {
 }
 
 fn list_pairs(v: &Value, field: &str) -> Result<Vec<(u64, Vec<Code>)>, String> {
-    let Some(l) = v.get(field).and_then(Value::as_array) else { return Ok(Vec::new()) };
+    let Some(l) = v.get(field).and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
     l.iter()
         .map(|pair| {
-            let id = pair.get(0).and_then(Value::as_u64).ok_or_else(|| format!("{field}: invalid pair"))?;
+            let id = pair
+                .get(0)
+                .and_then(Value::as_u64)
+                .ok_or_else(|| format!("{field}: invalid pair"))?;
             let cs = pair
                 .get(1)
                 .and_then(Value::as_array)
@@ -446,13 +476,20 @@ pub fn result_from_json(v: &Value) -> Result<ExecutionResult, String> {
         Some(l) => l
             .iter()
             .map(|pair| {
-                let id = pair.get(0).and_then(Value::as_u64).ok_or("extends: invalid pair")?;
+                let id = pair
+                    .get(0)
+                    .and_then(Value::as_u64)
+                    .ok_or("extends: invalid pair")?;
                 Ok((id, code_from_json(pair.get(1).ok_or("extends: no code")?)?))
             })
             .collect::<Result<_, String>>()?,
     };
     Ok(ExecutionResult {
-        diagnostics: v.get("diagnostics").and_then(Value::as_array).cloned().unwrap_or_default(),
+        diagnostics: v
+            .get("diagnostics")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
         exception: v.get("exception").filter(|e| !e.is_null()).cloned(),
         enum_values: list_pairs(v, "enumValues")?,
         extends,
@@ -467,7 +504,11 @@ pub fn result_from_json(v: &Value) -> Result<ExecutionResult, String> {
         new_types: v
             .get("newTypes")
             .and_then(Value::as_array)
-            .map(|l| l.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
+            .map(|l| {
+                l.iter()
+                    .filter_map(|s| s.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default(),
         types: list_pairs(v, "types")?,
     })
@@ -482,7 +523,10 @@ mod tests {
         Part::Text(s.into())
     }
     fn c(parts: Vec<Part>) -> Code {
-        Code { kind: "raw".into(), parts }
+        Code {
+            kind: "raw".into(),
+            parts,
+        }
     }
 
     struct Table {
@@ -502,10 +546,20 @@ mod tests {
     }
 
     fn top(name: &str, uri: &str) -> ResolvedIdentifier {
-        ResolvedIdentifier { name: name.into(), kind: IdentifierKind::TopLevel, uri: Some(uri.into()), scope: None }
+        ResolvedIdentifier {
+            name: name.into(),
+            kind: IdentifierKind::TopLevel,
+            uri: Some(uri.into()),
+            scope: None,
+        }
     }
     fn inst(name: &str) -> ResolvedIdentifier {
-        ResolvedIdentifier { name: name.into(), kind: IdentifierKind::Instance, uri: None, scope: None }
+        ResolvedIdentifier {
+            name: name.into(),
+            kind: IdentifierKind::Instance,
+            uri: None,
+            scope: None,
+        }
     }
 
     /// The `@JsonCodable` of `Usuario` (phases 2 and 3), assembled by hand
@@ -524,25 +578,58 @@ mod tests {
         ids.insert(11, inst("idade"));
         ids.insert(12, inst("apelido"));
         ids.insert(13, inst("notas"));
-        ids.insert(20, ResolvedIdentifier { name: "json".into(), kind: IdentifierKind::Local, uri: None, scope: None });
+        ids.insert(
+            20,
+            ResolvedIdentifier {
+                name: "json".into(),
+                kind: IdentifierKind::Local,
+                uri: None,
+                scope: None,
+            },
+        );
         let mut types = HashMap::new();
         types.insert(
             100,
-            AugmentedType { keyword: "class", modifiers: vec![], name: "Usuario".into(), parameters: vec![] },
+            AugmentedType {
+                keyword: "class",
+                modifiers: vec![],
+                name: "Usuario".into(),
+                parameters: vec![],
+            },
         );
         let table = Table { ids, types };
-        let map_so = || c(vec![Part::Ident(1), t("<"), Part::Ident(2), t(", "), Part::Code(c(vec![Part::Ident(3), t("?")])), t(">")]);
+        let map_so = || {
+            c(vec![
+                Part::Ident(1),
+                t("<"),
+                Part::Ident(2),
+                t(", "),
+                Part::Code(c(vec![Part::Ident(3), t("?")])),
+                t(">"),
+            ])
+        };
         let phase2 = ExecutionResult {
             types: vec![(
                 100,
                 vec![
-                    c(vec![t("  external "), t("Usuario"), t(".fromJson("), Part::Code(map_so()), t(" json);")]),
-                    c(vec![t("  external "), Part::Code(map_so()), t(" toJson();")]),
+                    c(vec![
+                        t("  external "),
+                        t("Usuario"),
+                        t(".fromJson("),
+                        Part::Code(map_so()),
+                        t(" json);"),
+                    ]),
+                    c(vec![
+                        t("  external "),
+                        Part::Code(map_so()),
+                        t(" toJson();"),
+                    ]),
                 ],
             )],
             ..Default::default()
         };
-        let field = |id: u64, conv: Vec<Part>| c(vec![Part::Ident(id), t(" = "), Part::Code(c(conv))]);
+        let field =
+            |id: u64, conv: Vec<Part>| c(vec![Part::Ident(id), t(" = "), Part::Code(c(conv))]);
         let json_of = |name: &str| c(vec![Part::Ident(20), t("[r'"), t(name), t("']")]);
         let ctor = c(vec![
             t("  "),
@@ -555,11 +642,24 @@ mod tests {
             t(", "),
             t(")"),
             t("\n      : "),
-            Part::Code(field(10, vec![Part::Code(json_of("nome")), t(" as "), Part::Ident(2)])),
+            Part::Code(field(
+                10,
+                vec![Part::Code(json_of("nome")), t(" as "), Part::Ident(2)],
+            )),
             t(",\n        "),
-            Part::Code(field(11, vec![Part::Code(json_of("idade")), t(" as "), Part::Ident(4)])),
+            Part::Code(field(
+                11,
+                vec![Part::Code(json_of("idade")), t(" as "), Part::Ident(4)],
+            )),
             t(",\n        "),
-            Part::Code(field(12, vec![Part::Code(json_of("apelido")), t(" as "), Part::Code(c(vec![Part::Ident(2), t("?")]))])),
+            Part::Code(field(
+                12,
+                vec![
+                    Part::Code(json_of("apelido")),
+                    t(" as "),
+                    Part::Code(c(vec![Part::Ident(2), t("?")])),
+                ],
+            )),
             t(",\n        "),
             Part::Code(field(
                 13,
@@ -567,9 +667,18 @@ mod tests {
                     t("[ for (final item in "),
                     Part::Code(json_of("notas")),
                     t(" as "),
-                    Part::Code(c(vec![Part::Ident(5), t("<"), Part::Code(c(vec![Part::Ident(3), t("?")])), t(">")])),
+                    Part::Code(c(vec![
+                        Part::Ident(5),
+                        t("<"),
+                        Part::Code(c(vec![Part::Ident(3), t("?")])),
+                        t(">"),
+                    ])),
                     t(") "),
-                    Part::Code(c(vec![Part::Code(c(vec![t("item")])), t(" as "), Part::Ident(4)])),
+                    Part::Code(c(vec![
+                        Part::Code(c(vec![t("item")])),
+                        t(" as "),
+                        Part::Ident(4),
+                    ])),
                     t("]"),
                 ],
             )),
@@ -580,7 +689,13 @@ mod tests {
             if nullable {
                 p.extend([t("if ("), Part::Ident(id), t(" != null) {\n      ")]);
             }
-            p.extend([t("json[r'"), t(name), t("'] = "), Part::Code(c(value)), t(";\n    ")]);
+            p.extend([
+                t("json[r'"),
+                t(name),
+                t("'] = "),
+                Part::Code(c(value)),
+                t(";\n    "),
+            ]);
             if nullable {
                 p.push(t("}\n    "));
             }
@@ -601,13 +716,37 @@ mod tests {
                 13,
                 "notas",
                 false,
-                vec![t("[ for (final item in "), Part::Code(c(vec![Part::Ident(13)])), t(") "), Part::Code(c(vec![t("item")])), t("]")],
+                vec![
+                    t("[ for (final item in "),
+                    Part::Code(c(vec![Part::Ident(13)])),
+                    t(") "),
+                    Part::Code(c(vec![t("item")])),
+                    t("]"),
+                ],
             )),
             t("return json;\n  }"),
         ]);
-        let method = c(vec![t("  "), t("augment "), Part::Code(map_so()), t(" "), t("toJson"), t("("), t(")"), t(" "), Part::Code(body)]);
-        let phase3 = ExecutionResult { types: vec![(100, vec![ctor, method])], ..Default::default() };
-        let text = assemble(&[phase2, phase3], &table, Header::AugmentationLibrary("package:caso/modelos.dart")).unwrap();
+        let method = c(vec![
+            t("  "),
+            t("augment "),
+            Part::Code(map_so()),
+            t(" "),
+            t("toJson"),
+            t("("),
+            t(")"),
+            t(" "),
+            Part::Code(body),
+        ]);
+        let phase3 = ExecutionResult {
+            types: vec![(100, vec![ctor, method])],
+            ..Default::default()
+        };
+        let text = assemble(
+            &[phase2, phase3],
+            &table,
+            Header::AugmentationLibrary("package:caso/modelos.dart"),
+        )
+        .unwrap();
         let expected = "augment library 'package:caso/modelos.dart';
 
 import 'dart:core' as prefix0;
@@ -639,14 +778,25 @@ augment class Usuario {
     fn prefix_avoids_user_texts() {
         assert_eq!(fresh_prefix(&["abc".into()], "prefix"), "prefix");
         assert_eq!(fresh_prefix(&["x prefix y".into()], "prefix"), "prefix0");
-        assert_eq!(fresh_prefix(&["prefix prefix0".into()], "prefix"), "prefix1_");
+        assert_eq!(
+            fresh_prefix(&["prefix prefix0".into()], "prefix"),
+            "prefix1_"
+        );
     }
 
     #[test]
     fn top_level_declarations_rule_4_and_supertypes() {
         let mut ids = HashMap::new();
         ids.insert(1, top("Comparable", "dart:core"));
-        ids.insert(2, ResolvedIdentifier { name: "Point".into(), kind: IdentifierKind::TopLevel, uri: Some("package:a/a.dart".into()), scope: None });
+        ids.insert(
+            2,
+            ResolvedIdentifier {
+                name: "Point".into(),
+                kind: IdentifierKind::TopLevel,
+                uri: Some("package:a/a.dart".into()),
+                scope: None,
+            },
+        );
         let mut types = HashMap::new();
         types.insert(
             2,
@@ -661,10 +811,16 @@ augment class Usuario {
         let phase1 = ExecutionResult {
             library: vec![c(vec![t("class PointTwin {}")])],
             new_types: vec!["PointTwin".into()],
-            interfaces: vec![(2, vec![c(vec![Part::Ident(1), t("<"), Part::Ident(2), t(">")])])],
+            interfaces: vec![(
+                2,
+                vec![c(vec![Part::Ident(1), t("<"), Part::Ident(2), t(">")])],
+            )],
             ..Default::default()
         };
-        let phase2 = ExecutionResult { types: vec![(2, vec![c(vec![t("  int get x => 1;")])])], ..Default::default() };
+        let phase2 = ExecutionResult {
+            types: vec![(2, vec![c(vec![t("  int get x => 1;")])])],
+            ..Default::default()
+        };
         let text = assemble(&[phase1, phase2], &table, Header::Part("a.dart")).unwrap();
         assert_eq!(
             text,

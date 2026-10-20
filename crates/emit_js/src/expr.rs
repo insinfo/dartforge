@@ -1,11 +1,16 @@
 //! Expression emission.
 
-use crate::body::{js_member_name, static_member_name, AsyncKind, FnEmitter};
+use crate::body::{AsyncKind, FnEmitter, js_member_name, static_member_name};
 use crate::ctx::{Member, MemberKind};
-use crate::js::{self, Js, P_ADD, P_AND, P_ASSIGN, P_BITAND, P_BITOR, P_BITXOR, P_COMMA, P_COND, P_EQ, P_MUL, P_OR, P_PRIMARY, P_REL, P_SHIFT, P_UNARY, P_YIELD};
+use crate::js::{
+    self, Js, P_ADD, P_AND, P_ASSIGN, P_BITAND, P_BITOR, P_BITXOR, P_COMMA, P_COND, P_EQ, P_MUL,
+    P_OR, P_PRIMARY, P_REL, P_SHIFT, P_UNARY, P_YIELD,
+};
 use crate::ty::Ty;
 use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionKind, LibraryId};
-use dartforge_frontend::ast::{self, AssignOp, BinaryOp, CollectionElement, ExprId, ExprKind, UnaryOp};
+use dartforge_frontend::ast::{
+    self, AssignOp, BinaryOp, CollectionElement, ExprId, ExprKind, UnaryOp,
+};
 use dartforge_types::resolved::{MemberRef, Resolved};
 use std::collections::HashMap;
 
@@ -39,8 +44,14 @@ pub enum IdentTarget {
     /// Extension member applicable to `this`.
     ThisExt,
     /// Instance member of the extension itself (called with `$this`).
-    ExtMember(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId),
-    ExtStatic(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId),
+    ExtMember(
+        dartforge_elements::model::ExtensionId,
+        dartforge_elements::model::FunctionElementId,
+    ),
+    ExtStatic(
+        dartforge_elements::model::ExtensionId,
+        dartforge_elements::model::FunctionElementId,
+    ),
     /// Static field of the extension itself.
     ExtField(dartforge_elements::model::ExtensionId),
     Unknown,
@@ -66,7 +77,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if let Some(&fid) = e.static_members.get(&sym) {
                     return IdentTarget::ExtStatic(ext, fid);
                 }
-                if e.fields.iter().any(|v| self.ctx.program.variable(*v).name == sym) {
+                if e.fields
+                    .iter()
+                    .any(|v| self.ctx.program.variable(*v).name == sym)
+                {
                     return IdentTarget::ExtField(ext);
                 }
             }
@@ -74,20 +88,35 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return IdentTarget::ExtThisMember(m);
             }
             if let Ty::Record { pos, named, .. } = &t {
-                let is_field = n.strip_prefix('$').and_then(|x| x.parse::<usize>().ok()).is_some_and(|i| i >= 1 && i <= pos.len())
+                let is_field = n
+                    .strip_prefix('$')
+                    .and_then(|x| x.parse::<usize>().ok())
+                    .is_some_and(|i| i >= 1 && i <= pos.len())
                     || named.iter().any(|(k, _)| k == n);
                 if is_field {
-                    return IdentTarget::ExtThisMember(Member { class: self.ctx.object.unwrap_or(ClassId(0)), kind: MemberKind::Field(dartforge_elements::model::VariableId(0)), subst: HashMap::new() });
+                    return IdentTarget::ExtThisMember(Member {
+                        class: self.ctx.object.unwrap_or(ClassId(0)),
+                        kind: MemberKind::Field(dartforge_elements::model::VariableId(0)),
+                        subst: HashMap::new(),
+                    });
                 }
             }
             if self.find_extension_member(&t, n, false).is_some() {
-                return IdentTarget::ExtThisMember(Member { class: self.ctx.object.unwrap_or(ClassId(0)), kind: MemberKind::Field(dartforge_elements::model::VariableId(0)), subst: HashMap::new() });
+                return IdentTarget::ExtThisMember(Member {
+                    class: self.ctx.object.unwrap_or(ClassId(0)),
+                    kind: MemberKind::Field(dartforge_elements::model::VariableId(0)),
+                    subst: HashMap::new(),
+                });
             }
         }
         // Statics of the extension type whose member is being emitted (instance
         // ones arrive through the common resolution, `crate::extension_type`).
         if let Some(c) = self.extension_type {
-            if let Some(mk) = self.ctx.declared_static(c, n, false).or_else(|| self.ctx.declared_static(c, n, true)) {
+            if let Some(mk) = self
+                .ctx
+                .declared_static(c, n, false)
+                .or_else(|| self.ctx.declared_static(c, n, true))
+            {
                 return IdentTarget::Static(c, mk);
             }
         }
@@ -107,12 +136,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             let class = self.ctx.program.class(c);
             if class.kind == ClassKind::Enum {
-                if let Some(&vid) = class.enum_constants.iter().find(|v| self.ctx.program.variable(**v).name == sym) {
+                if let Some(&vid) = class
+                    .enum_constants
+                    .iter()
+                    .find(|v| self.ctx.program.variable(**v).name == sym)
+                {
                     return IdentTarget::Static(c, MemberKind::Field(vid));
                 }
             }
             if !self.is_static && self.ctx.program.lookup_in_unit(self.unit, sym).is_none() {
-                if self.find_extension_member(&self.ctx.this_ty(c), n, false).is_some() {
+                if self
+                    .find_extension_member(&self.ctx.this_ty(c), n, false)
+                    .is_some()
+                {
                     return IdentTarget::ThisExt;
                 }
             }
@@ -128,7 +164,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 return IdentTarget::Element(e);
             }
         }
-        if self.ctx.program.prefixes_in_unit(self.unit).contains_key(&sym) {
+        if self
+            .ctx
+            .program
+            .prefixes_in_unit(self.unit)
+            .contains_key(&sym)
+        {
             return IdentTarget::Prefix(sym);
         }
         IdentTarget::Unknown
@@ -148,7 +189,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// extension receiver without a class, a dynamic member).
     /// Step 2 of the single source of inference (docs/INFERENCIA-JS-ALINHAMENTO.md).
     pub fn ident_target(&self, sym: dartforge_intern::SymbolId, e: ExprId) -> IdentTarget {
-        let common = self.common_resolution(e).and_then(|r| self.target_from_resolution(sym, r));
+        let common = self
+            .common_resolution(e)
+            .and_then(|r| self.target_from_resolution(sym, r));
         self.count_target_origin(e, common.is_some());
         match common {
             Some(target) => target,
@@ -165,7 +208,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// synthetic node, a `dynamic` receiver, a member of an extension or of an
     /// extension type, `super`), the emitter's own lookup
     /// ([`crate::ctx::Ctx::lookup_member`]) decides.
-    pub fn access_member(&self, e: Option<ExprId>, recv_ty: &Ty, name: &str, setter: bool) -> Option<Member> {
+    pub fn access_member(
+        &self,
+        e: Option<ExprId>,
+        recv_ty: &Ty,
+        name: &str,
+        setter: bool,
+    ) -> Option<Member> {
         let common = e.and_then(|e| self.member_from_resolution(e, recv_ty, name, setter));
         let own = || self.ctx.lookup_member(recv_ty, name, setter);
         if let Some(e) = e {
@@ -174,8 +223,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         common.or_else(own)
     }
 
-    fn member_from_resolution(&self, e: ExprId, recv_ty: &Ty, name: &str, setter: bool) -> Option<Member> {
-        let Resolved::Member { class: owner, member, via_super: false } = self.common_resolution(e)? else { return None };
+    fn member_from_resolution(
+        &self,
+        e: ExprId,
+        recv_ty: &Ty,
+        name: &str,
+        setter: bool,
+    ) -> Option<Member> {
+        let Resolved::Member {
+            class: owner,
+            member,
+            via_super: false,
+        } = self.common_resolution(e)?
+        else {
+            return None;
+        };
         let p = self.ctx.program;
         let is_static = match *member {
             MemberRef::Variable(v) => p.variable(v).static_,
@@ -189,7 +251,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // node of a compound write keeps a single resolution (the setter's),
         // and reading it does not use that.
         let same = match (kind, *member) {
-            (MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f), MemberRef::Function(g)) => f == g,
+            (
+                MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f),
+                MemberRef::Function(g),
+            ) => f == g,
             (MemberKind::Field(v), MemberRef::Function(g)) => p.function(g).variable == Some(v),
             (MemberKind::Field(v), MemberRef::Variable(w)) => v == w,
             _ => false,
@@ -208,13 +273,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 subst.insert(q.id, Ty::Dynamic);
             }
         }
-        Some(Member { class: *owner, kind, subst })
+        Some(Member {
+            class: *owner,
+            kind,
+            subst,
+        })
     }
 
     /// Translates the common resolution `r` of the identifier `sym` into the
     /// emitter's target; `None` when there is no translation (the emitter's
     /// own lookup decides).
-    fn target_from_resolution(&self, sym: dartforge_intern::SymbolId, r: &Resolved) -> Option<IdentTarget> {
+    fn target_from_resolution(
+        &self,
+        sym: dartforge_intern::SymbolId,
+        r: &Resolved,
+    ) -> Option<IdentTarget> {
         let p = self.ctx.program;
         let n = self.name(sym);
         match r {
@@ -239,19 +312,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     (self.current_extension == Some(x)).then_some(IdentTarget::ExtField(x))
                 }
                 Element::Variable(v) if p.variable(v).class.is_some() => None,
-                Element::Function(f) if p.function(f).class.is_some() || p.function(f).extension.is_some() => None,
+                Element::Function(f)
+                    if p.function(f).class.is_some() || p.function(f).extension.is_some() =>
+                {
+                    None
+                }
                 el => Some(IdentTarget::Element(el)),
             },
-            Resolved::Member { class: owner, member, via_super: false } => {
+            Resolved::Member {
+                class: owner,
+                member,
+                via_super: false,
+            } => {
                 let (is_static, enum_constant) = match *member {
                     MemberRef::Variable(v) => {
                         let var = p.variable(v);
-                        let of_enum = var.class.is_some_and(|c| p.class(c).enum_constants.contains(&v));
+                        let of_enum = var
+                            .class
+                            .is_some_and(|c| p.class(c).enum_constants.contains(&v));
                         (var.static_ || of_enum, of_enum.then_some(v))
                     }
                     MemberRef::Function(f) => {
                         let fe = p.function(f);
-                        let is_static = fe.static_ || fe.variable.is_some_and(|v| p.variable(v).static_);
+                        let is_static =
+                            fe.static_ || fe.variable.is_some_and(|v| p.variable(v).static_);
                         (is_static, None)
                     }
                 };
@@ -259,7 +343,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     if let Some(v) = enum_constant {
                         return Some(IdentTarget::Static(*owner, MemberKind::Field(v)));
                     }
-                    let mk = self.ctx.declared_static(*owner, n, false).or_else(|| self.ctx.declared_static(*owner, n, true))?;
+                    let mk = self
+                        .ctx
+                        .declared_static(*owner, n, false)
+                        .or_else(|| self.ctx.declared_static(*owner, n, true))?;
                     return Some(IdentTarget::Static(*owner, mk));
                 }
                 if let Some(t) = &self.extension_this {
@@ -268,17 +355,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     // declares the member in the emitter's lookup may be the
                     // implementation, not the interface the common resolution
                     // records).
-                    let m = self.ctx.lookup_member(t, n, false).or_else(|| self.ctx.lookup_member(t, n, true))?;
+                    let m = self
+                        .ctx
+                        .lookup_member(t, n, false)
+                        .or_else(|| self.ctx.lookup_member(t, n, true))?;
                     return Some(IdentTarget::ExtThisMember(m));
                 }
                 if self.is_static {
                     return None;
                 }
                 let c = self.class?;
-                let kind = self.ctx.declared_member(*owner, n, false).or_else(|| self.ctx.declared_member(*owner, n, true))?;
+                let kind = self
+                    .ctx
+                    .declared_member(*owner, n, false)
+                    .or_else(|| self.ctx.declared_member(*owner, n, true))?;
                 let sup = self.ctx.as_super(&self.ctx.this_ty(c), *owner)?;
-                let subst = self.ctx.class_params[owner.0 as usize].iter().map(|q| q.id).zip(sup.args().iter().cloned()).collect();
-                Some(IdentTarget::ThisMember(Member { class: *owner, kind, subst }))
+                let subst = self.ctx.class_params[owner.0 as usize]
+                    .iter()
+                    .map(|q| q.id)
+                    .zip(sup.args().iter().cloned())
+                    .collect();
+                Some(IdentTarget::ThisMember(Member {
+                    class: *owner,
+                    kind,
+                    subst,
+                }))
             }
             Resolved::ExtensionMember { extension, .. } => {
                 // The element is the one for the name in the extension (a
@@ -289,14 +390,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     if let Some(&f) = x.instance_members.get(&sym) {
                         return Some(IdentTarget::ExtMember(*extension, f));
                     }
-                    return x.static_members.get(&sym).map(|&f| IdentTarget::ExtStatic(*extension, f));
+                    return x
+                        .static_members
+                        .get(&sym)
+                        .map(|&f| IdentTarget::ExtStatic(*extension, f));
                 }
                 // Another extension applicable to the class's `this`: the
                 // emitter dispatches on the `this` receiver and finds the same
                 // extension.
-                (self.class.is_some() && !self.is_static && self.extension_this.is_none()).then_some(IdentTarget::ThisExt)
+                (self.class.is_some() && !self.is_static && self.extension_this.is_none())
+                    .then_some(IdentTarget::ThisExt)
             }
-            Resolved::Member { via_super: true, .. } | Resolved::Dynamic | Resolved::Constructor(_) => None,
+            Resolved::Member {
+                via_super: true, ..
+            }
+            | Resolved::Dynamic
+            | Resolved::Constructor(_) => None,
         }
     }
 
@@ -308,12 +417,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return Some(t.clone());
         }
         let in_fn = self.fn_type_params.iter().any(|(id, _)| *id == tp.0);
-        let in_class = self.class.is_some_and(|c| self.ctx.class_params[c.0 as usize].iter().any(|q| q.id == tp.0));
+        let in_class = self.class.is_some_and(|c| {
+            self.ctx.class_params[c.0 as usize]
+                .iter()
+                .any(|q| q.id == tp.0)
+        });
         if !(in_fn || in_class) {
             return None;
         }
         let name = self.name(self.ctx.table.param(tp).name).to_string();
-        Some(Ty::Param { id: tp.0, name, nullable: false })
+        Some(Ty::Param {
+            id: tp.0,
+            name,
+            nullable: false,
+        })
     }
 
     /// The target the common inference recorded for `e`, if it recorded one.
@@ -321,7 +438,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if e.0 == u32::MAX {
             return None;
         }
-        self.ctx.bodies.units.get(self.unit.0 as usize)?.get_resolved(e)
+        self.ctx
+            .bodies
+            .units
+            .get(self.unit.0 as usize)?
+            .get_resolved(e)
     }
 
     /// Static type the common inference recorded for `e`, as a `Ty`, if it can
@@ -330,7 +451,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if e.0 == u32::MAX {
             return None;
         }
-        let id = self.ctx.bodies.units.get(self.unit.0 as usize)?.get_type(e)?;
+        let id = self
+            .ctx
+            .bodies
+            .units
+            .get(self.unit.0 as usize)?
+            .get_type(e)?;
         self.common_ty_in_scope(id)
     }
 
@@ -340,7 +466,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// arity is not used.
     pub fn common_instantiation(&self, arguments: &ast::Arguments, n: usize) -> Option<Vec<Ty>> {
         let inst = (|| {
-            let ids = self.ctx.bodies.units.get(self.unit.0 as usize)?.instantiation(arguments.span.start)?;
+            let ids = self
+                .ctx
+                .bodies
+                .units
+                .get(self.unit.0 as usize)?
+                .instantiation(arguments.span.start)?;
             let tys: Option<Vec<Ty>> = ids.iter().map(|&t| self.common_ty_in_scope(t)).collect();
             tys.filter(|t| t.len() == n)
         })();
@@ -362,8 +493,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let t = self.ctx.ty_of(id).subst_prop(&self.shared_params);
         let mut free = Vec::new();
         t.collect_params(&mut free);
-        let of_class = |id: u32| self.class.is_some_and(|c| self.ctx.class_params[c.0 as usize].iter().any(|p| p.id == id));
-        let in_scope = free.iter().all(|&id| self.fn_type_params.iter().any(|(p, _)| *p == id) || of_class(id));
+        let of_class = |id: u32| {
+            self.class.is_some_and(|c| {
+                self.ctx.class_params[c.0 as usize]
+                    .iter()
+                    .any(|p| p.id == id)
+            })
+        };
+        let in_scope = free
+            .iter()
+            .all(|&id| self.fn_type_params.iter().any(|(p, _)| *p == id) || of_class(id));
         in_scope.then_some(t)
     }
 
@@ -392,7 +531,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn constant(&self, x: ExprId) -> Option<bool> {
         let f = self.ctx.filter?;
         match &self.expr(x).kind {
-            ExprKind::Identifier(_) | ExprKind::Property { .. } | ExprKind::Unary { .. } | ExprKind::Binary { .. } | ExprKind::Parenthesized(_) => f.const_bool(self.unit, x),
+            ExprKind::Identifier(_)
+            | ExprKind::Property { .. }
+            | ExprKind::Unary { .. }
+            | ExprKind::Binary { .. }
+            | ExprKind::Parenthesized(_) => f.const_bool(self.unit, x),
             _ => None,
         }
     }
@@ -400,7 +543,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Emits an expression; `expected` is the context type (downward inference).
     pub fn emit_expr(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
         if let Some(b) = self.constant(e) {
-            return (Js::prim(if b { "true" } else { "false" }.to_string()), self.ctx.t_bool());
+            return (
+                Js::prim(if b { "true" } else { "false" }.to_string()),
+                self.ctx.t_bool(),
+            );
         }
         let expr = self.expr(e);
         let registration = self.register_shorthand_context(e, expected);
@@ -436,13 +582,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// (`expected`) becomes the root's *shorthand context*, unless an outer
     /// node (or `==`, or a pattern) already registered a known context.
     /// Returns what to restore at the end of the emission of `e`.
-    fn register_shorthand_context(&mut self, e: ExprId, expected: Option<&Ty>) -> Option<(ExprId, Option<Option<Ty>>)> {
+    fn register_shorthand_context(
+        &mut self,
+        e: ExprId,
+        expected: Option<&Ty>,
+    ) -> Option<(ExprId, Option<Option<Ty>>)> {
         if !self.shorthands {
             return None;
         }
         if !matches!(
             self.expr(e).kind,
-            ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } | ExprKind::TypeArguments { .. } | ExprKind::Unary { op: UnaryOp::NullAssert, .. }
+            ExprKind::Property { .. }
+                | ExprKind::Index { .. }
+                | ExprKind::Call { .. }
+                | ExprKind::TypeArguments { .. }
+                | ExprKind::Unary {
+                    op: UnaryOp::NullAssert,
+                    ..
+                }
         ) {
             return None;
         }
@@ -458,8 +615,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Registers `ctx` as the shorthand context at the root of `e` (if there
     /// is one) while `f` emits; `==` and patterns provide the context this way
     /// (spec 3.10, "Special case for `==`").
-    pub fn with_shorthand_context<R>(&mut self, e: ExprId, ctx: &Ty, f: impl FnOnce(&mut Self) -> R) -> R {
-        let root = if self.shorthands { self.ast().shorthand_root(e) } else { None };
+    pub fn with_shorthand_context<R>(
+        &mut self,
+        e: ExprId,
+        ctx: &Ty,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let root = if self.shorthands {
+            self.ast().shorthand_root(e)
+        } else {
+            None
+        };
         let Some(root) = root else { return f(self) };
         let previous = self.shorthand_contexts.insert(root, Some(ctx.clone()));
         let r = f(self);
@@ -480,7 +646,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// nothing.
     pub fn context_declaration(&self, t: &Ty) -> Option<ClassId> {
         match t {
-            Ty::Iface { class, args, .. } if Some(*class) == self.ctx.future_or => args.first().and_then(|a| self.context_declaration(a)),
+            Ty::Iface { class, args, .. } if Some(*class) == self.ctx.future_or => {
+                args.first().and_then(|a| self.context_declaration(a))
+            }
             Ty::Iface { class, .. } => Some(*class),
             Ty::FutureOr { arg, .. } => self.context_declaration(arg),
             _ => None,
@@ -497,8 +665,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         };
         let d = ctx.as_ref().and_then(|t| self.context_declaration(t));
         if d.is_none() {
-            let ExprKind::DotShorthand { name, .. } = &self.expr(e).kind else { return None };
-            let msg = format!("no context type to resolve the dot shorthand '.{}'", self.name(name.sym));
+            let ExprKind::DotShorthand { name, .. } = &self.expr(e).kind else {
+                return None;
+            };
+            let msg = format!(
+                "no context type to resolve the dot shorthand '.{}'",
+                self.name(name.sym)
+            );
             self.language_error(self.expr(e).span, msg);
         }
         d
@@ -510,24 +683,45 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if self.speculating > 0 {
             return;
         }
-        let file = self.ctx.program.unit(self.unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
-        self.ctx.errors.borrow_mut().push(dartforge_diagnostics::Diagnostic::new(
-            format!("{}{file}:{}: {msg}", dartforge_types::codes::LANGUAGE_ERROR, span.start),
-            span,
-        ));
+        let file = self
+            .ctx
+            .program
+            .unit(self.unit)
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        self.ctx
+            .errors
+            .borrow_mut()
+            .push(dartforge_diagnostics::Diagnostic::new(
+                format!(
+                    "{}{file}:{}: {msg}",
+                    dartforge_types::codes::LANGUAGE_ERROR,
+                    span.start
+                ),
+                span,
+            ));
     }
 
     /// `.id` / `.new` without a call: `D.id` (getter, field, enum constant,
     /// method or constructor tear-off).
     fn emit_dot_shorthand(&mut self, e: ExprId, expected: Option<&Ty>) -> (Js, Ty) {
-        let ExprKind::DotShorthand { name, .. } = &self.expr(e).kind else { unreachable!() };
+        let ExprKind::DotShorthand { name, .. } = &self.expr(e).kind else {
+            unreachable!()
+        };
         let name = self.name(name.sym).to_string();
         let span = self.expr(e).span;
-        let Some(d) = self.shorthand_class(e, expected) else { return (Js::prim("null"), Ty::Dynamic) };
+        let Some(d) = self.shorthand_class(e, expected) else {
+            return (Js::prim("null"), Ty::Dynamic);
+        };
         match self.static_member_get(d, &name) {
             Some(r) => r,
             None => {
-                let msg = format!("'{}' has no static member or constructor '{name}' for the dot shorthand", self.ctx.class_name(d));
+                let msg = format!(
+                    "'{}' has no static member or constructor '{name}' for the dot shorthand",
+                    self.ctx.class_name(d)
+                );
                 self.language_error(span, msg);
                 (Js::prim("null"), Ty::Dynamic)
             }
@@ -538,16 +732,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn coerce_to(&mut self, js: Js, ty: Ty, expected: &Ty) -> (Js, Ty) {
         if ty.is_dynamic() && !self.in_const {
             let needs_cast = match expected {
-                Ty::Iface { class, nullable, .. } => !(Some(*class) == self.ctx.object && *nullable),
+                Ty::Iface {
+                    class, nullable, ..
+                } => !(Some(*class) == self.ctx.object && *nullable),
                 Ty::Fn { .. } | Ty::Record { .. } | Ty::FutureOr { .. } => true,
                 _ => false,
             };
-            if needs_cast && !expected.mentions_params() && js.code != "null" && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks()) {
+            if needs_cast
+                && !expected.mentions_params()
+                && js.code != "null"
+                && !self.ctx.filter.is_some_and(|f| f.omit_implicit_checks())
+            {
                 return (self.as_cast(&js, expected), expected.clone());
             }
             return (js, ty);
         }
-        let Ty::Fn { type_params: etps, .. } = expected else { return (js, ty) };
+        let Ty::Fn {
+            type_params: etps, ..
+        } = expected
+        else {
+            return (js, ty);
+        };
         if !etps.is_empty() {
             return (js, ty);
         }
@@ -556,20 +761,44 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 // Instantiate with the arguments inferred from the expected type.
                 let free: Vec<u32> = type_params.iter().map(|p| p.id).collect();
                 let inner = match &ty {
-                    Ty::Fn { ret, pos, opt, named, nullable, .. } => Ty::Fn { type_params: vec![], ret: ret.clone(), pos: pos.clone(), opt: opt.clone(), named: named.clone(), nullable: *nullable },
+                    Ty::Fn {
+                        ret,
+                        pos,
+                        opt,
+                        named,
+                        nullable,
+                        ..
+                    } => Ty::Fn {
+                        type_params: vec![],
+                        ret: ret.clone(),
+                        pos: pos.clone(),
+                        opt: opt.clone(),
+                        named: named.clone(),
+                        nullable: *nullable,
+                    },
                     t => t.clone(),
                 };
                 let mut subst = HashMap::new();
                 self.match_type(&inner, expected, &free, &mut subst);
                 let mut rtis = Vec::new();
                 for p in type_params {
-                    let t = subst.get(&p.id).cloned().unwrap_or_else(|| self.default_type_arg(&p.bound));
+                    let t = subst
+                        .get(&p.id)
+                        .cloned()
+                        .unwrap_or_else(|| self.default_type_arg(&p.bound));
                     subst.insert(p.id, t.clone());
                     rtis.push(self.rti(&t));
                 }
-                (Js::prim(format!("dart.gbind({}, {})", js.code, rtis.join(", "))), inner.subst(&subst))
+                (
+                    Js::prim(format!("dart.gbind({}, {})", js.code, rtis.join(", "))),
+                    inner.subst(&subst),
+                )
             }
-            Ty::Iface { class, nullable: false, .. } if Some(*class) != self.ctx.function_ => {
+            Ty::Iface {
+                class,
+                nullable: false,
+                ..
+            } if Some(*class) != self.ctx.function_ => {
                 // Callable class: tearoff of `call`.
                 match self.ctx.lookup_member(&ty, "call", false) {
                     Some(m) if matches!(m.kind, MemberKind::Method(_)) => {
@@ -587,7 +816,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Member name as a JS expression (string, `dartx` symbol or private symbol) for `dart.bind`.
     pub fn member_key_string(&self, recv_ty: &Ty, name: &str) -> String {
         if name.starts_with('_') {
-            let lib = self.ctx.lookup_member(recv_ty, name, false).map(|m| self.ctx.lib_of_class(m.class)).unwrap_or(self.lib);
+            let lib = self
+                .ctx
+                .lookup_member(recv_ty, name, false)
+                .map(|m| self.ctx.lib_of_class(m.class))
+                .unwrap_or(self.lib);
             self.private_sym(lib, name)
         } else if self.ctx.is_ext_member(recv_ty, name, false) {
             self.dartx(&js_member_name(name))
@@ -602,7 +835,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         let mut code = js.code;
         for g in guards.iter().rev() {
-            code = format!("{} = {}, {} == null ? null : {}", g.temp, g.init, g.temp, code);
+            code = format!(
+                "{} = {}, {} == null ? null : {}",
+                g.temp, g.init, g.temp, code
+            );
         }
         Js::new(code, P_COMMA).paren()
     }
@@ -627,18 +863,28 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     format!("{v:.1}")
                 } else {
                     let t = text.trim_start_matches('0');
-                    if t.starts_with('.') { format!("0{t}") } else { t.to_string() }
+                    if t.starts_with('.') {
+                        format!("0{t}")
+                    } else {
+                        t.to_string()
+                    }
                 };
                 (Js::prim(s), self.ctx.t_double())
             }
-            ExprKind::Bool(b) => (Js::prim(if *b { "true" } else { "false" }), self.ctx.t_bool()),
+            ExprKind::Bool(b) => (
+                Js::prim(if *b { "true" } else { "false" }),
+                self.ctx.t_bool(),
+            ),
             ExprKind::Null => (Js::prim("null"), Ty::Null),
             ExprKind::String(lit) => self.emit_string_lit(lit),
             ExprKind::Symbol(names) => {
                 let text: Vec<&str> = names.iter().map(|n| self.name(n.sym)).collect();
                 self.m.use_sdk("_internal");
                 (
-                    Js::prim(format!("dart.const(new _internal.Symbol.new({}))", js::string_literal(&text.join(".")))),
+                    Js::prim(format!(
+                        "dart.const(new _internal.Symbol.new({}))",
+                        js::string_literal(&text.join("."))
+                    )),
                     self.ctx.symbol_.map(Ty::iface).unwrap_or(Ty::Dynamic),
                 )
             }
@@ -653,24 +899,53 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (js, ty) = self.emit_expr(*inner, expected);
                 (js.paren(), ty)
             }
-            ExprKind::List { const_, type_args, elements } => {
-                let common = if type_args.is_empty() { self.common_type(e) } else { None };
+            ExprKind::List {
+                const_,
+                type_args,
+                elements,
+            } => {
+                let common = if type_args.is_empty() {
+                    self.common_type(e)
+                } else {
+                    None
+                };
                 self.emit_list_literal(*const_, type_args, elements, expected, common.as_ref(), e)
             }
-            ExprKind::SetOrMap { const_, type_args, elements } => {
-                let common = if type_args.is_empty() { self.common_type(e) } else { None };
+            ExprKind::SetOrMap {
+                const_,
+                type_args,
+                elements,
+            } => {
+                let common = if type_args.is_empty() {
+                    self.common_type(e)
+                } else {
+                    None
+                };
                 self.emit_set_or_map(*const_, type_args, elements, expected, common.as_ref())
             }
-            ExprKind::Record { positional, named, const_ } => {
+            ExprKind::Record {
+                positional,
+                named,
+                const_,
+            } => {
                 let saved = self.in_const;
                 self.in_const |= *const_;
                 let record = self.emit_record(positional, named);
                 self.in_const = saved;
                 record
             }
-            ExprKind::InstanceCreation { keyword, ty, constructor, arguments } => {
-                self.emit_instance_creation(*keyword, *ty, constructor.as_ref(), arguments, expected)
-            }
+            ExprKind::InstanceCreation {
+                keyword,
+                ty,
+                constructor,
+                arguments,
+            } => self.emit_instance_creation(
+                *keyword,
+                *ty,
+                constructor.as_ref(),
+                arguments,
+                expected,
+            ),
             ExprKind::FunctionExpression(fid) => {
                 let saved_const = self.in_const;
                 self.in_const = false;
@@ -691,13 +966,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::TypeArguments { target, type_args } => {
                 let tys: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
                 if let ExprKind::Identifier(id) = &self.expr(*target).kind {
-                    if let IdentTarget::Element(Element::Class(c)) = self.ident_target(id.sym, *target) {
-                        let t = Ty::Iface { class: c, args: tys, nullable: false };
+                    if let IdentTarget::Element(Element::Class(c)) =
+                        self.ident_target(id.sym, *target)
+                    {
+                        let t = Ty::Iface {
+                            class: c,
+                            args: tys,
+                            nullable: false,
+                        };
                         let rti = self.rti(&t);
                         if self.in_foreign_js {
                             return (Js::prim(rti), self.ctx.t_type());
                         }
-                        return (Js::prim(format!("dart_rti.createRuntimeType({rti})")), self.ctx.t_type());
+                        return (
+                            Js::prim(format!("dart_rti.createRuntimeType({rti})")),
+                            self.ctx.t_type(),
+                        );
                     }
                 }
                 let (fjs, fty) = self.emit_expr(*target, None);
@@ -709,35 +993,82 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             map.insert(p.id, a.clone());
                         }
                         match fty.subst(&map) {
-                            Ty::Fn { ret, pos, opt, named, nullable, .. } => Ty::Fn { type_params: vec![], ret, pos, opt, named, nullable },
+                            Ty::Fn {
+                                ret,
+                                pos,
+                                opt,
+                                named,
+                                nullable,
+                                ..
+                            } => Ty::Fn {
+                                type_params: vec![],
+                                ret,
+                                pos,
+                                opt,
+                                named,
+                                nullable,
+                            },
                             t => t,
                         }
                     }
                     _ => Ty::Dynamic,
                 };
-                (Js::prim(format!("dart.gbind({}, {})", fjs.code, rtis.join(", "))), ret_ty)
+                (
+                    Js::prim(format!("dart.gbind({}, {})", fjs.code, rtis.join(", "))),
+                    ret_ty,
+                )
             }
-            ExprKind::Unary { op: op @ (UnaryOp::Neg | UnaryOp::BitNot), operand } if self.ext_type_member(e).is_some() => {
+            ExprKind::Unary {
+                op: op @ (UnaryOp::Neg | UnaryOp::BitNot),
+                operand,
+            } if self.ext_type_member(e).is_some() => {
                 let _ = op;
-                let Some((owner, MemberRef::Function(f))) = self.ext_type_member(e) else { unreachable!() };
+                let Some((owner, MemberRef::Function(f))) = self.ext_type_member(e) else {
+                    unreachable!()
+                };
                 let (v, _) = self.emit_expr(*operand, None);
                 self.ext_type_operator(&v, Some(*operand), owner, f, &[])
             }
             ExprKind::Unary { op, operand } => self.emit_unary(*op, *operand, e),
-            ExprKind::Binary { op, left, right } if !matches!(op, BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull | BinaryOp::Eq | BinaryOp::NotEq) && self.ext_type_member(e).is_some() => {
+            ExprKind::Binary { op, left, right }
+                if !matches!(
+                    op,
+                    BinaryOp::And
+                        | BinaryOp::Or
+                        | BinaryOp::IfNull
+                        | BinaryOp::Eq
+                        | BinaryOp::NotEq
+                ) && self.ext_type_member(e).is_some() =>
+            {
                 // Operator declared in an extension type: the helper function.
-                let Some((owner, MemberRef::Function(f))) = self.ext_type_member(e) else { unreachable!() };
+                let Some((owner, MemberRef::Function(f))) = self.ext_type_member(e) else {
+                    unreachable!()
+                };
                 let (l, _) = self.emit_expr(*left, None);
                 let ctx_r = self.ext_type_param(Some(*left), owner, f, 0);
                 let (r, _) = self.emit_expr(*right, ctx_r.as_ref());
                 self.ext_type_operator(&l, Some(*left), owner, f, &[r])
             }
-            ExprKind::Binary { op, left, right } => self.emit_binary(*op, *left, *right, expected, e),
-            ExprKind::Conditional { condition, then, else_ } if self.constant(*condition).is_some() => {
-                let branch = if self.constant(*condition) == Some(true) { *then } else { *else_ };
+            ExprKind::Binary { op, left, right } => {
+                self.emit_binary(*op, *left, *right, expected, e)
+            }
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } if self.constant(*condition).is_some() => {
+                let branch = if self.constant(*condition) == Some(true) {
+                    *then
+                } else {
+                    *else_
+                };
                 self.emit_expr(branch, expected)
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 self.pending_promotions.clear();
                 self.negated_promotions.clear();
                 let (c, _) = self.emit_cond(*condition);
@@ -760,7 +1091,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (b, bt) = self.emit_expr(*else_, expected);
                 self.pop_scope();
                 let ty = self.ctx.lub(&at, &bt);
-                (Js::new(format!("{c} ? {} : {}", a.at(P_COND), b.at(P_COND)), P_COND), ty)
+                (
+                    Js::new(format!("{c} ? {} : {}", a.at(P_COND), b.at(P_COND)), P_COND),
+                    ty,
+                )
             }
             ExprKind::Is { value, ty, negated } => {
                 let (v, vty) = self.emit_expr(*value, None);
@@ -768,7 +1102,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let test = self.is_test(&v, &t);
                 // Local variable promotion.
                 if let ExprKind::Identifier(n) = &self.expr(*value).kind {
-                    if self.lookup_local(n.sym).is_some() && (self.ctx.is_subtype(&t, &vty) || vty.is_dynamic()) {
+                    if self.lookup_local(n.sym).is_some()
+                        && (self.ctx.is_subtype(&t, &vty) || vty.is_dynamic())
+                    {
                         if *negated {
                             self.negated_promotions.push((n.sym, t.clone()));
                         } else {
@@ -777,7 +1113,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                 }
                 if *negated {
-                    (Js::new(format!("!{}", test.at(P_UNARY)), P_UNARY), self.ctx.t_bool())
+                    (
+                        Js::new(format!("!{}", test.at(P_UNARY)), P_UNARY),
+                        self.ctx.t_bool(),
+                    )
                 } else {
                     (test, self.ctx.t_bool())
                 }
@@ -802,11 +1141,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     format!("{t} = {}, {t}", vjs.code)
                 } else {
                     self.m.use_sdk("core");
-                    format!("{t} = {}, ({cond}) || dart.throw(new core.StateError.new(\"Pattern matching error\")), {t}", vjs.code)
+                    format!(
+                        "{t} = {}, ({cond}) || dart.throw(new core.StateError.new(\"Pattern matching error\")), {t}",
+                        vjs.code
+                    )
                 };
                 (Js::new(code, P_COMMA).paren(), vty)
             }
-            ExprKind::Cascade { target, sections, null_aware } => {
+            ExprKind::Cascade {
+                target,
+                sections,
+                null_aware,
+            } => {
                 let (tjs, tty) = self.emit_expr(*target, expected);
                 let t = self.temp();
                 self.cascade.push((t.clone(), tty.clone()));
@@ -816,7 +1162,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     parts.push(sjs.into_at(P_ASSIGN));
                 }
                 self.cascade.pop();
-                let body = if parts.is_empty() { t.clone() } else { format!("{}, {t}", parts.join(", ")) };
+                let body = if parts.is_empty() {
+                    t.clone()
+                } else {
+                    format!("{}, {t}", parts.join(", "))
+                };
                 let code = if *null_aware {
                     format!("{t} = {}, {t} == null ? null : ({body})", tjs.code)
                 } else {
@@ -825,27 +1175,40 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 (Js::new(code, P_COMMA).paren(), tty)
             }
             ExprKind::CascadeTarget => {
-                let (t, ty) = self.cascade.last().cloned().unwrap_or(("null".into(), Ty::Dynamic));
+                let (t, ty) = self
+                    .cascade
+                    .last()
+                    .cloned()
+                    .unwrap_or(("null".into(), Ty::Dynamic));
                 (Js::prim(t), ty)
             }
             ExprKind::Await(inner) => {
                 let (v, vty) = self.emit_expr(*inner, None);
                 let ty = match &vty {
                     Ty::FutureOr { arg, .. } => (**arg).clone(),
-                    Ty::Iface { .. } => match self.ctx.future_.and_then(|f| self.ctx.as_super(&vty, f)) {
-                        Some(ft) => ft.args().first().cloned().unwrap_or(Ty::Dynamic),
-                        None => vty.clone(),
-                    },
+                    Ty::Iface { .. } => {
+                        match self.ctx.future_.and_then(|f| self.ctx.as_super(&vty, f)) {
+                            Some(ft) => ft.args().first().cloned().unwrap_or(Ty::Dynamic),
+                            None => vty.clone(),
+                        }
+                    }
                     _ => Ty::Dynamic,
                 };
-                (Js::new(format!("yield {}", v.at(P_YIELD)), P_YIELD).paren(), ty)
+                (
+                    Js::new(format!("yield {}", v.at(P_YIELD)), P_YIELD).paren(),
+                    ty,
+                )
             }
             ExprKind::Throw(inner) => {
                 let (v, _) = self.emit_expr(*inner, None);
                 (Js::prim(format!("dart.throw({})", v.code)), Ty::Never)
             }
             ExprKind::Rethrow => {
-                let v = self.rethrow_var.last().cloned().unwrap_or_else(|| "null".into());
+                let v = self
+                    .rethrow_var
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| "null".into());
                 (Js::prim(format!("dart.rethrow({v})")), Ty::Never)
             }
             ExprKind::Switch { value, cases } => self.emit_switch_expr(*value, cases, expected),
@@ -873,7 +1236,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let (v, vty) = self.emit_expr(*e, None);
                     if self.ctx.is_string(&vty) {
                         parts.push(v.into_at(P_ADD));
-                    } else if self.ctx.is_num_like(&vty) && !vty.is_class(self.ctx.num_) || self.ctx.is_bool(&vty) {
+                    } else if self.ctx.is_num_like(&vty) && !vty.is_class(self.ctx.num_)
+                        || self.ctx.is_bool(&vty)
+                    {
                         parts.push(format!("dart.strSafe({})", v.code));
                     } else {
                         parts.push(format!("dart.str({})", v.code));
@@ -895,7 +1260,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Expected element type for a collection literal.
-    fn expected_arg(&self, expected: Option<&Ty>, class: Option<ClassId>, idx: usize) -> Option<Ty> {
+    fn expected_arg(
+        &self,
+        expected: Option<&Ty>,
+        class: Option<ClassId>,
+        idx: usize,
+    ) -> Option<Ty> {
         let e = expected?;
         let c = class?;
         let sup = self.ctx.as_super(&e.non_null(), c)?;
@@ -906,60 +1276,113 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// literal without written type arguments: the element type comes from it
     /// (with the context and the upper bound of the specification); without
     /// it, from the context and the elements by the emitter's own deduction.
-    fn emit_list_literal(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<&Ty>, node: ExprId) -> (Js, Ty) {
+    fn emit_list_literal(
+        &mut self,
+        const_: bool,
+        type_args: &[ast::TypeId],
+        elements: &[CollectionElement],
+        expected: Option<&Ty>,
+        common: Option<&Ty>,
+        node: ExprId,
+    ) -> (Js, Ty) {
         let const_ = const_ || self.in_const;
         let saved_const = self.in_const;
         if const_ {
             self.in_const = true;
         }
-        let common = common.filter(|t| t.is_class(self.ctx.list_)).and_then(|t| t.args().first().cloned());
+        let common = common
+            .filter(|t| t.is_class(self.ctx.list_))
+            .and_then(|t| t.args().first().cloned());
         let r = self.emit_list_literal_inner(const_, type_args, elements, expected, common, node);
         self.in_const = saved_const;
         r
     }
 
-    fn emit_list_literal_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<Ty>, node: ExprId) -> (Js, Ty) {
+    fn emit_list_literal_inner(
+        &mut self,
+        const_: bool,
+        type_args: &[ast::TypeId],
+        elements: &[CollectionElement],
+        expected: Option<&Ty>,
+        common: Option<Ty>,
+        node: ExprId,
+    ) -> (Js, Ty) {
         let elem_ty = if let Some(t) = type_args.first() {
             self.resolve_type(*t)
         } else if let Some(t) = common {
             t
-        } else if let Some(t) = self.expected_arg(expected, self.ctx.list_, 0).or_else(|| self.expected_arg(expected, self.ctx.iterable_, 0)) {
+        } else if let Some(t) = self
+            .expected_arg(expected, self.ctx.list_, 0)
+            .or_else(|| self.expected_arg(expected, self.ctx.iterable_, 0))
+        {
             t
         } else {
             self.infer_elements_ty(elements)
         };
         let list_ty = self.ctx.t_list(elem_ty.clone());
-        let simple = elements.iter().all(|e| matches!(e, CollectionElement::Expression(_)));
+        let simple = elements
+            .iter()
+            .all(|e| matches!(e, CollectionElement::Expression(_)));
         if simple {
             let items: Vec<String> = elements
                 .iter()
                 .map(|e| match e {
-                    CollectionElement::Expression(x) => self.emit_expr(*x, Some(&elem_ty)).0.into_at(P_ASSIGN),
+                    CollectionElement::Expression(x) => {
+                        self.emit_expr(*x, Some(&elem_ty)).0.into_at(P_ASSIGN)
+                    }
                     _ => unreachable!(),
                 })
                 .collect();
             if const_ {
                 let rti = self.rti(&elem_ty);
-                return (Js::prim(format!("dart.constList({rti}, [{}])", items.join(", "))), list_ty);
+                return (
+                    Js::prim(format!("dart.constList({rti}, [{}])", items.join(", "))),
+                    list_ty,
+                );
             }
             if elem_ty.is_dynamic() {
                 return (Js::prim(format!("[{}]", items.join(", "))), list_ty);
             }
-            let jsarr = self.ctx.js_array.map(|c| Ty::iface_args(c, vec![elem_ty.clone()])).unwrap_or(list_ty.clone());
+            let jsarr = self
+                .ctx
+                .js_array
+                .map(|c| Ty::iface_args(c, vec![elem_ty.clone()]))
+                .unwrap_or(list_ty.clone());
             let rti = self.rti(&jsarr);
             self.m.use_sdk("_interceptors");
-            if let Some(fact) = self.fresh_list_append.get(&node).cloned().filter(|f| f.initializer == node && f.element == elem_ty && items.is_empty()) {
+            if let Some(fact) = self
+                .fresh_list_append
+                .get(&node)
+                .cloned()
+                .filter(|f| f.initializer == node && f.element == elem_ty && items.is_empty())
+            {
                 let helper = crate::fresh_list_append::helper_name(self.ctx);
                 let owner = self.temp();
                 let factory = self.temp();
-                return (Js::prim(format!("({owner} = _interceptors.JSArray, {factory} = {owner}.of, {} = {helper}.create({factory}, {owner}, {rti}, []), {}.list)", fact.token, fact.token)), list_ty);
+                return (
+                    Js::prim(format!(
+                        "({owner} = _interceptors.JSArray, {factory} = {owner}.of, {} = {helper}.create({factory}, {owner}, {rti}, []), {}.list)",
+                        fact.token, fact.token
+                    )),
+                    list_ty,
+                );
             }
-            return (Js::prim(format!("_interceptors.JSArray.of({rti}, [{}])", items.join(", "))), list_ty);
+            return (
+                Js::prim(format!(
+                    "_interceptors.JSArray.of({rti}, [{}])",
+                    items.join(", ")
+                )),
+                list_ty,
+            );
         }
         // General form: an IIFE that builds the list.
         let t = self.temp();
         let saved_w = std::mem::take(&mut self.w);
-        let jsarr = self.ctx.js_array.map(|c| Ty::iface_args(c, vec![elem_ty.clone()])).unwrap_or(list_ty.clone());
+        let jsarr = self
+            .ctx
+            .js_array
+            .map(|c| Ty::iface_args(c, vec![elem_ty.clone()]))
+            .unwrap_or(list_ty.clone());
         let rti = self.rti(&jsarr);
         self.m.use_sdk("_interceptors");
         if const_ {
@@ -993,11 +1416,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             match el {
                 CollectionElement::Expression(e) | CollectionElement::NullAwareExpression(e) => {
                     let t = self.type_of(*e);
-                    tys.push(if matches!(el, CollectionElement::NullAwareExpression(_)) { t.non_null() } else { t });
+                    tys.push(if matches!(el, CollectionElement::NullAwareExpression(_)) {
+                        t.non_null()
+                    } else {
+                        t
+                    });
                 }
                 CollectionElement::Spread { value, .. } => {
                     let t = self.type_of(*value);
-                    if let Some(it) = self.ctx.iterable_.and_then(|i| self.ctx.as_super(&t.non_null(), i)) {
+                    if let Some(it) = self
+                        .ctx
+                        .iterable_
+                        .and_then(|i| self.ctx.as_super(&t.non_null(), i))
+                    {
                         tys.push(it.args().first().cloned().unwrap_or(Ty::Dynamic));
                     } else if !matches!(t, Ty::Null) {
                         tys.push(Ty::Dynamic);
@@ -1011,14 +1442,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
                     self.push_scope();
-                    if let CollectionElement::ForIn { target: ast::ForInTarget::Declared { name, ty, .. }, iterable, .. } = el {
+                    if let CollectionElement::ForIn {
+                        target: ast::ForInTarget::Declared { name, ty, .. },
+                        iterable,
+                        ..
+                    } = el
+                    {
                         let it = self.type_of(*iterable);
                         let et = ty.map(|t| self.resolve_type(t)).unwrap_or_else(|| {
-                            self.ctx.iterable_.and_then(|i| self.ctx.as_super(&it, i)).and_then(|t| t.args().first().cloned()).unwrap_or(Ty::Dynamic)
+                            self.ctx
+                                .iterable_
+                                .and_then(|i| self.ctx.as_super(&it, i))
+                                .and_then(|t| t.args().first().cloned())
+                                .unwrap_or(Ty::Dynamic)
                         });
                         self.declare(name.sym, et);
                     }
-                    if let CollectionElement::For { init: Some(ast::ForInit::Variables(list)), .. } = el {
+                    if let CollectionElement::For {
+                        init: Some(ast::ForInit::Variables(list)),
+                        ..
+                    } = el
+                    {
                         let declared = list.ty.map(|t| self.resolve_type(t));
                         for v in list.variables.iter() {
                             let t = match (declared.clone(), v.initializer) {
@@ -1065,7 +1509,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn iife(&self, body: &str) -> Js {
         match self.async_kind {
             AsyncKind::None => Js::prim(format!("(() => {{\n{body}}})()")),
-            _ => Js::new(format!("yield* (function*() {{\n{body}}}).call(this)"), P_YIELD).paren(),
+            _ => Js::new(
+                format!("yield* (function*() {{\n{body}}}).call(this)"),
+                P_YIELD,
+            )
+            .paren(),
         }
     }
 
@@ -1091,22 +1539,42 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 add(self, t);
                 self.w.close("}");
             }
-            CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false } => {
+            CollectionElement::MapEntry {
+                key,
+                value,
+                null_aware_key: false,
+                null_aware_value: false,
+            } => {
                 let (k, _) = self.emit_expr(*key, Some(elem_ty));
                 let (v, _) = self.emit_expr(*value, value_ty);
                 add(self, format!("{}\u{0}{}", k.code, v.code));
             }
-            CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
+            CollectionElement::MapEntry {
+                key,
+                value,
+                null_aware_key,
+                null_aware_value,
+            } => {
                 // Null-aware entry (3.8): the key before the value; a null
                 // null-aware key discards the entry WITHOUT evaluating the value.
-                let kctx = if *null_aware_key { elem_ty.with_nullable(true) } else { elem_ty.clone() };
+                let kctx = if *null_aware_key {
+                    elem_ty.with_nullable(true)
+                } else {
+                    elem_ty.clone()
+                };
                 let (k, _) = self.emit_expr(*key, Some(&kctx));
                 let tk = self.temp();
                 crate::emit_line!(self.w, "{tk} = {};", k.code);
                 if *null_aware_key {
                     crate::open_block!(self.w, "if ({tk} != null) {{");
                 }
-                let vctx = value_ty.map(|t| if *null_aware_value { t.with_nullable(true) } else { t.clone() });
+                let vctx = value_ty.map(|t| {
+                    if *null_aware_value {
+                        t.with_nullable(true)
+                    } else {
+                        t.clone()
+                    }
+                });
                 let (v, _) = self.emit_expr(*value, vctx.as_ref());
                 let tv = self.temp();
                 crate::emit_line!(self.w, "{tv} = {};", v.code);
@@ -1145,7 +1613,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.w.close("}");
                 }
             }
-            CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+            CollectionElement::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 if let Some(pat) = case_pattern {
                     let (vjs, vty) = self.emit_expr(*condition, None);
                     let t = self.temp();
@@ -1182,7 +1656,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.w.close("}");
                 }
             }
-            CollectionElement::For { init, condition, updates, body, .. } => {
+            CollectionElement::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 self.push_scope();
                 let init_js = match init {
                     Some(ast::ForInit::Variables(list)) => {
@@ -1216,13 +1696,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     Some(c) => self.emit_cond(*c).0,
                     None => String::new(),
                 };
-                let upd: Vec<String> = updates.iter().map(|u| self.emit_expr(*u, None).0.code).collect();
-                self.w.open(&format!("for ({init_js}; {cond_js}; {}) {{", upd.join(", ")));
+                let upd: Vec<String> = updates
+                    .iter()
+                    .map(|u| self.emit_expr(*u, None).0.code)
+                    .collect();
+                self.w.open(&format!(
+                    "for ({init_js}; {cond_js}; {}) {{",
+                    upd.join(", ")
+                ));
                 self.emit_collection_element(body, elem_ty, value_ty, add);
                 self.w.close("}");
                 self.pop_scope();
             }
-            CollectionElement::ForIn { target, iterable, body, await_ } => {
+            CollectionElement::ForIn {
+                target,
+                iterable,
+                body,
+                await_,
+            } => {
                 let (ijs, ity) = self.emit_expr(*iterable, None);
                 let et = self
                     .ctx
@@ -1259,19 +1750,35 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Set or map literal; `common` as in [`Self::emit_list_literal`] (it
     /// also decides between set and map, for `{}` with a context).
-    fn emit_set_or_map(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<&Ty>) -> (Js, Ty) {
+    fn emit_set_or_map(
+        &mut self,
+        const_: bool,
+        type_args: &[ast::TypeId],
+        elements: &[CollectionElement],
+        expected: Option<&Ty>,
+        common: Option<&Ty>,
+    ) -> (Js, Ty) {
         let const_ = const_ || self.in_const;
         let saved_const = self.in_const;
         if const_ {
             self.in_const = true;
         }
-        let common = common.filter(|t| t.is_class(self.ctx.map_) || t.is_class(self.ctx.set_)).cloned();
+        let common = common
+            .filter(|t| t.is_class(self.ctx.map_) || t.is_class(self.ctx.set_))
+            .cloned();
         let r = self.emit_set_or_map_inner(const_, type_args, elements, expected, common);
         self.in_const = saved_const;
         r
     }
 
-    fn emit_set_or_map_inner(&mut self, const_: bool, type_args: &[ast::TypeId], elements: &[CollectionElement], expected: Option<&Ty>, common: Option<Ty>) -> (Js, Ty) {
+    fn emit_set_or_map_inner(
+        &mut self,
+        const_: bool,
+        type_args: &[ast::TypeId],
+        elements: &[CollectionElement],
+        expected: Option<&Ty>,
+        common: Option<Ty>,
+    ) -> (Js, Ty) {
         let is_map = if type_args.len() == 2 {
             true
         } else if type_args.len() == 1 {
@@ -1279,7 +1786,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else if let Some(c) = &common {
             c.is_class(self.ctx.map_)
         } else if elements.is_empty() {
-            !expected.is_some_and(|t| t.non_null().class() == self.ctx.set_ || self.ctx.set_.is_some_and(|s| self.ctx.as_super(&t.non_null(), s).is_some() && t.non_null().class() != self.ctx.map_))
+            !expected.is_some_and(|t| {
+                t.non_null().class() == self.ctx.set_
+                    || self.ctx.set_.is_some_and(|s| {
+                        self.ctx.as_super(&t.non_null(), s).is_some()
+                            && t.non_null().class() != self.ctx.map_
+                    })
+            })
         } else {
             let mut any_map = false;
             let mut any_set = false;
@@ -1290,16 +1803,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         };
         if is_map {
             let (kt, vt) = if type_args.len() == 2 {
-                (self.resolve_type(type_args[0]), self.resolve_type(type_args[1]))
+                (
+                    self.resolve_type(type_args[0]),
+                    self.resolve_type(type_args[1]),
+                )
             } else if let Some([k, v]) = common.as_ref().map(|c| c.args()) {
                 (k.clone(), v.clone())
-            } else if let (Some(k), Some(v)) = (self.expected_arg(expected, self.ctx.map_, 0), self.expected_arg(expected, self.ctx.map_, 1)) {
+            } else if let (Some(k), Some(v)) = (
+                self.expected_arg(expected, self.ctx.map_, 0),
+                self.expected_arg(expected, self.ctx.map_, 1),
+            ) {
                 (k, v)
             } else {
                 self.infer_map_tys(elements)
             };
             let map_ty = self.ctx.t_map(kt.clone(), vt.clone());
-            let simple = elements.iter().all(|e| matches!(e, CollectionElement::MapEntry { null_aware_key: false, null_aware_value: false, .. }));
+            let simple = elements.iter().all(|e| {
+                matches!(
+                    e,
+                    CollectionElement::MapEntry {
+                        null_aware_key: false,
+                        null_aware_value: false,
+                        ..
+                    }
+                )
+            });
             if simple {
                 let mut items = Vec::new();
                 for e in elements {
@@ -1311,13 +1839,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if const_ {
                     let kr = self.rti(&kt);
                     let vr = self.rti(&vt);
-                    return (Js::prim(format!("dart.constMap({kr}, {vr}, [{}])", items.join(", "))), map_ty);
+                    return (
+                        Js::prim(format!("dart.constMap({kr}, {vr}, [{}])", items.join(", "))),
+                        map_ty,
+                    );
                 }
                 let (cls, rti) = self.map_impl(&kt, &vt);
                 if items.is_empty() {
                     return (Js::prim(format!("new {cls}.new({rti})")), map_ty);
                 }
-                return (Js::prim(format!("new {cls}.from({rti}, [{}])", items.join(", "))), map_ty);
+                return (
+                    Js::prim(format!("new {cls}.from({rti}, [{}])", items.join(", "))),
+                    map_ty,
+                );
             }
             let (cls, rti) = self.map_impl(&kt, &vt);
             let t = self.temp();
@@ -1354,32 +1888,55 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.resolve_type(*t)
         } else if let Some([t]) = common.as_ref().map(|c| c.args()) {
             t.clone()
-        } else if let Some(t) = self.expected_arg(expected, self.ctx.set_, 0).or_else(|| self.expected_arg(expected, self.ctx.iterable_, 0)) {
+        } else if let Some(t) = self
+            .expected_arg(expected, self.ctx.set_, 0)
+            .or_else(|| self.expected_arg(expected, self.ctx.iterable_, 0))
+        {
             t
         } else {
             self.infer_elements_ty(elements)
         };
         let set_ty = self.ctx.t_set(et.clone());
         self.m.use_sdk("collection");
-        let lhs = self.ctx.linked_hash_set.map(|c| Ty::iface_args(c, vec![et.clone()])).unwrap_or(set_ty.clone());
+        let lhs = self
+            .ctx
+            .linked_hash_set
+            .map(|c| Ty::iface_args(c, vec![et.clone()]))
+            .unwrap_or(set_ty.clone());
         let rti = self.rti(&lhs);
-        let simple = elements.iter().all(|e| matches!(e, CollectionElement::Expression(_)));
+        let simple = elements
+            .iter()
+            .all(|e| matches!(e, CollectionElement::Expression(_)));
         if simple {
             let items: Vec<String> = elements
                 .iter()
                 .map(|e| match e {
-                    CollectionElement::Expression(x) => self.emit_expr(*x, Some(&et)).0.into_at(P_ASSIGN),
+                    CollectionElement::Expression(x) => {
+                        self.emit_expr(*x, Some(&et)).0.into_at(P_ASSIGN)
+                    }
                     _ => unreachable!(),
                 })
                 .collect();
             if const_ {
                 let er = self.rti(&et);
-                return (Js::prim(format!("dart.constSet({er}, [{}])", items.join(", "))), set_ty);
+                return (
+                    Js::prim(format!("dart.constSet({er}, [{}])", items.join(", "))),
+                    set_ty,
+                );
             }
             if items.is_empty() {
-                return (Js::prim(format!("collection.LinkedHashSet.new({rti})")), set_ty);
+                return (
+                    Js::prim(format!("collection.LinkedHashSet.new({rti})")),
+                    set_ty,
+                );
             }
-            return (Js::prim(format!("collection.LinkedHashSet.from({rti}, [{}])", items.join(", "))), set_ty);
+            return (
+                Js::prim(format!(
+                    "collection.LinkedHashSet.from({rti}, [{}])",
+                    items.join(", ")
+                )),
+                set_ty,
+            );
         }
         let t = self.temp();
         let saved_w = std::mem::take(&mut self.w);
@@ -1412,10 +1969,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     fn classify_element(&mut self, e: &CollectionElement, any_map: &mut bool, any_set: &mut bool) {
         match e {
             CollectionElement::MapEntry { .. } => *any_map = true,
-            CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_) => *any_set = true,
+            CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_) => {
+                *any_set = true
+            }
             CollectionElement::Spread { value, .. } => {
                 let t = self.type_of(*value);
-                if self.ctx.map_.is_some_and(|m| self.ctx.as_super(&t.non_null(), m).is_some()) {
+                if self
+                    .ctx
+                    .map_
+                    .is_some_and(|m| self.ctx.as_super(&t.non_null(), m).is_some())
+                {
                     *any_map = true;
                 } else if !t.is_dynamic() {
                     *any_set = true;
@@ -1438,7 +2001,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut vs = Vec::new();
         for el in elements {
             match el {
-                CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
+                CollectionElement::MapEntry {
+                    key,
+                    value,
+                    null_aware_key,
+                    null_aware_value,
+                } => {
                     // A null-aware part enters without the `null` (spec 3.8, NonNull).
                     let k = self.type_of(*key);
                     let v = self.type_of(*value);
@@ -1447,7 +2015,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 CollectionElement::Spread { value, .. } => {
                     let t = self.type_of(*value);
-                    if let Some(mt) = self.ctx.map_.and_then(|m| self.ctx.as_super(&t.non_null(), m)) {
+                    if let Some(mt) = self
+                        .ctx
+                        .map_
+                        .and_then(|m| self.ctx.as_super(&t.non_null(), m))
+                    {
                         ks.push(mt.args().first().cloned().unwrap_or(Ty::Dynamic));
                         vs.push(mt.args().get(1).cloned().unwrap_or(Ty::Dynamic));
                     }
@@ -1468,14 +2040,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
                     self.push_scope();
-                    if let CollectionElement::ForIn { target: ast::ForInTarget::Declared { name, ty, .. }, iterable, .. } = el {
+                    if let CollectionElement::ForIn {
+                        target: ast::ForInTarget::Declared { name, ty, .. },
+                        iterable,
+                        ..
+                    } = el
+                    {
                         let it = self.type_of(*iterable);
                         let et = ty.map(|t| self.resolve_type(t)).unwrap_or_else(|| {
-                            self.ctx.iterable_.and_then(|i| self.ctx.as_super(&it, i)).and_then(|t| t.args().first().cloned()).unwrap_or(Ty::Dynamic)
+                            self.ctx
+                                .iterable_
+                                .and_then(|i| self.ctx.as_super(&it, i))
+                                .and_then(|t| t.args().first().cloned())
+                                .unwrap_or(Ty::Dynamic)
                         });
                         self.declare(name.sym, et);
                     }
-                    if let CollectionElement::For { init: Some(ast::ForInit::Variables(list)), .. } = el {
+                    if let CollectionElement::For {
+                        init: Some(ast::ForInit::Variables(list)),
+                        ..
+                    } = el
+                    {
                         let declared = list.ty.map(|t| self.resolve_type(t));
                         for v in list.variables.iter() {
                             let t = match (declared.clone(), v.initializer) {
@@ -1516,7 +2101,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let _ = (kr, vr);
         let cls = format!("_js_helper.{name}");
         // Rti: `_js_helper|IdentityMap<K,V>`.
-        let lib = self.ctx.program.libraries.iter().position(|l| l.uri == "dart:_js_helper");
+        let lib = self
+            .ctx
+            .program
+            .libraries
+            .iter()
+            .position(|l| l.uri == "dart:_js_helper");
         let rti = match lib.and_then(|i| {
             let sym = self.ctx.sym(name)?;
             match self.ctx.program.libraries[i].declared.get(&sym)?.getter {
@@ -1541,11 +2131,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     // uncached while retaining their constant context for nested collections.
     fn literal_record_cache_value(&self, value: ExprId) -> bool {
         match &self.expr(value).kind {
-            ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::Bool(_) | ExprKind::Null | ExprKind::Symbol(_) => true,
-            ExprKind::String(literal) => literal.parts.iter().all(|part| matches!(part, ast::StringPart::Text(_))),
+            ExprKind::Int(_)
+            | ExprKind::Double(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Null
+            | ExprKind::Symbol(_) => true,
+            ExprKind::String(literal) => literal
+                .parts
+                .iter()
+                .all(|part| matches!(part, ast::StringPart::Text(_))),
             ExprKind::Parenthesized(inner) => self.literal_record_cache_value(*inner),
-            ExprKind::Record { positional, named, .. } => positional.iter().all(|value| self.literal_record_cache_value(*value))
-                && named.iter().all(|(_, value)| self.literal_record_cache_value(*value)),
+            ExprKind::Record {
+                positional, named, ..
+            } => {
+                positional
+                    .iter()
+                    .all(|value| self.literal_record_cache_value(*value))
+                    && named
+                        .iter()
+                        .all(|(_, value)| self.literal_record_cache_value(*value))
+            }
             _ => false,
         }
     }
@@ -1566,16 +2171,29 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // Evaluation order preserved through temps when named fields are out of order.
         let mut sorted = named_items.clone();
         sorted.sort_by(|a, b| a.0.cmp(&b.0));
-        let in_order = named_items.iter().map(|x| &x.0).eq(sorted.iter().map(|x| &x.0));
+        let in_order = named_items
+            .iter()
+            .map(|x| &x.0)
+            .eq(sorted.iter().map(|x| &x.0));
         // Named fields before some positional one in the source? Then the evaluation order requires temps.
         let mut interleaved = false;
         let mut seen_named = false;
-        for (n, e) in named.iter().map(|(n, e)| (Some(n), *e)).chain(std::iter::empty()) {
+        for (n, e) in named
+            .iter()
+            .map(|(n, e)| (Some(n), *e))
+            .chain(std::iter::empty())
+        {
             let _ = (n, e);
         }
         {
-            let mut named_spans: Vec<usize> = named.iter().map(|(_, e)| self.expr(*e).span.start).collect();
-            let pos_spans: Vec<usize> = positional.iter().map(|e| self.expr(*e).span.start).collect();
+            let mut named_spans: Vec<usize> = named
+                .iter()
+                .map(|(_, e)| self.expr(*e).span.start)
+                .collect();
+            let pos_spans: Vec<usize> = positional
+                .iter()
+                .map(|e| self.expr(*e).span.start)
+                .collect();
             named_spans.sort();
             if let (Some(&first_named), Some(&last_pos)) = (named_spans.first(), pos_spans.last()) {
                 if first_named < last_pos {
@@ -1595,7 +2213,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 order.push((self.expr(*e).span.start, None, pos_js[i].clone()));
             }
             for ((n, e), (_, v, _)) in named.iter().zip(named_items.iter()) {
-                order.push((self.expr(*e).span.start, Some(self.name(n.sym).to_string()), v.clone()));
+                order.push((
+                    self.expr(*e).span.start,
+                    Some(self.name(n.sym).to_string()),
+                    v.clone(),
+                ));
             }
             order.sort_by_key(|x| x.0);
             let mut new_pos: Vec<String> = Vec::new();
@@ -1617,20 +2239,41 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let named_js = if names.is_empty() {
             "void 0".to_string()
         } else {
-            format!("[{}]", names.iter().map(|n| js::string_literal(n)).collect::<Vec<_>>().join(", "))
+            format!(
+                "[{}]",
+                names
+                    .iter()
+                    .map(|n| js::string_literal(n))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         };
         let mut values = pos_js.clone();
         values.extend(sorted_vals);
-        let mut code = format!("dart.recordLiteral({}, {}, {named_js}, [{}])", js::string_literal(&shape), pos_js.len(), values.join(", "));
-        if self.in_const && prefix.is_empty()
-            && positional.iter().all(|value| self.literal_record_cache_value(*value))
-            && named.iter().all(|(_, value)| self.literal_record_cache_value(*value))
+        let mut code = format!(
+            "dart.recordLiteral({}, {}, {named_js}, [{}])",
+            js::string_literal(&shape),
+            pos_js.len(),
+            values.join(", ")
+        );
+        if self.in_const
+            && prefix.is_empty()
+            && positional
+                .iter()
+                .all(|value| self.literal_record_cache_value(*value))
+            && named
+                .iter()
+                .all(|(_, value)| self.literal_record_cache_value(*value))
         {
             self.m.note_const_record(self.lib);
             let lv = self.lib_var(self.lib);
             code = format!("{lv}.$C({}, () => {code})", js::string_literal(&code));
         }
-        let ty = Ty::Record { pos: pos_ty, named: sorted.into_iter().map(|(n, _, t)| (n, t)).collect(), nullable: false };
+        let ty = Ty::Record {
+            pos: pos_ty,
+            named: sorted.into_iter().map(|(n, _, t)| (n, t)).collect(),
+            nullable: false,
+        };
         if prefix.is_empty() {
             (Js::prim(code), ty)
         } else {
@@ -1652,7 +2295,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if let Some(t) = &self.extension_this {
             return (Js::prim("$this"), t.clone());
         }
-        let ty = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
+        let ty = self
+            .class
+            .map(|c| self.ctx.this_ty(c))
+            .unwrap_or(Ty::Dynamic);
         (Js::prim("this"), ty)
     }
 
@@ -1680,12 +2326,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 // not the target of a compound write (whose read type stays on
                 // the assignment node), so as not to swap a type for `dynamic`.
                 let ty = match self.common_resolution(e) {
-                    Some(Resolved::Local(_) | Resolved::Parameter { .. }) if !self.ctx.is_write_target(self.unit, e) => self.common_type(e).unwrap_or(ty),
+                    Some(Resolved::Local(_) | Resolved::Parameter { .. })
+                        if !self.ctx.is_write_target(self.unit, e) =>
+                    {
+                        self.common_type(e).unwrap_or(ty)
+                    }
                     _ => ty,
                 };
                 if let Some(l) = self.lookup_local(sym).cloned() {
                     if let Some(init) = &l.lazy_init {
-                        return (Js::new(format!("{js} === void 0 ? {js} = {init} : {js}", ), P_COND).paren(), ty);
+                        return (
+                            Js::new(format!("{js} === void 0 ? {js} = {init} : {js}",), P_COND)
+                                .paren(),
+                            ty,
+                        );
                     }
                     if l.late_check {
                         self.m.use_sdk("_internal");
@@ -1694,34 +2348,68 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 (Js::prim(js), ty)
             }
-            IdentTarget::ThisMember(m) => self.emit_member_get(&Js::prim("this"), &self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic), &n, Some(m)),
+            IdentTarget::ThisMember(m) => self.emit_member_get(
+                &Js::prim("this"),
+                &self
+                    .class
+                    .map(|c| self.ctx.this_ty(c))
+                    .unwrap_or(Ty::Dynamic),
+                &n,
+                Some(m),
+            ),
             IdentTarget::Static(c, mk) => self.emit_static_get(c, &n, mk),
             IdentTarget::Element(el) => self.emit_element_get(el, &n),
-            IdentTarget::TypeParam(t) if self.in_foreign_js => (Js::prim(self.rti(&t)), self.ctx.t_type()),
-            IdentTarget::TypeParam(t) => (Js::prim(format!("dart_rti.createRuntimeType({})", self.rti(&t))), self.ctx.t_type()),
+            IdentTarget::TypeParam(t) if self.in_foreign_js => {
+                (Js::prim(self.rti(&t)), self.ctx.t_type())
+            }
+            IdentTarget::TypeParam(t) => (
+                Js::prim(format!("dart_rti.createRuntimeType({})", self.rti(&t))),
+                self.ctx.t_type(),
+            ),
             IdentTarget::ExtThisMember(_) => {
                 let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
                 self.emit_member_get(&Js::prim("$this"), &t, &n, None)
             }
             IdentTarget::ThisExt => {
-                let t = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
+                let t = self
+                    .class
+                    .map(|c| self.ctx.this_ty(c))
+                    .unwrap_or(Ty::Dynamic);
                 self.emit_member_get(&Js::prim("this"), &t, &n, None)
             }
             IdentTarget::ExtField(ext) => {
                 let e = self.ctx.program.extension(ext);
                 let ext_name = self.extension_js_name(ext);
                 let lib_var = self.lib_var(e.library);
-                let ty = e.fields.iter().find(|v| self.ctx.program.variable(**v).name == sym).map(|v| self.ctx.var_ty(*v)).unwrap_or(Ty::Dynamic);
-                (Js::prim(format!("{lib_var}[{}]", js::string_literal(&format!("{ext_name}|{n}")))), ty)
+                let ty = e
+                    .fields
+                    .iter()
+                    .find(|v| self.ctx.program.variable(**v).name == sym)
+                    .map(|v| self.ctx.var_ty(*v))
+                    .unwrap_or(Ty::Dynamic);
+                (
+                    Js::prim(format!(
+                        "{lib_var}[{}]",
+                        js::string_literal(&format!("{ext_name}|{n}"))
+                    )),
+                    ty,
+                )
             }
             IdentTarget::ExtStatic(ext, fid) => {
                 let e = self.ctx.program.extension(ext);
                 let ext_name = self.extension_js_name(ext);
                 let lib_var = self.lib_var(e.library);
                 let f = self.ctx.program.function(fid);
-                let js = format!("{lib_var}[{}]", js::string_literal(&format!("{ext_name}|{n}")));
+                let js = format!(
+                    "{lib_var}[{}]",
+                    js::string_literal(&format!("{ext_name}|{n}"))
+                );
                 if f.kind == FunctionKind::Getter {
-                    return (Js::prim(format!("{js}()")), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type));
+                    return (
+                        Js::prim(format!("{js}()")),
+                        self.ctx
+                            .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type),
+                    );
                 }
                 let ty = self.ctx.fn_ty(fid);
                 (self.tearoff_static(&js, &ty), ty)
@@ -1756,7 +2444,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     _ => None,
                 };
                 if let Some(t) = special {
-                    return (Js::prim(format!("dart_rti.createRuntimeType({})", self.rti(&t))), self.ctx.t_type());
+                    return (
+                        Js::prim(format!("dart_rti.createRuntimeType({})", self.rti(&t))),
+                        self.ctx.t_type(),
+                    );
                 }
                 // Nothing in the lexical scope, the imports or the outline has
                 // the name: the program is invalid (the VM's `Undefined name`).
@@ -1773,7 +2464,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         match el {
             Element::Function(fid) => {
                 // SDK mode: `staticInteropGlobalContext` is `dart.global`.
-                if crate::own_sdk::intrinsic_of(self.ctx, fid) == Some(crate::own_sdk::Intrinsic::GlobalContext) {
+                if crate::own_sdk::intrinsic_of(self.ctx, fid)
+                    == Some(crate::own_sdk::Intrinsic::GlobalContext)
+                {
                     return (Js::prim("dart.global"), Ty::Dynamic);
                 }
                 let (js, ty) = self.element_ref(el).expect("function");
@@ -1781,17 +2474,35 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let f = self.ctx.program.function(fid);
                 if self.ctx.is_js_member(fid) {
                     return match f.kind {
-                        FunctionKind::Getter => (self.js_null_check(Js::prim(js), &MemberKind::Getter(fid)), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
+                        FunctionKind::Getter => (
+                            self.js_null_check(Js::prim(js), &MemberKind::Getter(fid)),
+                            self.ctx
+                                .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type),
+                        ),
                         FunctionKind::Setter => (Js::prim(js), Ty::Dynamic),
-                        _ => (Js::prim(format!("dart.tearoffInterop({js}, {})", self.ctx.js_null_checkable(&MemberKind::Method(fid)))), ty),
+                        _ => (
+                            Js::prim(format!(
+                                "dart.tearoffInterop({js}, {})",
+                                self.ctx.js_null_checkable(&MemberKind::Method(fid))
+                            )),
+                            ty,
+                        ),
                     };
                 }
                 match f.kind {
-                    FunctionKind::Getter => (Js::prim(js), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
+                    FunctionKind::Getter => (
+                        Js::prim(js),
+                        self.ctx
+                            .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type),
+                    ),
                     FunctionKind::Setter => (Js::prim(js), Ty::Dynamic),
                     // SDK mode: inside `JS()` and for runtime functions, the
                     // *tearoff* is the raw function (`compiler.dart:7331-7338, 7366`).
-                    _ if self.in_foreign_js || crate::own_sdk::function_without_reify(self.ctx, fid) => (Js::prim(js), ty),
+                    _ if self.in_foreign_js
+                        || crate::own_sdk::function_without_reify(self.ctx, fid) =>
+                    {
+                        (Js::prim(js), ty)
+                    }
                     _ => (self.tearoff_static(&js, &ty), ty),
                 }
             }
@@ -1802,7 +2513,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 let (js, ty) = self.element_ref(el).expect("variable");
                 if self.ctx.is_js_var(vid) {
-                    return (self.js_null_check(Js::prim(js), &MemberKind::Field(vid)), ty);
+                    return (
+                        self.js_null_check(Js::prim(js), &MemberKind::Field(vid)),
+                        ty,
+                    );
                 }
                 (Js::prim(js), ty)
             }
@@ -1812,7 +2526,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if self.in_foreign_js {
                     return (Js::prim(rti), self.ctx.t_type());
                 }
-                (Js::prim(format!("dart_rti.createRuntimeType({rti})")), self.ctx.t_type())
+                (
+                    Js::prim(format!("dart_rti.createRuntimeType({rti})")),
+                    self.ctx.t_type(),
+                )
             }
             _ => (Js::prim(js::ident(n)), Ty::Dynamic),
         }
@@ -1823,8 +2540,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         match ty {
             Ty::Fn { type_params, .. } if !type_params.is_empty() => {
                 let rti = self.rti(ty);
-                let defaults: Vec<String> = type_params.iter().map(|p| self.rti(&self.default_type_arg(&p.bound))).collect();
-                Js::prim(format!("dart.gFn({js}, {rti}, dart.constList(dart_rti._Universe.eval(dart_rti._theUniverse(), \"@\", true), [{}]))", defaults.join(", ")))
+                let defaults: Vec<String> = type_params
+                    .iter()
+                    .map(|p| self.rti(&self.default_type_arg(&p.bound)))
+                    .collect();
+                Js::prim(format!(
+                    "dart.gFn({js}, {rti}, dart.constList(dart_rti._Universe.eval(dart_rti._theUniverse(), \"@\", true), [{}]))",
+                    defaults.join(", ")
+                ))
             }
             Ty::Fn { .. } => {
                 let rti = self.rti(ty);
@@ -1837,7 +2560,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn default_type_arg(&self, bound: &Ty) -> Ty {
         if bound.mentions_params() {
             Ty::Dynamic
-        } else if let Ty::Iface { class, nullable: true, .. } = bound {
+        } else if let Ty::Iface {
+            class,
+            nullable: true,
+            ..
+        } = bound
+        {
             if Some(*class) == self.ctx.object {
                 return Ty::Dynamic;
             }
@@ -1849,24 +2577,46 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     pub fn emit_static_get(&mut self, c: ClassId, n: &str, mk: MemberKind) -> (Js, Ty) {
         if self.ctx.is_js_class(c) && self.ctx.is_js_member_kind(&mk) {
-            let js = self.ctx.js_static_ref(Some(c), self.ctx.lib_of_class(c), &mk, n);
+            let js = self
+                .ctx
+                .js_static_ref(Some(c), self.ctx.lib_of_class(c), &mk, n);
             return match mk {
-                MemberKind::Method(fid) => (Js::prim(format!("dart.tearoffInterop({js}, {})", self.ctx.js_null_checkable(&mk))), self.ctx.fn_ty(fid)),
-                MemberKind::Getter(fid) => (self.js_null_check(Js::prim(js), &mk), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
+                MemberKind::Method(fid) => (
+                    Js::prim(format!(
+                        "dart.tearoffInterop({js}, {})",
+                        self.ctx.js_null_checkable(&mk)
+                    )),
+                    self.ctx.fn_ty(fid),
+                ),
+                MemberKind::Getter(fid) => (
+                    self.js_null_check(Js::prim(js), &mk),
+                    self.ctx
+                        .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type),
+                ),
                 MemberKind::Setter(_) => (Js::prim(js), Ty::Dynamic),
-                MemberKind::Field(vid) => (self.js_null_check(Js::prim(js), &mk), self.ctx.var_ty(vid)),
+                MemberKind::Field(vid) => {
+                    (self.js_null_check(Js::prim(js), &mk), self.ctx.var_ty(vid))
+                }
             };
         }
         let cls = self.class_ref(c);
         let js = format!("{cls}{}", js::prop_access(&static_member_name(n)));
         match mk {
             // SDK mode: inside `JS()` and in the runtime, the *tearoff* is raw.
-            MemberKind::Method(fid) if self.in_foreign_js || crate::own_sdk::function_without_reify(self.ctx, fid) => (Js::prim(js), self.ctx.fn_ty(fid)),
+            MemberKind::Method(fid)
+                if self.in_foreign_js || crate::own_sdk::function_without_reify(self.ctx, fid) =>
+            {
+                (Js::prim(js), self.ctx.fn_ty(fid))
+            }
             MemberKind::Method(fid) => {
                 let ty = self.ctx.fn_ty(fid);
                 (self.tearoff_static(&js, &ty), ty)
             }
-            MemberKind::Getter(fid) => (Js::prim(js), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)),
+            MemberKind::Getter(fid) => (
+                Js::prim(js),
+                self.ctx
+                    .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type),
+            ),
             MemberKind::Setter(_) => (Js::prim(js), Ty::Dynamic),
             MemberKind::Field(vid) => match crate::own_sdk::inline_constant(self, vid) {
                 Some(v) => (v, self.ctx.var_ty(vid)),
@@ -1876,7 +2626,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// `recv.name` (getter, field, or method tearoff).
-    pub fn emit_member_get(&mut self, recv: &Js, recv_ty: &Ty, name: &str, member: Option<Member>) -> (Js, Ty) {
+    pub fn emit_member_get(
+        &mut self,
+        recv: &Js,
+        recv_ty: &Ty,
+        name: &str,
+        member: Option<Member>,
+    ) -> (Js, Ty) {
         // SDK mode: `this._jsString` in an extension type is the value itself
         // (the type is erased to its representation).
         if self.ctx.sdk.is_some() {
@@ -1899,19 +2655,35 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let recv_nn = recv_ty.non_null();
         match name {
             "hashCode" if !self.is_user_class_recv(&recv_nn) => {
-                return (Js::prim(format!("dart.hashCode({})", recv.code)), self.ctx.t_int());
+                return (
+                    Js::prim(format!("dart.hashCode({})", recv.code)),
+                    self.ctx.t_int(),
+                );
             }
             "runtimeType" if !self.is_user_class_recv(&recv_nn) => {
-                return (Js::prim(format!("dart.runtimeType({})", recv.code)), self.ctx.t_type());
+                return (
+                    Js::prim(format!("dart.runtimeType({})", recv.code)),
+                    self.ctx.t_type(),
+                );
             }
             "toString" | "noSuchMethod" if !self.is_user_class_recv(&recv_nn) => {
-                let ty = member.as_ref().map(|m| self.ctx.member_ty(m)).unwrap_or(Ty::Dynamic);
+                let ty = member
+                    .as_ref()
+                    .map(|m| self.ctx.member_ty(m))
+                    .unwrap_or(Ty::Dynamic);
                 return (Js::prim(format!("dart.{}Tearoff({})", name, recv.code)), ty);
             }
             _ => {}
         }
         if recv_ty.is_dynamic() && member.is_none() {
-            return (Js::prim(format!("dart.dload({}, {})", recv.code, js::string_literal(&crate::body::js_member_name(name)))), Ty::Dynamic);
+            return (
+                Js::prim(format!(
+                    "dart.dload({}, {})",
+                    recv.code,
+                    js::string_literal(&crate::body::js_member_name(name))
+                )),
+                Ty::Dynamic,
+            );
         }
         let Some(m) = member else {
             // Extension?
@@ -1926,14 +2698,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             if let Ty::Record { pos, named, .. } = &recv_nn {
                 if let Some(idx) = name.strip_prefix('$').and_then(|s| s.parse::<usize>().ok()) {
                     if idx >= 1 && idx <= pos.len() {
-                        return (Js::prim(format!("{}.${idx}", recv.at(P_PRIMARY))), pos[idx - 1].clone());
+                        return (
+                            Js::prim(format!("{}.${idx}", recv.at(P_PRIMARY))),
+                            pos[idx - 1].clone(),
+                        );
                     }
                 }
                 if let Some((_, t)) = named.iter().find(|(n, _)| n == name) {
-                    return (Js::prim(format!("{}{}", recv.at(P_PRIMARY), js::prop_access(name))), t.clone());
+                    return (
+                        Js::prim(format!("{}{}", recv.at(P_PRIMARY), js::prop_access(name))),
+                        t.clone(),
+                    );
                 }
             }
-            return (Js::prim(format!("dart.dload({}, {})", recv.code, js::string_literal(&crate::body::js_member_name(name)))), Ty::Dynamic);
+            return (
+                Js::prim(format!(
+                    "dart.dload({}, {})",
+                    recv.code,
+                    js::string_literal(&crate::body::js_member_name(name))
+                )),
+                Ty::Dynamic,
+            );
         };
         let ty = self.ctx.member_ty(&m);
         let access = self.member_access(recv_ty, name, false);
@@ -1941,7 +2726,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if self.ctx.is_js_member_kind(&m.kind) {
             // Interop: direct property; `tearoffInterop` for methods.
             return match m.kind {
-                MemberKind::Method(_) => (Js::prim(format!("dart.tearoffInterop({js}, {})", self.ctx.js_null_checkable(&m.kind))), ty),
+                MemberKind::Method(_) => (
+                    Js::prim(format!(
+                        "dart.tearoffInterop({js}, {})",
+                        self.ctx.js_null_checkable(&m.kind)
+                    )),
+                    ty,
+                ),
                 _ => (self.js_null_check(Js::prim(js), &m.kind), ty),
             };
         }
@@ -1963,7 +2754,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     fn is_user_class_recv(&self, t: &Ty) -> bool {
         match t {
-            Ty::Iface { class, nullable: false, .. } => {
+            Ty::Iface {
+                class,
+                nullable: false,
+                ..
+            } => {
                 let lib = self.ctx.lib_of_class(*class);
                 !self.ctx.libs[lib.0 as usize].is_sdk
             }
@@ -1984,7 +2779,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // (`_js_interop_checks/.../js_util_optimizer.dart:1003-1041`; in the DDC
         // `toJSCaptureThis` always through `_functionToJSCaptureThisN`).
         if self.ctx.program.library(e.library).uri == "dart:js_interop"
-            && e.name.is_some_and(|n| self.ctx.name(n) == "FunctionToJSExportedDartFunction")
+            && e.name
+                .is_some_and(|n| self.ctx.name(n) == "FunctionToJSExportedDartFunction")
             && matches!(name, "toJS" | "toJSCaptureThis")
         {
             if let Ty::Fn { pos, opt, .. } = recv_ty {
@@ -2012,11 +2808,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         Ty::Fn { ret, .. } => (**ret).clone(),
                         _ => Ty::Dynamic,
                     };
-                    Some((self.js_null_check(Js::prim(read), &MemberKind::Getter(fid)), ret))
+                    Some((
+                        self.js_null_check(Js::prim(read), &MemberKind::Getter(fid)),
+                        ret,
+                    ))
                 }
                 FunctionKind::Function => {
                     let checkable = self.ctx.js_null_checkable(&MemberKind::Method(fid));
-                    Some((Js::prim(format!("dart.tearoffInterop({read}, {checkable})")), ty))
+                    Some((
+                        Js::prim(format!("dart.tearoffInterop({read}, {checkable})")),
+                        ty,
+                    ))
                 }
                 _ => None,
             };
@@ -2037,7 +2839,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     Ty::Fn { ret, .. } => (**ret).clone(),
                     _ => Ty::Dynamic,
                 };
-                Some((Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|get#{name}")), args.join(", "))), ret))
+                Some((
+                    Js::prim(format!(
+                        "{lib_var}[{}]({})",
+                        js::string_literal(&format!("{ext_name}|get#{name}")),
+                        args.join(", ")
+                    )),
+                    ret,
+                ))
             }
             FunctionKind::Function | FunctionKind::Operator => {
                 // Extension method tearoff: a closure.
@@ -2064,7 +2873,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Rtis of the extension's type parameters (in order), from the substitution.
-    pub fn ext_type_args(&mut self, ext: dartforge_elements::model::ExtensionId, subst: &HashMap<u32, Ty>) -> Vec<String> {
+    pub fn ext_type_args(
+        &mut self,
+        ext: dartforge_elements::model::ExtensionId,
+        subst: &HashMap<u32, Ty>,
+    ) -> Vec<String> {
         self.ctx.outline.extensions[ext.0 as usize]
             .type_params
             .iter()
@@ -2106,18 +2919,36 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     ) -> Js {
         if let Some(js_name) = self.ctx.interop_extension_member(fid) {
             let v = self.assert_interop(v.clone(), vty);
-            return Js::new(format!("{}{} = {}", recv.at(P_PRIMARY), js::prop_access(&js_name), v.at(P_ASSIGN)), P_ASSIGN);
+            return Js::new(
+                format!(
+                    "{}{} = {}",
+                    recv.at(P_PRIMARY),
+                    js::prop_access(&js_name),
+                    v.at(P_ASSIGN)
+                ),
+                P_ASSIGN,
+            );
         }
         let e = self.ctx.program.extension(ext);
         let lib_var = self.lib_var(e.library);
         let ext_name = self.extension_js_name(ext);
-        let name = self.name(self.ctx.program.function(fid).name).trim_end_matches("_=").to_string();
+        let name = self
+            .name(self.ctx.program.function(fid).name)
+            .trim_end_matches("_=")
+            .to_string();
         let mut args = self.ext_type_args(ext, subst);
         args.push(recv.code.clone());
         let result = self.temp();
         args.push(format!("{result} = {}", v.at(P_ASSIGN)));
         // A Dart assignment returns its RHS, even when the setter returns void.
-        Js::new(format!("({lib_var}[{}]({}), {result})", js::string_literal(&format!("{ext_name}|set#{name}")), args.join(", ")), P_PRIMARY)
+        Js::new(
+            format!(
+                "({lib_var}[{}]({}), {result})",
+                js::string_literal(&format!("{ext_name}|set#{name}")),
+                args.join(", ")
+            ),
+            P_PRIMARY,
+        )
     }
 
     /// Looks up an extension member applicable to the receiver type.
@@ -2126,8 +2957,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         recv_ty: &Ty,
         name: &str,
         setter: bool,
-    ) -> Option<(dartforge_elements::model::ExtensionId, dartforge_elements::model::FunctionElementId, HashMap<u32, Ty>)> {
-        let key = if setter { format!("{name}_=") } else { name.to_string() };
+    ) -> Option<(
+        dartforge_elements::model::ExtensionId,
+        dartforge_elements::model::FunctionElementId,
+        HashMap<u32, Ty>,
+    )> {
+        let key = if setter {
+            format!("{name}_=")
+        } else {
+            name.to_string()
+        };
         let sym = self.ctx.sym(&key)?;
         if let Some(forced) = self.forced_ext {
             let e = self.ctx.program.extension(forced);
@@ -2143,7 +2982,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut best: Option<ScoredExtensionMatch> = None;
         for ext in self.ctx.visible_extensions(self.lib) {
             let e = self.ctx.program.extension(ext);
-            let Some(&fid) = e.instance_members.get(&sym) else { continue };
+            let Some(&fid) = e.instance_members.get(&sym) else {
+                continue;
+            };
             let data = &self.ctx.outline.extensions[ext.0 as usize];
             let on = self.ctx.ty_of(data.on);
             let mut subst = HashMap::new();
@@ -2162,9 +3003,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let better = match &best {
                 None => true,
                 Some((bext, _, bsubst, bscore)) => {
-                    let bon = self.ctx.ty_of(self.ctx.outline.extensions[bext.0 as usize].on).subst(bsubst);
-                    let a_more = self.ctx.is_subtype(&on_s, &bon) && !self.ctx.is_subtype(&bon, &on_s);
-                    let b_more = self.ctx.is_subtype(&bon, &on_s) && !self.ctx.is_subtype(&on_s, &bon);
+                    let bon = self
+                        .ctx
+                        .ty_of(self.ctx.outline.extensions[bext.0 as usize].on)
+                        .subst(bsubst);
+                    let a_more =
+                        self.ctx.is_subtype(&on_s, &bon) && !self.ctx.is_subtype(&bon, &on_s);
+                    let b_more =
+                        self.ctx.is_subtype(&bon, &on_s) && !self.ctx.is_subtype(&on_s, &bon);
                     a_more || (!b_more && score > *bscore)
                 }
             };
@@ -2176,7 +3022,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Matches `pattern` (with free parameters `params`) against `actual`, filling `subst`.
-    pub fn match_type(&self, pattern: &Ty, actual: &Ty, params: &[u32], subst: &mut HashMap<u32, Ty>) -> bool {
+    pub fn match_type(
+        &self,
+        pattern: &Ty,
+        actual: &Ty,
+        params: &[u32],
+        subst: &mut HashMap<u32, Ty>,
+    ) -> bool {
         match pattern {
             Ty::Param { id, .. } if params.contains(id) => {
                 if matches!(actual, Ty::Dynamic | Ty::Never) {
@@ -2194,7 +3046,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let actual_r = self.ctx.resolve_param_bound(actual);
                 // Every function type is a subtype of `Function` (the
                 // `dart:js_interop` extension `on Function` applies to `f.toJS`).
-                if Some(*class) == self.ctx.function_ && matches!(actual_r.non_null(), Ty::Fn { .. }) {
+                if Some(*class) == self.ctx.function_
+                    && matches!(actual_r.non_null(), Ty::Fn { .. })
+                {
                     return true;
                 }
                 let Some(sup) = self.ctx.as_super(&actual_r.non_null(), *class) else {
@@ -2205,8 +3059,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 true
             }
-            Ty::Fn { ret, pos, opt, named, .. } => {
-                if let Ty::Fn { ret: r2, pos: p2, opt: o2, named: n2, .. } = actual {
+            Ty::Fn {
+                ret,
+                pos,
+                opt,
+                named,
+                ..
+            } => {
+                if let Ty::Fn {
+                    ret: r2,
+                    pos: p2,
+                    opt: o2,
+                    named: n2,
+                    ..
+                } = actual
+                {
                     self.match_type(ret, r2, params, subst);
                     for (a, b) in pos.iter().chain(opt.iter()).zip(p2.iter().chain(o2.iter())) {
                         self.match_type(a, b, params, subst);
@@ -2223,13 +3090,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if let Ty::FutureOr { arg: a2, .. } = actual {
                     return self.match_type(arg, a2, params, subst);
                 }
-                if let Some(ft) = self.ctx.future_.and_then(|f| self.ctx.as_super(&actual.non_null(), f)) {
-                    return self.match_type(arg, ft.args().first().unwrap_or(&Ty::Dynamic), params, subst);
+                if let Some(ft) = self
+                    .ctx
+                    .future_
+                    .and_then(|f| self.ctx.as_super(&actual.non_null(), f))
+                {
+                    return self.match_type(
+                        arg,
+                        ft.args().first().unwrap_or(&Ty::Dynamic),
+                        params,
+                        subst,
+                    );
                 }
                 self.match_type(arg, actual, params, subst)
             }
             Ty::Record { pos, named, .. } => {
-                if let Ty::Record { pos: p2, named: n2, .. } = actual {
+                if let Ty::Record {
+                    pos: p2, named: n2, ..
+                } = actual
+                {
                     for (a, b) in pos.iter().zip(p2.iter()) {
                         self.match_type(a, b, params, subst);
                     }
@@ -2268,19 +3147,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         match &expr.kind {
-            ExprKind::Property { target, name, null_aware } => {
+            ExprKind::Property {
+                target,
+                name,
+                null_aware,
+            } => {
                 let n = self.name(name.sym).to_string();
                 if let Some((owner, member)) = self.ext_type_member(e) {
                     let (tjs, _, mut guards) = self.emit_target(*target);
                     let recv = if *null_aware {
                         let t = self.temp();
-                        guards.push(Guard { temp: t.clone(), init: tjs.code });
+                        guards.push(Guard {
+                            temp: t.clone(),
+                            init: tjs.code,
+                        });
                         Js::prim(t)
                     } else {
                         tjs
                     };
                     let (js, ty) = self.ext_type_read(&recv, Some(*target), owner, member);
-                    let ty = if *null_aware { ty.with_nullable(true) } else { ty };
+                    let ty = if *null_aware {
+                        ty.with_nullable(true)
+                    } else {
+                        ty
+                    };
                     return (js, ty, guards);
                 }
                 // Static cases: prefix, class, enum.
@@ -2290,28 +3180,49 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if let ExprKind::Super = self.expr(*target).kind {
                     let sup_ty = self.super_ty_for(&n, false);
                     let m = self.ctx.lookup_member(&sup_ty, &n, false);
-                    let ty = m.as_ref().map(|m| self.ctx.member_ty(m)).unwrap_or(Ty::Dynamic);
+                    let ty = m
+                        .as_ref()
+                        .map(|m| self.ctx.member_ty(m))
+                        .unwrap_or(Ty::Dynamic);
                     let access = self.member_access(&sup_ty, &n, false);
-                    return (Js::prim(format!("{}{access}", self.super_ref())), ty, vec![]);
+                    return (
+                        Js::prim(format!("{}{access}", self.super_ref())),
+                        ty,
+                        vec![],
+                    );
                 }
                 let (tjs, tty, mut guards) = self.emit_target(*target);
                 let (recv, recv_ty) = if *null_aware {
                     let t = self.temp();
-                    guards.push(Guard { temp: t.clone(), init: tjs.code });
+                    guards.push(Guard {
+                        temp: t.clone(),
+                        init: tjs.code,
+                    });
                     (Js::prim(t), tty.non_null())
                 } else {
                     (tjs, tty)
                 };
                 let member = self.access_member(Some(e), &recv_ty, &n, false);
                 let (js, ty) = self.emit_member_get(&recv, &recv_ty, &n, member);
-                let ty = if *null_aware { ty.with_nullable(true) } else { ty };
+                let ty = if *null_aware {
+                    ty.with_nullable(true)
+                } else {
+                    ty
+                };
                 (js, ty, guards)
             }
-            ExprKind::Index { target, index, null_aware } => {
+            ExprKind::Index {
+                target,
+                index,
+                null_aware,
+            } => {
                 let (tjs, tty, mut guards) = self.emit_target(*target);
                 let (recv, recv_ty) = if *null_aware {
                     let t = self.temp();
-                    guards.push(Guard { temp: t.clone(), init: tjs.code });
+                    guards.push(Guard {
+                        temp: t.clone(),
+                        init: tjs.code,
+                    });
                     (Js::prim(t), tty.non_null())
                 } else {
                     (tjs, tty)
@@ -2320,12 +3231,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let ctx_i = self.ext_type_param(Some(*target), owner, f, 0);
                     let (ijs, _) = self.emit_expr(*index, ctx_i.as_ref());
                     let (js, ty) = self.ext_type_operator(&recv, Some(*target), owner, f, &[ijs]);
-                    let ty = if *null_aware { ty.with_nullable(true) } else { ty };
+                    let ty = if *null_aware {
+                        ty.with_nullable(true)
+                    } else {
+                        ty
+                    };
                     return (js, ty, guards);
                 }
                 let (ijs, _) = self.emit_expr(*index, None);
                 let (js, ty) = self.emit_index_get(&recv, &recv_ty, &ijs, Some(e));
-                let ty = if *null_aware { ty.with_nullable(true) } else { ty };
+                let ty = if *null_aware {
+                    ty.with_nullable(true)
+                } else {
+                    ty
+                };
                 (js, ty, guards)
             }
             ExprKind::Call { target, arguments } => self.emit_call(*target, arguments, expected),
@@ -2339,7 +3258,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Type of the superclass (Object when there is no `extends`).
     pub fn super_ty(&self) -> Ty {
         self.class
-            .and_then(|c| self.ctx.direct_supers(&self.ctx.this_ty(c)).first().cloned())
+            .and_then(|c| {
+                self.ctx
+                    .direct_supers(&self.ctx.this_ty(c))
+                    .first()
+                    .cloned()
+            })
             .filter(|t| matches!(t, Ty::Iface { .. }))
             .or_else(|| self.ctx.object.map(Ty::iface))
             .unwrap_or(Ty::Dynamic)
@@ -2358,7 +3282,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mixins = self.ctx.mixins_of(c);
         let supers = self.ctx.direct_supers(&self.ctx.this_ty(c));
         for t in supers.iter().rev() {
-            if t.class().is_some_and(|k| mixins.contains(&k)) && self.ctx.lookup_member(t, name, setter).is_some() {
+            if t.class().is_some_and(|k| mixins.contains(&k))
+                && self.ctx.lookup_member(t, name, setter).is_some()
+            {
                 return t.clone();
             }
         }
@@ -2380,7 +3306,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn emit_target(&mut self, target: ExprId) -> (Js, Ty, Vec<Guard>) {
         let t = self.expr(target);
         // `Ext(x).member`: explicit extension application.
-        if let ExprKind::Call { target: ct, arguments } = &t.kind {
+        if let ExprKind::Call {
+            target: ct,
+            arguments,
+        } = &t.kind
+        {
             // `Ext(x)` or `prefix.Ext(x)` (the ngdart template writes
             // `import18.FunctionToJSExportedDartFunction(h).toJS`).
             let ext = match &self.expr(*ct).kind {
@@ -2388,7 +3318,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     IdentTarget::Element(Element::Extension(ext)) => Some(ext),
                     _ => None,
                 },
-                ExprKind::Property { target: pt, name, null_aware: false } => match &self.expr(*pt).kind {
+                ExprKind::Property {
+                    target: pt,
+                    name,
+                    null_aware: false,
+                } => match &self.expr(*pt).kind {
                     ExprKind::Identifier(pid) => match self.ident_target(pid.sym, *pt) {
                         IdentTarget::Prefix(p) => self
                             .ctx
@@ -2411,7 +3345,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         match &t.kind {
-            ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => self.emit_selector(target, None),
+            ExprKind::Property { .. } | ExprKind::Index { .. } | ExprKind::Call { .. } => {
+                self.emit_selector(target, None)
+            }
             _ => {
                 let (js, ty) = self.emit_expr(target, None);
                 (js, ty, vec![])
@@ -2429,7 +3365,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         return None;
                     }
                     let sym = self.ctx.sym(name)?;
-                    let b = self.ctx.program.lookup_prefixed_in_unit(self.unit, p, sym)?;
+                    let b = self
+                        .ctx
+                        .program
+                        .lookup_prefixed_in_unit(self.unit, p, sym)?;
                     let el = b.getter.or(b.setter)?;
                     Some(self.emit_element_get(el, name))
                 }
@@ -2439,14 +3378,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let sym = self.ctx.sym(name)?;
                     let ext_name = self.extension_js_name(ext);
                     let lib_var = self.lib_var(e.library);
-                    if let Some(&vid) = e.fields.iter().find(|v| self.ctx.program.variable(**v).name == sym) {
-                        return Some((Js::prim(format!("{lib_var}[{}]", js::string_literal(&format!("{ext_name}|{name}")))), self.ctx.var_ty(vid)));
+                    if let Some(&vid) = e
+                        .fields
+                        .iter()
+                        .find(|v| self.ctx.program.variable(**v).name == sym)
+                    {
+                        return Some((
+                            Js::prim(format!(
+                                "{lib_var}[{}]",
+                                js::string_literal(&format!("{ext_name}|{name}"))
+                            )),
+                            self.ctx.var_ty(vid),
+                        ));
                     }
                     if let Some(&fid) = e.static_members.get(&sym) {
                         let f = self.ctx.program.function(fid);
-                        let js = format!("{lib_var}[{}]", js::string_literal(&format!("{ext_name}|{name}")));
+                        let js = format!(
+                            "{lib_var}[{}]",
+                            js::string_literal(&format!("{ext_name}|{name}"))
+                        );
                         if f.kind == FunctionKind::Getter {
-                            return Some((Js::prim(format!("{js}()")), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type)));
+                            return Some((
+                                Js::prim(format!("{js}()")),
+                                self.ctx
+                                    .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type),
+                            ));
                         }
                         let ty = self.ctx.fn_ty(fid);
                         return Some((self.tearoff_static(&js, &ty), ty));
@@ -2456,12 +3412,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 IdentTarget::TypeParam(_) => None,
                 _ => None,
             },
-            ExprKind::Property { target: t2, name: n2, .. } => {
+            ExprKind::Property {
+                target: t2,
+                name: n2,
+                ..
+            } => {
                 // prefix.Class.member
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
                     if let IdentTarget::Prefix(p) = self.ident_target(id.sym, *t2) {
                         let sym = self.ctx.sym(self.name(n2.sym))?;
-                        let b = self.ctx.program.lookup_prefixed_in_unit(self.unit, p, sym)?;
+                        let b = self
+                            .ctx
+                            .program
+                            .lookup_prefixed_in_unit(self.unit, p, sym)?;
                         if let Some(Element::Class(c)) = b.getter {
                             return self.static_member_get(c, name);
                         }
@@ -2469,11 +3432,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 None
             }
-            ExprKind::TypeArguments { target: t2, type_args } => {
+            ExprKind::TypeArguments {
+                target: t2,
+                type_args,
+            } => {
                 // `C<T>.new` / `C<T>.named`: tearoff of an instantiated constructor.
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
-                    if let IdentTarget::Element(Element::Class(c)) = self.ident_target(id.sym, *t2) {
-                        let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                    if let IdentTarget::Element(Element::Class(c)) = self.ident_target(id.sym, *t2)
+                    {
+                        let targs: Vec<Ty> =
+                            type_args.iter().map(|t| self.resolve_type(*t)).collect();
                         return self.ctor_tearoff(c, targs, name);
                     }
                 }
@@ -2489,7 +3457,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             return self.ext_type_ctor_tearoff(c, targs, name);
         }
         let class = self.ctx.program.class(c);
-        let key = if name == "new" { self.ctx.empty_sym } else { self.ctx.sym(name) };
+        let key = if name == "new" {
+            self.ctx.empty_sym
+        } else {
+            self.ctx.sym(name)
+        };
         let fid = *class.constructors.get(&key?)?;
         let params = &self.ctx.class_params[c.0 as usize];
         let mut subst = HashMap::new();
@@ -2497,9 +3469,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             subst.insert(p.id, a.clone());
         }
         let ty = self.ctx.fn_ty(fid).subst_prop(&subst);
-        let inst = Ty::Iface { class: c, args: targs.clone(), nullable: false };
+        let inst = Ty::Iface {
+            class: c,
+            args: targs.clone(),
+            nullable: false,
+        };
         let ty = match ty {
-            Ty::Fn { pos, opt, named, nullable, .. } => Ty::Fn { type_params: vec![], ret: Box::new(inst.clone()), pos, opt, named, nullable },
+            Ty::Fn {
+                pos,
+                opt,
+                named,
+                nullable,
+                ..
+            } => Ty::Fn {
+                type_params: vec![],
+                ret: Box::new(inst.clone()),
+                pos,
+                opt,
+                named,
+                nullable,
+            },
             t => t,
         };
         let (pos_n, ..) = match &ty {
@@ -2508,12 +3497,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         };
         let params_js: Vec<String> = (0..pos_n).map(|i| format!("a{i}")).collect();
         let f = self.ctx.program.function(fid);
-        let cname = if name == "new" { "new".to_string() } else { static_member_name(name) };
+        let cname = if name == "new" {
+            "new".to_string()
+        } else {
+            static_member_name(name)
+        };
         // The static tearoff exists when the class has no type parameters of
         // its own (it passes the class's `rti` to the constructor itself).
         if self.ctx.class_params[c.0 as usize].is_empty() {
             let rti = self.rti(&ty);
-            return Some((Js::prim(format!("dart.fn({}[{}], {rti})", self.class_ref(c), js::string_literal(&format!("_#{cname}#tearOff")))), ty));
+            return Some((
+                Js::prim(format!(
+                    "dart.fn({}[{}], {rti})",
+                    self.class_ref(c),
+                    js::string_literal(&format!("_#{cname}#tearOff"))
+                )),
+                ty,
+            ));
         }
         let mut args = params_js.clone();
         if self.ctx.requires_rti(c) {
@@ -2525,7 +3525,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             format!("new {}.{cname}({})", self.class_ref(c), args.join(", "))
         };
         let rti = self.rti(&ty);
-        Some((Js::prim(format!("dart.fn(({}) => {call}, {rti})", params_js.join(", "))), ty))
+        Some((
+            Js::prim(format!(
+                "dart.fn(({}) => {call}, {rti})",
+                params_js.join(", ")
+            )),
+            ty,
+        ))
     }
 
     pub fn static_member_get(&mut self, c: ClassId, name: &str) -> Option<(Js, Ty)> {
@@ -2541,9 +3547,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let class = self.ctx.program.class(c);
             if class.kind == ClassKind::Enum {
                 if let Some(sym) = self.ctx.sym(name) {
-                    if class.enum_constants.iter().any(|v| self.ctx.program.variable(*v).name == sym) {
+                    if class
+                        .enum_constants
+                        .iter()
+                        .any(|v| self.ctx.program.variable(*v).name == sym)
+                    {
                         let cls = self.class_ref(c);
-                        return Some((Js::prim(format!("{cls}{}", js::prop_access(&static_member_name(name)))), Ty::iface(c)));
+                        return Some((
+                            Js::prim(format!(
+                                "{cls}{}",
+                                js::prop_access(&static_member_name(name))
+                            )),
+                            Ty::iface(c),
+                        ));
                     }
                 }
             }
@@ -2551,17 +3567,31 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // Constructor as a tearoff: `C.new`/`C.named` (in an extension type,
         // the primary one too, which is not an element).
         if crate::extension_type::is_erased_extension_type(self.ctx, c) {
-            if !crate::extension_type::has_constructor(self.ctx, c, if name == "new" { "" } else { name }) {
+            if !crate::extension_type::has_constructor(
+                self.ctx,
+                c,
+                if name == "new" { "" } else { name },
+            ) {
                 return None;
             }
-            let targs: Vec<Ty> = self.ctx.class_params[c.0 as usize].iter().map(|_| Ty::Dynamic).collect();
+            let targs: Vec<Ty> = self.ctx.class_params[c.0 as usize]
+                .iter()
+                .map(|_| Ty::Dynamic)
+                .collect();
             return self.ext_type_ctor_tearoff(c, targs, name);
         }
         let class = self.ctx.program.class(c);
-        let key = if name == "new" { self.ctx.empty_sym } else { self.ctx.sym(name) };
+        let key = if name == "new" {
+            self.ctx.empty_sym
+        } else {
+            self.ctx.sym(name)
+        };
         if let Some(sym) = key {
             if class.constructors.contains_key(&sym) {
-                let targs: Vec<Ty> = self.ctx.class_params[c.0 as usize].iter().map(|_| Ty::Dynamic).collect();
+                let targs: Vec<Ty> = self.ctx.class_params[c.0 as usize]
+                    .iter()
+                    .map(|_| Ty::Dynamic)
+                    .collect();
                 return self.ctor_tearoff(c, targs, name);
             }
             if let Some(&fid) = class.constructors.get(&sym) {
@@ -2572,14 +3602,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 };
                 let params: Vec<String> = (0..pos_n).map(|i| format!("a{i}")).collect();
                 let f = self.ctx.program.function(fid);
-                let cname = if name == "new" { "new".to_string() } else { static_member_name(name) };
+                let cname = if name == "new" {
+                    "new".to_string()
+                } else {
+                    static_member_name(name)
+                };
                 let call = if f.factory {
                     format!("{}.{cname}({})", self.class_ref(c), params.join(", "))
                 } else {
                     format!("new {}.{cname}({})", self.class_ref(c), params.join(", "))
                 };
                 let rti = self.rti(&ty);
-                return Some((Js::prim(format!("dart.fn(({}) => {call}, {rti})", params.join(", "))), ty));
+                return Some((
+                    Js::prim(format!("dart.fn(({}) => {call}, {rti})", params.join(", "))),
+                    ty,
+                ));
             }
         }
         None
@@ -2588,9 +3625,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// `recv[i]`; `node` is the index expression in the source, when there is
     /// one (the operator is the one the common resolution recorded for it,
     /// [`Self::access_member`]).
-    pub fn emit_index_get(&mut self, recv: &Js, recv_ty: &Ty, idx: &Js, node: Option<ExprId>) -> (Js, Ty) {
+    pub fn emit_index_get(
+        &mut self,
+        recv: &Js,
+        recv_ty: &Ty,
+        idx: &Js,
+        node: Option<ExprId>,
+    ) -> (Js, Ty) {
         if recv_ty.is_dynamic() {
-            return (Js::prim(format!("dart.dsend({}, '_get', [{}])", recv.code, idx.code)), Ty::Dynamic);
+            return (
+                Js::prim(format!("dart.dsend({}, '_get', [{}])", recv.code, idx.code)),
+                Ty::Dynamic,
+            );
         }
         match self.access_member(node, recv_ty, "[]", false) {
             Some(m) => {
@@ -2599,7 +3645,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     _ => Ty::Dynamic,
                 };
                 let access = self.member_access(recv_ty, "[]", false);
-                (Js::prim(format!("{}{access}({})", recv.at(P_PRIMARY), idx.code)), ty)
+                (
+                    Js::prim(format!("{}{access}({})", recv.at(P_PRIMARY), idx.code)),
+                    ty,
+                )
             }
             None => {
                 if let Some((ext, fid, subst)) = self.find_extension_member(recv_ty, "[]", false) {
@@ -2613,9 +3662,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let mut args = self.ext_type_args(ext, &subst);
                     args.push(recv.code.clone());
                     args.push(idx.code.clone());
-                    return (Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|[]")), args.join(", "))), ty);
+                    return (
+                        Js::prim(format!(
+                            "{lib_var}[{}]({})",
+                            js::string_literal(&format!("{ext_name}|[]")),
+                            args.join(", ")
+                        )),
+                        ty,
+                    );
                 }
-                (Js::prim(format!("dart.dsend({}, '_get', [{}])", recv.code, idx.code)), Ty::Dynamic)
+                (
+                    Js::prim(format!("dart.dsend({}, '_get', [{}])", recv.code, idx.code)),
+                    Ty::Dynamic,
+                )
             }
         }
     }
@@ -2629,9 +3688,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// the temporary that keeps the old value.
     pub fn emit_discarded(&mut self, e: ExprId) -> Js {
         // The type checker (the analysis mode) sees the expression as written.
-        if let (None, ExprKind::Unary { op: op @ (UnaryOp::PostfixInc | UnaryOp::PostfixDec), operand }) = (&self.ctx.type_check, &self.expr(e).kind) {
+        if let (
+            None,
+            ExprKind::Unary {
+                op: op @ (UnaryOp::PostfixInc | UnaryOp::PostfixDec),
+                operand,
+            },
+        ) = (&self.ctx.type_check, &self.expr(e).kind)
+        {
             let (op, operand) = (*op, *operand);
-            let prefix = if op == UnaryOp::PostfixInc { UnaryOp::PrefixInc } else { UnaryOp::PrefixDec };
+            let prefix = if op == UnaryOp::PostfixInc {
+                UnaryOp::PrefixInc
+            } else {
+                UnaryOp::PrefixDec
+            };
             return self.emit_unary(prefix, operand, e).0;
         }
         self.emit_expr(e, None).0
@@ -2645,16 +3715,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let n = std::mem::take(&mut self.negated_promotions);
                 self.pending_promotions = n;
                 self.negated_promotions = p;
-                (Js::new(format!("!{}", Js::new(c, P_PRIMARY).at(P_UNARY)), P_UNARY), self.ctx.t_bool())
+                (
+                    Js::new(format!("!{}", Js::new(c, P_PRIMARY).at(P_UNARY)), P_UNARY),
+                    self.ctx.t_bool(),
+                )
             }
             UnaryOp::Neg => {
                 let (v, vty) = self.emit_expr(operand, None);
                 if self.ctx.is_num_like_nullable(&vty) {
                     let v = self.not_null(&v, &vty);
-                    return (Js::new(format!("-{}", v.at(P_UNARY)), P_UNARY), vty.non_null());
+                    return (
+                        Js::new(format!("-{}", v.at(P_UNARY)), P_UNARY),
+                        vty.non_null(),
+                    );
                 }
                 if vty.is_dynamic() {
-                    return (Js::prim(format!("dart.dsend({}, '_negate', [])", v.code)), Ty::Dynamic);
+                    return (
+                        Js::prim(format!("dart.dsend({}, '_negate', [])", v.code)),
+                        Ty::Dynamic,
+                    );
                 }
                 match self.access_member(Some(e), &vty, "unary-", false) {
                     Some(m) => {
@@ -2666,7 +3745,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         (Js::prim(format!("{}{access}()", v.at(P_PRIMARY))), ret)
                     }
                     None => {
-                        if let Some((ext, fid, subst)) = self.find_extension_member(&vty, "unary-", false) {
+                        if let Some((ext, fid, subst)) =
+                            self.find_extension_member(&vty, "unary-", false)
+                        {
                             let e = self.ctx.program.extension(ext);
                             let lib_var = self.lib_var(e.library);
                             let ext_name = self.extension_js_name(ext);
@@ -2676,9 +3757,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             };
                             let mut args = self.ext_type_args(ext, &subst);
                             args.push(v.code.clone());
-                            return (Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|unary-")), args.join(", "))), ret);
+                            return (
+                                Js::prim(format!(
+                                    "{lib_var}[{}]({})",
+                                    js::string_literal(&format!("{ext_name}|unary-")),
+                                    args.join(", ")
+                                )),
+                                ret,
+                            );
                         }
-                        (Js::prim(format!("dart.dsend({}, '_negate', [])", v.code)), Ty::Dynamic)
+                        (
+                            Js::prim(format!("dart.dsend({}, '_negate', [])", v.code)),
+                            Ty::Dynamic,
+                        )
                     }
                 }
             }
@@ -2686,10 +3777,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (v, vty) = self.emit_expr(operand, None);
                 if self.ctx.is_num_like_nullable(&vty) {
                     let v = self.not_null(&v, &vty);
-                    return (Js::new(format!("~{} >>> 0", v.at(P_UNARY)), P_SHIFT), self.ctx.t_int());
+                    return (
+                        Js::new(format!("~{} >>> 0", v.at(P_UNARY)), P_SHIFT),
+                        self.ctx.t_int(),
+                    );
                 }
                 if vty.is_dynamic() {
-                    return (Js::prim(format!("dart.dsend({}, '~', [])", v.code)), Ty::Dynamic);
+                    return (
+                        Js::prim(format!("dart.dsend({}, '~', [])", v.code)),
+                        Ty::Dynamic,
+                    );
                 }
                 match self.access_member(Some(e), &vty, "~", false) {
                     Some(m) => {
@@ -2700,7 +3797,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let access = self.member_access(&vty, "~", false);
                         (Js::prim(format!("{}{access}()", v.at(P_PRIMARY))), ret)
                     }
-                    None => (Js::prim(format!("dart.dsend({}, '~', [])", v.code)), Ty::Dynamic),
+                    None => (
+                        Js::prim(format!("dart.dsend({}, '~', [])", v.code)),
+                        Ty::Dynamic,
+                    ),
                 }
             }
             UnaryOp::NullAssert => {
@@ -2708,7 +3808,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if !vty.is_nullable() && !vty.is_dynamic() {
                     return (v, vty);
                 }
-                (Js::prim(format!("dart.nullCheck({})", v.code)), vty.non_null())
+                (
+                    Js::prim(format!("dart.nullCheck({})", v.code)),
+                    vty.non_null(),
+                )
             }
             UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec => {
                 let is_inc = matches!(op, UnaryOp::PrefixInc | UnaryOp::PostfixInc);
@@ -2731,31 +3834,84 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// `node` is the operator expression in the source, when there is one: the
     /// member is the one the common resolution recorded for it
     /// ([`Self::access_member`]).
-    pub fn emit_binop_values(&mut self, op: BinaryOp, l: Js, lt: &Ty, r: Js, rt: &Ty, node: Option<ExprId>) -> (Js, Ty) {
+    pub fn emit_binop_values(
+        &mut self,
+        op: BinaryOp,
+        l: Js,
+        lt: &Ty,
+        r: Js,
+        rt: &Ty,
+        node: Option<ExprId>,
+    ) -> (Js, Ty) {
         let ctx = self.ctx;
-        if node.is_some() && node == self.sdk_number_comparison && op == BinaryOp::Gt && !self.is_closure_body {
+        if node.is_some()
+            && node == self.sdk_number_comparison
+            && op == BinaryOp::Gt
+            && !self.is_closure_body
+        {
             // JS remainder can produce BigInt under foreign borrowing. Preserve
             // its original symbol dispatch, including errors and custom behavior.
             let access = self.member_access(lt, ">", false);
-            return (Js::new(format!("typeof {} === 'number' ? {} > {} : {}{}({})", l.code, l.at(P_REL), r.at(P_REL + 1), l.at(P_PRIMARY), access, r.code), P_COND), ctx.t_bool());
+            return (
+                Js::new(
+                    format!(
+                        "typeof {} === 'number' ? {} > {} : {}{}({})",
+                        l.code,
+                        l.at(P_REL),
+                        r.at(P_REL + 1),
+                        l.at(P_PRIMARY),
+                        access,
+                        r.code
+                    ),
+                    P_COND,
+                ),
+                ctx.t_bool(),
+            );
         }
-        if op == BinaryOp::Rem && node.is_some_and(|id| self.counter_modulo.contains(&id)) && ctx.is_int(lt) && ctx.is_int(rt) {
-            return (Js::new(format!("{} % {}", l.at(P_MUL), r.at(P_MUL + 1)), P_MUL), ctx.t_int());
+        if op == BinaryOp::Rem
+            && node.is_some_and(|id| self.counter_modulo.contains(&id))
+            && ctx.is_int(lt)
+            && ctx.is_int(rt)
+        {
+            return (
+                Js::new(format!("{} % {}", l.at(P_MUL), r.at(P_MUL + 1)), P_MUL),
+                ctx.t_int(),
+            );
         }
         let num_l = ctx.is_num_like_nullable(lt);
         let num_r = ctx.is_num_like_nullable(rt) || matches!(rt, Ty::Dynamic);
-        if num_l && (num_r || ctx.is_num_like_nullable(rt)) && !matches!(op, BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull) {
+        if num_l
+            && (num_r || ctx.is_num_like_nullable(rt))
+            && !matches!(
+                op,
+                BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull
+            )
+        {
             let ln = self.not_null(&l, lt);
             let rn = self.not_null(&r, rt);
             let is_int = ctx.is_int(&lt.non_null()) && ctx.is_int(&rt.non_null());
             let is_double = ctx.is_double(&lt.non_null()) || ctx.is_double(&rt.non_null());
-            let arith_ty = if is_int { ctx.t_int() } else if is_double { ctx.t_double() } else { ctx.t_num() };
+            let arith_ty = if is_int {
+                ctx.t_int()
+            } else if is_double {
+                ctx.t_double()
+            } else {
+                ctx.t_num()
+            };
             let dyn_r = matches!(rt, Ty::Dynamic);
             let rn = if dyn_r && !ctx.filter.is_some_and(|f| f.omit_implicit_checks()) {
                 // Numeric operators have a checked argument even when their
                 // receiver is statically known. A null check alone permits JS
                 // coercion of strings, booleans and arbitrary user objects.
-                let argument_ty = if matches!(op, BinaryOp::Shl | BinaryOp::Shr | BinaryOp::UShr | BinaryOp::BitAnd | BinaryOp::BitOr | BinaryOp::BitXor) {
+                let argument_ty = if matches!(
+                    op,
+                    BinaryOp::Shl
+                        | BinaryOp::Shr
+                        | BinaryOp::UShr
+                        | BinaryOp::BitAnd
+                        | BinaryOp::BitOr
+                        | BinaryOp::BitXor
+                ) {
                     ctx.t_int()
                 } else {
                     ctx.t_num()
@@ -2763,40 +3919,142 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.as_cast(&r, &argument_ty)
             } else if dyn_r {
                 Js::prim(format!("dart.notNull({})", rn.code))
-            } else { rn };
+            } else {
+                rn
+            };
             return match op {
-                BinaryOp::Add => (Js::new(format!("{} + {}", ln.at(P_ADD), rn.at(P_ADD + 1)), P_ADD), arith_ty),
-                BinaryOp::Sub => (Js::new(format!("{} - {}", ln.at(P_ADD), rn.at(P_ADD + 1)), P_ADD), arith_ty),
-                BinaryOp::Mul => (Js::new(format!("{} * {}", ln.at(P_MUL), rn.at(P_MUL + 1)), P_MUL), arith_ty),
-                BinaryOp::Div => (Js::new(format!("{} / {}", ln.at(P_MUL), rn.at(P_MUL + 1)), P_MUL), ctx.t_double()),
-                BinaryOp::TruncDiv => (Js::prim(format!("{}[{}]({})", ln.at(P_PRIMARY), self.dartx("~/"), rn.code)), ctx.t_int()),
-                BinaryOp::Rem => (Js::prim(format!("{}[{}]({})", ln.at(P_PRIMARY), self.dartx("%"), rn.code)), arith_ty),
-                BinaryOp::Shl => (Js::prim(format!("{}[{}]({})", ln.at(P_PRIMARY), self.dartx("<<"), rn.code)), ctx.t_int()),
-                BinaryOp::Shr => (Js::prim(format!("{}[{}]({})", ln.at(P_PRIMARY), self.dartx(">>"), rn.code)), ctx.t_int()),
-                BinaryOp::UShr => (Js::prim(format!("{}[{}]({})", ln.at(P_PRIMARY), self.dartx(">>>"), rn.code)), ctx.t_int()),
-                BinaryOp::BitAnd => (Js::new(format!("({} & {}) >>> 0", ln.at(P_BITAND), rn.at(P_BITAND + 1)), P_SHIFT), ctx.t_int()),
-                BinaryOp::BitOr => (Js::new(format!("({} | {}) >>> 0", ln.at(P_BITOR), rn.at(P_BITOR + 1)), P_SHIFT), ctx.t_int()),
-                BinaryOp::BitXor => (Js::new(format!("({} ^ {}) >>> 0", ln.at(P_BITXOR), rn.at(P_BITXOR + 1)), P_SHIFT), ctx.t_int()),
-                BinaryOp::Lt => (Js::new(format!("{} < {}", ln.at(P_REL), rn.at(P_REL + 1)), P_REL), ctx.t_bool()),
-                BinaryOp::Gt => (Js::new(format!("{} > {}", ln.at(P_REL), rn.at(P_REL + 1)), P_REL), ctx.t_bool()),
-                BinaryOp::LtEq => (Js::new(format!("{} <= {}", ln.at(P_REL), rn.at(P_REL + 1)), P_REL), ctx.t_bool()),
-                BinaryOp::GtEq => (Js::new(format!("{} >= {}", ln.at(P_REL), rn.at(P_REL + 1)), P_REL), ctx.t_bool()),
+                BinaryOp::Add => (
+                    Js::new(format!("{} + {}", ln.at(P_ADD), rn.at(P_ADD + 1)), P_ADD),
+                    arith_ty,
+                ),
+                BinaryOp::Sub => (
+                    Js::new(format!("{} - {}", ln.at(P_ADD), rn.at(P_ADD + 1)), P_ADD),
+                    arith_ty,
+                ),
+                BinaryOp::Mul => (
+                    Js::new(format!("{} * {}", ln.at(P_MUL), rn.at(P_MUL + 1)), P_MUL),
+                    arith_ty,
+                ),
+                BinaryOp::Div => (
+                    Js::new(format!("{} / {}", ln.at(P_MUL), rn.at(P_MUL + 1)), P_MUL),
+                    ctx.t_double(),
+                ),
+                BinaryOp::TruncDiv => (
+                    Js::prim(format!(
+                        "{}[{}]({})",
+                        ln.at(P_PRIMARY),
+                        self.dartx("~/"),
+                        rn.code
+                    )),
+                    ctx.t_int(),
+                ),
+                BinaryOp::Rem => (
+                    Js::prim(format!(
+                        "{}[{}]({})",
+                        ln.at(P_PRIMARY),
+                        self.dartx("%"),
+                        rn.code
+                    )),
+                    arith_ty,
+                ),
+                BinaryOp::Shl => (
+                    Js::prim(format!(
+                        "{}[{}]({})",
+                        ln.at(P_PRIMARY),
+                        self.dartx("<<"),
+                        rn.code
+                    )),
+                    ctx.t_int(),
+                ),
+                BinaryOp::Shr => (
+                    Js::prim(format!(
+                        "{}[{}]({})",
+                        ln.at(P_PRIMARY),
+                        self.dartx(">>"),
+                        rn.code
+                    )),
+                    ctx.t_int(),
+                ),
+                BinaryOp::UShr => (
+                    Js::prim(format!(
+                        "{}[{}]({})",
+                        ln.at(P_PRIMARY),
+                        self.dartx(">>>"),
+                        rn.code
+                    )),
+                    ctx.t_int(),
+                ),
+                BinaryOp::BitAnd => (
+                    Js::new(
+                        format!("({} & {}) >>> 0", ln.at(P_BITAND), rn.at(P_BITAND + 1)),
+                        P_SHIFT,
+                    ),
+                    ctx.t_int(),
+                ),
+                BinaryOp::BitOr => (
+                    Js::new(
+                        format!("({} | {}) >>> 0", ln.at(P_BITOR), rn.at(P_BITOR + 1)),
+                        P_SHIFT,
+                    ),
+                    ctx.t_int(),
+                ),
+                BinaryOp::BitXor => (
+                    Js::new(
+                        format!("({} ^ {}) >>> 0", ln.at(P_BITXOR), rn.at(P_BITXOR + 1)),
+                        P_SHIFT,
+                    ),
+                    ctx.t_int(),
+                ),
+                BinaryOp::Lt => (
+                    Js::new(format!("{} < {}", ln.at(P_REL), rn.at(P_REL + 1)), P_REL),
+                    ctx.t_bool(),
+                ),
+                BinaryOp::Gt => (
+                    Js::new(format!("{} > {}", ln.at(P_REL), rn.at(P_REL + 1)), P_REL),
+                    ctx.t_bool(),
+                ),
+                BinaryOp::LtEq => (
+                    Js::new(format!("{} <= {}", ln.at(P_REL), rn.at(P_REL + 1)), P_REL),
+                    ctx.t_bool(),
+                ),
+                BinaryOp::GtEq => (
+                    Js::new(format!("{} >= {}", ln.at(P_REL), rn.at(P_REL + 1)), P_REL),
+                    ctx.t_bool(),
+                ),
                 _ => unreachable!(),
             };
         }
         if ctx.is_string(&lt.non_null()) && op == BinaryOp::Add && !lt.is_nullable() {
-            let rn = if ctx.is_string(rt) { r } else { Js::prim(format!("dart.nullCheck({})", r.code)) };
-            return (Js::new(format!("{} + {}", l.at(P_ADD), rn.at(P_ADD + 1)), P_ADD), ctx.t_string());
+            let rn = if ctx.is_string(rt) {
+                r
+            } else {
+                Js::prim(format!("dart.nullCheck({})", r.code))
+            };
+            return (
+                Js::new(format!("{} + {}", l.at(P_ADD), rn.at(P_ADD + 1)), P_ADD),
+                ctx.t_string(),
+            );
         }
         if ctx.is_string(&lt.non_null()) && op == BinaryOp::Mul && !lt.is_nullable() {
-            return (Js::prim(format!("{}[{}]({})", l.at(P_PRIMARY), self.dartx("*"), r.code)), ctx.t_string());
+            return (
+                Js::prim(format!(
+                    "{}[{}]({})",
+                    l.at(P_PRIMARY),
+                    self.dartx("*"),
+                    r.code
+                )),
+                ctx.t_string(),
+            );
         }
         match op {
             BinaryOp::Eq | BinaryOp::NotEq => {
                 let neg = op == BinaryOp::NotEq;
                 let js = self.emit_equals(&l, lt, &r, rt);
                 if neg {
-                    (Js::new(format!("!{}", js.at(P_UNARY)), P_UNARY), ctx.t_bool())
+                    (
+                        Js::new(format!("!{}", js.at(P_UNARY)), P_UNARY),
+                        ctx.t_bool(),
+                    )
                 } else {
                     (js, ctx.t_bool())
                 }
@@ -2804,7 +4062,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             _ => {
                 let name = binop_name(op);
                 if lt.is_dynamic() {
-                    return (Js::prim(format!("dart.dsend({}, {}, [{}])", l.code, js::string_literal(&crate::body::js_member_name(name)), r.code)), Ty::Dynamic);
+                    return (
+                        Js::prim(format!(
+                            "dart.dsend({}, {}, [{}])",
+                            l.code,
+                            js::string_literal(&crate::body::js_member_name(name)),
+                            r.code
+                        )),
+                        Ty::Dynamic,
+                    );
                 }
                 match self.access_member(node, lt, name, false) {
                     Some(m) => {
@@ -2813,10 +4079,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             _ => Ty::Dynamic,
                         };
                         let access = self.member_access(lt, name, false);
-                        (Js::prim(format!("{}{access}({})", l.at(P_PRIMARY), r.code)), ret)
+                        (
+                            Js::prim(format!("{}{access}({})", l.at(P_PRIMARY), r.code)),
+                            ret,
+                        )
                     }
                     None => {
-                        if let Some((ext, fid, subst)) = self.find_extension_member(lt, name, false) {
+                        if let Some((ext, fid, subst)) = self.find_extension_member(lt, name, false)
+                        {
                             let e = ctx.program.extension(ext);
                             let lib_var = self.lib_var(e.library);
                             let ext_name = self.extension_js_name(ext);
@@ -2827,9 +4097,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             let mut args = self.ext_type_args(ext, &subst);
                             args.push(l.code.clone());
                             args.push(r.code.clone());
-                            return (Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|{name}")), args.join(", "))), ret);
+                            return (
+                                Js::prim(format!(
+                                    "{lib_var}[{}]({})",
+                                    js::string_literal(&format!("{ext_name}|{name}")),
+                                    args.join(", ")
+                                )),
+                                ret,
+                            );
                         }
-                        (Js::prim(format!("dart.dsend({}, {}, [{}])", l.code, js::string_literal(&crate::body::js_member_name(name)), r.code)), Ty::Dynamic)
+                        (
+                            Js::prim(format!(
+                                "dart.dsend({}, {}, [{}])",
+                                l.code,
+                                js::string_literal(&crate::body::js_member_name(name)),
+                                r.code
+                            )),
+                            Ty::Dynamic,
+                        )
                     }
                 }
             }
@@ -2850,10 +4135,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     pub fn emit_equals(&mut self, l: &Js, lt: &Ty, r: &Js, rt: &Ty) -> Js {
         let ctx = self.ctx;
-        if matches!(lt, Ty::Null) || matches!(rt, Ty::Null) || l.code == "null" || r.code == "null" {
+        if matches!(lt, Ty::Null) || matches!(rt, Ty::Null) || l.code == "null" || r.code == "null"
+        {
             return Js::new(format!("{} == {}", l.at(P_EQ), r.at(P_EQ + 1)), P_EQ);
         }
-        let prim = ctx.is_js_primitive(&lt.non_null()) && (ctx.is_js_primitive(&rt.non_null()) || rt.is_dynamic());
+        let prim = ctx.is_js_primitive(&lt.non_null())
+            && (ctx.is_js_primitive(&rt.non_null()) || rt.is_dynamic());
         let is_enum = lt.class().is_some_and(|c| ctx.is_enum_class(c));
         if prim || is_enum {
             if !lt.is_nullable() || !rt.is_nullable() {
@@ -2864,7 +4151,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         Js::prim(format!("dart.equals({}, {})", l.code, r.code))
     }
 
-    fn emit_binary(&mut self, op: BinaryOp, left: ExprId, right: ExprId, expected: Option<&Ty>, e: ExprId) -> (Js, Ty) {
+    fn emit_binary(
+        &mut self,
+        op: BinaryOp,
+        left: ExprId,
+        right: ExprId,
+        expected: Option<&Ty>,
+        e: ExprId,
+    ) -> (Js, Ty) {
         match op {
             BinaryOp::And => {
                 let (l, _) = self.emit_cond(left);
@@ -2883,14 +4177,34 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.pending_promotions = promos;
                 self.pending_promotions.extend(right_promos);
                 self.negated_promotions.clear();
-                return (Js::new(format!("{} && {}", Js::new(l, P_PRIMARY).at(P_AND), Js::new(r, P_PRIMARY).at(P_AND + 1)), P_AND), self.ctx.t_bool());
+                return (
+                    Js::new(
+                        format!(
+                            "{} && {}",
+                            Js::new(l, P_PRIMARY).at(P_AND),
+                            Js::new(r, P_PRIMARY).at(P_AND + 1)
+                        ),
+                        P_AND,
+                    ),
+                    self.ctx.t_bool(),
+                );
             }
             BinaryOp::Or => {
                 let (l, _) = self.emit_cond(left);
                 self.pending_promotions.clear();
                 let (r, _) = self.emit_cond(right);
                 self.pending_promotions.clear();
-                return (Js::new(format!("{} || {}", Js::new(l, P_PRIMARY).at(P_OR), Js::new(r, P_PRIMARY).at(P_OR + 1)), P_OR), self.ctx.t_bool());
+                return (
+                    Js::new(
+                        format!(
+                            "{} || {}",
+                            Js::new(l, P_PRIMARY).at(P_OR),
+                            Js::new(r, P_PRIMARY).at(P_OR + 1)
+                        ),
+                        P_OR,
+                    ),
+                    self.ctx.t_bool(),
+                );
             }
             BinaryOp::IfNull => {
                 // The context of the left operand is the nullable version of
@@ -2902,13 +4216,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (r, rt) = self.emit_expr(right, expected.or(Some(&lt.non_null())));
                 let t = self.temp();
                 let ty = self.ctx.lub(&lt.non_null(), &rt);
-                return (Js::new(format!("{t} = {}, {t} == null ? {} : {t}", l.code, r.at(P_COND)), P_COMMA).paren(), ty);
+                return (
+                    Js::new(
+                        format!("{t} = {}, {t} == null ? {} : {t}", l.code, r.at(P_COND)),
+                        P_COMMA,
+                    )
+                    .paren(),
+                    ty,
+                );
             }
             _ => {}
         }
         // `super == x` / `super + x`: direct call of the superclass's operator.
         if let ExprKind::Super = self.expr(left).kind {
-            let sup_ty = self.super_ty_for(if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) { "==" } else { binop_name(op) }, false);
+            let sup_ty = self.super_ty_for(
+                if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+                    "=="
+                } else {
+                    binop_name(op)
+                },
+                false,
+            );
             let name = binop_name(op);
             let is_eq = matches!(op, BinaryOp::Eq | BinaryOp::NotEq);
             let mname = if is_eq { "==" } else { name };
@@ -2918,10 +4246,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let ret = if is_eq {
                 self.ctx.t_bool()
             } else {
-                self.ctx.lookup_member(&sup_ty, mname, false).map(|m| match self.ctx.member_ty(&m) {
-                    Ty::Fn { ret, .. } => (*ret).clone(),
-                    _ => Ty::Dynamic,
-                }).unwrap_or(Ty::Dynamic)
+                self.ctx
+                    .lookup_member(&sup_ty, mname, false)
+                    .map(|m| match self.ctx.member_ty(&m) {
+                        Ty::Fn { ret, .. } => (*ret).clone(),
+                        _ => Ty::Dynamic,
+                    })
+                    .unwrap_or(Ty::Dynamic)
             };
             if op == BinaryOp::NotEq {
                 return (Js::new(format!("!{call}"), P_UNARY), ret);
@@ -2930,24 +4261,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         let (l, lt) = self.emit_expr(left, None);
         if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
-            if let (ExprKind::Identifier(n), ExprKind::Null) = (&self.expr(left).kind, &self.expr(right).kind) {
+            if let (ExprKind::Identifier(n), ExprKind::Null) =
+                (&self.expr(left).kind, &self.expr(right).kind)
+            {
                 if self.lookup_local(n.sym).is_some() {
                     self.note_null_promotion(n.sym, &lt, op == BinaryOp::NotEq);
                 }
             }
         }
-        let r_expected: Option<Ty> = if self.ctx.is_num_like_nullable(&lt) || matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
-            None
-        } else {
-            self.access_member(Some(e), &lt.non_null(), binop_name(op), false).and_then(|m| match self.ctx.member_ty(&m) {
-                Ty::Fn { pos, .. } => pos.first().cloned(),
-                _ => None,
-            })
-        };
+        let r_expected: Option<Ty> =
+            if self.ctx.is_num_like_nullable(&lt) || matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
+                None
+            } else {
+                self.access_member(Some(e), &lt.non_null(), binop_name(op), false)
+                    .and_then(|m| match self.ctx.member_ty(&m) {
+                        Ty::Fn { pos, .. } => pos.first().cloned(),
+                        _ => None,
+                    })
+            };
         // `e == .x` (3.10): the shorthand on the right uses the static type of the left.
         let (r, rt) = if matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
             let left_ty = lt.clone();
-            self.with_shorthand_context(right, &left_ty, |s| s.emit_expr(right, r_expected.as_ref()))
+            self.with_shorthand_context(right, &left_ty, |s| {
+                s.emit_expr(right, r_expected.as_ref())
+            })
         } else {
             self.emit_expr(right, r_expected.as_ref())
         };
@@ -2967,7 +4304,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (js, _) = self.emit_assign_to(target, &v, &vty);
                 (js, vty)
             }
-            AssignOp::Compound(BinaryOp::IfNull) => self.emit_compound(target, BinaryOp::IfNull, Some(value), None, true, e),
+            AssignOp::Compound(BinaryOp::IfNull) => {
+                self.emit_compound(target, BinaryOp::IfNull, Some(value), None, true, e)
+            }
             AssignOp::Compound(bop) => self.emit_compound(target, bop, Some(value), None, true, e),
         }
     }
@@ -2978,13 +4317,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let fe = self.ctx.program.function(f);
             let name = self.name(fe.name).trim_end_matches("_=").to_string();
             return match &self.expr(target).kind {
-                ExprKind::Index { target: recv, .. } => self.ext_type_param(Some(*recv), owner, f, 1),
+                ExprKind::Index { target: recv, .. } => {
+                    self.ext_type_param(Some(*recv), owner, f, 1)
+                }
                 kind => {
                     let recv = match kind {
                         ExprKind::Property { target: recv, .. } => Some(*recv),
                         _ => None,
                     };
-                    let setter = if fe.kind == FunctionKind::Setter { f } else { self.ext_type_setter(owner, &name)? };
+                    let setter = if fe.kind == FunctionKind::Setter {
+                        f
+                    } else {
+                        self.ext_type_setter(owner, &name)?
+                    };
                     self.ext_type_param(recv, owner, setter, 0)
                 }
             };
@@ -2995,18 +4340,26 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 IdentTarget::Local(_, ty) => Some(ty),
                 IdentTarget::ThisMember(m) => {
                     let name = self.name(n.sym).to_string();
-                    let m2 = self.ctx.lookup_member(&self.ctx.this_ty(m.class), &name, true).unwrap_or(m);
+                    let m2 = self
+                        .ctx
+                        .lookup_member(&self.ctx.this_ty(m.class), &name, true)
+                        .unwrap_or(m);
                     Some(self.ctx.member_ty(&m2))
                 }
                 IdentTarget::Static(_, mk) => match mk {
                     MemberKind::Field(v) => Some(self.ctx.var_ty(v)),
-                    MemberKind::Setter(f) => self.ctx.outline.functions[f.0 as usize].parameters.first().map(|p| self.ctx.ty_of(p.ty)),
+                    MemberKind::Setter(f) => self.ctx.outline.functions[f.0 as usize]
+                        .parameters
+                        .first()
+                        .map(|p| self.ctx.ty_of(p.ty)),
                     _ => None,
                 },
                 IdentTarget::Element(Element::Variable(v)) => Some(self.ctx.var_ty(v)),
                 _ => None,
             },
-            ExprKind::Property { target: recv, name, .. } => {
+            ExprKind::Property {
+                target: recv, name, ..
+            } => {
                 let n = self.name(name.sym).to_string();
                 let rty = self.type_of(*recv);
                 let m = self.access_member(Some(target), &rty.non_null(), &n, true)?;
@@ -3042,7 +4395,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             }
                         }
                         // Promotion by assignment: a `dynamic`/nullable local takes the value's type when compatible.
-                        if lty.is_nullable() && !lty.is_dynamic() && self.ctx.is_subtype(vty, &lty) && !vty.is_dynamic() && !matches!(vty, Ty::Null) {
+                        if lty.is_nullable()
+                            && !lty.is_dynamic()
+                            && self.ctx.is_subtype(vty, &lty)
+                            && !vty.is_dynamic()
+                            && !matches!(vty, Ty::Null)
+                        {
                             self.set_local_ty(n.sym, vty.clone());
                         } else if matches!(vty, Ty::Null) && lty.is_nullable() {
                             // keep it
@@ -3053,13 +4411,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let this_ty = self.ctx.this_ty(m.class);
                         let m2 = self.ctx.lookup_member(&this_ty, &name, true).unwrap_or(m);
                         let access = self.member_access(&this_ty, &name, true);
-                        let v = if self.ctx.is_js_member_kind(&m2.kind) { self.assert_interop(v.clone(), vty) } else { v.clone() };
-                        (Js::new(format!("this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN), self.ctx.member_ty(&m2))
+                        let v = if self.ctx.is_js_member_kind(&m2.kind) {
+                            self.assert_interop(v.clone(), vty)
+                        } else {
+                            v.clone()
+                        };
+                        (
+                            Js::new(format!("this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN),
+                            self.ctx.member_ty(&m2),
+                        )
                     }
                     IdentTarget::ThisExt => {
-                        let t = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
-                        if let Some((ext, fid, subst)) = self.find_extension_member(&t, &name, true) {
-                            return (self.extension_set(ext, fid, &subst, &Js::prim("this"), v, vty), vty.clone());
+                        let t = self
+                            .class
+                            .map(|c| self.ctx.this_ty(c))
+                            .unwrap_or(Ty::Dynamic);
+                        if let Some((ext, fid, subst)) = self.find_extension_member(&t, &name, true)
+                        {
+                            return (
+                                self.extension_set(ext, fid, &subst, &Js::prim("this"), v, vty),
+                                vty.clone(),
+                            );
                         }
                         (Js::prim("null"), Ty::Dynamic)
                     }
@@ -3067,27 +4439,64 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         let e = self.ctx.program.extension(ext);
                         let lib_var = self.lib_var(e.library);
                         let ext_name = self.extension_js_name(ext);
-                        (Js::new(format!("{lib_var}[{}] = {}", js::string_literal(&format!("{ext_name}|{name}")), v.at(P_ASSIGN)), P_ASSIGN), vty.clone())
+                        (
+                            Js::new(
+                                format!(
+                                    "{lib_var}[{}] = {}",
+                                    js::string_literal(&format!("{ext_name}|{name}")),
+                                    v.at(P_ASSIGN)
+                                ),
+                                P_ASSIGN,
+                            ),
+                            vty.clone(),
+                        )
                     }
-                    IdentTarget::ExtThisMember(_) | IdentTarget::ExtMember(..) | IdentTarget::ExtStatic(..) => {
+                    IdentTarget::ExtThisMember(_)
+                    | IdentTarget::ExtMember(..)
+                    | IdentTarget::ExtStatic(..) => {
                         let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
-                        if let Some((ext, fid, subst)) = self.find_extension_member(&t, &name, true) {
-                            return (self.extension_set(ext, fid, &subst, &Js::prim("$this"), v, vty), vty.clone());
+                        if let Some((ext, fid, subst)) = self.find_extension_member(&t, &name, true)
+                        {
+                            return (
+                                self.extension_set(ext, fid, &subst, &Js::prim("$this"), v, vty),
+                                vty.clone(),
+                            );
                         }
                         let access = self.member_access(&t, &name, true);
-                        (Js::new(format!("$this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic)
+                        (
+                            Js::new(format!("$this{access} = {}", v.at(P_ASSIGN)), P_ASSIGN),
+                            Ty::Dynamic,
+                        )
                     }
                     IdentTarget::Static(c, mk) => {
                         if self.ctx.is_js_class(c) {
                             let smk = self.ctx.declared_static(c, &name, true).unwrap_or(mk);
                             if self.ctx.is_js_member_kind(&smk) {
-                                let target_js = self.ctx.js_static_ref(Some(c), self.ctx.lib_of_class(c), &smk, &name);
+                                let target_js = self.ctx.js_static_ref(
+                                    Some(c),
+                                    self.ctx.lib_of_class(c),
+                                    &smk,
+                                    &name,
+                                );
                                 let v = self.assert_interop(v.clone(), vty);
-                                return (Js::new(format!("{target_js} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
+                                return (
+                                    Js::new(format!("{target_js} = {}", v.at(P_ASSIGN)), P_ASSIGN),
+                                    Ty::Dynamic,
+                                );
                             }
                         }
                         let cls = self.class_ref(c);
-                        (Js::new(format!("{cls}{} = {}", js::prop_access(&static_member_name(&name)), v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic)
+                        (
+                            Js::new(
+                                format!(
+                                    "{cls}{} = {}",
+                                    js::prop_access(&static_member_name(&name)),
+                                    v.at(P_ASSIGN)
+                                ),
+                                P_ASSIGN,
+                            ),
+                            Ty::Dynamic,
+                        )
                     }
                     IdentTarget::Element(el) => {
                         let mut v = v.clone();
@@ -3095,7 +4504,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             Element::Variable(vid) if self.ctx.is_js_var(vid) => {
                                 let var = self.ctx.program.variable(vid);
                                 v = self.assert_interop(v, vty);
-                                self.ctx.js_static_ref(None, var.library, &MemberKind::Field(vid), &name)
+                                self.ctx.js_static_ref(
+                                    None,
+                                    var.library,
+                                    &MemberKind::Field(vid),
+                                    &name,
+                                )
                             }
                             Element::Variable(vid) => {
                                 let var = self.ctx.program.variable(vid);
@@ -3104,7 +4518,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             Element::Function(fid) if self.ctx.is_js_member(fid) => {
                                 let f = self.ctx.program.function(fid);
                                 v = self.assert_interop(v, vty);
-                                self.ctx.js_static_ref(None, f.library, &MemberKind::Setter(fid), &name)
+                                self.ctx.js_static_ref(
+                                    None,
+                                    f.library,
+                                    &MemberKind::Setter(fid),
+                                    &name,
+                                )
                             }
                             Element::Function(fid) => {
                                 let f = self.ctx.program.function(fid);
@@ -3112,53 +4531,110 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             }
                             _ => js::ident(&name),
                         };
-                        (Js::new(format!("{js} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic)
+                        (
+                            Js::new(format!("{js} = {}", v.at(P_ASSIGN)), P_ASSIGN),
+                            Ty::Dynamic,
+                        )
                     }
-                    _ => (Js::new(format!("{} = {}", js::ident(&name), v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic),
+                    _ => (
+                        Js::new(
+                            format!("{} = {}", js::ident(&name), v.at(P_ASSIGN)),
+                            P_ASSIGN,
+                        ),
+                        Ty::Dynamic,
+                    ),
                 }
             }
-            ExprKind::Property { target: recv, name, null_aware } => {
+            ExprKind::Property {
+                target: recv,
+                name,
+                null_aware,
+            } => {
                 let n = self.name(name.sym).to_string();
                 // Static through a class/prefix.
                 if let Some((target_js, interop)) = self.try_static_lvalue(*recv, &n) {
-                    let v = if interop { self.assert_interop(v.clone(), vty) } else { v.clone() };
-                    return (Js::new(format!("{target_js} = {}", v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
+                    let v = if interop {
+                        self.assert_interop(v.clone(), vty)
+                    } else {
+                        v.clone()
+                    };
+                    return (
+                        Js::new(format!("{target_js} = {}", v.at(P_ASSIGN)), P_ASSIGN),
+                        Ty::Dynamic,
+                    );
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
                     let sup_ty = self.super_ty_for(&n, true);
                     let access = self.member_access(&sup_ty, &n, true);
-                    return (Js::new(format!("{}{access} = {}", self.super_ref(), v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic);
+                    return (
+                        Js::new(
+                            format!("{}{access} = {}", self.super_ref(), v.at(P_ASSIGN)),
+                            P_ASSIGN,
+                        ),
+                        Ty::Dynamic,
+                    );
                 }
                 let (rjs, rty, mut guards) = self.emit_target(*recv);
                 let (recv_js, recv_ty) = if *null_aware {
                     let t = self.temp();
-                    guards.push(Guard { temp: t.clone(), init: rjs.code });
+                    guards.push(Guard {
+                        temp: t.clone(),
+                        init: rjs.code,
+                    });
                     (Js::prim(t), rty.non_null())
                 } else {
                     (rjs, rty)
                 };
                 let setter = self.access_member(Some(target), &recv_ty, &n, true);
                 let js = if recv_ty.is_dynamic() || setter.is_none() {
-                    if let Some((ext, fid, subst)) = self.find_extension_member(&recv_ty, &n, true) {
+                    if let Some((ext, fid, subst)) = self.find_extension_member(&recv_ty, &n, true)
+                    {
                         self.extension_set(ext, fid, &subst, &recv_js, v, vty)
                     } else if let Ty::Record { .. } = recv_ty {
-                        Js::new(format!("{}{} = {}", recv_js.at(P_PRIMARY), js::prop_access(&n), v.at(P_ASSIGN)), P_ASSIGN)
+                        Js::new(
+                            format!(
+                                "{}{} = {}",
+                                recv_js.at(P_PRIMARY),
+                                js::prop_access(&n),
+                                v.at(P_ASSIGN)
+                            ),
+                            P_ASSIGN,
+                        )
                     } else {
-                        Js::prim(format!("dart.dput({}, {}, {})", recv_js.code, js::string_literal(&crate::body::js_member_name(&n)), v.code))
+                        Js::prim(format!(
+                            "dart.dput({}, {}, {})",
+                            recv_js.code,
+                            js::string_literal(&crate::body::js_member_name(&n)),
+                            v.code
+                        ))
                     }
                 } else {
                     let access = self.member_access(&recv_ty, &n, true);
                     let interop = setter.is_some_and(|m| self.ctx.is_js_member_kind(&m.kind));
-                    let v = if interop { self.assert_interop(v.clone(), vty) } else { v.clone() };
-                    Js::new(format!("{}{access} = {}", recv_js.at(P_PRIMARY), v.at(P_ASSIGN)), P_ASSIGN)
+                    let v = if interop {
+                        self.assert_interop(v.clone(), vty)
+                    } else {
+                        v.clone()
+                    };
+                    Js::new(
+                        format!("{}{access} = {}", recv_js.at(P_PRIMARY), v.at(P_ASSIGN)),
+                        P_ASSIGN,
+                    )
                 };
                 (self.wrap_guards(js, guards), vty.clone())
             }
-            ExprKind::Index { target: recv, index, null_aware } => {
+            ExprKind::Index {
+                target: recv,
+                index,
+                null_aware,
+            } => {
                 let (rjs, rty, mut guards) = self.emit_target(*recv);
                 let (recv_js, recv_ty) = if *null_aware {
                     let t = self.temp();
-                    guards.push(Guard { temp: t.clone(), init: rjs.code });
+                    guards.push(Guard {
+                        temp: t.clone(),
+                        init: rjs.code,
+                    });
                     (Js::prim(t), rty.non_null())
                 } else {
                     (rjs, rty)
@@ -3171,7 +4647,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::CascadeTarget => (Js::prim("null"), Ty::Dynamic),
             _ => {
                 let (js, _) = self.emit_expr(target, None);
-                (Js::new(format!("{} = {}", js.code, v.at(P_ASSIGN)), P_ASSIGN), Ty::Dynamic)
+                (
+                    Js::new(format!("{} = {}", js.code, v.at(P_ASSIGN)), P_ASSIGN),
+                    Ty::Dynamic,
+                )
             }
         }
     }
@@ -3180,20 +4659,37 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// in the body, `x[i] = v`), when the common resolution of the target
     /// points to one.
     fn assign_to_extension_type(&mut self, target: ExprId, v: &Js, vty: &Ty) -> Option<(Js, Ty)> {
-        let (owner, MemberRef::Function(f)) = self.ext_type_member(target)? else { return None };
+        let (owner, MemberRef::Function(f)) = self.ext_type_member(target)? else {
+            return None;
+        };
         let fe = self.ctx.program.function(f);
         let name = self.name(fe.name).trim_end_matches("_=").to_string();
         match &self.expr(target).kind {
             ExprKind::Identifier(_) => {
-                let setter = if fe.kind == FunctionKind::Setter { f } else { self.ext_type_setter(owner, &name)? };
+                let setter = if fe.kind == FunctionKind::Setter {
+                    f
+                } else {
+                    self.ext_type_setter(owner, &name)?
+                };
                 Some(self.ext_type_write(&Js::prim("$this"), None, owner, setter, v, vty))
             }
-            ExprKind::Property { target: recv, null_aware, .. } => {
-                let setter = if fe.kind == FunctionKind::Setter { f } else { self.ext_type_setter(owner, &name)? };
+            ExprKind::Property {
+                target: recv,
+                null_aware,
+                ..
+            } => {
+                let setter = if fe.kind == FunctionKind::Setter {
+                    f
+                } else {
+                    self.ext_type_setter(owner, &name)?
+                };
                 let (rjs, _, mut guards) = self.emit_target(*recv);
                 let recv_js = if *null_aware {
                     let t = self.temp();
-                    guards.push(Guard { temp: t.clone(), init: rjs.code });
+                    guards.push(Guard {
+                        temp: t.clone(),
+                        init: rjs.code,
+                    });
                     Js::prim(t)
                 } else {
                     rjs
@@ -3201,11 +4697,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (js, ty) = self.ext_type_write(&recv_js, Some(*recv), owner, setter, v, vty);
                 Some((self.wrap_guards(js, guards), ty))
             }
-            ExprKind::Index { target: recv, index, null_aware } if name == "[]=" => {
+            ExprKind::Index {
+                target: recv,
+                index,
+                null_aware,
+            } if name == "[]=" => {
                 let (rjs, _, mut guards) = self.emit_target(*recv);
                 let recv_js = if *null_aware {
                     let t = self.temp();
-                    guards.push(Guard { temp: t.clone(), init: rjs.code });
+                    guards.push(Guard {
+                        temp: t.clone(),
+                        init: rjs.code,
+                    });
                     Js::prim(t)
                 } else {
                     rjs
@@ -3214,7 +4717,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (ijs, _) = self.emit_expr(*index, ctx_i.as_ref());
                 let t = self.temp();
                 let assign = Js::new(format!("{t} = {}", v.at(P_ASSIGN)), P_ASSIGN);
-                let (call, _) = self.ext_type_operator(&recv_js, Some(*recv), owner, f, &[ijs, assign]);
+                let (call, _) =
+                    self.ext_type_operator(&recv_js, Some(*recv), owner, f, &[ijs, assign]);
                 let js = Js::new(format!("({}, {t})", call.code), P_PRIMARY);
                 Some((self.wrap_guards(js, guards), vty.clone()))
             }
@@ -3228,23 +4732,48 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             ExprKind::Identifier(id) => match self.ident_target(id.sym, recv) {
                 IdentTarget::Prefix(p) => {
                     let sym = self.ctx.sym(name)?;
-                    let b = self.ctx.program.lookup_prefixed_in_unit(self.unit, p, sym)?;
+                    let b = self
+                        .ctx
+                        .program
+                        .lookup_prefixed_in_unit(self.unit, p, sym)?;
                     match b.setter.or(b.getter)? {
                         Element::Variable(vid) if self.ctx.is_js_var(vid) => {
                             let var = self.ctx.program.variable(vid);
-                            Some((self.ctx.js_static_ref(None, var.library, &MemberKind::Field(vid), name), true))
+                            Some((
+                                self.ctx.js_static_ref(
+                                    None,
+                                    var.library,
+                                    &MemberKind::Field(vid),
+                                    name,
+                                ),
+                                true,
+                            ))
                         }
                         Element::Variable(vid) => {
                             let var = self.ctx.program.variable(vid);
-                            Some((format!("{}{}", self.lib_var(var.library), js::prop_access(name)), false))
+                            Some((
+                                format!("{}{}", self.lib_var(var.library), js::prop_access(name)),
+                                false,
+                            ))
                         }
                         Element::Function(fid) if self.ctx.is_js_member(fid) => {
                             let f = self.ctx.program.function(fid);
-                            Some((self.ctx.js_static_ref(None, f.library, &MemberKind::Setter(fid), name), true))
+                            Some((
+                                self.ctx.js_static_ref(
+                                    None,
+                                    f.library,
+                                    &MemberKind::Setter(fid),
+                                    name,
+                                ),
+                                true,
+                            ))
                         }
                         Element::Function(fid) => {
                             let f = self.ctx.program.function(fid);
-                            Some((format!("{}{}", self.lib_var(f.library), js::prop_access(name)), false))
+                            Some((
+                                format!("{}{}", self.lib_var(f.library), js::prop_access(name)),
+                                false,
+                            ))
                         }
                         _ => None,
                     }
@@ -3252,11 +4781,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 IdentTarget::Element(Element::Class(c)) => {
                     let mut cur = Some(c);
                     while let Some(k) = cur {
-                        if let Some(mk) = self.ctx.declared_static(k, name, true).or_else(|| self.ctx.declared_static(k, name, false)) {
+                        if let Some(mk) = self
+                            .ctx
+                            .declared_static(k, name, true)
+                            .or_else(|| self.ctx.declared_static(k, name, false))
+                        {
                             if self.ctx.is_js_class(k) && self.ctx.is_js_member_kind(&mk) {
-                                return Some((self.ctx.js_static_ref(Some(k), self.ctx.lib_of_class(k), &mk, name), true));
+                                return Some((
+                                    self.ctx.js_static_ref(
+                                        Some(k),
+                                        self.ctx.lib_of_class(k),
+                                        &mk,
+                                        name,
+                                    ),
+                                    true,
+                                ));
                             }
-                            return Some((format!("{}{}", self.class_ref(k), js::prop_access(&static_member_name(name))), false));
+                            return Some((
+                                format!(
+                                    "{}{}",
+                                    self.class_ref(k),
+                                    js::prop_access(&static_member_name(name))
+                                ),
+                                false,
+                            ));
                         }
                         cur = self.ctx.superclass_of(k);
                     }
@@ -3295,7 +4843,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let ext_name = self.extension_js_name(ext);
             let mut args = self.ext_type_args(ext, &subst);
             args.extend([recv_js, index, value.clone()]);
-            format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|[]=")), args.join(", "))
+            format!(
+                "{lib_var}[{}]({})",
+                js::string_literal(&format!("{ext_name}|[]=")),
+                args.join(", ")
+            )
         } else {
             format!("dart.dsend({recv_js}, '_set', [{index}, {value}])")
         };
@@ -3308,18 +4860,34 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// `x op= v`, `++x`, `x++`.
     /// `node` is the compound assignment or the `++`/`--`: the common
     /// resolution of the operator is recorded on it.
-    fn emit_compound(&mut self, target: ExprId, bop: BinaryOp, value: Option<ExprId>, literal: Option<i64>, prefix: bool, node: ExprId) -> (Js, Ty) {
+    fn emit_compound(
+        &mut self,
+        target: ExprId,
+        bop: BinaryOp,
+        value: Option<ExprId>,
+        literal: Option<i64>,
+        prefix: bool,
+        node: ExprId,
+    ) -> (Js, Ty) {
         // Read the target once, with temps for receivers/indices.
         let t = self.expr(target);
         let (read, read_ty, write): (Js, Ty, AssignmentWriter<'m, 'a>) = match &t.kind {
             ExprKind::Identifier(_) | ExprKind::Parenthesized(_) => {
                 let (r, rt) = self.emit_expr(target, None);
                 let tgt = target;
-                (r, rt, Box::new(move |s: &mut Self, v: &Js| s.emit_assign_to(tgt, v, &Ty::Dynamic).0))
+                (
+                    r,
+                    rt,
+                    Box::new(move |s: &mut Self, v: &Js| s.emit_assign_to(tgt, v, &Ty::Dynamic).0),
+                )
             }
-            ExprKind::Property { target: recv, name, .. } if self.ext_type_member(target).is_some() => {
+            ExprKind::Property {
+                target: recv, name, ..
+            } if self.ext_type_member(target).is_some() => {
                 // Extension type getter and setter: the receiver is evaluated once.
-                let Some((owner, member)) = self.ext_type_member(target) else { unreachable!() };
+                let Some((owner, member)) = self.ext_type_member(target) else {
+                    unreachable!()
+                };
                 let n = self.name(name.sym).to_string();
                 let recv_e = *recv;
                 let (rjs, _, _guards) = self.emit_target(recv_e);
@@ -3330,16 +4898,37 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.pending_prefix.push(format!("{tmp} = {}", rjs.code));
                     tmp
                 };
-                let (r, rt) = self.ext_type_read(&Js::prim(recv_js.clone()), Some(recv_e), owner, member);
+                let (r, rt) =
+                    self.ext_type_read(&Js::prim(recv_js.clone()), Some(recv_e), owner, member);
                 let setter = self.ext_type_setter(owner, &n);
-                (r, rt, Box::new(move |s: &mut Self, v: &Js| match setter {
-                    Some(f) => s.ext_type_write(&Js::prim(recv_js.clone()), Some(recv_e), owner, f, v, &Ty::Dynamic).0,
-                    None => v.clone(),
-                }))
+                (
+                    r,
+                    rt,
+                    Box::new(move |s: &mut Self, v: &Js| match setter {
+                        Some(f) => {
+                            s.ext_type_write(
+                                &Js::prim(recv_js.clone()),
+                                Some(recv_e),
+                                owner,
+                                f,
+                                v,
+                                &Ty::Dynamic,
+                            )
+                            .0
+                        }
+                        None => v.clone(),
+                    }),
+                )
             }
-            ExprKind::Index { target: recv, index, .. } if self.ext_type_member(target).is_some() => {
+            ExprKind::Index {
+                target: recv,
+                index,
+                ..
+            } if self.ext_type_member(target).is_some() => {
                 // `x[i] op= v` with an extension type's `[]`/`[]=`.
-                let Some((owner, _)) = self.ext_type_member(target) else { unreachable!() };
+                let Some((owner, _)) = self.ext_type_member(target) else {
+                    unreachable!()
+                };
                 let recv_e = *recv;
                 let (rjs, _, _guards) = self.emit_target(recv_e);
                 let recv_js = if matches!(rjs.code.as_str(), "this" | "super") {
@@ -3356,25 +4945,51 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let idx_js = self.temp();
                 self.pending_prefix.push(format!("{idx_js} = {}", ijs.code));
                 let (r, rt) = match read_op {
-                    Some(f) => self.ext_type_operator(&Js::prim(recv_js.clone()), Some(recv_e), owner, f, &[Js::prim(idx_js.clone())]),
+                    Some(f) => self.ext_type_operator(
+                        &Js::prim(recv_js.clone()),
+                        Some(recv_e),
+                        owner,
+                        f,
+                        &[Js::prim(idx_js.clone())],
+                    ),
                     None => (Js::prim("null"), Ty::Dynamic),
                 };
-                (r, rt, Box::new(move |s: &mut Self, v: &Js| match write_op {
-                    Some(f) => {
-                        let t = s.temp();
-                        let assign = Js::new(format!("{t} = {}", v.at(P_ASSIGN)), P_ASSIGN);
-                        let (call, _) = s.ext_type_operator(&Js::prim(recv_js.clone()), Some(recv_e), owner, f, &[Js::prim(idx_js.clone()), assign]);
-                        Js::new(format!("({}, {t})", call.code), P_PRIMARY)
-                    }
-                    None => v.clone(),
-                }))
+                (
+                    r,
+                    rt,
+                    Box::new(move |s: &mut Self, v: &Js| match write_op {
+                        Some(f) => {
+                            let t = s.temp();
+                            let assign = Js::new(format!("{t} = {}", v.at(P_ASSIGN)), P_ASSIGN);
+                            let (call, _) = s.ext_type_operator(
+                                &Js::prim(recv_js.clone()),
+                                Some(recv_e),
+                                owner,
+                                f,
+                                &[Js::prim(idx_js.clone()), assign],
+                            );
+                            Js::new(format!("({}, {t})", call.code), P_PRIMARY)
+                        }
+                        None => v.clone(),
+                    }),
+                )
             }
-            ExprKind::Property { target: recv, name, null_aware } => {
+            ExprKind::Property {
+                target: recv,
+                name,
+                null_aware,
+            } => {
                 let n = self.name(name.sym).to_string();
                 if let Some((sjs, _)) = self.try_static_lvalue(*recv, &n) {
                     let rt = self.type_of(target);
                     let sjs2 = sjs.clone();
-                    (Js::prim(sjs), rt, Box::new(move |_s: &mut Self, v: &Js| Js::new(format!("{sjs2} = {}", v.at(P_ASSIGN)), P_ASSIGN)))
+                    (
+                        Js::prim(sjs),
+                        rt,
+                        Box::new(move |_s: &mut Self, v: &Js| {
+                            Js::new(format!("{sjs2} = {}", v.at(P_ASSIGN)), P_ASSIGN)
+                        }),
+                    )
                 } else if let ExprKind::Super = self.expr(*recv).kind {
                     let sup_ty = self.super_ty_for(&n, false);
                     let m = self.ctx.lookup_member(&sup_ty, &n, false);
@@ -3383,7 +4998,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let set = self.member_access(&sup_ty, &n, true);
                     let sr = self.super_ref();
                     let sr2 = sr.clone();
-                    (Js::prim(format!("{sr}{get}")), rt, Box::new(move |_s: &mut Self, v: &Js| Js::new(format!("{sr2}{set} = {}", v.at(P_ASSIGN)), P_ASSIGN)))
+                    (
+                        Js::prim(format!("{sr}{get}")),
+                        rt,
+                        Box::new(move |_s: &mut Self, v: &Js| {
+                            Js::new(format!("{sr2}{set} = {}", v.at(P_ASSIGN)), P_ASSIGN)
+                        }),
+                    )
                 } else {
                     let (rjs, rty, guards) = self.emit_target(*recv);
                     let rty = if *null_aware { rty.non_null() } else { rty };
@@ -3402,23 +5023,47 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     let (r, rt) = self.emit_member_get(&Js::prim(recv_js.clone()), &rty, &n, None);
                     let recv_ty2 = rty.clone();
                     let n2 = n.clone();
-                    (r, rt, Box::new(move |s: &mut Self, v: &Js| {
-                        if recv_ty2.is_dynamic() || s.access_member(Some(target), &recv_ty2, &n2, true).is_none() {
-                            // An extension's setter (the read already went
-                            // through its getter, `emit_member_get`), as in a
-                            // simple assignment.
-                            if let Some((ext, fid, subst)) = s.find_extension_member(&recv_ty2, &n2, true) {
-                                return s.extension_set(ext, fid, &subst, &Js::prim(recv_js.clone()), v, &Ty::Dynamic);
+                    (
+                        r,
+                        rt,
+                        Box::new(move |s: &mut Self, v: &Js| {
+                            if recv_ty2.is_dynamic()
+                                || s.access_member(Some(target), &recv_ty2, &n2, true)
+                                    .is_none()
+                            {
+                                // An extension's setter (the read already went
+                                // through its getter, `emit_member_get`), as in a
+                                // simple assignment.
+                                if let Some((ext, fid, subst)) =
+                                    s.find_extension_member(&recv_ty2, &n2, true)
+                                {
+                                    return s.extension_set(
+                                        ext,
+                                        fid,
+                                        &subst,
+                                        &Js::prim(recv_js.clone()),
+                                        v,
+                                        &Ty::Dynamic,
+                                    );
+                                }
+                                Js::prim(format!(
+                                    "dart.dput({recv_js}, {}, {})",
+                                    js::string_literal(&n2),
+                                    v.code
+                                ))
+                            } else {
+                                let access = s.member_access(&recv_ty2, &n2, true);
+                                Js::new(format!("{recv_js}{access} = {}", v.at(P_ASSIGN)), P_ASSIGN)
                             }
-                            Js::prim(format!("dart.dput({recv_js}, {}, {})", js::string_literal(&n2), v.code))
-                        } else {
-                            let access = s.member_access(&recv_ty2, &n2, true);
-                            Js::new(format!("{recv_js}{access} = {}", v.at(P_ASSIGN)), P_ASSIGN)
-                        }
-                    }))
+                        }),
+                    )
                 }
             }
-            ExprKind::Index { target: recv, index, .. } => {
+            ExprKind::Index {
+                target: recv,
+                index,
+                ..
+            } => {
                 let (rjs, rty, _guards) = self.emit_target(*recv);
                 let recv_js = if matches!(rjs.code.as_str(), "this" | "super") {
                     rjs.code.clone()
@@ -3430,9 +5075,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (ijs, _) = self.emit_expr(*index, None);
                 let idx_js = self.temp();
                 self.pending_prefix.push(format!("{idx_js} = {}", ijs.code));
-                let (r, rt) = self.emit_index_get(&Js::prim(recv_js.clone()), &rty, &Js::prim(idx_js.clone()), Some(target));
+                let (r, rt) = self.emit_index_get(
+                    &Js::prim(recv_js.clone()),
+                    &rty,
+                    &Js::prim(idx_js.clone()),
+                    Some(target),
+                );
                 let rty2 = rty.clone();
-                (r, rt, Box::new(move |s: &mut Self, v: &Js| s.emit_index_set(&Js::prim(recv_js.clone()), &rty2, &Js::prim(idx_js.clone()), v)))
+                (
+                    r,
+                    rt,
+                    Box::new(move |s: &mut Self, v: &Js| {
+                        s.emit_index_set(
+                            &Js::prim(recv_js.clone()),
+                            &rty2,
+                            &Js::prim(idx_js.clone()),
+                            v,
+                        )
+                    }),
+                )
             }
             _ => {
                 let (r, rt) = self.emit_expr(target, None);
@@ -3471,7 +5132,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             // Postfix increment: the old value.
             let old = self.temp();
-            let (res, _) = self.emit_binop_values(bop, Js::prim(old.clone()), &read_ty, v, &vty, Some(node));
+            let (res, _) =
+                self.emit_binop_values(bop, Js::prim(old.clone()), &read_ty, v, &vty, Some(node));
             let assign = write(self, &res);
             let mut parts = prefix_parts;
             parts.push(format!("{old} = {}", read.code));
@@ -3485,7 +5147,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     // Switch expression
     // -----------------------------------------------------------------------
 
-    fn emit_switch_expr(&mut self, value: ExprId, cases: &[ast::SwitchExprCase], expected: Option<&Ty>) -> (Js, Ty) {
+    fn emit_switch_expr(
+        &mut self,
+        value: ExprId,
+        cases: &[ast::SwitchExprCase],
+        expected: Option<&Ty>,
+    ) -> (Js, Ty) {
         let (vjs, vty) = self.emit_expr(value, None);
         let saved_w = std::mem::take(&mut self.w);
         let t = self.temp();
@@ -3514,7 +5181,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             self.w.close("}");
         }
         self.m.use_sdk("core");
-        self.w.line("dart.throw(new core.StateError.new(\"Pattern matching error\"));");
+        self.w
+            .line("dart.throw(new core.StateError.new(\"Pattern matching error\"));");
         let body = std::mem::replace(&mut self.w, saved_w).out;
         (self.iife(&body), result_ty.unwrap_or(Ty::Dynamic))
     }
@@ -3532,13 +5200,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         expected: Option<&Ty>,
     ) -> (Js, Ty) {
         let mut t = self.resolve_type(ty);
-        let is_const = keyword == Some(ast::CreationKeyword::Const) || (keyword.is_none() && self.in_const);
-        let mut ctor_name = constructor.map(|n| self.name(n.sym).to_string()).unwrap_or_default();
+        let is_const =
+            keyword == Some(ast::CreationKeyword::Const) || (keyword.is_none() && self.in_const);
+        let mut ctor_name = constructor
+            .map(|n| self.name(n.sym).to_string())
+            .unwrap_or_default();
         // `const C.name(...)`: the parser may read `C.name` as a prefixed type.
         if !matches!(t, Ty::Iface { .. }) && constructor.is_none() {
             if let ast::TypeKind::Named { name: parts, .. } = &self.ast().ty(ty).kind {
                 if parts.len() == 2 {
-                    if let Some(Element::Class(c)) = self.ctx.program.lookup_in_unit(self.unit, parts[0].sym).and_then(|b| b.getter) {
+                    if let Some(Element::Class(c)) = self
+                        .ctx
+                        .program
+                        .lookup_in_unit(self.unit, parts[0].sym)
+                        .and_then(|b| b.getter)
+                    {
                         t = self.ctx.this_ty_default(c);
                         ctor_name = self.name(parts[1].sym).to_string();
                     }
@@ -3554,7 +5230,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if is_const {
             self.in_const = true;
         }
-        let r = self.emit_constructor_call(*class, class_args, explicit_args, &ctor_name, arguments, expected, is_const);
+        let r = self.emit_constructor_call(
+            *class,
+            class_args,
+            explicit_args,
+            &ctor_name,
+            arguments,
+            expected,
+            is_const,
+        );
         self.in_const = saved;
         r
     }
@@ -3592,19 +5276,54 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         if crate::extension_type::is_erased_extension_type(self.ctx, class) {
             let _ = is_const;
-            return self.ext_type_construct(class, class_args, explicit_args, ctor_name, arguments, expected);
+            return self.ext_type_construct(
+                class,
+                class_args,
+                explicit_args,
+                ctor_name,
+                arguments,
+                expected,
+            );
         }
         let cls = self.ctx.program.class(class);
-        let key = if ctor_name.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(ctor_name) };
+        let key = if ctor_name.is_empty() {
+            self.ctx.empty_sym
+        } else {
+            self.ctx.sym(ctor_name)
+        };
         let fid = key.and_then(|k| cls.constructors.get(&k).copied());
         let params = &self.ctx.class_params[class.0 as usize];
         // Function type of the constructor with the class's parameters as generics.
         let ctor_fn = match fid {
             Some(f) => self.ctx.fn_ty(f),
-            None => Ty::Fn { type_params: vec![], ret: Box::new(Ty::Dynamic), pos: vec![], opt: vec![], named: vec![], nullable: false },
+            None => Ty::Fn {
+                type_params: vec![],
+                ret: Box::new(Ty::Dynamic),
+                pos: vec![],
+                opt: vec![],
+                named: vec![],
+                nullable: false,
+            },
         };
         let (ctor_tps, ctor_fn) = match ctor_fn {
-            Ty::Fn { type_params, ret, pos, opt, named, nullable } => (type_params, Ty::Fn { type_params: vec![], ret, pos, opt, named, nullable }),
+            Ty::Fn {
+                type_params,
+                ret,
+                pos,
+                opt,
+                named,
+                nullable,
+            } => (
+                type_params,
+                Ty::Fn {
+                    type_params: vec![],
+                    ret,
+                    pos,
+                    opt,
+                    named,
+                    nullable,
+                },
+            ),
             t => (vec![], t),
         };
         let _ = ctor_tps;
@@ -3613,7 +5332,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // Without written arguments, the instantiation the common inference
         // chose for the class (the constructor is inferred as a generic
         // function over the class's parameters).
-        let common = if explicit_args || params.is_empty() { None } else { self.common_instantiation(arguments, params.len()) };
+        let common = if explicit_args || params.is_empty() {
+            None
+        } else {
+            self.common_instantiation(arguments, params.len())
+        };
         if let Some(inst) = common {
             for (p, a) in params.iter().zip(inst) {
                 subst.insert(p.id, a.clone());
@@ -3644,11 +5367,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             let saved_interop = self.interop_args;
             self.interop_args = fid.is_some_and(|f| self.ctx.is_js_member(f));
-            let (arg_js, _arg_tys) = self.emit_args_infer(&ctor_fn, arguments, &free, &mut subst, expected);
+            let (arg_js, _arg_tys) =
+                self.emit_args_infer(&ctor_fn, arguments, &free, &mut subst, expected);
             self.interop_args = saved_interop;
             self.constrain_by_bounds(params, &free, &mut subst);
             for p in params {
-                let t = subst.get(&p.id).cloned().unwrap_or_else(|| self.default_type_arg(&p.bound));
+                let t = subst
+                    .get(&p.id)
+                    .cloned()
+                    .unwrap_or_else(|| self.default_type_arg(&p.bound));
                 targs.push(t.clone());
                 subst.insert(p.id, t);
             }
@@ -3656,7 +5383,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         let saved_interop = self.interop_args;
         self.interop_args = fid.is_some_and(|f| self.ctx.is_js_member(f));
-        let (arg_js, _) = self.emit_args_infer(&ctor_fn.subst(&subst), arguments, &[], &mut HashMap::new(), expected);
+        let (arg_js, _) = self.emit_args_infer(
+            &ctor_fn.subst(&subst),
+            arguments,
+            &[],
+            &mut HashMap::new(),
+            expected,
+        );
         self.interop_args = saved_interop;
         self.finish_ctor_call(class, targs, fid, ctor_name, arg_js, is_const)
     }
@@ -3664,7 +5397,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Value of `const bool/int/String.fromEnvironment(name, defaultValue: v)`.
     /// Without `-D` on the command line, the value is always the `defaultValue`
     /// (`false`, `0` and `""` when omitted, as the specification requires).
-    pub fn environment_constant(&mut self, class: ClassId, arguments: &ast::Arguments) -> Option<(Js, Ty)> {
+    pub fn environment_constant(
+        &mut self,
+        class: ClassId,
+        arguments: &ast::Arguments,
+    ) -> Option<(Js, Ty)> {
         let (default_js, ty) = if Some(class) == self.ctx.bool_ {
             ("false".to_string(), self.ctx.t_bool())
         } else if Some(class) == self.ctx.int_ {
@@ -3677,7 +5414,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let default_arg = arguments
             .args
             .iter()
-            .find(|a| a.name.as_ref().is_some_and(|n| self.name(n.sym) == "defaultValue"))
+            .find(|a| {
+                a.name
+                    .as_ref()
+                    .is_some_and(|n| self.name(n.sym) == "defaultValue")
+            })
             .map(|a| a.value);
         let Some(arg) = default_arg else {
             return Some((Js::prim(default_js), ty));
@@ -3687,18 +5428,37 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // into the normal path (and the program is not valid Dart anyway).
         let literal = matches!(js.code.as_str(), "true" | "false")
             || js.code.starts_with('"')
-            || js.code.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-');
+            || js
+                .code
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == '.' || c == '-');
         if literal && !js.code.is_empty() {
             return Some((js, jty));
         }
         None
     }
 
-    fn finish_ctor_call(&mut self, class: ClassId, targs: Vec<Ty>, fid: Option<dartforge_elements::model::FunctionElementId>, ctor_name: &str, mut arg_js: Vec<String>, is_const: bool) -> (Js, Ty) {
-        let ty = Ty::Iface { class, args: targs.clone(), nullable: false };
+    fn finish_ctor_call(
+        &mut self,
+        class: ClassId,
+        targs: Vec<Ty>,
+        fid: Option<dartforge_elements::model::FunctionElementId>,
+        ctor_name: &str,
+        mut arg_js: Vec<String>,
+        is_const: bool,
+    ) -> (Js, Ty) {
+        let ty = Ty::Iface {
+            class,
+            args: targs.clone(),
+            nullable: false,
+        };
         let cls = self.ctx.program.class(class);
         let cls_ref = self.class_ref(class);
-        let jsname = if ctor_name.is_empty() { "new".to_string() } else { static_member_name(ctor_name) };
+        let jsname = if ctor_name.is_empty() {
+            "new".to_string()
+        } else {
+            static_member_name(ctor_name)
+        };
         let is_factory = fid.is_some_and(|f| self.ctx.program.function(f).factory);
         let generic = self.ctx.requires_rti(class);
         // JS interop (`visitConstructorInvocation`/`_emitJSInteropNew`): an
@@ -3719,10 +5479,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     !ps.is_empty() && ps.iter().all(|p| p.kind == ast::ParameterKind::Named)
                 });
                 if jc.anonymous || only_named {
-                    let obj = arg_js.last().filter(|a| a.starts_with('{')).cloned().unwrap_or_else(|| "{}".to_string());
+                    let obj = arg_js
+                        .last()
+                        .filter(|a| a.starts_with('{'))
+                        .cloned()
+                        .unwrap_or_else(|| "{}".to_string());
                     return (Js::prim(obj), ty);
                 }
-                return (Js::prim(format!("new {}({})", self.ctx.js_class_global(class), arg_js.join(", "))), ty);
+                return (
+                    Js::prim(format!(
+                        "new {}({})",
+                        self.ctx.js_class_global(class),
+                        arg_js.join(", ")
+                    )),
+                    ty,
+                );
             }
         }
         // Factory redirection `= Other`: resolve the target.
@@ -3732,16 +5503,32 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let tref = self.class_ref(tclass);
                 let tgeneric = self.ctx.requires_rti(tclass);
                 if tgeneric {
-                    let tt = if self.ctx.class_params[tclass.0 as usize].len() == targs.len() { Some(Ty::Iface { class: tclass, args: targs.clone(), nullable: false }) } else { None };
+                    let tt = if self.ctx.class_params[tclass.0 as usize].len() == targs.len() {
+                        Some(Ty::Iface {
+                            class: tclass,
+                            args: targs.clone(),
+                            nullable: false,
+                        })
+                    } else {
+                        None
+                    };
                     arg_js.insert(0, self.rti(&tt.unwrap_or(ty.clone())));
                 }
-                let tjs = if tname.is_empty() { "new".to_string() } else { static_member_name(&tname) };
+                let tjs = if tname.is_empty() {
+                    "new".to_string()
+                } else {
+                    static_member_name(&tname)
+                };
                 let call = if is_target_factory {
                     format!("{tref}.{tjs}({})", arg_js.join(", "))
                 } else {
                     format!("new {tref}.{tjs}({})", arg_js.join(", "))
                 };
-                let call = if is_const { format!("dart.const({call})") } else { call };
+                let call = if is_const {
+                    format!("dart.const({call})")
+                } else {
+                    call
+                };
                 self.m.note_class(class);
                 return (Js::prim(call), ty);
             }
@@ -3761,22 +5548,36 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             format!("new {cls_ref}.{jsname}({})", arg_js.join(", "))
         };
-        let call = if is_const { format!("dart.const({call})") } else { call };
+        let call = if is_const {
+            format!("dart.const({call})")
+        } else {
+            call
+        };
         (Js::prim(call), ty)
     }
 
     /// Target of `factory C.x(...) = D.y;`.
-    pub fn factory_redirect_target(&self, fid: dartforge_elements::model::FunctionElementId) -> Option<(ClassId, String, bool)> {
+    pub fn factory_redirect_target(
+        &self,
+        fid: dartforge_elements::model::FunctionElementId,
+    ) -> Option<(ClassId, String, bool)> {
         let fid = self.ctx.program.function(fid).patched_by.unwrap_or(fid);
         let f = self.ctx.program.function(fid);
-        let dartforge_elements::model::FunctionRef::Constructor { unit, member } = f.node else { return None };
+        let dartforge_elements::model::FunctionRef::Constructor { unit, member } = f.node else {
+            return None;
+        };
         let m = self.ctx.program.unit(unit).ast.member(member);
-        let ast::MemberKind::Constructor(ctor) = &m.kind else { return None };
+        let ast::MemberKind::Constructor(ctor) = &m.kind else {
+            return None;
+        };
         let redirect = ctor.redirect.as_ref()?;
         // Resolve the target type in the context of the constructor's unit.
         let sub = FnEmitter::new(self.ctx, self.m, unit, f.class, true);
         let mut t = sub.resolve_type(redirect.ty);
-        let mut name = redirect.constructor.map(|n| self.name(n.sym).to_string()).unwrap_or_default();
+        let mut name = redirect
+            .constructor
+            .map(|n| self.name(n.sym).to_string())
+            .unwrap_or_default();
         // `= Class.name` arrives as a type with two parts (`prefix.Type`): if
         // the first part is a class, the second is the constructor name.
         if !matches!(t, Ty::Iface { .. }) && redirect.constructor.is_none() {
@@ -3791,8 +5592,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
         }
-        let Ty::Iface { class, .. } = t else { return None };
-        let key = if name.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(&name) };
+        let Ty::Iface { class, .. } = t else {
+            return None;
+        };
+        let key = if name.is_empty() {
+            self.ctx.empty_sym
+        } else {
+            self.ctx.sym(&name)
+        };
         let tfid = key.and_then(|k| self.ctx.program.class(class).constructors.get(&k).copied());
         let is_factory = tfid.is_some_and(|x| self.ctx.program.function(x).factory);
         // If the target redirects too, follow it.
@@ -3844,12 +5651,19 @@ fn parse_int(text: &str) -> String {
         }
     } else {
         let t = text.trim_start_matches('0');
-        if t.is_empty() { "0".to_string() } else { t.to_string() }
+        if t.is_empty() {
+            "0".to_string()
+        } else {
+            t.to_string()
+        }
     }
 }
 
 pub fn is_simple(code: &str) -> bool {
-    code == "this" || code.chars().all(|c| c.is_alphanumeric() || c == '$' || c == '_')
+    code == "this"
+        || code
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '$' || c == '_')
 }
 
 impl Ty {

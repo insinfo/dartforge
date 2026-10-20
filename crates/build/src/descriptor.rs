@@ -41,7 +41,12 @@ pub fn imitates(key: &str) -> &'static [(&'static str, &'static [&'static str])]
         // Another `sass` version in the lock changes the output.
         "sass_builder:sass_builder" => &[
             ("sass_builder", &["2.2.1"]),
-            ("sass", &["1.102.0", "1.101.0", "1.101.1", "1.101.2", "1.101.3", "1.66.0"]),
+            (
+                "sass",
+                &[
+                    "1.102.0", "1.101.0", "1.101.1", "1.101.2", "1.101.3", "1.66.0",
+                ],
+            ),
         ],
         "i18n:yamlBasedBuilder" => &[("i18n", &["4.2.1"])],
         _ => &[],
@@ -93,7 +98,9 @@ pub fn runtime_extensions(
         // `ngdart-8.0.0-dev.4/lib/src/build.dart:33-76`,
         // `ngcompiler-3.0.0-dev.3` (Placeholder, Compiler.asBuilder,
         // StylesheetCompiler).
-        ("ngdart:ngdart" | "ngx_dart:ngx_dart", "templatePlaceholder") => e(&[(".dart", &[".ng_placeholder"])]),
+        ("ngdart:ngdart" | "ngx_dart:ngx_dart", "templatePlaceholder") => {
+            e(&[(".dart", &[".ng_placeholder"])])
+        }
         ("ngdart:ngdart" | "ngx_dart:ngx_dart", "templateCompiler") => {
             if options.get("outline-only").is_some() {
                 e(&[(".dart", &[".outline.template.dart"])])
@@ -101,7 +108,9 @@ pub fn runtime_extensions(
                 e(&[(".dart", &[".template.dart"])])
             }
         }
-        ("ngdart:ngdart" | "ngx_dart:ngx_dart", "stylesheetCompiler") => e(&[(".css", &[".css.shim.dart", ".css.dart"])]),
+        ("ngdart:ngdart" | "ngx_dart:ngx_dart", "stylesheetCompiler") => {
+            e(&[(".css", &[".css.shim.dart", ".css.dart"])])
+        }
         // `sass_builder-2.2.1/lib/sass_builder.dart:130-132`.
         ("sass_builder:sass_builder", _) => e(&[
             (".scss", &[".css", ".css.map"]),

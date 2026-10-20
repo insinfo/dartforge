@@ -55,14 +55,17 @@ fn infer_file(main: &std::path::Path) -> Result_ {
             let mut table = TypeTable::new();
             let core = CoreTypes::init(&mut table, &prog, &interner);
             let (mut outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
-            let (bodies, diags) = infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
+            let (bodies, diags) =
+                infer_program_bodies(&prog, &interner, &mut table, &core, &mut outline);
             let entry = prog.library(prog.entry.unwrap()).units[0];
             let unit = prog.unit(entry);
             let bt = &bodies.units[entry.0 as usize];
             let mut types = Vec::new();
             for (i, e) in unit.ast.exprs.iter().enumerate() {
                 let text = unit.source[e.span.start..e.span.end].to_string();
-                let t = bt.get_type(dartforge_frontend::ast::ExprId(i as u32)).expect("typed");
+                let t = bt
+                    .get_type(dartforge_frontend::ast::ExprId(i as u32))
+                    .expect("typed");
                 types.push((e.span.start, text, the_format(&table, t, &interner, &prog)));
             }
             types.sort_by_key(|(s, _, _)| *s);
@@ -77,15 +80,33 @@ fn infer_file(main: &std::path::Path) -> Result_ {
 }
 
 /// Like `DartType.getDisplayString()`.
-fn the_format(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::model::Program) -> String {
+fn the_format(
+    t: &TypeTable,
+    ty: TypeId,
+    i: &Interner,
+    p: &dartforge_elements::model::Program,
+) -> String {
     let q = |n: bool| if n { "?" } else { "" };
     match t.get(ty) {
-        Type::Intersection { param, bound } => format!("{} & {}", i.resolve(t.param(*param).name), the_format(t, *bound, i, p)),
+        Type::Intersection { param, bound } => format!(
+            "{} & {}",
+            i.resolve(t.param(*param).name),
+            the_format(t, *bound, i, p)
+        ),
         Type::Dynamic => "dynamic".into(),
         Type::Void => "void".into(),
         Type::Never => "Never".into(),
         Type::Null => "Null".into(),
-        Type::Interface { class, args, nullable } | Type::ExtensionType { decl: class, args, nullable } => {
+        Type::Interface {
+            class,
+            args,
+            nullable,
+        }
+        | Type::ExtensionType {
+            decl: class,
+            args,
+            nullable,
+        } => {
             let name = i.resolve(p.class(*class).name);
             if args.is_empty() {
                 format!("{name}{}", q(*nullable))
@@ -94,20 +115,45 @@ fn the_format(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::m
                 format!("{name}<{}>{}", a.join(", "), q(*nullable))
             }
         }
-        Type::FutureOr { arg, nullable } => format!("FutureOr<{}>{}", the_format(t, *arg, i, p), q(*nullable)),
-        Type::TypeParameter { param, nullable } => format!("{}{}", i.resolve(t.param(*param).name), q(*nullable)),
-        Type::Record { positional, named, nullable } => {
-            let mut parts: Vec<String> = positional.iter().map(|&x| the_format(t, x, i, p)).collect();
-            let mut n: Vec<(String, String)> = named.iter().map(|(s, x)| (i.resolve(*s).to_string(), the_format(t, *x, i, p))).collect();
+        Type::FutureOr { arg, nullable } => {
+            format!("FutureOr<{}>{}", the_format(t, *arg, i, p), q(*nullable))
+        }
+        Type::TypeParameter { param, nullable } => {
+            format!("{}{}", i.resolve(t.param(*param).name), q(*nullable))
+        }
+        Type::Record {
+            positional,
+            named,
+            nullable,
+        } => {
+            let mut parts: Vec<String> =
+                positional.iter().map(|&x| the_format(t, x, i, p)).collect();
+            let mut n: Vec<(String, String)> = named
+                .iter()
+                .map(|(s, x)| (i.resolve(*s).to_string(), the_format(t, *x, i, p)))
+                .collect();
             n.sort();
             if !n.is_empty() {
-                parts.push(format!("{{{}}}", n.iter().map(|(s, x)| format!("{x} {s}")).collect::<Vec<_>>().join(", ")));
+                parts.push(format!(
+                    "{{{}}}",
+                    n.iter()
+                        .map(|(s, x)| format!("{x} {s}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
             } else if positional.len() == 1 {
                 return format!("({},){}", parts[0], q(*nullable));
             }
             format!("({}){}", parts.join(", "), q(*nullable))
         }
-        Type::Function { type_params, ret, positional, optional, named, nullable } => {
+        Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            nullable,
+        } => {
             let tps = if type_params.is_empty() {
                 String::new()
             } else {
@@ -117,7 +163,11 @@ fn the_format(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::m
                         let d = t.param(tp);
                         let name = i.resolve(d.name).to_string();
                         match t.get(d.bound) {
-                            Type::Interface { nullable: true, class, .. } if i.resolve(p.class(*class).name) == "Object" => name,
+                            Type::Interface {
+                                nullable: true,
+                                class,
+                                ..
+                            } if i.resolve(p.class(*class).name) == "Object" => name,
                             Type::Dynamic => name,
                             _ => format!("{name} extends {}", the_format(t, d.bound, i, p)),
                         }
@@ -125,19 +175,45 @@ fn the_format(t: &TypeTable, ty: TypeId, i: &Interner, p: &dartforge_elements::m
                     .collect();
                 format!("<{}>", v.join(", "))
             };
-            let mut parts: Vec<String> = positional.iter().map(|&x| the_format(t, x, i, p)).collect();
+            let mut parts: Vec<String> =
+                positional.iter().map(|&x| the_format(t, x, i, p)).collect();
             if !optional.is_empty() {
-                parts.push(format!("[{}]", optional.iter().map(|&x| the_format(t, x, i, p)).collect::<Vec<_>>().join(", ")));
+                parts.push(format!(
+                    "[{}]",
+                    optional
+                        .iter()
+                        .map(|&x| the_format(t, x, i, p))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
             }
             if !named.is_empty() {
                 let mut n: Vec<(String, String)> = named
                     .iter()
-                    .map(|(s, x, r)| (i.resolve(*s).to_string(), format!("{}{} {}", if *r { "required " } else { "" }, the_format(t, *x, i, p), i.resolve(*s))))
+                    .map(|(s, x, r)| {
+                        (
+                            i.resolve(*s).to_string(),
+                            format!(
+                                "{}{} {}",
+                                if *r { "required " } else { "" },
+                                the_format(t, *x, i, p),
+                                i.resolve(*s)
+                            ),
+                        )
+                    })
                     .collect();
                 n.sort();
-                parts.push(format!("{{{}}}", n.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join(", ")));
+                parts.push(format!(
+                    "{{{}}}",
+                    n.into_iter().map(|(_, s)| s).collect::<Vec<_>>().join(", ")
+                ));
             }
-            format!("{} Function{tps}({}){}", the_format(t, *ret, i, p), parts.join(", "), q(*nullable))
+            format!(
+                "{} Function{tps}({}){}",
+                the_format(t, *ret, i, p),
+                parts.join(", "),
+                q(*nullable)
+            )
         }
     }
 }
@@ -248,7 +324,10 @@ void main() {
     assert_eq!(r.ty("id"), "T Function<T>(T)");
     assert_eq!(r.ty("id(3)"), "int");
     assert_eq!(r.ty("nomes.length"), "int");
-    assert_eq!(r.ty("E.vazio().callback"), "dynamic Function(List<String>, {String rawValue})?");
+    assert_eq!(
+        r.ty("E.vazio().callback"),
+        "dynamic Function(List<String>, {String rawValue})?"
+    );
     assert!(r.warnings.is_empty(), "warnings: {:?}", r.warnings);
 }
 
@@ -309,7 +388,10 @@ void main() {
 "#
     ));
     assert_eq!(r.ty("g"), "void Function([int Function(String, String)?])");
-    assert_eq!(r.ty("l.sort"), "void Function([int Function(String, String)?])");
+    assert_eq!(
+        r.ty("l.sort"),
+        "void Function([int Function(String, String)?])"
+    );
 }
 
 /// Override inference by position (the parameter's name may change), a
@@ -352,11 +434,19 @@ fn system_import_loses_conflict() {
     let Some(sdk) = sdk() else { return };
     let _ = sdk;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("lib.dart"), "class Duration { final int n; Duration(this.n); }").unwrap();
+    std::fs::write(
+        dir.path().join("lib.dart"),
+        "class Duration { final int n; Duration(this.n); }",
+    )
+    .unwrap();
     let main = dir.path().join("main.dart");
-    std::fs::write(&main, "import 'dart:core';
+    std::fs::write(
+        &main,
+        "import 'dart:core';
 import 'lib.dart';
-void main() { var d = Duration(3); var n = d.n; }").unwrap();
+void main() { var d = Duration(3); var n = d.n; }",
+    )
+    .unwrap();
     let r = infer_file(&main);
     assert_eq!(r.ty("d.n"), "int");
     assert!(r.warnings.is_empty(), "warnings: {:?}", r.warnings);
@@ -376,9 +466,19 @@ T f<T>(T? a, T b, Map<String, T> m) {
 }
 "#
     ));
-    let types: Vec<&str> = r.types.iter().filter(|(t, _)| t == "a").map(|(_, ty)| ty.as_str()).collect();
+    let types: Vec<&str> = r
+        .types
+        .iter()
+        .filter(|(t, _)| t == "a")
+        .map(|(_, ty)| ty.as_str())
+        .collect();
     assert_eq!(types, ["T?", "T & Object"]);
-    let tb: Vec<&str> = r.types.iter().filter(|(t, _)| t == "b").map(|(_, ty)| ty.as_str()).collect();
+    let tb: Vec<&str> = r
+        .types
+        .iter()
+        .filter(|(t, _)| t == "b")
+        .map(|(_, ty)| ty.as_str())
+        .collect();
     assert_eq!(tb, ["T", "T & int", "T"]);
     assert_eq!(r.ty("m['k']"), "T?");
     assert_eq!(r.ty("m['k']!"), "T & Object");
@@ -410,7 +510,13 @@ int g(A a) {
 }
 "#
     ));
-    let types = |t: &str| r.types.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    let types = |t: &str| {
+        r.types
+            .iter()
+            .filter(|(x, _)| x == t)
+            .map(|(_, y)| y.as_str())
+            .collect::<Vec<_>>()
+    };
     assert_eq!(types("_x"), ["int?", "int"]);
     assert_eq!(types("this._o"), ["Object", "String"]);
     assert_eq!(types("_y"), ["int?", "int?"]);
@@ -448,7 +554,13 @@ void g() {
 }
 "#
     ));
-    let types = |t: &str| r.types.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    let types = |t: &str| {
+        r.types
+            .iter()
+            .filter(|(x, _)| x == t)
+            .map(|(_, y)| y.as_str())
+            .collect::<Vec<_>>()
+    };
     assert_eq!(types("s"), ["S?", "S"]);
     assert_eq!(types("1"), ["double"]);
     assert_eq!(types("buf")[..2], ["StringBuffer?", "StringBuffer"]);
@@ -478,7 +590,13 @@ void main() {
 }
 "#
     ));
-    let types = |t: &str| r.types.iter().filter(|(x, _)| x == t).map(|(_, y)| y.as_str()).collect::<Vec<_>>();
+    let types = |t: &str| {
+        r.types
+            .iter()
+            .filter(|(x, _)| x == t)
+            .map(|(_, y)| y.as_str())
+            .collect::<Vec<_>>()
+    };
     // `botao!`, then `botao.write` inside the closure: promoted.
     assert_eq!(types("botao")[..2], ["StringBuffer?", "StringBuffer"]);
     assert!(r.warnings.is_empty(), "warnings: {:?}", r.warnings);
@@ -547,7 +665,12 @@ class A {
 "#
     ));
     assert!(r.warnings.is_empty(), "warnings: {:?}", r.warnings);
-    let types: Vec<&str> = r.types.iter().filter(|(t, _)| t == "_x").map(|(_, y)| y.as_str()).collect();
+    let types: Vec<&str> = r
+        .types
+        .iter()
+        .filter(|(t, _)| t == "_x")
+        .map(|(_, y)| y.as_str())
+        .collect();
     assert_eq!(types, ["int?", "int?"]);
 }
 
@@ -569,7 +692,12 @@ double f(double? d, double? e) {
 "#
     ));
     assert!(r.warnings.is_empty(), "warnings: {:?}", r.warnings);
-    let types: Vec<&str> = r.types.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
+    let types: Vec<&str> = r
+        .types
+        .iter()
+        .filter(|(t, _)| t == "e")
+        .map(|(_, y)| y.as_str())
+        .collect();
     // A write after the condition: the variable does not restore the promotion.
     assert_eq!(types.last(), Some(&"double?"));
 }
@@ -590,7 +718,12 @@ A f(C c) => c;
     // `C <: A` through `implements`; `B` is not a subtype of `Object` (no
     // superinterface leads to a class), and analyzer 3.6.2 reports the
     // initializer `_ = b` (checked against `dart analyze`).
-    assert_eq!(r.warnings, vec!["The initializer type 'B' can't be assigned to the field type 'Object'.".to_string()], "warnings: {:?}", r.warnings);
+    assert_eq!(
+        r.warnings,
+        vec!["The initializer type 'B' can't be assigned to the field type 'Object'.".to_string()],
+        "warnings: {:?}",
+        r.warnings
+    );
 }
 
 /// An object with `call` passed to a function-typed parameter of a generic
@@ -658,6 +791,11 @@ Object comando(Expr e) {
 "#
     ));
     assert!(r.warnings.is_empty(), "warnings: {:?}", r.warnings);
-    let types: Vec<&str> = r.types.iter().filter(|(t, _)| t == "e").map(|(_, y)| y.as_str()).collect();
+    let types: Vec<&str> = r
+        .types
+        .iter()
+        .filter(|(t, _)| t == "e")
+        .map(|(_, y)| y.as_str())
+        .collect();
     assert_eq!(types, ["Expr", "Num", "Expr", "Expr", "Expr", "Num"]);
 }

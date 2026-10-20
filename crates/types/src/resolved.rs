@@ -4,7 +4,9 @@
 //! in the side table [`UnitBodyTypes`], compactly indexed by [`ast::ExprId`].
 
 use crate::table::{TypeId, TypeParamId};
-use dartforge_elements::model::{ClassId, Element, ExtensionId, FunctionElementId, LibraryId, VariableId};
+use dartforge_elements::model::{
+    ClassId, Element, ExtensionId, FunctionElementId, LibraryId, VariableId,
+};
 use dartforge_frontend::ast;
 use dartforge_intern::SymbolId;
 
@@ -220,7 +222,10 @@ impl UnitBodyTypes {
 
     /// The resolved targets recorded, in expression order.
     pub fn resolved_targets(&self) -> impl Iterator<Item = (ast::ExprId, &Resolved)> + '_ {
-        self.resolved.iter().enumerate().filter_map(|(i, r)| r.as_ref().map(|r| (ast::ExprId(i as u32), r)))
+        self.resolved
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| r.as_ref().map(|r| (ast::ExprId(i as u32), r)))
     }
 
     /// Sets the static type of every expression to `ty` (the dump's
@@ -310,7 +315,10 @@ pub struct BodyTypes {
     pub units: Vec<UnitBodyTypes>,
     /// The extensions chosen when resolving a member (the `ImportsTracking`'s
     /// `notifyExtensionUsed`), by the library in which the resolution happened.
-    pub used_extensions: std::collections::HashSet<(dartforge_elements::model::LibraryId, dartforge_elements::model::ExtensionId)>,
+    pub used_extensions: std::collections::HashSet<(
+        dartforge_elements::model::LibraryId,
+        dartforge_elements::model::ExtensionId,
+    )>,
 }
 
 /// A local (variable, parameter or local function) visible at a point of

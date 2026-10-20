@@ -18,8 +18,12 @@
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionRef, Program, UnitId, VariableId, VariableRef};
-use dartforge_frontend::ast::{self, BinaryOp, DeclKind, ExprKind, FunctionKind, MemberKind, TypeKind};
+use dartforge_elements::model::{
+    ClassId, Element, FunctionElementId, FunctionRef, Program, UnitId, VariableId, VariableRef,
+};
+use dartforge_frontend::ast::{
+    self, BinaryOp, DeclKind, ExprKind, FunctionKind, MemberKind, TypeKind,
+};
 use dartforge_intern::Interner;
 
 /// A `major.minor.patch` version, without pre-release.
@@ -64,11 +68,18 @@ impl SdkConstraint {
             return None;
         }
         if normal.is_empty() || normal == "any" {
-            return Some(SdkConstraint { minimum: None, text: "any".to_string() });
+            return Some(SdkConstraint {
+                minimum: None,
+                text: "any".to_string(),
+            });
         }
         let mut minimum = None;
         for part in normal.split(' ') {
-            if let Some(v) = part.strip_prefix('^').or_else(|| part.strip_prefix(">=")).or_else(|| part.strip_prefix('>')) {
+            if let Some(v) = part
+                .strip_prefix('^')
+                .or_else(|| part.strip_prefix(">="))
+                .or_else(|| part.strip_prefix('>'))
+            {
                 minimum = Some(Version::from_text(v)?);
             } else if let Some(v) = part.strip_prefix("<=").or_else(|| part.strip_prefix('<')) {
                 Version::from_text(v)?;
@@ -76,7 +87,10 @@ impl SdkConstraint {
                 minimum = Some(Version::from_text(part)?);
             }
         }
-        Some(SdkConstraint { minimum, text: normal })
+        Some(SdkConstraint {
+            minimum,
+            text: normal,
+        })
     }
 
     /// `requiresAtLeast`: the constraint's minimum is at least `version`.
@@ -99,7 +113,9 @@ fn since(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -> Opt
         }
         let first = args.args.iter().find(|x| x.name.is_none())?;
         match &a.expr(first.value).kind {
-            ExprKind::String(lit) => Version::from_text(&dartforge_elements::load::string_lit_value(lit)?),
+            ExprKind::String(lit) => {
+                Version::from_text(&dartforge_elements::load::string_lit_value(lit)?)
+            }
             _ => None,
         }
     })
@@ -135,7 +151,11 @@ fn since_of_variable(program: &Program, interner: &Interner, v: VariableId) -> O
     own.max(e.class.and_then(|c| since_of_class(program, interner, c)))
 }
 
-fn since_of_function(program: &Program, interner: &Interner, f: FunctionElementId) -> Option<Version> {
+fn since_of_function(
+    program: &Program,
+    interner: &Interner,
+    f: FunctionElementId,
+) -> Option<Version> {
     let e = program.function(f);
     if let Some(v) = e.variable {
         return since_of_variable(program, interner, v);
@@ -150,9 +170,20 @@ fn since_of_function(program: &Program, interner: &Interner, f: FunctionElementI
         }
         FunctionRef::Function { unit, function } => {
             let a = &program.unit(unit).ast;
-            let of_member = a.members.iter().find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function)).map(|m| &m.metadata[..]);
-            let of_declaration = || a.decls.iter().find(|d| matches!(&d.kind, DeclKind::Function(g) if *g == function)).map(|d| &d.metadata[..]);
-            of_member.or_else(of_declaration).and_then(|m| since(m, a, interner))
+            let of_member = a
+                .members
+                .iter()
+                .find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function))
+                .map(|m| &m.metadata[..]);
+            let of_declaration = || {
+                a.decls
+                    .iter()
+                    .find(|d| matches!(&d.kind, DeclKind::Function(g) if *g == function))
+                    .map(|d| &d.metadata[..])
+            };
+            of_member
+                .or_else(of_declaration)
+                .and_then(|m| since(m, a, interner))
         }
         FunctionRef::None => None,
     };
@@ -173,10 +204,22 @@ pub fn sdk_constraint(
     // `>>>`: use and declaration of the operator.
     if constraint.before_triple_shift() {
         for e in a.exprs.iter() {
-            if let ExprKind::Binary { op: BinaryOp::UShr, left, right } = &e.kind {
+            if let ExprKind::Binary {
+                op: BinaryOp::UShr,
+                left,
+                right,
+            } = &e.kind
+            {
                 let (of, until) = (a.expr(*left).span.end, a.expr(*right).span.start);
                 if let Some(k) = unit_id.source.get(of..until).and_then(|t| t.find(">>>")) {
-                    out.push(Diagnostic::with_code(w::SDK_VERSION_GT_GT_GT_OPERATOR, Span { start: of + k, end: of + k + 3 }, std::iter::empty::<&str>()));
+                    out.push(Diagnostic::with_code(
+                        w::SDK_VERSION_GT_GT_GT_OPERATOR,
+                        Span {
+                            start: of + k,
+                            end: of + k + 3,
+                        },
+                        std::iter::empty::<&str>(),
+                    ));
                 }
             }
         }
@@ -184,7 +227,11 @@ pub fn sdk_constraint(
             if let (FunctionKind::Operator, Some(n)) = (f.kind, f.name)
                 && interner.resolve(n.sym) == ">>>"
             {
-                out.push(Diagnostic::with_code(w::SDK_VERSION_GT_GT_GT_OPERATOR, n.span, std::iter::empty::<&str>()));
+                out.push(Diagnostic::with_code(
+                    w::SDK_VERSION_GT_GT_GT_OPERATOR,
+                    n.span,
+                    std::iter::empty::<&str>(),
+                ));
             }
         }
     }
@@ -195,26 +242,38 @@ pub fn sdk_constraint(
             return;
         }
         // The listener is a set: one report per position.
-        if !out.iter().any(|x| x.code == Some(w::SDK_VERSION_SINCE) && x.span == span) {
+        if !out
+            .iter()
+            .any(|x| x.code == Some(w::SDK_VERSION_SINCE) && x.span == span)
+        {
             let text = v.to_string();
-            out.push(Diagnostic::with_code(w::SDK_VERSION_SINCE, span, [text.as_str(), constraint.text.as_str()]));
+            out.push(Diagnostic::with_code(
+                w::SDK_VERSION_SINCE,
+                span,
+                [text.as_str(), constraint.text.as_str()],
+            ));
         }
     };
     // Named types: the SDK class, at the name.
     for t in a.types.iter() {
-        let TypeKind::Named { name, .. } = &t.kind else { continue };
+        let TypeKind::Named { name, .. } = &t.kind else {
+            continue;
+        };
         let binding = match &name[..] {
             [n] => program.lookup_in_unit(u, n.sym),
             [p, n] => program.lookup_prefixed_in_unit(u, p.sym, n.sym),
             _ => None,
         };
-        if let (Some(Element::Class(c)), Some(last)) = (binding.and_then(|b| b.getter), name.last()) {
+        if let (Some(Element::Class(c)), Some(last)) = (binding.and_then(|b| b.getter), name.last())
+        {
             report(since_of_class(program, interner, c), last.span);
         }
     }
     if let Some(body) = body {
         for (i, expr) in a.exprs.iter().enumerate() {
-            let Some(r) = body.get_resolved(ast::ExprId(i as u32)) else { continue };
+            let Some(r) = body.get_resolved(ast::ExprId(i as u32)) else {
+                continue;
+            };
             let at_name = match &expr.kind {
                 ExprKind::Identifier(n) => n,
                 ExprKind::Property { name, .. } => name,
@@ -227,11 +286,22 @@ pub fn sdk_constraint(
                 Resolved::Element(Element::Variable(v)) => since_of_variable(program, interner, *v),
                 // `_shouldReportEnumIndex`: `index` only with a target that is exactly
                 // `Enum`, which is not checked here.
-                Resolved::Member { .. } | Resolved::ExtensionMember { .. } if interner.resolve(at_name.sym) == "index" => None,
-                Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => {
+                Resolved::Member { .. } | Resolved::ExtensionMember { .. }
+                    if interner.resolve(at_name.sym) == "index" =>
+                {
+                    None
+                }
+                Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                }
+                | Resolved::ExtensionMember { member: f, .. } => {
                     since_of_function(program, interner, *f)
                 }
-                Resolved::Member { member: MemberRef::Variable(v), .. } => since_of_variable(program, interner, *v),
+                Resolved::Member {
+                    member: MemberRef::Variable(v),
+                    ..
+                } => since_of_variable(program, interner, *v),
                 _ => None,
             };
             report(version, at_name.span);
@@ -253,7 +323,11 @@ mod tests {
         let range = SdkConstraint::from_text(">=2.12.0   <4.0.0").unwrap();
         assert_eq!(range.text, ">=2.12.0 <4.0.0");
         assert!(range.before_triple_shift() && !range.guarantees(Version(2, 15, 0)));
-        assert!(SdkConstraint::from_text("any").unwrap().before_triple_shift());
+        assert!(
+            SdkConstraint::from_text("any")
+                .unwrap()
+                .before_triple_shift()
+        );
         assert!(SdkConstraint::from_text(">=2.0.0 <3.0.0 || >=3.1.0").is_none());
         assert_eq!(Version::from_text("2.15"), Some(Version(2, 15, 0)));
         assert_eq!(Version::from_text("3.0.0-dev.1"), Some(Version(3, 0, 0)));

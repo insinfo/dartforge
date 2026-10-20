@@ -65,8 +65,8 @@ pub const LARGEST_CLASS: usize = 64;
 /// The medium size classes, in body words: each one fills the page (`k` blocks of
 /// `16 + 8w` bytes in the `PAGE - PAGE_HEAD` usable bytes; see §2.6).
 pub const MEDIUM_CLASSES: [usize; 24] = [
-    70, 82, 98, 110, 124, 142, 166, 199, 222, 250, 286, 334, 401, 446, 502, 574, 670, 804, 894, 1006, 1150, 1342,
-    1610, 2014,
+    70, 82, 98, 110, 124, 142, 166, 199, 222, 250, 286, 334, 401, 446, 502, 574, 670, 804, 894,
+    1006, 1150, 1342, 1610, 2014,
 ];
 /// Largest body (in words) outside a large region.
 pub const LARGEST_MEDIUM: usize = 2014;
@@ -260,7 +260,11 @@ pub mod cid {
         (62, "dart:typed_data", "_UnmodifiableInt32x4ArrayView"),
         (63, "dart:typed_data", "_UnmodifiableFloat64x2ArrayView"),
         (BYTE_DATA_VIEW, "dart:typed_data", "_ByteDataView"),
-        (UNMODIFIABLE_BYTE_DATA_VIEW, "dart:typed_data", "_UnmodifiableByteDataView"),
+        (
+            UNMODIFIABLE_BYTE_DATA_VIEW,
+            "dart:typed_data",
+            "_UnmodifiableByteDataView",
+        ),
     ];
 
     /// The cid of the internal typed list of type `ty` (`TIPO_*`).
@@ -270,7 +274,11 @@ pub mod cid {
 
     /// The cid of the view of type `ty`, modifiable or not.
     pub const fn view(ty: u8, unmodifiable: bool) -> i32 {
-        (if unmodifiable { FIRST_UNMODIFIABLE_VIEW } else { FIRST_VIEW }) + ty as i32
+        (if unmodifiable {
+            FIRST_UNMODIFIABLE_VIEW
+        } else {
+            FIRST_VIEW
+        }) + ty as i32
     }
 
     /// `_OneByteString` or `_TwoByteString`.
@@ -300,7 +308,8 @@ pub mod cid {
 
     /// Unmodifiable view (`_UnmodifiableXArrayView`, `_UnmodifiableByteDataView`).
     pub const fn is_unmodifiable_view(c: i32) -> bool {
-        (c.wrapping_sub(FIRST_UNMODIFIABLE_VIEW) as u32) < ELEMENT_TYPES as u32 || c == UNMODIFIABLE_BYTE_DATA_VIEW
+        (c.wrapping_sub(FIRST_UNMODIFIABLE_VIEW) as u32) < ELEMENT_TYPES as u32
+            || c == UNMODIFIABLE_BYTE_DATA_VIEW
     }
 
     /// SIMD value (`_Float32x4`, `_Int32x4`, `_Float64x2`).
@@ -471,7 +480,11 @@ pub const fn has_cards(len: usize) -> bool {
 /// Card words after the last element of a large list.
 #[inline]
 pub const fn card_words(len: usize) -> usize {
-    if has_cards(len) { len.div_ceil(ELEMENTS_PER_CARD_WORD) } else { 0 }
+    if has_cards(len) {
+        len.div_ceil(ELEMENTS_PER_CARD_WORD)
+    } else {
+        0
+    }
 }
 
 /// Body words of a `_List`/`_ImmutableList` of `len` elements: the length, the
@@ -508,7 +521,11 @@ pub const fn size_class(words: usize) -> Option<usize> {
 /// The body words of a block of class `class` (`1..N_CLASSES`).
 #[inline]
 pub const fn class_words(class: usize) -> usize {
-    if class <= LARGEST_CLASS { class } else { MEDIUM_CLASSES[class - LARGEST_CLASS - 1] }
+    if class <= LARGEST_CLASS {
+        class
+    } else {
+        MEDIUM_CLASSES[class - LARGEST_CLASS - 1]
+    }
 }
 
 /// Bytes of a block with a body of `words` words.
@@ -522,7 +539,11 @@ pub const fn block_bytes(words: usize) -> usize {
 /// (for `INSTANCE`, `n` is the number of fields; for the others, the body words).
 #[inline]
 pub const fn header_word(state: u8, flags: u8, n: usize, cid: i32) -> u64 {
-    let n = if n > u16::MAX as usize { u16::MAX as u64 } else { n as u64 };
+    let n = if n > u16::MAX as usize {
+        u16::MAX as u64
+    } else {
+        n as u64
+    };
     state as u64 | (flags as u64) << 8 | n << 16 | (cid as u32 as u64) << 32
 }
 
@@ -553,12 +574,18 @@ mod layout_tests {
         let mut previous = 0;
         for w in 0..=LARGEST_MEDIUM {
             let c = size_class(w).expect("body class up to the largest medium one");
-            assert!((1..N_CLASSES).contains(&c), "class {c} of {w} words out of range");
+            assert!(
+                (1..N_CLASSES).contains(&c),
+                "class {c} of {w} words out of range"
+            );
             assert!(c >= previous, "size_class is not monotonic at {w}");
             assert!(class_words(c) >= w, "class {c} does not fit {w} words");
             // The smallest class that fits: the previous one does not fit.
             if c > 1 {
-                assert!(class_words(c - 1) < w.max(1), "class {c} is not the smallest for {w}");
+                assert!(
+                    class_words(c - 1) < w.max(1),
+                    "class {c} is not the smallest for {w}"
+                );
             }
             previous = c;
         }
@@ -572,27 +599,47 @@ mod layout_tests {
     #[test]
     fn layout_medium_classes_fill_the_page() {
         let useful = PAGE - PAGE_HEAD;
-        let blocks = [112, 96, 80, 72, 64, 56, 48, 40, 36, 32, 28, 24, 20, 18, 16, 14, 12, 10, 9, 8, 7, 6, 5, 4];
+        let blocks = [
+            112, 96, 80, 72, 64, 56, 48, 40, 36, 32, 28, 24, 20, 18, 16, 14, 12, 10, 9, 8, 7, 6, 5,
+            4,
+        ];
         for (i, &w) in MEDIUM_CLASSES.iter().enumerate() {
             let k = useful / block_bytes(w);
             assert_eq!(k, blocks[i], "medium class of {w} words");
             // The largest that fits the same number of blocks: one more word loses one.
-            assert!(useful / block_bytes(w + 1) < k, "the class of {w} words does not fill the page");
+            assert!(
+                useful / block_bytes(w + 1) < k,
+                "the class of {w} words does not fill the page"
+            );
         }
         // Maximum internal waste of 25% (between 1610 and 2014).
         let mut previous = LARGEST_CLASS;
         for &w in &MEDIUM_CLASSES {
-            assert!((w - previous - 1) * 4 <= w, "internal waste above 25% before {w}");
+            assert!(
+                (w - previous - 1) * 4 <= w,
+                "internal waste above 25% before {w}"
+            );
             previous = w;
         }
     }
 
     #[test]
     fn layout_string_hash_equals_vm() {
-        for s in ["", "a", "abc", "hello world", "ç€😀", "0123456789abcdef0123456789"] {
+        for s in [
+            "",
+            "a",
+            "abc",
+            "hello world",
+            "ç€😀",
+            "0123456789abcdef0123456789",
+        ] {
             let t = crate::heap::Text::from_rust_str(s);
             let u: Vec<u16> = s.encode_utf16().collect();
-            assert_eq!(i64::from(string_hash(u.iter().copied())), t.hash_vm(), "hash of {s:?}");
+            assert_eq!(
+                i64::from(string_hash(u.iter().copied())),
+                t.hash_vm(),
+                "hash of {s:?}"
+            );
         }
         // Lone surrogate and a unit above 0xFF.
         let u = vec![0xD800, 0x61, 0x1234, 0xFF];
@@ -606,7 +653,10 @@ mod layout_tests {
     fn layout_header_word_and_handles() {
         let p = header_word(state::YOUNG, flags::RAW, 3, cid::ONE_BYTE_STRING);
         assert_eq!(p, 1 | 0x02 << 8 | 3 << 16 | 6 << 32);
-        assert_eq!(header_word(state::PERMANENT, 0, 100_000, 200) >> 16 & 0xFFFF, 0xFFFF);
+        assert_eq!(
+            header_word(state::PERMANENT, 0, 100_000, 200) >> 16 & 0xFFFF,
+            0xFFFF
+        );
         assert_eq!(header_word(0, 0, 0, -1) >> 32, 0xFFFF_FFFF);
         assert!(is_object(0x1000 + HANDLE_OFFSET));
         assert!(!is_object(0));
@@ -644,18 +694,33 @@ mod layout_tests {
             assert_eq!(c, i as i32 + 1, "DO_SDK out of order at position {i}");
             assert!(i64::from(c) < FIRST_FREE_CID);
         }
-        assert_eq!(cid::SDK_CLASSES.len(), cid::UNMODIFIABLE_BYTE_DATA_VIEW as usize);
+        assert_eq!(
+            cid::SDK_CLASSES.len(),
+            cid::UNMODIFIABLE_BYTE_DATA_VIEW as usize
+        );
         assert_eq!(cid::typed(1), 23);
-        assert_eq!(cid::SDK_CLASSES[cid::typed(13) as usize - 1].2, "_Float64x2List");
-        assert_eq!(cid::SDK_CLASSES[cid::view(1, false) as usize - 1].2, "_Uint8ArrayView");
-        assert_eq!(cid::SDK_CLASSES[cid::view(13, true) as usize - 1].2, "_UnmodifiableFloat64x2ArrayView");
+        assert_eq!(
+            cid::SDK_CLASSES[cid::typed(13) as usize - 1].2,
+            "_Float64x2List"
+        );
+        assert_eq!(
+            cid::SDK_CLASSES[cid::view(1, false) as usize - 1].2,
+            "_Uint8ArrayView"
+        );
+        assert_eq!(
+            cid::SDK_CLASSES[cid::view(13, true) as usize - 1].2,
+            "_UnmodifiableFloat64x2ArrayView"
+        );
         for c in 0..200 {
             assert_eq!(cid::is_string(c), c == 6 || c == 7);
             assert_eq!(cid::is_fixed_list(c), c == 8 || c == 9);
             assert_eq!(cid::is_list(c), (8..=10).contains(&c));
             assert_eq!(cid::is_internal_typed(c), (22..=35).contains(&c));
             assert_eq!(cid::is_typed(c), (22..=65).contains(&c));
-            assert_eq!(cid::is_unmodifiable_view(c), (50..=63).contains(&c) || c == 65);
+            assert_eq!(
+                cid::is_unmodifiable_view(c),
+                (50..=63).contains(&c) || c == 65
+            );
             assert_eq!(cid::is_simd(c), (19..=21).contains(&c));
         }
     }

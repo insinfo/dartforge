@@ -31,7 +31,10 @@ pub fn dead_checks(func: &mut Function, do_not_throw: &HashSet<String>) -> bool 
     for b in &mut func.blocks {
         b.instructions.retain(|(v, _, _)| !dead.contains(v));
     }
-    replace(func, &|v| dead.contains(&v).then_some(Operand::Constant(Constant::Int(0))));
+    replace(func, &|v| {
+        dead.contains(&v)
+            .then_some(Operand::Constant(Constant::Int(0)))
+    });
     true
 }
 
@@ -60,19 +63,44 @@ pub fn fold_constants(func: &mut Function) -> bool {
         }
         // The header class is immutable. Only explicit allocations with a
         // Ref result prove this fact; bits, parameters and opaque calls do not.
-        let classes: HashMap<_, _> = func.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, inst, ty)| {
-            if *ty != Type::Ref { return None; }
-            let cid = match inst {
-                Instruction::AllocObject { class_id, .. } => i64::from(*class_id),
-                Instruction::CallRuntime { name, args, ret_ty: Type::Ref } | Instruction::DeclaredFieldCall { name, args, ret_ty: Type::Ref, .. }
-                    if matches!(name.as_str(), "dartforge_object_new" | "dartforge_arc_object_owned_v1") => match args.as_slice() {
-                        [(Operand::Constant(Constant::Int(cid)), Type::I64), (_, Type::I64)] => *cid,
-                        _ => return None,
-                    },
-                _ => return None,
-            };
-            i32::try_from(cid).ok().map(|_| (*v, cid))
-        }).collect();
+        let classes: HashMap<_, _> = func
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .filter_map(|(v, inst, ty)| {
+                if *ty != Type::Ref {
+                    return None;
+                }
+                let cid = match inst {
+                    Instruction::AllocObject { class_id, .. } => i64::from(*class_id),
+                    Instruction::CallRuntime {
+                        name,
+                        args,
+                        ret_ty: Type::Ref,
+                    }
+                    | Instruction::DeclaredFieldCall {
+                        name,
+                        args,
+                        ret_ty: Type::Ref,
+                        ..
+                    } if matches!(
+                        name.as_str(),
+                        "dartforge_object_new" | "dartforge_arc_object_owned_v1"
+                    ) =>
+                    {
+                        match args.as_slice() {
+                            [
+                                (Operand::Constant(Constant::Int(cid)), Type::I64),
+                                (_, Type::I64),
+                            ] => *cid,
+                            _ => return None,
+                        }
+                    }
+                    _ => return None,
+                };
+                i32::try_from(cid).ok().map(|_| (*v, cid))
+            })
+            .collect();
         // Narrow zero definitions remain SSA operands for typed stores and
         // extensions. Only a later comparison in the same block reads the fact.
         let needs_representation_facts = func.blocks.iter().flat_map(|b| &b.instructions).any(|(_, instruction, ty)|
@@ -82,78 +110,153 @@ pub fn fold_constants(func: &mut Function) -> bool {
         let mut definitions = HashMap::new();
         let mut duplicate_definitions = HashSet::new();
         if needs_representation_facts {
-        for (v, _, ty) in &func.params {
-            if definitions.insert(*v, (*ty, None)).is_some() { duplicate_definitions.insert(*v); }
-        }
-        for (block, b) in func.blocks.iter().enumerate() {
-            for (position, (v, instruction, ty)) in b.instructions.iter().enumerate() {
-                if *ty == Type::I1 && crate::llvm::LlvmEmitter::result_type(instruction, *ty) != Type::I1 { duplicate_definitions.insert(*v); }
-                if definitions.insert(*v, (*ty, Some((block, position)))).is_some() { duplicate_definitions.insert(*v); }
+            for (v, _, ty) in &func.params {
+                if definitions.insert(*v, (*ty, None)).is_some() {
+                    duplicate_definitions.insert(*v);
+                }
+            }
+            for (block, b) in func.blocks.iter().enumerate() {
+                for (position, (v, instruction, ty)) in b.instructions.iter().enumerate() {
+                    if *ty == Type::I1
+                        && crate::llvm::LlvmEmitter::result_type(instruction, *ty) != Type::I1
+                    {
+                        duplicate_definitions.insert(*v);
+                    }
+                    if definitions
+                        .insert(*v, (*ty, Some((block, position))))
+                        .is_some()
+                    {
+                        duplicate_definitions.insert(*v);
+                    }
+                }
             }
         }
-        }
         definitions.retain(|v, _| !duplicate_definitions.contains(v));
-        let narrow_zeros: HashMap<_, _> = func.blocks.iter().enumerate().flat_map(|(block, b)|
-            b.instructions.iter().enumerate().filter_map(move |(position, (v, inst, ty))|
-                matches!((inst, ty), (Instruction::Const(Constant::Int(0)), Type::I8))
-                    .then_some((*v, (block, position)))))
-            .filter(|(v, _)| definitions.contains_key(v)).collect();
+        let narrow_zeros: HashMap<_, _> =
+            func.blocks
+                .iter()
+                .enumerate()
+                .flat_map(|(block, b)| {
+                    b.instructions.iter().enumerate().filter_map(
+                        move |(position, (v, inst, ty))| {
+                            matches!((inst, ty), (Instruction::Const(Constant::Int(0)), Type::I8))
+                                .then_some((*v, (block, position)))
+                        },
+                    )
+                })
+                .filter(|(v, _)| definitions.contains_key(v))
+                .collect();
         let mut values: HashMap<ValueId, Operand> = HashMap::new();
         for (block, b) in func.blocks.iter().enumerate() {
             for (position, (v, inst, ty)) in b.instructions.iter().enumerate() {
-                let comparison_integer = |operand: &Operand| integer(operand).or_else(|| {
-                    let Operand::Val(value) = operand else { return None };
-                    (*ty == Type::I1 && narrow_zeros.get(value).is_some_and(|&(definition_block, definition_position)|
-                        definition_block == block && definition_position < position)).then_some(0)
-                });
+                let comparison_integer = |operand: &Operand| {
+                    integer(operand).or_else(|| {
+                        let Operand::Val(value) = operand else {
+                            return None;
+                        };
+                        (*ty == Type::I1
+                            && narrow_zeros.get(value).is_some_and(
+                                |&(definition_block, definition_position)| {
+                                    definition_block == block && definition_position < position
+                                },
+                            ))
+                        .then_some(0)
+                    })
+                };
                 let one_bit = |operand: &Operand| match operand {
                     Operand::Constant(Constant::Bool(_)) => true,
-                    Operand::Val(value) => definitions.get(value).is_some_and(|(ty, location)|
-                        *ty == Type::I1 && location.is_none_or(|(definition_block, definition_position)|
-                            definition_block == block && definition_position < position)),
+                    Operand::Val(value) => definitions.get(value).is_some_and(|(ty, location)| {
+                        *ty == Type::I1
+                            && location.is_none_or(|(definition_block, definition_position)| {
+                                definition_block == block && definition_position < position
+                            })
+                    }),
                     _ => false,
                 };
                 let r = match inst {
-                    Instruction::CallRuntime { name, args, ret_ty: Type::I64 } | Instruction::DeclaredFieldCall { name, args, ret_ty: Type::I64, .. }
-                        if name == "dartforge_value_class" => match args.as_slice() {
-                            [(Operand::Val(obj), Type::Ref)] => classes.get(obj).map(|&cid| Operand::Constant(Constant::Int(cid))),
-                            _ => None,
-                        },
+                    Instruction::CallRuntime {
+                        name,
+                        args,
+                        ret_ty: Type::I64,
+                    }
+                    | Instruction::DeclaredFieldCall {
+                        name,
+                        args,
+                        ret_ty: Type::I64,
+                        ..
+                    } if name == "dartforge_value_class" => match args.as_slice() {
+                        [(Operand::Val(obj), Type::Ref)] => classes
+                            .get(obj)
+                            .map(|&cid| Operand::Constant(Constant::Int(cid))),
+                        _ => None,
+                    },
                     // LLVM widens both one-bit inputs before this I64 And.
                     // The false result does not permit dropping either producer.
-                    Instruction::And(a, c) if *ty == Type::I64 && one_bit(a) && one_bit(c)
-                        && matches!(a, Operand::Constant(Constant::Bool(false))) => Some(Operand::Constant(Constant::Int(0))),
-                    Instruction::And(a, c) if *ty == Type::I64 && one_bit(a) && one_bit(c)
-                        && matches!(c, Operand::Constant(Constant::Bool(false))) => Some(Operand::Constant(Constant::Int(0))),
+                    Instruction::And(a, c)
+                        if *ty == Type::I64
+                            && one_bit(a)
+                            && one_bit(c)
+                            && matches!(a, Operand::Constant(Constant::Bool(false))) =>
+                    {
+                        Some(Operand::Constant(Constant::Int(0)))
+                    }
+                    Instruction::And(a, c)
+                        if *ty == Type::I64
+                            && one_bit(a)
+                            && one_bit(c)
+                            && matches!(c, Operand::Constant(Constant::Bool(false))) =>
+                    {
+                        Some(Operand::Constant(Constant::Int(0)))
+                    }
                     // `x == null` with `x` also constant: the null handle is 0.
                     Instruction::ICmp(op @ (ICmpOp::Eq | ICmpOp::Ne), a, c)
-                        if matches!((a, c), (Operand::Constant(Constant::Null), _) | (_, Operand::Constant(Constant::Null)))
-                            && [a, c].iter().all(|o| matches!(o, Operand::Constant(Constant::Null)) || integer(o).is_some()) =>
+                        if matches!(
+                            (a, c),
+                            (Operand::Constant(Constant::Null), _)
+                                | (_, Operand::Constant(Constant::Null))
+                        ) && [a, c].iter().all(|o| {
+                            matches!(o, Operand::Constant(Constant::Null)) || integer(o).is_some()
+                        }) =>
                     {
                         let bits = |o: &Operand| integer(o).unwrap_or(0);
                         let equal = bits(a) == bits(c);
-                        Some(Operand::Constant(Constant::Bool(if *op == ICmpOp::Eq { equal } else { !equal })))
+                        Some(Operand::Constant(Constant::Bool(if *op == ICmpOp::Eq {
+                            equal
+                        } else {
+                            !equal
+                        })))
                     }
-                    Instruction::ICmp(op, a, c) => match (comparison_integer(a), comparison_integer(c)) {
-                        (Some(x), Some(y)) => Some(match op {
-                            ICmpOp::Eq => x == y,
-                            ICmpOp::Ne => x != y,
-                            ICmpOp::Slt => x < y,
-                            ICmpOp::Sle => x <= y,
-                            ICmpOp::Sgt => x > y,
-                            ICmpOp::Sge => x >= y,
-                            ICmpOp::Ult => (x as u64) < (y as u64),
-                        })
-                        .map(|b| Operand::Constant(Constant::Bool(b))),
-                        _ => None,
-                    },
-                    Instruction::ZExt { op, from: Type::I1 | Type::I8, .. } => {
-                        integer(op).map(|n| Operand::Constant(Constant::Int(n & 0xFF)))
+                    Instruction::ICmp(op, a, c) => {
+                        match (comparison_integer(a), comparison_integer(c)) {
+                            (Some(x), Some(y)) => Some(match op {
+                                ICmpOp::Eq => x == y,
+                                ICmpOp::Ne => x != y,
+                                ICmpOp::Slt => x < y,
+                                ICmpOp::Sle => x <= y,
+                                ICmpOp::Sgt => x > y,
+                                ICmpOp::Sge => x >= y,
+                                ICmpOp::Ult => (x as u64) < (y as u64),
+                            })
+                            .map(|b| Operand::Constant(Constant::Bool(b))),
+                            _ => None,
+                        }
                     }
+                    Instruction::ZExt {
+                        op,
+                        from: Type::I1 | Type::I8,
+                        ..
+                    } => integer(op).map(|n| Operand::Constant(Constant::Int(n & 0xFF))),
                     // The undone box: `Unbox(Box(x))` is `x` (the `int`, the
                     // `double` and the `bool` come back exact; nothing throws).
-                    Instruction::Unbox { op: Operand::Val(b), to } => match boxes.get(b) {
-                        Some((x, of)) if of == to || (matches!(of, Type::I1 | Type::I8) && matches!(to, Type::I1)) => {
+                    Instruction::Unbox {
+                        op: Operand::Val(b),
+                        to,
+                    } => match boxes.get(b) {
+                        Some((x, of))
+                            if of == to
+                                || (matches!(of, Type::I1 | Type::I8)
+                                    && matches!(to, Type::I1)) =>
+                        {
                             Some(x.clone())
                         }
                         _ => None,
@@ -197,21 +300,39 @@ pub fn fold_constants(func: &mut Function) -> bool {
         let ids: Vec<BlockId> = func.blocks.iter().map(|b| b.id).collect();
         let mut removed_edges: Vec<(BlockId, BlockId)> = Vec::new();
         for (i, b) in func.blocks.iter_mut().enumerate() {
-            if let Terminator::CondBranch { cond, then_block, else_block } = &b.terminator
+            if let Terminator::CondBranch {
+                cond,
+                then_block,
+                else_block,
+            } = &b.terminator
                 && let Some(c) = integer(cond)
             {
-                let (goes, stays) = if c != 0 { (*then_block, *else_block) } else { (*else_block, *then_block) };
+                let (goes, stays) = if c != 0 {
+                    (*then_block, *else_block)
+                } else {
+                    (*else_block, *then_block)
+                };
                 if goes != stays {
                     removed_edges.push((ids[i], stays));
                 }
                 b.terminator = Terminator::Branch(goes);
                 changed_here = true;
-            } else if let Terminator::Switch { val, default, cases } = &b.terminator
+            } else if let Terminator::Switch {
+                val,
+                default,
+                cases,
+            } = &b.terminator
                 && let Some(c) = integer(val)
             {
-                let goes = cases.iter().find(|(n, _)| *n == c).map(|(_, d)| *d).unwrap_or(*default);
+                let goes = cases
+                    .iter()
+                    .find(|(n, _)| *n == c)
+                    .map(|(_, d)| *d)
+                    .unwrap_or(*default);
                 for dest in successors(&b.terminator) {
-                    if dest != goes { removed_edges.push((ids[i], dest)); }
+                    if dest != goes {
+                        removed_edges.push((ids[i], dest));
+                    }
                 }
                 b.terminator = Terminator::Branch(goes);
                 changed_here = true;
@@ -240,8 +361,13 @@ fn remove_entries(b: &mut BasicBlock, origin: BlockId) {
 /// Removes unreachable blocks (and the `phi` entries coming from them).
 pub fn remove_unreachable(func: &mut Function) -> bool {
     let cfg = Cfg::new(func);
-    let dead_set: HashSet<BlockId> =
-        func.blocks.iter().enumerate().filter(|(i, _)| !cfg.reachable(*i)).map(|(_, b)| b.id).collect();
+    let dead_set: HashSet<BlockId> = func
+        .blocks
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !cfg.reachable(*i))
+        .map(|(_, b)| b.id)
+        .collect();
     if dead_set.is_empty() {
         return false;
     }
@@ -267,12 +393,22 @@ pub fn join_blocks(func: &mut Function) -> bool {
                 *preds.entry(s).or_default() += 1;
             }
         }
-        let target = func.blocks.iter().enumerate().find_map(|(i, b)| match b.terminator {
-            Terminator::Branch(s) if s != b.id && s.0 != 0 && preds.get(&s) == Some(&1) => Some((i, s)),
-            _ => None,
-        });
+        let target = func
+            .blocks
+            .iter()
+            .enumerate()
+            .find_map(|(i, b)| match b.terminator {
+                Terminator::Branch(s) if s != b.id && s.0 != 0 && preds.get(&s) == Some(&1) => {
+                    Some((i, s))
+                }
+                _ => None,
+            });
         let Some((i, s)) = target else { return changed };
-        let j = func.blocks.iter().position(|b| b.id == s).expect("sucessor existe");
+        let j = func
+            .blocks
+            .iter()
+            .position(|b| b.id == s)
+            .expect("sucessor existe");
         let mut child = func.blocks.remove(j);
         let i = if j < i { i - 1 } else { i };
         let parent = func.blocks[i].id;
@@ -280,7 +416,10 @@ pub fn join_blocks(func: &mut Function) -> bool {
         let mut swap: HashMap<ValueId, Operand> = HashMap::new();
         child.instructions.retain(|(v, inst, _)| match inst {
             Instruction::Phi { incoming, .. } => {
-                let value = incoming.first().map(|(_, o)| o.clone()).unwrap_or(Operand::Constant(Constant::Null));
+                let value = incoming
+                    .first()
+                    .map(|(_, o)| o.clone())
+                    .unwrap_or(Operand::Constant(Constant::Null));
                 swap.insert(*v, value);
                 false
             }
@@ -344,8 +483,10 @@ fn pure(inst: &Instruction) -> bool {
         Instruction::Unbox { to, .. } => to.is_vector(),
         Instruction::Simd { op, .. } => *op != OpSimd::Writes,
         Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => {
-            matches!(name.as_str(), "dartforge_object_new" | "dartforge_exception_pending" | "dartforge_value_class")
-                || pure_helper(name)
+            matches!(
+                name.as_str(),
+                "dartforge_object_new" | "dartforge_exception_pending" | "dartforge_value_class"
+            ) || pure_helper(name)
         }
         _ => false,
     }
@@ -391,7 +532,8 @@ pub fn remove_dead(func: &mut Function) -> bool {
         let mut removed_done = false;
         for b in &mut func.blocks {
             let before = b.instructions.len();
-            b.instructions.retain(|(v, inst, _)| used_set.contains(v) || !pure(inst));
+            b.instructions
+                .retain(|(v, inst, _)| used_set.contains(v) || !pure(inst));
             removed_done |= b.instructions.len() != before;
         }
         if !removed_done {

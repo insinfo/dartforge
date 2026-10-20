@@ -170,10 +170,12 @@ fn nonrecursive_specialized_guards_keep_original_pending_check() {
     let no_throw = super::super::effects::do_not_throw(&module);
     assert!(!no_throw.contains(call_symbol(&module, 2)));
     super::super::simplify::dead_checks(&mut module.functions[0], &no_throw);
-    assert!(module.functions[0].blocks[0]
-        .instructions
-        .iter()
-        .any(|(id, _, _)| id.0 == 3));
+    assert!(
+        module.functions[0].blocks[0]
+            .instructions
+            .iter()
+            .any(|(id, _, _)| id.0 == 3)
+    );
 }
 #[test]
 fn unknown_recursive_ambiguous_debug_and_never_inline_targets_remain_generic() {
@@ -314,7 +316,8 @@ fn with_context(
         crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
             .with_source_sdk();
     if packages.is_some() {
-        context = context.with_source_sdk_and_ids(crate::sdk_module::sdk_class_ids(&sdk.root).unwrap());
+        context =
+            context.with_source_sdk_and_ids(crate::sdk_module::sdk_class_ids(&sdk.root).unwrap());
     }
     action(&mut context);
 }
@@ -424,25 +427,49 @@ fn independent_input_budget_accepts_profitable_large_body_and_rejects_over_limit
         let target = &mut module.functions[1];
         let padding = input_size - size(target);
         for offset in 0..padding {
-            target.blocks[2].instructions.insert(0, (
-                ValueId(100 + offset as u32),
-                Instruction::CallRuntime { name: "cold_visible_effect".into(), args: vec![], ret_ty: Type::Void },
-                Type::Void,
-            ));
+            target.blocks[2].instructions.insert(
+                0,
+                (
+                    ValueId(100 + offset as u32),
+                    Instruction::CallRuntime {
+                        name: "cold_visible_effect".into(),
+                        args: vec![],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ),
+            );
         }
         assert_eq!(size(target), input_size);
         let original = format!("{target:?}");
         let count = rewrite_enabled(&mut module);
         if input_size == MAX_INPUT_BODY {
-            assert_eq!(count, 1, "only the small proven mode-zero context fits growth");
-            let clone = module.functions.iter().find(|f| is_specialized_symbol(&f.symbol)).unwrap();
+            assert_eq!(
+                count, 1,
+                "only the small proven mode-zero context fits growth"
+            );
+            let clone = module
+                .functions
+                .iter()
+                .find(|f| is_specialized_symbol(&f.symbol))
+                .unwrap();
             assert_eq!(branches(clone), 0);
             assert!(size(clone) <= MAX_GROWTH);
-            assert!(clone.blocks.iter().flat_map(|b| &b.instructions).all(|(_, i, _)| !matches!(i,
-                Instruction::CallRuntime { name, .. } if name == "cold_visible_effect")));
+            assert!(
+                clone
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
+                    .all(|(_, i, _)| !matches!(i,
+                Instruction::CallRuntime { name, .. } if name == "cold_visible_effect"))
+            );
         } else {
             assert_eq!(count, 0, "analysis must not inspect an over-budget body");
         }
-        assert_eq!(format!("{:?}", module.functions[1]), original, "generic body and cold effects stay available");
+        assert_eq!(
+            format!("{:?}", module.functions[1]),
+            original,
+            "generic body and cold effects stay available"
+        );
     }
 }

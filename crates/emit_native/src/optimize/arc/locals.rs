@@ -1,7 +1,7 @@
 //! Contracts of scalar locals private to the activation, without aliases or escape.
 //! Fields, Ref locals and imported addresses require other producers.
 
-use super::{TokenEffect, Ownership, DartFunctionPlan, TokenPlan};
+use super::{DartFunctionPlan, Ownership, TokenEffect, TokenPlan};
 use crate::hir::*;
 use crate::optimize::{
     cfg::Cfg,
@@ -54,26 +54,36 @@ pub(super) fn produce_addresses(
     let mut types: HashMap<(&str, usize), Type> = HashMap::new();
     let ptr_of = |sym_name: &str, i: usize| {
         directs.contains(sym_name)
-            && by_symbol.get(sym_name).is_some_and(|g| g.params.get(i).is_some_and(|p| p.2 == Type::Ptr))
+            && by_symbol
+                .get(sym_name)
+                .is_some_and(|g| g.params.get(i).is_some_and(|p| p.2 == Type::Ptr))
     };
     // Addresses of scalar locals visible in `f`: its allocas and, in a
     // direct function, the already typed parameters.
-    let addresses = |f: &Function, types: &HashMap<(&str, usize), Type>| -> HashMap<ValueId, Type> {
-        let mut e: HashMap<ValueId, Type> = f.blocks.first().into_iter()
-            .flat_map(|b| &b.instructions)
-            .filter_map(|(v, inst, ty)| match inst {
-                Instruction::Alloca(t) if scalar(t) && *ty == Type::Ptr => Some((*v, *t)),
-                _ => None,
-            })
-            .collect();
-        for (i, (v, _, _)) in f.params.iter().enumerate() {
-            if let Some(t) = types.get(&(f.symbol.as_str(), i)) {
-                e.insert(*v, *t);
+    let addresses =
+        |f: &Function, types: &HashMap<(&str, usize), Type>| -> HashMap<ValueId, Type> {
+            let mut e: HashMap<ValueId, Type> = f
+                .blocks
+                .first()
+                .into_iter()
+                .flat_map(|b| &b.instructions)
+                .filter_map(|(v, inst, ty)| match inst {
+                    Instruction::Alloca(t) if scalar(t) && *ty == Type::Ptr => Some((*v, *t)),
+                    _ => None,
+                })
+                .collect();
+            for (i, (v, _, _)) in f.params.iter().enumerate() {
+                if let Some(t) = types.get(&(f.symbol.as_str(), i)) {
+                    e.insert(*v, *t);
+                }
             }
-        }
-        e
-    };
-    fn define<'a>(types: &mut HashMap<(&'a str, usize), Type>, key: (&'a str, usize), t: Type) -> Result<bool, String> {
+            e
+        };
+    fn define<'a>(
+        types: &mut HashMap<(&'a str, usize), Type>,
+        key: (&'a str, usize),
+        t: Type,
+    ) -> Result<bool, String> {
         match types.get(&key) {
             Some(current) if *current != t => Err(format!(
                 "capture by address in {}: parameter {} read as {current:?} and {t:?}",
@@ -89,19 +99,37 @@ pub(super) fn produce_addresses(
     loop {
         let mut changed = false;
         for f in &m.functions {
-            let value_types: HashMap<ValueId, Type> = f.params.iter().map(|(v, _, t)| (*v, *t))
-                .chain(f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t)))
+            let value_types: HashMap<ValueId, Type> = f
+                .params
+                .iter()
+                .map(|(v, _, t)| (*v, *t))
+                .chain(
+                    f.blocks
+                        .iter()
+                        .flat_map(|b| &b.instructions)
+                        .map(|(v, _, t)| (*v, *t)),
+                )
                 .collect();
             let visible_set = addresses(f, &types);
-            let parameter = |v: &ValueId| f.params.iter().position(|(p, _, t)| p == v && *t == Type::Ptr);
+            let parameter = |v: &ValueId| {
+                f.params
+                    .iter()
+                    .position(|(p, _, t)| p == v && *t == Type::Ptr)
+            };
             for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
                 match inst {
-                    Instruction::Load { ptr: Operand::Val(p), ty } if directs.contains(&f.symbol) => {
+                    Instruction::Load {
+                        ptr: Operand::Val(p),
+                        ty,
+                    } if directs.contains(&f.symbol) => {
                         if let Some(i) = parameter(p) {
                             changed |= define(&mut types, (f.symbol.as_str(), i), *ty)?;
                         }
                     }
-                    Instruction::Store { ptr: Operand::Val(p), val: Operand::Val(x) } if directs.contains(&f.symbol) => {
+                    Instruction::Store {
+                        ptr: Operand::Val(p),
+                        val: Operand::Val(x),
+                    } if directs.contains(&f.symbol) => {
                         if let (Some(i), Some(t)) = (parameter(p), value_types.get(x)) {
                             changed |= define(&mut types, (f.symbol.as_str(), i), *t)?;
                         }
@@ -116,7 +144,10 @@ pub(super) fn produce_addresses(
                             // forwarded parameter inherits the callee's type.
                             if let Some(t) = visible_set.get(a) {
                                 changed |= define(&mut types, (symbol.as_str(), j), *t)?;
-                            } else if let (Some(i), Some(t)) = (parameter(a).filter(|_| directs.contains(&f.symbol)), types.get(&(symbol.as_str(), j)).copied()) {
+                            } else if let (Some(i), Some(t)) = (
+                                parameter(a).filter(|_| directs.contains(&f.symbol)),
+                                types.get(&(symbol.as_str(), j)).copied(),
+                            ) {
                                 changed |= define(&mut types, (f.symbol.as_str(), i), t)?;
                             }
                         }
@@ -131,17 +162,23 @@ pub(super) fn produce_addresses(
     }
     for f in &m.functions {
         let visible_set = addresses(f, &types);
-        let plan = plans.get_mut(&f.symbol).ok_or_else(|| format!("Dart function without a plan: {}", f.symbol))?;
+        let plan = plans
+            .get_mut(&f.symbol)
+            .ok_or_else(|| format!("Dart function without a plan: {}", f.symbol))?;
         for (i, (v, _, _)) in f.params.iter().enumerate() {
             if let Some(t) = types.get(&(f.symbol.as_str(), i)).filter(|t| scalar(t)) {
                 plan.tokens.received_addresses.insert(*v, *t);
             }
         }
         for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            let Instruction::CallStatic { symbol, args, .. } = inst else { continue };
+            let Instruction::CallStatic { symbol, args, .. } = inst else {
+                continue;
+            };
             let mut yielded = Vec::new();
             for (j, a) in args.iter().enumerate() {
-                let Some(t) = types.get(&(symbol.as_str(), j)).filter(|t| scalar(t)) else { continue };
+                let Some(t) = types.get(&(symbol.as_str(), j)).filter(|t| scalar(t)) else {
+                    continue;
+                };
                 if !matches!(a, Operand::Val(a) if visible_set.get(a) == Some(t)) {
                     return Err(format!(
                         "capture by address in {}: v{} passes to parameter {j} of {symbol} something that is not a local {t:?}",
@@ -169,12 +206,18 @@ pub(super) fn verify(
         if classes.get(&v) != Some(&Ownership::Trivial)
             || plan.instructions.get(&v) != Some(&TokenEffect::default())
         {
-            return Err(format!("v{}: scalar local without a complete contract", v.0));
+            return Err(format!(
+                "v{}: scalar local without a complete contract",
+                v.0
+            ));
         }
     }
     for p in plan.received_addresses.keys() {
         if classes.get(p) != Some(&Ownership::Trivial) {
-            return Err(format!("v{}: captured address without a Trivial contract", p.0));
+            return Err(format!(
+                "v{}: captured address without a Trivial contract",
+                p.0
+            ));
         }
     }
     verify_values(f, &locals, classes)
@@ -188,7 +231,9 @@ fn analyze(
     let mut locals = HashMap::new();
     for (bi, b) in f.blocks.iter().enumerate() {
         for (v, inst, ty) in &b.instructions {
-            if let Instruction::Alloca(t) = inst && scalar(t) {
+            if let Instruction::Alloca(t) = inst
+                && scalar(t)
+            {
                 if bi != 0 || *ty != Type::Ptr {
                     return Err(format!(
                         "v{}: scalar local requires a Ptr alloca at the entry",
@@ -203,10 +248,11 @@ fn analyze(
     // initialized, with the same usage rules as an own alloca.
     let mut received = HashSet::new();
     for (p, t) in &plan.received_addresses {
-        if !f.params.iter().any(|(v, _, ty)| v == p && *ty == Type::Ptr)
-            || !scalar(t)
-        {
-            return Err(format!("v{}: captured address requires a scalar Ptr parameter", p.0));
+        if !f.params.iter().any(|(v, _, ty)| v == p && *ty == Type::Ptr) || !scalar(t) {
+            return Err(format!(
+                "v{}: captured address requires a scalar Ptr parameter",
+                p.0
+            ));
         }
         locals.insert(*p, *t);
         received.insert(*p);
@@ -214,7 +260,10 @@ fn analyze(
     let mut yielded_seen = HashSet::new();
     if locals.is_empty() {
         if let Some(v) = plan.yielded_addresses.keys().min_by_key(|v| v.0) {
-            return Err(format!("v{}: call lends an address without a scalar local", v.0));
+            return Err(format!(
+                "v{}: call lends an address without a scalar local",
+                v.0
+            ));
         }
         return Ok((locals, HashSet::new()));
     }
@@ -260,7 +309,10 @@ fn analyze(
                     if let Some(p) = local(ptr) {
                         allowed = Some(p);
                         if *read_done != locals[&p] {
-                            return Err(format!("v{}: read diverges from the type of the local", v.0));
+                            return Err(format!(
+                                "v{}: read diverges from the type of the local",
+                                v.0
+                            ));
                         }
                         expected = Some(*read_done);
                     }
@@ -284,7 +336,10 @@ fn analyze(
                             _ => None,
                         };
                         if typ != Some(locals[&p]) {
-                            return Err(format!("v{}: write diverges from the type of the local", v.0));
+                            return Err(format!(
+                                "v{}: write diverges from the type of the local",
+                                v.0
+                            ));
                         }
                         expected = Some(Type::Void);
                     }
@@ -316,7 +371,10 @@ fn analyze(
                         .get(v)
                         .is_some_and(|e| *e != TokenEffect::default())
                 {
-                    return Err(format!("v{}: contract incompatible with a scalar local", v.0));
+                    return Err(format!(
+                        "v{}: contract incompatible with a scalar local",
+                        v.0
+                    ));
                 }
                 produced_set.insert(*v);
             }
@@ -332,7 +390,12 @@ fn analyze(
             ));
         }
     }
-    if let Some(v) = plan.yielded_addresses.keys().filter(|v| !yielded_seen.contains(v)).min_by_key(|v| v.0) {
+    if let Some(v) = plan
+        .yielded_addresses
+        .keys()
+        .filter(|v| !yielded_seen.contains(v))
+        .min_by_key(|v| v.0)
+    {
         return Err(format!("v{}: addresses lent outside a direct call", v.0));
     }
     let cfg = Cfg::new(f);
@@ -453,7 +516,7 @@ pub(super) fn verify_values(
 mod tests {
     use super::*;
     use crate::optimize::arc::{
-        OwnerOrigin, ScopePlan, produce_arc_contracts, produce_and_verify_tokens,
+        OwnerOrigin, ScopePlan, produce_and_verify_tokens, produce_arc_contracts,
     };
 
     fn diamond() -> Function {
@@ -681,7 +744,10 @@ mod tests {
             .unwrap();
             assert_eq!(classes.len(), 4);
             assert!(classes.values().all(|c| *c == Ownership::Trivial));
-            let mut module = Module { arc_memory: true, ..Module::default() };
+            let mut module = Module {
+                arc_memory: true,
+                ..Module::default()
+            };
             module.functions.push(f);
             let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
             assert!(ir.contains(&format!("load {}, ptr %v0", ty.llvm_ir())));
@@ -701,7 +767,10 @@ mod tests {
                 },
                 Type::Ref,
             ));
-            let mut module = Module { arc_memory: arc, ..Module::default() };
+            let mut module = Module {
+                arc_memory: arc,
+                ..Module::default()
+            };
             module.functions.push(f);
             let mut plans = HashMap::from([("local".into(), DartFunctionPlan::default())]);
             let before = format!("{module:?}/{plans:?}");
@@ -920,46 +989,106 @@ mod tests {
             let local = if case == 1 { Type::F64 } else { Type::I64 };
             let mut outside = vec![
                 (ValueId(0), Instruction::Alloca(local), Type::Ptr),
-                (ValueId(1), Instruction::Store { ptr: val(0), val: Operand::Constant(if case == 1 {
-                    Constant::Double(1.0) } else { Constant::Int(1) }) }, Type::Void),
-                (ValueId(2), Instruction::CallStatic { symbol: "direta".into(), args: vec![val(0)], ret_ty: Type::Void }, Type::Void),
+                (
+                    ValueId(1),
+                    Instruction::Store {
+                        ptr: val(0),
+                        val: Operand::Constant(if case == 1 {
+                            Constant::Double(1.0)
+                        } else {
+                            Constant::Int(1)
+                        }),
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(2),
+                    Instruction::CallStatic {
+                        symbol: "direta".into(),
+                        args: vec![val(0)],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ),
             ];
             if case == 2 {
                 // Yielded before the first write.
                 outside.swap(1, 2);
             }
             m.functions.push(Function {
-                symbol: "fora".into(), name: "fora".into(), debug_info: None, params: vec![],
+                symbol: "fora".into(),
+                name: "fora".into(),
+                debug_info: None,
+                params: vec![],
                 return_ty: Type::Void,
-                blocks: vec![BasicBlock { id: BlockId(0), instructions: outside, terminator: Terminator::Return(None) }],
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: outside,
+                    terminator: Terminator::Return(None),
+                }],
             });
             m.functions.push(Function {
-                symbol: "direta".into(), name: "direta".into(), debug_info: None,
-                params: vec![(ValueId(0), "x".into(), Type::Ptr)], return_ty: Type::Void,
-                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                    (ValueId(1), Instruction::Load { ptr: val(0), ty: Type::I64 }, Type::I64),
-                    (ValueId(2), Instruction::Add(val(1), Operand::Constant(Constant::Int(1))), Type::I64),
-                    (ValueId(3), Instruction::Store { ptr: val(0), val: val(2) }, Type::Void),
-                ], terminator: Terminator::Return(None) }],
+                symbol: "direta".into(),
+                name: "direta".into(),
+                debug_info: None,
+                params: vec![(ValueId(0), "x".into(), Type::Ptr)],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (
+                            ValueId(1),
+                            Instruction::Load {
+                                ptr: val(0),
+                                ty: Type::I64,
+                            },
+                            Type::I64,
+                        ),
+                        (
+                            ValueId(2),
+                            Instruction::Add(val(1), Operand::Constant(Constant::Int(1))),
+                            Type::I64,
+                        ),
+                        (
+                            ValueId(3),
+                            Instruction::Store {
+                                ptr: val(0),
+                                val: val(2),
+                            },
+                            Type::Void,
+                        ),
+                    ],
+                    terminator: Terminator::Return(None),
+                }],
             });
-            let mut plans: HashMap<String, DartFunctionPlan> =
-                ["fora", "direta"].map(|s| (s.to_string(), DartFunctionPlan::default())).into();
+            let mut plans: HashMap<String, DartFunctionPlan> = ["fora", "direta"]
+                .map(|s| (s.to_string(), DartFunctionPlan::default()))
+                .into();
             let before = format!("{m:?}");
             let result = prepare_arc_dart_module(&mut m, &mut plans);
             if case != 0 {
                 let error = result.unwrap_err();
-                assert!(match case {
-                    1 => error.contains("read as"),
-                    2 => error.contains("lent scalar local not initialized"),
-                    _ => error.contains("escapes"),
-                }, "{case}: {error}");
+                assert!(
+                    match case {
+                        1 => error.contains("read as"),
+                        2 => error.contains("lent scalar local not initialized"),
+                        _ => error.contains("escapes"),
+                    },
+                    "{case}: {error}"
+                );
                 assert_eq!(format!("{m:?}"), before);
                 continue;
             }
             result.unwrap();
-            assert_eq!(plans["direta"].tokens.received_addresses, HashMap::from([(ValueId(0), Type::I64)]));
+            assert_eq!(
+                plans["direta"].tokens.received_addresses,
+                HashMap::from([(ValueId(0), Type::I64)])
+            );
             assert_eq!(plans["direta"].classes[&ValueId(0)], Ownership::Trivial);
-            assert_eq!(plans["fora"].tokens.yielded_addresses, HashMap::from([(ValueId(2), vec![(0, Type::I64)])]));
+            assert_eq!(
+                plans["fora"].tokens.yielded_addresses,
+                HashMap::from([(ValueId(2), vec![(0, Type::I64)])])
+            );
         }
     }
 }

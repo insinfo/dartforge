@@ -19,14 +19,15 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
-    self, AssignOp, Ast, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody, FunctionId, FunctionKind, Initializer,
-    ListPatternElement, MemberId, MemberKind, PatternId, PatternKind, StmtKind,
+    self, AssignOp, Ast, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody,
+    FunctionId, FunctionKind, Initializer, ListPatternElement, MemberId, MemberKind, PatternId,
+    PatternKind, StmtKind,
 };
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashMap;
@@ -35,14 +36,17 @@ use std::collections::HashMap;
 pub(super) fn pattern_variables(a: &Ast, p: PatternId, out: &mut Vec<PatternId>) {
     match &a.pattern(p).kind {
         PatternKind::Variable { .. } => out.push(p),
-        PatternKind::Wildcard { .. } | PatternKind::Constant(_) | PatternKind::Relational { .. } => {}
+        PatternKind::Wildcard { .. }
+        | PatternKind::Constant(_)
+        | PatternKind::Relational { .. } => {}
         PatternKind::Or(x, y) | PatternKind::And(x, y) => {
             pattern_variables(a, *x, out);
             pattern_variables(a, *y, out);
         }
-        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => {
-            pattern_variables(a, *x, out)
-        }
+        PatternKind::NullCheck(x)
+        | PatternKind::NullAssert(x)
+        | PatternKind::Parenthesized(x)
+        | PatternKind::Cast { pattern: x, .. } => pattern_variables(a, *x, out),
         PatternKind::List { elements, .. } => {
             for el in elements.iter() {
                 if let ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) = el {
@@ -73,7 +77,10 @@ fn final_word(source: &str, from: usize, until: usize) -> Option<Span> {
         let after = slice.as_bytes().get(i + 5).copied();
         let is_word_char = |c: u8| c == b'_' || c == b'$' || c.is_ascii_alphanumeric();
         if !before.is_some_and(is_word_char) && !after.is_some_and(is_word_char) {
-            return Some(Span { start: from + i, end: from + i + 5 });
+            return Some(Span {
+                start: from + i,
+                end: from + i + 5,
+            });
         }
         search_end = i;
     }
@@ -86,7 +93,9 @@ fn single_expression(a: &Ast, body: &FunctionBody, is_return: bool) -> Option<Ex
     match body {
         FunctionBody::Expression(e) => Some(*e),
         FunctionBody::Block(s) => {
-            let StmtKind::Block(stmts) = &a.stmt(*s).kind else { return None };
+            let StmtKind::Block(stmts) = &a.stmt(*s).kind else {
+                return None;
+            };
             let [single] = &stmts[..] else { return None };
             match &a.stmt(*single).kind {
                 StmtKind::Return(e) if is_return => *e,
@@ -99,14 +108,29 @@ fn single_expression(a: &Ast, body: &FunctionBody, is_return: bool) -> Option<Ex
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let source = u.source;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
-    let with_type = |has: bool| if has { &c::UNNECESSARY_FINAL_WITH_TYPE } else { &c::UNNECESSARY_FINAL_WITHOUT_TYPE };
+    let with_type = |has: bool| {
+        if has {
+            &c::UNNECESSARY_FINAL_WITH_TYPE
+        } else {
+            &c::UNNECESSARY_FINAL_WITHOUT_TYPE
+        }
+    };
 
     // `unnecessary_final`: parameters, local variables, the `for-in` variable
     // and pattern variables.
@@ -146,8 +170,14 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         }
         for list in all_lists {
             // A function parameter has no word (`getParameterDetails`).
-            for p in list.iter().filter(|p| p.final_ && p.function_parameters.is_none()) {
-                let until = p.ty.map(|t| a.ty(t).span.start).or(p.name.map(|n| n.span.start)).unwrap_or(p.span.end);
+            for p in list
+                .iter()
+                .filter(|p| p.final_ && p.function_parameters.is_none())
+            {
+                let until =
+                    p.ty.map(|t| a.ty(t).span.start)
+                        .or(p.name.map(|n| n.span.start))
+                        .unwrap_or(p.span.end);
                 if let Some(word) = final_word(source, p.span.start, until) {
                     report(with_type(p.ty.is_some()), word, &[]);
                 }
@@ -156,29 +186,72 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         for s in a.stmts.iter() {
             match &s.kind {
                 StmtKind::Variables(l) if l.final_ => {
-                    let until = l.ty.map(|t| a.ty(t).span.start).or(l.variables.first().map(|v| v.name.span.start)).unwrap_or(s.span.end);
+                    let until =
+                        l.ty.map(|t| a.ty(t).span.start)
+                            .or(l.variables.first().map(|v| v.name.span.start))
+                            .unwrap_or(s.span.end);
                     if let Some(word) = final_word(source, s.span.start, until) {
                         report(with_type(l.ty.is_some()), word, &[]);
                     }
                 }
-                StmtKind::ForIn { target: ForInTarget::Declared { final_: true, ty, name, .. }, .. } => {
+                StmtKind::ForIn {
+                    target:
+                        ForInTarget::Declared {
+                            final_: true,
+                            ty,
+                            name,
+                            ..
+                        },
+                    ..
+                } => {
                     let until = ty.map_or(name.span.start, |t| a.ty(t).span.start);
                     if let Some(word) = final_word(source, s.span.start, until) {
                         report(with_type(ty.is_some()), word, &[]);
                     }
                 }
-                StmtKind::ForIn { target: ForInTarget::Pattern { final_: true, pattern }, .. } => {
-                    if let Some(word) = final_word(source, s.span.start, a.pattern(*pattern).span.start) {
+                StmtKind::ForIn {
+                    target:
+                        ForInTarget::Pattern {
+                            final_: true,
+                            pattern,
+                        },
+                    ..
+                } => {
+                    if let Some(word) =
+                        final_word(source, s.span.start, a.pattern(*pattern).span.start)
+                    {
                         report(&c::UNNECESSARY_FINAL_WITHOUT_TYPE, word, &[]);
                     }
                 }
                 // `final (a, b) = …`: each pattern variable reports at the
                 // declaration's word (the driver drops the duplicates).
-                StmtKind::PatternVariables { final_: true, pattern, .. } | StmtKind::For { init: Some(ForInit::Pattern { final_: true, pattern, .. }), .. } => {
+                StmtKind::PatternVariables {
+                    final_: true,
+                    pattern,
+                    ..
+                }
+                | StmtKind::For {
+                    init:
+                        Some(ForInit::Pattern {
+                            final_: true,
+                            pattern,
+                            ..
+                        }),
+                    ..
+                } => {
                     let mut variables = Vec::new();
                     pattern_variables(a, *pattern, &mut variables);
-                    let without_word = variables.iter().any(|v| !matches!(a.pattern(*v).kind, PatternKind::Variable { final_: true, .. } | PatternKind::Variable { var_: true, .. }));
-                    if without_word && let Some(word) = final_word(source, s.span.start, a.pattern(*pattern).span.start) {
+                    let without_word = variables.iter().any(|v| {
+                        !matches!(
+                            a.pattern(*v).kind,
+                            PatternKind::Variable { final_: true, .. }
+                                | PatternKind::Variable { var_: true, .. }
+                        )
+                    });
+                    if without_word
+                        && let Some(word) =
+                            final_word(source, s.span.start, a.pattern(*pattern).span.start)
+                    {
                         report(&c::UNNECESSARY_FINAL_WITH_TYPE, word, &[]);
                     }
                 }
@@ -187,7 +260,13 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         }
         // `case final x`, `final int x` in a pattern: the word is the pattern's.
         for p in a.patterns.iter() {
-            if let PatternKind::Variable { final_: true, name, ty, .. } = &p.kind {
+            if let PatternKind::Variable {
+                final_: true,
+                name,
+                ty,
+                ..
+            } = &p.kind
+            {
                 let until = ty.map_or(name.span.start, |t| a.ty(t).span.start);
                 if let Some(word) = final_word(source, p.span.start, until) {
                     report(&c::UNNECESSARY_FINAL_WITH_TYPE, word, &[]);
@@ -213,7 +292,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 DeclKind::ExtensionType(x) => (&x.members[..], false, true),
                 _ => return None,
             };
-            Some(Decl { is_class, is_extension_type, augment: d.augment, members })
+            Some(Decl {
+                is_class,
+                is_extension_type,
+                augment: d.augment,
+                members,
+            })
         })
         .collect();
 
@@ -228,7 +312,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             for &m in d.members {
                 match &a.member(m).kind {
                     MemberKind::Method(f) => {
-                        let Some(n) = a.function(*f).name else { continue };
+                        let Some(n) = a.function(*f).name else {
+                            continue;
+                        };
                         match interner.resolve(n.sym) {
                             "==" => equals = Some(n.span),
                             "hashCode" => hash = Some(n.span),
@@ -236,7 +322,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                         }
                     }
                     MemberKind::Field(l) => {
-                        if let Some(v) = l.variables.iter().find(|v| interner.resolve(v.name.sym) == "hashCode") {
+                        if let Some(v) = l
+                            .variables
+                            .iter()
+                            .find(|v| interner.resolve(v.name.sym) == "hashCode")
+                        {
                             hash = Some(v.name.span);
                         }
                     }
@@ -244,11 +334,22 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 }
             }
             // The members of the whole class (with the augmentations).
-            let class_id = sem.and_then(|s| d.members.first().and_then(|&m| super::member_class(s, m)).map(|c| (s, c)));
+            let class_id = sem.and_then(|s| {
+                d.members
+                    .first()
+                    .and_then(|&m| super::member_class(s, m))
+                    .map(|c| (s, c))
+            });
             let has_method = |name: &str| match class_id {
-                Some((s, c)) => symbol(name).and_then(|x| s.program.class(c).instance_members.get(&x)).is_some_and(|f| {
-                    matches!(s.program.function(*f).kind, dartforge_elements::model::FunctionKind::Function | dartforge_elements::model::FunctionKind::Operator)
-                }),
+                Some((s, c)) => symbol(name)
+                    .and_then(|x| s.program.class(c).instance_members.get(&x))
+                    .is_some_and(|f| {
+                        matches!(
+                            s.program.function(*f).kind,
+                            dartforge_elements::model::FunctionKind::Function
+                                | dartforge_elements::model::FunctionKind::Operator
+                        )
+                    }),
                 None => match name {
                     "==" => equals.is_some(),
                     _ => false,
@@ -257,16 +358,28 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             let has_field = |name: &str| match class_id {
                 Some((s, c)) => {
                     let x = s.program.class(c);
-                    x.fields.iter().any(|v| interner.resolve(s.program.variable(*v).name) == name)
-                        || symbol(name).and_then(|y| x.instance_members.get(&y)).is_some_and(|f| {
-                            matches!(s.program.function(*f).kind, dartforge_elements::model::FunctionKind::Getter | dartforge_elements::model::FunctionKind::Setter)
-                        })
+                    x.fields
+                        .iter()
+                        .any(|v| interner.resolve(s.program.variable(*v).name) == name)
+                        || symbol(name)
+                            .and_then(|y| x.instance_members.get(&y))
+                            .is_some_and(|f| {
+                                matches!(
+                                    s.program.function(*f).kind,
+                                    dartforge_elements::model::FunctionKind::Getter
+                                        | dartforge_elements::model::FunctionKind::Setter
+                                )
+                            })
                 }
                 None => hash.is_some(),
             };
             match (equals, hash) {
-                (None, Some(h)) if !has_method("==") => report(&c::HASH_AND_EQUALS, h, &["==", "hashCode"]),
-                (Some(i), None) if !has_field("hashCode") && !has_method("hashCode") => report(&c::HASH_AND_EQUALS, i, &["hashCode", "=="]),
+                (None, Some(h)) if !has_method("==") => {
+                    report(&c::HASH_AND_EQUALS, h, &["==", "hashCode"])
+                }
+                (Some(i), None) if !has_field("hashCode") && !has_method("hashCode") => {
+                    report(&c::HASH_AND_EQUALS, i, &["hashCode", "=="])
+                }
                 _ => {}
             }
         }
@@ -284,13 +397,24 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         // The field (with a synthetic accessor) that the expression reads or writes.
         let synthetic_field = |e: ExprId| -> Option<dartforge_elements::model::VariableId> {
             match s.body.get_resolved(e)? {
-                Resolved::Member { member: MemberRef::Variable(v), .. } => Some(*v),
-                Resolved::Member { member: MemberRef::Function(f), .. } => s.program.function(*f).variable,
+                Resolved::Member {
+                    member: MemberRef::Variable(v),
+                    ..
+                } => Some(*v),
+                Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                } => s.program.function(*f).variable,
                 _ => None,
             }
         };
-        for d in decls.iter().filter(|d| (d.is_class || d.is_extension_type) && !d.augment) {
-            let Some(class_id) = d.members.first().and_then(|&m| super::member_class(s, m)) else { continue };
+        for d in decls
+            .iter()
+            .filter(|d| (d.is_class || d.is_extension_type) && !d.augment)
+        {
+            let Some(class_id) = d.members.first().and_then(|&m| super::member_class(s, m)) else {
+                continue;
+            };
             let mut getters: HashMap<SymbolId, MemberId> = HashMap::new();
             let mut setters: HashMap<SymbolId, MemberId> = HashMap::new();
             for &m in d.members {
@@ -310,8 +434,14 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
             let mut findings: Vec<Span> = Vec::new();
             for (name, &g) in getters.iter() {
-                let Some(&st) = setters.get(name) else { continue };
-                let (MemberKind::Method(fg), MemberKind::Method(fs)) = (&a.member(g).kind, &a.member(st).kind) else { continue };
+                let Some(&st) = setters.get(name) else {
+                    continue;
+                };
+                let (MemberKind::Method(fg), MemberKind::Method(fs)) =
+                    (&a.member(g).kind, &a.member(st).kind)
+                else {
+                    continue;
+                };
                 if !a.member(g).metadata.is_empty() || !a.member(st).metadata.is_empty() {
                     continue;
                 }
@@ -326,19 +456,38 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 });
                 // `_checkForSimpleSetter`.
                 let assigns_field = single_expression(a, &setter.body, false).is_some_and(|e| {
-                    let ExprKind::Assign { op: AssignOp::Assign, target, value } = &a.expr(e).kind else { return false };
-                    if !matches!(a.expr(*target).kind, ExprKind::Identifier(_)) || !matches!(a.expr(*value).kind, ExprKind::Identifier(_)) {
+                    let ExprKind::Assign {
+                        op: AssignOp::Assign,
+                        target,
+                        value,
+                    } = &a.expr(e).kind
+                    else {
+                        return false;
+                    };
+                    if !matches!(a.expr(*target).kind, ExprKind::Identifier(_))
+                        || !matches!(a.expr(*value).kind, ExprKind::Identifier(_))
+                    {
                         return false;
                     }
-                    let Some(v) = synthetic_field(*target) else { return false };
-                    let Some([param]) = setter.parameters.as_deref() else { return false };
+                    let Some(v) = synthetic_field(*target) else {
+                        return false;
+                    };
+                    let Some([param]) = setter.parameters.as_deref() else {
+                        return false;
+                    };
                     let same_type = match (super::variable_type(s, v), s.body.get_type(*value)) {
                         (Some(x), Some(y)) => s.table.canonical(x) == s.table.canonical(y),
                         _ => false,
                     };
-                    same_type && param.name.is_some_and(|n| s.body.local_declaration(*value) == Some(n.span.start))
+                    same_type
+                        && param
+                            .name
+                            .is_some_and(|n| s.body.local_declaration(*value) == Some(n.span.start))
                 });
-                if returns_field && assigns_field && let Some(n) = getter.name {
+                if returns_field
+                    && assigns_field
+                    && let Some(n) = getter.name
+                {
                     findings.push(n.span);
                 }
             }
@@ -359,40 +508,71 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     {
         for d in decls.iter() {
             for &m in d.members {
-                let MemberKind::Constructor(k) = &a.member(m).kind else { continue };
+                let MemberKind::Constructor(k) = &a.member(m).kind else {
+                    continue;
+                };
                 if k.factory {
                     continue;
                 }
-                let Some(class_id) = super::member_class(s, m) else { continue };
+                let Some(class_id) = super::member_class(s, m) else {
+                    continue;
+                };
                 // The constructor parameter that the expression reads.
                 let param = |e: ExprId| -> Option<&ast::Parameter> {
                     let decl = s.body.local_declaration(e)?;
-                    k.parameters.iter().find(|p| p.name.is_some_and(|n| n.span.start == decl))
+                    k.parameters
+                        .iter()
+                        .find(|p| p.name.is_some_and(|n| n.span.start == decl))
                 };
                 if let FunctionBody::Block(body) = &k.body
                     && let StmtKind::Block(stmts) = &a.stmt(*body).kind
                 {
                     for &st in stmts.iter() {
-                        let StmtKind::Expression(e) = &a.stmt(st).kind else { continue };
-                        let ExprKind::Assign { target, value, .. } = &a.expr(*e).kind else { continue };
-                        let Some(super::Canonical::Variable(v)) = super::canonical(s, interner, *target) else { continue };
+                        let StmtKind::Expression(e) = &a.stmt(st).kind else {
+                            continue;
+                        };
+                        let ExprKind::Assign { target, value, .. } = &a.expr(*e).kind else {
+                            continue;
+                        };
+                        let Some(super::Canonical::Variable(v)) =
+                            super::canonical(s, interner, *target)
+                        else {
+                            continue;
+                        };
                         let field = s.program.variable(v);
-                        let Some(p) = param(*value).filter(|_| matches!(a.expr(*value).kind, ExprKind::Identifier(_))) else { continue };
+                        let Some(p) = param(*value)
+                            .filter(|_| matches!(a.expr(*value).kind, ExprKind::Identifier(_)))
+                        else {
+                            continue;
+                        };
                         let Some(n) = p.name else { continue };
                         let name = interner.resolve(field.name);
-                        if field.class == Some(class_id) && !name.starts_with('_') && field.name == n.sym {
-                            report(&c::PREFER_INITIALIZING_FORMALS, a.expr(*e).span, &[interner.resolve(n.sym)]);
+                        if field.class == Some(class_id)
+                            && !name.starts_with('_')
+                            && field.name == n.sym
+                        {
+                            report(
+                                &c::PREFER_INITIALIZING_FORMALS,
+                                a.expr(*e).span,
+                                &[interner.resolve(n.sym)],
+                            );
                         }
                     }
                 }
                 for i in k.initializers.iter() {
-                    if let Initializer::Field { span, name, value, .. } = i
+                    if let Initializer::Field {
+                        span, name, value, ..
+                    } = i
                         && matches!(&a.expr(*value).kind, ExprKind::Identifier(v) if v.sym == name.sym)
                         && param(*value).is_some()
                         && super::class_field(s, m, name.sym).is_some()
                         && !interner.resolve(name.sym).starts_with('_')
                     {
-                        report(&c::PREFER_INITIALIZING_FORMALS, *span, &[interner.resolve(name.sym)]);
+                        report(
+                            &c::PREFER_INITIALIZING_FORMALS,
+                            *span,
+                            &[interner.resolve(name.sym)],
+                        );
                     }
                 }
             }
@@ -409,13 +589,16 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let old_version = !super::version_at_least(s, 3, 0);
         let parents = dartforge_frontend::parents::Parents::new(a, u.unit, u.source, old_version);
         // The getters (without a parameter list) and each one's element.
-        let mut getters: Vec<(Span, dartforge_elements::model::FunctionElementId, SymbolId)> = Vec::new();
+        let mut getters: Vec<(Span, dartforge_elements::model::FunctionElementId, SymbolId)> =
+            Vec::new();
         for (i, f) in a.functions.iter().enumerate() {
             if f.parameters.is_some() || f.kind != FunctionKind::Getter {
                 continue;
             }
             let Some(n) = f.name else { continue };
-            let Some(e) = super::function_element(s, FunctionId(i as u32)) else { continue };
+            let Some(e) = super::function_element(s, FunctionId(i as u32)) else {
+                continue;
+            };
             let body = match &f.body {
                 FunctionBody::Block(b) => a.stmt(*b).span,
                 FunctionBody::Expression(x) => a.expr(*x).span,
@@ -423,12 +606,20 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             };
             getters.push((body, e, n.sym));
         }
-        let is_getter_element = |e: ExprId, target: dartforge_elements::model::FunctionElementId| match s.body.get_resolved(e) {
-            Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(dartforge_elements::model::Element::Function(f))) => {
-                *f == target
-            }
-            _ => false,
-        };
+        let is_getter_element =
+            |e: ExprId, target: dartforge_elements::model::FunctionElementId| match s
+                .body
+                .get_resolved(e)
+            {
+                Some(Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                })
+                | Some(Resolved::Element(dartforge_elements::model::Element::Function(f))) => {
+                    *f == target
+                }
+                _ => false,
+            };
         // The node is inside a constant list, set or map literal (the visitor
         // does not descend into it).
         let in_const_literal = |e: ExprId, bound: Span| {
@@ -439,7 +630,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     break;
                 }
                 let is_const = match &n.kind {
-                    ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } => *const_ || parents.in_constant_context(a, p),
+                    ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } => {
+                        *const_ || parents.in_constant_context(a, p)
+                    }
                     _ => false,
                 };
                 if is_const {
@@ -452,7 +645,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let mut findings: Vec<(Span, SymbolId)> = Vec::new();
         for (k, ex) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
-            let Some(&(body, element, getter_name)) = getters.iter().find(|(c, _, _)| c.start <= ex.span.start && ex.span.end <= c.end) else { continue };
+            let Some(&(body, element, getter_name)) = getters
+                .iter()
+                .find(|(c, _, _)| c.start <= ex.span.start && ex.span.end <= c.end)
+            else {
+                continue;
+            };
             let parent = match parents.parent(id) {
                 dartforge_frontend::parents::Parent::Expr(p) => Some(p),
                 _ => None,
@@ -468,10 +666,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                             // `staticElement`.
                             ExprKind::Assign { target, .. } if *target == id => continue,
                             ExprKind::Unary {
-                                op: dartforge_frontend::ast::UnaryOp::PrefixInc
-                                | dartforge_frontend::ast::UnaryOp::PrefixDec
-                                | dartforge_frontend::ast::UnaryOp::PostfixInc
-                                | dartforge_frontend::ast::UnaryOp::PostfixDec,
+                                op:
+                                    dartforge_frontend::ast::UnaryOp::PrefixInc
+                                    | dartforge_frontend::ast::UnaryOp::PrefixDec
+                                    | dartforge_frontend::ast::UnaryOp::PostfixInc
+                                    | dartforge_frontend::ast::UnaryOp::PostfixDec,
                                 ..
                             } => continue,
                             // Prefix of `x.y`/target of `x?.y` (not of `x.f()`).
@@ -490,10 +689,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 // `this.x`.
                 ExprKind::Property { target, name, .. }
                     if matches!(a.expr(*target).kind, ExprKind::This)
-                        && is_getter_element(id, element) && !in_const_literal(id, body)
-                        && !matches!(parent.map(|p| &a.expr(p).kind), Some(ExprKind::Assign { target, .. }) if *target == id) => {
-                        findings.push((name.span, getter_name));
-                    }
+                        && is_getter_element(id, element)
+                        && !in_const_literal(id, body)
+                        && !matches!(parent.map(|p| &a.expr(p).kind), Some(ExprKind::Assign { target, .. }) if *target == id) =>
+                {
+                    findings.push((name.span, getter_name));
+                }
                 _ => {}
             }
         }
@@ -511,11 +712,18 @@ mod tests {
     fn with_code(rule: &str, source: &str) -> Vec<(&'static str, String)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
         let mut reports = run(u, &names, &|r| r == rule, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
         reports.dedup_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| (r.code.unique, source[r.span.start..r.span.end].to_string())).collect()
+        reports
+            .into_iter()
+            .map(|r| (r.code.unique, source[r.span.start..r.span.end].to_string()))
+            .collect()
     }
 
     fn only(rule: &str, source: &str) -> Vec<String> {
@@ -544,7 +752,10 @@ mod tests {
     #[test]
     fn equality_and_hash() {
         assert_eq!(
-            only("hash_and_equals", "class A {\n  @override\n  bool operator ==(Object o) => true;\n}\nclass B {\n  @override\n  int get hashCode => 0;\n}\nclass C {\n  @override\n  bool operator ==(Object o) => true;\n  @override\n  final int hashCode = 0;\n}\n"),
+            only(
+                "hash_and_equals",
+                "class A {\n  @override\n  bool operator ==(Object o) => true;\n}\nclass B {\n  @override\n  int get hashCode => 0;\n}\nclass C {\n  @override\n  bool operator ==(Object o) => true;\n  @override\n  final int hashCode = 0;\n}\n"
+            ),
             vec!["==".to_string(), "hashCode".to_string()]
         );
     }

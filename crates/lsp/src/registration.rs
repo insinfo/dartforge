@@ -11,7 +11,7 @@
 //! and options. The ids are an increasing decimal counter.
 //! Written without compiling or running (2026-10-05).
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// A feature: the capability name in the client (`textDocument.<name>`),
 /// the key of the server's static capability and the registered methods.
@@ -26,32 +26,156 @@ pub struct Feature {
 
 /// The features the server announces that can be dynamic.
 pub const FEATURES: &[Feature] = &[
-    Feature { client: "synchronization", static_: "textDocumentSync", methods: &["textDocument/didOpen", "textDocument/didClose", "textDocument/didChange"], dart_only: false },
-    Feature { client: "completion", static_: "completionProvider", methods: &["textDocument/completion"], dart_only: false },
-    Feature { client: "hover", static_: "hoverProvider", methods: &["textDocument/hover"], dart_only: false },
-    Feature { client: "definition", static_: "definitionProvider", methods: &["textDocument/definition"], dart_only: false },
-    Feature { client: "implementation", static_: "implementationProvider", methods: &["textDocument/implementation"], dart_only: false },
-    Feature { client: "references", static_: "referencesProvider", methods: &["textDocument/references"], dart_only: false },
-    Feature { client: "documentHighlight", static_: "documentHighlightProvider", methods: &["textDocument/documentHighlight"], dart_only: false },
-    Feature { client: "documentSymbol", static_: "documentSymbolProvider", methods: &["textDocument/documentSymbol"], dart_only: false },
-    Feature { client: "foldingRange", static_: "foldingRangeProvider", methods: &["textDocument/foldingRange"], dart_only: false },
+    Feature {
+        client: "synchronization",
+        static_: "textDocumentSync",
+        methods: &[
+            "textDocument/didOpen",
+            "textDocument/didClose",
+            "textDocument/didChange",
+        ],
+        dart_only: false,
+    },
+    Feature {
+        client: "completion",
+        static_: "completionProvider",
+        methods: &["textDocument/completion"],
+        dart_only: false,
+    },
+    Feature {
+        client: "hover",
+        static_: "hoverProvider",
+        methods: &["textDocument/hover"],
+        dart_only: false,
+    },
+    Feature {
+        client: "definition",
+        static_: "definitionProvider",
+        methods: &["textDocument/definition"],
+        dart_only: false,
+    },
+    Feature {
+        client: "implementation",
+        static_: "implementationProvider",
+        methods: &["textDocument/implementation"],
+        dart_only: false,
+    },
+    Feature {
+        client: "references",
+        static_: "referencesProvider",
+        methods: &["textDocument/references"],
+        dart_only: false,
+    },
+    Feature {
+        client: "documentHighlight",
+        static_: "documentHighlightProvider",
+        methods: &["textDocument/documentHighlight"],
+        dart_only: false,
+    },
+    Feature {
+        client: "documentSymbol",
+        static_: "documentSymbolProvider",
+        methods: &["textDocument/documentSymbol"],
+        dart_only: false,
+    },
+    Feature {
+        client: "foldingRange",
+        static_: "foldingRangeProvider",
+        methods: &["textDocument/foldingRange"],
+        dart_only: false,
+    },
     // Formatting (`handler_format_on_type.dart`, `handler_format_range.dart`,
     // `handler_formatting.dart`), in the order of `allFeatures`.
-    Feature { client: "onTypeFormatting", static_: "documentOnTypeFormattingProvider", methods: &["textDocument/onTypeFormatting"], dart_only: true },
-    Feature { client: "rangeFormatting", static_: "documentRangeFormattingProvider", methods: &["textDocument/rangeFormatting"], dart_only: true },
-    Feature { client: "formatting", static_: "documentFormattingProvider", methods: &["textDocument/formatting"], dart_only: false },
-    Feature { client: "signatureHelp", static_: "signatureHelpProvider", methods: &["textDocument/signatureHelp"], dart_only: false },
-    Feature { client: "codeAction", static_: "codeActionProvider", methods: &["textDocument/codeAction"], dart_only: false },
-    Feature { client: "rename", static_: "renameProvider", methods: &["textDocument/rename"], dart_only: false },
-    Feature { client: "semanticTokens", static_: "semanticTokensProvider", methods: &["textDocument/semanticTokens"], dart_only: false },
-    Feature { client: "typeDefinition", static_: "typeDefinitionProvider", methods: &["textDocument/typeDefinition"], dart_only: true },
-    Feature { client: "selectionRange", static_: "selectionRangeProvider", methods: &["textDocument/selectionRange"], dart_only: true },
-    Feature { client: "callHierarchy", static_: "callHierarchyProvider", methods: &["textDocument/prepareCallHierarchy"], dart_only: true },
-    Feature { client: "typeHierarchy", static_: "typeHierarchyProvider", methods: &["textDocument/prepareTypeHierarchy"], dart_only: true },
-    Feature { client: "codeLens", static_: "codeLensProvider", methods: &["textDocument/codeLens"], dart_only: true },
-    Feature { client: "documentLink", static_: "documentLinkProvider", methods: &["textDocument/documentLink"], dart_only: true },
-    Feature { client: "inlayHint", static_: "inlayHintProvider", methods: &["textDocument/inlayHint"], dart_only: true },
-    Feature { client: "colorProvider", static_: "colorProvider", methods: &["textDocument/documentColor"], dart_only: true },
+    Feature {
+        client: "onTypeFormatting",
+        static_: "documentOnTypeFormattingProvider",
+        methods: &["textDocument/onTypeFormatting"],
+        dart_only: true,
+    },
+    Feature {
+        client: "rangeFormatting",
+        static_: "documentRangeFormattingProvider",
+        methods: &["textDocument/rangeFormatting"],
+        dart_only: true,
+    },
+    Feature {
+        client: "formatting",
+        static_: "documentFormattingProvider",
+        methods: &["textDocument/formatting"],
+        dart_only: false,
+    },
+    Feature {
+        client: "signatureHelp",
+        static_: "signatureHelpProvider",
+        methods: &["textDocument/signatureHelp"],
+        dart_only: false,
+    },
+    Feature {
+        client: "codeAction",
+        static_: "codeActionProvider",
+        methods: &["textDocument/codeAction"],
+        dart_only: false,
+    },
+    Feature {
+        client: "rename",
+        static_: "renameProvider",
+        methods: &["textDocument/rename"],
+        dart_only: false,
+    },
+    Feature {
+        client: "semanticTokens",
+        static_: "semanticTokensProvider",
+        methods: &["textDocument/semanticTokens"],
+        dart_only: false,
+    },
+    Feature {
+        client: "typeDefinition",
+        static_: "typeDefinitionProvider",
+        methods: &["textDocument/typeDefinition"],
+        dart_only: true,
+    },
+    Feature {
+        client: "selectionRange",
+        static_: "selectionRangeProvider",
+        methods: &["textDocument/selectionRange"],
+        dart_only: true,
+    },
+    Feature {
+        client: "callHierarchy",
+        static_: "callHierarchyProvider",
+        methods: &["textDocument/prepareCallHierarchy"],
+        dart_only: true,
+    },
+    Feature {
+        client: "typeHierarchy",
+        static_: "typeHierarchyProvider",
+        methods: &["textDocument/prepareTypeHierarchy"],
+        dart_only: true,
+    },
+    Feature {
+        client: "codeLens",
+        static_: "codeLensProvider",
+        methods: &["textDocument/codeLens"],
+        dart_only: true,
+    },
+    Feature {
+        client: "documentLink",
+        static_: "documentLinkProvider",
+        methods: &["textDocument/documentLink"],
+        dart_only: true,
+    },
+    Feature {
+        client: "inlayHint",
+        static_: "inlayHintProvider",
+        methods: &["textDocument/inlayHint"],
+        dart_only: true,
+    },
+    Feature {
+        client: "colorProvider",
+        static_: "colorProvider",
+        methods: &["textDocument/documentColor"],
+        dart_only: true,
+    },
 ];
 
 /// `dartFiles` (`constants.dart`): the Dart files.
@@ -74,16 +198,30 @@ fn sync_selector() -> Value {
 /// The features the client wants to register dynamically (by client name),
 /// and whether it wants `workspace/didChangeConfiguration`.
 pub fn dynamic(capabilities: &Value) -> (Vec<&'static str>, bool) {
-    let yes = |c: &str| capabilities.pointer(&format!("/textDocument/{c}/dynamicRegistration")).and_then(Value::as_bool) == Some(true);
-    let features = FEATURES.iter().filter(|f| yes(f.client)).map(|f| f.client).collect();
-    let configuration = capabilities.pointer("/workspace/didChangeConfiguration/dynamicRegistration").and_then(Value::as_bool) == Some(true);
+    let yes = |c: &str| {
+        capabilities
+            .pointer(&format!("/textDocument/{c}/dynamicRegistration"))
+            .and_then(Value::as_bool)
+            == Some(true)
+    };
+    let features = FEATURES
+        .iter()
+        .filter(|f| yes(f.client))
+        .map(|f| f.client)
+        .collect();
+    let configuration = capabilities
+        .pointer("/workspace/didChangeConfiguration/dynamicRegistration")
+        .and_then(Value::as_bool)
+        == Some(true);
     (features, configuration)
 }
 
 /// Removes the capabilities of the dynamic features from the static ones
 /// (`staticRegistration`, `feature_registration.dart:246-247`).
 pub fn remove_dynamic(capabilities: &mut Value, dynamic: &[&str]) {
-    let Some(obj) = capabilities.as_object_mut() else { return };
+    let Some(obj) = capabilities.as_object_mut() else {
+        return;
+    };
     for f in FEATURES.iter().filter(|f| dynamic.contains(&f.client)) {
         obj.remove(f.static_);
     }
@@ -107,17 +245,38 @@ pub fn file_operation_options() -> Value {
 /// `observe_files`: the `workspace/didChangeWatchedFiles` of the `.dart`
 /// files, the package YAML files and `package_config.json` (the Dart server
 /// watches the disk itself; here the client watches, §3.3: same effect).
-pub fn records(statics: &Value, dynamic: &[&str], configuration: bool, rename_files: bool, observe_files: bool) -> Vec<(String, Value)> {
+pub fn records(
+    statics: &Value,
+    dynamic: &[&str],
+    configuration: bool,
+    rename_files: bool,
+    observe_files: bool,
+) -> Vec<(String, Value)> {
     let mut v = Vec::new();
     for f in FEATURES.iter().filter(|f| dynamic.contains(&f.client)) {
         if f.client == "synchronization" {
-            v.push(("textDocument/didOpen".to_string(), json!({"documentSelector": sync_selector()})));
-            v.push(("textDocument/didClose".to_string(), json!({"documentSelector": sync_selector()})));
-            v.push(("textDocument/didChange".to_string(), json!({"documentSelector": sync_selector(), "syncKind": 2})));
+            v.push((
+                "textDocument/didOpen".to_string(),
+                json!({"documentSelector": sync_selector()}),
+            ));
+            v.push((
+                "textDocument/didClose".to_string(),
+                json!({"documentSelector": sync_selector()}),
+            ));
+            v.push((
+                "textDocument/didChange".to_string(),
+                json!({"documentSelector": sync_selector(), "syncKind": 2}),
+            ));
             continue;
         }
-        let Some(static_) = statics.get(f.static_) else { continue };
-        let mut options = if static_.is_object() { static_.clone() } else { json!({}) };
+        let Some(static_) = statics.get(f.static_) else {
+            continue;
+        };
+        let mut options = if static_.is_object() {
+            static_.clone()
+        } else {
+            json!({})
+        };
         options["documentSelector"] = dart_selector();
         let _ = f.dart_only;
         for m in f.methods {
@@ -125,7 +284,10 @@ pub fn records(statics: &Value, dynamic: &[&str], configuration: bool, rename_fi
         }
     }
     if rename_files {
-        v.push(("workspace/willRenameFiles".to_string(), file_operation_options()));
+        v.push((
+            "workspace/willRenameFiles".to_string(),
+            file_operation_options(),
+        ));
     }
     if configuration {
         v.push(("workspace/didChangeConfiguration".to_string(), Value::Null));
@@ -169,7 +331,11 @@ impl Records {
         });
         let mut enter = Vec::new();
         for (m, o) in new {
-            if self.current.iter().any(|(_, mv, ov)| key(mv, ov) == key(&m, &o)) {
+            if self
+                .current
+                .iter()
+                .any(|(_, mv, ov)| key(mv, ov) == key(&m, &o))
+            {
                 continue;
             }
             let id = self.next.to_string();
@@ -235,7 +401,8 @@ pub fn read_configuration(v: &Value) -> Configuration {
         c.complete_function_calls = x;
     }
     // `enableServerSnippets == false` (the old name) also disables.
-    c.enable_snippets = b("enableSnippets").unwrap_or(true) && b("enableServerSnippets") != Some(false);
+    c.enable_snippets =
+        b("enableSnippets").unwrap_or(true) && b("enableServerSnippets") != Some(false);
     // `codeLens`: a `bool` for both, or the map (enabled by default: only an
     // explicit `false` disables).
     match v.get("codeLens") {
@@ -252,7 +419,11 @@ pub fn read_configuration(v: &Value) -> Configuration {
     // `showTodos`: `true` (all), or the list of kinds (in uppercase).
     c.show_all = matches!(v.get("showTodos"), Some(Value::Bool(true)));
     c.show_all_types = match v.get("showTodos") {
-        Some(Value::Array(l)) => l.iter().filter_map(Value::as_str).map(str::to_uppercase).collect(),
+        Some(Value::Array(l)) => l
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_uppercase)
+            .collect(),
         _ => Vec::new(),
     };
     c.max_completion_items = v.get("maxCompletionItems").and_then(Value::as_u64);
@@ -268,7 +439,11 @@ pub fn read_configuration(v: &Value) -> Configuration {
     }
     c.analysis_excluded_folders = match v.get("analysisExcludedFolders") {
         Some(Value::String(s)) => vec![s.clone()],
-        Some(Value::Array(l)) => l.iter().filter_map(Value::as_str).map(str::to_string).collect(),
+        Some(Value::Array(l)) => l
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
         _ => Vec::new(),
     };
     c.documentation = match v.get("documentation").and_then(Value::as_str) {
@@ -321,10 +496,13 @@ mod tests {
         let (d, conf) = dynamic(&caps);
         assert_eq!(d, vec!["synchronization", "hover"]);
         assert!(!conf);
-        let mut statics = json!({"hoverProvider": true, "textDocumentSync": 2, "definitionProvider": true});
+        let mut statics =
+            json!({"hoverProvider": true, "textDocumentSync": 2, "definitionProvider": true});
         let regs = records(&statics, &d, conf, false, false);
         remove_dynamic(&mut statics, &d);
-        assert!(statics.get("hoverProvider").is_none() && statics.get("definitionProvider").is_some());
+        assert!(
+            statics.get("hoverProvider").is_none() && statics.get("definitionProvider").is_some()
+        );
         assert_eq!(regs.len(), 4);
         let mut r = Records::default();
         let (exit, enter) = r.difference(regs.clone());
@@ -338,11 +516,16 @@ mod tests {
 
     #[test]
     fn reads_configuration_with_defaults() {
-        let c = read_configuration(&json!({"showTodos": ["fixme"], "enableServerSnippets": false, "analysisExcludedFolders": "gen"}));
+        let c = read_configuration(
+            &json!({"showTodos": ["fixme"], "enableServerSnippets": false, "analysisExcludedFolders": "gen"}),
+        );
         assert!(!c.show_all && !c.enable_snippets);
         assert_eq!(c.show_all_types, vec!["FIXME"]);
         // That of a folder: only the resource keys, the rest from the global one.
-        let folder = feature_configuration(&json!({"maxCompletionItems": 7, "completeFunctionCalls": true}), &c);
+        let folder = feature_configuration(
+            &json!({"maxCompletionItems": 7, "completeFunctionCalls": true}),
+            &c,
+        );
         assert_eq!(folder.max_completion_items, Some(7));
         assert!(!folder.complete_function_calls && !folder.enable_snippets);
         assert_eq!(c.analysis_excluded_folders, vec!["gen"]);

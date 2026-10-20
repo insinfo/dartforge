@@ -88,7 +88,11 @@ impl GenerationBuilder {
     ) {
         self.sources.insert(
             key(&path),
-            GeneratedSource { content: content.into(), inputs: inputs.into(), generator },
+            GeneratedSource {
+                content: content.into(),
+                inputs: inputs.into(),
+                generator,
+            },
         );
     }
 
@@ -106,7 +110,10 @@ impl GenerationBuilder {
         if !self.errors.is_empty() {
             return Err(self.errors);
         }
-        Ok(Arc::new(Generation { id, sources: self.sources }))
+        Ok(Arc::new(Generation {
+            id,
+            sources: self.sources,
+        }))
     }
 }
 
@@ -138,7 +145,9 @@ pub fn from_build_runner(
         }
         let mut stack = vec![dir.clone()];
         while let Some(d) = stack.pop() {
-            let Ok(inputs) = std::fs::read_dir(&d) else { continue };
+            let Ok(inputs) = std::fs::read_dir(&d) else {
+                continue;
+            };
             for e in inputs.flatten() {
                 let p = e.path();
                 if p.is_dir() {
@@ -149,10 +158,15 @@ pub fn from_build_runner(
                 if !suffixes.iter().any(|s| name_.ends_with(s)) {
                     continue;
                 }
-                let Ok(rel) = p.strip_prefix(&dir) else { continue };
-                let rel = rel.to_string_lossy().replace(std::path::MAIN_SEPARATOR, "/");
+                let Ok(rel) = p.strip_prefix(&dir) else {
+                    continue;
+                };
+                let rel = rel
+                    .to_string_lossy()
+                    .replace(std::path::MAIN_SEPARATOR, "/");
                 let Ok(destination) = pkg.package_uri.join(&rel).and_then(|u| {
-                    u.to_file_path().map_err(|_| url::ParseError::RelativeUrlWithoutBase)
+                    u.to_file_path()
+                        .map_err(|_| url::ParseError::RelativeUrlWithoutBase)
                 }) else {
                     continue;
                 };
@@ -189,18 +203,34 @@ mod tests {
     fn key_is_lexical() {
         let g = {
             let mut c = GenerationBuilder::new();
-            c.put(PathBuf::from("/p/lib/./a/../foo.template.dart"), "// x", "teste", vec![]);
+            c.put(
+                PathBuf::from("/p/lib/./a/../foo.template.dart"),
+                "// x",
+                "teste",
+                vec![],
+            );
             c.finish(1).unwrap()
         };
         assert!(g.contains(Path::new("/p/lib/foo.template.dart")));
-        assert_eq!(g.get(Path::new("/p/lib/foo.template.dart")).unwrap().content.as_ref(), "// x");
+        assert_eq!(
+            g.get(Path::new("/p/lib/foo.template.dart"))
+                .unwrap()
+                .content
+                .as_ref(),
+            "// x"
+        );
         assert!(!g.contains(Path::new("/p/lib/other.dart")));
     }
 
     #[test]
     fn error_aborts_generation() {
         let mut c = GenerationBuilder::new();
-        c.put(PathBuf::from("/p/lib/foo.template.dart"), "// x", "teste", vec![]);
+        c.put(
+            PathBuf::from("/p/lib/foo.template.dart"),
+            "// x",
+            "teste",
+            vec![],
+        );
         c.error("broken template".into());
         assert!(c.finish(2).is_err());
     }

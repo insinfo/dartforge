@@ -73,7 +73,9 @@ pub(super) fn camel_words(s: &str) -> Vec<String> {
 /// `getCamelWordCombinations`.
 pub(super) fn camel_combinations(name: &str) -> Vec<String> {
     let parts = camel_words(name);
-    (0..parts.len()).map(|i| format!("{}{}", parts[i].to_lowercase(), parts[i + 1..].concat())).collect()
+    (0..parts.len())
+        .map(|i| format!("{}{}", parts[i].to_lowercase(), parts[i + 1..].concat()))
+        .collect()
 }
 
 /// `String.toUpperCamelCase` (`utilities/extensions/string.dart:59-77`).
@@ -126,12 +128,24 @@ impl<'a, 'c> Isp<'a, 'c> {
         if name.is_empty() {
             return;
         }
-        let Some(s) = self.match_score(name) else { return };
-        let completion = if body { format!("{name} {{}}") } else { name.to_string() };
+        let Some(s) = self.match_score(name) else {
+            return;
+        };
+        let completion = if body {
+            format!("{name} {{}}")
+        } else {
+            name.to_string()
+        };
         let selection = name.encode_utf16().count() + if body { 2 } else { 0 };
         let before = self.collector.items.len();
         let end = completion.encode_utf16().count();
-        let item = self.collector.push(group::LOCAL, kind::VARIABLE, completion.clone(), completion, None);
+        let item = self.collector.push(
+            group::LOCAL,
+            kind::VARIABLE,
+            completion.clone(),
+            completion,
+            None,
+        );
         item.rel.fixed = Some(500);
         if selection != end {
             item.selection = Some((selection, 0));
@@ -167,11 +181,21 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `addTopLevelName`: the file name in `UpperCamelCase`, if the library does
     /// not declare that name yet.
     pub(super) fn top_name_ih(&mut self, body: bool) {
-        let Some(path) = self.path.clone() else { return };
-        let Some(base) = path.file_stem().and_then(|s| s.to_str()) else { return };
-        let Some(candidate) = camel_upper(base) else { return };
+        let Some(path) = self.path.clone() else {
+            return;
+        };
+        let Some(base) = path.file_stem().and_then(|s| s.to_str()) else {
+            return;
+        };
+        let Some(candidate) = camel_upper(base) else {
+            return;
+        };
         let lib = self.query.program.library(self.library());
-        if lib.declared.keys().any(|s| self.query.name(*s) == candidate) {
+        if lib
+            .declared
+            .keys()
+            .any(|s| self.query.name(*s) == candidate)
+        {
             return;
         }
         self.item_name(&candidate, body);
@@ -187,13 +211,18 @@ impl<'a, 'c> Isp<'a, 'c> {
             match self.kind(k) {
                 "SwitchStatement" => {
                     if with_cases {
-                        for m in self.children_of(k, &["SwitchCase", "SwitchDefault", "SwitchPatternCase"]) {
+                        for m in self
+                            .children_of(k, &["SwitchCase", "SwitchDefault", "SwitchPatternCase"])
+                        {
                             let labels = self.children_of(m, &["Label"]);
                             self.visit_labels(&labels);
                         }
                     }
                 }
-                "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody" => return,
+                "BlockFunctionBody"
+                | "ExpressionFunctionBody"
+                | "EmptyFunctionBody"
+                | "NativeFunctionBody" => return,
                 "LabeledStatement" => {
                     let labels = self.children_of(k, &["Label"]);
                     self.visit_labels(&labels);
@@ -207,14 +236,21 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_visitLabels` / `suggestLabel` (`Relevance.label`, 1000).
     pub(super) fn visit_labels(&mut self, labels: &[usize]) {
         for &r in labels {
-            let name = self.source[self.start(r)..self.end(r)].trim_end_matches(':').trim().to_string();
-            let Some(s) = self.match_score(&name) else { continue };
+            let name = self.source[self.start(r)..self.end(r)]
+                .trim_end_matches(':')
+                .trim()
+                .to_string();
+            let Some(s) = self.match_score(&name) else {
+                continue;
+            };
             if name.is_empty() || name == "_" {
                 continue;
             }
             let before = self.collector.items.len();
             // `ElementKind.LABEL` → `CompletionItemKind.Text`.
-            let item = self.collector.push(group::LOCAL, 1, name.clone(), name, None);
+            let item = self
+                .collector
+                .push(group::LOCAL, 1, name.clone(), name, None);
             item.rel.fixed = Some(1000);
             self.mark(before, s, false);
         }
@@ -233,7 +269,12 @@ impl<'a, 'c> Isp<'a, 'c> {
                 break;
             }
             let cl = p.class(x);
-            let concrete = |k: ClassId| p.class(k).instance_members.get(&name).is_some_and(|&f| !p.function(f).abstract_);
+            let concrete = |k: ClassId| {
+                p.class(k)
+                    .instance_members
+                    .get(&name)
+                    .is_some_and(|&f| !p.function(f).abstract_)
+            };
             if concrete(x) || cl.mixin_classes.iter().any(|&m| concrete(m)) {
                 return true;
             }
@@ -245,9 +286,15 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `containingNode.hasOverride`: the member containing the point already
     /// has `@override`.
     pub(super) fn member_has_override(&self) -> bool {
-        let Some(c) = self.covered_node() else { return false };
-        let Some(m) = self.ancestor(c, &["MethodDeclaration", "FieldDeclaration"]) else { return false };
-        self.children_of(m, &["Annotation"]).iter().any(|&a| self.source[self.start(a)..self.end(a)].trim() == "@override")
+        let Some(c) = self.covered_node() else {
+            return false;
+        };
+        let Some(m) = self.ancestor(c, &["MethodDeclaration", "FieldDeclaration"]) else {
+            return false;
+        };
+        self.children_of(m, &["Annotation"])
+            .iter()
+            .any(|&a| self.source[self.start(a)..self.end(a)].trim() == "@override")
     }
 
     /// `computeOverridesFor(interfaceElement, SourceRange(offset, 0), skipAt)`.
@@ -255,7 +302,8 @@ impl<'a, 'c> Isp<'a, 'c> {
         let p = &self.query.program;
         let owning = p.class_owner(c);
         let lib_c = p.class(owning).library;
-        let declared: HashSet<SymbolId> = p.class(owning).instance_members.keys().copied().collect();
+        let declared: HashSet<SymbolId> =
+            p.class(owning).instance_members.keys().copied().collect();
         let members = self.interface_members(c, false, false);
         let already_has_override = self.member_has_override();
         for f in members {
@@ -272,7 +320,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                 continue;
             }
             let display = raw_name.trim_end_matches('=').to_string();
-            let s = self.score("override").max(self.score("operator")).max(self.score(&display));
+            let s = self
+                .score("override")
+                .max(self.score("operator"))
+                .max(self.score(&display));
             if s == -1.0 {
                 continue;
             }
@@ -282,27 +333,64 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `suggestOverride`: the text of `writeOverride`, the selection and the label.
-    pub(super) fn item_override(&mut self, c: ClassId, f: FunctionElementId, invoke_super: bool, without_at_sign: bool, already_has_override: bool, score: f64) {
+    pub(super) fn item_override(
+        &mut self,
+        c: ClassId,
+        f: FunctionElementId,
+        invoke_super: bool,
+        without_at_sign: bool,
+        already_has_override: bool,
+        score: f64,
+    ) {
         let fe = self.query.program.function(f).clone();
         let raw_name = self.query.name(fe.name).to_string();
         let name = raw_name.trim_end_matches('=').to_string();
-        let setter = fe.kind == FunctionKind::Setter || (fe.kind == FunctionKind::ImplicitAccessor && raw_name.ends_with('='));
-        let getter = !setter && matches!(fe.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor);
+        let setter = fe.kind == FunctionKind::Setter
+            || (fe.kind == FunctionKind::ImplicitAccessor && raw_name.ends_with('='));
+        let getter = !setter
+            && matches!(
+                fe.kind,
+                FunctionKind::Getter | FunctionKind::ImplicitAccessor
+            );
         let operator = fe.kind == FunctionKind::Operator;
         // The member as the class sees it (the supertypes' type parameters
         // substituted).
         let this = self.type_this(c);
         let lib = self.library();
-        let search = if setter { self.query.names.lookup(&name) } else { Some(fe.name) };
+        let search = if setter {
+            self.query.names.lookup(&name)
+        } else {
+            Some(fe.name)
+        };
         let ty = search
             .and_then(|s| self.query.resolver().lookup_member(this, s, setter, lib))
             .map(|(_, t)| t)
             .unwrap_or_else(|| super::declared_type(self.query, f));
-        let (return_, positional_, optional_, named_, type_parameters) = match self.query.table.get(ty).clone() {
-            Type::Function { ret, positional, optional, named, type_params, .. } if !getter && !setter => (ret, positional.to_vec(), optional.to_vec(), named.to_vec(), type_params.to_vec()),
-            _ if setter => (self.query.core.void_, vec![ty], Vec::new(), Vec::new(), Vec::new()),
-            _ => (ty, Vec::new(), Vec::new(), Vec::new(), Vec::new()),
-        };
+        let (return_, positional_, optional_, named_, type_parameters) =
+            match self.query.table.get(ty).clone() {
+                Type::Function {
+                    ret,
+                    positional,
+                    optional,
+                    named,
+                    type_params,
+                    ..
+                } if !getter && !setter => (
+                    ret,
+                    positional.to_vec(),
+                    optional.to_vec(),
+                    named.to_vec(),
+                    type_params.to_vec(),
+                ),
+                _ if setter => (
+                    self.query.core.void_,
+                    vec![ty],
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                ),
+                _ => (ty, Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+            };
         let parameters_ast = self.member_parameters(f);
         let mut writer = crate::write_type::Writer::from_query(&*self.query, lib, Some(c), None);
         writer.copied = Some(f);
@@ -327,7 +415,11 @@ impl<'a, 'c> Isp<'a, 'c> {
         display.push_str(&name);
         if getter {
             s.push_str(" => ");
-            let body = if invoke_super { format!("super.{name}") } else { "throw UnimplementedError()".to_string() };
+            let body = if invoke_super {
+                format!("super.{name}")
+            } else {
+                "throw UnimplementedError()".to_string()
+            };
             selection = (s.len(), body.len());
             s.push_str(&body);
             s.push_str(if invoke_super { ";\n" } else { ";" });
@@ -352,8 +444,15 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
                 head.push('>');
             }
-            let parameter_types: Vec<TypeId> = positional_.iter().chain(optional_.iter()).copied().collect();
-            let mut used_names: HashSet<String> = parameters_ast.iter().filter_map(|x| x.name.clone()).collect();
+            let parameter_types: Vec<TypeId> = positional_
+                .iter()
+                .chain(optional_.iter())
+                .copied()
+                .collect();
+            let mut used_names: HashSet<String> = parameters_ast
+                .iter()
+                .filter_map(|x| x.name.clone())
+                .collect();
             head.push('(');
             let (mut saw_named, mut saw_optional) = (false, false);
             let mut call_names: Vec<(bool, String)> = Vec::new();
@@ -381,7 +480,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                 };
                 let type_p = if prm.named {
-                    named_.iter().find(|(s, _, _)| self.query.name(*s) == name_p).map(|(_, t, _)| *t)
+                    named_
+                        .iter()
+                        .find(|(s, _, _)| self.query.name(*s) == name_p)
+                        .map(|(_, t, _)| *t)
                 } else {
                     parameter_types.get(prm.position).copied()
                 };
@@ -437,7 +539,10 @@ impl<'a, 'c> Isp<'a, 'c> {
             if setter {
                 if invoke_super {
                     s.push_str("\n    ");
-                    let first = call_names.first().map(|(_, n)| n.clone()).unwrap_or_default();
+                    let first = call_names
+                        .first()
+                        .map(|(_, n)| n.clone())
+                        .unwrap_or_default();
                     let body = format!("super.{name} = {first};");
                     selection = (s.len(), body.len());
                     s.push_str(&body);
@@ -455,7 +560,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
             } else {
                 s.push_str("\n    ");
-                let body = if invoke_super { format!("return super{invocation}") } else { "throw UnimplementedError();".to_string() };
+                let body = if invoke_super {
+                    format!("return super{invocation}")
+                } else {
+                    "throw UnimplementedError();".to_string()
+                };
                 selection = (s.len(), body.len());
                 s.push_str(&body);
             }
@@ -485,21 +594,42 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let utf16 = |x: &str| x.encode_utf16().count();
         let sel_start = selection.0.saturating_sub(start);
-        let selection_utf16 = (utf16(&s[start..start + sel_start.min(s.len() - start)]), utf16(&s[selection.0..(selection.0 + selection.1).min(s.len())]));
-        let lsp_kind = if getter || setter { kind::PROPERTY } else { kind::METHOD };
+        let selection_utf16 = (
+            utf16(&s[start..start + sel_start.min(s.len() - start)]),
+            utf16(&s[selection.0..(selection.0 + selection.1).min(s.len())]),
+        );
+        let lsp_kind = if getter || setter {
+            kind::PROPERTY
+        } else {
+            kind::METHOD
+        };
         let before = self.collector.items.len();
         let origin = self.query.origin(self.query.function_start(f));
-        let item = self.collector.push(group::MEMBER, lsp_kind, completion.clone(), completion, None);
+        let item = self.collector.push(
+            group::MEMBER,
+            lsp_kind,
+            completion.clone(),
+            completion,
+            None,
+        );
         item.display = Some(display);
         item.selection = Some(selection_utf16);
         item.rel.fixed = Some(750);
         item.origin = origin;
-        item.match_ = Some(if operator { "override_operator".to_string() } else { format!("override_{name}") });
+        item.match_ = Some(if operator {
+            "override_operator".to_string()
+        } else {
+            format!("override_{name}")
+        });
         if let Some(&l) = import.first() {
             let uri = self.query.program.library(l).uri.clone();
             if uri.starts_with("dart:") || uri.starts_with("package:") {
                 let (span, new) = crate::actions::insert_import(self.source, self.cu, &uri);
-                item.import = Some(AutoImport { uri, span, text: new });
+                item.import = Some(AutoImport {
+                    uri,
+                    span,
+                    text: new,
+                });
             }
         }
         self.mark(before, score, false);
@@ -525,7 +655,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                             position += 1;
                         }
                         WrittenParameter {
-                            name: x.external_name().map(|n| u.source[n.span.start..n.span.end].to_string()),
+                            name: x
+                                .external_name()
+                                .map(|n| u.source[n.span.start..n.span.end].to_string()),
                             named,
                             optional: x.kind == ast::ParameterKind::Optional,
                             required_named: named && x.required,
@@ -541,16 +673,28 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             _ => {
                 // The implicit setter of a field: `_x`.
-                if fe.kind == FunctionKind::ImplicitAccessor && self.query.name(fe.name).ends_with('=') {
+                if fe.kind == FunctionKind::ImplicitAccessor
+                    && self.query.name(fe.name).ends_with('=')
+                {
                     let base = self.query.name(fe.name).trim_end_matches('=').to_string();
                     let covariant = fe.variable.is_some_and(|v| match p.variable(v).node {
                         dartforge_elements::model::VariableRef::Field { unit, member, .. } => {
                             p.unit(unit).ast.member(member).span.start < p.unit(unit).source.len()
-                                && p.unit(unit).source[p.unit(unit).ast.member(member).span.start..p.unit(unit).ast.member(member).span.end].contains("covariant ")
+                                && p.unit(unit).source[p.unit(unit).ast.member(member).span.start
+                                    ..p.unit(unit).ast.member(member).span.end]
+                                    .contains("covariant ")
                         }
                         _ => false,
                     });
-                    vec![WrittenParameter { name: Some(format!("_{base}")), named: false, optional: false, required_named: false, covariant, pattern: None, position: 0 }]
+                    vec![WrittenParameter {
+                        name: Some(format!("_{base}")),
+                        named: false,
+                        optional: false,
+                        required_named: false,
+                        covariant,
+                        pattern: None,
+                        position: 0,
+                    }]
                 } else {
                     Vec::new()
                 }
@@ -587,7 +731,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_simpleStringLiteral`.
     pub(super) fn uri_literal(&mut self, n: usize) {
         let Some(parent) = self.parent(n) else { return };
-        let Some(partial) = self.partial_uri(n) else { return };
+        let Some(partial) = self.partial_uri(n) else {
+            return;
+        };
         match self.kind(parent) {
             "Configuration" | "ImportDirective" | "ExportDirective" => {
                 self.uris_dart();
@@ -626,7 +772,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_suggestUri` (`Relevance.import` 900; `dart:core` 100).
     pub(super) fn item_uri(&mut self, uri: &str) {
-        let Some(s) = self.match_score(uri) else { return };
+        let Some(s) = self.match_score(uri) else {
+            return;
+        };
         let lsp_kind = if uri.starts_with("dart:") {
             kind::MODULE
         } else if uri.ends_with(".dart") {
@@ -635,7 +783,13 @@ impl<'a, 'c> Isp<'a, 'c> {
             19
         };
         let before = self.collector.items.len();
-        let item = self.collector.push(group::LIBRARY, lsp_kind, uri.to_string(), uri.to_string(), None);
+        let item = self.collector.push(
+            group::LIBRARY,
+            lsp_kind,
+            uri.to_string(),
+            uri.to_string(),
+            None,
+        );
         item.rel.fixed = Some(if uri == "dart:core" { 100 } else { 900 });
         self.mark(before, s, false);
     }
@@ -650,8 +804,12 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_addPackageSuggestions`.
     pub(super) fn package_uris(&mut self, partial: &str) {
-        let Some(file) = self.path.clone() else { return };
-        let Some(config) = dartforge_elements::config::PackageConfig::discover(&file).and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()) else {
+        let Some(file) = self.path.clone() else {
+            return;
+        };
+        let Some(config) = dartforge_elements::config::PackageConfig::discover(&file)
+            .and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok())
+        else {
             return;
         };
         self.item_uri("package:");
@@ -666,11 +824,16 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_addPackageFolderSuggestions`.
     pub(super) fn package_folder(&mut self, partial: &str, prefix: &str, folder: &std::path::Path) {
-        let Ok(entries) = std::fs::read_dir(folder) else { return };
-        let mut children: Vec<std::path::PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return;
+        };
+        let mut children: Vec<std::path::PathBuf> =
+            entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
         children.sort();
         for f in children {
-            let Some(name) = f.file_name().and_then(|s| s.to_str()).map(str::to_string) else { continue };
+            let Some(name) = f.file_name().and_then(|s| s.to_str()).map(str::to_string) else {
+                continue;
+            };
             if f.is_dir() {
                 let child = format!("{prefix}{name}/");
                 self.item_uri(&child);
@@ -685,7 +848,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_addFileSuggestions`.
     pub(super) fn file_uris(&mut self, partial: &str) {
-        let Some(file) = self.path.clone() else { return };
+        let Some(file) = self.path.clone() else {
+            return;
+        };
         let parent_uri = if partial.ends_with('/') {
             partial.to_string()
         } else {
@@ -694,28 +859,53 @@ impl<'a, 'c> Isp<'a, 'c> {
                 Some(i) => partial[..i].to_string(),
                 None => ".".to_string(),
             };
-            if d != "." && !d.ends_with('/') { format!("{d}/") } else { d }
+            if d != "." && !d.ends_with('/') {
+                format!("{d}/")
+            } else {
+                d
+            }
         };
-        let prefix_uri = if parent_uri == "." { String::new() } else { parent_uri.clone() };
-        let scheme = parent_uri.split_once(':').map(|(e, _)| e).filter(|e| !e.contains('/') && e.len() > 1);
+        let prefix_uri = if parent_uri == "." {
+            String::new()
+        } else {
+            parent_uri.clone()
+        };
+        let scheme = parent_uri
+            .split_once(':')
+            .map(|(e, _)| e)
+            .filter(|e| !e.contains('/') && e.len() > 1);
         if !parent_uri.starts_with("file://") && scheme.is_some() {
             return;
         }
-        let relative = !parent_uri.starts_with("file://") && std::path::Path::new(&parent_uri).is_relative();
-        let Some(dir) = super::uri_paths::directory(&file, &parent_uri) else { return };
+        let relative =
+            !parent_uri.starts_with("file://") && std::path::Path::new(&parent_uri).is_relative();
+        let Some(dir) = super::uri_paths::directory(&file, &parent_uri) else {
+            return;
+        };
         if relative {
-            let source_dir = file.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
+            let source_dir = file
+                .parent()
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_default();
             let in_lib = |p: &std::path::Path| p.components().any(|c| c.as_os_str() == "lib");
             if in_lib(&source_dir) && !in_lib(&dir) {
                 return;
             }
         }
-        let Ok(entries) = std::fs::read_dir(&dir) else { return };
-        let mut children: Vec<std::path::PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            return;
+        };
+        let mut children: Vec<std::path::PathBuf> =
+            entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
         children.sort();
-        let own = file.file_name().and_then(|s| s.to_str()).map(str::to_string);
+        let own = file
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(str::to_string);
         for f in children {
-            let Some(name) = f.file_name().and_then(|s| s.to_str()).map(str::to_string) else { continue };
+            let Some(name) = f.file_name().and_then(|s| s.to_str()).map(str::to_string) else {
+                continue;
+            };
             let completion = if f.is_dir() {
                 (!name.starts_with('.')).then(|| format!("{prefix_uri}{name}/"))
             } else if name.ends_with(".dart") {
@@ -738,7 +928,15 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// positionals of the written function type (DartForge's type does not
     /// keep them).
     pub(super) fn suggest_closure_with_names(&mut self, ty: TypeId, names: &[String], comma: bool) {
-        let Type::Function { positional, optional, named, .. } = self.query.table.get(ty).clone() else { return };
+        let Type::Function {
+            positional,
+            optional,
+            named,
+            ..
+        } = self.query.table.get(ty).clone()
+        else {
+            return;
+        };
         let include_types = enabled_rule(self.path.as_deref(), "always_specify_types");
         let indent = self.line_indent();
         let mut parameters: Vec<(String, TypeId, u8, bool)> = Vec::new();
@@ -746,10 +944,18 @@ impl<'a, 'c> Isp<'a, 'c> {
             parameters.push((names.get(i).cloned().unwrap_or_default(), t, 0, false));
         }
         for (i, &t) in optional.iter().enumerate() {
-            parameters.push((names.get(positional.len() + i).cloned().unwrap_or_default(), t, 1, false));
+            parameters.push((
+                names.get(positional.len() + i).cloned().unwrap_or_default(),
+                t,
+                1,
+                false,
+            ));
         }
         // `FunctionType.parameters`: the named ones in lexical order.
-        let mut named2: Vec<(String, TypeId, bool)> = named.iter().map(|(n, t, r)| (self.query.name(*n).to_string(), *t, *r)).collect();
+        let mut named2: Vec<(String, TypeId, bool)> = named
+            .iter()
+            .map(|(n, t, r)| (self.query.name(*n).to_string(), *t, *r))
+            .collect();
         named2.sort_by(|a, b| a.0.cmp(&b.0));
         for (n, t, r) in named2 {
             parameters.push((n, t, 2, r));
@@ -819,7 +1025,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 text.push(',');
             }
             let before = self.collector.items.len();
-            let item = self.collector.push(group::NAMED, kind::METHOD, display.clone(), text, None);
+            let item = self
+                .collector
+                .push(group::NAMED, kind::METHOD, display.clone(), text, None);
             item.display = Some(display);
             item.selection = Some((selection, 0));
             item.rel.fixed = Some(900);
@@ -830,8 +1038,16 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `NamedArgumentSuggestion` (`Relevance.requiredNamedArgument` 950 /
     /// `namedArgument` 900): `name: ` (+ `[]` for a widget-list parameter, +
     /// `,`); `replace == Some(0)` is `replacementLength: 0`.
-    pub(super) fn suggest_named_argument(&mut self, p: &InvokedParameter, colon: bool, comma: bool, replace: Option<usize>) {
-        let Some(s) = self.match_score(&p.name) else { return };
+    pub(super) fn suggest_named_argument(
+        &mut self,
+        p: &InvokedParameter,
+        colon: bool,
+        comma: bool,
+        replace: Option<usize>,
+    ) {
+        let Some(s) = self.match_score(&p.name) else {
+            return;
+        };
         let mut completion = p.name.clone();
         if colon {
             completion.push_str(": ");
@@ -848,12 +1064,22 @@ impl<'a, 'c> Isp<'a, 'c> {
         let detail = self.query.format(p.ty);
         let before = self.collector.items.len();
         let end = completion.encode_utf16().count();
-        let item = self.collector.push(group::NAMED, kind::VARIABLE, completion.clone(), completion.clone(), Some(detail));
+        let item = self.collector.push(
+            group::NAMED,
+            kind::VARIABLE,
+            completion.clone(),
+            completion.clone(),
+            Some(detail),
+        );
         item.display = Some(completion);
         if selection != end {
             item.selection = Some((selection, 0));
         }
-        item.rel.fixed = Some(if p.required || p.annotated_required { 950 } else { 900 });
+        item.rel.fixed = Some(if p.required || p.annotated_required {
+            950
+        } else {
+            900
+        });
         item.replace_empty = replace == Some(0);
         self.mark(before, s, false);
     }
@@ -867,20 +1093,36 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `literal` the `RecordLiteral` (or none), `new` whether it is a new field
     /// (`name: `, with the comma when the displaced token is neither `,` nor
     /// `)`).
-    pub(super) fn suggest_record_named_fields(&mut self, container: usize, literal: Option<usize>, new: bool) {
+    pub(super) fn suggest_record_named_fields(
+        &mut self,
+        container: usize,
+        literal: Option<usize>,
+        new: bool,
+    ) {
         let target = literal.unwrap_or(container);
-        let context = self.parent(target).and_then(|p| self.context_type_in(p, self.start(target)));
+        let context = self
+            .parent(target)
+            .and_then(|p| self.context_type_in(p, self.start(target)));
         let Some(t) = context else { return };
-        let Type::Record { named, .. } = self.query.table.get(t).clone() else { return };
+        let Type::Record { named, .. } = self.query.table.get(t).clone() else {
+            return;
+        };
         // `_computeDisplacedToken`: the first token of the node at `offset` or after.
-        let shifted = self.tok_after(self.offset).filter(|&i| self.span_tok(i).start < self.end(container).max(self.offset + 1));
+        let shifted = self
+            .tok_after(self.offset)
+            .filter(|&i| self.span_tok(i).start < self.end(container).max(self.offset + 1));
         let Some(d) = shifted else { return };
         let included: HashSet<String> = match literal {
             Some(l) => self
                 .children_of(l, &["NamedExpression"])
                 .iter()
                 .filter_map(|&e| self.child(e, "Label"))
-                .map(|r| self.source[self.start(r)..self.end(r)].trim_end_matches(':').trim().to_string())
+                .map(|r| {
+                    self.source[self.start(r)..self.end(r)]
+                        .trim_end_matches(':')
+                        .trim()
+                        .to_string()
+                })
                 .collect(),
             None => HashSet::new(),
         };
@@ -890,7 +1132,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             if included.contains(&name) {
                 continue;
             }
-            let Some(s) = self.match_score(&name) else { continue };
+            let Some(s) = self.match_score(&name) else {
+                continue;
+            };
             let mut completion = name.clone();
             if new {
                 completion.push_str(": ");
@@ -902,7 +1146,13 @@ impl<'a, 'c> Isp<'a, 'c> {
             let detail = self.query.format(*ty);
             let before = self.collector.items.len();
             let end = completion.encode_utf16().count();
-            let item = self.collector.push(group::NAMED, kind::VARIABLE, completion.clone(), completion.clone(), Some(detail));
+            let item = self.collector.push(
+                group::NAMED,
+                kind::VARIABLE,
+                completion.clone(),
+                completion.clone(),
+                Some(detail),
+            );
             item.display = Some(completion);
             if selection != end {
                 item.selection = Some((selection, 0));

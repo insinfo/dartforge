@@ -7,7 +7,7 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use dartforge_diagnostics::{Severity, Span, ErrorType};
+use dartforge_diagnostics::{ErrorType, Severity, Span};
 
 pub mod codes_g;
 pub mod manifest;
@@ -52,7 +52,11 @@ fn fill(template: &str, args: &[String]) -> String {
 
 impl Report {
     pub fn new(code: &'static NonDartCode, span: Span, args: &[&str]) -> Report {
-        Report { code, span, args: args.iter().map(|a| a.to_string()).collect() }
+        Report {
+            code,
+            span,
+            args: args.iter().map(|a| a.to_string()).collect(),
+        }
     }
 
     /// The message of the problem.
@@ -72,7 +76,11 @@ mod tests {
 
     #[test]
     fn message_with_arguments() {
-        let r = Report::new(&codes_g::pubspec::DEPRECATED_FIELD, Span { start: 0, end: 6 }, &["author"]);
+        let r = Report::new(
+            &codes_g::pubspec::DEPRECATED_FIELD,
+            Span { start: 0, end: 6 },
+            &["author"],
+        );
         assert!(r.message().contains("author"));
     }
 }

@@ -14,15 +14,20 @@
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{
-    ClassId, ClassKind, FunctionElementId, FunctionKind as ElementKind, FunctionRef, LibraryId, Program, UnitId, VariableRef,
+    ClassId, ClassKind, FunctionElementId, FunctionKind as ElementKind, FunctionRef, LibraryId,
+    Program, UnitId, VariableRef,
 };
-use dartforge_frontend::ast::{self, AssignOp, DeclKind, ExprKind, FunctionKind, MemberKind, UnaryOp};
+use dartforge_frontend::ast::{
+    self, AssignOp, DeclKind, ExprKind, FunctionKind, MemberKind, UnaryOp,
+};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashSet, VecDeque};
 
 /// The annotation list has `@mustCallSuper` (or `@prefix.mustCallSuper`).
 fn annotated(metadata: &[ast::Annotation], sym: SymbolId) -> bool {
-    metadata.iter().any(|m| m.arguments.is_none() && m.name.last().is_some_and(|n| n.sym == sym))
+    metadata
+        .iter()
+        .any(|m| m.arguments.is_none() && m.name.last().is_some_and(|n| n.sym == sym))
 }
 
 /// The annotations of a member's declaration: the method's, or the field's
@@ -31,12 +36,19 @@ fn annotations_of(program: &Program, f: FunctionElementId) -> &[ast::Annotation]
     let element = program.function(f);
     if let Some(v) = element.variable {
         return match program.variable(v).node {
-            VariableRef::Field { unit, member, .. } => &program.unit(unit).ast.member(member).metadata,
+            VariableRef::Field { unit, member, .. } => {
+                &program.unit(unit).ast.member(member).metadata
+            }
             _ => &[],
         };
     }
-    let (FunctionRef::Function { unit, function }, Some(class)) = (element.node, element.class) else { return &[] };
-    let Some(decl) = program.class(class).decl else { return &[] };
+    let (FunctionRef::Function { unit, function }, Some(class)) = (element.node, element.class)
+    else {
+        return &[];
+    };
+    let Some(decl) = program.class(class).decl else {
+        return &[];
+    };
     let a = &program.unit(unit).ast;
     if decl.unit != unit {
         return &[];
@@ -57,8 +69,17 @@ fn annotations_of(program: &Program, f: FunctionElementId) -> &[ast::Annotation]
 /// `_findOverriddenMemberWithMustCallSuper`: breadth-first through the
 /// mixins, the superclass and (in a mixin) the `on` constraints, without the
 /// interfaces; the first ancestor with a member named `the_name` decides.
-fn annotated_above(program: &Program, interner: &Interner, class: ClassId, lib: LibraryId, keys: &[SymbolId], sym: SymbolId) -> Option<ClassId> {
-    let private = keys.first().is_some_and(|c| interner.resolve(*c).starts_with('_'));
+fn annotated_above(
+    program: &Program,
+    interner: &Interner,
+    class: ClassId,
+    lib: LibraryId,
+    keys: &[SymbolId],
+    sym: SymbolId,
+) -> Option<ClassId> {
+    let private = keys
+        .first()
+        .is_some_and(|c| interner.resolve(*c).starts_with('_'));
     let mut queue: VecDeque<ClassId> = VecDeque::new();
     let enqueue = |queue: &mut VecDeque<ClassId>, c: ClassId| {
         let e = program.class(c);
@@ -92,7 +113,15 @@ fn annotated_above(program: &Program, interner: &Interner, class: ClassId, lib: 
 /// `lookUpConcrete…` starting from `start`: the class itself (with
 /// `with_itself`), its mixins from last to first, and so on along the
 /// superclass chain; the first non-abstract member of the requested kind.
-pub(crate) fn the_concrete(program: &Program, start: ClassId, with_itself: bool, key: SymbolId, lib: LibraryId, private: bool, method: bool) -> bool {
+pub(crate) fn the_concrete(
+    program: &Program,
+    start: ClassId,
+    with_itself: bool,
+    key: SymbolId,
+    lib: LibraryId,
+    private: bool,
+    method: bool,
+) -> bool {
     let serve = |c: ClassId| {
         let e = program.class(c);
         if private && e.library != lib {
@@ -127,7 +156,14 @@ pub(crate) fn the_concrete(program: &Program, start: ClassId, with_itself: bool,
 /// `invokesSuperSelf`: the body of `the_function` has `super.<the_name>` in the right
 /// role (read or call for a method or getter, write for a setter), or the
 /// operator applied to `super`.
-fn calls_super(a: &ast::Ast, source: &str, interner: &Interner, the_function: &ast::Function, the_name: &str, kind: FunctionKind) -> bool {
+fn calls_super(
+    a: &ast::Ast,
+    source: &str,
+    interner: &Interner,
+    the_function: &ast::Function,
+    the_name: &str,
+    kind: FunctionKind,
+) -> bool {
     let inside = |s: Span| the_function.span.start <= s.start && s.end <= the_function.span.end;
     let is_super = |e: ast::ExprId| matches!(a.expr(e).kind, ExprKind::Super);
     // Simple assignment targets (`=`): they are not reads.
@@ -144,41 +180,73 @@ fn calls_super(a: &ast::Ast, source: &str, interner: &Interner, the_function: &a
     }
     match kind {
         FunctionKind::Setter => written_ones.iter().any(|t| match &a.expr(*t).kind {
-            ExprKind::Property { target, name, .. } => is_super(*target) && interner.resolve(name.sym) == the_name,
-            _ => false,
-        }),
-        FunctionKind::Function | FunctionKind::Getter => a.exprs.iter().filter(|e| inside(e.span)).any(|e| match &e.kind {
             ExprKind::Property { target, name, .. } => {
-                is_super(*target) && interner.resolve(name.sym) == the_name && !only_written.contains(&(e.span.start, e.span.end))
+                is_super(*target) && interner.resolve(name.sym) == the_name
             }
             _ => false,
         }),
+        FunctionKind::Function | FunctionKind::Getter => a
+            .exprs
+            .iter()
+            .filter(|e| inside(e.span))
+            .any(|e| match &e.kind {
+                ExprKind::Property { target, name, .. } => {
+                    is_super(*target)
+                        && interner.resolve(name.sym) == the_name
+                        && !only_written.contains(&(e.span.start, e.span.end))
+                }
+                _ => false,
+            }),
         FunctionKind::Operator => {
             if the_name == "[]=" {
                 return written_ones.iter().any(|t| matches!(&a.expr(*t).kind, ExprKind::Index { target, .. } if is_super(*target)));
             }
-            a.exprs.iter().filter(|e| inside(e.span)).any(|e| match &e.kind {
-                ExprKind::Index { target, .. } => the_name == "[]" && is_super(*target) && !only_written.contains(&(e.span.start, e.span.end)),
-                ExprKind::Unary { op: UnaryOp::Neg, operand } => the_name == "unary-" && is_super(*operand),
-                ExprKind::Unary { op: UnaryOp::BitNot, operand } => the_name == "~" && is_super(*operand),
-                ExprKind::Binary { left, right, .. } if is_super(*left) => {
-                    // The operator text, between the operands; `!=` calls `==`.
-                    let (of, until) = (a.expr(*left).span.end, a.expr(*right).span.start);
-                    let text = source.get(of..until).map_or("", str::trim);
-                    text == the_name || (text == "!=" && the_name == "==")
-                }
-                _ => false,
-            })
+            a.exprs
+                .iter()
+                .filter(|e| inside(e.span))
+                .any(|e| match &e.kind {
+                    ExprKind::Index { target, .. } => {
+                        the_name == "[]"
+                            && is_super(*target)
+                            && !only_written.contains(&(e.span.start, e.span.end))
+                    }
+                    ExprKind::Unary {
+                        op: UnaryOp::Neg,
+                        operand,
+                    } => the_name == "unary-" && is_super(*operand),
+                    ExprKind::Unary {
+                        op: UnaryOp::BitNot,
+                        operand,
+                    } => the_name == "~" && is_super(*operand),
+                    ExprKind::Binary { left, right, .. } if is_super(*left) => {
+                        // The operator text, between the operands; `!=` calls `==`.
+                        let (of, until) = (a.expr(*left).span.end, a.expr(*right).span.start);
+                        let text = source.get(of..until).map_or("", str::trim);
+                        text == the_name || (text == "!=" && the_name == "==")
+                    }
+                    _ => false,
+                })
         }
     }
 }
 
 /// The `must_call_super` findings of library `lib`.
-pub fn missing_super_call(program: &Program, interner: &Interner, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
+pub fn missing_super_call(
+    program: &Program,
+    interner: &Interner,
+    lib: LibraryId,
+) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
-    let Some(sym) = interner.lookup("mustCallSuper") else { return output };
+    let Some(sym) = interner.lookup("mustCallSuper") else {
+        return output;
+    };
     for (i, class) in program.classes.iter().enumerate() {
-        if class.library != lib || !matches!(class.kind, ClassKind::Class | ClassKind::Enum | ClassKind::Mixin) {
+        if class.library != lib
+            || !matches!(
+                class.kind,
+                ClassKind::Class | ClassKind::Enum | ClassKind::Mixin
+            )
+        {
             continue;
         }
         let Some(decl) = class.decl else { continue };
@@ -192,7 +260,9 @@ pub fn missing_super_call(program: &Program, interner: &Interner, lib: LibraryId
             _ => continue,
         };
         for &mid in members {
-            let MemberKind::Method(f) = &a.member(mid).kind else { continue };
+            let MemberKind::Method(f) = &a.member(mid).kind else {
+                continue;
+            };
             let func = a.function(*f);
             // Static or abstract (no body and no `external`): skipped.
             if func.static_ || (matches!(func.body, ast::FunctionBody::Empty) && !func.external) {
@@ -206,7 +276,9 @@ pub fn missing_super_call(program: &Program, interner: &Interner, lib: LibraryId
                 FunctionKind::Setter => setter_key.into_iter().collect(),
                 _ => std::iter::once(the_name.sym).chain(setter_key).collect(),
             };
-            let Some(owner) = annotated_above(program, interner, cid, lib, &keys, sym) else { continue };
+            let Some(owner) = annotated_above(program, interner, cid, lib, &keys, sym) else {
+                continue;
+            };
             // The inherited concrete implementation.
             let has_concrete = match func.kind {
                 // `_hasConcreteSuperMethod`: the superclass, the mixins or the
@@ -215,18 +287,28 @@ pub fn missing_super_call(program: &Program, interner: &Interner, lib: LibraryId
                     .supertype_class
                     .iter()
                     .chain(class.mixin_classes.iter())
-                    .chain(class.on_classes.iter().filter(|_| class.kind == ClassKind::Mixin))
+                    .chain(
+                        class
+                            .on_classes
+                            .iter()
+                            .filter(|_| class.kind == ClassKind::Mixin),
+                    )
                     .any(|c| the_concrete(program, *c, true, the_name.sym, lib, private, true)),
                 // `lookUpInheritedConcreteGetter` / `…Setter`.
                 FunctionKind::Getter => {
                     the_concrete(program, cid, false, the_name.sym, lib, private, false)
                         || (class.kind == ClassKind::Mixin
-                            && class.on_classes.iter().any(|c| the_concrete(program, *c, true, the_name.sym, lib, private, false)))
+                            && class.on_classes.iter().any(|c| {
+                                the_concrete(program, *c, true, the_name.sym, lib, private, false)
+                            }))
                 }
                 FunctionKind::Setter => setter_key.is_some_and(|k| {
                     the_concrete(program, cid, false, k, lib, private, false)
                         || (class.kind == ClassKind::Mixin
-                            && class.on_classes.iter().any(|c| the_concrete(program, *c, true, k, lib, private, false)))
+                            && class
+                                .on_classes
+                                .iter()
+                                .any(|c| the_concrete(program, *c, true, k, lib, private, false)))
                 }),
             };
             if !has_concrete {
@@ -234,7 +316,10 @@ pub fn missing_super_call(program: &Program, interner: &Interner, lib: LibraryId
             }
             if !calls_super(a, &unit_id.source, interner, func, text, func.kind) {
                 let owner_name = interner.resolve(program.class(owner).name);
-                output.push((decl.unit, Diagnostic::with_code(w::MUST_CALL_SUPER, the_name.span, [owner_name])));
+                output.push((
+                    decl.unit,
+                    Diagnostic::with_code(w::MUST_CALL_SUPER, the_name.span, [owner_name]),
+                ));
             }
         }
     }

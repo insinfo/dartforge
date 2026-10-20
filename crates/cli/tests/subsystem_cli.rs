@@ -9,8 +9,11 @@ fn reject(args: &[&str], expected: &str) {
         .output()
         .unwrap();
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains(expected),
-        "{args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains(expected),
+        "{args:?}: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -21,7 +24,10 @@ fn missing_and_invalid_subsystems_are_rejected() {
         vec!["aot", "missing.dart", "missing.exe", "--subsystem=wrong"],
         vec!["aot", "missing.dart", "missing.exe", "--subsystem", "wrong"],
     ] {
-        reject(&args, "--subsystem=wrong: the subsystems are `console` and `gui`");
+        reject(
+            &args,
+            "--subsystem=wrong: the subsystems are `console` and `gui`",
+        );
     }
     for args in [
         vec!["compile-native", "missing.dart", "--subsystem"],
@@ -36,7 +42,13 @@ fn missing_and_invalid_subsystems_are_rejected() {
 fn gui_is_rejected_on_other_hosts_including_ir_only() {
     for args in [
         vec!["compile-native", "missing.dart", "--subsystem=gui"],
-        vec!["compile-native", "missing.dart", "--emit-ir", "--subsystem", "gui"],
+        vec![
+            "compile-native",
+            "missing.dart",
+            "--emit-ir",
+            "--subsystem",
+            "gui",
+        ],
         vec!["aot", "missing.dart", "missing.exe", "--subsystem=gui"],
     ] {
         reject(&args, "--subsystem=gui is only supported on Windows");
@@ -47,11 +59,19 @@ fn gui_is_rejected_on_other_hosts_including_ir_only() {
 fn default_ignores_an_inherited_gui_policy() {
     for args in [
         vec!["compile-native", "missing.dart", "--digest"],
-        vec!["compile-native", "missing.dart", "--digest", "--subsystem=console"],
+        vec![
+            "compile-native",
+            "missing.dart",
+            "--digest",
+            "--subsystem=console",
+        ],
         vec!["aot", "missing.dart", "missing.exe"],
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-            .args(&args).env("DARTFORGE_SUBSYSTEM", "wrong").output().unwrap();
+            .args(&args)
+            .env("DARTFORGE_SUBSYSTEM", "wrong")
+            .output()
+            .unwrap();
         assert!(!output.status.success());
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(!stderr.contains("--subsystem="), "{args:?}: {stderr}");

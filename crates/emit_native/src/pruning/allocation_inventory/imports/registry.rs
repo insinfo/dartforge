@@ -70,7 +70,10 @@ pub(super) fn metadata_startups(
             && !summary.ambiguous_classes.contains(&frame)
             && !summary.tables.iter().any(|table| table.cid == frame)
             && !summary.declared_field_layouts.contains_key(&(frame as u32))
-            && !summary.parent_edges.iter().any(|(child, parent)| *child == frame || *parent == frame)
+            && !summary
+                .parent_edges
+                .iter()
+                .any(|(child, parent)| *child == frame || *parent == frame)
     });
     let mut accepted = HashSet::new();
     for function in functions {

@@ -23,14 +23,18 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::const_eval::evaluation::{Constant, Engine};
-use crate::typed_lints::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved, UnitBodyTypes};
-use crate::subtyping::{is_subtype, SubtypeEnv};
+use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
+use crate::typed_lints::Finding;
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, Program, UnitId, VariableId, VariableRef};
-use dartforge_frontend::ast::{self, ExprId, ExprKind, Initializer, MemberKind, ParameterKind, PatternKind, StmtKind};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, LibraryId, Program, UnitId, VariableId, VariableRef,
+};
+use dartforge_frontend::ast::{
+    self, ExprId, ExprKind, Initializer, MemberKind, ParameterKind, PatternKind, StmtKind,
+};
 use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
 
@@ -54,9 +58,31 @@ pub fn findings(
     u: UnitId,
 ) -> Vec<Finding> {
     let mut out: Vec<Finding> = Vec::new();
-    let Some(body) = bodies.units.get(u.0 as usize) else { return out };
-    exhaustive_cases(program, interner, table, core, outline, bodies, the_inferred, u, &mut out);
-    named_constants_and_declarations(program, interner, table, core, outline, bodies, the_inferred, u, &mut out);
+    let Some(body) = bodies.units.get(u.0 as usize) else {
+        return out;
+    };
+    exhaustive_cases(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        bodies,
+        the_inferred,
+        u,
+        &mut out,
+    );
+    named_constants_and_declarations(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        bodies,
+        the_inferred,
+        u,
+        &mut out,
+    );
     super_parameters(program, interner, table, core, outline, body, u, &mut out);
     js_checks(program, interner, table, core, outline, body, u, &mut out);
     out
@@ -67,9 +93,23 @@ fn this_type(table: &mut TypeTable, outline: &OutlineTypes, c: ClassId) -> TypeI
     let params: Vec<TypeId> = outline
         .classes
         .get(c.0 as usize)
-        .map(|x| x.type_params.iter().map(|p| table.intern(Type::TypeParameter { param: *p, nullable: false })).collect())
+        .map(|x| {
+            x.type_params
+                .iter()
+                .map(|p| {
+                    table.intern(Type::TypeParameter {
+                        param: *p,
+                        nullable: false,
+                    })
+                })
+                .collect()
+        })
         .unwrap_or_default();
-    table.intern(Type::Interface { class: c, args: params.into(), nullable: false })
+    table.intern(Type::Interface {
+        class: c,
+        args: params.into(),
+        nullable: false,
+    })
 }
 
 /// `exhaustive_cases`.
@@ -88,7 +128,9 @@ fn exhaustive_cases(
     let unit_id = program.unit(u);
     let a = &unit_id.ast;
     let source = unit_id.source.as_str();
-    let Some(body) = bodies.units.get(u.0 as usize) else { return };
+    let Some(body) = bodies.units.get(u.0 as usize) else {
+        return;
+    };
     let switches: Vec<(Span, ExprId, &[ast::SwitchCase])> = a
         .stmts
         .iter()
@@ -101,39 +143,65 @@ fn exhaustive_cases(
         return;
     }
     let deprecated = |v: VariableId| -> bool {
-        let VariableRef::Field { unit, member, .. } = program.variable(v).node else { return false };
+        let VariableRef::Field { unit, member, .. } = program.variable(v).node else {
+            return false;
+        };
         let m = program.unit(unit).ast.member(member);
         m.metadata.iter().any(|x| {
             crate::annotations::is_getter_of(program, interner, unit, x, "dart.core", "deprecated")
-                || crate::annotations::is_constructor_of(program, interner, unit, x, "dart.core", "Deprecated")
+                || crate::annotations::is_constructor_of(
+                    program,
+                    interner,
+                    unit,
+                    x,
+                    "dart.core",
+                    "Deprecated",
+                )
         })
     };
     // First pass (with the table): the candidates and the `thisType`.
     let mut candidates: Vec<(Span, ExprId, &[ast::SwitchCase], ClassId, TypeId)> = Vec::new();
     for (span, the_value, the_cases) in switches {
-        let Some(t) = body.get_type(the_value) else { continue };
-        let Type::Interface { class, .. } = table.get(t).clone() else { continue };
+        let Some(t) = body.get_type(the_value) else {
+            continue;
+        };
+        let Type::Interface { class, .. } = table.get(t).clone() else {
+            continue;
+        };
         let this_t = this_type(table, outline, class);
         candidates.push((span, the_value, the_cases, class, this_t));
     }
     if candidates.is_empty() {
         return;
     }
-    let mut engine = Engine::new(program, interner, table, core, outline, bodies, the_inferred);
+    let mut engine = Engine::new(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        bodies,
+        the_inferred,
+    );
     let exhaustive_on = true;
     for (span, the_value, the_cases, class, this_t) in candidates {
         // `no_default_cases`: the `default` of a `switch` over an enum or an
         // "enum-like" class (the first `default`).
         let is_enum = program.class(class).kind == ClassKind::Enum;
         let k = program.class(class);
-        let switch_pattern = the_cases.iter().find(|c| c.pattern.is_none()).map(|c| c.span);
+        let switch_pattern = the_cases
+            .iter()
+            .find(|c| c.pattern.is_none())
+            .map(|c| c.span);
         if is_enum {
             if let Some(sp) = switch_pattern {
                 out.push((sp, "no_default_cases", Vec::new()));
             }
             continue;
         }
-        if !matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) || k.modifiers.abstract_ {
+        if !matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication)
+            || k.modifiers.abstract_
+        {
             continue;
         }
         // Only private non-factory constructors (with none declared, the
@@ -142,7 +210,9 @@ fn exhaustive_cases(
         if constructors.is_empty() {
             continue;
         }
-        let all_private = constructors.iter().all(|(name, f)| interner.resolve(*name).starts_with('_') && !program.function(*f).factory);
+        let all_private = constructors.iter().all(|(name, f)| {
+            interner.resolve(*name).starts_with('_') && !program.function(*f).factory
+        });
         if !all_private {
             continue;
         }
@@ -154,12 +224,18 @@ fn exhaustive_cases(
             if !x.const_ || !x.static_ {
                 continue;
             }
-            let Some(d) = outline.variables.get(v.0 as usize) else { continue };
-            let Some(tv) = d.declared_type.or(d.inferred) else { continue };
+            let Some(d) = outline.variables.get(v.0 as usize) else {
+                continue;
+            };
+            let Some(tv) = d.declared_type.or(d.inferred) else {
+                continue;
+            };
             if tv != this_t {
                 continue;
             }
-            let Some(Constant::Value(val)) = engine.variable_value(v) else { continue };
+            let Some(Constant::Value(val)) = engine.variable_value(v) else {
+                continue;
+            };
             count += 1;
             match constants.iter().position(|(w, _)| engine.equal(&val, w)) {
                 Some(i) => constants[i].1.push(v),
@@ -171,24 +247,26 @@ fn exhaustive_cases(
         }
         // No subclass in the library's defining unit.
         let defining = program.library(k.library).units.first().copied();
-        let has_subclass = (0..program.classes.len()).map(|i| ClassId(i as u32)).any(|cand| {
-            let ck = program.class(cand);
-            if !ck.decl.is_some_and(|r| Some(r.unit) == defining) {
-                return false;
-            }
-            let mut seen = HashSet::new();
-            let mut current = ck.supertype_class;
-            while let Some(sc) = current {
-                if !seen.insert(sc) {
-                    break;
+        let has_subclass = (0..program.classes.len())
+            .map(|i| ClassId(i as u32))
+            .any(|cand| {
+                let ck = program.class(cand);
+                if !ck.decl.is_some_and(|r| Some(r.unit) == defining) {
+                    return false;
                 }
-                if sc == class {
-                    return true;
+                let mut seen = HashSet::new();
+                let mut current = ck.supertype_class;
+                while let Some(sc) = current {
+                    if !seen.insert(sc) {
+                        break;
+                    }
+                    if sc == class {
+                        return true;
+                    }
+                    current = program.class(sc).supertype_class;
                 }
-                current = program.class(sc).supertype_class;
-            }
-            false
-        });
+                false
+            });
         if has_subclass {
             continue;
         }
@@ -206,14 +284,27 @@ fn exhaustive_cases(
             while let PatternKind::Parenthesized(x) = &a.pattern(p).kind {
                 p = *x;
             }
-            let PatternKind::Constant(e) = &a.pattern(p).kind else { continue };
+            let PatternKind::Constant(e) = &a.pattern(p).kind else {
+                continue;
+            };
             let e = without_parentheses(a, *e);
-            if !matches!(a.expr(e).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
+            if !matches!(
+                a.expr(e).kind,
+                ExprKind::Identifier(_) | ExprKind::Property { .. }
+            ) {
                 continue;
             }
             let variable = match body.get_resolved(e) {
-                Some(Resolved::Member { member: MemberRef::Variable(v), .. }) | Some(Resolved::Element(Element::Variable(v))) => Some(*v),
-                Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) => program.function(*f).variable,
+                Some(Resolved::Member {
+                    member: MemberRef::Variable(v),
+                    ..
+                })
+                | Some(Resolved::Element(Element::Variable(v))) => Some(*v),
+                Some(Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                })
+                | Some(Resolved::Element(Element::Function(f))) => program.function(*f).variable,
                 _ => None,
             };
             let Some(v) = variable else { continue };
@@ -232,11 +323,28 @@ fn exhaustive_cases(
         // From the `switch` to the `)` after the expression.
         let b = source.as_bytes();
         let after = dartforge_frontend::source::skip_whitespace(b, a.expr(the_value).span.end);
-        let end = if b.get(after) == Some(&b')') { after + 1 } else { a.expr(the_value).span.end };
+        let end = if b.get(after) == Some(&b')') {
+            after + 1
+        } else {
+            a.expr(the_value).span.end
+        };
         for (_, fields) in constants {
-            let preferred = fields.iter().copied().find(|v| !deprecated(*v)).unwrap_or(fields[0]);
-            let name = interner.resolve(program.variable(preferred).name).to_string();
-            out.push((Span { start: span.start, end }, "exhaustive_cases", vec![name]));
+            let preferred = fields
+                .iter()
+                .copied()
+                .find(|v| !deprecated(*v))
+                .unwrap_or(fields[0]);
+            let name = interner
+                .resolve(program.variable(preferred).name)
+                .to_string();
+            out.push((
+                Span {
+                    start: span.start,
+                    end,
+                },
+                "exhaustive_cases",
+                vec![name],
+            ));
         }
     }
 }
@@ -259,7 +367,9 @@ fn named_constants_and_declarations(
     let a = &unit_id.ast;
     let source = unit_id.source.as_str();
     let lib = unit_id.library;
-    let Some(body) = bodies.units.get(u.0 as usize) else { return };
+    let Some(body) = bodies.units.get(u.0 as usize) else {
+        return;
+    };
     let parents = crate::typed_lints::unit_parents(program, u);
     // `use_named_constants`: the constant creations of a class.
     let mut creations: Vec<(ExprId, ClassId)> = Vec::new();
@@ -268,26 +378,47 @@ fn named_constants_and_declarations(
         if !matches!(body.get_resolved(id), Some(Resolved::Constructor(_))) {
             continue;
         }
-        let written_const = matches!(&e.kind, ExprKind::InstanceCreation { keyword: Some(ast::CreationKeyword::Const), .. });
+        let written_const = matches!(
+            &e.kind,
+            ExprKind::InstanceCreation {
+                keyword: Some(ast::CreationKeyword::Const),
+                ..
+            }
+        );
         if !written_const && !parents.in_constant_context(a, id) {
             continue;
         }
         let Some(t) = body.get_type(id) else { continue };
-        let Type::Interface { class, .. } = table.get(t) else { continue };
+        let Type::Interface { class, .. } = table.get(t) else {
+            continue;
+        };
         if program.class(*class).kind != ClassKind::Class {
             continue;
         }
         // Inside the initializer of a field of the class itself.
-        let inside_field = program.class(*class).fields.iter().any(|v| match program.variable(*v).node {
-            VariableRef::Field { unit, member, index } if unit == u => match &a.member(member).kind {
-                MemberKind::Field(l) => l.variables.get(index).and_then(|x| x.initializer).is_some_and(|i| {
-                    let (ie, ce) = (a.expr(i).span, e.span);
-                    ce.start >= ie.start && ce.end <= ie.end
-                }),
-                _ => false,
-            },
-            _ => false,
-        });
+        let inside_field =
+            program
+                .class(*class)
+                .fields
+                .iter()
+                .any(|v| match program.variable(*v).node {
+                    VariableRef::Field {
+                        unit,
+                        member,
+                        index,
+                    } if unit == u => match &a.member(member).kind {
+                        MemberKind::Field(l) => l
+                            .variables
+                            .get(index)
+                            .and_then(|x| x.initializer)
+                            .is_some_and(|i| {
+                                let (ie, ce) = (a.expr(i).span, e.span);
+                                ce.start >= ie.start && ce.end <= ie.end
+                            }),
+                        _ => false,
+                    },
+                    _ => false,
+                });
         if !inside_field {
             creations.push((id, *class));
         }
@@ -295,25 +426,38 @@ fn named_constants_and_declarations(
     // `prefer_const_declarations`: the `final` lists (static, top-level and
     // local fields) with the start of the list and the initializers.
     let mut lists: Vec<(usize, usize, Vec<ExprId>)> = Vec::new();
-    let list = |start: usize, l: &ast::VariableList, lists: &mut Vec<(usize, usize, Vec<ExprId>)>| {
-        if l.const_ || !l.final_ {
-            return;
-        }
-        let mut inits = Vec::new();
-        for v in l.variables.iter() {
-            let Some(i) = v.initializer else { return };
-            // `TypedLiteral` without `const`.
-            if matches!(a.expr(i).kind, ExprKind::List { const_: false, .. } | ExprKind::SetOrMap { const_: false, .. }) {
+    let list =
+        |start: usize, l: &ast::VariableList, lists: &mut Vec<(usize, usize, Vec<ExprId>)>| {
+            if l.const_ || !l.final_ {
                 return;
             }
-            inits.push(i);
-        }
-        let Some(last) = l.variables.last() else { return };
-        let end = last.initializer.map_or(last.name.span.end, |i| a.expr(i).span.end);
-        lists.push((start, end, inits));
-    };
+            let mut inits = Vec::new();
+            for v in l.variables.iter() {
+                let Some(i) = v.initializer else { return };
+                // `TypedLiteral` without `const`.
+                if matches!(
+                    a.expr(i).kind,
+                    ExprKind::List { const_: false, .. } | ExprKind::SetOrMap { const_: false, .. }
+                ) {
+                    return;
+                }
+                inits.push(i);
+            }
+            let Some(last) = l.variables.last() else {
+                return;
+            };
+            let end = last
+                .initializer
+                .map_or(last.name.span.end, |i| a.expr(i).span.end);
+            lists.push((start, end, inits));
+        };
     let skip_word = |pos: usize, p: &str| -> usize {
-        if source[pos..].starts_with(p) && !source.as_bytes().get(pos + p.len()).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_') {
+        if source[pos..].starts_with(p)
+            && !source
+                .as_bytes()
+                .get(pos + p.len())
+                .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_')
+        {
             dartforge_frontend::source::skip_whitespace(source.as_bytes(), pos + p.len())
         } else {
             pos
@@ -339,7 +483,11 @@ fn named_constants_and_declarations(
     }
     for (k, st) in a.stmts.iter().enumerate() {
         if let StmtKind::Variables(l) = &st.kind {
-            let meta = a.local_metadata.iter().find(|(x, _)| x.0 as usize == k).map_or(&[][..], |(_, m)| &m[..]);
+            let meta = a
+                .local_metadata
+                .iter()
+                .find(|(x, _)| x.0 as usize == k)
+                .map_or(&[][..], |(_, m)| &m[..]);
             let begin = after_annotations(meta, st.span.start);
             list(begin, l, &mut lists);
         }
@@ -347,10 +495,20 @@ fn named_constants_and_declarations(
     if creations.is_empty() && lists.is_empty() {
         return;
     }
-    let mut engine = Engine::new(program, interner, table, core, outline, bodies, the_inferred);
+    let mut engine = Engine::new(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        bodies,
+        the_inferred,
+    );
     let cx = crate::const_eval::evaluation::Ctx::simple(u, lib);
     for (e, class) in creations {
-        let Constant::Value(the_value) = engine.evaluate(&cx, e, true) else { continue };
+        let Constant::Value(the_value) = engine.evaluate(&cx, e, true) else {
+            continue;
+        };
         let k = program.class(class);
         for &v in &k.fields {
             let x = program.variable(v);
@@ -371,9 +529,15 @@ fn named_constants_and_declarations(
         }
     }
     for (begin, end, inits) in lists {
-        let without_error = inits.iter().all(|i| matches!(engine.evaluate(&cx, *i, true), Constant::Value(_)));
+        let without_error = inits
+            .iter()
+            .all(|i| matches!(engine.evaluate(&cx, *i, true), Constant::Value(_)));
         if without_error {
-            out.push((Span { start: begin, end }, "prefer_const_declarations", Vec::new()));
+            out.push((
+                Span { start: begin, end },
+                "prefer_const_declarations",
+                Vec::new(),
+            ));
         }
     }
 }
@@ -392,7 +556,9 @@ fn super_parameters(
 ) {
     let unit_id = program.unit(u);
     // `Feature.super_parameters` (2.17).
-    if program.library(unit_id.library).features.version() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
+    if program.library(unit_id.library).features.version()
+        < dartforge_frontend::features::LanguageVersion::new(2, 17)
+    {
         return;
     }
     let a = &unit_id.ast;
@@ -403,20 +569,36 @@ fn super_parameters(
             _ => continue,
         };
         let did = ast::DeclId(k_decl as u32);
-        let Some(cls) = (0..program.classes.len()).map(|i| ClassId(i as u32)).find(|c| program.class(*c).decl.is_some_and(|r| r.unit == u && r.decl == did)) else {
+        let Some(cls) = (0..program.classes.len())
+            .map(|i| ClassId(i as u32))
+            .find(|c| {
+                program
+                    .class(*c)
+                    .decl
+                    .is_some_and(|r| r.unit == u && r.decl == did)
+            })
+        else {
             continue;
         };
         for &mid in members {
-            let MemberKind::Constructor(k) = &a.member(mid).kind else { continue };
+            let MemberKind::Constructor(k) = &a.member(mid).kind else {
+                continue;
+            };
             // The last `super(…)` of the initializers.
             let Some((super_name_of, args)) = k.initializers.iter().rev().find_map(|i| match i {
-                Initializer::Super { constructor, arguments, .. } => Some((*constructor, arguments)),
+                Initializer::Super {
+                    constructor,
+                    arguments,
+                    ..
+                } => Some((*constructor, arguments)),
                 _ => None,
             }) else {
                 continue;
             };
             // The superclass constructor (the `staticElement`).
-            let Some(sup) = program.class(cls).supertype_class else { continue };
+            let Some(sup) = program.class(cls).supertype_class else {
+                continue;
+            };
             let key = match super_name_of {
                 Some(n) => n.sym,
                 None => match interner.lookup("") {
@@ -424,7 +606,9 @@ fn super_parameters(
                     None => continue,
                 },
             };
-            let Some(&ksup) = program.class(sup).constructors.get(&key) else { continue };
+            let Some(&ksup) = program.class(sup).constructors.get(&key) else {
+                continue;
+            };
             // The parameters cited in the body.
             let body_span = match &k.body {
                 ast::FunctionBody::Block(s) => Some(a.stmt(*s).span),
@@ -437,7 +621,10 @@ fn super_parameters(
                     if e.span.start >= cs.start
                         && e.span.end <= cs.end
                         && let ExprKind::Identifier(n) = &e.kind
-                        && matches!(body.get_resolved(ExprId(i as u32)), Some(Resolved::Parameter { .. }))
+                        && matches!(
+                            body.get_resolved(ExprId(i as u32)),
+                            Some(Resolved::Parameter { .. })
+                        )
                     {
                         cited.insert(n.sym);
                     }
@@ -448,13 +635,15 @@ fn super_parameters(
             let mut positional: Vec<ast::Name> = Vec::new();
             let mut invalid = false;
             for x in args.args.iter() {
-                if x.name.is_none() { match &a.expr(x.value).kind {
-                    ExprKind::Identifier(n) => positional.push(*n),
-                    _ => {
-                        invalid = true;
-                        break;
+                if x.name.is_none() {
+                    match &a.expr(x.value).kind {
+                        ExprKind::Identifier(n) => positional.push(*n),
+                        _ => {
+                            invalid = true;
+                            break;
+                        }
                     }
-                } }
+                }
             }
             if invalid {
                 continue;
@@ -512,7 +701,9 @@ fn super_parameters(
                 if cited.contains(&pn.sym) {
                     continue;
                 }
-                let Some(&sup_type) = sup_types.get(&pn.sym) else { continue };
+                let Some(&sup_type) = sup_types.get(&pn.sym) else {
+                    continue;
+                };
                 let passed_on = args.args.iter().any(|x| {
                     x.name.is_some_and(|l| l.sym == pn.sym)
                         && matches!(&a.expr(x.value).kind, ExprKind::Identifier(m) if m.sym == pn.sym)
@@ -522,7 +713,9 @@ fn super_parameters(
                     continue;
                 }
                 // The type of this parameter.
-                let own_type = p.ty.and_then(|t| outline.written_types.get(&(u, t)).copied()).unwrap_or(core.dynamic_);
+                let own_type =
+                    p.ty.and_then(|t| outline.written_types.get(&(u, t)).copied())
+                        .unwrap_or(core.dynamic_);
                 let assignable = matches!(table.get(sup_type), Type::Dynamic) || {
                     let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
                     is_subtype(sup_type, own_type, &mut env)
@@ -543,7 +736,11 @@ fn super_parameters(
                 };
                 out.push((target, "use_super_parameters_multiple", vec![msg]));
             } else {
-                out.push((target, "use_super_parameters_single", vec![identifiers[0].clone()]));
+                out.push((
+                    target,
+                    "use_super_parameters_single",
+                    vec![identifiers[0].clone()],
+                ));
             }
         }
     }
@@ -561,14 +758,21 @@ fn named_parameters(
     core: &CoreTypes,
 ) -> HashMap<dartforge_intern::SymbolId, TypeId> {
     let mut m = HashMap::new();
-    let Some(data) = outline.functions.get(f.0 as usize) else { return m };
+    let Some(data) = outline.functions.get(f.0 as usize) else {
+        return m;
+    };
     let mut sig = data.signature;
     let this_t = this_type(table, outline, cls);
     if let Some(inst) = outline.hierarchy.supertype_of(this_t, sup, table, core)
         && let Type::Interface { args, .. } = table.get(inst).clone()
     {
-        let params = outline.classes.get(sup.0 as usize).map(|x| x.type_params.clone()).unwrap_or_default();
-        let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+        let params = outline
+            .classes
+            .get(sup.0 as usize)
+            .map(|x| x.type_params.clone())
+            .unwrap_or_default();
+        let map: HashMap<TypeParamId, TypeId> =
+            params.iter().copied().zip(args.iter().copied()).collect();
         sig = crate::ops::substitute(sig, &map, table);
     }
     if let Type::Function { named, .. } = table.get(sig) {
@@ -580,7 +784,14 @@ fn named_parameters(
     m
 }
 
-const WEB_SDK: [&str; 6] = ["dart:html", "dart:indexed_db", "dart:svg", "dart:web_audio", "dart:web_gl", "dart:js_util"];
+const WEB_SDK: [&str; 6] = [
+    "dart:html",
+    "dart:indexed_db",
+    "dart:svg",
+    "dart:web_audio",
+    "dart:web_gl",
+    "dart:js_util",
+];
 
 /// The JS interop queries.
 struct Js<'a> {
@@ -608,8 +819,12 @@ impl Js<'_> {
     /// `isDartJsInteropType`.
     fn dart_js(&self, table: &TypeTable, t: TypeId) -> bool {
         match table.get(t) {
-            Type::TypeParameter { .. } | Type::Intersection { .. } => self.dart_js(table, self.bound(table, t)),
-            Type::ExtensionType { decl, .. } => self.uri(self.program.class(*decl).library) == "dart:js_interop",
+            Type::TypeParameter { .. } | Type::Intersection { .. } => {
+                self.dart_js(table, self.bound(table, t))
+            }
+            Type::ExtensionType { decl, .. } => {
+                self.uri(self.program.class(*decl).library) == "dart:js_interop"
+            }
             _ => false,
         }
     }
@@ -635,13 +850,17 @@ impl Js<'_> {
             match crate::annotations::invoked_element(self.program, self.interner, r.unit, m) {
                 crate::annotations::InvokedElement::Constructor(cl, _) => {
                     let x = self.program.class(cl);
-                    if self.uri(x.library) == "dart:js_interop" && self.interner.resolve(x.name) == "JS" {
+                    if self.uri(x.library) == "dart:js_interop"
+                        && self.interner.resolve(x.name) == "JS"
+                    {
                         js = true;
                     }
                 }
                 crate::annotations::InvokedElement::Getter(f) => {
                     let g = self.program.function(f);
-                    if self.uri(g.library) == "dart:_js_annotations" && self.interner.resolve(g.name) == "staticInterop" {
+                    if self.uri(g.library) == "dart:_js_annotations"
+                        && self.interner.resolve(g.name) == "staticInterop"
+                    {
                         static_ = true;
                     }
                 }
@@ -657,8 +876,12 @@ impl Js<'_> {
             return false;
         }
         match table.get(t) {
-            Type::TypeParameter { .. } | Type::Intersection { .. } => self.js_user(table, self.bound(table, t), prof + 1),
-            Type::ExtensionType { decl, .. } => self.representation(*decl).is_some_and(|r| self.dart_js(table, r) || self.js_user(table, r, prof + 1)),
+            Type::TypeParameter { .. } | Type::Intersection { .. } => {
+                self.js_user(table, self.bound(table, t), prof + 1)
+            }
+            Type::ExtensionType { decl, .. } => self
+                .representation(*decl)
+                .is_some_and(|r| self.dart_js(table, r) || self.js_user(table, r, prof + 1)),
             Type::Interface { class, .. } => self.static_interop(*class),
             _ => false,
         }
@@ -666,16 +889,24 @@ impl Js<'_> {
 
     /// `isWasmIncompatibleJsInterop`.
     fn incompatible(&self, table: &TypeTable, t: TypeId) -> bool {
-        let (Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. }) = table.get(self.bound(table, t)) else { return false };
+        let (Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. }) =
+            table.get(self.bound(table, t))
+        else {
+            return false;
+        };
         let k = self.program.class(*class);
         let has_js = k.decl.is_some_and(|r| {
             let a = &self.program.unit(r.unit).ast;
-            a.decl(r.decl).metadata.iter().any(|m| match crate::annotations::invoked_element(self.program, self.interner, r.unit, m) {
-                crate::annotations::InvokedElement::Constructor(cl, _) => {
-                    let x = self.program.class(cl);
-                    self.interner.resolve(x.name) == "JS" && (self.uri(x.library) == "package:js/js.dart" || self.uri(x.library) == "dart:_js_annotations")
+            a.decl(r.decl).metadata.iter().any(|m| {
+                match crate::annotations::invoked_element(self.program, self.interner, r.unit, m) {
+                    crate::annotations::InvokedElement::Constructor(cl, _) => {
+                        let x = self.program.class(cl);
+                        self.interner.resolve(x.name) == "JS"
+                            && (self.uri(x.library) == "package:js/js.dart"
+                                || self.uri(x.library) == "dart:_js_annotations")
+                    }
+                    _ => false,
                 }
-                _ => false,
             })
         });
         let uri = self.uri(k.library);
@@ -683,38 +914,93 @@ impl Js<'_> {
     }
 
     /// `EraseNonJSInteropTypes.perform`.
-    fn erase(&self, table: &mut TypeTable, t: TypeId, keep_user: bool, seen: &mut HashSet<TypeParamId>) -> TypeId {
-        let keeps = if keep_user { self.js_user(table, t, 0) } else { self.dart_js(table, t) };
+    fn erase(
+        &self,
+        table: &mut TypeTable,
+        t: TypeId,
+        keep_user: bool,
+        seen: &mut HashSet<TypeParamId>,
+    ) -> TypeId {
+        let keeps = if keep_user {
+            self.js_user(table, t, 0)
+        } else {
+            self.dart_js(table, t)
+        };
         match table.get(t).clone() {
-            Type::Interface { class, args, nullable } => {
+            Type::Interface {
+                class,
+                args,
+                nullable,
+            } => {
                 if keeps {
                     return this_type(table, self.outline, class);
                 }
                 if self.static_interop(class)
                     && let Some(jo) = self.js_object
                 {
-                    return table.intern(Type::ExtensionType { decl: jo, args: Box::new([]), nullable: false });
+                    return table.intern(Type::ExtensionType {
+                        decl: jo,
+                        args: Box::new([]),
+                        nullable: false,
+                    });
                 }
-                let new_: Vec<TypeId> = args.iter().map(|x| self.erase(table, *x, keep_user, seen)).collect();
-                table.intern(Type::Interface { class, args: new_.into(), nullable })
+                let new_: Vec<TypeId> = args
+                    .iter()
+                    .map(|x| self.erase(table, *x, keep_user, seen))
+                    .collect();
+                table.intern(Type::Interface {
+                    class,
+                    args: new_.into(),
+                    nullable,
+                })
             }
-            Type::ExtensionType { decl, args, nullable } => {
+            Type::ExtensionType {
+                decl,
+                args,
+                nullable,
+            } => {
                 if keeps {
                     let params: Vec<TypeId> = self
                         .outline
                         .classes
                         .get(decl.0 as usize)
-                        .map(|x| x.type_params.iter().map(|p| table.intern(Type::TypeParameter { param: *p, nullable: false })).collect())
+                        .map(|x| {
+                            x.type_params
+                                .iter()
+                                .map(|p| {
+                                    table.intern(Type::TypeParameter {
+                                        param: *p,
+                                        nullable: false,
+                                    })
+                                })
+                                .collect()
+                        })
                         .unwrap_or_default();
-                    return table.intern(Type::ExtensionType { decl, args: params.into(), nullable: false });
+                    return table.intern(Type::ExtensionType {
+                        decl,
+                        args: params.into(),
+                        nullable: false,
+                    });
                 }
                 // The erasure: the instantiated representation.
-                let Some(rep) = self.representation(decl) else { return t };
-                let params = self.outline.classes.get(decl.0 as usize).map(|x| x.type_params.clone()).unwrap_or_default();
-                let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+                let Some(rep) = self.representation(decl) else {
+                    return t;
+                };
+                let params = self
+                    .outline
+                    .classes
+                    .get(decl.0 as usize)
+                    .map(|x| x.type_params.clone())
+                    .unwrap_or_default();
+                let map: HashMap<TypeParamId, TypeId> =
+                    params.iter().copied().zip(args.iter().copied()).collect();
                 let inst = crate::ops::substitute(rep, &map, table);
                 let erased = self.erase(table, inst, keep_user, seen);
-                if nullable { crate::ops::nullable(erased, table) } else { erased }
+                if nullable {
+                    crate::ops::nullable(erased, table)
+                } else {
+                    erased
+                }
             }
             Type::TypeParameter { param, .. } => {
                 if !seen.insert(param) {
@@ -722,14 +1008,20 @@ impl Js<'_> {
                 }
                 let bnd = table.param(param).bound;
                 let the_new_ = self.erase(table, bnd, keep_user, seen);
-                table.intern(Type::Intersection { param, bound: the_new_ })
+                table.intern(Type::Intersection {
+                    param,
+                    bound: the_new_,
+                })
             }
             Type::Intersection { param, bound } => {
                 if !seen.insert(param) {
                     return t;
                 }
                 let the_new_ = self.erase(table, bound, keep_user, seen);
-                table.intern(Type::Intersection { param, bound: the_new_ })
+                table.intern(Type::Intersection {
+                    param,
+                    bound: the_new_,
+                })
             }
             Type::FutureOr { arg, nullable } => {
                 let a2 = self.erase(table, arg, keep_user, seen);
@@ -750,7 +1042,8 @@ impl Js<'_> {
             if params.is_empty() || params.len() != args.len() {
                 return Some(t);
             }
-            let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+            let map: HashMap<TypeParamId, TypeId> =
+                params.iter().copied().zip(args.iter().copied()).collect();
             Some(crate::ops::substitute(t, &map, table))
         };
         crate::ops::erase_extension_type(t, table, &rep)
@@ -760,7 +1053,9 @@ impl Js<'_> {
         match table.get(t) {
             Type::Dynamic | Type::Void | Type::Null => false,
             Type::Intersection { bound, .. } => self.non_nullable(table, *bound),
-            Type::TypeParameter { param, nullable } => !*nullable && self.non_nullable(table, table.param(*param).bound),
+            Type::TypeParameter { param, nullable } => {
+                !*nullable && self.non_nullable(table, table.param(*param).bound)
+            }
             Type::FutureOr { arg, nullable } => !*nullable && self.non_nullable(table, *arg),
             Type::Interface { nullable, .. } | Type::ExtensionType { nullable, .. } => !*nullable,
             Type::Function { nullable, .. } | Type::Record { nullable, .. } => !*nullable,
@@ -775,14 +1070,25 @@ impl Js<'_> {
 
     /// The emitter's `eraseTypes`: decides the code (once) and returns the types
     /// to continue the comparison.
-    fn erase_pair(&self, table: &mut TypeTable, l: TypeId, r: TypeId, check: bool, code: &mut Option<&'static str>) -> (TypeId, TypeId) {
+    fn erase_pair(
+        &self,
+        table: &mut TypeTable,
+        l: TypeId,
+        r: TypeId,
+        check: bool,
+        code: &mut Option<&'static str>,
+    ) -> (TypeId, TypeId) {
         let el0 = self.erase(table, l, false, &mut HashSet::new());
         let mut el = crate::ops::non_nullable(el0, table);
         let er0 = self.erase(table, r, false, &mut HashSet::new());
         let mut er = crate::ops::non_nullable(er0, table);
         let l_js = self.dart_js(table, el);
         let r_js = self.dart_js(table, er);
-        if code.is_none() && (l_js || r_js) && !self.incompatible(table, el) && !self.incompatible(table, er) {
+        if code.is_none()
+            && (l_js || r_js)
+            && !self.incompatible(table, el)
+            && !self.incompatible(table, er)
+        {
             let l_sub = self.sub(table, el, er);
             let r_sub = self.sub(table, er, el);
             let l_din = matches!(table.get(el), Type::Dynamic);
@@ -800,7 +1106,8 @@ impl Js<'_> {
                     let ul = self.erase(table, l, true, &mut HashSet::new());
                     let ur = self.erase(table, r, true, &mut HashSet::new());
                     if !self.sub(table, ul, ur) {
-                        *code = Some("invalid_runtime_check_with_js_interop_types_js_is_unrelated_js");
+                        *code =
+                            Some("invalid_runtime_check_with_js_interop_types_js_is_unrelated_js");
                     }
                 }
             } else if !l_sub && !r_sub && !l_din && !r_din {
@@ -823,7 +1130,15 @@ impl Js<'_> {
     }
 
     /// `canBeSubtypeOf` with `eraseTypes` (the result guides the recursion).
-    fn can(&self, table: &mut TypeTable, l: TypeId, r: TypeId, check: bool, code: &mut Option<&'static str>, prof: u32) -> bool {
+    fn can(
+        &self,
+        table: &mut TypeTable,
+        l: TypeId,
+        r: TypeId,
+        check: bool,
+        code: &mut Option<&'static str>,
+        prof: u32,
+    ) -> bool {
         if prof > 16 {
             return true;
         }
@@ -841,20 +1156,42 @@ impl Js<'_> {
         }
         let is_class = |c: ClassId, target: Option<ClassId>| Some(c) == target;
         match (table.get(l).clone(), table.get(r).clone()) {
-            (Type::Function { .. }, Type::Interface { class, .. }) => return is_class(class, self.core.function_class) || is_class(class, self.core.object_class),
-            (Type::Interface { class, .. }, Type::Function { .. }) => return is_class(class, self.core.function_class) || is_class(class, self.core.object_class),
+            (Type::Function { .. }, Type::Interface { class, .. }) => {
+                return is_class(class, self.core.function_class)
+                    || is_class(class, self.core.object_class);
+            }
+            (Type::Interface { class, .. }, Type::Function { .. }) => {
+                return is_class(class, self.core.function_class)
+                    || is_class(class, self.core.object_class);
+            }
             _ => {}
         }
         if let Type::FutureOr { arg, .. } = table.get(l).clone() {
             let fut = self.future(table, arg);
-            return self.can(table, arg, r, check, code, prof + 1) || self.can(table, fut, r, check, code, prof + 1);
+            return self.can(table, arg, r, check, code, prof + 1)
+                || self.can(table, fut, r, check, code, prof + 1);
         }
         if let Type::FutureOr { arg, .. } = table.get(r).clone() {
             let fut = self.future(table, arg);
-            return self.can(table, l, arg, check, code, prof + 1) || self.can(table, l, fut, check, code, prof + 1);
+            return self.can(table, l, arg, check, code, prof + 1)
+                || self.can(table, l, fut, check, code, prof + 1);
         }
-        if let (Type::Interface { class: lc, args: la, .. }, Type::Interface { class: rc, args: ra, .. }) = (table.get(l).clone(), table.get(r).clone()) {
-            if (Some(lc) == self.core.int_class && Some(rc) == self.core.double_class) || (Some(lc) == self.core.double_class && Some(rc) == self.core.int_class) {
+        if let (
+            Type::Interface {
+                class: lc,
+                args: la,
+                ..
+            },
+            Type::Interface {
+                class: rc,
+                args: ra,
+                ..
+            },
+        ) = (table.get(l).clone(), table.get(r).clone())
+        {
+            if (Some(lc) == self.core.int_class && Some(rc) == self.core.double_class)
+                || (Some(lc) == self.core.double_class && Some(rc) == self.core.int_class)
+            {
                 return true;
             }
             if self.program.class(lc).kind == ClassKind::Enum {
@@ -869,7 +1206,19 @@ impl Js<'_> {
                 return true;
             }
         }
-        if let (Type::Record { positional: lp, named: ln, .. }, Type::Record { positional: rp, named: rn, .. }) = (table.get(l).clone(), table.get(r).clone()) {
+        if let (
+            Type::Record {
+                positional: lp,
+                named: ln,
+                ..
+            },
+            Type::Record {
+                positional: rp,
+                named: rn,
+                ..
+            },
+        ) = (table.get(l).clone(), table.get(r).clone())
+        {
             if lp.len() != rp.len() {
                 return false;
             }
@@ -892,7 +1241,11 @@ impl Js<'_> {
 
     fn future(&self, table: &mut TypeTable, arg: TypeId) -> TypeId {
         match self.core.future_class {
-            Some(c) => table.intern(Type::Interface { class: c, args: Box::new([arg]), nullable: false }),
+            Some(c) => table.intern(Type::Interface {
+                class: c,
+                args: Box::new([arg]),
+                nullable: false,
+            }),
             None => arg,
         }
     }
@@ -911,27 +1264,61 @@ fn js_checks(
     out: &mut Vec<Finding>,
 ) {
     let a = &program.unit(u).ast;
-    let Some(lib_js) = program.libraries.iter().position(|l| l.uri == "dart:js_interop").map(|i| LibraryId(i as u32)) else { return };
+    let Some(lib_js) = program
+        .libraries
+        .iter()
+        .position(|l| l.uri == "dart:js_interop")
+        .map(|i| LibraryId(i as u32))
+    else {
+        return;
+    };
     let js_object = interner
         .lookup("JSObject")
-        .and_then(|s| program.library(lib_js).declared.get(&s).and_then(|b| b.getter))
+        .and_then(|s| {
+            program
+                .library(lib_js)
+                .declared
+                .get(&s)
+                .and_then(|b| b.getter)
+        })
         .and_then(|e| match e {
             Element::Class(c) => Some(c),
             _ => None,
         });
-    let js = Js { program, interner, outline, core, js_object };
+    let js = Js {
+        program,
+        interner,
+        outline,
+        core,
+        js_object,
+    };
     for e in a.exprs.iter() {
         let (the_value, ty, check) = match &e.kind {
             ExprKind::Is { value, ty, .. } => (*value, *ty, true),
             ExprKind::As { value, ty } => (*value, *ty, false),
             _ => continue,
         };
-        let Some(l) = body.get_type(the_value).filter(|t| !core.is_unknown(table, *t)) else { continue };
-        let Some(r) = body.annotation_types.get(&ty).copied().or_else(|| outline.written_types.get(&(u, ty)).copied()) else { continue };
+        let Some(l) = body
+            .get_type(the_value)
+            .filter(|t| !core.is_unknown(table, *t))
+        else {
+            continue;
+        };
+        let Some(r) = body
+            .annotation_types
+            .get(&ty)
+            .copied()
+            .or_else(|| outline.written_types.get(&(u, ty)).copied())
+        else {
+            continue;
+        };
         let mut code: Option<&'static str> = None;
         js.can(table, l, r, check, &mut code, 0);
         if let Some(c) = code {
-            let args = vec![crate::dump::display_string(table, l, interner, program), crate::dump::display_string(table, r, interner, program)];
+            let args = vec![
+                crate::dump::display_string(table, l, interner, program),
+                crate::dump::display_string(table, r, interner, program),
+            ];
             out.push((e.span, c, args));
         }
     }

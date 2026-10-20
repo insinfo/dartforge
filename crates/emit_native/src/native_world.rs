@@ -41,8 +41,24 @@ use dartforge_types::table::TypeTable;
 /// those the SDK writes (`lower/*.rs`: `call_by_name`,
 /// `method_by_selector`, `property_by_selector`).
 const LOWERING_NAMES: &[&str] = &[
-    "iterator", "moveNext", "current", "[]", "[]=", "==", "add", "addAll", "length", "hashCode",
-    "toString", "fillRange", "containsKey", "cancel", "*", "call", "noSuchMethod", "then",
+    "iterator",
+    "moveNext",
+    "current",
+    "[]",
+    "[]=",
+    "==",
+    "add",
+    "addAll",
+    "length",
+    "hashCode",
+    "toString",
+    "fillRange",
+    "containsKey",
+    "cancel",
+    "*",
+    "call",
+    "noSuchMethod",
+    "then",
 ];
 
 /// Computes the program world. `None` when the pruning is off.
@@ -59,7 +75,12 @@ pub fn compute(
     let mut r = dartforge_world::Roots::default();
     let lib = program.entry?;
     let main = interner.lookup("main")?;
-    match program.library(lib).declared.get(&main).and_then(|b| b.getter) {
+    match program
+        .library(lib)
+        .declared
+        .get(&main)
+        .and_then(|b| b.getter)
+    {
         Some(Element::Function(f)) => r.functions.push(f),
         _ => return None,
     }
@@ -70,7 +91,13 @@ pub fn compute(
     }
     names_written_in_sdk(program, interner, &mut names);
     r.selectors = names.into_iter().collect();
-    let e = dartforge_world::WorldInput { program, interner, table, outline, bodies };
+    let e = dartforge_world::WorldInput {
+        program,
+        interner,
+        table,
+        outline,
+        bodies,
+    };
     Some(dartforge_world::compute(e, &r))
 }
 
@@ -133,7 +160,11 @@ fn marked_entries(program: &Program, interner: &Interner, r: &mut dartforge_worl
 }
 
 /// Every member name written in the SDK libraries.
-fn names_written_in_sdk(program: &Program, interner: &Interner, names: &mut std::collections::BTreeSet<String>) {
+fn names_written_in_sdk(
+    program: &Program,
+    interner: &Interner,
+    names: &mut std::collections::BTreeSet<String>,
+) {
     for lib in &program.libraries {
         if !lib.is_sdk {
             continue;

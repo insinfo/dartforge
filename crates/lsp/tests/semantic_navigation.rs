@@ -227,27 +227,53 @@ fn hover_documentation_like_compute_documentation() {
     let text = "class Base {\n  /// Faz algo com [x].\n  void met(int x) {}\n  final String campo = '';\n}\nclass Filho extends Base {\n  /// O valor.\n  final int valor;\n  Filho(this.valor);\n  @override\n  void met(int x) {}\n  @override\n  String get campo => '';\n}\n";
     p.open("lib/a.dart", text);
     // The parameter shows the documentation of the owning method, inherited.
-    assert_eq!(hover(&mut p, "lib/a.dart", text, "x) {}", 1), "int x\nType: int\n\nFaz algo com [x].\n\nCopied from `Base`.");
+    assert_eq!(
+        hover(&mut p, "lib/a.dart", text, "x) {}", 1),
+        "int x\nType: int\n\nFaz algo com [x].\n\nCopied from `Base`."
+    );
     // `this.x`: the field's type and documentation.
-    assert_eq!(hover(&mut p, "lib/a.dart", text, "valor);", 0), "int valor\nType: int\n\nO valor.");
+    assert_eq!(
+        hover(&mut p, "lib/a.dart", text, "valor);", 0),
+        "int valor\nType: int\n\nO valor."
+    );
     // A getter that overrides a field: the synthetic accessor has no
     // documentation.
-    assert_eq!(hover(&mut p, "lib/a.dart", text, "campo =>", 0), "String get campo");
+    assert_eq!(
+        hover(&mut p, "lib/a.dart", text, "campo =>", 0),
+        "String get campo"
+    );
     // The method read through the receiver is the substituted `Member`.
     let usage = "void f(List<String> l) {\n  l.add('a');\n}\n";
     p.open("lib/b.dart", usage);
-    assert_eq!(hover(&mut p, "lib/b.dart", usage, "add(", 0), "void add(String value)\nType: void Function(String)");
+    assert_eq!(
+        hover(&mut p, "lib/b.dart", usage, "add(", 0),
+        "void add(String value)\nType: void Function(String)"
+    );
     // The class name in `A.n(…)` shows the constructor; the declaration of a
     // type parameter has no hover; the target of `x += …` shows the
     // `writeType`.
     let usage = "class A<T> {\n  A.n(T v);\n}\nvoid g<V>(V v) {\n  var a = A.n(1);\n  num x = 1;\n  x += 2;\n  print([a, x]);\n}\n";
     p.open("lib/c.dart", usage);
-    assert_eq!(hover(&mut p, "lib/c.dart", usage, "A.n(1", 0), "(new) A<int> A.n(int v)");
     assert_eq!(
-        request(&mut p, "textDocument/hover", "lib/c.dart", usage, "V>(V", 0, json!({})),
+        hover(&mut p, "lib/c.dart", usage, "A.n(1", 0),
+        "(new) A<int> A.n(int v)"
+    );
+    assert_eq!(
+        request(
+            &mut p,
+            "textDocument/hover",
+            "lib/c.dart",
+            usage,
+            "V>(V",
+            0,
+            json!({})
+        ),
         Value::Null
     );
-    assert_eq!(hover(&mut p, "lib/c.dart", usage, "x += 2", 0), "num x\nType: num");
+    assert_eq!(
+        hover(&mut p, "lib/c.dart", usage, "x += 2", 0),
+        "num x\nType: num"
+    );
 }
 
 #[test]
@@ -266,7 +292,11 @@ fn hover_by_shape_with_documentation() {
         ),
         ("valor + c", 0, "T valor\nType: int\n\nO valor guardado."),
         ("dobro;", 0, "int get dobro\nType: int"),
-        ("dobro(total", 0, "int dobro(int v)\nType: int Function(int)"),
+        (
+            "dobro(total",
+            0,
+            "int dobro(int v)\nType: int Function(int)",
+        ),
         ("total));", 0, "int total\nType: int"),
         // The displayed type is the promoted one; the declaration, the written one.
         ("n);", 0, "num n\nType: int"),
@@ -277,7 +307,11 @@ fn hover_by_shape_with_documentation() {
             0,
             "class Caixa<T> extends Base implements Comparavel\n\nUma caixa de [T].",
         ),
-        ("print(n", 0, "void print(Object? object)\nType: void Function(Object?)"),
+        (
+            "print(n",
+            0,
+            "void print(Object? object)\nType: void Function(Object?)",
+        ),
     ];
     for &(needle, n, expected) in cases {
         assert_eq!(
@@ -290,7 +324,9 @@ fn hover_by_shape_with_documentation() {
     // The `ConstructorMember`: the arguments of the created type.
     assert_eq!(constructor, "(new) Caixa<int> Caixa.vazia(int v)");
     // Markdown: code block, type and documentation after `---`.
-    p.restart(json!({"capabilities": {"textDocument": {"hover": {"contentFormat": ["markdown"]}}}}));
+    p.restart(
+        json!({"capabilities": {"textDocument": {"hover": {"contentFormat": ["markdown"]}}}}),
+    );
     let r = request(
         &mut p,
         "textDocument/hover",
@@ -444,9 +480,18 @@ fn documentation_references_like_the_index() {
     let a = "class A {\n  A.n();\n  A operator +(A o) => this;\n}\n/// [A.n], [A.+] e [A].\nvoid h() {}\n";
     p.open("lib/a.dart", a);
     let refs = references(&mut p, "lib/a.dart", a, "A {", 0, false);
-    assert!(refs.contains(&("lib/a.dart".to_string(), 4, 12)), "{refs:?}");
-    assert!(refs.contains(&("lib/a.dart".to_string(), 4, 20)), "{refs:?}");
-    assert!(!refs.contains(&("lib/a.dart".to_string(), 4, 5)), "{refs:?}");
+    assert!(
+        refs.contains(&("lib/a.dart".to_string(), 4, 12)),
+        "{refs:?}"
+    );
+    assert!(
+        refs.contains(&("lib/a.dart".to_string(), 4, 20)),
+        "{refs:?}"
+    );
+    assert!(
+        !refs.contains(&("lib/a.dart".to_string(), 4, 5)),
+        "{refs:?}"
+    );
     // The constructor: from the end of the prefix to the end.
     let refs = references(&mut p, "lib/a.dart", a, "n();", 0, false);
     assert!(refs.contains(&("lib/a.dart".to_string(), 4, 6)), "{refs:?}");
@@ -499,14 +544,22 @@ fn workspace_symbols_include_closed_project_files() {
             .as_array()
             .unwrap()
             .iter()
-            .filter(|s| s["location"]["uri"].as_str().unwrap().contains("nav-workspace"))
+            .filter(|s| {
+                s["location"]["uri"]
+                    .as_str()
+                    .unwrap()
+                    .contains("nav-workspace")
+            })
             .map(|s| s["name"].as_str().unwrap().to_string())
             .collect()
     };
     let r = p.request("workspace/symbol", json!({"query": "carregar"}));
     // In the order of the project files and, per file, classes before
     // functions; executables with the `()` suffix.
-    assert_eq!(in_project(&r), vec!["carregarDados()", "CarregadorRemoto", "carregarTudo()"]);
+    assert_eq!(
+        in_project(&r),
+        vec!["carregarDados()", "CarregadorRemoto", "carregarTudo()"]
+    );
     // Fuzzy: word initials.
     let r = p.request("workspace/symbol", json!({"query": "cR"}));
     assert_eq!(in_project(&r), vec!["CarregadorRemoto"]);
@@ -522,19 +575,30 @@ fn uri_with_different_case_than_disk() {
     let text = "void f() {\n  var s = 'a';\n  var n = s.length;\n}\n";
     p.write("lib/a.dart", text);
     let real = p.path("lib/a.dart");
-    let other = std::path::PathBuf::from(real.to_string_lossy().replace("/lib/a.dart", "/LIB/a.dart"));
+    let other =
+        std::path::PathBuf::from(real.to_string_lossy().replace("/lib/a.dart", "/LIB/a.dart"));
     if !other.exists() {
         return;
     }
     let uri = url::Url::from_file_path(&other).unwrap().to_string();
-    p.server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
-        "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":text}
-    }}));
+    p.server.receive(
+        json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+            "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":text}
+        }}),
+    );
     p.server.pump();
     // The member by receiver type only comes out of the semantic analysis.
     let (l, c) = location(text, "length", 0);
-    let r = p.request("textDocument/hover", json!({"textDocument": {"uri": uri}, "position": {"line": l, "character": c + 1}}));
-    assert!(r["result"]["contents"].to_string().contains("int get length"), "{r}");
+    let r = p.request(
+        "textDocument/hover",
+        json!({"textDocument": {"uri": uri}, "position": {"line": l, "character": c + 1}}),
+    );
+    assert!(
+        r["result"]["contents"]
+            .to_string()
+            .contains("int get length"),
+        "{r}"
+    );
 }
 
 #[test]
@@ -547,7 +611,10 @@ fn references_follow_the_searched_elements() {
     let refs = references(&mut p, "lib/a.dart", a, "toString() =>", 0, false);
     assert!(refs.contains(&("lib/a.dart".to_string(), 5, 4)), "{refs:?}");
     // Not with arguments that do not match `Object.toString()`.
-    assert!(!refs.contains(&("lib/a.dart".to_string(), 6, 4)), "{refs:?}");
+    assert!(
+        !refs.contains(&("lib/a.dart".to_string(), 6, 4)),
+        "{refs:?}"
+    );
     // The `[x]` of a constructor with `this.x` cites the parameter, and the
     // `super.x` that points to it is a reference of the parameter: both count
     // for the field itself, not for an override in a subclass.
@@ -559,7 +626,10 @@ fn references_follow_the_searched_elements() {
     assert!(refs.contains(&doc) && refs.contains(&sup), "{refs:?}");
     let refs = references(&mut p, "lib/b.dart", b, "x => 1", 0, false);
     assert!(!refs.contains(&doc) && !refs.contains(&sup), "{refs:?}");
-    assert!(refs.contains(&("lib/b.dart".to_string(), 3, 9)), "the `this.x` writes the family's field: {refs:?}");
+    assert!(
+        refs.contains(&("lib/b.dart".to_string(), 3, 9)),
+        "the `this.x` writes the family's field: {refs:?}"
+    );
 }
 
 #[test]
@@ -571,36 +641,84 @@ fn definition_like_the_navigation_computer() {
     // The class name of a constructor declaration is the class (after a doc
     // comment or a keyword the identifier is the node visited); an unnamed
     // constructor that starts at its name keeps the constructor.
-    assert_eq!(definition(&mut p, "lib/a.dart", a, "A(this.x)", 0).1, class_a);
+    assert_eq!(
+        definition(&mut p, "lib/a.dart", a, "A(this.x)", 0).1,
+        class_a
+    );
     assert_eq!(definition(&mut p, "lib/a.dart", a, "A.named", 0).1, class_a);
-    assert_eq!(definition(&mut p, "lib/a.dart", a, "D();", 0).1, start(11, 6));
-    assert_eq!(definition(&mut p, "lib/a.dart", a, "B(super", 0).1, start(8, 2));
+    assert_eq!(
+        definition(&mut p, "lib/a.dart", a, "D();", 0).1,
+        start(11, 6)
+    );
+    assert_eq!(
+        definition(&mut p, "lib/a.dart", a, "B(super", 0).1,
+        start(8, 2)
+    );
     // The name of an annotation is the class.
-    assert_eq!(definition(&mut p, "lib/a.dart", a, "D()\nvoid", 0).1, start(11, 6));
+    assert_eq!(
+        definition(&mut p, "lib/a.dart", a, "D()\nvoid", 0).1,
+        start(11, 6)
+    );
     // `super.x` goes to the super constructor's parameter.
-    assert_eq!(definition(&mut p, "lib/a.dart", a, "x) : super", 0).1, start(3, 9));
+    assert_eq!(
+        definition(&mut p, "lib/a.dart", a, "x) : super", 0).1,
+        start(3, 9)
+    );
     // The variable of a `for-in` has no definition.
-    let r = request(&mut p, "textDocument/definition", "lib/a.dart", a, "e in", 0, json!({}));
-    assert!(r.is_null() || r.as_array().is_some_and(|l| l.is_empty()), "{r}");
+    let r = request(
+        &mut p,
+        "textDocument/definition",
+        "lib/a.dart",
+        a,
+        "e in",
+        0,
+        json!({}),
+    );
+    assert!(
+        r.is_null() || r.as_array().is_some_and(|l| l.is_empty()),
+        "{r}"
+    );
 }
 
 #[test]
 fn hover_of_writes_labels_and_unresolved_names() {
     let mut p = Project::new("nav-hover-escritas");
-    p.write("lib/m.dart", "class M {\n  /// Makes one.\n  M({int Function(int)? size});\n}\n");
+    p.write(
+        "lib/m.dart",
+        "class M {\n  /// Makes one.\n  M({int Function(int)? size});\n}\n",
+    );
     let a = "import 'm.dart';\nclass S {\n  int get v => 0;\n  set v(int x) {}\n}\nvoid f(S s) {\n  s.v = 1;\n  M(size: null);\n  print(undefinedThing(1));\n}\n";
     p.open("lib/a.dart", a);
     // A setter written to shows the `writeType`.
     let h = hover(&mut p, "lib/a.dart", a, "v = 1", 0);
     assert!(h.contains("set v(int x)") && h.contains("Type: int"), "{h}");
     // And its type definition is the written type's class.
-    let r = request(&mut p, "textDocument/typeDefinition", "lib/a.dart", a, "v = 1", 0, json!({}));
+    let r = request(
+        &mut p,
+        "textDocument/typeDefinition",
+        "lib/a.dart",
+        a,
+        "v = 1",
+        0,
+        json!({}),
+    );
     let r = if r.is_array() { r[0].clone() } else { r };
-    assert!(r["uri"].as_str().is_some_and(|u| u.ends_with("core/core.dart")), "{r}");
+    assert!(
+        r["uri"]
+            .as_str()
+            .is_some_and(|u| u.ends_with("core/core.dart")),
+        "{r}"
+    );
     // The label of a named argument of a library whose bodies were not
     // inferred: the parameter, with the outline's type.
     let h = hover(&mut p, "lib/a.dart", a, "size:", 0);
-    assert!(h.contains("{int Function(int)? size}") && h.contains("Type: int Function(int)?"), "{h}");
+    assert!(
+        h.contains("{int Function(int)? size}") && h.contains("Type: int Function(int)?"),
+        "{h}"
+    );
     // An undefined name: only the `InvalidType`.
-    assert_eq!(hover(&mut p, "lib/a.dart", a, "undefinedThing", 0), "Type: InvalidType");
+    assert_eq!(
+        hover(&mut p, "lib/a.dart", a, "undefinedThing", 0),
+        "Type: InvalidType"
+    );
 }

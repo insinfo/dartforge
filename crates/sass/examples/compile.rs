@@ -2,7 +2,7 @@
 //! and the source map (as `asset:p/web/a.scss`), to compare by hand with
 //! dart-sass.
 use dartforge_sass::sass_builder::{compile, Asset, Disk, Packages};
-use dartforge_sass::{OutputStyle, DartSassVersion};
+use dartforge_sass::{DartSassVersion, OutputStyle};
 
 /// The imitated version: `SASS_VERSION` (`1.66.0` or `1.102.0`, the
 /// default).

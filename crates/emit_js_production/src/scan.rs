@@ -69,10 +69,11 @@ pub fn declarations(src: &str) -> Vec<(usize, usize)> {
             continue;
         }
         if c == b'/'
-            && let Some(j) = skip_comment(b, i) {
-                i = j;
-                continue;
-            }
+            && let Some(j) = skip_comment(b, i)
+        {
+            i = j;
+            continue;
+        }
         match c {
             b'{' => braces += 1,
             b'}' => braces -= 1,
@@ -117,10 +118,11 @@ pub fn object_entries(body: &str) -> Vec<(usize, usize)> {
             continue;
         }
         if c == b'/'
-            && let Some(j) = skip_comment(b, i) {
-                i = j;
-                continue;
-            }
+            && let Some(j) = skip_comment(b, i)
+        {
+            i = j;
+            continue;
+        }
         match c {
             b'{' => braces += 1,
             b'}' => braces -= 1,
@@ -160,10 +162,11 @@ pub fn class_entries(body: &str) -> Vec<(usize, usize)> {
             continue;
         }
         if c == b'/'
-            && let Some(j) = skip_comment(b, i) {
-                i = j;
-                continue;
-            }
+            && let Some(j) = skip_comment(b, i)
+        {
+            i = j;
+            continue;
+        }
         match c {
             b'{' => braces += 1,
             b'}' => {
@@ -214,10 +217,11 @@ fn closing(src: &str, open: usize, op: u8, cl: u8) -> Option<usize> {
             continue;
         }
         if c == b'/'
-            && let Some(j) = skip_comment(b, i) {
-                i = j;
-                continue;
-            }
+            && let Some(j) = skip_comment(b, i)
+        {
+            i = j;
+            continue;
+        }
         if c == op {
             d += 1;
         } else if c == cl {
@@ -236,7 +240,10 @@ mod tests {
     use super::*;
 
     fn join(src: &str) -> String {
-        declarations(src).into_iter().map(|(a, b)| &src[a..b]).collect()
+        declarations(src)
+            .into_iter()
+            .map(|(a, b)| &src[a..b])
+            .collect()
     }
 
     #[test]
@@ -259,7 +266,10 @@ mod tests {
         let v = class_entries(body);
         // two members plus the final line break, which gets its own slice
         assert_eq!(v.len(), 3);
-        assert_eq!(v.iter().map(|&(a, b)| &body[a..b]).collect::<String>(), body);
+        assert_eq!(
+            v.iter().map(|&(a, b)| &body[a..b]).collect::<String>(),
+            body
+        );
     }
 
     #[test]
@@ -267,6 +277,9 @@ mod tests {
         let body = " a: 1, b: {c: 2, d: 3}, e: f(1, 2) ";
         let v = object_entries(body);
         assert_eq!(v.len(), 3);
-        assert_eq!(v.iter().map(|&(a, b)| &body[a..b]).collect::<String>(), body);
+        assert_eq!(
+            v.iter().map(|&(a, b)| &body[a..b]).collect::<String>(),
+            body
+        );
     }
 }

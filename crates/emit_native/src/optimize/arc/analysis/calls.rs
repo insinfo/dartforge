@@ -2,7 +2,7 @@
 //! Composes preservation/publication of positive bodies through direct calls.
 //! Other effects stay opaque; does not certify ARC policies.
 
-use super::summaries::{ArcHeapSummary, ArcHeapReturn, extract_with_calls};
+use super::summaries::{ArcHeapReturn, ArcHeapSummary, extract_with_calls};
 use crate::hir::*;
 use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 
@@ -200,14 +200,8 @@ pub(super) fn solve<'a>(
                     true,
                     &facts[v].objects,
                     |s| {
-                        ids.get(s).map(|&w| {
-                            (
-                                bodies[w],
-                                paths[w].clone(),
-                                &writes[w],
-                                globals[w].clone(),
-                            )
-                        })
+                        ids.get(s)
+                            .map(|&w| (bodies[w], paths[w].clone(), &writes[w], globals[w].clone()))
                     },
                 )?;
                 let write_changed = writes[v].join_set(&new, limit);
@@ -358,7 +352,8 @@ mod tests {
         let mut m = Module::new();
         for v in 0..1000 {
             let target = (v < 999).then(|| format!("f{}", v + 1));
-            m.functions.push(scalar(&format!("f{v}"), target.as_deref()));
+            m.functions
+                .push(scalar(&format!("f{v}"), target.as_deref()));
         }
         for _ in 0..2 {
             let r = solve(&m, &HashSet::from(["f0"]), 8).unwrap();
@@ -405,11 +400,7 @@ mod tests {
                 _ => unreachable!(),
             }
             let r = solve(&m, &HashSet::from(["f"]), 8).unwrap();
-            assert_eq!(
-                r["f"].1.fields(),
-                ArcHeapFields::UnknownSet,
-                "caso {case}"
-            );
+            assert_eq!(r["f"].1.fields(), ArcHeapFields::UnknownSet, "caso {case}");
             assert_eq!(
                 r["f"].1.publications(),
                 ArcHeapPublications::UnknownValues,
@@ -542,7 +533,8 @@ mod tests {
         super::super::origins::register(&mut m, 0, true);
         for v in 0..64 {
             let target = (v < 63).then(|| format!("f{}", v + 1));
-            m.functions.push(scalar(&format!("f{v}"), target.as_deref()));
+            m.functions
+                .push(scalar(&format!("f{v}"), target.as_deref()));
         }
         m.functions[64].blocks[0].instructions.push((
             ValueId(1),

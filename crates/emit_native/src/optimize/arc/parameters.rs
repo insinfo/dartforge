@@ -79,22 +79,13 @@ fn produce(
     let mut functions = HashMap::new();
     for f in &module.functions {
         if functions.insert(&f.symbol, f).is_some() {
-            return Err(format!(
-                "parameter facts: repeated symbol {}",
-                f.symbol
-            ));
+            return Err(format!("parameter facts: repeated symbol {}", f.symbol));
         }
     }
     let (origins, others) = if rti {
-        (
-            &module.dart_rti_parameters,
-            &module.dart_scalar_parameters,
-        )
+        (&module.dart_rti_parameters, &module.dart_scalar_parameters)
     } else {
-        (
-            &module.dart_scalar_parameters,
-            &module.dart_rti_parameters,
-        )
+        (&module.dart_scalar_parameters, &module.dart_rti_parameters)
     };
     let mut facts: Vec<_> = origins.iter().collect();
     facts.sort_by_key(|(s, _)| *s);
@@ -108,9 +99,7 @@ fn produce(
             .ok_or_else(|| format!("parameter facts: missing plan {symbol}"))?;
         let types: HashMap<_, _> = f.params.iter().map(|(v, _, ty)| (*v, *ty)).collect();
         if types.len() != f.params.len() {
-            return Err(format!(
-                "parameter facts: repeated parameters {symbol}"
-            ));
+            return Err(format!("parameter facts: repeated parameters {symbol}"));
         }
         let mut ids: Vec<_> = ids.iter().copied().collect();
         ids.sort_by_key(|v| v.0);

@@ -6,8 +6,8 @@
 //! ported along the paths the fix uses.
 //! Written without compiling or running (2026-10-05).
 
-use crate::actions::CodeAction;
 use crate::Edit;
+use crate::actions::CodeAction;
 use dartforge_analysis::non_dart::yaml::{self, Node, Value};
 use dartforge_diagnostics::{Diagnostic, Span};
 use std::path::{Path, PathBuf};
@@ -39,22 +39,36 @@ fn starts_with_ignore(line: &str) -> bool {
     if slashes < 2 {
         return false;
     }
-    line[slashes..].trim_start_matches(' ').starts_with("ignore:")
+    line[slashes..]
+        .trim_start_matches(' ')
+        .starts_with("ignore:")
 }
 
 /// The options that apply to the file and the path of the
 /// `analysis_options.yaml` (`analysisOptions.file`), when it exists.
-pub(crate) fn file_options(path: &Path) -> (dartforge_parity::filters::AnalysisOptions, Option<PathBuf>) {
+pub(crate) fn file_options(
+    path: &Path,
+) -> (dartforge_parity::filters::AnalysisOptions, Option<PathBuf>) {
     let root = crate::project::project_root(path);
-    let file = dartforge_parity::filters::AnalysisOptions::from_subfolder(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
+    let file = dartforge_parity::filters::AnalysisOptions::from_subfolder(path, &root)
+        .unwrap_or_else(|| root.join("analysis_options.yaml"));
     let exists = file.is_file();
-    (dartforge_parity::filters::AnalysisOptions::read_file(&file), exists.then_some(file))
+    (
+        dartforge_parity::filters::AnalysisOptions::read_file(&file),
+        exists.then_some(file),
+    )
 }
 
 /// The three fixes of each `HintCode`/`WarningCode` diagnostic on lines
 /// `start..end`, one set per diagnostic (deduplication by title is the
 /// sorter's job).
-pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: usize, end: usize) -> Vec<CodeAction> {
+pub(crate) fn ignore(
+    uri: &str,
+    text: &str,
+    diagnostics: &[Diagnostic],
+    start_: usize,
+    end: usize,
+) -> Vec<CodeAction> {
     let path = crate::project::uri_file(uri);
     let (options, options_file) = match path.as_deref() {
         Some(c) => file_options(c),
@@ -72,7 +86,10 @@ pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: 
         let Some(c) = d.code else { continue };
         let info = c.info();
         // Only `LintCode`, `HintCode` and `WarningCode`.
-        if !(info.unique.starts_with("HintCode.") || info.unique.starts_with("WarningCode.") || info.unique.starts_with("LintCode.")) {
+        if !(info.unique.starts_with("HintCode.")
+            || info.unique.starts_with("WarningCode.")
+            || info.unique.starts_with("LintCode."))
+        {
             continue;
         }
         // `_isCodeUnignorable`.
@@ -108,7 +125,13 @@ pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: 
                 insert_in(start, false, false, "ignore")
             }
         };
-        output.push(action(uri, format!("Ignore '{code}' for this line"), "quickfix.ignore.line", vec![edit], d));
+        output.push(action(
+            uri,
+            format!("Ignore '{code}' for this line"),
+            "quickfix.ignore.line",
+            vec![edit],
+            d,
+        ));
         // `IgnoreDiagnosticInFile`.
         let total = lines.len();
         let edit = if total == 1 {
@@ -140,7 +163,13 @@ pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: 
                 (None, None) => insert_in(start, false, true, "ignore_for_file"),
             }
         };
-        output.push(action(uri, format!("Ignore '{code}' for the whole file"), "quickfix.ignore.file", vec![edit], d));
+        output.push(action(
+            uri,
+            format!("Ignore '{code}' for the whole file"),
+            "quickfix.ignore.file",
+            vec![edit],
+            d,
+        ));
         // `IgnoreDiagnosticInAnalysisOptionsFile`.
         if let Some(file) = &options_file
             && let Ok(content) = std::fs::read_to_string(file)
@@ -150,22 +179,44 @@ pub(crate) fn ignore(uri: &str, text: &str, diagnostics: &[Diagnostic], start_: 
             output.push(CodeAction {
                 title: format!("Ignore '{code}' in `analysis_options.yaml`"),
                 kind: "quickfix.ignore.analysis".into(),
-                edits: vec![Edit { uri: uri_yaml.to_string(), span: Span { start: offset, end: offset }, text: new_text }],
+                edits: vec![Edit {
+                    uri: uri_yaml.to_string(),
+                    span: Span {
+                        start: offset,
+                        end: offset,
+                    },
+                    text: new_text,
+                }],
                 diagnostic: Some(d.clone()),
-                create_file: None, linked: Default::default(),
+                create_file: None,
+                linked: Default::default(),
             });
         }
     }
     output
 }
 
-fn action(uri: &str, title: String, kind: &str, edits: Vec<(Span, String)>, d: &Diagnostic) -> CodeAction {
+fn action(
+    uri: &str,
+    title: String,
+    kind: &str,
+    edits: Vec<(Span, String)>,
+    d: &Diagnostic,
+) -> CodeAction {
     CodeAction {
         title,
         kind: kind.into(),
-        edits: edits.into_iter().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+        edits: edits
+            .into_iter()
+            .map(|(span, text)| Edit {
+                uri: uri.to_string(),
+                span,
+                text,
+            })
+            .collect(),
         diagnostic: Some(d.clone()),
-        create_file: None, linked: Default::default(),
+        create_file: None,
+        linked: Default::default(),
     }
 }
 
@@ -210,8 +261,12 @@ fn in_flow(t: &str, node: &Node) -> bool {
 /// `getContentSensitiveEnd`.
 fn sensitive_end(t: &str, node: &Node) -> usize {
     match &node.value {
-        Value::List(l) if !in_flow(t, node) => l.last().map_or(node.span.end, |x| sensitive_end(t, x)),
-        Value::Map(m) if !in_flow(t, node) => m.last().map_or(node.span.end, |(_, v)| sensitive_end(t, v)),
+        Value::List(l) if !in_flow(t, node) => {
+            l.last().map_or(node.span.end, |x| sensitive_end(t, x))
+        }
+        Value::Map(m) if !in_flow(t, node) => {
+            m.last().map_or(node.span.end, |(_, v)| sensitive_end(t, v))
+        }
         _ => node.span.end,
     }
 }
@@ -290,14 +345,22 @@ fn insertion_index(map: &[(Node, Node)], key: &str) -> usize {
             return map.len();
         }
     }
-    keys.iter().position(|k| k.as_str() > key).unwrap_or(map.len())
+    keys.iter()
+        .position(|k| k.as_str() > key)
+        .unwrap_or(map.len())
 }
 
 /// `yamlEncodeFlow`.
 fn in_flow_text(v: &New) -> String {
     match v {
         New::Scalar(s) => s.clone(),
-        New::Map(m) => format!("{{{}}}", m.iter().map(|(k, x)| format!("{k}: {}", in_flow_text(x))).collect::<Vec<_>>().join(", ")),
+        New::Map(m) => format!(
+            "{{{}}}",
+            m.iter()
+                .map(|(k, x)| format!("{k}: {}", in_flow_text(x)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
@@ -326,7 +389,13 @@ fn non_empty_collection(v: &New) -> bool {
 }
 
 /// `updateInMap(editor, map, key, value)`: the edit (offset, text).
-fn update_in_map(t: &str, root: &Node, map: &Node, key: &str, value: &New) -> Option<(usize, String)> {
+fn update_in_map(
+    t: &str,
+    root: &Node,
+    map: &Node,
+    key: &str,
+    value: &New,
+) -> Option<(usize, String)> {
     let pairs = map.map()?;
     let existing = pairs.iter().rev().find(|(k, _)| key_text(k) == key);
     let flow = in_flow(t, map);
@@ -399,12 +468,23 @@ pub(crate) fn ignore_in_yaml(content: &str, code: &str) -> Option<(usize, String
         // `path = []`: the whole document (the insertion at its start).
         let eol = line_end(content);
         let start = root.as_ref().map_or(content.len(), |r| r.span.start);
-        let value = New::Map(vec![("analyzer".to_string(), New::Map(vec![("errors".to_string(), errors())]))]);
+        let value = New::Map(vec![(
+            "analyzer".to_string(),
+            New::Map(vec![("errors".to_string(), errors())]),
+        )]);
         return Some((start, in_block(&value, 0, eol)));
     };
-    let analyzer = r.field("analyzer").filter(|a| a.map().is_some() && a.par("errors").is_some());
+    let analyzer = r
+        .field("analyzer")
+        .filter(|a| a.map().is_some() && a.par("errors").is_some());
     match analyzer {
-        None => update_in_map(content, r, r, "analyzer", &New::Map(vec![("errors".to_string(), errors())])),
+        None => update_in_map(
+            content,
+            r,
+            r,
+            "analyzer",
+            &New::Map(vec![("errors".to_string(), errors())]),
+        ),
         Some(a) => {
             let e = a.field("errors")?;
             e.map()?;
@@ -419,7 +499,10 @@ mod tests {
 
     #[test]
     fn ignore_yaml() {
-        assert_eq!(ignore_in_yaml("", "x"), Some((0, "analyzer:\n  errors:\n    x: ignore".to_string())));
+        assert_eq!(
+            ignore_in_yaml("", "x"),
+            Some((0, "analyzer:\n  errors:\n    x: ignore".to_string()))
+        );
         assert_eq!(
             ignore_in_yaml("analyzer:\n  errors:\n    a: ignore\n    z: ignore\n", "m"),
             Some((34, "    m: ignore\n".to_string()))

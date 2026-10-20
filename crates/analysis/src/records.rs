@@ -62,7 +62,10 @@ fn positional_index(name: &str) -> Option<usize> {
 }
 
 fn from_object(name: &str) -> bool {
-    matches!(name, "hashCode" | "runtimeType" | "noSuchMethod" | "toString")
+    matches!(
+        name,
+        "hashCode" | "runtimeType" | "noSuchMethod" | "toString"
+    )
 }
 
 /// A named field: the name, the place and the positional index (`None` for
@@ -83,8 +86,14 @@ fn report(fields: &[Field], n_positional: usize, wildcard: bool, out: &mut Vec<D
         if let Some(&(_, first)) = seen.iter().find(|(n, _)| *n == f.name.as_str()) {
             // `duplicateFieldDefinitionIn{Literal,Type}`: the analyzer's text is
             // `'The first '`, on the first one's name, with the name's length.
-            let context = Span { start: first.start, end: first.start + f.name.len() };
-            out.push(Diagnostic::with_code(c::DUPLICATE_FIELD_NAME, f.span, [f.name.as_str()]).with_context(context, "The first "));
+            let context = Span {
+                start: first.start,
+                end: first.start + f.name.len(),
+            };
+            out.push(
+                Diagnostic::with_code(c::DUPLICATE_FIELD_NAME, f.span, [f.name.as_str()])
+                    .with_context(context, "The first "),
+            );
         } else {
             seen.push((&f.name, f.span));
         }
@@ -93,39 +102,77 @@ fn report(fields: &[Field], n_positional: usize, wildcard: bool, out: &mut Vec<D
     for f in fields {
         if f.name.starts_with('_') {
             if !(wildcard && f.positional.is_some() && f.name == "_") {
-                out.push(Diagnostic::with_code(c::INVALID_FIELD_NAME_PRIVATE, f.span, [] as [&str; 0]));
+                out.push(Diagnostic::with_code(
+                    c::INVALID_FIELD_NAME_PRIVATE,
+                    f.span,
+                    [] as [&str; 0],
+                ));
             }
         } else if let Some(i) = positional_index(&f.name)
             && i < n_positional
             && f.positional != Some(i)
         {
-            out.push(Diagnostic::with_code(c::INVALID_FIELD_NAME_POSITIONAL, f.span, [] as [&str; 0]));
+            out.push(Diagnostic::with_code(
+                c::INVALID_FIELD_NAME_POSITIONAL,
+                f.span,
+                [] as [&str; 0],
+            ));
         } else if from_object(&f.name) {
-            out.push(Diagnostic::with_code(c::INVALID_FIELD_NAME_FROM_OBJECT, f.span, [] as [&str; 0]));
+            out.push(Diagnostic::with_code(
+                c::INVALID_FIELD_NAME_FROM_OBJECT,
+                f.span,
+                [] as [&str; 0],
+            ));
         }
     }
 }
 
-pub fn check(u: &Unit<'_>, names: &dartforge_intern::Interner, features: dartforge_frontend::features::LibraryFeatures) -> Vec<Diagnostic> {
+pub fn check(
+    u: &Unit<'_>,
+    names: &dartforge_intern::Interner,
+    features: dartforge_frontend::features::LibraryFeatures,
+) -> Vec<Diagnostic> {
     let a = u.ast;
     let wildcard = features.has(Feature::WildcardVariables);
     let mut out = Vec::new();
     for t in &a.types {
-        let TypeKind::Record { positional, named } = &t.kind else { continue };
+        let TypeKind::Record { positional, named } = &t.kind else {
+            continue;
+        };
         let mut fields = Vec::new();
         for (i, &p) in positional.iter().enumerate() {
             if let Some((name, span)) = name_after(u.source, a.ty(p).span.end) {
-                fields.push(Field { name, span, positional: Some(i) });
+                fields.push(Field {
+                    name,
+                    span,
+                    positional: Some(i),
+                });
             }
         }
         for (n, _) in named.iter() {
-            fields.push(Field { name: names.resolve(n.sym).to_string(), span: n.span, positional: None });
+            fields.push(Field {
+                name: names.resolve(n.sym).to_string(),
+                span: n.span,
+                positional: None,
+            });
         }
         report(&fields, positional.len(), wildcard, &mut out);
     }
     for e in &a.exprs {
-        let ExprKind::Record { positional, named, .. } = &e.kind else { continue };
-        let fields: Vec<Field> = named.iter().map(|(n, _)| Field { name: names.resolve(n.sym).to_string(), span: n.span, positional: None }).collect();
+        let ExprKind::Record {
+            positional, named, ..
+        } = &e.kind
+        else {
+            continue;
+        };
+        let fields: Vec<Field> = named
+            .iter()
+            .map(|(n, _)| Field {
+                name: names.resolve(n.sym).to_string(),
+                span: n.span,
+                positional: None,
+            })
+            .collect();
         report(&fields, positional.len(), false, &mut out);
     }
     out

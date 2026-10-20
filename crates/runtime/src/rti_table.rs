@@ -24,12 +24,22 @@ pub const THRESHOLD: usize = 16 * 1024;
 pub fn compress(text: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(text.len() / 4 + 64);
     out.extend_from_slice(HEADER);
-    out.extend_from_slice(&u32::try_from(text.len()).expect("RTI table above 4 GB").to_le_bytes());
+    out.extend_from_slice(
+        &u32::try_from(text.len())
+            .expect("RTI table above 4 GB")
+            .to_le_bytes(),
+    );
     let mut z = flate2::Compress::new(flate2::Compression::best(), true);
     loop {
         out.reserve(64 * 1024);
         let read_so_far = usize::try_from(z.total_in()).expect("tamanho");
-        let state = z.compress_vec(&text[read_so_far..], &mut out, flate2::FlushCompress::Finish).expect("zlib");
+        let state = z
+            .compress_vec(
+                &text[read_so_far..],
+                &mut out,
+                flate2::FlushCompress::Finish,
+            )
+            .expect("zlib");
         if state == flate2::Status::StreamEnd {
             return out;
         }
@@ -42,12 +52,20 @@ pub fn compress(text: &[u8]) -> Vec<u8> {
 ///
 /// The header or the zlib stream does not check out.
 pub fn decompress(data: &[u8]) -> Vec<u8> {
-    assert!(data.starts_with(HEADER), "RTI table without the header of the compressed form");
+    assert!(
+        data.starts_with(HEADER),
+        "RTI table without the header of the compressed form"
+    );
     let size = u32::from_le_bytes(data[4..8].try_into().expect("RTI table header")) as usize;
     let mut text = Vec::with_capacity(size);
     let mut z = flate2::Decompress::new(true);
-    let state = z.decompress_vec(&data[8..], &mut text, flate2::FlushDecompress::Finish).expect("compressed RTI table");
-    assert!(state == flate2::Status::StreamEnd && text.len() == size, "incomplete compressed RTI table");
+    let state = z
+        .decompress_vec(&data[8..], &mut text, flate2::FlushDecompress::Finish)
+        .expect("compressed RTI table");
+    assert!(
+        state == flate2::Status::StreamEnd && text.len() == size,
+        "incomplete compressed RTI table"
+    );
     text
 }
 
@@ -61,7 +79,10 @@ pub fn decompressed(data: &'static [u8]) -> &'static [u8] {
     let mut crc = flate2::Crc::new();
     crc.update(data);
     let key = (data.as_ptr() as usize, data.len(), crc.sum());
-    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(|e| e.into_inner());
+    let mut cache = CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     if let Some((_, t)) = cache.iter().find(|(k, _)| *k == key) {
         return t;
     }

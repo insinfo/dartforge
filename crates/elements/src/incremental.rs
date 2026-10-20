@@ -29,7 +29,9 @@
 
 use crate::model::{Program, UnitId};
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{self, Ast, CompilationUnit, DeclKind, FunctionBody, MemberKind, TypeId};
+use dartforge_frontend::ast::{
+    self, Ast, CompilationUnit, DeclKind, FunctionBody, MemberKind, TypeId,
+};
 use dartforge_frontend::token::{Kind, Op, Token};
 use dartforge_intern::Interner;
 use std::collections::HashMap;
@@ -117,7 +119,10 @@ pub fn swap_unit(
     let (map, changed) = {
         let old_ = program.unit(u);
         verify_shape(&old_.ast, &old_.unit, &new_.ast, &new_.unit)?;
-        let (Ok(tv), Ok(tn)) = (dartforge_frontend::lexer::lex(&old_.source), dartforge_frontend::lexer::lex(text)) else {
+        let (Ok(tv), Ok(tn)) = (
+            dartforge_frontend::lexer::lex(&old_.source),
+            dartforge_frontend::lexer::lex(text),
+        ) else {
             return Err(Refusal::Lexical);
         };
         let rv = regions(&old_.ast, initializers_as_body);
@@ -136,7 +141,9 @@ pub fn swap_unit(
         let changed: Vec<UnitBody> = rv
             .iter()
             .zip(rn.iter())
-            .filter(|(a, b)| old_.source.get(a.span.start..a.span.end) != text.get(b.span.start..b.span.end))
+            .filter(|(a, b)| {
+                old_.source.get(a.span.start..a.span.end) != text.get(b.span.start..b.span.end)
+            })
             .map(|(a, _)| a.owner)
             .collect();
         let (lv, ln) = (signature_types(&old_.ast), signature_types(&new_.ast));
@@ -145,7 +152,9 @@ pub fn swap_unit(
         }
         for (a, b) in lv.iter().zip(ln.iter()) {
             let (ta, tb) = (old_.ast.ty(*a), new_.ast.ty(*b));
-            if ta.nullable != tb.nullable || std::mem::discriminant(&ta.kind) != std::mem::discriminant(&tb.kind) {
+            if ta.nullable != tb.nullable
+                || std::mem::discriminant(&ta.kind) != std::mem::discriminant(&tb.kind)
+            {
                 return Err(Refusal::ShapeChanged("signature types"));
             }
         }
@@ -197,7 +206,12 @@ pub fn restore_unit(program: &mut Program, previous: Previous) {
 }
 
 /// The one-to-one correspondence of the arenas the elements cite.
-fn verify_shape(old_: &Ast, old_unit: &CompilationUnit, a: &Ast, new_unit: &CompilationUnit) -> Result<(), Refusal> {
+fn verify_shape(
+    old_: &Ast,
+    old_unit: &CompilationUnit,
+    a: &Ast,
+    new_unit: &CompilationUnit,
+) -> Result<(), Refusal> {
     if old_.decls.len() != a.decls.len() {
         return Err(Refusal::ShapeChanged("declarations"));
     }
@@ -208,7 +222,9 @@ fn verify_shape(old_: &Ast, old_unit: &CompilationUnit, a: &Ast, new_unit: &Comp
         return Err(Refusal::ShapeChanged("functions"));
     }
     for (d0, d1) in old_.decls.iter().zip(a.decls.iter()) {
-        if std::mem::discriminant(&d0.kind) != std::mem::discriminant(&d1.kind) || decl_name(&d0.kind) != decl_name(&d1.kind) {
+        if std::mem::discriminant(&d0.kind) != std::mem::discriminant(&d1.kind)
+            || decl_name(&d0.kind) != decl_name(&d1.kind)
+        {
             return Err(Refusal::ShapeChanged("declaration"));
         }
         if let (DeclKind::Variables(l0), DeclKind::Variables(l1)) = (&d0.kind, &d1.kind)
@@ -218,7 +234,9 @@ fn verify_shape(old_: &Ast, old_unit: &CompilationUnit, a: &Ast, new_unit: &Comp
         }
     }
     for (m0, m1) in old_.members.iter().zip(a.members.iter()) {
-        if std::mem::discriminant(&m0.kind) != std::mem::discriminant(&m1.kind) || member_name(&m0.kind) != member_name(&m1.kind) {
+        if std::mem::discriminant(&m0.kind) != std::mem::discriminant(&m1.kind)
+            || member_name(&m0.kind) != member_name(&m1.kind)
+        {
             return Err(Refusal::ShapeChanged("member"));
         }
         if let (MemberKind::Field(l0), MemberKind::Field(l1)) = (&m0.kind, &m1.kind)
@@ -240,7 +258,11 @@ fn verify_shape(old_: &Ast, old_unit: &CompilationUnit, a: &Ast, new_unit: &Comp
 
 /// The whole list of names (the `index` of a `VariableRef` points into it).
 fn same_names(a: &ast::VariableList, b: &ast::VariableList) -> bool {
-    a.variables.len() == b.variables.len() && a.variables.iter().zip(b.variables.iter()).all(|(x, y)| x.name.sym == y.name.sym)
+    a.variables.len() == b.variables.len()
+        && a.variables
+            .iter()
+            .zip(b.variables.iter())
+            .all(|(x, y)| x.name.sym == y.name.sym)
 }
 
 /// A body range: the tokens inside it stay out of the signature.
@@ -256,8 +278,16 @@ struct Region {
 fn regions(a: &Ast, initializers_as_body: bool) -> Vec<Region> {
     let mut v = Vec::new();
     let body_node = |v: &mut Vec<Region>, owner: UnitBody, body: &FunctionBody| match body {
-        FunctionBody::Block(s) => v.push(Region { owner, span: a.stmt(*s).span, strict: true }),
-        FunctionBody::Expression(e) => v.push(Region { owner, span: a.expr(*e).span, strict: false }),
+        FunctionBody::Block(s) => v.push(Region {
+            owner,
+            span: a.stmt(*s).span,
+            strict: true,
+        }),
+        FunctionBody::Expression(e) => v.push(Region {
+            owner,
+            span: a.expr(*e).span,
+            strict: false,
+        }),
         FunctionBody::Empty | FunctionBody::Native(_) => {}
     };
     let members_ = |v: &mut Vec<Region>, members_: &[ast::MemberId], has_const: bool| {
@@ -266,11 +296,19 @@ fn regions(a: &Ast, initializers_as_body: bool) -> Vec<Region> {
                 MemberKind::Method(f) => body_node(v, UnitBody::Function(*f), &a.function(*f).body),
                 MemberKind::Constructor(k) => body_node(v, UnitBody::Constructor(m), &k.body),
                 MemberKind::Field(l) => {
-                    let signature = l.ty.is_none() || l.const_ || (l.final_ && !l.static_ && has_const);
+                    let signature =
+                        l.ty.is_none() || l.const_ || (l.final_ && !l.static_ && has_const);
                     if initializers_as_body || !signature {
                         for (k, x) in l.variables.iter().enumerate() {
                             if let Some(e) = x.initializer {
-                                v.push(Region { owner: UnitBody::Field { member: m, index: k }, span: a.expr(e).span, strict: false });
+                                v.push(Region {
+                                    owner: UnitBody::Field {
+                                        member: m,
+                                        index: k,
+                                    },
+                                    span: a.expr(e).span,
+                                    strict: false,
+                                });
                             }
                         }
                     }
@@ -278,23 +316,37 @@ fn regions(a: &Ast, initializers_as_body: bool) -> Vec<Region> {
             }
         }
     };
-    let has_const_constructor = |members_: &[ast::MemberId]| members_.iter().any(|&m| matches!(&a.member(m).kind, MemberKind::Constructor(k) if k.const_));
+    let has_const_constructor = |members_: &[ast::MemberId]| {
+        members_
+            .iter()
+            .any(|&m| matches!(&a.member(m).kind, MemberKind::Constructor(k) if k.const_))
+    };
     for (i, d) in a.decls.iter().enumerate() {
         let decl = ast::DeclId(i as u32);
         match &d.kind {
-            DeclKind::Function(f) => body_node(&mut v, UnitBody::Function(*f), &a.function(*f).body),
+            DeclKind::Function(f) => {
+                body_node(&mut v, UnitBody::Function(*f), &a.function(*f).body)
+            }
             DeclKind::Variables(l) => {
                 if initializers_as_body || (l.ty.is_some() && !l.const_) {
                     for (k, x) in l.variables.iter().enumerate() {
                         if let Some(e) = x.initializer {
-                            v.push(Region { owner: UnitBody::TopLevelVariable { decl, index: k }, span: a.expr(e).span, strict: false });
+                            v.push(Region {
+                                owner: UnitBody::TopLevelVariable { decl, index: k },
+                                span: a.expr(e).span,
+                                strict: false,
+                            });
                         }
                     }
                 }
             }
             DeclKind::Class(c) => members_(&mut v, &c.members, has_const_constructor(&c.members)),
             DeclKind::Enum(e) => members_(&mut v, &e.members, true),
-            DeclKind::ExtensionType(x) => members_(&mut v, &x.members, x.const_ || has_const_constructor(&x.members)),
+            DeclKind::ExtensionType(x) => members_(
+                &mut v,
+                &x.members,
+                x.const_ || has_const_constructor(&x.members),
+            ),
             DeclKind::Extension(x) => members_(&mut v, &x.members, false),
             DeclKind::Mixin(_) | DeclKind::Typedef(_) => {}
         }
@@ -315,19 +367,32 @@ fn inside(excerpts: &[(Span, bool)], t: Span) -> bool {
         return false;
     }
     let (s, strict) = excerpts[i - 1];
-    if strict { t.start > s.start && t.end < s.end } else { t.start >= s.start && t.end <= s.end }
+    if strict {
+        t.start > s.start && t.end < s.end
+    } else {
+        t.start >= s.start && t.end <= s.end
+    }
 }
 
 /// A signature token: kind, text and the gluing of a `>`.
 type Lexeme<'s> = (Kind, &'s str, bool);
 
 /// The directives' tokens and the declarations' signature tokens.
-fn split<'s>(source: &'s str, tokens: &[Token], directives: &[(Span, bool)], bodies: &[Region]) -> (Vec<Lexeme<'s>>, Vec<Lexeme<'s>>) {
+fn split<'s>(
+    source: &'s str,
+    tokens: &[Token],
+    directives: &[(Span, bool)],
+    bodies: &[Region],
+) -> (Vec<Lexeme<'s>>, Vec<Lexeme<'s>>) {
     let mut excerpts: Vec<(Span, bool)> = bodies.iter().map(|r| (r.span, r.strict)).collect();
     excerpts.sort_by_key(|(s, _)| s.start);
     let (mut d, mut s) = (Vec::new(), Vec::new());
     for t in tokens {
-        let lexeme = (t.kind, source.get(t.span.start..t.span.end).unwrap_or(""), t.glued && matches!(t.kind, Kind::Op(Op::Gt)));
+        let lexeme = (
+            t.kind,
+            source.get(t.span.start..t.span.end).unwrap_or(""),
+            t.glued && matches!(t.kind, Kind::Op(Op::Gt)),
+        );
         if inside(directives, t.span) {
             d.push(lexeme);
         } else if !inside(&excerpts, t.span) {
@@ -388,7 +453,10 @@ fn signature_types(a: &Ast) -> Vec<TypeId> {
                 type_parameters(a, &t.type_params, &mut v);
                 match &t.kind {
                     ast::TypedefKind::Alias(x) => kind(a, *x, &mut v),
-                    ast::TypedefKind::Legacy { return_type, parameters } => {
+                    ast::TypedefKind::Legacy {
+                        return_type,
+                        parameters,
+                    } => {
                         if let Some(r) = return_type {
                             kind(a, *r, &mut v);
                         }
@@ -443,7 +511,11 @@ fn kind(a: &Ast, t: TypeId, v: &mut Vec<TypeId>) {
             }
         }
         ast::TypeKind::Void => {}
-        ast::TypeKind::Function { return_type, type_params, parameters } => {
+        ast::TypeKind::Function {
+            return_type,
+            type_params,
+            parameters,
+        } => {
             if let Some(r) = return_type {
                 kind(a, *r, v);
             }
@@ -495,7 +567,14 @@ fn annotations(a: &Ast, list: &[ast::Annotation], v: &mut Vec<TypeId>) {
 fn pairs(program: &mut Program) -> Vec<&mut (UnitId, TypeId)> {
     let mut v: Vec<&mut (UnitId, TypeId)> = Vec::new();
     for c in program.classes.iter_mut() {
-        let crate::model::ClassElement { type_params, supertype, mixins, interfaces, on, .. } = c;
+        let crate::model::ClassElement {
+            type_params,
+            supertype,
+            mixins,
+            interfaces,
+            on,
+            ..
+        } = c;
         v.extend(type_params.iter_mut().filter_map(|p| p.bound.as_mut()));
         v.extend(supertype.as_mut());
         v.extend(mixins.iter_mut());
@@ -503,7 +582,9 @@ fn pairs(program: &mut Program) -> Vec<&mut (UnitId, TypeId)> {
         v.extend(on.iter_mut());
     }
     for x in program.extensions.iter_mut() {
-        let crate::model::ExtensionElement { type_params, on, .. } = x;
+        let crate::model::ExtensionElement {
+            type_params, on, ..
+        } = x;
         v.extend(type_params.iter_mut().filter_map(|p| p.bound.as_mut()));
         v.push(on);
     }

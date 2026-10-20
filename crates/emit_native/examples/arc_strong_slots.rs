@@ -308,11 +308,12 @@ fn main() -> Result<(), String> {
     let mut next_item = originals.iter().map(|(v, _, _)| v.0).max().unwrap_or(0) + 1;
     for mut instruction in originals {
         if forced_error == Some(instruction.0)
-            && let Instruction::CallRuntime { name, .. } = &mut instruction.1 {
-                // Replaces the observation with an audited Ref throw. The next
-                // test selects the same prepared cleanup block.
-                *name = "dartforge_arc_throw_ref_v1".into();
-            }
+            && let Instruction::CallRuntime { name, .. } = &mut instruction.1
+        {
+            // Replaces the observation with an audited Ref throw. The next
+            // test selects the same prepared cleanup block.
+            *name = "dartforge_arc_throw_ref_v1".into();
+        }
         let printed = match &instruction.1 {
             Instruction::CallRuntime { name, args, .. }
                 if name == "dartforge_print_handle" || name == "dartforge_arc_throw_ref_v1" =>
@@ -401,8 +402,7 @@ fn main() -> Result<(), String> {
     if !auto_cleanup {
         produce_dart_calls(f, &dart_summaries, &mut classes, &mut plan)?;
     }
-    plan
-        .instructions
+    plan.instructions
         .insert(ValueId(11), TokenEffect::default());
     if auto_cleanup {
         // Prepares caller and callee together: a retention at the return of the callee
@@ -423,9 +423,7 @@ fn main() -> Result<(), String> {
         ]);
         let inserted = insert_arc_dart_functions(&mut m.functions, &mut plans)?;
         if inserted != (1, 3) {
-            return Err(format!(
-                "expected preparation (1, 3), found {inserted:?}"
-            ));
+            return Err(format!("expected preparation (1, 3), found {inserted:?}"));
         }
     } else {
         produce_and_verify_tokens(

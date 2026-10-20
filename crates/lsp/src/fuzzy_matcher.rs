@@ -59,7 +59,15 @@ fn lowercase(s: &[u16]) -> Vec<u16> {
     if low.len() == s.len() {
         return low;
     }
-    s.iter().map(|&c| if (b'A' as u16..=b'Z' as u16).contains(&c) { c + 32 } else { c }).collect()
+    s.iter()
+        .map(|&c| {
+            if (b'A' as u16..=b'Z' as u16).contains(&c) {
+                c + 32
+            } else {
+                c
+            }
+        })
+        .collect()
 }
 
 /// A matcher for one pattern.
@@ -105,7 +113,11 @@ impl Matcher {
         c.map(&pattern, &mut roles);
         c.default_roles = roles;
         let max = if style == Style::Text { 6.0 } else { 4.0 };
-        c.scale = if c.pattern.is_empty() { 0.0 } else { 1.0 / (max * c.pattern.len() as f64) };
+        c.scale = if c.pattern.is_empty() {
+            0.0
+        } else {
+            1.0 / (max * c.pattern.len() as f64)
+        };
         c
     }
 
@@ -116,17 +128,25 @@ impl Matcher {
             let t = ty(c);
             let mut role = Role::None;
             match t {
-                Type::Lowercase => role = if previous <= Type::Punctuation { Role::Head } else { Role::Tail },
+                Type::Lowercase => {
+                    role = if previous <= Type::Punctuation {
+                        Role::Head
+                    } else {
+                        Role::Tail
+                    }
+                }
                 Type::Uppercase => {
                     role = Role::Head;
-                    let next_lowercase = i + 1 < s.len() && (b'a' as u16..=b'z' as u16).contains(&s[i + 1]);
+                    let next_lowercase =
+                        i + 1 < s.len() && (b'a' as u16..=b'z' as u16).contains(&s[i + 1]);
                     if previous == Type::Uppercase && !next_lowercase {
                         role = Role::UppercaseTail;
                     }
                 }
                 Type::Punctuation => {
                     let separates = (self.style == Style::File && c == b'/' as u16)
-                        || (self.style == Style::Symbol && (c == b'.' as u16 || c == b':' as u16 || c == b' ' as u16));
+                        || (self.style == Style::Symbol
+                            && (c == b'.' as u16 || c == b':' as u16 || c == b' ' as u16));
                     if separates {
                         role = Role::Separator;
                     }
@@ -148,7 +168,11 @@ impl Matcher {
     }
 
     fn best_k(&self, i: usize, j: usize) -> usize {
-        if self.score_in(i, j, 0) < self.score_in(i, j, 1) { 1 } else { 0 }
+        if self.score_in(i, j, 0) < self.score_in(i, j, 1) {
+            1
+        } else {
+            0
+        }
     }
 
     fn previous_k(&self, i: usize, j: usize, k: usize) -> usize {
@@ -210,7 +234,9 @@ impl Matcher {
                     }
                     dot -= 4;
                 }
-                if cand[i - 1] == self.pattern[j - 1] || (head && (!self.sensitive || self.default_roles[j - 1] == Role::Head)) {
+                if cand[i - 1] == self.pattern[j - 1]
+                    || (head && (!self.sensitive || self.default_roles[j - 1] == Role::Head))
+                {
                     dot += 1;
                 }
                 for k in 0..2 {
@@ -220,7 +246,9 @@ impl Matcher {
                     if consecutive || (self.style == Style::Text && j - 1 == 0) {
                         s += if self.style == Style::Text { 4 } else { 2 };
                     }
-                    if !previous_matched && matches!(self.roles[i - 1], Role::Tail | Role::UppercaseTail) {
+                    if !previous_matched
+                        && matches!(self.roles[i - 1], Role::Tail | Role::UppercaseTail)
+                    {
                         s -= 3;
                     }
                     if s > (self.table[i][o + j] >> 1) {

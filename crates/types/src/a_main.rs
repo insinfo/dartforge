@@ -8,7 +8,7 @@
 //! Written without compiling or running (2026-10-04).
 
 use crate::resolve::OutlineTypes;
-use crate::subtyping::{is_subtype, SubtypeEnv};
+use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, Type, TypeTable};
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
@@ -26,28 +26,61 @@ pub fn main_function(
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
-    let Some(sym_main) = interner.lookup("main") else { return output };
+    let Some(sym_main) = interner.lookup("main") else {
+        return output;
+    };
     for (i, f) in program.functions.iter().enumerate() {
         // Only the top-level function: a class method `main` does not count, nor
         // does a getter (which has no parameter list).
-        if f.library != lib || f.name != sym_main || f.class.is_some() || f.extension.is_some() || f.kind != FunctionKind::Function {
+        if f.library != lib
+            || f.name != sym_main
+            || f.class.is_some()
+            || f.extension.is_some()
+            || f.kind != FunctionKind::Function
+        {
             continue;
         }
-        let FunctionRef::Function { unit, function } = f.node else { continue };
+        let FunctionRef::Function { unit, function } = f.node else {
+            continue;
+        };
         let a = &program.unit(unit).ast;
         let func = a.function(function);
-        let (Some(ps), Some(name)) = (&func.parameters, func.name) else { continue };
+        let (Some(ps), Some(name)) = (&func.parameters, func.name) else {
+            continue;
+        };
         let empty: Vec<&str> = Vec::new();
-        let required = ps.iter().filter(|p| p.kind == ParameterKind::Required).count();
+        let required = ps
+            .iter()
+            .filter(|p| p.kind == ParameterKind::Required)
+            .count();
         if required > 2 {
-            output.push((unit, Diagnostic::with_code(c::MAIN_HAS_TOO_MANY_REQUIRED_POSITIONAL_PARAMETERS, name.span, empty.iter().copied())));
+            output.push((
+                unit,
+                Diagnostic::with_code(
+                    c::MAIN_HAS_TOO_MANY_REQUIRED_POSITIONAL_PARAMETERS,
+                    name.span,
+                    empty.iter().copied(),
+                ),
+            ));
         }
-        if ps.iter().any(|p| p.kind == ParameterKind::Named && p.required) {
-            output.push((unit, Diagnostic::with_code(c::MAIN_HAS_REQUIRED_NAMED_PARAMETERS, name.span, empty.iter().copied())));
+        if ps
+            .iter()
+            .any(|p| p.kind == ParameterKind::Named && p.required)
+        {
+            output.push((
+                unit,
+                Diagnostic::with_code(
+                    c::MAIN_HAS_REQUIRED_NAMED_PARAMETERS,
+                    name.span,
+                    empty.iter().copied(),
+                ),
+            ));
         }
         // The first positional (required or optional), by its written type:
         // without a type it is `dynamic` and the condition does not fire.
-        let Some(k) = ps.iter().position(|p| p.kind != ParameterKind::Named) else { continue };
+        let Some(k) = ps.iter().position(|p| p.kind != ParameterKind::Named) else {
+            continue;
+        };
         let p = &ps[k];
         // `typeOrSelf` of `notDefault`: the written type of a simple parameter;
         // the whole parameter (without the default value) in function form
@@ -56,7 +89,10 @@ pub fn main_function(
             let Some(written) = p.ty else { continue };
             a.ty(written).span
         } else {
-            let start = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
+            let start = p
+                .metadata
+                .first()
+                .map_or(p.span.start, |m| m.span.start.min(p.span.start));
             let end = match p.default_value {
                 Some(d) => {
                     let source = program.unit(unit).source.as_bytes();
@@ -76,16 +112,33 @@ pub fn main_function(
             };
             Span { start, end }
         };
-        let Some(data) = outline.functions.get(i) else { continue };
-        let Some(ty) = data.parameters.get(k).map(|p| p.ty) else { continue };
-        let Some(list) = core.list_class else { continue };
-        let string_list = table.intern(Type::Interface { class: list, args: vec![core.string].into_boxed_slice(), nullable: false });
+        let Some(data) = outline.functions.get(i) else {
+            continue;
+        };
+        let Some(ty) = data.parameters.get(k).map(|p| p.ty) else {
+            continue;
+        };
+        let Some(list) = core.list_class else {
+            continue;
+        };
+        let string_list = table.intern(Type::Interface {
+            class: list,
+            args: vec![core.string].into_boxed_slice(),
+            nullable: false,
+        });
         let fits = {
             let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
             is_subtype(string_list, ty, &mut env)
         };
         if !fits {
-            output.push((unit, Diagnostic::with_code(c::MAIN_FIRST_POSITIONAL_PARAMETER_TYPE, span, empty.iter().copied())));
+            output.push((
+                unit,
+                Diagnostic::with_code(
+                    c::MAIN_FIRST_POSITIONAL_PARAMETER_TYPE,
+                    span,
+                    empty.iter().copied(),
+                ),
+            ));
         }
     }
     output

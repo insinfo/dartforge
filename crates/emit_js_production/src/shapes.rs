@@ -42,7 +42,10 @@ impl<'a> Visit<'a> for Finder<'_> {
     fn visit_statements(&mut self, it: &oxc_allocator::Vec<'a, oxc_ast::ast::Statement<'a>>) {
         if self.merge_constructors {
             for pair in it.windows(2) {
-                if let (oxc_ast::ast::Statement::ExpressionStatement(class), oxc_ast::ast::Statement::ExpressionStatement(ctor)) = (&pair[0], &pair[1])
+                if let (
+                    oxc_ast::ast::Statement::ExpressionStatement(class),
+                    oxc_ast::ast::Statement::ExpressionStatement(ctor),
+                ) = (&pair[0], &pair[1])
                     && !self.merged.contains(&class.span.start)
                     && let Some(t) = class_with_constructor(self.source, class, ctor)
                 {
@@ -164,11 +167,17 @@ fn prototype_form(source: &str, it: &ExpressionStatement<'_>) -> Option<[(u32, u
 /// created before `C` is assigned instead of after, which nothing observes
 /// (it is not called until the class exists). Three replacements around the
 /// class and the function, so that the ones inside them still apply.
-fn class_with_constructor(source: &str, class: &ExpressionStatement<'_>, ctor: &ExpressionStatement<'_>) -> Option<[(u32, u32, String); 3]> {
+fn class_with_constructor(
+    source: &str,
+    class: &ExpressionStatement<'_>,
+    ctor: &ExpressionStatement<'_>,
+) -> Option<[(u32, u32, String); 3]> {
     let Expression::AssignmentExpression(def) = &class.expression else {
         return None;
     };
-    if def.operator != AssignmentOperator::Assign || !matches!(def.right, Expression::ClassExpression(_)) {
+    if def.operator != AssignmentOperator::Assign
+        || !matches!(def.right, Expression::ClassExpression(_))
+    {
         return None;
     }
     let text = |s: oxc_span::Span| &source[s.start as usize..s.end as usize];
@@ -205,7 +214,9 @@ fn class_with_constructor(source: &str, class: &ExpressionStatement<'_>, ctor: &
         || target.property.name != "new"
         || text(target.object.span()) != name
         || text(right.object.span()) != name
-        || !name.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$' | b'.'))
+        || !name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$' | b'.'))
         || !text(class.span).ends_with(';')
     {
         return None;
@@ -237,7 +248,9 @@ fn signature_form(source: &str, it: &ExpressionStatement<'_>) -> Option<(u32, u3
     let [class, thunk] = &call.arguments[..] else {
         return None;
     };
-    let (Some(class), Some(Expression::ArrowFunctionExpression(arrow))) = (class.as_expression(), thunk.as_expression()) else {
+    let (Some(class), Some(Expression::ArrowFunctionExpression(arrow))) =
+        (class.as_expression(), thunk.as_expression())
+    else {
         return None;
     };
     if arrow.r#async || !arrow.params.items.is_empty() {
@@ -253,7 +266,10 @@ fn signature_form(source: &str, it: &ExpressionStatement<'_>) -> Option<(u32, u3
     let [ObjectPropertyKind::ObjectProperty(proto), second, ..] = &object.properties[..] else {
         return None;
     };
-    if proto.computed || proto.shorthand || !matches!(&proto.key, PropertyKey::StaticIdentifier(k) if k.name == "__proto__") {
+    if proto.computed
+        || proto.shorthand
+        || !matches!(&proto.key, PropertyKey::StaticIdentifier(k) if k.name == "__proto__")
+    {
         return None;
     }
     let Expression::CallExpression(get) = &proto.value else {
@@ -274,18 +290,27 @@ fn signature_form(source: &str, it: &ExpressionStatement<'_>) -> Option<(u32, u3
     // when read twice).
     if sup.property.name != "__proto__"
         || text(sup.object.span()) != c
-        || !c.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$' | b'.'))
+        || !c
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'$' | b'.'))
     {
         return None;
     }
-    Some((call.span.start, second.span().start, format!("t$G({}, {}, {c}, () => ({{", setter.name, getter.name)))
+    Some((
+        call.span.start,
+        second.span().start,
+        format!("t$G({}, {}, {c}, () => ({{", setter.name, getter.name),
+    ))
 }
 
 /// The prologue of a generic constructor, `X.$ti = X.$ti || t || G(X);`
 /// (`G` is `dart.getReifiedType`, maybe flattened), with `X` and `t` plain
 /// names: (start, end, `X`, `t`, text of `G`). [`apply`] turns the most
 /// common `G` into `t$Q(X, t)`.
-fn type_args_form(source: &str, it: &ExpressionStatement<'_>) -> Option<(u32, u32, String, String, String)> {
+fn type_args_form(
+    source: &str,
+    it: &ExpressionStatement<'_>,
+) -> Option<(u32, u32, String, String, String)> {
     use oxc_ast::ast::LogicalOperator;
     let Expression::AssignmentExpression(a) = &it.expression else {
         return None;
@@ -313,7 +338,8 @@ fn type_args_form(source: &str, it: &ExpressionStatement<'_>) -> Option<(u32, u3
     };
     let text = |s: oxc_span::Span| &source[s.start as usize..s.end as usize];
     let x = text(left.object.span());
-    let simple = |e: &Expression<'_>| matches!(e, Expression::Identifier(_) | Expression::ThisExpression(_));
+    let simple =
+        |e: &Expression<'_>| matches!(e, Expression::Identifier(_) | Expression::ThisExpression(_));
     if a.operator != AssignmentOperator::Assign
         || outer.operator != LogicalOperator::Or
         || inner.operator != LogicalOperator::Or
@@ -321,12 +347,23 @@ fn type_args_form(source: &str, it: &ExpressionStatement<'_>) -> Option<(u32, u3
         || read.property.name != "$ti"
         || !simple(&left.object)
         || text(read.object.span()) != x
-        || arg.as_expression().is_none_or(|e| !simple(e) || text(e.span()) != x)
-        || !matches!(&call.callee, Expression::Identifier(_) | Expression::StaticMemberExpression(_))
+        || arg
+            .as_expression()
+            .is_none_or(|e| !simple(e) || text(e.span()) != x)
+        || !matches!(
+            &call.callee,
+            Expression::Identifier(_) | Expression::StaticMemberExpression(_)
+        )
     {
         return None;
     }
-    Some((it.span.start, it.span.end, x.to_string(), t.name.to_string(), text(call.callee.span()).to_string()))
+    Some((
+        it.span.start,
+        it.span.end,
+        x.to_string(),
+        t.name.to_string(),
+        text(call.callee.span()).to_string(),
+    ))
 }
 
 /// The prologue of a named parameter, `o && "k" in o ? o.k : d`, with `d` a
@@ -412,7 +449,8 @@ pub fn apply(source: &str) -> Result<String, String> {
         recipes: Vec::new(),
         type_args: Vec::new(),
         merged: std::collections::HashSet::new(),
-        merge_constructors: std::env::var("DARTFORGE_JSPROD_CLASS_CONSTRUCTOR").map_or(true, |v| v != "0"),
+        merge_constructors: std::env::var("DARTFORGE_JSPROD_CLASS_CONSTRUCTOR")
+            .map_or(true, |v| v != "0"),
     };
     a.visit_program(&parsed.program);
     // The generic constructor prologue through `t$Q`, for the most common
@@ -423,16 +461,21 @@ pub fn apply(source: &str) -> Result<String, String> {
     for (_, _, _, _, g) in &a.type_args {
         *by_callee.entry(g.as_str()).or_default() += 1;
     }
-    if let Some((g, n)) = by_callee.iter().max_by_key(|(g, n)| (**n, std::cmp::Reverse(**g)))
-        && *n >= 4 {
-            let g = g.to_string();
-            helpers.push_str(&format!("var t$Q = function(o, t) {{ o.$ti = o.$ti || t || {g}(o); }};\n"));
-            for (i, f, x, t, callee) in &a.type_args {
-                if *callee == g {
-                    a.edits.push((*i, *f, format!("t$Q({x}, {t});")));
-                }
+    if let Some((g, n)) = by_callee
+        .iter()
+        .max_by_key(|(g, n)| (**n, std::cmp::Reverse(**g)))
+        && *n >= 4
+    {
+        let g = g.to_string();
+        helpers.push_str(&format!(
+            "var t$Q = function(o, t) {{ o.$ti = o.$ti || t || {g}(o); }};\n"
+        ));
+        for (i, f, x, t, callee) in &a.type_args {
+            if *callee == g {
+                a.edits.push((*i, *f, format!("t$Q({x}, {t});")));
             }
         }
+    }
     // The program's closed recipes evaluated once: a repeated `t$R("R")`
     // becomes the variable `t$T…`, declared right after the SDK (the rti
     // universe already exists, and the result is the same canonical object).
@@ -529,14 +572,20 @@ mod tests {
         assert!(s.contains("C = t$C(class C extends P {\n  m() { return 1; }\n}, function(x) {\n  this.x = x;\n});"), "{s}");
         assert!(s.contains("t$P(C.n = function() {}, C);"), "{s}");
         // Not adjacent: the usual prototype form.
-        assert!(s.contains("D = class {};\nf();\nt$P(D.new = function() {}, D);"), "{s}");
+        assert!(
+            s.contains("D = class {};\nf();\nt$P(D.new = function() {}, D);"),
+            "{s}"
+        );
     }
 
     #[test]
     fn generic_constructor_prologue() {
         let js = "(function () {\nvar C = class {};\nfunction f(_ti) { let r = this; r.$ti = r.$ti || _ti || G(r); }\nfunction g(_ti) { this.$ti = this.$ti || _ti || G(this); }\nfunction h(_ti) { this.$ti = this.$ti || _ti || G(this); }\nfunction i(_ti) { this.$ti = this.$ti || _ti || G(this); }\nfunction j(_ti) { this.$ti = this.$ti || _ti || H(this); }\n})();\n";
         let s = apply(js).unwrap();
-        assert!(s.contains("var t$Q = function(o, t) { o.$ti = o.$ti || t || G(o); };"), "{s}");
+        assert!(
+            s.contains("var t$Q = function(o, t) { o.$ti = o.$ti || t || G(o); };"),
+            "{s}"
+        );
         assert!(s.contains("let r = this; t$Q(r, _ti); }"), "{s}");
         assert!(s.contains("{ t$Q(this, _ti); }"), "{s}");
         assert!(s.contains("this.$ti = this.$ti || _ti || H(this);"), "{s}");
@@ -546,7 +595,13 @@ mod tests {
     fn class_signature() {
         let js = "(function () {\nvar C = class {};\nS(C, () => ({__proto__: G(C.__proto__), m: _ti => R, [k]: X}));\nS(C, () => ({__proto__: G(D.__proto__), m: X}));\n})();\n";
         let s = apply(js).unwrap();
-        assert!(s.contains("t$G(S, G, C, () => ({m: _ti => R, [k]: X}));"), "{s}");
-        assert!(s.contains("S(C, () => ({__proto__: G(D.__proto__), m: X}));"), "{s}");
+        assert!(
+            s.contains("t$G(S, G, C, () => ({m: _ti => R, [k]: X}));"),
+            "{s}"
+        );
+        assert!(
+            s.contains("S(C, () => ({__proto__: G(D.__proto__), m: X}));"),
+            "{s}"
+        );
     }
 }

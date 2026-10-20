@@ -15,34 +15,51 @@
 //! - **Memory tracking**: The [`TypeTable`] continuously computes its `payload_bytes`
 //!   for LSP plateau monitoring and compiler measurements.
 
-/// The `typedef` that reaches itself (`TypeAliasSelfReferenceFinder`).
-pub mod self_reference;
-pub mod raw_cycles;
 pub mod a_main;
 pub mod annotations;
-pub mod optimization_annotations;
 pub mod best_practices;
+pub mod bound_checks;
 pub mod bounds;
 pub mod codes;
-pub mod constant;
 pub mod const_eval;
+pub mod constant;
 pub mod constraints;
-pub mod dump;
 pub mod display;
+pub mod dump;
+pub mod extension_types;
+pub mod field_promotion;
+pub mod hierarchy;
+pub mod inference;
+pub mod inheritance;
+pub mod ops;
+pub mod optimization_annotations;
+pub mod override_checks;
+pub mod parameters;
 pub mod phase_access;
+pub mod phase_catch_error;
 pub mod phase_deprecated;
-pub mod phase_inheritance;
+pub mod phase_do_not_store;
 pub mod phase_ffi;
 pub mod phase_generics;
+pub mod phase_inheritance;
+pub mod phase_literal;
+pub mod phase_mixins;
 pub mod phase_override;
 pub mod phase_required;
 pub mod phase_result;
 pub mod phase_sdk;
+pub mod phase_strict;
 pub mod phase_super;
-pub mod hierarchy;
-pub mod inheritance;
-pub mod inference;
-pub mod bound_checks;
+pub mod phase_unused;
+pub mod raw_cycles;
+pub mod redirection;
+pub mod resolve;
+pub mod resolved;
+pub mod scope;
+/// The `typedef` that reaches itself (`TypeAliasSelfReferenceFinder`).
+pub mod self_reference;
+pub mod subtyping;
+pub mod table;
 pub mod typed_lints;
 pub mod typed_lints2;
 pub mod typed_lints3;
@@ -52,38 +69,26 @@ pub mod typed_lints6;
 pub mod typed_lints7;
 pub mod typed_lints8;
 pub mod typed_lints9;
-pub mod phase_catch_error;
-pub mod phase_do_not_store;
-pub mod phase_unused;
-pub mod phase_literal;
-pub mod phase_mixins;
-pub mod phase_strict;
-pub mod ops;
-pub mod parameters;
-pub mod field_promotion;
-pub mod redirection;
-pub mod resolve;
-pub mod resolved;
-pub mod scope;
-pub mod override_checks;
-pub mod subtyping;
-pub mod table;
-pub mod extension_types;
 pub mod variance;
 
 pub use codes::*;
 pub use constant::{ConstValue, ConstantEvaluator};
 pub use constraints::GenericInferrer;
-pub use hierarchy::{build_class_hierarchy, ClassHierarchy, ClassHierarchyData};
-pub use inference::{body_at_offset, unit_bodies, applicable_extensions, applicable_extensions_among, infer_bodies, BodyInferrer, BodyRef, InferredBodies, SharedInference};
+pub use hierarchy::{ClassHierarchy, ClassHierarchyData, build_class_hierarchy};
+pub use inference::{
+    BodyInferrer, BodyRef, InferredBodies, SharedInference, applicable_extensions,
+    applicable_extensions_among, body_at_offset, infer_bodies, unit_bodies,
+};
 pub use ops::{erase_extension_type, glb, lub, non_nullable, normalize, nullable, substitute};
 pub use resolve::{
     ClassTypeData, ExtensionTypeData, FunctionTypeData, OutlineResolver, OutlineTypes,
     ParameterTypeData, TypedefTypeData, VariableTypeData,
 };
-pub use resolved::{BodyTypes, ProbedScope, LocalId, VisibleLocal, MemberRef, Resolved, UnitBodyTypes};
+pub use resolved::{
+    BodyTypes, LocalId, MemberRef, ProbedScope, Resolved, UnitBodyTypes, VisibleLocal,
+};
 pub use scope::ordered_supertypes;
-pub use subtyping::{is_subtype, SubtypeEnv};
+pub use subtyping::{SubtypeEnv, is_subtype};
 pub use table::{
     CoreTypes, Type, TypeId, TypeParamId, TypeParamOwner, TypeParameterData, TypeTable, Variance,
 };
@@ -115,7 +120,11 @@ pub fn resolve_outline_with_units(
     interner: &Interner,
     table: &mut TypeTable,
     core: &CoreTypes,
-) -> (OutlineTypes, Vec<Diagnostic>, Vec<dartforge_elements::model::UnitId>) {
+) -> (
+    OutlineTypes,
+    Vec<Diagnostic>,
+    Vec<dartforge_elements::model::UnitId>,
+) {
     OutlineResolver::new(program, interner, table, core).resolve_all_with_units()
 }
 
@@ -163,7 +172,11 @@ pub fn infer_library_bodies_with_units(
     outline: &mut OutlineTypes,
     libraries: &[dartforge_elements::model::LibraryId],
     record_locals: bool,
-) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<dartforge_elements::model::UnitId>>) {
+) -> (
+    BodyTypes,
+    Vec<Diagnostic>,
+    Vec<Option<dartforge_elements::model::UnitId>>,
+) {
     let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
     inferrer.only_libraries = Some(libraries.iter().map(|l| l.0).collect());
     inferrer.record_locals = record_locals;
@@ -183,7 +196,11 @@ pub fn infer_library_bodies_shared(
     libraries: &[dartforge_elements::model::LibraryId],
     record_locals: bool,
     shared: &SharedInference,
-) -> (BodyTypes, Vec<Diagnostic>, Vec<Option<dartforge_elements::model::UnitId>>) {
+) -> (
+    BodyTypes,
+    Vec<Diagnostic>,
+    Vec<Option<dartforge_elements::model::UnitId>>,
+) {
     let mut inferrer = BodyInferrer::new(program, interner, table, core, outline);
     inferrer.only_libraries = Some(libraries.iter().map(|l| l.0).collect());
     inferrer.record_locals = record_locals;

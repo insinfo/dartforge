@@ -8,9 +8,9 @@
 //! `validatePubspec`. The existence of files is checked on disk.
 //! Written without compiling or running (2026-10-05).
 
+use super::Report;
 use super::codes_g::pubspec as c;
 use super::yaml::{self, Node, Value};
-use super::Report;
 use dartforge_diagnostics::Span;
 use std::path::{Path, PathBuf};
 
@@ -101,7 +101,8 @@ impl Ctx<'_> {
     fn validate_dependencies(&mut self, root: &Node) {
         let regular = self.declared_dependencies(root, "dependencies");
         let dev = self.declared_dependencies(root, "dev_dependencies");
-        let publishable = root.field("version").is_some_and(|v| !v.is_null()) && root.field("publish_to").and_then(Node::text) != Some("none");
+        let publishable = root.field("version").is_some_and(|v| !v.is_null())
+            && root.field("publish_to").and_then(Node::text) != Some("none");
         for (_, value) in regular {
             self.path_entries(value, publishable);
         }
@@ -132,9 +133,15 @@ impl Ctx<'_> {
         if p.is_dir() || p.is_file() {
             return true;
         }
-        let (Some(name), Some(parent)) = (p.file_name(), p.parent()) else { return false };
-        let Ok(children) = std::fs::read_dir(parent) else { return false };
-        children.flatten().any(|f| f.path().is_dir() && f.path().join(name).is_file())
+        let (Some(name), Some(parent)) = (p.file_name(), p.parent()) else {
+            return false;
+        };
+        let Ok(children) = std::fs::read_dir(parent) else {
+            return false;
+        };
+        children
+            .flatten()
+            .any(|f| f.path().is_dir() && f.path().join(name).is_file())
     }
 
     /// `_validateAssetPath`.
@@ -143,14 +150,20 @@ impl Ctx<'_> {
             return;
         }
         if !self.asset_exists(&path_in(self.folder, value)) {
-            let code = if value.ends_with('/') { &c::ASSET_DIRECTORY_DOES_NOT_EXIST } else { &c::ASSET_DOES_NOT_EXIST };
+            let code = if value.ends_with('/') {
+                &c::ASSET_DIRECTORY_DOES_NOT_EXIST
+            } else {
+                &c::ASSET_DOES_NOT_EXIST
+            };
             self.report(code, node, &[value]);
         }
     }
 
     /// `flutterValidator`.
     fn flutter(&mut self, root: &Node) {
-        let Some(flutter) = root.field("flutter") else { return };
+        let Some(flutter) = root.field("flutter") else {
+            return;
+        };
         if flutter.map().is_none() {
             // An empty `flutter:` is accepted.
             if !flutter.is_null() {
@@ -158,7 +171,9 @@ impl Ctx<'_> {
             }
             return;
         }
-        let Some(assets) = flutter.field("assets") else { return };
+        let Some(assets) = flutter.field("assets") else {
+            return;
+        };
         let Some(items) = assets.list() else {
             self.report(&c::ASSET_FIELD_NOT_LIST, assets, &[]);
             return;
@@ -192,7 +207,11 @@ impl Ctx<'_> {
     /// `nameValidator`, for a document that is a map.
     fn validate_name(&mut self, root: &Node) {
         match root.field("name") {
-            None => self.out.push(Report::new(&c::MISSING_NAME, Span { start: 0, end: 0 }, &[])),
+            None => self.out.push(Report::new(
+                &c::MISSING_NAME,
+                Span { start: 0, end: 0 },
+                &[],
+            )),
             Some(n) if n.text().is_none() => self.report(&c::NAME_NOT_STRING, n, &[]),
             Some(_) => {}
         }
@@ -200,7 +219,9 @@ impl Ctx<'_> {
 
     /// `screenshotsValidator`: the file of each `path:` exists.
     fn validate_screenshots(&mut self, root: &Node) {
-        let Some(items) = root.field("screenshots").and_then(Node::list) else { return };
+        let Some(items) = root.field("screenshots").and_then(Node::list) else {
+            return;
+        };
         for item in items {
             if let Some(p) = item.field("path")
                 && let Some(text) = p.text()
@@ -213,18 +234,25 @@ impl Ctx<'_> {
 
     /// `platformsValidator`.
     fn validate_platforms(&mut self, root: &Node, source: &str) {
-        let Some(platforms) = root.field("platforms") else { return };
+        let Some(platforms) = root.field("platforms") else {
+            return;
+        };
         let Some(pairs) = platforms.map() else {
             self.report(&c::INVALID_PLATFORMS_FIELD, platforms, &[]);
             return;
         };
         for (key, _) in pairs {
-            let known = key.text().is_some_and(|t| ["android", "ios", "linux", "macos", "web", "windows"].contains(&t));
+            let known = key.text().is_some_and(|t| {
+                ["android", "ios", "linux", "macos", "web", "windows"].contains(&t)
+            });
             if !known {
                 // The string, the number, or the node as written.
                 let shown = match &key.value {
                     Value::Text(t) | Value::Other(t) => t.clone(),
-                    _ => source.get(key.span.start..key.span.end).unwrap_or("").to_string(),
+                    _ => source
+                        .get(key.span.start..key.span.end)
+                        .unwrap_or("")
+                        .to_string(),
                 };
                 self.report(&c::UNKNOWN_PLATFORM, key, &[shown.as_str()]);
             }
@@ -238,7 +266,9 @@ impl Ctx<'_> {
 
     /// `workspaceValidator`.
     fn workspace(&mut self, root: &Node) {
-        let Some(field) = root.field("workspace") else { return };
+        let Some(field) = root.field("workspace") else {
+            return;
+        };
         let Some(items) = field.list() else {
             self.report(&c::WORKSPACE_FIELD_NOT_LIST, field, &[]);
             return;
@@ -269,11 +299,20 @@ impl Ctx<'_> {
 /// that lives in folder `folder`. A YAML syntax error is not reported here
 /// (the server treats the document as an empty map): only the name is missing.
 pub fn validate(source: &str, folder: &Path) -> Vec<Report> {
-    let mut ctx = Ctx { folder, out: Vec::new() };
+    let mut ctx = Ctx {
+        folder,
+        out: Vec::new(),
+    };
     let root = match yaml::parse(source) {
         Ok(Some(node)) if node.map().is_some() => node,
         // A document that is not a map: only `missing_name`, at 0/0.
-        _ => return vec![Report::new(&c::MISSING_NAME, Span { start: 0, end: 0 }, &[])],
+        _ => {
+            return vec![Report::new(
+                &c::MISSING_NAME,
+                Span { start: 0, end: 0 },
+                &[],
+            )];
+        }
     };
     ctx.validate_dependencies(&root);
     ctx.validate_fields(&root);
@@ -293,14 +332,26 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         // A folder that does not exist: every relative path is missing.
         let folder = Path::new("folder-that-does-not-exist-for-the-test");
-        validate(source, folder).into_iter().map(|r| (r.code.name, source[r.span.start..r.span.end].to_string())).collect()
+        validate(source, folder)
+            .into_iter()
+            .map(|r| (r.code.name, source[r.span.start..r.span.end].to_string()))
+            .collect()
     }
 
     #[test]
     fn name_and_fields() {
-        assert_eq!(findings("version: 1.0.0\n"), vec![("missing_name", String::new())]);
-        assert_eq!(findings("name: 3\n"), vec![("name_not_string", "3".to_string())]);
-        assert_eq!(findings("name: a\nauthor: eu\n"), vec![("deprecated_field", "author".to_string())]);
+        assert_eq!(
+            findings("version: 1.0.0\n"),
+            vec![("missing_name", String::new())]
+        );
+        assert_eq!(
+            findings("name: 3\n"),
+            vec![("name_not_string", "3".to_string())]
+        );
+        assert_eq!(
+            findings("name: a\nauthor: eu\n"),
+            vec![("deprecated_field", "author".to_string())]
+        );
         assert_eq!(findings("- a\n"), vec![("missing_name", String::new())]);
     }
 
@@ -316,17 +367,29 @@ mod tests {
                 ("unnecessary_dev_dependency", "b".to_string()),
             ]
         );
-        assert_eq!(findings("name: a\ndependencies: 3\n"), vec![("dependencies_field_not_map", "3".to_string())]);
+        assert_eq!(
+            findings("name: a\ndependencies: 3\n"),
+            vec![("dependencies_field_not_map", "3".to_string())]
+        );
         // With a backslash, only `path_not_posix`.
-        assert_eq!(findings("name: a\ndependencies:\n  b:\n    path: ..\\b\n"), vec![("path_not_posix", "..\\b".to_string())]);
+        assert_eq!(
+            findings("name: a\ndependencies:\n  b:\n    path: ..\\b\n"),
+            vec![("path_not_posix", "..\\b".to_string())]
+        );
     }
 
     #[test]
     fn platforms_and_workspace() {
         assert_eq!(
             findings("name: a\nplatforms:\n  android:\n  fuchsia: x\n"),
-            vec![("unknown_platform", "fuchsia".to_string()), ("platform_value_disallowed", "x".to_string())]
+            vec![
+                ("unknown_platform", "fuchsia".to_string()),
+                ("platform_value_disallowed", "x".to_string())
+            ]
         );
-        assert_eq!(findings("name: a\nworkspace: x\n"), vec![("workspace_field_not_list", "x".to_string())]);
+        assert_eq!(
+            findings("name: a\nworkspace: x\n"),
+            vec![("workspace_field_not_list", "x".to_string())]
+        );
     }
 }

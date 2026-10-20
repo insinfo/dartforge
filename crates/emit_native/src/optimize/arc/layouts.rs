@@ -40,7 +40,10 @@ mod tests {
     #[test]
     fn invalid_layout_does_not_publish_module_and_tracing_does_not_apply_facts() {
         for case in 0..5 {
-            let mut m = Module { arc_memory: true, ..Module::default() };
+            let mut m = Module {
+                arc_memory: true,
+                ..Module::default()
+            };
             m.classes.push(ClassDef {
                 id: 7,
                 name: "C".into(),
@@ -80,20 +83,14 @@ mod tests {
             }
             let before = format!("{m:?}/{plans:?}");
             if case == 0 {
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 1)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 1));
             } else {
                 assert!(prepare_arc_dart_module(&mut m, &mut plans).is_err());
                 assert_eq!(format!("{m:?}/{plans:?}"), before);
             }
             m.arc_memory = false;
             let before = format!("{m:?}/{plans:?}");
-            assert_eq!(
-                prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                (0, 0)
-            );
+            assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             assert_eq!(format!("{m:?}/{plans:?}"), before);
         }
     }

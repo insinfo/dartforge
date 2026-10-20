@@ -15,17 +15,29 @@ pub(super) fn tuple_read(
     ty: Type,
     roles: &HashMap<ValueId, DartEntryVector>,
 ) -> bool {
-    let Instruction::LoadIndexed { base: Operand::Val(base), index: Operand::Val(i) } = inst else {
+    let Instruction::LoadIndexed {
+        base: Operand::Val(base),
+        index: Operand::Val(i),
+    } = inst
+    else {
         return false;
     };
     if ty != Type::I64 || roles.get(base) != Some(&DartEntryVector::Arguments) {
         return false;
     }
-    let def = |x: &ValueId| f.blocks.iter().flat_map(|b| &b.instructions).find(|(v, _, _)| v == x).map(|(_, i, _)| i);
+    let def = |x: &ValueId| {
+        f.blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .find(|(v, _, _)| v == x)
+            .map(|(_, i, _)| i)
+    };
     // `desc[k]` read from the declared descriptor.
-    let descriptor_read = |o: &Operand, k: i64| matches!(o, Operand::Val(x)
+    let descriptor_read = |o: &Operand, k: i64| {
+        matches!(o, Operand::Val(x)
         if matches!(def(x), Some(Instruction::LoadIndexed { base: Operand::Val(d), index: Operand::Constant(Constant::Int(n)) })
-            if *n == k && roles.get(d) == Some(&DartEntryVector::Descriptor)));
+            if *n == k && roles.get(d) == Some(&DartEntryVector::Descriptor)))
+    };
     matches!(def(i), Some(Instruction::Add(a, b)) if descriptor_read(a, 0) && descriptor_read(b, 1))
 }
 
@@ -39,17 +51,40 @@ pub(super) fn checked_read(inst: &Instruction, roles: &HashMap<ValueId, DartEntr
 
 pub(super) fn prepare_reads(module: &Module, functions: &mut [Function]) -> Result<(), String> {
     for f in functions {
-        let Some(roles) = module.dart_vector_parameters.get(&f.symbol) else { continue; };
-        let descriptors: Vec<_> = roles.iter().filter(|(_, p)| **p == DartEntryVector::Descriptor).map(|(v, _)| *v).collect();
+        let Some(roles) = module.dart_vector_parameters.get(&f.symbol) else {
+            continue;
+        };
+        let descriptors: Vec<_> = roles
+            .iter()
+            .filter(|(_, p)| **p == DartEntryVector::Descriptor)
+            .map(|(v, _)| *v)
+            .collect();
         for (v, inst, ty) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
-            let Instruction::LoadIndexed { base: Operand::Val(base), index } = inst else { continue; };
-            if *ty != Type::Ref || roles.get(base) != Some(&DartEntryVector::Arguments) { continue; }
-            let [descriptor] = descriptors.as_slice() else {
-                return Err(format!("ABI vectors: {} v{} without a single descriptor", f.symbol, v.0));
+            let Instruction::LoadIndexed {
+                base: Operand::Val(base),
+                index,
+            } = inst
+            else {
+                continue;
             };
-            *inst = Instruction::CallRuntime { name: READ_ARGUMENT.into(), args: vec![
-                (Operand::Val(*base), Type::Ptr), (Operand::Val(*descriptor), Type::Ptr), (index.clone(), Type::I64),
-            ], ret_ty: Type::Ref };
+            if *ty != Type::Ref || roles.get(base) != Some(&DartEntryVector::Arguments) {
+                continue;
+            }
+            let [descriptor] = descriptors.as_slice() else {
+                return Err(format!(
+                    "ABI vectors: {} v{} without a single descriptor",
+                    f.symbol, v.0
+                ));
+            };
+            *inst = Instruction::CallRuntime {
+                name: READ_ARGUMENT.into(),
+                args: vec![
+                    (Operand::Val(*base), Type::Ptr),
+                    (Operand::Val(*descriptor), Type::Ptr),
+                    (index.clone(), Type::I64),
+                ],
+                ret_ty: Type::Ref,
+            };
         }
     }
     Ok(())
@@ -69,9 +104,16 @@ pub(super) fn produce(
         }
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if matches!(inst, Instruction::CallRuntime { name, .. } if name == READ_ARGUMENT)
-                && (*ty != Type::Ref || module.dart_vector_parameters.get(&f.symbol)
-                    .is_none_or(|p| !checked_read(inst, p))) {
-                return Err(format!("ABI vectors: {} v{} without provenance of the read", f.symbol, v.0));
+                && (*ty != Type::Ref
+                    || module
+                        .dart_vector_parameters
+                        .get(&f.symbol)
+                        .is_none_or(|p| !checked_read(inst, p)))
+            {
+                return Err(format!(
+                    "ABI vectors: {} v{} without provenance of the read",
+                    f.symbol, v.0
+                ));
             }
         }
     }
@@ -89,17 +131,16 @@ pub(super) fn produce(
         if types.len() != f.params.len() {
             return Err(format!("ABI vectors: repeated parameters {sym_name}"));
         }
-        let mark =
-            |classes: &mut HashMap<ValueId, Ownership>, v: ValueId| -> Result<(), String> {
-                if classes.get(&v).is_some_and(|c| *c != Ownership::Trivial) {
-                    return Err(format!(
-                        "ABI vectors: {sym_name} v{} conflicts with ownership",
-                        v.0
-                    ));
-                }
-                classes.insert(v, Ownership::Trivial);
-                Ok(())
-            };
+        let mark = |classes: &mut HashMap<ValueId, Ownership>, v: ValueId| -> Result<(), String> {
+            if classes.get(&v).is_some_and(|c| *c != Ownership::Trivial) {
+                return Err(format!(
+                    "ABI vectors: {sym_name} v{} conflicts with ownership",
+                    v.0
+                ));
+            }
+            classes.insert(v, Ownership::Trivial);
+            Ok(())
+        };
         let mut ids: Vec<_> = roles.keys().copied().collect();
         ids.sort_by_key(|v| v.0);
         for v in ids {
@@ -121,24 +162,41 @@ pub(super) fn produce(
             mark(&mut plan.classes, v)?;
         }
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            if let Instruction::LoadIndexed { base: Operand::Val(base), index: Operand::Val(_) } = inst
+            if let Instruction::LoadIndexed {
+                base: Operand::Val(base),
+                index: Operand::Val(_),
+            } = inst
                 && *ty == Type::I64
                 && roles.get(base) == Some(&DartEntryVector::Arguments)
             {
                 if !tuple_read(f, inst, *ty, roles) {
-                    return Err(format!("ABI vectors: {sym_name} v{} reads a scalar word outside the tuple slot", v.0));
+                    return Err(format!(
+                        "ABI vectors: {sym_name} v{} reads a scalar word outside the tuple slot",
+                        v.0
+                    ));
                 }
                 mark(&mut plan.classes, *v)?;
                 let effect = TokenEffect::default();
-                if plan.tokens.instructions.get(v).is_some_and(|e| *e != effect) {
-                    return Err(format!("ABI vectors: {sym_name} v{} conflicts with the read effect", v.0));
+                if plan
+                    .tokens
+                    .instructions
+                    .get(v)
+                    .is_some_and(|e| *e != effect)
+                {
+                    return Err(format!(
+                        "ABI vectors: {sym_name} v{} conflicts with the read effect",
+                        v.0
+                    ));
                 }
                 plan.tokens.instructions.insert(*v, effect);
                 continue;
             }
             if matches!(inst, Instruction::CallRuntime { name, .. } if name == READ_ARGUMENT) {
                 if *ty != Type::Ref || !checked_read(inst, roles) {
-                    return Err(format!("ABI vectors: {sym_name} v{} without an arguments/descriptor pair", v.0));
+                    return Err(format!(
+                        "ABI vectors: {sym_name} v{} without an arguments/descriptor pair",
+                        v.0
+                    ));
                 }
                 continue;
             }
@@ -175,7 +233,12 @@ pub(super) fn produce(
                 {
                     mark(&mut plan.classes, *v)?;
                     let effect = TokenEffect::default();
-                    if plan.tokens.instructions.get(v).is_some_and(|e| *e != effect) {
+                    if plan
+                        .tokens
+                        .instructions
+                        .get(v)
+                        .is_some_and(|e| *e != effect)
+                    {
                         return Err(format!(
                             "ABI vectors: {sym_name} v{} conflicts with the read effect",
                             v.0
@@ -184,9 +247,15 @@ pub(super) fn produce(
                     plan.tokens.instructions.insert(*v, effect);
                 }
                 // The adapter rejects destinations without a readonly uniform contract.
-                Instruction::CallSelectorForward { recv, args, desc, .. }
-                | Instruction::CallClosureForward { closure: recv, args, desc, .. }
-                    if descriptor(desc) && !descriptor(recv) && !descriptor(args) => {}
+                Instruction::CallSelectorForward {
+                    recv, args, desc, ..
+                }
+                | Instruction::CallClosureForward {
+                    closure: recv,
+                    args,
+                    desc,
+                    ..
+                } if descriptor(desc) && !descriptor(recv) && !descriptor(args) => {}
                 // Read-only native queries of the ABI; their call/representation
                 // contracts are still checked by the catalog.
                 Instruction::CallRuntime { name, args, .. }
@@ -231,19 +300,49 @@ mod tests {
             let mut m = Module::new();
             m.arc_memory = true;
             let val = |n| Operand::Val(ValueId(n));
-            let read = |base, k| Instruction::LoadIndexed { base: val(base), index: Operand::Constant(Constant::Int(k)) };
-            let index = match case { 1 => val(2), _ => val(4) };
+            let read = |base, k| Instruction::LoadIndexed {
+                base: val(base),
+                index: Operand::Constant(Constant::Int(k)),
+            };
+            let index = match case {
+                1 => val(2),
+                _ => val(4),
+            };
             let tuple_base = if case == 2 { 1 } else { 0 };
-            m.functions.push(Function { symbol: "generica".into(), name: "generica".into(), debug_info: None,
-                params: vec![(ValueId(0), "args".into(), Type::Ptr), (ValueId(1), "desc".into(), Type::Ptr)],
-                return_ty: Type::I64, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                    (ValueId(2), read(1, 0), Type::I64),
-                    (ValueId(3), read(1, 1), Type::I64),
-                    (ValueId(4), Instruction::Add(val(2), val(3)), Type::I64),
-                    (ValueId(5), Instruction::LoadIndexed { base: val(tuple_base), index }, Type::I64),
-                ], terminator: Terminator::Return(Some(val(5))) }] });
-            m.dart_vector_parameters.insert("generica".into(), HashMap::from([
-                (ValueId(0), DartEntryVector::Arguments), (ValueId(1), DartEntryVector::Descriptor)]));
+            m.functions.push(Function {
+                symbol: "generica".into(),
+                name: "generica".into(),
+                debug_info: None,
+                params: vec![
+                    (ValueId(0), "args".into(), Type::Ptr),
+                    (ValueId(1), "desc".into(), Type::Ptr),
+                ],
+                return_ty: Type::I64,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (ValueId(2), read(1, 0), Type::I64),
+                        (ValueId(3), read(1, 1), Type::I64),
+                        (ValueId(4), Instruction::Add(val(2), val(3)), Type::I64),
+                        (
+                            ValueId(5),
+                            Instruction::LoadIndexed {
+                                base: val(tuple_base),
+                                index,
+                            },
+                            Type::I64,
+                        ),
+                    ],
+                    terminator: Terminator::Return(Some(val(5))),
+                }],
+            });
+            m.dart_vector_parameters.insert(
+                "generica".into(),
+                HashMap::from([
+                    (ValueId(0), DartEntryVector::Arguments),
+                    (ValueId(1), DartEntryVector::Descriptor),
+                ]),
+            );
             let mut plans = HashMap::from([("generica".into(), DartFunctionPlan::default())]);
             let r = produce(&m, &mut plans);
             if case == 0 {
@@ -258,23 +357,62 @@ mod tests {
     #[test]
     fn ref_argument_requires_original_roles_and_rechecks_prepared_call() {
         for case in 0..5 {
-            let mut m = Module::new(); m.arc_memory = true;
-            m.functions.push(Function { symbol: "entrada".into(), name: "entrada".into(), debug_info: None,
-                params: vec![(ValueId(0), "args".into(), Type::Ptr), (ValueId(1), "desc".into(), Type::Ptr)],
-                return_ty: Type::Ref, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                    (ValueId(2), Instruction::LoadIndexed { base: Operand::Val(ValueId(0)), index: Operand::Constant(Constant::Int(0)) }, Type::Ref),
-                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }] });
-            m.dart_vector_parameters.insert("entrada".into(), HashMap::from([
-                (ValueId(0), DartEntryVector::Arguments), (ValueId(1), DartEntryVector::Descriptor)]));
-            let mut p = DartFunctionPlan::default(); p.tokens.ret = TokenReturn::Owned;
+            let mut m = Module::new();
+            m.arc_memory = true;
+            m.functions.push(Function {
+                symbol: "entrada".into(),
+                name: "entrada".into(),
+                debug_info: None,
+                params: vec![
+                    (ValueId(0), "args".into(), Type::Ptr),
+                    (ValueId(1), "desc".into(), Type::Ptr),
+                ],
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(2),
+                        Instruction::LoadIndexed {
+                            base: Operand::Val(ValueId(0)),
+                            index: Operand::Constant(Constant::Int(0)),
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+                }],
+            });
+            m.dart_vector_parameters.insert(
+                "entrada".into(),
+                HashMap::from([
+                    (ValueId(0), DartEntryVector::Arguments),
+                    (ValueId(1), DartEntryVector::Descriptor),
+                ]),
+            );
+            let mut p = DartFunctionPlan::default();
+            p.tokens.ret = TokenReturn::Owned;
             let mut plans = HashMap::from([("entrada".into(), p)]);
             prepare_arc_dart_module(&mut m, &mut plans).unwrap();
-            assert!(checked_read(&m.functions[0].blocks[0].instructions[0].1, &m.dart_vector_parameters["entrada"]));
+            assert!(checked_read(
+                &m.functions[0].blocks[0].instructions[0].1,
+                &m.dart_vector_parameters["entrada"]
+            ));
             assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             match case {
                 1 => m.dart_vector_parameters.clear(),
-                2 => if let Instruction::CallRuntime { args, .. } = &mut m.functions[0].blocks[0].instructions[0].1 { args.swap(0, 1); },
-                3 => if let Instruction::CallRuntime { args, .. } = &mut m.functions[0].blocks[0].instructions[0].1 { args[0].0 = Operand::Constant(Constant::Int(0)); },
+                2 => {
+                    if let Instruction::CallRuntime { args, .. } =
+                        &mut m.functions[0].blocks[0].instructions[0].1
+                    {
+                        args.swap(0, 1);
+                    }
+                }
+                3 => {
+                    if let Instruction::CallRuntime { args, .. } =
+                        &mut m.functions[0].blocks[0].instructions[0].1
+                    {
+                        args[0].0 = Operand::Constant(Constant::Int(0));
+                    }
+                }
                 4 => m.functions[0].blocks[0].instructions[0].2 = Type::I64,
                 _ => {}
             }

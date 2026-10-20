@@ -38,7 +38,10 @@ mod impact;
 
 pub use constants::Constants;
 
-use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, VariableId, VariableRef};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program,
+    VariableId, VariableRef,
+};
 use dartforge_frontend::ast;
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::resolve::OutlineTypes;
@@ -61,7 +64,11 @@ impl Hierarchy {
     pub fn new(p: &Program) -> Hierarchy {
         let n = p.classes.len();
         let words = n.div_ceil(64).max(1);
-        let mut h = Hierarchy { words, bits: vec![0; n * words], lists: vec![Vec::new(); n] };
+        let mut h = Hierarchy {
+            words,
+            bits: vec![0; n * words],
+            lists: vec![Vec::new(); n],
+        };
         // 0 = to do, 1 = in progress (cycle: the class keeps what it already
         // has), 2 = done.
         let mut state = vec![0u8; n];
@@ -102,7 +109,13 @@ impl Hierarchy {
                 state[c] = 1;
                 stack.push((c, true));
                 let k = p.class(ClassId(c as u32));
-                for q in k.supertype_class.iter().chain(k.mixin_classes.iter()).chain(k.interface_classes.iter()).chain(k.on_classes.iter()) {
+                for q in k
+                    .supertype_class
+                    .iter()
+                    .chain(k.mixin_classes.iter())
+                    .chain(k.interface_classes.iter())
+                    .chain(k.on_classes.iter())
+                {
                     let q = q.0 as usize;
                     if q < n && state[q] == 0 {
                         stack.push((q, false));
@@ -135,7 +148,10 @@ impl Hierarchy {
     }
     /// The supertypes of `c`, itself included, in id order.
     pub fn supertypes(&self, c: ClassId) -> &[ClassId] {
-        self.lists.get(c.0 as usize).map(Vec::as_slice).unwrap_or(&[])
+        self.lists
+            .get(c.0 as usize)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 }
 
@@ -150,8 +166,14 @@ fn reaches(h: &Hierarchy, inst_sub: &[Vec<ClassId>], member: ClassId, cone: Clas
     if h.is_subtype(member, cone) || h.is_subtype(cone, member) {
         return true;
     }
-    let of_cone = inst_sub.get(cone.0 as usize).map(Vec::as_slice).unwrap_or(&[]);
-    let of_member = inst_sub.get(member.0 as usize).map(Vec::as_slice).unwrap_or(&[]);
+    let of_cone = inst_sub
+        .get(cone.0 as usize)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let of_member = inst_sub
+        .get(member.0 as usize)
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
     if of_cone.len() <= of_member.len() {
         of_cone.iter().any(|s| h.is_subtype(*s, member))
     } else {
@@ -254,7 +276,10 @@ pub struct World {
 
 impl World {
     pub fn class_level(&self, c: ClassId) -> ClassLevel {
-        self.classes.get(c.0 as usize).copied().unwrap_or(ClassLevel::Dead)
+        self.classes
+            .get(c.0 as usize)
+            .copied()
+            .unwrap_or(ClassLevel::Dead)
     }
     pub fn is_live_function(&self, f: FunctionElementId) -> bool {
         self.functions.get(f.0 as usize).copied().unwrap_or(false)
@@ -280,11 +305,17 @@ impl World {
     /// to all classes; a restricted one, only to the classes reachable from
     /// the receiver's cone (the same rule as the fixed point, `reaches`).
     pub fn selector_live_for(&self, _program: &Program, name: &str, class: ClassId) -> bool {
-        if self.selectors.contains(name) || (self.template_selectors.contains(name) && !self.dartx_classes.contains(&class)) {
+        if self.selectors.contains(name)
+            || (self.template_selectors.contains(name) && !self.dartx_classes.contains(&class))
+        {
             return true;
         }
-        let Some(cones) = self.sel_cone.get(name) else { return false };
-        cones.iter().any(|c| reaches(&self.hier, &self.inst_sub, class, *c))
+        let Some(cones) = self.sel_cone.get(name) else {
+            return false;
+        };
+        cones
+            .iter()
+            .any(|c| reaches(&self.hier, &self.inst_sub, class, *c))
     }
     /// The live selectors, in alphabetical order (the set is a `HashSet`).
     pub fn selectors(&self) -> impl Iterator<Item = &str> {
@@ -357,10 +388,16 @@ fn inlinable_constant_depth(p: &Program, v: VariableId, depth: usize) -> bool {
     }
     let (unit, init) = match var.node {
         VariableRef::TopLevel { unit, decl, index } => match &p.unit(unit).ast.decl(decl).kind {
-            ast::DeclKind::Variables(l) => (unit, l.variables.get(index).and_then(|x| x.initializer)),
+            ast::DeclKind::Variables(l) => {
+                (unit, l.variables.get(index).and_then(|x| x.initializer))
+            }
             _ => return false,
         },
-        VariableRef::Field { unit, member, index } => match &p.unit(unit).ast.member(member).kind {
+        VariableRef::Field {
+            unit,
+            member,
+            index,
+        } => match &p.unit(unit).ast.member(member).kind {
             ast::MemberKind::Field(l) => (unit, l.variables.get(index).and_then(|x| x.initializer)),
             _ => return false,
         },
@@ -369,9 +406,18 @@ fn inlinable_constant_depth(p: &Program, v: VariableId, depth: usize) -> bool {
     let Some(x) = init else { return false };
     fn literal(a: &ast::Ast, x: ast::ExprId) -> bool {
         match &a.expr(x).kind {
-            ast::ExprKind::Int(_) | ast::ExprKind::Double(_) | ast::ExprKind::Bool(_) | ast::ExprKind::Null => true,
+            ast::ExprKind::Int(_)
+            | ast::ExprKind::Double(_)
+            | ast::ExprKind::Bool(_)
+            | ast::ExprKind::Null => true,
             ast::ExprKind::String(lit) => lit.constant_value().is_some_and(|v| v.utf16_len() < 32),
-            ast::ExprKind::Unary { op: ast::UnaryOp::Neg, operand } => matches!(a.expr(*operand).kind, ast::ExprKind::Int(_) | ast::ExprKind::Double(_)),
+            ast::ExprKind::Unary {
+                op: ast::UnaryOp::Neg,
+                operand,
+            } => matches!(
+                a.expr(*operand).kind,
+                ast::ExprKind::Int(_) | ast::ExprKind::Double(_)
+            ),
             ast::ExprKind::Parenthesized(i) => literal(a, *i),
             _ => false,
         }
@@ -389,7 +435,9 @@ fn inlinable_constant_depth(p: &Program, v: VariableId, depth: usize) -> bool {
 /// The constant variable that the initializer `x` of `v` names with a plain
 /// identifier: a static of `v`'s class or a declaration of its library.
 pub fn const_alias(p: &Program, v: VariableId, a: &ast::Ast, x: ast::ExprId) -> Option<VariableId> {
-    let ast::ExprKind::Identifier(n) = &a.expr(x).kind else { return None };
+    let ast::ExprKind::Identifier(n) = &a.expr(x).kind else {
+        return None;
+    };
     let var = p.variable(v);
     let as_variable = |el: Element| match el {
         Element::Variable(t) => Some(t),
@@ -397,11 +445,16 @@ pub fn const_alias(p: &Program, v: VariableId, a: &ast::Ast, x: ast::ExprId) -> 
         _ => None,
     };
     if let Some(c) = var.class
-        && let Some(f) = p.class(c).static_members.get(&n.sym) {
-            return p.function(*f).variable;
-        }
+        && let Some(f) = p.class(c).static_members.get(&n.sym)
+    {
+        return p.function(*f).variable;
+    }
     let lib = p.library(var.library);
-    lib.declared.get(&n.sym).or_else(|| lib.scope.get(&n.sym)).and_then(|b| b.getter).and_then(as_variable)
+    lib.declared
+        .get(&n.sym)
+        .or_else(|| lib.scope.get(&n.sym))
+        .and_then(|b| b.getter)
+        .and_then(as_variable)
 }
 
 /// `@Native`/`@JsPeerInterface` classes of the SDK libraries (DDC's
@@ -415,7 +468,11 @@ fn native_classes(e: &WorldInput<'_>) -> HashSet<ClassId> {
         }
         let Some(d) = c.decl else { continue };
         let decl = p.unit(d.unit).ast.decl(d.decl);
-        if decl.metadata.iter().any(|a| a.name.last().is_some_and(|n| matches!(e.interner.resolve(n.sym), "Native" | "JsPeerInterface"))) {
+        if decl.metadata.iter().any(|a| {
+            a.name
+                .last()
+                .is_some_and(|n| matches!(e.interner.resolve(n.sym), "Native" | "JsPeerInterface"))
+        }) {
             out.insert(ClassId(i as u32));
         }
     }
@@ -434,7 +491,13 @@ fn dartx_classes(e: &WorldInput<'_>, natives: &HashSet<ClassId>) -> HashSet<Clas
         .filter(|c| {
             matches!(
                 p.library(p.class(*c).library).uri.as_str(),
-                "dart:_interceptors" | "dart:_native_typed_data" | "dart:html" | "dart:indexed_db" | "dart:svg" | "dart:web_audio" | "dart:web_gl"
+                "dart:_interceptors"
+                    | "dart:_native_typed_data"
+                    | "dart:html"
+                    | "dart:indexed_db"
+                    | "dart:svg"
+                    | "dart:web_audio"
+                    | "dart:web_gl"
             )
         })
         .collect()
@@ -455,19 +518,32 @@ pub fn native_tags(e: &WorldInput<'_>) -> Vec<(ClassId, Vec<String>)> {
         let unit = p.unit(d.unit);
         let decl = unit.ast.decl(d.decl);
         for a in decl.metadata.iter() {
-            if !a.name.last().is_some_and(|n| matches!(e.interner.resolve(n.sym), "Native" | "JsPeerInterface")) {
+            if !a
+                .name
+                .last()
+                .is_some_and(|n| matches!(e.interner.resolve(n.sym), "Native" | "JsPeerInterface"))
+            {
                 continue;
             }
             let Some(args) = &a.arguments else { continue };
             for arg in args.args.iter() {
-                if arg.name.is_some_and(|n| e.interner.resolve(n.sym) != "name") {
+                if arg
+                    .name
+                    .is_some_and(|n| e.interner.resolve(n.sym) != "name")
+                {
                     continue;
                 }
                 if let ast::ExprKind::String(lit) = &unit.ast.expr(arg.value).kind
-                    && let Some(v) = lit.constant_value() {
-                        let tags = v.to_string_lossy().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && !s.starts_with('!')).collect();
-                        out.push((ClassId(i as u32), tags));
-                    }
+                    && let Some(v) = lit.constant_value()
+                {
+                    let tags = v
+                        .to_string_lossy()
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty() && !s.starts_with('!'))
+                        .collect();
+                    out.push((ClassId(i as u32), tags));
+                }
             }
         }
     }
@@ -477,7 +553,10 @@ pub fn native_tags(e: &WorldInput<'_>) -> Vec<(ClassId, Vec<String>)> {
 /// For each supertype of a native class that is neither native nor from
 /// `dart:core`/`dart:_interceptors`/`dart:collection`, the natives that
 /// implement it (deterministic: sorted).
-fn natives_by_interface(e: &WorldInput<'_>, natives: &HashSet<ClassId>) -> HashMap<ClassId, Vec<ClassId>> {
+fn natives_by_interface(
+    e: &WorldInput<'_>,
+    natives: &HashSet<ClassId>,
+) -> HashMap<ClassId, Vec<ClassId>> {
     let p = e.program;
     let mut out: HashMap<ClassId, Vec<ClassId>> = HashMap::new();
     let mut ns: Vec<ClassId> = natives.iter().copied().collect();
@@ -490,7 +569,13 @@ fn natives_by_interface(e: &WorldInput<'_>, natives: &HashSet<ClassId>) -> HashM
                 continue;
             }
             let c = p.class(k);
-            if k != n && !natives.contains(&k) && !matches!(p.library(c.library).uri.as_str(), "dart:core" | "dart:_interceptors" | "dart:collection") {
+            if k != n
+                && !natives.contains(&k)
+                && !matches!(
+                    p.library(c.library).uri.as_str(),
+                    "dart:core" | "dart:_interceptors" | "dart:collection"
+                )
+            {
                 out.entry(k).or_default().push(n);
             }
             stack.extend(c.supertype_class);
@@ -504,7 +589,13 @@ fn natives_by_interface(e: &WorldInput<'_>, natives: &HashSet<ClassId>) -> HashM
 /// `int` and `num` from `dart:core`.
 fn int_num(e: &WorldInput<'_>) -> Option<(ClassId, ClassId)> {
     let core = e.program.core?;
-    let class_named = |n: &str| match e.program.library(core).declared.get(&e.interner.lookup(n)?)?.getter? {
+    let class_named = |n: &str| match e
+        .program
+        .library(core)
+        .declared
+        .get(&e.interner.lookup(n)?)?
+        .getter?
+    {
         Element::Class(c) => Some(c),
         _ => None,
     };
@@ -603,7 +694,10 @@ pub enum Inconsistency {
     Selector(String),
     /// A receiver restriction (`name` in the cone of `class`) that the fixed
     /// point did not have.
-    RestrictedSelector { name: String, class: ClassId },
+    RestrictedSelector {
+        name: String,
+        class: ClassId,
+    },
 }
 
 /// `checkEnqueuerConsistency` (`pkg/compiler/lib/src/enqueue.dart:142-156`):
@@ -623,8 +717,19 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
     }
     m.classes = world.classes.clone();
     m.fn_live = world.functions.clone();
-    m.foreign_open |= world.functions.iter().enumerate().any(|(i, v)| *v && opens_foreign(e.program, FunctionElementId(i as u32)));
-    m.dom_open |= world.functions.iter().enumerate().any(|(i, v)| *v && DOM_LIBRARIES.contains(&e.program.library(e.program.function(FunctionElementId(i as u32)).library).uri.as_str()));
+    m.foreign_open |= world
+        .functions
+        .iter()
+        .enumerate()
+        .any(|(i, v)| *v && opens_foreign(e.program, FunctionElementId(i as u32)));
+    m.dom_open |= world.functions.iter().enumerate().any(|(i, v)| {
+        *v && DOM_LIBRARIES.contains(
+            &e.program
+                .library(e.program.function(FunctionElementId(i as u32)).library)
+                .uri
+                .as_str(),
+        )
+    });
     m.var_live = world.variables.clone();
     m.tearoff = world.tearoffs.clone();
     m.sel = world.selectors.clone();
@@ -651,7 +756,8 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
     // Redo the impact of everything that is live.
     for (i, v) in world.functions.iter().enumerate() {
         if *v {
-            m.queue.push_back(Item::Function(FunctionElementId(i as u32)));
+            m.queue
+                .push_back(Item::Function(FunctionElementId(i as u32)));
         }
     }
     for (i, v) in world.variables.iter().enumerate() {
@@ -682,9 +788,17 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
             out.push(Inconsistency::Class(ClassId(i as u32)));
         }
     }
-    let mut new_selectors: Vec<&String> = m.sel.iter().filter(|s| !world.selectors.contains(*s)).collect();
+    let mut new_selectors: Vec<&String> = m
+        .sel
+        .iter()
+        .filter(|s| !world.selectors.contains(*s))
+        .collect();
     new_selectors.sort();
-    out.extend(new_selectors.into_iter().map(|s| Inconsistency::Selector(s.clone())));
+    out.extend(
+        new_selectors
+            .into_iter()
+            .map(|s| Inconsistency::Selector(s.clone())),
+    );
     let mut new_cones: Vec<(&String, ClassId)> = Vec::new();
     for (n, cs) in m.sel_cone.iter() {
         for c in cs.iter() {
@@ -694,7 +808,14 @@ pub fn check_consistency(e: WorldInput<'_>, r: &Roots, world: &World) -> Vec<Inc
         }
     }
     new_cones.sort();
-    out.extend(new_cones.into_iter().map(|(n, c)| Inconsistency::RestrictedSelector { name: n.clone(), class: c }));
+    out.extend(
+        new_cones
+            .into_iter()
+            .map(|(n, c)| Inconsistency::RestrictedSelector {
+                name: n.clone(),
+                class: c,
+            }),
+    );
     out
 }
 
@@ -753,7 +874,10 @@ pub(crate) struct Engine<'a> {
     /// `JS_CLASS_REF(C)` calls that a `JS()` *template* only compares
     /// (`# instanceof #`, `# === #`): the class is live as a type, not
     /// instantiated.
-    pub(crate) compared_class_refs: HashSet<(dartforge_elements::model::UnitId, dartforge_frontend::ast::ExprId)>,
+    pub(crate) compared_class_refs: HashSet<(
+        dartforge_elements::model::UnitId,
+        dartforge_frontend::ast::ExprId,
+    )>,
     /// The SDK enters the fixed point like the program (`Options::include_sdk`).
     include_sdk: bool,
     /// Native classes (`@Native`/`@JsPeerInterface`): live as a type means
@@ -821,12 +945,22 @@ pub const FOREIGN_LIBRARIES: &[&str] = &[
 /// against) only exist for them. Without a live function of one of these,
 /// the `polyfill` call is left out of `global` (`emit_js_production`
 /// removes it from the text).
-pub const DOM_LIBRARIES: &[&str] = &["dart:html", "dart:html_common", "dart:svg", "dart:web_audio", "dart:web_gl", "dart:indexed_db", "dart:web_sql"];
+pub const DOM_LIBRARIES: &[&str] = &[
+    "dart:html",
+    "dart:html_common",
+    "dart:svg",
+    "dart:web_audio",
+    "dart:web_gl",
+    "dart:indexed_db",
+    "dart:web_sql",
+];
 
 /// Whether `f` is the top-level `polyfill` of `dart:_runtime`.
 pub fn is_dom_polyfill(e: WorldInput<'_>, f: FunctionElementId) -> bool {
     let func = e.program.function(f);
-    func.class.is_none() && e.program.library(func.library).uri == "dart:_runtime" && e.interner.resolve(func.name) == "polyfill"
+    func.class.is_none()
+        && e.program.library(func.library).uri == "dart:_runtime"
+        && e.interner.resolve(func.name) == "polyfill"
 }
 
 /// Whether the native class `c` is a JS built-in (its library is
@@ -834,7 +968,10 @@ pub fn is_dom_polyfill(e: WorldInput<'_>, f: FunctionElementId) -> bool {
 /// instances without any code of the program (`"olá"`, `[]`), and the gate of
 /// [`Engine::foreign_open`] does not apply to them.
 fn is_builtin_native(p: &dartforge_elements::model::Program, c: ClassId) -> bool {
-    matches!(p.library(p.class(c).library).uri.as_str(), "dart:_interceptors" | "dart:_js_helper" | "dart:core")
+    matches!(
+        p.library(p.class(c).library).uri.as_str(),
+        "dart:_interceptors" | "dart:_js_helper" | "dart:core"
+    )
 }
 
 /// Whether the live function `f` opens the gate of [`Engine::foreign_open`].
@@ -856,11 +993,13 @@ impl<'a> Engine<'a> {
         // The `Object` members come from the element model, not from a list.
         if let Some(core) = p.core
             && let Some(sym) = e.interner.lookup("Object")
-                && let Some(Element::Class(obj)) = p.library(core).declared.get(&sym).and_then(|b| b.getter) {
-                    for f in p.class(obj).instance_members.values() {
-                        universal.insert(e.interner.resolve(p.function(*f).name).to_string());
-                    }
-                }
+            && let Some(Element::Class(obj)) =
+                p.library(core).declared.get(&sym).and_then(|b| b.getter)
+        {
+            for f in p.class(obj).instance_members.values() {
+                universal.insert(e.interner.resolve(p.function(*f).name).to_string());
+            }
+        }
         Engine {
             e,
             classes: vec![ClassLevel::Dead; p.classes.len()],
@@ -897,7 +1036,8 @@ impl<'a> Engine<'a> {
             held_natives: Vec::new(),
             template_sel: HashSet::new(),
             dartx_classes: HashSet::new(),
-            operator_selectors: std::env::var("DARTFORGE_JSPROD_OPERATOR_SELECTORS").map_or(true, |v| v != "0"),
+            operator_selectors: std::env::var("DARTFORGE_JSPROD_OPERATOR_SELECTORS")
+                .map_or(true, |v| v != "0"),
             dom_open: std::env::var("DARTFORGE_JSPROD_DOM_POLYFILL").is_ok_and(|v| v == "0"),
             held_polyfill: None,
         }
@@ -944,7 +1084,9 @@ impl<'a> Engine<'a> {
         if !self.foreign_open && opens_foreign(self.e.program, f) {
             self.open_foreign(f);
         }
-        if !self.dom_open && DOM_LIBRARIES.contains(&self.e.program.library(func.library).uri.as_str()) {
+        if !self.dom_open
+            && DOM_LIBRARIES.contains(&self.e.program.library(func.library).uri.as_str())
+        {
             self.dom_open = true;
             if let Some(h) = self.held_polyfill.take() {
                 let saved = self.cause;
@@ -1053,8 +1195,14 @@ impl<'a> Engine<'a> {
             if self.sel.contains(&n) || !self.template_sel.insert(n.clone()) {
                 continue;
             }
-            let Some(by_owner) = self.pending.get_mut(&n) else { continue };
-            let wake: Vec<ClassId> = by_owner.keys().copied().filter(|k| *k == NO_OWNER || !self.dartx_classes.contains(k)).collect();
+            let Some(by_owner) = self.pending.get_mut(&n) else {
+                continue;
+            };
+            let wake: Vec<ClassId> = by_owner
+                .keys()
+                .copied()
+                .filter(|k| *k == NO_OWNER || !self.dartx_classes.contains(k))
+                .collect();
             let mut fs: Vec<FunctionElementId> = Vec::new();
             for k in wake {
                 fs.extend(by_owner.remove(&k).unwrap_or_default());
@@ -1089,7 +1237,15 @@ impl<'a> Engine<'a> {
         // Extension type (including the implicit `this` of one of its
         // members): at run time the value is the representation.
         let t = if self.include_sdk && self.e.program.class(t).kind == ClassKind::ExtensionType {
-            match self.e.program.class(t).representation.and_then(|v| self.e.outline.variables.get(v.0 as usize)).and_then(|vt| vt.declared_type.or(vt.inferred)).and_then(|ty| self.class_of_type(ty)) {
+            match self
+                .e
+                .program
+                .class(t)
+                .representation
+                .and_then(|v| self.e.outline.variables.get(v.0 as usize))
+                .and_then(|vt| vt.declared_type.or(vt.inferred))
+                .and_then(|ty| self.class_of_type(ty))
+            {
                 Some(r) if r != t => match self.int_num {
                     Some((int, num)) if r == int => num,
                     _ => r,
@@ -1119,7 +1275,9 @@ impl<'a> Engine<'a> {
         }
         // Wake up only the pending members of the same key inside the cone of
         // `t`; the rest stays pending (it is not pruning, it is waiting).
-        let Some(by_owner) = self.pending.get_mut(name) else { return };
+        let Some(by_owner) = self.pending.get_mut(name) else {
+            return;
+        };
         let mut to_wake: Vec<ClassId> = Vec::new();
         for &k in by_owner.keys() {
             // An extension member has no owner class: it lives by name, as
@@ -1144,11 +1302,15 @@ impl<'a> Engine<'a> {
     /// The selector `name` (unrestricted or restricted) keeps a member of the
     /// instantiated `class` live (the rule is `reaches`).
     pub(crate) fn selector_for(&mut self, name: &str, class: ClassId) -> bool {
-        if self.sel.contains(name) || (self.template_sel.contains(name) && !self.dartx_classes.contains(&class)) {
+        if self.sel.contains(name)
+            || (self.template_sel.contains(name) && !self.dartx_classes.contains(&class))
+        {
             return true;
         }
         match self.sel_cone.get(name) {
-            Some(cs) => cs.iter().any(|c| reaches(&self.hier, &self.inst_sub, class, *c)),
+            Some(cs) => cs
+                .iter()
+                .any(|c| reaches(&self.hier, &self.inst_sub, class, *c)),
             None => false,
         }
     }
@@ -1157,7 +1319,9 @@ impl<'a> Engine<'a> {
     /// what extension members use, because they have no owner class for the
     /// cone.
     pub(crate) fn selector_any(&self, name: &str) -> bool {
-        self.sel.contains(name) || self.sel_cone.contains_key(name) || self.template_sel.contains(name)
+        self.sel.contains(name)
+            || self.sel_cone.contains_key(name)
+            || self.template_sel.contains(name)
     }
 
     /// The class of static type `t`, when it exists and is nominal: `C`,
@@ -1182,7 +1346,10 @@ impl<'a> Engine<'a> {
                 // over `String` calls `JSString`).
                 Type::ExtensionType { decl: class, .. } if self.include_sdk => {
                     let rep = self.e.program.class(*class).representation;
-                    match rep.and_then(|v| self.e.outline.variables.get(v.0 as usize)).and_then(|vt| vt.declared_type.or(vt.inferred)) {
+                    match rep
+                        .and_then(|v| self.e.outline.variables.get(v.0 as usize))
+                        .and_then(|vt| vt.declared_type.or(vt.inferred))
+                    {
                         Some(t) if t != cur => cur = t,
                         _ => return Some(*class),
                     }
@@ -1208,9 +1375,10 @@ impl<'a> Engine<'a> {
         }
         if func.kind == FunctionKind::ImplicitAccessor
             && let Some(v) = func.variable
-                && self.e.program.variable(v).setter == Some(f) {
-                    return format!("{name}_=");
-                }
+            && self.e.program.variable(v).setter == Some(f)
+        {
+            return format!("{name}_=");
+        }
         name.to_string()
     }
 
@@ -1221,25 +1389,37 @@ impl<'a> Engine<'a> {
         self.use_function_with_receiver(f, None);
     }
 
-    pub(crate) fn use_function_with_receiver(&mut self, f: FunctionElementId, receiver: Option<ClassId>) {
+    pub(crate) fn use_function_with_receiver(
+        &mut self,
+        f: FunctionElementId,
+        receiver: Option<ClassId>,
+    ) {
         let func = self.e.program.function(f);
         match func.kind {
-            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => self.use_constructor(f, false),
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => {
+                self.use_constructor(f, false)
+            }
             _ => {
                 // Member of an extension type: static dispatch (like an
                 // extension's), live through use, without waiting for
                 // instantiation.
-                let in_extension_type = func.class.is_some_and(|c| self.e.program.class(c).kind == ClassKind::ExtensionType);
-                let instance = func.class.is_some() && !func.static_ && func.extension.is_none() && !in_extension_type;
+                let in_extension_type = func
+                    .class
+                    .is_some_and(|c| self.e.program.class(c).kind == ClassKind::ExtensionType);
+                let instance = func.class.is_some()
+                    && !func.static_
+                    && func.extension.is_none()
+                    && !in_extension_type;
                 if instance {
                     let n = self.instance_member_key(f);
                     self.new_selector_with_receiver(&n, receiver);
                 } else {
                     if let Some(v) = func.variable
-                        && func.kind == FunctionKind::ImplicitAccessor {
-                            self.use_variable(v);
-                            return;
-                        }
+                        && func.kind == FunctionKind::ImplicitAccessor
+                    {
+                        self.use_variable(v);
+                        return;
+                    }
                     if func.extension.is_some() {
                         let n = self.instance_member_key(f);
                         self.new_selector(&n);
@@ -1282,7 +1462,10 @@ impl<'a> Engine<'a> {
     pub(crate) fn create(&mut self, c: ClassId, name: &str, tearoff: bool) {
         if let Some(f) = self.constructor(c, name) {
             self.use_constructor(f, tearoff);
-        } else if (name.is_empty() || name == "new") && self.e.program.class(c).constructors.is_empty() && self.is_user_class(c) {
+        } else if (name.is_empty() || name == "new")
+            && self.e.program.class(c).constructors.is_empty()
+            && self.is_user_class(c)
+        {
             self.instantiate(c);
             if let Some(sc) = self.super_constructor(c, "") {
                 self.use_constructor_from_initializer(sc);
@@ -1303,7 +1486,8 @@ impl<'a> Engine<'a> {
 
     pub(crate) fn mark_type(&mut self, c: ClassId) {
         let i = c.0 as usize;
-        if i >= self.classes.len() || !self.is_user_class(c) || self.classes[i] >= ClassLevel::Type {
+        if i >= self.classes.len() || !self.is_user_class(c) || self.classes[i] >= ClassLevel::Type
+        {
             return;
         }
         self.classes[i] = ClassLevel::Type;
@@ -1383,15 +1567,17 @@ impl<'a> Engine<'a> {
                 continue;
             }
             if let Some(vt) = self.e.outline.variables.get(vid.0 as usize)
-                && let Some(t) = vt.declared_type.or(vt.inferred) {
-                    self.visit_type(t);
-                }
+                && let Some(t) = vt.declared_type.or(vt.inferred)
+            {
+                self.visit_type(t);
+            }
         }
         if let Some(rep) = class.representation
             && let Some(vt) = self.e.outline.variables.get(rep.0 as usize)
-                && let Some(t) = vt.declared_type.or(vt.inferred) {
-                    self.visit_type(t);
-                }
+            && let Some(t) = vt.declared_type.or(vt.inferred)
+        {
+            self.visit_type(t);
+        }
     }
 
     /// Classes cited by a type of the `TypeTable`.
@@ -1405,14 +1591,24 @@ impl<'a> Engine<'a> {
         }
         match table.get(t) {
             Type::Dynamic | Type::Void | Type::Never | Type::Null => {}
-            Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => {
+            Type::Interface { class, args, .. }
+            | Type::ExtensionType {
+                decl: class, args, ..
+            } => {
                 let (class, args) = (*class, args.clone());
                 self.mark_type(class);
                 for a in args.iter() {
                     self.visit_type(*a);
                 }
             }
-            Type::Function { type_params, ret, positional, optional, named, .. } => {
+            Type::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                ..
+            } => {
                 let mut ts: Vec<dartforge_types::table::TypeId> = vec![*ret];
                 ts.extend(positional.iter().copied());
                 ts.extend(optional.iter().copied());
@@ -1422,7 +1618,9 @@ impl<'a> Engine<'a> {
                     self.visit_type(x);
                 }
             }
-            Type::Record { positional, named, .. } => {
+            Type::Record {
+                positional, named, ..
+            } => {
                 let mut ts: Vec<dartforge_types::table::TypeId> = positional.to_vec();
                 ts.extend(named.iter().map(|(_, t)| *t));
                 for x in ts {
@@ -1551,12 +1749,16 @@ impl<'a> Engine<'a> {
         }
         let mut fs: Vec<FunctionElementId> = Vec::new();
         for t in sups {
-            let Some(names) = self.names_by_cone.get(t.0 as usize) else { continue };
+            let Some(names) = self.names_by_cone.get(t.0 as usize) else {
+                continue;
+            };
             if names.is_empty() {
                 continue;
             }
             for n in names {
-                let Some(by_owner) = self.pending.get_mut(n.as_str()) else { continue };
+                let Some(by_owner) = self.pending.get_mut(n.as_str()) else {
+                    continue;
+                };
                 for m in sups {
                     if let Some(v) = by_owner.remove(m) {
                         fs.extend(v);
@@ -1583,8 +1785,11 @@ impl<'a> Engine<'a> {
         let p = self.e.program;
         let class = p.class(k);
         let all = self.all_members.contains(&k) || class.kind == ClassKind::Enum;
-        let mut members: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
-            class.instance_members.iter().map(|(s, f)| (*s, *f)).collect();
+        let mut members: Vec<(dartforge_intern::SymbolId, FunctionElementId)> = class
+            .instance_members
+            .iter()
+            .map(|(s, f)| (*s, *f))
+            .collect();
         members.sort_by_key(|(_, f)| *f);
         for (key, f) in members {
             let func = p.function(f);
@@ -1596,7 +1801,12 @@ impl<'a> Engine<'a> {
             if live && !only_pending {
                 self.mark_fn_live(f);
             } else if !live {
-                self.pending.entry(name).or_default().entry(k).or_default().push(f);
+                self.pending
+                    .entry(name)
+                    .or_default()
+                    .entry(k)
+                    .or_default()
+                    .push(f);
             }
         }
     }
@@ -1639,12 +1849,22 @@ impl<'a> Engine<'a> {
                 break;
             }
             targets.push(k);
-            targets.extend(p.class(k).mixin_classes.iter().copied().filter(|m| self.is_user_class(*m)));
+            targets.extend(
+                p.class(k)
+                    .mixin_classes
+                    .iter()
+                    .copied()
+                    .filter(|m| self.is_user_class(*m)),
+            );
             cur = p.class(k).supertype_class;
         }
         for k in targets {
-            let mut members: Vec<(dartforge_intern::SymbolId, FunctionElementId)> =
-                p.class(k).instance_members.iter().map(|(s, f)| (*s, *f)).collect();
+            let mut members: Vec<(dartforge_intern::SymbolId, FunctionElementId)> = p
+                .class(k)
+                .instance_members
+                .iter()
+                .map(|(s, f)| (*s, *f))
+                .collect();
             members.sort_by_key(|(_, f)| *f);
             for (key, f) in members {
                 if names.contains(self.name(key)) {
@@ -1674,10 +1894,16 @@ impl<'a> Engine<'a> {
             members.sort_by_key(|(_, f)| *f);
             for (key, f) in members {
                 let name = self.name(key).to_string();
-                if self.selector_any(name.as_str()) || p.function(f).kind == FunctionKind::Operator {
+                if self.selector_any(name.as_str()) || p.function(f).kind == FunctionKind::Operator
+                {
                     self.mark_fn_live(f);
                 } else {
-                    self.pending.entry(name).or_default().entry(NO_OWNER).or_default().push(f);
+                    self.pending
+                        .entry(name)
+                        .or_default()
+                        .entry(NO_OWNER)
+                        .or_default()
+                        .push(f);
                 }
             }
         }
@@ -1879,7 +2105,11 @@ impl<'a> Engine<'a> {
     /// `Ext.name` / `name` inside the extension: a static member or a static
     /// field (extension fields have no accessor in the element model, only
     /// `ExtensionElement::fields`).
-    pub(crate) fn use_extension_static(&mut self, x: dartforge_elements::model::ExtensionId, name: SymbolId) {
+    pub(crate) fn use_extension_static(
+        &mut self,
+        x: dartforge_elements::model::ExtensionId,
+        name: SymbolId,
+    ) {
         let p = self.e.program;
         let ext = p.extension(x);
         let setter = self.e.interner.lookup(&format!("{}_=", self.name(name)));
@@ -1891,7 +2121,12 @@ impl<'a> Engine<'a> {
         for f in fs {
             self.use_function(f);
         }
-        let vs: Vec<VariableId> = ext.fields.iter().copied().filter(|v| p.variable(*v).name == name).collect();
+        let vs: Vec<VariableId> = ext
+            .fields
+            .iter()
+            .copied()
+            .filter(|v| p.variable(*v).name == name)
+            .collect();
         for v in vs {
             self.use_variable(v);
         }
@@ -1913,18 +2148,33 @@ impl<'a> Engine<'a> {
     }
 
     /// AST node of a variable (its initializer), for the impact.
-    pub(crate) fn variable_node(&self, v: VariableId) -> Option<(dartforge_elements::model::UnitId, Option<ast::ExprId>)> {
+    pub(crate) fn variable_node(
+        &self,
+        v: VariableId,
+    ) -> Option<(dartforge_elements::model::UnitId, Option<ast::ExprId>)> {
         let p = self.e.program;
         match p.variable(v).node {
-            VariableRef::TopLevel { unit, decl, index } => match &p.unit(unit).ast.decl(decl).kind {
-                ast::DeclKind::Variables(l) => Some((unit, l.variables.get(index).and_then(|x| x.initializer))),
+            VariableRef::TopLevel { unit, decl, index } => {
+                match &p.unit(unit).ast.decl(decl).kind {
+                    ast::DeclKind::Variables(l) => {
+                        Some((unit, l.variables.get(index).and_then(|x| x.initializer)))
+                    }
+                    _ => None,
+                }
+            }
+            VariableRef::Field {
+                unit,
+                member,
+                index,
+            } => match &p.unit(unit).ast.member(member).kind {
+                ast::MemberKind::Field(l) => {
+                    Some((unit, l.variables.get(index).and_then(|x| x.initializer)))
+                }
                 _ => None,
             },
-            VariableRef::Field { unit, member, index } => match &p.unit(unit).ast.member(member).kind {
-                ast::MemberKind::Field(l) => Some((unit, l.variables.get(index).and_then(|x| x.initializer))),
-                _ => None,
-            },
-            VariableRef::EnumConstant { .. } | VariableRef::Representation { .. } | VariableRef::None => None,
+            VariableRef::EnumConstant { .. }
+            | VariableRef::Representation { .. }
+            | VariableRef::None => None,
         }
     }
 

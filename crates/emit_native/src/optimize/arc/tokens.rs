@@ -399,7 +399,10 @@ pub(super) fn check_exceptional_exits(
                 || !dests.contains(id)
                 || f.blocks.first().is_some_and(|entry| entry.id == *id)
             {
-                return Err(format!("Resume exit b{} requires an invoke landing pad", id.0));
+                return Err(format!(
+                    "Resume exit b{} requires an invoke landing pad",
+                    id.0
+                ));
             }
             if b.instructions
                 .iter()
@@ -488,12 +491,10 @@ fn analyze_tokens(
                         },
                     ..
                 } = inst
-                    && classes[q] != Ownership::Trivial {
-                        return Err(meta_error(format!(
-                            "v{}: frame ID must be Trivial",
-                            v.0
-                        )));
-                    }
+                    && classes[q] != Ownership::Trivial
+                {
+                    return Err(meta_error(format!("v{}: frame ID must be Trivial", v.0)));
+                }
                 let class = if matches!(
                     inst,
                     Instruction::ArcDrop { .. } | Instruction::ArcStoreStrong { .. }
@@ -525,20 +526,21 @@ fn analyze_tokens(
             let unbox_bool = super::contracts::unbox_bool_call(inst);
             let call = unbox_bool.as_ref().unwrap_or(inst);
             if let Instruction::CallRuntime { name, .. } = call
-                && super::contract(name).is_ok() {
-                    let c = super::runtime_call_contract(call).map_err(meta_error)?;
-                    if classes[v] != c.result
-                        || e.always != c.effect.always
-                        || e.success != c.effect.success
-                        || e.error != c.effect.error
-                        || e.may_fail != c.effect.may_fail
-                    {
-                        return Err(meta_error(format!(
-                            "v{}: plan incompatible with ownership.tsv for {name}",
-                            v.0
-                        )));
-                    }
+                && super::contract(name).is_ok()
+            {
+                let c = super::runtime_call_contract(call).map_err(meta_error)?;
+                if classes[v] != c.result
+                    || e.always != c.effect.always
+                    || e.success != c.effect.success
+                    || e.error != c.effect.error
+                    || e.may_fail != c.effect.may_fail
+                {
+                    return Err(meta_error(format!(
+                        "v{}: plan incompatible with ownership.tsv for {name}",
+                        v.0
+                    )));
                 }
+            }
             // An invoke of a callee that does not fail (the joint analysis knows more
             // than that of the module that put the landing pad) only leaves a dead landing pad.
             let invoke = tables.invocations.contains_key(v);
@@ -548,7 +550,8 @@ fn analyze_tokens(
                 || (!e.may_fail && !e.error.is_empty())
             {
                 let name_str = match inst {
-                    Instruction::CallRuntime { name, .. } | Instruction::CallStatic { symbol: name, .. } => name.clone(),
+                    Instruction::CallRuntime { name, .. }
+                    | Instruction::CallStatic { symbol: name, .. } => name.clone(),
                     another => format!("{another:?}").chars().take(80).collect(),
                 };
                 return Err(meta_error(format!(
@@ -687,14 +690,20 @@ fn analyze_tokens(
                         f,
                         &parents,
                         i,
-                        format!("return does not satisfy the token convention {:?} ({class})", plan.ret),
+                        format!(
+                            "return does not satisfy the token convention {:?} ({class})",
+                            plan.ret
+                        ),
                     ));
                 }
             }
         }
         // `Unreachable` does not continue (the dead path after a throw,
         // the end of whoever terminates the process): a live token there does not leak.
-        if cfg.successors[i].is_empty() && !active_set.is_empty() && !matches!(b.terminator, Terminator::Unreachable) {
+        if cfg.successors[i].is_empty()
+            && !active_set.is_empty()
+            && !matches!(b.terminator, Terminator::Unreachable)
+        {
             if allow_cleanup && matches!(b.terminator, Terminator::Return(_)) {
                 let mut remaining: Vec<_> = active_set.iter().copied().collect();
                 remaining.sort_unstable_by_key(|v| v.0);
@@ -824,7 +833,8 @@ fn analyze_tokens(
             })?;
             match &entries[s] {
                 Some(previous) if *previous != next_one => {
-                    let mut only_before: Vec<_> = previous.difference(&next_one).map(|v| v.0).collect();
+                    let mut only_before: Vec<_> =
+                        previous.difference(&next_one).map(|v| v.0).collect();
                     let mut only_now: Vec<_> = next_one.difference(previous).map(|v| v.0).collect();
                     only_before.sort_unstable();
                     only_now.sort_unstable();
@@ -861,7 +871,11 @@ fn analyze_tokens(
         })
         .collect();
     super::borrows::verify(f, classes)?;
-    Ok(TokenFlow { exits, entries, edges })
+    Ok(TokenFlow {
+        exits,
+        entries,
+        edges,
+    })
 }
 
 #[cfg(test)]

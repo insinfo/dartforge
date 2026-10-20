@@ -167,7 +167,10 @@ impl Project {
     pub fn install_flutter(&self) {
         let lib = self.root.join("flutter/lib");
         let files: &[(&str, &str)] = &[
-            ("foundation.dart", "export 'src/foundation/diagnostics.dart';\n"),
+            (
+                "foundation.dart",
+                "export 'src/foundation/diagnostics.dart';\n",
+            ),
             (
                 "widgets.dart",
                 "export 'src/widgets/framework.dart';\nexport 'src/widgets/basic.dart';\nexport 'src/widgets/container.dart';\nexport 'src/widgets/async.dart';\nexport 'src/widgets/text.dart';\nexport 'src/painting/edge_insets.dart';\nexport 'src/foundation/diagnostics.dart';\n",
@@ -215,9 +218,18 @@ impl Project {
 
     /// `initialize` (with the project's `rootUri` added to `params`).
     fn initialize(&mut self, mut params: Value) -> Value {
-        params["rootUri"] = json!(url::Url::from_file_path(self.root.join("projeto")).unwrap().to_string());
-        self.server.receive(json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":params}));
-        self.server.pump().into_iter().find(|m| m["id"] == json!(0)).unwrap_or(Value::Null)
+        params["rootUri"] = json!(
+            url::Url::from_file_path(self.root.join("projeto"))
+                .unwrap()
+                .to_string()
+        );
+        self.server
+            .receive(json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":params}));
+        self.server
+            .pump()
+            .into_iter()
+            .find(|m| m["id"] == json!(0))
+            .unwrap_or(Value::Null)
     }
 
     /// A new server, initialized with `params`, with the documents that were
@@ -260,9 +272,11 @@ impl Project {
         self.open.retain(|(r, _)| r != relative);
         self.open.push((relative.to_string(), text.to_string()));
         let uri = self.uri(relative);
-        self.server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
-            "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":text}
-        }}));
+        self.server.receive(
+            json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{
+                "textDocument":{"uri":uri,"languageId":"dart","version":1,"text":text}
+            }}),
+        );
         self.server
             .pump()
             .into_iter()
@@ -304,7 +318,11 @@ impl Project {
         self.server
             .receive(json!({"jsonrpc":"2.0","method":"workspace/didChangeConfiguration","params":{"settings":{}}}));
         let mut outputs = self.server.pump();
-        while let Some(request) = outputs.iter().find(|m| m["method"] == "workspace/configuration").cloned() {
+        while let Some(request) = outputs
+            .iter()
+            .find(|m| m["method"] == "workspace/configuration")
+            .cloned()
+        {
             let n = request["params"]["items"].as_array().map_or(1, |a| a.len());
             let result: Vec<Value> = (0..n).map(|_| dart.clone()).collect();
             self.server

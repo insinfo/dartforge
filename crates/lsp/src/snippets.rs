@@ -10,7 +10,7 @@
 //! units); the slicing is the same because every placeholder falls on a
 //! character boundary.
 
-use crate::actions::{LinkedGroup, Linked};
+use crate::actions::{Linked, LinkedGroup};
 
 /// The text of an edit written with the marks of Dart's `EditBuilder`:
 /// `addSimpleLinkedEdit` (groups by name, in creation order) and
@@ -42,7 +42,10 @@ impl Write {
                     g.2 = t.len();
                     g.3.extend(suggestions.iter().cloned());
                 }
-                None => self.groups.push((name.to_string(), vec![k], t.len(), suggestions.to_vec())),
+                None => {
+                    self.groups
+                        .push((name.to_string(), vec![k], t.len(), suggestions.to_vec()))
+                }
             }
         }
         self
@@ -77,14 +80,24 @@ pub(crate) fn snippet_text(text: &str, start: usize, linked: &Linked) -> String 
     if let Some((s, n)) = linked.selection {
         // A selection before the edit becomes negative in Dart and is filtered out.
         if let Some(offset) = relative(s) {
-            markers.push(Marker { offset, length: n, suggestions: None, group: None, final_: true });
+            markers.push(Marker {
+                offset,
+                length: n,
+                suggestions: None,
+                group: None,
+                final_: true,
+            });
         }
     }
     // Without a selection, with a single group and at most one suggestion, the
     // group's positions use number 0 (`convertEditGroup`, `isFinal`).
     let just_one = linked.selection.is_none() && linked.groups.len() == 1;
     for (index, g) in linked.groups.iter().enumerate() {
-        let LinkedGroup { positions, length, suggestions } = g;
+        let LinkedGroup {
+            positions,
+            length,
+            suggestions,
+        } = g;
         for &p in positions {
             let Some(offset) = relative(p) else { continue };
             markers.push(Marker {
@@ -96,7 +109,11 @@ pub(crate) fn snippet_text(text: &str, start: usize, linked: &Linked) -> String 
             });
         }
     }
-    markers.retain(|m| m.offset + m.length <= text.len() && text.is_char_boundary(m.offset) && text.is_char_boundary(m.offset + m.length));
+    markers.retain(|m| {
+        m.offset + m.length <= text.len()
+            && text.is_char_boundary(m.offset)
+            && text.is_char_boundary(m.offset + m.length)
+    });
     // Only the groups need sorting (`isPreSorted`); the sort is stable, like
     // Dart's on short lists.
     if !linked.groups.is_empty() {
@@ -115,7 +132,8 @@ pub(crate) fn snippet_text(text: &str, start: usize, linked: &Linked) -> String 
         let number = if m.final_ {
             Some(0)
         } else {
-            m.group.and_then(|g| group_number.iter().find(|(x, _)| *x == g).map(|(_, n)| *n))
+            m.group
+                .and_then(|g| group_number.iter().find(|(x, _)| *x == g).map(|(_, n)| *n))
         };
         let snippet = &text[m.offset..m.offset + m.length];
         let used = match m.suggestions {
@@ -124,7 +142,10 @@ pub(crate) fn snippet_text(text: &str, start: usize, linked: &Linked) -> String 
                 // The set (insertion order, no repetition): the current text, if not empty,
                 // and the suggestions.
                 let mut choices: Vec<&str> = Vec::new();
-                for s in std::iter::once(snippet).filter(|t| !t.is_empty()).chain(suggestions.iter().map(String::as_str)) {
+                for s in std::iter::once(snippet)
+                    .filter(|t| !t.is_empty())
+                    .chain(suggestions.iter().map(String::as_str))
+                {
                     if !choices.contains(&s) {
                         choices.push(s);
                     }
@@ -151,7 +172,10 @@ struct Constructor {
 
 impl Default for Constructor {
     fn default() -> Self {
-        Constructor { value: String::new(), next: 1 }
+        Constructor {
+            value: String::new(),
+            next: 1,
+        }
     }
 }
 
@@ -215,45 +239,85 @@ mod tests {
     use super::*;
 
     fn group(positions: &[usize], length: usize, suggestions: &[&str]) -> LinkedGroup {
-        LinkedGroup { positions: positions.to_vec(), length, suggestions: suggestions.iter().map(|s| s.to_string()).collect() }
+        LinkedGroup {
+            positions: positions.to_vec(),
+            length,
+            suggestions: suggestions.iter().map(|s| s.to_string()).collect(),
+        }
     }
 
     #[test]
     fn selection_becomes_final_tab_stop() {
-        let l = Linked { selection: Some((15, 0)), groups: vec![] };
-        assert_eq!(snippet_text(" {\n  return 1;\n}", 10, &l), " {\n  $0return 1;\n}");
-        let l = Linked { selection: Some((12, 4)), groups: vec![] };
-        assert_eq!(snippet_text("$a ${x} \\b", 9, &l), "\\$a ${0:\\${x\\}} \\\\b");
+        let l = Linked {
+            selection: Some((15, 0)),
+            groups: vec![],
+        };
+        assert_eq!(
+            snippet_text(" {\n  return 1;\n}", 10, &l),
+            " {\n  $0return 1;\n}"
+        );
+        let l = Linked {
+            selection: Some((12, 4)),
+            groups: vec![],
+        };
+        assert_eq!(
+            snippet_text("$a ${x} \\b", 9, &l),
+            "\\$a ${0:\\${x\\}} \\\\b"
+        );
     }
 
     #[test]
     fn single_group_without_selection_uses_zero() {
-        let l = Linked { selection: None, groups: vec![group(&[4, 19], 3, &[])] };
-        assert_eq!(snippet_text("var abc = 1; print(abc);", 0, &l), "var ${0:abc} = 1; print(${0:abc});");
+        let l = Linked {
+            selection: None,
+            groups: vec![group(&[4, 19], 3, &[])],
+        };
+        assert_eq!(
+            snippet_text("var abc = 1; print(abc);", 0, &l),
+            "var ${0:abc} = 1; print(${0:abc});"
+        );
     }
 
     #[test]
     fn groups_with_suggestions_become_choices() {
         // Numbered by order in the text, not by creation order; a selection at the
         // end of the text still counts.
-        let l = Linked { selection: Some((12, 0)), groups: vec![group(&[4], 1, &["a", "b"]), group(&[0], 3, &[])] };
-        assert_eq!(snippet_text("var x = f();", 0, &l), "${1:var} ${2|x,a,b|} = f();$0");
+        let l = Linked {
+            selection: Some((12, 0)),
+            groups: vec![group(&[4], 1, &["a", "b"]), group(&[0], 3, &[])],
+        };
+        assert_eq!(
+            snippet_text("var x = f();", 0, &l),
+            "${1:var} ${2|x,a,b|} = f();$0"
+        );
         // A single suggestion equal to the text: degrades to a placeholder.
-        let l = Linked { selection: None, groups: vec![group(&[4], 1, &["x"]), group(&[8], 1, &[])] };
+        let l = Linked {
+            selection: None,
+            groups: vec![group(&[4], 1, &["x"]), group(&[8], 1, &[])],
+        };
         assert_eq!(snippet_text("var x = y;", 0, &l), "var ${1:x} = ${2:y};");
     }
 
     #[test]
     fn single_choice_with_several_suggestions_is_not_zero() {
-        let l = Linked { selection: None, groups: vec![group(&[0], 3, &["a", "b"])] };
+        let l = Linked {
+            selection: None,
+            groups: vec![group(&[0], 3, &["a", "b"])],
+        };
         assert_eq!(snippet_text("int,x", 0, &l), "${1|int,a,b|},x");
-        let l = Linked { selection: None, groups: vec![group(&[0], 0, &["a,b", "c|d"])] };
+        let l = Linked {
+            selection: None,
+            groups: vec![group(&[0], 0, &["a,b", "c|d"])],
+        };
         assert_eq!(snippet_text("", 0, &l), "${1|a\\,b,c\\|d|}");
     }
 
     #[test]
     fn outside_text_exits() {
-        let l = Linked { selection: Some((2, 0)), groups: vec![group(&[100], 3, &[])] };
+        let l = Linked {
+            selection: Some((2, 0)),
+            groups: vec![group(&[100], 3, &[])],
+        };
         assert_eq!(snippet_text("abc", 5, &l), "abc");
     }
 }

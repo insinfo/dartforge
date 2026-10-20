@@ -104,7 +104,11 @@ impl<'a> LineIndex<'a> {
                 starts16.push(u16s);
             }
         }
-        Self { text, starts, starts16 }
+        Self {
+            text,
+            starts,
+            starts16,
+        }
     }
 
     /// The point of byte `byte` (clamped to the end of the text and to a character boundary).
@@ -114,15 +118,26 @@ impl<'a> LineIndex<'a> {
         if byte > self.text.len() {
             let p = self.position(self.text.len());
             let extra = byte - self.text.len();
-            return JsonPosition { offset: p.offset + extra, line: p.line, column: p.column + extra };
+            return JsonPosition {
+                offset: p.offset + extra,
+                line: p.line,
+                column: p.column + extra,
+            };
         }
         let mut byte = byte;
         while !self.text.is_char_boundary(byte) {
             byte -= 1;
         }
         let line = self.starts.partition_point(|&s| s <= byte) - 1;
-        let col16: usize = self.text[self.starts[line]..byte].chars().map(char::len_utf16).sum();
-        JsonPosition { offset: self.starts16[line] + col16, line: line + 1, column: col16 + 1 }
+        let col16: usize = self.text[self.starts[line]..byte]
+            .chars()
+            .map(char::len_utf16)
+            .sum();
+        JsonPosition {
+            offset: self.starts16[line] + col16,
+            line: line + 1,
+            column: col16 + 1,
+        }
     }
 }
 
@@ -136,7 +151,11 @@ pub fn to_json(file: &str, lines: &LineIndex<'_>, d: &Diagnostic, syntax: bool) 
             (i.name.to_string(), i.error_type.name().to_string(), i.url())
         }
         None => {
-            let kind = if syntax { "SYNTACTIC_ERROR" } else { "COMPILE_TIME_ERROR" };
+            let kind = if syntax {
+                "SYNTACTIC_ERROR"
+            } else {
+                "COMPILE_TIME_ERROR"
+            };
             ("dartforge_sem_codigo".to_string(), kind.to_string(), None)
         }
     };
@@ -146,7 +165,10 @@ pub fn to_json(file: &str, lines: &LineIndex<'_>, d: &Diagnostic, syntax: bool) 
         error_type: kind,
         location: Local {
             file: file.to_string(),
-            range: JsonRange { start: lines.position(d.span.start), end: lines.position(d.span.end.max(d.span.start)) },
+            range: JsonRange {
+                start: lines.position(d.span.start),
+                end: lines.position(d.span.end.max(d.span.start)),
+            },
         },
         problem_message: d.message.clone(),
         correction_message: d.correction(),
@@ -158,7 +180,10 @@ pub fn to_json(file: &str, lines: &LineIndex<'_>, d: &Diagnostic, syntax: bool) 
             .map(|c| ContextJson {
                 location: Local {
                     file: c.file.as_deref().unwrap_or(file).to_string(),
-                    range: JsonRange { start: lines.position(c.span.start), end: lines.position(c.span.end.max(c.span.start)) },
+                    range: JsonRange {
+                        start: lines.position(c.span.start),
+                        end: lines.position(c.span.end.max(c.span.start)),
+                    },
                 },
                 message: c.message.to_string(),
             })
@@ -182,15 +207,31 @@ pub fn sort(v: &mut [DiagJson]) {
         priority(&a.severity)
             .cmp(&priority(&b.severity))
             .then_with(|| a.location.file.cmp(&b.location.file))
-            .then_with(|| a.location.range.start.line.cmp(&b.location.range.start.line))
-            .then_with(|| a.location.range.start.column.cmp(&b.location.range.start.column))
+            .then_with(|| {
+                a.location
+                    .range
+                    .start
+                    .line
+                    .cmp(&b.location.range.start.line)
+            })
+            .then_with(|| {
+                a.location
+                    .range
+                    .start
+                    .column
+                    .cmp(&b.location.range.start.column)
+            })
             .then_with(|| a.problem_message.cmp(&b.problem_message))
     });
 }
 
 /// Serializes like `dart analyze` (compact JSON, no trailing newline).
 pub fn write(diags: Vec<DiagJson>) -> String {
-    serde_json::to_string(&Report { version: 1, diagnostics: diags }).expect("JSON")
+    serde_json::to_string(&Report {
+        version: 1,
+        diagnostics: diags,
+    })
+    .expect("JSON")
 }
 
 #[cfg(test)]
@@ -201,10 +242,38 @@ mod tests {
     fn lines_utf16_and_breaks() {
         let t = "a\r\nb\u{1F600}c\rd\n";
         let l = LineIndex::new(t);
-        assert_eq!(l.position(0), JsonPosition { offset: 0, line: 1, column: 1 });
-        assert_eq!(l.position(3), JsonPosition { offset: 3, line: 2, column: 1 });
+        assert_eq!(
+            l.position(0),
+            JsonPosition {
+                offset: 0,
+                line: 1,
+                column: 1
+            }
+        );
+        assert_eq!(
+            l.position(3),
+            JsonPosition {
+                offset: 3,
+                line: 2,
+                column: 1
+            }
+        );
         // after the emoji (4 bytes, 2 UTF-16 code units)
-        assert_eq!(l.position(8), JsonPosition { offset: 6, line: 2, column: 4 });
-        assert_eq!(l.position(10), JsonPosition { offset: 8, line: 3, column: 1 });
+        assert_eq!(
+            l.position(8),
+            JsonPosition {
+                offset: 6,
+                line: 2,
+                column: 4
+            }
+        );
+        assert_eq!(
+            l.position(10),
+            JsonPosition {
+                offset: 8,
+                line: 3,
+                column: 1
+            }
+        );
     }
 }

@@ -10,7 +10,7 @@
 //! kept on purpose.
 
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_types::dump::{expected_block, line_block, compare_block, dump};
+use dartforge_types::dump::{compare_block, dump, expected_block, line_block};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
@@ -23,7 +23,10 @@ fn sdk() -> Option<SdkLayout> {
 }
 
 fn programs(dir: &Path, v: &mut Vec<PathBuf>) {
-    let mut es: Vec<PathBuf> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().path()).collect();
+    let mut es: Vec<PathBuf> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
     es.sort();
     for p in es {
         if p.is_dir() {
@@ -96,7 +99,11 @@ fn inference_corpus_against_oracle() {
         );
         s.push_str(&format!("# {summary}\n"));
         // Notes (`#> `) about divergences kept on purpose: preserved.
-        for l in std::fs::read_to_string(&list_path).unwrap_or_default().lines().filter(|l| l.starts_with("#>")) {
+        for l in std::fs::read_to_string(&list_path)
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| l.starts_with("#>"))
+        {
             s.push_str(l);
             s.push('\n');
         }
@@ -120,8 +127,15 @@ fn inference_corpus_against_oracle() {
         "corpus/inference changed ({summary}).\nnew ({}):\n{}\nresolved, remove from the list ({}):\n{}\n\
          (UPDATE_DIVERGENCES=1 rewrites corpus/inference/divergences.txt)",
         new_.len(),
-        new_.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n"),
+        new_.iter()
+            .map(|s| format!("  {s}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
         resolved.len(),
-        resolved.iter().map(|s| format!("  {s}")).collect::<Vec<_>>().join("\n"),
+        resolved
+            .iter()
+            .map(|s| format!("  {s}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
     );
 }

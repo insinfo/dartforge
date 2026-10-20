@@ -44,7 +44,9 @@ pub fn can_be_const(
     let unit = program.unit(u);
     let a = &unit.ast;
     let lib = unit.library;
-    let Some(body) = bodies.units.get(u.0 as usize) else { return r };
+    let Some(body) = bodies.units.get(u.0 as usize) else {
+        return r;
+    };
     let parents = crate::typed_lints::unit_parents(program, u);
     let mut creations: Vec<ExprId> = Vec::new();
     let mut literals: Vec<ExprId> = Vec::new();
@@ -52,7 +54,9 @@ pub fn can_be_const(
         let id = ExprId(k as u32);
         match &e.kind {
             ExprKind::InstanceCreation { keyword, .. } => {
-                if *keyword == Some(ast::CreationKeyword::Const) || parents.in_constant_context(a, id) {
+                if *keyword == Some(ast::CreationKeyword::Const)
+                    || parents.in_constant_context(a, id)
+                {
                     continue;
                 }
                 if let Some(Resolved::Constructor(f)) = body.get_resolved(id)
@@ -72,9 +76,10 @@ pub fn can_be_const(
                 }
             }
             ExprKind::List { const_: false, .. } | ExprKind::SetOrMap { const_: false, .. }
-                if !parents.in_constant_context(a, id) => {
-                    literals.push(id);
-                }
+                if !parents.in_constant_context(a, id) =>
+            {
+                literals.push(id);
+            }
             _ => {}
         }
     }
@@ -83,14 +88,26 @@ pub fn can_be_const(
         .iter()
         .enumerate()
         .filter_map(|(k, m)| match &m.kind {
-            MemberKind::Constructor(c) if !c.const_ && matches!(c.body, ast::FunctionBody::Empty) => Some(ast::MemberId(k as u32)),
+            MemberKind::Constructor(c)
+                if !c.const_ && matches!(c.body, ast::FunctionBody::Empty) =>
+            {
+                Some(ast::MemberId(k as u32))
+            }
             _ => None,
         })
         .collect();
     if creations.is_empty() && literals.is_empty() && constructors.is_empty() {
         return r;
     }
-    let mut engine = Engine::new(program, interner, table, core, outline, bodies, the_inferred);
+    let mut engine = Engine::new(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        bodies,
+        the_inferred,
+    );
     for e in creations {
         if crate::const_eval::verifier::creation_can_be_const(&mut engine, lib, u, e) {
             r.creations.insert(e);

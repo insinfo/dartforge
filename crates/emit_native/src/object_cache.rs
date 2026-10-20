@@ -64,7 +64,11 @@ pub fn clang_identity(clang: &Path) -> Result<String, String> {
         .output()
         .map_err(|e| format!("failed to run {} --version: {e}", clang.display()))?;
     if !exit.status.success() {
-        return Err(format!("{} --version failed (code {:?})", clang.display(), exit.status));
+        return Err(format!(
+            "{} --version failed (code {:?})",
+            clang.display(),
+            exit.status
+        ));
     }
     let id = String::from_utf8_lossy(&exit.stdout).into_owned();
     map.lock().unwrap().insert(clang.to_path_buf(), id.clone());
@@ -166,7 +170,10 @@ impl ObjectCache {
                 if whole_exists(&final_) {
                     drop(progress);
                     touch(&final_);
-                    self.in_use.lock().unwrap_or_else(|e| e.into_inner()).insert(final_.clone());
+                    self.in_use
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(final_.clone());
                     return Ok((final_, true));
                 }
                 if progress.insert(key) {
@@ -180,15 +187,22 @@ impl ObjectCache {
 
         let hex = format!("{key:032x}");
         let n = self.tmp_counter.fetch_add(1, Ordering::Relaxed);
-        let dir_tmp = self.dir.join("tmp").join(format!("{hex}.{}.{n}", std::process::id()));
+        let dir_tmp = self
+            .dir
+            .join("tmp")
+            .join(format!("{hex}.{}.{n}", std::process::id()));
         std::fs::create_dir_all(&dir_tmp)
             .map_err(|e| format!("could not create {}: {e}", dir_tmp.display()))?;
         let tmp = dir_tmp.join(format!("{hex}.obj"));
         let r = create(&tmp).and_then(|()| self.publish(&tmp, &final_));
         let _ = std::fs::remove_dir_all(&dir_tmp);
         let hit = r?;
-        self.in_use.lock().unwrap_or_else(|e| e.into_inner()).insert(final_.clone());
-        if !hit && self.insertions.fetch_add(1, Ordering::Relaxed) % PRUNE_EVERY == PRUNE_EVERY - 1 {
+        self.in_use
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(final_.clone());
+        if !hit && self.insertions.fetch_add(1, Ordering::Relaxed) % PRUNE_EVERY == PRUNE_EVERY - 1
+        {
             self.prune();
         }
         Ok((final_, hit))
@@ -201,7 +215,8 @@ impl ObjectCache {
             return Err(format!("object {} was not written", tmp.display()));
         }
         if let Some(parent) = final_.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
         }
         if whole_exists(final_) {
             return Ok(true);
@@ -234,13 +249,21 @@ impl ObjectCache {
             }
         }
         let mut objects: Vec<(SystemTime, u64, PathBuf)> = Vec::new();
-        let in_use = self.in_use.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let Ok(subdirs) = std::fs::read_dir(&self.dir) else { return };
+        let in_use = self
+            .in_use
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        let Ok(subdirs) = std::fs::read_dir(&self.dir) else {
+            return;
+        };
         for sub in subdirs.flatten() {
             if sub.file_name() == "tmp" {
                 continue;
             }
-            let Ok(files) = std::fs::read_dir(sub.path()) else { continue };
+            let Ok(files) = std::fs::read_dir(sub.path()) else {
+                continue;
+            };
             for a in files.flatten() {
                 let p = a.path();
                 if p.extension().is_some_and(|e| e == "obj")
@@ -259,7 +282,9 @@ impl ObjectCache {
             if total <= self.cap_bytes {
                 break;
             }
-            let recent = now.duration_since(data).map_or(true, |d| d < MIN_AGE_TO_PRUNE);
+            let recent = now
+                .duration_since(data)
+                .map_or(true, |d| d < MIN_AGE_TO_PRUNE);
             if recent || in_use.contains(&p) {
                 continue;
             }
@@ -278,7 +303,11 @@ struct InProgress<'a> {
 
 impl Drop for InProgress<'_> {
     fn drop(&mut self) {
-        self.cache.in_progress.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.key);
+        self.cache
+            .in_progress
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.key);
         self.cache.finished.notify_all();
     }
 }
@@ -328,7 +357,10 @@ mod tests {
         assert_ne!(base, key("ir", "clang 22", &["-c"]));
         // The separation between components counts: moving a byte from one to another
         // cannot give the same key.
-        assert_ne!(key("ir", "clang 22", &["-c-O0"]), key("ir", "clang 22", &["-c", "-O0"]));
+        assert_ne!(
+            key("ir", "clang 22", &["-c-O0"]),
+            key("ir", "clang 22", &["-c", "-O0"])
+        );
     }
 
     #[test]
@@ -338,7 +370,9 @@ mod tests {
         let (p, hit) = c.get_or_create(7, write(b"obj")).unwrap();
         assert!(!hit);
         assert_eq!(std::fs::read(&p).unwrap(), b"obj");
-        let (p2, hit) = c.get_or_create(7, |_| panic!("should not create again")).unwrap();
+        let (p2, hit) = c
+            .get_or_create(7, |_| panic!("should not create again"))
+            .unwrap();
         assert!(hit);
         assert_eq!(p, p2);
     }
@@ -385,17 +419,27 @@ mod tests {
         for k in 0..5u128 {
             c.get_or_create(k, write(b"0123456789")).unwrap();
             // Distinct dates, so that the usage order is the creation order.
-            let f = std::fs::File::options().write(true).open(c.path(k)).unwrap();
-            f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1000 + k as u64)).unwrap();
+            let f = std::fs::File::options()
+                .write(true)
+                .open(c.path(k))
+                .unwrap();
+            f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1000 + k as u64))
+                .unwrap();
         }
         // The pruning of another process (the objects of this one are in use).
         ObjectCache::new(dir.path().to_path_buf(), 25).prune();
         let remaining = files_in(&dir.path().join("obj"));
-        let total: u64 = remaining.iter().map(|p| std::fs::metadata(p).unwrap().len()).sum();
+        let total: u64 = remaining
+            .iter()
+            .map(|p| std::fs::metadata(p).unwrap().len())
+            .sum();
         assert!(total <= 25, "{total} bytes");
         // The last used ones stay.
         assert_eq!(remaining.len(), 2);
-        assert!(remaining.contains(&c.path(3)) && remaining.contains(&c.path(4)), "{remaining:?}");
+        assert!(
+            remaining.contains(&c.path(3)) && remaining.contains(&c.path(4)),
+            "{remaining:?}"
+        );
     }
 
     /// An object larger than the cap, obtained by this process or used
@@ -405,8 +449,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let c = ObjectCache::new(dir.path().to_path_buf(), 5);
         c.get_or_create(1, write(b"0123456789")).unwrap();
-        let f = std::fs::File::options().write(true).open(c.path(1)).unwrap();
-        f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1000)).unwrap();
+        let f = std::fs::File::options()
+            .write(true)
+            .open(c.path(1))
+            .unwrap();
+        f.set_modified(SystemTime::UNIX_EPOCH + Duration::from_secs(1000))
+            .unwrap();
         c.prune();
         assert!(c.path(1).is_file(), "this process's object was pruned");
         // Another process (a new cache over the same directory): the old one
@@ -415,6 +463,9 @@ mod tests {
         assert!(!c.path(1).is_file());
         c.get_or_create(2, write(b"0123456789")).unwrap();
         other.prune();
-        assert!(c.path(2).is_file(), "recent object of another process pruned");
+        assert!(
+            c.path(2).is_file(),
+            "recent object of another process pruned"
+        );
     }
 }

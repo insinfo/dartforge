@@ -136,10 +136,22 @@ fn run_through_jit(dir: &Path, ir: &str) -> Execution {
 /// and the JIT at the pre-check; this test reports it first, without LLVM or Clang.
 #[test]
 fn every_emitter_extern_exists_in_runtime() {
-    let declared_set: Vec<&str> = dartforge_emit_native::llvm::externs::EXTERNS.iter().map(|e| e.name()).collect();
-    assert!(declared_set.len() > 100, "unexpected externs table: {declared_set:?}");
-    let missing_list: Vec<&&str> = declared_set.iter().filter(|name| !RUNTIME_SYMBOLS.contains(name)).collect();
-    assert!(missing_list.is_empty(), "the emitter declares externs the runtime does not define: {missing_list:?}");
+    let declared_set: Vec<&str> = dartforge_emit_native::llvm::externs::EXTERNS
+        .iter()
+        .map(|e| e.name())
+        .collect();
+    assert!(
+        declared_set.len() > 100,
+        "unexpected externs table: {declared_set:?}"
+    );
+    let missing_list: Vec<&&str> = declared_set
+        .iter()
+        .filter(|name| !RUNTIME_SYMBOLS.contains(name))
+        .collect();
+    assert!(
+        missing_list.is_empty(),
+        "the emitter declares externs the runtime does not define: {missing_list:?}"
+    );
 }
 
 // ─── In-process session, hand-written IR ──────────────────────────────────
@@ -155,7 +167,10 @@ fn invalid_ir_becomes_result_with_message() {
     // A syntactically valid IR but without the entry fails at lookup, not before.
     let mut session = JitSession::new().unwrap();
     session
-        .add_ir_module("sem_entrada", "define i64 @sem_entrada() {\n  ret i64 0\n}\n")
+        .add_ir_module(
+            "sem_entrada",
+            "define i64 @sem_entrada() {\n  ret i64 0\n}\n",
+        )
         .unwrap();
     let error = session.run_entry().unwrap_err();
     assert_eq!(error.stage, "lookup");
@@ -199,7 +214,10 @@ fn divergent_target_fails_loudly() {
     // A triple that is never the host's.
     let other_one = "riscv64-unknown-linux-gnu";
     let error = session
-        .add_ir_module("other_target", &format!("target triple = \"{other_one}\"\ndefine void @f() {{\n  ret void\n}}\n"))
+        .add_ir_module(
+            "other_target",
+            &format!("target triple = \"{other_one}\"\ndefine void @f() {{\n  ret void\n}}\n"),
+        )
         .unwrap_err();
     assert_eq!(error.stage, "layout");
     assert!(error.message.contains(other_one), "{error}");
@@ -210,7 +228,10 @@ fn divergent_target_fails_loudly() {
     // way (`x86_64-pc-linux-gnu`, `arm64-apple-macosx15.7.3`).
     let header = dartforge_emit_native::target::ir_header();
     session
-        .add_ir_module("alvo_do_emissor", &format!("{header}define void @g() {{\n  ret void\n}}\n"))
+        .add_ir_module(
+            "alvo_do_emissor",
+            &format!("{header}define void @g() {{\n  ret void\n}}\n"),
+        )
         .unwrap();
 }
 
@@ -250,7 +271,10 @@ fn duplicate_entry_becomes_result() {
 fn removing_module_unloads_entry() {
     let mut session = JitSession::new().unwrap();
     session
-        .add_ir_module("programa", "define void @dartforge_entry() {\n  ret void\n}\n")
+        .add_ir_module(
+            "programa",
+            "define void @dartforge_entry() {\n  ret void\n}\n",
+        )
         .unwrap();
     assert_eq!(session.run_entry().unwrap().exit_code, 0);
     // A second execution starts from a clean runtime and also ends fine.
@@ -306,7 +330,10 @@ define void @dartforge_entry() {
     let execution = run_through_jit(&dir.0, ir);
     assert_eq!(execution.stdout, "1\n", "{execution:?}");
     assert_eq!(execution.code, Some(255), "{execution:?}");
-    assert!(execution.stderr.starts_with("Unhandled exception:\n7\n"), "{execution:?}");
+    assert!(
+        execution.stderr.starts_with("Unhandled exception:\n7\n"),
+        "{execution:?}"
+    );
 }
 
 /// `double` and a frame larger than 4 KiB: the COFF path the old JIT never
@@ -340,7 +367,10 @@ define void @dartforge_entry() {
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn runner_jit_failure_exits_with_70() {
     let dir = OutputDir::new("falha");
-    let execution = run_through_jit(&dir.0, "declare void @nada()\ndefine void @dartforge_entry() {\n  call void @nada()\n  ret void\n}\n");
+    let execution = run_through_jit(
+        &dir.0,
+        "declare void @nada()\ndefine void @dartforge_entry() {\n  call void @nada()\n  ret void\n}\n",
+    );
     assert_eq!(execution.code, Some(70), "{execution:?}");
     assert!(execution.stderr.contains("symbols"), "{execution:?}");
     assert!(execution.stdout.is_empty());
@@ -422,7 +452,18 @@ void main() {
 /// (`emit_reloadable_ir`: without static objects, which the JIT does not have,
 /// docs/NATIVO-ESPACO-UNIFICADO.md §2.11); the AOT driver links that same text.
 fn emit_ir(input: &Path) -> String {
-    let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify, sdk: None, packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+    let options = dartforge_emit_native::CompileOptions {
+        contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+        sdk: None,
+        packages: None,
+        timings: false,
+        optimize: false,
+        language_version: None,
+        experiments: Vec::new(),
+        debug: false,
+        generator: None,
+        cpu: None,
+    };
     dartforge_emit_native::emit_reloadable_ir(input, &options, None)
         .unwrap_or_else(|error| panic!("the test program did not emit IR: {error}"))
         .text
@@ -442,10 +483,19 @@ fn run_in_both_profiles(label_name: &str, source: &str) -> (Execution, Execution
         .unwrap()
         .join()
         .unwrap();
-    stage(start, &format!("IR with {} bytes; run through the JIT", ir.len()));
+    stage(
+        start,
+        &format!("IR with {} bytes; run through the JIT", ir.len()),
+    );
 
     let jit = run_through_jit(&dir.0, &ir);
-    stage(start, &format!("JIT finished ({:?}); compile and link through the AOT", jit.code));
+    stage(
+        start,
+        &format!(
+            "JIT finished ({:?}); compile and link through the AOT",
+            jit.code
+        ),
+    );
 
     let executable = dir.0.join("programa.exe");
     dartforge_emit_native::driver::compile_and_link(
@@ -472,9 +522,15 @@ fn run_in_both_profiles(label_name: &str, source: &str) -> (Execution, Execution
 fn jit_and_aot_agree_on_same_ir() {
     for (label_name, source, expected) in PROGRAMS {
         let (jit, aot) = run_in_both_profiles(label_name, source);
-        assert_eq!(jit.stdout, aot.stdout, "{label_name}\nJIT {jit:?}\nAOT {aot:?}");
+        assert_eq!(
+            jit.stdout, aot.stdout,
+            "{label_name}\nJIT {jit:?}\nAOT {aot:?}"
+        );
         assert_eq!(jit.code, aot.code, "{label_name}\nJIT {jit:?}\nAOT {aot:?}");
-        assert_eq!(&jit.stdout, expected, "{label_name}: both profiles agree, but not with the VM: {jit:?}");
+        assert_eq!(
+            &jit.stdout, expected,
+            "{label_name}: both profiles agree, but not with the VM: {jit:?}"
+        );
         assert_eq!(jit.code, Some(0), "{label_name}: {jit:?}");
     }
 }
@@ -515,15 +571,25 @@ void main() {
 fn windows_shadow_stack_code_and_data_have_bounded_rvas() {
     let mut session = JitSession::new().unwrap();
     for index in 0..16 {
-        let ir = format!("@payload{index} = constant [4096 x i8] zeroinitializer, align 16\n\
+        let ir = format!(
+            "@payload{index} = constant [4096 x i8] zeroinitializer, align 16\n\
             define i64 @reader{index}() uwtable {{\n\
               %p = ptrtoint ptr @payload{index} to i64\n\
-              ret i64 %p\n}}\n");
-        session.add_ir_module(&format!("bounded{index}"), &ir).unwrap();
+              ret i64 %p\n}}\n"
+        );
+        session
+            .add_ir_module(&format!("bounded{index}"), &ir)
+            .unwrap();
         let code = session.lookup(&format!("reader{index}")).unwrap();
         let data = session.lookup(&format!("payload{index}")).unwrap();
-        assert!(data > code, "COFF data must follow code: code={code:x} data={data:x}");
-        assert!(data - code < (256 << 20), "COFF RVAs must fit in the bounded region");
+        assert!(
+            data > code,
+            "COFF data must follow code: code={code:x} data={data:x}"
+        );
+        assert!(
+            data - code < (256 << 20),
+            "COFF RVAs must fit in the bounded region"
+        );
     }
 }
 
@@ -534,10 +600,14 @@ fn windows_shadow_stack_code_and_data_have_bounded_rvas() {
 fn windows_constant_pool_symbols_materialize_across_objects() {
     let mut session = JitSession::new().unwrap();
     for index in 0..4 {
-        let ir = format!("define double @scaled{index}(double %x) {{\n\
+        let ir = format!(
+            "define double @scaled{index}(double %x) {{\n\
             %result = fmul double %x, 1.234567890000000e+02\n\
-            ret double %result\n}}\n");
-        session.add_ir_module(&format!("constant_pool{index}"), &ir).unwrap();
+            ret double %result\n}}\n"
+        );
+        session
+            .add_ir_module(&format!("constant_pool{index}"), &ir)
+            .unwrap();
         assert_ne!(session.lookup(&format!("scaled{index}")).unwrap(), 0);
     }
 }
@@ -549,7 +619,10 @@ fn windows_constant_pool_symbols_materialize_across_objects() {
 fn sdk_context_data_matches_its_runtime() {
     let dir = OutputDir::new("sdk-context-data");
     let fixture = include_str!("fixtures/sdk_context_owner.ll");
-    for ir in [fixture.to_owned(), fixture.replace("@dartforge_context_slot", "@\"dartforge_context_slot\"")] {
+    for ir in [
+        fixture.to_owned(),
+        fixture.replace("@dartforge_context_slot", "@\"dartforge_context_slot\""),
+    ] {
         let result = run_through_jit(&dir.0, &ir);
         assert_eq!(result.code, Some(0), "{result:?}");
     }
@@ -560,14 +633,23 @@ fn sdk_context_data_matches_its_runtime() {
 #[test]
 #[ignore = "requires LLVM and the source SDK shared library"]
 fn sdk_context_data_survives_modules_and_repeated_runs() {
-    let dll = std::env::var_os("DARTFORGE_SDK_DLL").map(PathBuf::from)
+    let dll = std::env::var_os("DARTFORGE_SDK_DLL")
+        .map(PathBuf::from)
         .unwrap_or_else(|| dartforge_emit_native::sdk_module::source_sdk_dll().unwrap());
-    let mut session = JitSession::new_with_sdk(&dll, &["dartforge_context".into(), "dartforge_init".into()]).unwrap();
-    let probe = include_str!("fixtures/sdk_context_owner.ll").replace("@main()", "@probe_context_owner()");
+    let mut session =
+        JitSession::new_with_sdk(&dll, &["dartforge_context".into(), "dartforge_init".into()])
+            .unwrap();
+    let probe =
+        include_str!("fixtures/sdk_context_owner.ll").replace("@main()", "@probe_context_owner()");
     session.add_ir_module("probe", &probe).unwrap();
-    session.add_ir_module("main", "@dartforge_context_slot = external global i64, align 8\n\
+    session
+        .add_ir_module(
+            "main",
+            "@dartforge_context_slot = external global i64, align 8\n\
         declare i32 @probe_context_owner()\n\
-        define i32 @main() {\n  %result = call i32 @probe_context_owner()\n  ret i32 %result\n}\n").unwrap();
+        define i32 @main() {\n  %result = call i32 @probe_context_owner()\n  ret i32 %result\n}\n",
+        )
+        .unwrap();
     assert_eq!(session.run_main().unwrap().exit_code, 0);
     assert_eq!(session.run_main().unwrap().exit_code, 0);
 }
@@ -577,13 +659,19 @@ fn sdk_context_data_survives_modules_and_repeated_runs() {
 #[test]
 #[ignore = "requires LLVM and the source SDK shared library"]
 fn sdk_context_data_binds_before_first_reload() {
-    let dll = std::env::var_os("DARTFORGE_SDK_DLL").map(PathBuf::from)
+    let dll = std::env::var_os("DARTFORGE_SDK_DLL")
+        .map(PathBuf::from)
         .unwrap_or_else(|| dartforge_emit_native::sdk_module::source_sdk_dll().unwrap());
-    let mut session = JitSession::new_with_sdk(&dll, &["dartforge_context".into(), "dartforge_init".into()]).unwrap();
+    let mut session =
+        JitSession::new_with_sdk(&dll, &["dartforge_context".into(), "dartforge_init".into()])
+            .unwrap();
     let fixture = include_str!("fixtures/sdk_context_owner.ll");
     session.add_reloadable_module("context", fixture).unwrap();
     assert_eq!(session.run_reloadable_main().unwrap().exit_code, 0);
-    let changed = fixture.replace("ret i32 %result", "%same_result = or i32 %result, %result\n  ret i32 %same_result");
+    let changed = fixture.replace(
+        "ret i32 %result",
+        "%same_result = or i32 %result, %result\n  ret i32 %same_result",
+    );
     session.hot_reload("context", &changed).unwrap();
     assert_eq!(session.run_reloadable_main().unwrap().exit_code, 0);
 }
@@ -598,12 +686,27 @@ fn sdk_context_data_missing_from_library_is_rejected() {
     let dll = dir.0.join("libstub.dylib");
     std::fs::write(&source, "void dartforge_set_main_arguments(const char *data, long long count) { (void)data; (void)count; }\n").unwrap();
     let clang = std::env::var_os("DARTFORGE_CLANG").unwrap_or_else(|| "clang".into());
-    let result = Command::new(clang).arg("-dynamiclib").arg(&source).arg("-o").arg(&dll).output().unwrap();
-    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    let result = Command::new(clang)
+        .arg("-dynamiclib")
+        .arg(&source)
+        .arg("-o")
+        .arg(&dll)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
     std::fs::write(dir.0.join("exportados.def"), "EXPORTS\n").unwrap();
     let mut session = JitSession::new_with_sdk(&dll, &[]).unwrap();
-    let error = session.add_ir_module("missing", "@dartforge_context_slot = external global i64, align 8\n\
-        define void @dartforge_entry() { ret void }\n").unwrap_err();
+    let error = session
+        .add_ir_module(
+            "missing",
+            "@dartforge_context_slot = external global i64, align 8\n\
+        define void @dartforge_entry() { ret void }\n",
+        )
+        .unwrap_err();
     assert_eq!(error.stage, "sdk");
     assert!(error.message.contains("dartforge_context_slot"), "{error}");
     assert!(session.module_names().is_empty());

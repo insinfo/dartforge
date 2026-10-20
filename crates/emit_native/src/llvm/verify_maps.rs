@@ -35,7 +35,12 @@ pub fn verify(ir: &str) -> Result<(), String> {
     let mut intermediate = false;
     for (n, line) in ir.lines().enumerate() {
         let l = line.trim();
-        let error = |reason: &str| Err(format!("maps mode verifier, line {}: {reason}: `{l}`", n + 1));
+        let error = |reason: &str| {
+            Err(format!(
+                "maps mode verifier, line {}: {reason}: `{l}`",
+                n + 1
+            ))
+        };
         let definition = line.starts_with("define ");
         if definition {
             inside = true;
@@ -44,11 +49,18 @@ pub fn verify(ir: &str) -> Result<(), String> {
             inside = false;
         }
         if l.contains("addrspace(1)") {
-            return error("`addrspace(1)` pointer, which the shape of roots by `\"deopt\"` does not have");
+            return error(
+                "`addrspace(1)` pointer, which the shape of roots by `\"deopt\"` does not have",
+            );
         }
         // The body of the helpers comes out without indentation: every line between the
         // `define` and the `}` counts.
-        if inside && !definition && !intermediate && super::collecting_call(line) && !line.contains("\"deopt\"(") {
+        if inside
+            && !definition
+            && !intermediate
+            && super::collecting_call(line)
+            && !line.contains("\"deopt\"(")
+        {
             return error("call that may collect without the `\"deopt\"` operand");
         }
         if l.starts_with("declare ")
@@ -58,7 +70,9 @@ pub fn verify(ir: &str) -> Result<(), String> {
         {
             let ef = crate::llvm::externs::effects_of(name);
             if (ef.allocates || ef.calls_dart) && !crate::target::sabotaged_leaf(name) {
-                return error("leaf (`gc-leaf-function`) that collects according to the effects table");
+                return error(
+                    "leaf (`gc-leaf-function`) that collects according to the effects table",
+                );
             }
         }
     }

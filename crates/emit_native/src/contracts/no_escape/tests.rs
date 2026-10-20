@@ -90,9 +90,11 @@ fn return_of_any_transitive_reference_is_unproved() {
         ],
         Terminator::Return(Some(parameter(2))),
     );
-    assert!(reason(&module(vec![function]), "escape")
-        .reason
-        .contains("layout witness"));
+    assert!(
+        reason(&module(vec![function]), "escape")
+            .reason
+            .contains("layout witness")
+    );
 }
 
 #[test]
@@ -106,9 +108,11 @@ fn all_other_reference_arguments_and_globals_preserve_possible_preexisting_alias
     other
         .params
         .push((ValueId(1), "possibly_same_object".into(), Type::Ref));
-    assert!(reason(&module(vec![other]), "other")
-        .reason
-        .contains("preexisting alias"));
+    assert!(
+        reason(&module(vec![other]), "other")
+            .reason
+            .contains("preexisting alias")
+    );
     let global = function(
         "global",
         Type::Ref,
@@ -122,9 +126,11 @@ fn all_other_reference_arguments_and_globals_preserve_possible_preexisting_alias
         )],
         Terminator::Return(Some(parameter(1))),
     );
-    assert!(reason(&module(vec![global]), "global")
-        .reason
-        .contains("layout witness"));
+    assert!(
+        reason(&module(vec![global]), "global")
+            .reason
+            .contains("layout witness")
+    );
 }
 
 #[test]
@@ -156,17 +162,21 @@ fn publication_then_restoration_is_not_accepted() {
         ],
         Terminator::Return(None),
     );
-    assert!(reason(&module(vec![function]), "temporary")
-        .reason
-        .contains("unavailable"));
+    assert!(
+        reason(&module(vec![function]), "temporary")
+            .reason
+            .contains("unavailable")
+    );
 }
 
 #[test]
 fn exceptional_publication_closures_and_external_object_stores_are_unproved() {
     let thrown = function("throw", Type::Void, vec![], Terminator::Throw(parameter(0)));
-    assert!(reason(&module(vec![thrown]), "throw")
-        .reason
-        .contains("exceptional"));
+    assert!(
+        reason(&module(vec![thrown]), "throw")
+            .reason
+            .contains("exceptional")
+    );
     let closure = function(
         "closure",
         Type::Void,
@@ -180,9 +190,11 @@ fn exceptional_publication_closures_and_external_object_stores_are_unproved() {
         )],
         Terminator::Return(None),
     );
-    assert!(reason(&module(vec![closure]), "closure")
-        .reason
-        .contains("AllocClosure"));
+    assert!(
+        reason(&module(vec![closure]), "closure")
+            .reason
+            .contains("AllocClosure")
+    );
     let field = function(
         "store",
         Type::Void,
@@ -197,9 +209,11 @@ fn exceptional_publication_closures_and_external_object_stores_are_unproved() {
         )],
         Terminator::Return(None),
     );
-    assert!(reason(&module(vec![field]), "store")
-        .reason
-        .contains("SetField"));
+    assert!(
+        reason(&module(vec![field]), "store")
+            .reason
+            .contains("SetField")
+    );
 }
 
 #[test]
@@ -309,9 +323,11 @@ fn recursive_annotations_cannot_prove_each_other() {
         )],
         Terminator::Return(None),
     );
-    assert!(reason(&module(vec![a, b]), "a")
-        .reason
-        .contains("fixed-point"));
+    assert!(
+        reason(&module(vec![a, b]), "a")
+            .reason
+            .contains("fixed-point")
+    );
 }
 
 #[test]
@@ -340,9 +356,11 @@ fn stack_cells_need_initialization_and_alias_witnesses_before_reference_reads() 
         ],
         Terminator::Return(Some(parameter(3))),
     );
-    assert!(reason(&module(vec![function]), "local")
-        .reason
-        .contains("definite-initialization"));
+    assert!(
+        reason(&module(vec![function]), "local")
+            .reason
+            .contains("definite-initialization")
+    );
 }
 
 #[test]
@@ -360,9 +378,11 @@ fn integer_field_reads_cannot_hide_native_handles() {
         )],
         Terminator::Return(Some(parameter(1))),
     );
-    assert!(reason(&module(vec![function]), "address")
-        .reason
-        .contains("native-handle bits"));
+    assert!(
+        reason(&module(vec![function]), "address")
+            .reason
+            .contains("native-handle bits")
+    );
 }
 
 #[test]
@@ -373,9 +393,11 @@ fn llvm_boundary_coercions_need_an_independent_effect_audit() {
         vec![],
         Terminator::Return(Some(Operand::Constant(Constant::Int(1)))),
     );
-    assert!(reason(&module(vec![function]), "boxing")
-        .reason
-        .contains("conversion"));
+    assert!(
+        reason(&module(vec![function]), "boxing")
+            .reason
+            .contains("conversion")
+    );
 }
 
 #[test]
@@ -402,9 +424,11 @@ fn cfg_branches_and_loop_reference_phi_cannot_drop_derived_reference_state() {
         instructions: vec![],
         terminator: Terminator::Return(Some(parameter(1))),
     });
-    assert!(reason(&module(vec![function]), "phi")
-        .reason
-        .contains("return may publish"));
+    assert!(
+        reason(&module(vec![function]), "phi")
+            .reason
+            .contains("return may publish")
+    );
 }
 
 #[test]
@@ -432,9 +456,11 @@ fn registered_float_field_type_cannot_reconstruct_a_managed_handle_as_integer() 
         ],
         Terminator::Return(Some(parameter(2))),
     );
-    assert!(reason(&module(vec![function]), "punned")
-        .reason
-        .contains("layout witness"));
+    assert!(
+        reason(&module(vec![function]), "punned")
+            .reason
+            .contains("layout witness")
+    );
 }
 
 #[test]
@@ -454,9 +480,11 @@ fn global_registered_scalar_type_cannot_hide_reference_slot_representation() {
     );
     let mut graph = module(vec![function]);
     graph.globals.push((1, Type::Ref, "ref_slot".into()));
-    assert!(reason(&graph, "global_punned")
-        .reason
-        .contains("layout witness"));
+    assert!(
+        reason(&graph, "global_punned")
+            .reason
+            .contains("layout witness")
+    );
 }
 
 #[test]
@@ -477,9 +505,11 @@ fn uninitialized_stack_scalar_cannot_publish_stale_reference_words() {
         ],
         Terminator::Return(Some(parameter(2))),
     );
-    assert!(reason(&module(vec![function]), "uninitialized")
-        .reason
-        .contains("definite-initialization"));
+    assert!(
+        reason(&module(vec![function]), "uninitialized")
+            .reason
+            .contains("definite-initialization")
+    );
 }
 
 #[test]
@@ -524,15 +554,21 @@ fn valid_hir_evidence_discharges_only_the_checked_typed_ssa_obligation() {
     else {
         panic!();
     };
-    assert!(!proof
-        .outstanding_requirements
-        .contains(&ProofRequirement::ValidTypedSsa));
-    assert!(proof
-        .outstanding_requirements
-        .contains(&ProofRequirement::NativeScalarAliasProvenance));
-    assert!(proof
-        .outstanding_requirements
-        .contains(&ProofRequirement::GeneratedAbiHelpersAndCleanup));
+    assert!(
+        !proof
+            .outstanding_requirements
+            .contains(&ProofRequirement::ValidTypedSsa)
+    );
+    assert!(
+        proof
+            .outstanding_requirements
+            .contains(&ProofRequirement::NativeScalarAliasProvenance)
+    );
+    assert!(
+        proof
+            .outstanding_requirements
+            .contains(&ProofRequirement::GeneratedAbiHelpersAndCleanup)
+    );
 }
 
 #[test]

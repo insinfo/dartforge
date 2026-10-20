@@ -12,7 +12,7 @@
 //! redirection.
 
 use crate::analyzer_tree::Mark;
-use crate::project::{Target, Project};
+use crate::project::{Project, Target};
 use crate::refactorings::Context;
 use dartforge_elements::model::{Element, UnitId, UnitRole};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind};
@@ -33,7 +33,9 @@ pub(crate) struct ReverseIndex {
 /// The identifier that starts at `pos`.
 fn identifier_in(source: &str, pos: usize) -> &str {
     let rest = &source[pos.min(source.len())..];
-    let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+        .unwrap_or(rest.len());
     &rest[..end]
 }
 
@@ -73,7 +75,12 @@ impl Computer<'_, '_> {
     }
 
     /// `forClass`/`forExtensionType`: type parameters, fields and methods.
-    fn members(&self, e: &mut HashSet<String>, tps: &[ast::TypeParameter], members: &[ast::MemberId]) {
+    fn members(
+        &self,
+        e: &mut HashSet<String>,
+        tps: &[ast::TypeParameter],
+        members: &[ast::MemberId],
+    ) {
         self.type_parameters(e, tps);
         let ast = self.cx.ast;
         for &mid in members {
@@ -134,10 +141,12 @@ impl Computer<'_, '_> {
     /// The function marked on the node or on the child `FunctionExpression`.
     fn function(&self, k: usize) -> Option<ast::FunctionId> {
         let cx = self.cx;
-        std::iter::once(k).chain(cx.children(k).iter().copied()).find_map(|n| match cx.tree.nodes[n].mark {
-            Mark::Function(f) => Some(f),
-            _ => None,
-        })
+        std::iter::once(k)
+            .chain(cx.children(k).iter().copied())
+            .find_map(|n| match cx.tree.nodes[n].mark {
+                Mark::Function(f) => Some(f),
+                _ => None,
+            })
     }
 
     /// The scope that node `k` opens, if it opens one.
@@ -162,7 +171,10 @@ impl Computer<'_, '_> {
                             for &list in cx.children(s) {
                                 for &v in cx.children(list) {
                                     if cx.kind(v) == "VariableDeclaration" {
-                                        e.insert(identifier_in(cx.source, cx.tree.nodes[v].start).to_string());
+                                        e.insert(
+                                            identifier_in(cx.source, cx.tree.nodes[v].start)
+                                                .to_string(),
+                                        );
                                     }
                                 }
                             }
@@ -171,10 +183,17 @@ impl Computer<'_, '_> {
                     }
                 }
             }
-            "ClassDeclaration" | "ClassTypeAlias" | "ExtensionTypeDeclaration" | "FunctionTypeAlias" => {
-                let Mark::Decl(did) = cx.tree.nodes[k].mark else { return Some(e) };
+            "ClassDeclaration"
+            | "ClassTypeAlias"
+            | "ExtensionTypeDeclaration"
+            | "FunctionTypeAlias" => {
+                let Mark::Decl(did) = cx.tree.nodes[k].mark else {
+                    return Some(e);
+                };
                 match &ast.decl(did).kind {
-                    DeclKind::Class(c) if c.mixin_application => self.type_parameters(&mut e, &c.type_params),
+                    DeclKind::Class(c) if c.mixin_application => {
+                        self.type_parameters(&mut e, &c.type_params)
+                    }
                     DeclKind::Class(c) => self.members(&mut e, &c.type_params, &c.members),
                     DeclKind::ExtensionType(x) => self.members(&mut e, &x.type_params, &x.members),
                     DeclKind::Typedef(t) => self.type_parameters(&mut e, &t.type_params),
@@ -232,7 +251,11 @@ impl Computer<'_, '_> {
             "PrefixedIdentifier" => children.get(1) == Some(&k),
             "PropertyAccess" | "ConstructorName" => children.last() == Some(&k),
             "MethodInvocation" => {
-                let before: Vec<usize> = children.iter().copied().filter(|&f| !matches!(cx.kind(f), "ArgumentList" | "TypeArgumentList")).collect();
+                let before: Vec<usize> = children
+                    .iter()
+                    .copied()
+                    .filter(|&f| !matches!(cx.kind(f), "ArgumentList" | "TypeArgumentList"))
+                    .collect();
                 if before.last() != Some(&k) {
                     return false;
                 }
@@ -244,7 +267,14 @@ impl Computer<'_, '_> {
                 while let Some(p) = cx.parent(current) {
                     match cx.kind(p) {
                         "CascadeExpression" => return cx.children(p).first() != Some(&current),
-                        "MethodInvocation" | "PropertyAccess" | "IndexExpression" | "FunctionExpressionInvocation" if cx.children(p).first() == Some(&current) => current = p,
+                        "MethodInvocation"
+                        | "PropertyAccess"
+                        | "IndexExpression"
+                        | "FunctionExpressionInvocation"
+                            if cx.children(p).first() == Some(&current) =>
+                        {
+                            current = p
+                        }
                         _ => return false,
                     }
                 }
@@ -259,16 +289,28 @@ impl Computer<'_, '_> {
         let kind = cx.kind(k);
         match kind {
             // A factory redirection does not reference the target.
-            "ConstructorName" if cx.parent(k).is_some_and(|p| cx.kind(p) == "ConstructorDeclaration") => return,
+            "ConstructorName"
+                if cx
+                    .parent(k)
+                    .is_some_and(|p| cx.kind(p) == "ConstructorDeclaration") =>
+            {
+                return;
+            }
             "ImportDirective" => {
                 for &f in cx.children(k) {
-                    if cx.kind(f) == "SimpleIdentifier" && matches!(cx.tree.nodes[f].mark, Mark::DeclarationContext) {
+                    if cx.kind(f) == "SimpleIdentifier"
+                        && matches!(cx.tree.nodes[f].mark, Mark::DeclarationContext)
+                    {
                         self.prefixes.insert(cx.node_text(f).to_string());
                     }
                 }
             }
             "NamedType" => {
-                let prefix = cx.children(k).iter().copied().find(|&f| cx.kind(f) == "ImportPrefixReference");
+                let prefix = cx
+                    .children(k)
+                    .iter()
+                    .copied()
+                    .find(|&f| cx.kind(f) == "ImportPrefixReference");
                 let start = match prefix {
                     Some(p) => {
                         let end = cx.tree.nodes[p].end;
@@ -278,7 +320,10 @@ impl Computer<'_, '_> {
                 };
                 let name = identifier_in(cx.source, start).to_string();
                 // `_addIfNotShadowed`.
-                if !(self.contains(&name) && prefix.is_none()) && !self.prefixes.contains(&name) && !name.is_empty() {
+                if !(self.contains(&name) && prefix.is_none())
+                    && !self.prefixes.contains(&name)
+                    && !name.is_empty()
+                {
                     self.names.insert(name);
                 }
             }
@@ -308,12 +353,24 @@ impl Computer<'_, '_> {
         }
         let Some(parent) = cx.parent(k) else { return };
         // The class name in the declared constructor.
-        if cx.kind(parent) == "ConstructorDeclaration" && cx.children(parent).iter().copied().find(|&f| cx.kind(f) == "SimpleIdentifier") == Some(k) {
+        if cx.kind(parent) == "ConstructorDeclaration"
+            && cx
+                .children(parent)
+                .iter()
+                .copied()
+                .find(|&f| cx.kind(f) == "SimpleIdentifier")
+                == Some(k)
+        {
             return;
         }
         let name = cx.node_text(k).to_string();
-        let argument_label = cx.kind(parent) == "Label" && cx.parent(parent).is_some_and(|a| cx.kind(a) == "NamedExpression" && cx.children(a).first() == Some(&parent));
-        if !(self.qualified(k, parent) || argument_label) && (self.contains(&name) || self.prefixes.contains(&name)) {
+        let argument_label = cx.kind(parent) == "Label"
+            && cx.parent(parent).is_some_and(|a| {
+                cx.kind(a) == "NamedExpression" && cx.children(a).first() == Some(&parent)
+            });
+        if !(self.qualified(k, parent) || argument_label)
+            && (self.contains(&name) || self.prefixes.contains(&name))
+        {
             return;
         }
         self.names.insert(name);
@@ -323,7 +380,12 @@ impl Computer<'_, '_> {
 impl Context<'_> {
     /// `computeReferencedNames` of the unit.
     pub(crate) fn referenced_names(&self) -> HashSet<String> {
-        let mut c = Computer { cx: self, names: HashSet::new(), prefixes: HashSet::new(), scopes: Vec::new() };
+        let mut c = Computer {
+            cx: self,
+            names: HashSet::new(),
+            prefixes: HashSet::new(),
+            scopes: Vec::new(),
+        };
         let unit = c.unit_scope();
         c.scopes.push(unit);
         for &f in self.children(0) {
@@ -338,7 +400,11 @@ impl Project {
     /// Forgets what was computed for `u` (its text changed): the referenced
     /// names and its entries in the reverse index.
     pub(crate) fn forget_unit(&self, u: UnitId) {
-        let old = self.referenced_names.lock().ok().and_then(|mut m| m.remove(&u));
+        let old = self
+            .referenced_names
+            .lock()
+            .ok()
+            .and_then(|mut m| m.remove(&u));
         if let Ok(mut m) = self.comments.lock() {
             m.remove(&u);
         }
@@ -366,14 +432,20 @@ impl Project {
     pub(crate) fn units_that_cite(&self, name: &str) -> Vec<UnitId> {
         let units = self.units();
         let missing: Vec<UnitId> = match self.reverse_index.lock() {
-            Ok(i) => units.iter().copied().filter(|u| !i.indexed.contains(u)).collect(),
+            Ok(i) => units
+                .iter()
+                .copied()
+                .filter(|u| !i.indexed.contains(u))
+                .collect(),
             Err(_) => Vec::new(),
         };
         for u in missing {
             // A unit whose text does not contain `name` does not reference it: it is
             // left for when another name asks for it (`referencedNames` comes from the
             // text).
-            if self.program().unit(u).role == UnitRole::Patch || !self.program().unit(u).source.contains(name) {
+            if self.program().unit(u).role == UnitRole::Patch
+                || !self.program().unit(u).source.contains(name)
+            {
                 continue;
             }
             let names = self.unit_referenced_names(u);
@@ -385,15 +457,27 @@ impl Project {
                 }
             }
         }
-        let Ok(i) = self.reverse_index.lock() else { return Vec::new() };
+        let Ok(i) = self.reverse_index.lock() else {
+            return Vec::new();
+        };
         i.by_name
             .get(name)
-            .map(|l| l.iter().copied().filter(|u| self.libraries.contains(&self.program().unit(*u).library)).collect())
+            .map(|l| {
+                l.iter()
+                    .copied()
+                    .filter(|u| self.libraries.contains(&self.program().unit(*u).library))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
     pub(crate) fn unit_referenced_names(&self, u: UnitId) -> Arc<HashSet<String>> {
-        if let Some(n) = self.referenced_names.lock().ok().and_then(|m| m.get(&u).cloned()) {
+        if let Some(n) = self
+            .referenced_names
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&u).cloned())
+        {
             return n;
         }
         let n = Arc::new(Context::new(self, u).referenced_names());
@@ -412,14 +496,23 @@ impl Project {
             Target::Top(el) => match *el {
                 Element::Class(c) => self.name(p.class(c).name).to_string(),
                 Element::Typedef(t) => self.name(p.typedef(t).name).to_string(),
-                Element::Extension(x) => p.extension(x).name.map(|n| self.name(n).to_string()).unwrap_or_default(),
-                Element::Function(f) => self.name(p.function(f).name).trim_end_matches('=').to_string(),
+                Element::Extension(x) => p
+                    .extension(x)
+                    .name
+                    .map(|n| self.name(n).to_string())
+                    .unwrap_or_default(),
+                Element::Function(f) => self
+                    .name(p.function(f).name)
+                    .trim_end_matches('=')
+                    .to_string(),
                 Element::Variable(v) => self.name(p.variable(v).name).to_string(),
                 Element::Prefix(..) => return None,
             },
             Target::Member { name, .. } => name.clone(),
             Target::Constructor(f) => self.name(p.class(p.function(*f).class?).name).to_string(),
-            Target::Local { .. } | Target::Prefix { .. } | Target::TypeParameter { .. } => return None,
+            Target::Local { .. } | Target::Prefix { .. } | Target::TypeParameter { .. } => {
+                return None;
+            }
         })
     }
 

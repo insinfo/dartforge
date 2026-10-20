@@ -9,7 +9,7 @@
 use crate::actions::CodeAction;
 use crate::analyzer_tree::{Binding, Mark};
 use crate::refactorings::Context;
-use crate::refactorings_exec::{Text, ONE_INDENT};
+use crate::refactorings_exec::{ONE_INDENT, Text};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{FunctionElementId, VariableId, VariableRef};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind, ParameterKind};
@@ -55,11 +55,18 @@ impl Context<'_> {
     }
 
     /// `ConvertClassToEnum`.
-    pub(crate) fn convert_class_to_enum(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_class_to_enum(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let prog = self.p.program();
         let query = &self.p.query;
         let lib = prog.unit(self.unit).library;
-        if prog.library(lib).features.version() < dartforge_frontend::features::LanguageVersion::new(2, 17) {
+        if prog.library(lib).features.version()
+            < dartforge_frontend::features::LanguageVersion::new(2, 17)
+        {
             return None;
         }
         // With parts, the creations and subclasses in them cannot be seen.
@@ -70,8 +77,12 @@ impl Context<'_> {
         if self.kind(declaration) != "ClassDeclaration" {
             return None;
         }
-        let Mark::Decl(d) = self.tree.nodes[declaration].mark else { return None };
-        let DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
+        let Mark::Decl(d) = self.tree.nodes[declaration].mark else {
+            return None;
+        };
+        let DeclKind::Class(k) = &self.ast.decl(d).kind else {
+            return None;
+        };
         // `declaration.name == token`.
         if k.mixin_application || start < k.name.span.start || start > k.name.span.end {
             return None;
@@ -91,7 +102,12 @@ impl Context<'_> {
         let member_nodes: Vec<usize> = k
             .members
             .iter()
-            .map(|&m| class_children.iter().copied().find(|&f| self.tree.nodes[f].binding == Binding::Member(m)))
+            .map(|&m| {
+                class_children
+                    .iter()
+                    .copied()
+                    .find(|&f| self.tree.nodes[f].binding == Binding::Member(m))
+            })
             .collect::<Option<_>>()?;
         let name_of = |s: Span| &self.source[s.start..s.end];
 
@@ -99,7 +115,9 @@ impl Context<'_> {
         let private = name_of(k.name.span).starts_with('_');
         let mut constructors: Vec<(FunctionElementId, usize)> = Vec::new();
         for (i, &m) in k.members.iter().enumerate() {
-            let MemberKind::Constructor(c) = &self.ast.member(m).kind else { continue };
+            let MemberKind::Constructor(c) = &self.ast.member(m).kind else {
+                continue;
+            };
             let f = self.p.node_constructor(self.unit, m)?;
             let private_constructor = c.name.is_some_and(|n| name_of(n.span).starts_with('_'));
             if !private && !private_constructor {
@@ -123,56 +141,107 @@ impl Context<'_> {
 
         // `_validateFields`.
         let field_variable = |m: ast::MemberId, j: usize| -> Option<VariableId> {
-            prog.class(class_).fields.iter().copied().find(|&v| prog.variable(v).node == VariableRef::Field { unit: self.unit, member: m, index: j })
+            prog.class(class_).fields.iter().copied().find(|&v| {
+                prog.variable(v).node
+                    == VariableRef::Field {
+                        unit: self.unit,
+                        member: m,
+                        index: j,
+                    }
+            })
         };
         let mut table = query.table.clone();
-        let mut engine = Engine::new(prog, &query.names, &mut table, &query.core, &query.outline, &query.bodies, &self.p.libraries);
+        let mut engine = Engine::new(
+            prog,
+            &query.names,
+            &mut table,
+            &query.core,
+            &query.outline,
+            &query.bodies,
+            &self.p.libraries,
+        );
         let mut groups: Vec<(Value, Vec<ConstantField>)> = Vec::new();
         let mut index_field: Option<ClassField> = None;
         for (i, &m) in k.members.iter().enumerate() {
-            let MemberKind::Field(l) = &self.ast.member(m).kind else { continue };
-            let list = self.children(member_nodes[i]).iter().copied().find(|&f| self.kind(f) == "VariableDeclarationList")?;
-            let variables: Vec<usize> = self.children(list).iter().copied().filter(|&f| self.kind(f) == "VariableDeclaration").collect();
+            let MemberKind::Field(l) = &self.ast.member(m).kind else {
+                continue;
+            };
+            let list = self
+                .children(member_nodes[i])
+                .iter()
+                .copied()
+                .find(|&f| self.kind(f) == "VariableDeclarationList")?;
+            let variables: Vec<usize> = self
+                .children(list)
+                .iter()
+                .copied()
+                .filter(|&f| self.kind(f) == "VariableDeclaration")
+                .collect();
             if variables.len() != l.variables.len() {
                 return None;
             }
             if l.static_ {
                 for (j, v) in l.variables.iter().enumerate() {
-                    let Some(var) = field_variable(m, j) else { continue };
+                    let Some(var) = field_variable(m, j) else {
+                        continue;
+                    };
                     if !prog.variable(var).const_ {
                         continue;
                     }
-                    let Some(t) = query.variable_type(var) else { continue };
-                    if !matches!(query.table.get(t), Type::Interface { class, .. } if *class == class_) {
+                    let Some(t) = query.variable_type(var) else {
+                        continue;
+                    };
+                    if !matches!(query.table.get(t), Type::Interface { class, .. } if *class == class_)
+                    {
                         continue;
                     }
                     if v.initializer.is_none() {
                         continue;
                     }
-                    let Some(&creation) = self.children(variables[j]).first() else { continue };
+                    let Some(&creation) = self.children(variables[j]).first() else {
+                        continue;
+                    };
                     if self.kind(creation) != "InstanceCreationExpression" {
                         continue;
                     }
-                    let Some(Resolved::Constructor(f)) = self.node_expr(creation).and_then(|x| self.bodies.get_resolved(x)) else { continue };
+                    let Some(Resolved::Constructor(f)) = self
+                        .node_expr(creation)
+                        .and_then(|x| self.bodies.get_resolved(x))
+                    else {
+                        continue;
+                    };
                     let f = *f;
                     if prog.function(f).factory || prog.function(f).class != Some(class_) {
                         continue;
                     }
-                    let Some(value) = engine.variable_value(var).and_then(|c| c.value().cloned()) else { continue };
+                    let Some(value) = engine.variable_value(var).and_then(|c| c.value().cloned())
+                    else {
+                        continue;
+                    };
                     if l.variables.len() != 1 {
                         return None;
                     }
                     // `fieldValue.getField('index')?.toIntValue() ?? -1`.
                     let index = match &value.state {
-                        InstanceState::Generic { fields, .. } => fields.iter().find_map(|(c, x)| match (c, &x.state) {
-                            (Field::MemberName(s), InstanceState::Int(Some(n))) if self.p.name(*s) == "index" => Some(*n),
-                            _ => None,
-                        }),
+                        InstanceState::Generic { fields, .. } => {
+                            fields.iter().find_map(|(c, x)| match (c, &x.state) {
+                                (Field::MemberName(s), InstanceState::Int(Some(n)))
+                                    if self.p.name(*s) == "index" =>
+                                {
+                                    Some(*n)
+                                }
+                                _ => None,
+                            })
+                        }
                         _ => None,
                     }
                     .unwrap_or(-1);
                     let field = ConstantField {
-                        field: ClassField { member: i, variable: variables[j], variables: variables.clone() },
+                        field: ClassField {
+                            member: i,
+                            variable: variables[j],
+                            variables: variables.clone(),
+                        },
                         name: name_of(v.name.span).to_string(),
                         creation,
                         constructor: f,
@@ -195,12 +264,18 @@ impl Context<'_> {
                     if !l.final_ {
                         return None;
                     }
-                    let Some(var) = field_variable(m, j) else { continue };
+                    let Some(var) = field_variable(m, j) else {
+                        continue;
+                    };
                     let is_int = query
                         .variable_type(var)
                         .is_some_and(|t| matches!(query.table.get(t), Type::Interface { class, .. } if Some(*class) == query.core.int_class));
                     if name_of(v.name.span) == "index" && is_int {
-                        index_field = Some(ClassField { member: i, variable: variables[j], variables: variables.clone() });
+                        index_field = Some(ClassField {
+                            member: i,
+                            variable: variables[j],
+                            variables: variables.clone(),
+                        });
                     }
                 }
             }
@@ -219,7 +294,10 @@ impl Context<'_> {
 
         // `_EnumVisitor` and `_NonEnumVisitor`: no creation through a generative
         // constructor of the class outside the initializer of a field to convert.
-        let (ci, cf) = (self.tree.nodes[declaration].start, self.tree.nodes[declaration].end);
+        let (ci, cf) = (
+            self.tree.nodes[declaration].start,
+            self.tree.nodes[declaration].end,
+        );
         let allowed: HashSet<usize> = fields.iter().map(|c| c.creation).collect();
         for n in 0..self.tree.nodes.len() {
             if self.kind(n) != "InstanceCreationExpression" {
@@ -238,13 +316,18 @@ impl Context<'_> {
             }
         }
         for &other in self.p.program().unit(self.unit).unit.declarations.iter() {
-            let DeclKind::Class(ko) = &self.ast.decl(other).kind else { continue };
+            let DeclKind::Class(ko) = &self.ast.decl(other).kind else {
+                continue;
+            };
             if ko.mixin_application || other == d {
                 continue;
             }
             let c = self.declaration_class(self.unit, other)?;
             let ce = prog.class(c);
-            if ce.supertype_class == Some(class_) || ce.interface_classes.contains(&class_) || ce.mixin_classes.contains(&class_) {
+            if ce.supertype_class == Some(class_)
+                || ce.interface_classes.contains(&class_)
+                || ce.mixin_classes.contains(&class_)
+            {
                 return None;
             }
         }
@@ -265,21 +348,35 @@ impl Context<'_> {
             Some(_) => {
                 let mut map = Vec::new();
                 for &(f, i) in used.iter() {
-                    let MemberKind::Constructor(kc) = &self.ast.member(k.members[i]).kind else { return None };
-                    let position = kc.parameters.iter().position(|p| p.this_ && p.name.is_some_and(|n| name_of(n.span) == "index"))?;
-                    map.push(IndexParameter { constructor: f, member: i, position });
+                    let MemberKind::Constructor(kc) = &self.ast.member(k.members[i]).kind else {
+                        return None;
+                    };
+                    let position = kc.parameters.iter().position(|p| {
+                        p.this_ && p.name.is_some_and(|n| name_of(n.span) == "index")
+                    })?;
+                    map.push(IndexParameter {
+                        constructor: f,
+                        member: i,
+                        position,
+                    });
                 }
                 let mut values: Vec<i64> = Vec::new();
                 for c in fields.iter() {
                     let pair = map.iter().find(|p| p.constructor == c.constructor)?;
-                    let MemberKind::Constructor(kc) = &self.ast.member(k.members[pair.member]).kind else { return None };
+                    let MemberKind::Constructor(kc) = &self.ast.member(k.members[pair.member]).kind
+                    else {
+                        return None;
+                    };
                     // `getArgument`: the parameter's argument; that of a named one is the
                     // `NamedExpression`, which is not a literal.
                     if kc.parameters[pair.position].kind == ParameterKind::Named {
                         return None;
                     }
                     let arguments = self.list_arguments(c.creation);
-                    let argument = *arguments.iter().filter(|&&a| self.kind(a) != "NamedExpression").nth(pair.position)?;
+                    let argument = *arguments
+                        .iter()
+                        .filter(|&&a| self.kind(a) != "NamedExpression")
+                        .nth(pair.position)?;
                     if self.kind(argument) != "IntegerLiteral" {
                         return None;
                     }
@@ -290,7 +387,10 @@ impl Context<'_> {
                     values.push(v);
                 }
                 values.sort_unstable();
-                if !(values.len() == fields.len() && values[0] == 0 && *values.last()? == fields.len() as i64 - 1) {
+                if !(values.len() == fields.len()
+                    && values[0] == 0
+                    && *values.last()? == fields.len() as i64 - 1)
+                {
                     return None;
                 }
                 Some(map)
@@ -303,27 +403,46 @@ impl Context<'_> {
         let class_word = self
             .tokens
             .iter()
-            .filter(|t| t.span.end <= k.name.span.start && &self.source[t.span.start..t.span.end] == "class")
+            .filter(|t| {
+                t.span.end <= k.name.span.start && &self.source[t.span.start..t.span.end] == "class"
+            })
             .map(|t| t.span)
             .next_back()?;
         edits.push((class_word, "enum".to_string()));
-        if let Some(&extends) = class_children.iter().find(|&&f| self.kind(f) == "ExtendsClause") {
+        if let Some(&extends) = class_children
+            .iter()
+            .find(|&&f| self.kind(f) == "ExtendsClause")
+        {
             let next = self.next_token(self.tree.nodes[extends].end)?;
-            edits.push((Span { start: self.tree.nodes[extends].start, end: next.start }, String::new()));
+            edits.push((
+                Span {
+                    start: self.tree.nodes[extends].start,
+                    end: next.start,
+                },
+                String::new(),
+            ));
         }
         let eol = Text::new(self.source).eol();
         let indent = ONE_INDENT;
         let mut constants = String::new();
         fields.sort_by_key(|c| c.index);
-        let exclude_field = |field: &ClassField, edits: &mut Vec<(Span, String)>, members: &mut Vec<usize>| {
-            if field.variables.len() == 1 {
-                members.push(field.member);
-            } else {
-                edits.push((self.node_in_list(&field.variables, field.variable), String::new()));
-            }
-        };
+        let exclude_field =
+            |field: &ClassField, edits: &mut Vec<(Span, String)>, members: &mut Vec<usize>| {
+                if field.variables.len() == 1 {
+                    members.push(field.member);
+                } else {
+                    edits.push((
+                        self.node_in_list(&field.variables, field.variable),
+                        String::new(),
+                    ));
+                }
+            };
         for field in fields.iter() {
-            let documentation = self.children(member_nodes[field.field.member]).iter().copied().find(|&f| self.kind(f) == "Comment");
+            let documentation = self
+                .children(member_nodes[field.field.member])
+                .iter()
+                .copied()
+                .find(|&f| self.kind(f) == "Comment");
             if !constants.is_empty() {
                 constants.push(',');
                 constants.push_str(eol);
@@ -338,20 +457,37 @@ impl Context<'_> {
                 constants.push_str(indent);
             }
             constants.push_str(&field.name);
-            let parameter = map.as_ref().and_then(|m| m.iter().find(|p| p.constructor == field.constructor));
-            let constructor_name = self.children(field.creation).iter().copied().find(|&f| self.kind(f) == "ConstructorName")?;
+            let parameter = map
+                .as_ref()
+                .and_then(|m| m.iter().find(|p| p.constructor == field.constructor));
+            let constructor_name = self
+                .children(field.creation)
+                .iter()
+                .copied()
+                .find(|&f| self.kind(f) == "ConstructorName")?;
             let name_children = self.children(constructor_name);
             let ty = *name_children.first()?;
-            let type_arguments = self.children(ty).iter().copied().find(|&f| self.kind(f) == "TypeArgumentList");
+            let type_arguments = self
+                .children(ty)
+                .iter()
+                .copied()
+                .find(|&f| self.kind(f) == "TypeArgumentList");
             if let Some(a) = type_arguments {
                 constants.push_str(self.node_text(a));
             }
-            let name = name_children.get(1).copied().filter(|&f| self.kind(f) == "SimpleIdentifier");
+            let name = name_children
+                .get(1)
+                .copied()
+                .filter(|&f| self.kind(f) == "SimpleIdentifier");
             if let Some(n) = name {
                 constants.push('.');
                 constants.push_str(self.node_text(n));
             }
-            let list = self.children(field.creation).iter().copied().find(|&f| self.kind(f) == "ArgumentList")?;
+            let list = self
+                .children(field.creation)
+                .iter()
+                .copied()
+                .find(|&f| self.kind(f) == "ArgumentList")?;
             let arguments = self.list_arguments(field.creation);
             let how_many = arguments.len() - usize::from(parameter.is_some());
             if how_many == 0 {
@@ -367,11 +503,18 @@ impl Context<'_> {
                 if index == 0 {
                     constants.push_str(&self.source[start_(arguments[1])..end_of(arguments[last])]);
                 } else if index == last {
-                    let comma = self.next_token(end_of(arguments[last])).is_some_and(|t| &self.source[t.start..t.end] == ",");
-                    let until = if comma { start_(arguments[last]) } else { end_of(arguments[last - 1]) };
+                    let comma = self
+                        .next_token(end_of(arguments[last]))
+                        .is_some_and(|t| &self.source[t.start..t.end] == ",");
+                    let until = if comma {
+                        start_(arguments[last])
+                    } else {
+                        end_of(arguments[last - 1])
+                    };
                     constants.push_str(&self.source[start_(arguments[0])..until]);
                 } else {
-                    constants.push_str(&self.source[start_(arguments[0])..start_(arguments[index])]);
+                    constants
+                        .push_str(&self.source[start_(arguments[0])..start_(arguments[index])]);
                     let closes = self.tree.nodes[list].end - 1;
                     constants.push_str(&self.source[start_(arguments[index + 1])..closes]);
                 }
@@ -387,12 +530,20 @@ impl Context<'_> {
 
         // `_removeUnnamedConstructor`.
         let mut removed: Option<usize> = None;
-        let declared: Vec<usize> = (0..k.members.len()).filter(|&i| matches!(self.ast.member(k.members[i]).kind, MemberKind::Constructor(_))).collect();
+        let declared: Vec<usize> = (0..k.members.len())
+            .filter(|&i| {
+                matches!(
+                    self.ast.member(k.members[i]).kind,
+                    MemberKind::Constructor(_)
+                )
+            })
+            .collect();
         if let [i] = declared[..]
             && let MemberKind::Constructor(kc) = &self.ast.member(k.members[i]).kind
             && kc.name.is_none_or(|n| name_of(n.span) == "new")
         {
-            let remaining = kc.parameters.len() as i64 - i64::from(map.as_ref().is_some_and(|m| !m.is_empty()));
+            let remaining =
+                kc.parameters.len() as i64 - i64::from(map.as_ref().is_some_and(|m| !m.is_empty()));
             if remaining == 0 {
                 members_to_exclude.push(i);
                 removed = Some(i);
@@ -404,9 +555,16 @@ impl Context<'_> {
                 if removed == Some(pair.member) {
                     continue;
                 }
-                let list = self.children(member_nodes[pair.member]).iter().copied().find(|&f| self.kind(f) == "FormalParameterList")?;
+                let list = self
+                    .children(member_nodes[pair.member])
+                    .iter()
+                    .copied()
+                    .find(|&f| self.kind(f) == "FormalParameterList")?;
                 let parameters = self.children(list).to_vec();
-                edits.push((self.node_in_list(&parameters, *parameters.get(pair.position)?), String::new()));
+                edits.push((
+                    self.node_in_list(&parameters, *parameters.get(pair.position)?),
+                    String::new(),
+                ));
             }
         }
 
@@ -414,14 +572,26 @@ impl Context<'_> {
         let kind = "refactor.convert.classToEnum";
         let (first, last) = (*member_nodes.first()?, *member_nodes.last()?);
         if members_to_exclude.len() == member_nodes.len() {
-            edits.push((Span { start: self.tree.nodes[first].start, end: self.tree.nodes[last].end }, constants));
+            edits.push((
+                Span {
+                    start: self.tree.nodes[first].start,
+                    end: self.tree.nodes[last].end,
+                },
+                constants,
+            ));
             return Some(self.simple_action(uri, title, kind, edits));
         }
         let key = self.previous_token(self.tree.nodes[first].start)?;
         if &self.source[key.start..key.end] != "{" {
             return None;
         }
-        edits.push((Span { start: key.end, end: key.end }, format!("{eol}{indent}{constants};{eol}")));
+        edits.push((
+            Span {
+                start: key.end,
+                end: key.end,
+            },
+            format!("{eol}{indent}{constants};{eol}"),
+        ));
         // `range.nodesInList(members, membersToDelete)`.
         members_to_exclude.sort_unstable();
         let mut index_groups: Vec<(usize, usize)> = Vec::new();
@@ -433,9 +603,15 @@ impl Context<'_> {
         }
         for (inf, sup) in index_groups {
             let span = if inf == 0 {
-                Span { start: self.tree.nodes[member_nodes[inf]].start, end: self.tree.nodes[*member_nodes.get(sup + 1)?].start }
+                Span {
+                    start: self.tree.nodes[member_nodes[inf]].start,
+                    end: self.tree.nodes[*member_nodes.get(sup + 1)?].start,
+                }
             } else {
-                Span { start: self.tree.nodes[member_nodes[inf - 1]].end, end: self.tree.nodes[member_nodes[sup]].end }
+                Span {
+                    start: self.tree.nodes[member_nodes[inf - 1]].end,
+                    end: self.tree.nodes[member_nodes[sup]].end,
+                }
             };
             edits.push((span, String::new()));
         }

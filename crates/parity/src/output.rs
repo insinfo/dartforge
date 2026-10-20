@@ -39,29 +39,61 @@ fn normalize(text: &str, root: &Path) -> String {
 
 fn case_args(case: &Path) -> Vec<String> {
     let v: Vec<String> = std::fs::read_to_string(case.join("ARGS"))
-        .map(|t| t.lines().map(str::trim).filter(|l| !l.is_empty()).map(String::from).collect())
+        .map(|t| {
+            t.lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect()
+        })
         .unwrap_or_default();
-    if v.is_empty() { vec![".".to_string()] } else { v }
+    if v.is_empty() {
+        vec![".".to_string()]
+    } else {
+        v
+    }
 }
 
 /// The `dartforge` executable next to this one (the same `target/<profile>`).
 fn dartforge() -> PathBuf {
-    let name = if cfg!(windows) { "dartforge.exe" } else { "dartforge" };
-    std::env::current_exe().ok().map(|e| e.with_file_name(name)).unwrap_or_else(|| PathBuf::from(name))
+    let name = if cfg!(windows) {
+        "dartforge.exe"
+    } else {
+        "dartforge"
+    };
+    std::env::current_exe()
+        .ok()
+        .map(|e| e.with_file_name(name))
+        .unwrap_or_else(|| PathBuf::from(name))
 }
 
 fn dart() -> PathBuf {
-    std::env::var_os("DARTFORGE_DART").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("dart"))
+    std::env::var_os("DARTFORGE_DART")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("dart"))
 }
 
-fn run(program: &Path, prefix: &[&str], format: &str, args: &[String], project: &Path, state: Option<&Path>) -> Option<Output> {
+fn run(
+    program: &Path,
+    prefix: &[&str],
+    format: &str,
+    args: &[String],
+    project: &Path,
+    state: Option<&Path>,
+) -> Option<Output> {
     let mut c = Command::new(program);
-    c.args(prefix).arg(format!("--format={format}")).args(args).current_dir(project);
+    c.args(prefix)
+        .arg(format!("--format={format}"))
+        .args(args)
+        .current_dir(project);
     if let Some(e) = state {
         c.env("ANALYZER_STATE_LOCATION_OVERRIDE", e);
     }
     let out = c.output().ok()?;
-    Some(Output { text: normalize(&String::from_utf8_lossy(&out.stdout), project), code: out.status.code().unwrap_or(-1) })
+    Some(Output {
+        text: normalize(&String::from_utf8_lossy(&out.stdout), project),
+        code: out.status.code().unwrap_or(-1),
+    })
 }
 
 /// The system path separator does not matter: the JSON's escaped backslash
@@ -72,9 +104,13 @@ fn separators(s: &str) -> String {
 
 /// The first differing line (1-based), with both versions.
 fn first_difference(expected: &str, actual: &str) -> Option<(usize, String, String)> {
-    let (e, o): (Vec<&str>, Vec<&str>) = (expected.split('\n').collect(), actual.split('\n').collect());
+    let (e, o): (Vec<&str>, Vec<&str>) =
+        (expected.split('\n').collect(), actual.split('\n').collect());
     for i in 0..e.len().max(o.len()) {
-        let (a, b) = (e.get(i).copied().unwrap_or("<end>"), o.get(i).copied().unwrap_or("<end>"));
+        let (a, b) = (
+            e.get(i).copied().unwrap_or("<end>"),
+            o.get(i).copied().unwrap_or("<end>"),
+        );
         if a != b {
             return Some((i + 1, a.to_string(), b.to_string()));
         }
@@ -85,7 +121,11 @@ fn first_difference(expected: &str, actual: &str) -> Option<(usize, String, Stri
 /// The cases of `dir`, in order.
 fn cases(dir: &Path) -> Vec<PathBuf> {
     let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|r| r.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.join("project").is_dir()).collect())
+        .map(|r| {
+            r.filter_map(|e| e.ok().map(|e| e.path()))
+                .filter(|p| p.join("project").is_dir())
+                .collect()
+        })
         .unwrap_or_default();
     v.sort();
     v
@@ -130,14 +170,27 @@ pub fn compare(dir: &Path) -> bool {
     for case in all {
         let project = case.join("project");
         let args = case_args(&case);
-        let name = case.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = case
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         for f in FORMATS {
-            let Ok(expected) = std::fs::read_to_string(case.join(format!("EXPECTED.{f}.txt"))) else { continue };
+            let Ok(expected) = std::fs::read_to_string(case.join(format!("EXPECTED.{f}.txt")))
+            else {
+                continue;
+            };
             let expected = separators(&expected.replace("\r\n", "\n"));
             // `--all`: the whole output, without the publication rule (which
             // only leaves the verified codes in the CLI); what is compared here
             // is the format, the order, the paths and the summary.
-            let Some(actual) = run(&dartforge(), &["analyze", "--all"], f, &args, &project, None) else {
+            let Some(actual) = run(
+                &dartforge(),
+                &["analyze", "--all"],
+                f,
+                &args,
+                &project,
+                None,
+            ) else {
                 println!("{name} [{f}]: dartforge did not run");
                 all_ok = false;
                 continue;

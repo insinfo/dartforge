@@ -44,11 +44,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         }
         match (member, native, args.len()) {
-            (_, Some("List_getLength" | "GrowableList_getLength"), 0) => Some(self.list_len_inline(this)),
-            (_, Some("GrowableList_getCapacity"), 0) => Some(self.list_helper("df.list_capacity", vec![(this, Type::Ref)], Type::I64)),
+            (_, Some("List_getLength" | "GrowableList_getLength"), 0) => {
+                Some(self.list_len_inline(this))
+            }
+            (_, Some("GrowableList_getCapacity"), 0) => {
+                Some(self.list_helper("df.list_capacity", vec![(this, Type::Ref)], Type::I64))
+            }
             (_, Some("GrowableList_setLength"), 1) => {
                 let n = self.coerce(args[0].clone(), Type::I64);
-                self.list_helper("df.list_write_len", vec![(this, Type::Ref), (n, Type::I64)], Type::Void);
+                self.list_helper(
+                    "df.list_write_len",
+                    vec![(this, Type::Ref), (n, Type::I64)],
+                    Type::Void,
+                );
                 Some(Operand::Constant(Constant::Null))
             }
             (_, Some("GrowableList_setData"), 1) => {
@@ -80,8 +88,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 "df.list_write_data" => "dartforge_arc_list_write_data_v1",
                 _ => name_str,
             }
-        } else { name_str };
-        self.emit(Instruction::CallRuntime { name: name_str.to_string(), args, ret_ty: ret }, ret)
+        } else {
+            name_str
+        };
+        self.emit(
+            Instruction::CallRuntime {
+                name: name_str.to_string(),
+                args,
+                ret_ty: ret,
+            },
+            ret,
+        )
     }
 
     /// The length (`@df.list_len`): the same offset in all three classes.
@@ -92,17 +109,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The storage: a borrowed Ref in ARC; an I64 address in tracing,
     /// kept alive by the list and used without a collection between access and use.
     pub(super) fn list_storage_inline(&mut self, l: Operand) -> Operand {
-        let ty = if self.ctx.arc_memory { Type::Ref } else { Type::I64 };
+        let ty = if self.ctx.arc_memory {
+            Type::Ref
+        } else {
+            Type::I64
+        };
         self.list_helper("df.list_storage", vec![(l, Type::Ref)], ty)
     }
 
     /// The `FORMAT`/`ELEMENT` bits of storage `a` (`@df.list_shape`), in `I64`.
     pub(super) fn list_shape_inline(&mut self, a: Operand) -> Operand {
         if self.ctx.arc_memory {
-            return self.list_helper("dartforge_arc_list_shape_v1", vec![(a, Type::Ref)], Type::I64);
+            return self.list_helper(
+                "dartforge_arc_list_shape_v1",
+                vec![(a, Type::Ref)],
+                Type::I64,
+            );
         }
         let f = self.list_helper("df.list_shape", vec![(a, Type::I64)], Type::I8);
-        self.emit(Instruction::ZExt { op: f, from: Type::I8, to: Type::I64 }, Type::I64)
+        self.emit(
+            Instruction::ZExt {
+                op: f,
+                from: Type::I8,
+                to: Type::I64,
+            },
+            Type::I64,
+        )
     }
 
     /// `this._setData(data)`: the field write with a barrier when the
@@ -118,7 +150,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let ok = self.emit(Instruction::ICmp(ICmpOp::Ne, done, c(0)), Type::I1);
         let slow = self.new_block();
         let end = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ok, then_block: end, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: ok,
+            then_block: end,
+            else_block: slow,
+        });
         self.set_block(slow);
         self.emit_call_with_check(
             Instruction::CallRuntime {
@@ -139,25 +175,43 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// the write with the element barrier (`@df.list_write_ref`); out of
     /// range (the `RangeError (index)`) or compact (the unboxed value, or the
     /// decompaction), the native.
-    fn store_index_inline(&mut self, native: &str, this: Operand, i: Operand, v: Operand) -> Operand {
+    fn store_index_inline(
+        &mut self,
+        native: &str,
+        this: Operand,
+        i: Operand,
+        v: Operand,
+    ) -> Operand {
         let n = self.list_len_inline(this.clone());
         let inside = self.emit(Instruction::ICmp(ICmpOp::Ult, i.clone(), n), Type::I1);
         let b_shape = self.new_block();
         let fast = self.new_block();
         let slow = self.new_block();
         let end = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: inside, then_block: b_shape, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: inside,
+            then_block: b_shape,
+            else_block: slow,
+        });
 
         self.set_block(b_shape);
         let a = self.list_storage_inline(this.clone());
         let f = self.list_shape_inline(a.clone());
         let general = self.emit(Instruction::ICmp(ICmpOp::Eq, f, c(SHAPE_GENERAL)), Type::I1);
-        self.terminate(Terminator::CondBranch { cond: general, then_block: fast, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: general,
+            then_block: fast,
+            else_block: slow,
+        });
 
         self.set_block(fast);
         self.list_helper(
             "df.list_write_ref",
-            vec![(a.clone(), self.operand_type(&a)), (i.clone(), Type::I64), (v.clone(), Type::Ref)],
+            vec![
+                (a.clone(), self.operand_type(&a)),
+                (i.clone(), Type::I64),
+                (v.clone(), Type::Ref),
+            ],
             Type::Void,
         );
         self.terminate(Terminator::Branch(end));
@@ -188,16 +242,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let fast = self.new_block();
         let slow = self.new_block();
         let end = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: inside, then_block: b_shape, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: inside,
+            then_block: b_shape,
+            else_block: slow,
+        });
 
         self.set_block(b_shape);
         let a = self.list_storage_inline(this.clone());
         let f = self.list_shape_inline(a.clone());
         let general = self.emit(Instruction::ICmp(ICmpOp::Eq, f, c(SHAPE_GENERAL)), Type::I1);
-        self.terminate(Terminator::CondBranch { cond: general, then_block: fast, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: general,
+            then_block: fast,
+            else_block: slow,
+        });
 
         self.set_block(fast);
-        let r_fast = self.list_helper("df.list_read", vec![(a.clone(), self.operand_type(&a)), (i.clone(), Type::I64)], Type::Ref);
+        let r_fast = self.list_helper(
+            "df.list_read",
+            vec![(a.clone(), self.operand_type(&a)), (i.clone(), Type::I64)],
+            Type::Ref,
+        );
         self.terminate(Terminator::Branch(end));
 
         self.set_block(slow);
@@ -216,7 +282,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         self.terminate(Terminator::Branch(end));
         self.set_block(end);
-        self.emit(Instruction::Phi { incoming: vec![(fast, r_fast), (slow_end, r_slow)], ty: Type::Ref }, Type::Ref)
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(fast, r_fast), (slow_end, r_slow)],
+                ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
     /// The `add` of a scalar into a `_GrowableList` whose storage is compact
@@ -235,31 +307,80 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> (BlockId, BlockId) {
         let len = self.list_len_inline(list.clone());
         let a = self.list_storage_inline(list.clone());
-        let cap = self.list_helper("df.list_len", vec![(a.clone(), self.operand_type(&a))], Type::I64);
+        let cap = self.list_helper(
+            "df.list_len",
+            vec![(a.clone(), self.operand_type(&a))],
+            Type::I64,
+        );
         let f = self.list_shape_inline(a.clone());
-        let matches = self.emit(Instruction::ICmp(ICmpOp::Eq, f, c(i64::from(shape))), Type::I1);
+        let matches = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, f, c(i64::from(shape))),
+            Type::I1,
+        );
         let b_matches = self.new_block();
         let b_write = self.new_block();
         let full = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: matches, then_block: b_matches, else_block: does_not_match });
+        self.terminate(Terminator::CondBranch {
+            cond: matches,
+            then_block: b_matches,
+            else_block: does_not_match,
+        });
 
         self.set_block(b_matches);
         let has = self.emit(Instruction::ICmp(ICmpOp::Ult, len.clone(), cap), Type::I1);
-        self.terminate(Terminator::CondBranch { cond: has, then_block: b_write, else_block: full });
+        self.terminate(Terminator::CondBranch {
+            cond: has,
+            then_block: b_write,
+            else_block: full,
+        });
 
         self.set_block(b_write);
         if self.ctx.arc_memory {
             let bits = if ty == CType::F64 {
-                self.emit(Instruction::Bitcast { op: value, to: Type::I64 }, Type::I64)
-            } else { value };
-            self.list_helper("dartforge_arc_list_write_bits_v1",
-                vec![(a, Type::Ref), (len.clone(), Type::I64), (bits, Type::I64), (c(i64::from(shape)), Type::I64)], Type::Void);
+                self.emit(
+                    Instruction::Bitcast {
+                        op: value,
+                        to: Type::I64,
+                    },
+                    Type::I64,
+                )
+            } else {
+                value
+            };
+            self.list_helper(
+                "dartforge_arc_list_write_bits_v1",
+                vec![
+                    (a, Type::Ref),
+                    (len.clone(), Type::I64),
+                    (bits, Type::I64),
+                    (c(i64::from(shape)), Type::I64),
+                ],
+                Type::Void,
+            );
         } else {
-            let base = self.emit(Instruction::Add(a, c(layout::offsets::ELEMENTS as i64 - layout::HANDLE_OFFSET)), Type::I64);
-            self.emit(Instruction::NativeWrite { address: base, index: len.clone(), ty, value }, Type::Void);
+            let base = self.emit(
+                Instruction::Add(
+                    a,
+                    c(layout::offsets::ELEMENTS as i64 - layout::HANDLE_OFFSET),
+                ),
+                Type::I64,
+            );
+            self.emit(
+                Instruction::NativeWrite {
+                    address: base,
+                    index: len.clone(),
+                    ty,
+                    value,
+                },
+                Type::Void,
+            );
         }
         let new = self.emit(Instruction::Add(len, c(1)), Type::I64);
-        self.list_helper("df.list_write_len", vec![(list, Type::Ref), (new, Type::I64)], Type::Void);
+        self.list_helper(
+            "df.list_write_len",
+            vec![(list, Type::Ref), (new, Type::I64)],
+            Type::Void,
+        );
         let done = self.current_block;
         (done, full)
     }

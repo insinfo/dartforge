@@ -16,13 +16,41 @@ use std::path::Path;
 
 /// (file, chunk of the line, reason).
 const ALLOWED: &[(&str, &str, &str)] = &[
-    ("arc_native_ports.rs", "let test_body: extern \"C\" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(target as usize) };", "cfg(test) only: the target is checked equal to the static extern C Rust body, which only retains the reference and neither throws nor calls Dart"),
-    ("ffi_native_api.rs", "let f: HandleFinalizer = unsafe { std::mem::transmute(f) };", "the C `Dart_HandleFinalizer` of the native API caller"),
-    ("ffi_native_api.rs", "let handler: NativePortHandler = unsafe { std::mem::transmute(handler) };", "the C `Dart_NativeMessageHandler`"),
-    ("heap.rs", "let f: extern \"C\" fn(usize) = unsafe { std::mem::transmute(f) };", "the C `NativeFinalizerFunction` of `dart:ffi`"),
-    ("io_watcher.rs", "std::mem::transmute::<*mut c_void, _>(s(c\"FSEvent", "CoreServices functions found at run time"),
-    ("io_windows_events.rs", "std::mem::transmute::<usize, Fn", "the Winsock extensions (`AcceptEx`, `ConnectEx`…) found through `WSAIoctl`"),
-    ("ports.rs", "std::mem::transmute::<usize, extern \"C\" fn()>(p)", "the trampolines of the generation published by the JIT, which has no table-based exceptions"),
+    (
+        "arc_native_ports.rs",
+        "let test_body: extern \"C\" fn(i64, i64) -> i64 = unsafe { std::mem::transmute(target as usize) };",
+        "cfg(test) only: the target is checked equal to the static extern C Rust body, which only retains the reference and neither throws nor calls Dart",
+    ),
+    (
+        "ffi_native_api.rs",
+        "let f: HandleFinalizer = unsafe { std::mem::transmute(f) };",
+        "the C `Dart_HandleFinalizer` of the native API caller",
+    ),
+    (
+        "ffi_native_api.rs",
+        "let handler: NativePortHandler = unsafe { std::mem::transmute(handler) };",
+        "the C `Dart_NativeMessageHandler`",
+    ),
+    (
+        "heap.rs",
+        "let f: extern \"C\" fn(usize) = unsafe { std::mem::transmute(f) };",
+        "the C `NativeFinalizerFunction` of `dart:ffi`",
+    ),
+    (
+        "io_watcher.rs",
+        "std::mem::transmute::<*mut c_void, _>(s(c\"FSEvent",
+        "CoreServices functions found at run time",
+    ),
+    (
+        "io_windows_events.rs",
+        "std::mem::transmute::<usize, Fn",
+        "the Winsock extensions (`AcceptEx`, `ConnectEx`…) found through `WSAIoctl`",
+    ),
+    (
+        "ports.rs",
+        "std::mem::transmute::<usize, extern \"C\" fn()>(p)",
+        "the trampolines of the generation published by the JIT, which has no table-based exceptions",
+    ),
 ];
 
 #[test]
@@ -31,7 +59,9 @@ fn every_fn_transmute_outside_ports_is_listed() {
     let mut new_ones = Vec::new();
     for input in std::fs::read_dir(&source).expect("read crates/runtime/src") {
         let file_path = input.expect("entry").path();
-        let Some(name) = file_path.file_name().and_then(|n| n.to_str()) else { continue };
+        let Some(name) = file_path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
         if !name.ends_with(".rs") || name == "exceptions_tables.rs" {
             continue;
         }
@@ -40,7 +70,9 @@ fn every_fn_transmute_outside_ports_is_listed() {
             if !line.contains("transmute") || line.trim_start().starts_with("//") {
                 continue;
             }
-            let allowed = ALLOWED.iter().any(|(file, chunk, _)| *file == name && line.contains(chunk));
+            let allowed = ALLOWED
+                .iter()
+                .any(|(file, chunk, _)| *file == name && line.contains(chunk));
             if !allowed {
                 new_ones.push(format!("{name}:{}: {}", n + 1, line.trim()));
             }
@@ -59,6 +91,9 @@ fn the_list_has_no_dead_entry() {
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     for (file, chunk, reason) in ALLOWED {
         let text = std::fs::read_to_string(source.join(file)).unwrap_or_default();
-        assert!(text.contains(chunk), "{file}: the entry ({reason}) no longer matches anything: remove it from the list");
+        assert!(
+            text.contains(chunk),
+            "{file}: the entry ({reason}) no longer matches anything: remove it from the list"
+        );
     }
 }

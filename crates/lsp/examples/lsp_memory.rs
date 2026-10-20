@@ -46,12 +46,7 @@ fn round_trip(server: &mut Server, message: &Value) -> usize {
         .expect("valid frame")
         .expect("non-empty frame");
     server.receive(read);
-    server
-        .pump()
-        .iter()
-        .map(frame)
-        .map(|q| q.len())
-        .sum()
+    server.pump().iter().map(frame).map(|q| q.len()).sum()
 }
 
 fn main() {

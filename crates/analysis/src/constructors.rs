@@ -82,7 +82,12 @@ fn owner<'a>(u: &Unit<'a>, d: &'a ast::Decl, names: &Interner) -> Option<Owner<'
             // The constants are `const` static fields with an initializer;
             // `values` is synthetic.
             for k in k.constants.iter() {
-                fields.push(Field { name: k.name.sym, is_static: true, final_or_const: true, has_initializer: true });
+                fields.push(Field {
+                    name: k.name.sym,
+                    is_static: true,
+                    final_or_const: true,
+                    has_initializer: true,
+                });
             }
             if let Some(v) = names.lookup("values") {
                 synthetics.push(v);
@@ -90,7 +95,12 @@ fn owner<'a>(u: &Unit<'a>, d: &'a ast::Decl, names: &Interner) -> Option<Owner<'
             (&k.members, true)
         }
         DeclKind::ExtensionType(k) => {
-            fields.push(Field { name: k.representation_name.sym, is_static: false, final_or_const: true, has_initializer: false });
+            fields.push(Field {
+                name: k.representation_name.sym,
+                is_static: false,
+                final_or_const: true,
+                has_initializer: false,
+            });
             (&k.members, false)
         }
         _ => return None,
@@ -100,7 +110,12 @@ fn owner<'a>(u: &Unit<'a>, d: &'a ast::Decl, names: &Interner) -> Option<Owner<'
         match &m.kind {
             MemberKind::Field(l) => {
                 for v in l.variables.iter() {
-                    fields.push(Field { name: v.name.sym, is_static: l.static_, final_or_const: l.final_ || l.const_, has_initializer: v.initializer.is_some() });
+                    fields.push(Field {
+                        name: v.name.sym,
+                        is_static: l.static_,
+                        final_or_const: l.final_ || l.const_,
+                        has_initializer: v.initializer.is_some(),
+                    });
                 }
             }
             MemberKind::Method(fid) => {
@@ -114,13 +129,21 @@ fn owner<'a>(u: &Unit<'a>, d: &'a ast::Decl, names: &Interner) -> Option<Owner<'
             MemberKind::Constructor(_) => {}
         }
     }
-    Some(Owner { fields, synthetics, members, enum_ })
+    Some(Owner {
+        fields,
+        synthetics,
+        members,
+        enum_,
+    })
 }
 
 /// The `FieldFormalParameter` node: from the metadata (or the first modifier)
 /// to the name, or to the end of a function parameter's list (with the `?`).
 fn param_span(source: &str, p: &ast::Parameter) -> Span {
-    let start = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
+    let start = p
+        .metadata
+        .first()
+        .map_or(p.span.start, |m| m.span.start.min(p.span.start));
     let mut end = p.name.map_or(p.span.end, |n| n.span.end);
     if p.function_parameters.is_some() {
         let b = source.as_bytes();
@@ -149,7 +172,10 @@ fn param_span(source: &str, p: &ast::Parameter) -> Span {
             end += 1;
         }
     }
-    Span { start, end: end.min(p.span.end).max(start) }
+    Span {
+        start,
+        end: end.min(p.span.end).max(start),
+    }
 }
 
 pub fn check(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
@@ -158,7 +184,9 @@ pub fn check(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
         let a = u.ast;
         for &did in &u.unit.declarations {
             let decl = a.decl(did);
-            let Some(owner) = owner(u, decl, names) else { continue };
+            let Some(owner) = owner(u, decl, names) else {
+                continue;
+            };
             // The verifier's map: the declared fields (without the enum's
             // `index`), with the starting state.
             let index = names.lookup("index");
@@ -187,16 +215,28 @@ pub fn check(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
             };
             for &mid in owner.members {
                 let m = a.member(mid);
-                let MemberKind::Constructor(k) = &m.kind else { continue };
+                let MemberKind::Constructor(k) = &m.kind else {
+                    continue;
+                };
                 let is_primary = primary == Some(mid) || (in_extension_type && k.primary_body_part);
                 // `_checkForValidField`: every constructor.
                 for p in k.parameters.iter().filter(|p| p.this_ && !p.super_) {
-                    let name = p.name.map(|n| names.resolve(n.sym).to_string()).unwrap_or_default();
+                    let name = p
+                        .name
+                        .map(|n| names.resolve(n.sym).to_string())
+                        .unwrap_or_default();
                     let target = p.name.map_or(Found::Missing, |n| owner.find(n.sym));
                     let sp = param_span(u.source, p);
                     match target {
                         Found::Missing | Found::Synthetic => {
-                            out.push((iu, Diagnostic::with_code(c::INITIALIZING_FORMAL_FOR_NON_EXISTENT_FIELD, sp, [name.as_str()])));
+                            out.push((
+                                iu,
+                                Diagnostic::with_code(
+                                    c::INITIALIZING_FORMAL_FOR_NON_EXISTENT_FIELD,
+                                    sp,
+                                    [name.as_str()],
+                                ),
+                            ));
                         }
                         Found::Declared(i) if owner.fields[i].is_static => {
                             // The primary constructor (3.13.4,
@@ -204,10 +244,20 @@ pub fn check(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
                             let sp = match p.name {
                                 Some(n) if is_primary => u.source[sp.start..n.span.start]
                                     .rfind("this")
-                                    .map_or(sp, |i| Span { start: sp.start + i, end: sp.start + i + 4 }),
+                                    .map_or(sp, |i| Span {
+                                        start: sp.start + i,
+                                        end: sp.start + i + 4,
+                                    }),
                                 _ => sp,
                             };
-                            out.push((iu, Diagnostic::with_code(c::INITIALIZER_FOR_STATIC_FIELD, sp, [name.as_str()])));
+                            out.push((
+                                iu,
+                                Diagnostic::with_code(
+                                    c::INITIALIZER_FOR_STATIC_FIELD,
+                                    sp,
+                                    [name.as_str()],
+                                ),
+                            ));
                         }
                         Found::Declared(_) => {}
                     }
@@ -218,10 +268,24 @@ pub fn check(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
                         let text = names.resolve(name.sym).to_string();
                         match owner.find(name.sym) {
                             Found::Missing | Found::Synthetic => {
-                                out.push((iu, Diagnostic::with_code(c::INITIALIZER_FOR_NON_EXISTENT_FIELD, *span, [text.as_str()])));
+                                out.push((
+                                    iu,
+                                    Diagnostic::with_code(
+                                        c::INITIALIZER_FOR_NON_EXISTENT_FIELD,
+                                        *span,
+                                        [text.as_str()],
+                                    ),
+                                ));
                             }
                             Found::Declared(i) if owner.fields[i].is_static => {
-                                out.push((iu, Diagnostic::with_code(c::INITIALIZER_FOR_STATIC_FIELD, *span, [text.as_str()])));
+                                out.push((
+                                    iu,
+                                    Diagnostic::with_code(
+                                        c::INITIALIZER_FOR_STATIC_FIELD,
+                                        *span,
+                                        [text.as_str()],
+                                    ),
+                                ));
                             }
                             Found::Declared(_) => {}
                         }
@@ -240,7 +304,9 @@ pub fn check(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
                 if !m.augment {
                     for p in k.parameters.iter().filter(|p| p.this_ && !p.super_) {
                         let Some(n) = p.name else { continue };
-                        let Found::Declared(i) = owner.find(n.sym) else { continue };
+                        let Found::Declared(i) = owner.find(n.sym) else {
+                            continue;
+                        };
                         match states[i] {
                             Some(State::Uninitialized) => states[i] = Some(State::InParameter),
                             // 3.13.4's `updateWithParameters`
@@ -257,7 +323,11 @@ pub fn check(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
                             Some(State::InDeclaration) if owner.fields[i].final_or_const => {
                                 out.push((
                                     iu,
-                                    Diagnostic::with_code(c::FINAL_INITIALIZED_IN_DECLARATION_AND_CONSTRUCTOR, n.span, [names.resolve(n.sym)]),
+                                    Diagnostic::with_code(
+                                        c::FINAL_INITIALIZED_IN_DECLARATION_AND_CONSTRUCTOR,
+                                        n.span,
+                                        [names.resolve(n.sym)],
+                                    ),
                                 ));
                             }
                             _ => {}
@@ -265,8 +335,12 @@ pub fn check(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
                     }
                 }
                 for init in k.initializers.iter() {
-                    let Initializer::Field { name, .. } = init else { continue };
-                    let Found::Declared(i) = owner.find(name.sym) else { continue };
+                    let Initializer::Field { name, .. } = init else {
+                        continue;
+                    };
+                    let Found::Declared(i) = owner.find(name.sym) else {
+                        continue;
+                    };
                     match states[i] {
                         Some(State::Uninitialized) => states[i] = Some(State::InInitializer),
                         // 3.13.4's `updateWithInitializers` (`:262-281`).
@@ -279,14 +353,35 @@ pub fn check(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> {
                         }
                         Some(State::InDeclaration) => {
                             if owner.fields[i].final_or_const {
-                                out.push((iu, Diagnostic::with_code(c::FIELD_INITIALIZED_IN_INITIALIZER_AND_DECLARATION, name.span, Vec::<&str>::new())));
+                                out.push((
+                                    iu,
+                                    Diagnostic::with_code(
+                                        c::FIELD_INITIALIZED_IN_INITIALIZER_AND_DECLARATION,
+                                        name.span,
+                                        Vec::<&str>::new(),
+                                    ),
+                                ));
                             }
                         }
                         Some(State::InParameter) => {
-                            out.push((iu, Diagnostic::with_code(c::FIELD_INITIALIZED_IN_PARAMETER_AND_INITIALIZER, name.span, Vec::<&str>::new())));
+                            out.push((
+                                iu,
+                                Diagnostic::with_code(
+                                    c::FIELD_INITIALIZED_IN_PARAMETER_AND_INITIALIZER,
+                                    name.span,
+                                    Vec::<&str>::new(),
+                                ),
+                            ));
                         }
                         Some(State::InInitializer) => {
-                            out.push((iu, Diagnostic::with_code(c::FIELD_INITIALIZED_BY_MULTIPLE_INITIALIZERS, name.span, [names.resolve(name.sym)])));
+                            out.push((
+                                iu,
+                                Diagnostic::with_code(
+                                    c::FIELD_INITIALIZED_BY_MULTIPLE_INITIALIZERS,
+                                    name.span,
+                                    [names.resolve(name.sym)],
+                                ),
+                            ));
                         }
                         None => {}
                     }

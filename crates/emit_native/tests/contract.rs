@@ -20,7 +20,8 @@ fn ir_of(source: &str) -> Option<String> {
     let ir = std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(move || {
-            let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: Some(Path::new(&sdk)),
                 packages: None,
                 timings: false,
@@ -53,19 +54,45 @@ fn main_of(source: &str) -> Option<String> {
 
 fn source_ir(source: &str) -> Option<String> {
     let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB").unwrap_or_else(|_| SDK.to_string());
-    if !Path::new(&sdk).join("libraries.json").is_file() { return None; }
+    if !Path::new(&sdk).join("libraries.json").is_file() {
+        return None;
+    }
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("main.dart");
     std::fs::write(&entry, source).unwrap();
-    Some(std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify, sdk: Some(Path::new(&sdk)), packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
-        emit_ir_with(&entry, &options).unwrap_or_else(|e| panic!("did not compile:\n{e}")).text
-    }).unwrap().join().unwrap())
+    Some(
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(move || {
+                let options = CompileOptions {
+                    contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                    sdk: Some(Path::new(&sdk)),
+                    packages: None,
+                    timings: false,
+                    optimize: false,
+                    language_version: None,
+                    experiments: Vec::new(),
+                    debug: false,
+                    generator: None,
+                    cpu: None,
+                };
+                emit_ir_with(&entry, &options)
+                    .unwrap_or_else(|e| panic!("did not compile:\n{e}"))
+                    .text
+            })
+            .unwrap()
+            .join()
+            .unwrap(),
+    )
 }
 
 #[test]
 fn symbol_literal_uses_sdk_class_and_canonical_constant() {
-    let Some(ir) = source_ir("void main() { final a = #foo; final b = #foo; print(identical(a, b)); print(a); print(const Symbol('foo') == a); print(#_privado); }\n") else { return };
+    let Some(ir) = source_ir(
+        "void main() { final a = #foo; final b = #foo; print(identical(a, b)); print(a); print(const Symbol('foo') == a); print(#_privado); }\n",
+    ) else {
+        return;
+    };
     let main = ir.split("define void @dart_main(").nth(1).expect("main");
     let main = main.split("\n}\n").next().expect("end of main");
     // Both occurrences of `#foo` go through the same getter of the canonical
@@ -80,8 +107,14 @@ fn symbol_literal_uses_sdk_class_and_canonical_constant() {
         })
         .collect();
     let foo = getters.first().copied().expect("constant of #foo");
-    assert!(getters.iter().filter(|g| **g == foo).count() >= 2, "literal not canonicalized:\n{main}");
-    assert!(ir.contains("@dartforge_object_new"), "Symbol not allocated as an SDK object");
+    assert!(
+        getters.iter().filter(|g| **g == foo).count() >= 2,
+        "literal not canonicalized:\n{main}"
+    );
+    assert!(
+        ir.contains("@dartforge_object_new"),
+        "Symbol not allocated as an SDK object"
+    );
 }
 
 /// The arity error of a closure must be the real SDK class and have a
@@ -98,19 +131,37 @@ fn closure_arity_throws_no_such_method_error_from_source() {
     let exe = dir.path().join("arity_nsm.exe");
     std::fs::write(&entry, include_str!("fixtures/arity_nsm.dart")).unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"), "true\ntrue\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "true\ntrue\n"
+    );
 }
 
 /// `C.getter(args)` evaluates the getter before the arguments, then calls the
@@ -126,20 +177,37 @@ fn static_getter_returning_function_is_called_as_value() {
     let exe = dir.path().join("static_getter_function.exe");
     std::fs::write(&entry, include_str!("fixtures/static_getter_function.dart")).unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "getter\narg\n42\n6\ngetter\n8\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "getter\narg\n42\n6\ngetter\n8\n"
+    );
 }
 
 /// A redirecting factory passes the types of the destination's annotation, even
@@ -155,20 +223,37 @@ fn redirecting_factory_preserves_target_rti() {
     let exe = dir.path().join("redirect_factory_rti.exe");
     std::fs::write(&entry, include_str!("fixtures/redirect_factory_rti.dart")).unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "true\nMemory<String>\ntrue\nPairImpl<String, int>\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "true\nMemory<String>\ntrue\nPairImpl<String, int>\n"
+    );
 }
 
 /// The abstract getter of an interface may be implemented by a field or
@@ -184,20 +269,37 @@ fn interface_getter_dispatches_field_and_getter() {
     let exe = dir.path().join("interface_field_getter.exe");
     std::fs::write(&entry, include_str!("fixtures/interface_field_getter.dart")).unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "r2: bip r2\nloro: currupaco\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "r2: bip r2\nloro: currupaco\n"
+    );
 }
 
 /// The reified argument of the collection, and not the type of the covariant reference,
@@ -211,22 +313,43 @@ fn covariant_collection_write_throws_type_error_without_mutating() {
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("covariant_collection_write.dart");
     let exe = dir.path().join("covariant_collection_write.exe");
-    std::fs::write(&entry, include_str!("fixtures/covariant_collection_write.dart")).unwrap();
+    std::fs::write(
+        &entry,
+        include_str!("fixtures/covariant_collection_write.dart"),
+    )
+    .unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "true\n[1]\ntrue\n{a: 1}\ntrue\n{1}\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "true\n[1]\ntrue\n{a: 1}\ntrue\n{1}\n"
+    );
 }
 
 /// The dynamic call must check the nominal type of the SDK parameter before
@@ -240,21 +363,43 @@ fn wrong_dynamic_sdk_argument_throws_type_error() {
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("dynamic_sdk_string_argument.dart");
     let exe = dir.path().join("dynamic_sdk_string_argument.exe");
-    std::fs::write(&entry, include_str!("fixtures/dynamic_sdk_string_argument.dart")).unwrap();
+    std::fs::write(
+        &entry,
+        include_str!("fixtures/dynamic_sdk_string_argument.dart"),
+    )
+    .unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"), "foobar\ntrue\nfoo\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "foobar\ntrue\nfoo\n"
+    );
 }
 
 /// `Iterable.generate<E>` uses `id is E Function(int)` to decide whether the
@@ -268,22 +413,43 @@ fn iterable_generate_checks_generic_signature_in_sdk() {
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("iterable_generate_function_rti.dart");
     let exe = dir.path().join("iterable_generate_function_rti.exe");
-    std::fs::write(&entry, include_str!("fixtures/iterable_generate_function_rti.dart")).unwrap();
+    std::fs::write(
+        &entry,
+        include_str!("fixtures/iterable_generate_function_rti.dart"),
+    )
+    .unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "[0, 1, 2]\ntrue\n[v0, v1]\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "[0, 1, 2]\ntrue\n[v0, v1]\n"
+    );
 }
 
 /// Implicit `name`/`index` (`$name`, `index`, `this.name`) in the body of a
@@ -300,10 +466,15 @@ fn implicit_enum_name_index_reads_value_fields() {
     // the fields 16 bytes after, in the object space of the runtime): the
     // word at index 1 or 0.
     assert!(
-        ir.contains(", i64 16\n") && ir.contains("getelementptr inbounds i64, ptr %fp") && ir.contains(", i64 1\n"),
+        ir.contains(", i64 16\n")
+            && ir.contains("getelementptr inbounds i64, ptr %fp")
+            && ir.contains(", i64 1\n"),
         "the implicit $name reads field 1:\n{ir}"
     );
-    assert!(ir.contains(", i64 0\n"), "the implicit index reads field 0:\n{ir}");
+    assert!(
+        ir.contains(", i64 0\n"),
+        "the implicit index reads field 0:\n{ir}"
+    );
 }
 
 /// The program above executed (AOT with the source SDK): implicit and explicit
@@ -317,22 +488,43 @@ fn implicit_enum_name_index_in_sdk() {
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("enum_name_index_implicito.dart");
     let exe = dir.path().join("enum_name_index_implicito.exe");
-    std::fs::write(&entry, include_str!("fixtures/enum_name_index_implicito.dart")).unwrap();
+    std::fs::write(
+        &entry,
+        include_str!("fixtures/enum_name_index_implicito.dart"),
+    )
+    .unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "terra:1\nmercurio:0\nterra\n0\nterra\n0\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "terra:1\nmercurio:0\nterra\n0\nterra\n0\n"
+    );
 }
 
 /// Implicit `values` (without the `E.` prefix) in the body of an enum member:
@@ -348,13 +540,17 @@ fn implicit_enum_values_becomes_value_list() {
         .lines()
         .filter(|l| l.contains("call ") && l.contains(".values("))
         .collect::<Vec<_>>();
-    assert!(calls.is_empty(), "call to values without a define:\n{calls:?}\n{ir}");
+    assert!(
+        calls.is_empty(),
+        "call to values without a define:\n{calls:?}\n{ir}"
+    );
 }
 
 /// The program above executed (AOT with the source SDK).
 #[test]
 #[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
-fn implicit_enum_values_in_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+fn implicit_enum_values_in_sdk() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
@@ -362,20 +558,37 @@ fn implicit_enum_values_in_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_SD
     let exe = dir.path().join("enum_values_implicito.exe");
     std::fs::write(&entry, include_str!("fixtures/enum_values_implicito.dart")).unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "E.b\nE.a\nE.a\n2\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "E.b\nE.a\nE.a\n2\n"
+    );
 }
 
 /// The default `toString()` of an instance of a generic class includes the arguments
@@ -390,22 +603,43 @@ fn generic_class_default_tostring_in_sdk() {
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("classe_generica_tostring_padrao.dart");
     let exe = dir.path().join("classe_generica_tostring_padrao.exe");
-    std::fs::write(&entry, include_str!("fixtures/classe_generica_tostring_padrao.dart")).unwrap();
+    std::fs::write(
+        &entry,
+        include_str!("fixtures/classe_generica_tostring_padrao.dart"),
+    )
+    .unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "true\nInstance of 'Caixa<String>'\nInstance of 'Caixa<Caixa<int>>'\ntrue\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "true\nInstance of 'Caixa<String>'\nInstance of 'Caixa<Caixa<int>>'\ntrue\n"
+    );
 }
 
 /// A static `noSuchMethod` forwarder of a method with positionals only
@@ -434,22 +668,43 @@ fn nsm_forwarder_method_in_sdk() {
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("nsm_encaminhador_metodo.dart");
     let exe = dir.path().join("nsm_encaminhador_metodo.exe");
-    std::fs::write(&entry, include_str!("fixtures/nsm_encaminhador_metodo.dart")).unwrap();
+    std::fs::write(
+        &entry,
+        include_str!("fixtures/nsm_encaminhador_metodo.dart"),
+    )
+    .unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "nsm(mundo)\nSymbol(\"saudacao\")\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "nsm(mundo)\nSymbol(\"saudacao\")\n"
+    );
 }
 
 /// A static `noSuchMethod` forwarder of a getter (case 216, `p.version`):
@@ -477,29 +732,51 @@ fn nsm_forwarder_getter_in_sdk() {
     let dir = tempfile::tempdir().unwrap();
     let entry = dir.path().join("nsm_encaminhador_getter.dart");
     let exe = dir.path().join("nsm_encaminhador_getter.exe");
-    std::fs::write(&entry, include_str!("fixtures/nsm_encaminhador_getter.dart")).unwrap();
+    std::fs::write(
+        &entry,
+        include_str!("fixtures/nsm_encaminhador_getter.dart"),
+    )
+    .unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "42\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "42\n"
+    );
 }
 
 /// A program enum is a subtype of the SDK `Enum` (specification §13): the
 /// edge goes into the registration of the program module, and `is`/`as` see it.
 #[test]
 #[ignore = "AOT fixture with the source SDK and LLVM; run in the Pesado workflow"]
-fn enum_is_subtype_of_enum_in_sdk() {    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
+fn enum_is_subtype_of_enum_in_sdk() {
+    let sdk = std::env::var("DARTFORGE_TEST_SDK_LIB")
         .or_else(|_| std::env::var("DARTFORGE_SDK_LIB"))
         .expect("test SDK");
     let dir = tempfile::tempdir().unwrap();
@@ -507,30 +784,52 @@ fn enum_is_subtype_of_enum_in_sdk() {    let sdk = std::env::var("DARTFORGE_TEST
     let exe = dir.path().join("enum_e_subtipo_de_enum.exe");
     std::fs::write(&entry, include_str!("fixtures/enum_e_subtipo_de_enum.dart")).unwrap();
     let exe_for_thread = exe.clone();
-    std::thread::Builder::new().stack_size(1 << 30).spawn(move || {
-        let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-            sdk: Some(Path::new(&sdk)), packages: None, timings: false,
-            optimize: false, language_version: None, experiments: Vec::new(), debug: false,
-            generator: None,
-            cpu: None,
-        };
-        dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
-            .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
-    }).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: Some(Path::new(&sdk)),
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
+            dartforge_emit_native::compile_with(&entry, &exe_for_thread, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+        })
+        .unwrap()
+        .join()
+        .unwrap();
     let output = std::process::Command::new(&exe).output().unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-    assert_eq!(String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
-               "true\nfalse\ntrue\nfalse\n");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+        "true\nfalse\ntrue\nfalse\n"
+    );
 }
 
 /// The separate getter prevents `late String x = x` from expanding its own AST
 /// indefinitely; the test also pins the per-object reentrancy check.
 #[test]
 fn self_referential_late_field_emits_guarded_getter() {
-    let Some(ir) = ir_of("class C { late String x = x; }\nvoid main() { print(C().x); }\n") else { return };
+    let Some(ir) = ir_of("class C { late String x = x; }\nvoid main() { print(C().x); }\n") else {
+        return;
+    };
     assert!(ir.contains("@dartforge_late_field_initializing"), "{ir}");
     assert!(ir.contains("@dartforge_stack_overflow_error_new"), "{ir}");
-    assert!(ir.contains("@dartforge_late_field_mark_initialized"), "{ir}");
+    assert!(
+        ir.contains("@dartforge_late_field_mark_initialized"),
+        "{ir}"
+    );
 }
 
 /// (1) `for` whose variable is reassigned in the body: the condition rereads its
@@ -545,8 +844,14 @@ fn for_with_reassigned_variable_reads_local() {
     ) else {
         return;
     };
-    assert!(main.matches("= phi i64").count() >= 2, "the loop round trip and the `if` join the value of the local:\n{main}");
-    assert!(main.contains("add i64 0, 7"), "the `i = 7` reaches the `phi`:\n{main}");
+    assert!(
+        main.matches("= phi i64").count() >= 2,
+        "the loop round trip and the `if` join the value of the local:\n{main}"
+    );
+    assert!(
+        main.contains("add i64 0, 7"),
+        "the `i = 7` reaches the `phi`:\n{main}"
+    );
 }
 
 /// (2) `c.double_of()`: the call of the method through the resolved element (N1) — before it
@@ -560,7 +865,10 @@ fn method_call_with_return() {
     };
     // The method (and the object, which does not escape) vanishes in the HIR optimizer:
     // `v * 2` remains, with the `v` of the constructor.
-    assert!(main.contains(".dobro(i64") || main.contains("mul i64"), "{main}");
+    assert!(
+        main.contains(".dobro(i64") || main.contains("mul i64"),
+        "{main}"
+    );
 }
 
 /// (3) `print(sum(40, 2))` with an `int` return: the result is an `I64` (R1), and the
@@ -574,7 +882,10 @@ fn top_level_function_with_int_return_prints_scalar() {
         return;
     };
     // The call, or its body inlined by the HIR optimizer.
-    assert!(main.contains("= call i64 @df.") || main.contains("add i64 %v"), "{main}");
+    assert!(
+        main.contains("= call i64 @df.") || main.contains("add i64 %v"),
+        "{main}"
+    );
     assert!(!main.contains("@dartforge_print_handle"), "{main}");
 }
 
@@ -584,11 +895,22 @@ fn constant_interpolation_folds_values_and_preserves_unknowns() {
     let Some(ir) = source_ir(source) else { return };
     let function = |name: &str| {
         let marker = format!("..{name}()");
-        let start = ir.lines().find(|line| line.starts_with("define ") && line.contains(&marker)).expect(name);
-        ir.split(start).nth(1).unwrap().split("\n}\n").next().unwrap()
+        let start = ir
+            .lines()
+            .find(|line| line.starts_with("define ") && line.contains(&marker))
+            .expect(name);
+        ir.split(start)
+            .nth(1)
+            .unwrap()
+            .split("\n}\n")
+            .next()
+            .unwrap()
     };
     for name in ["joined", "emoji"] {
-        assert!(!function(name).contains("call i64 @dartforge_string_join_typed"), "{name}");
+        assert!(
+            !function(name).contains("call i64 @dartforge_string_join_typed"),
+            "{name}"
+        );
     }
     assert!(function("floating").contains("call i64 @dartforge_to_string_f64"));
     assert!(function("nestedFloating").contains("call i64 @dartforge_string_join_typed"));

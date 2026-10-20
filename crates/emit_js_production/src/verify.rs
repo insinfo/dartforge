@@ -16,9 +16,11 @@
 //! the program — and it never silently turns into broken code.
 
 use crate::scan;
-use dartforge_elements::model::{ClassId, Element, FunctionElementId, LibraryId, Program, VariableId};
+use dartforge_elements::model::{
+    ClassId, Element, FunctionElementId, LibraryId, Program, VariableId,
+};
 use dartforge_intern::Interner;
-use dartforge_world::{World, ClassLevel};
+use dartforge_world::{ClassLevel, World};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default, Debug)]
@@ -38,7 +40,12 @@ pub struct Missing {
 
 impl Missing {
     pub fn is_empty(&self) -> bool {
-        self.functions.is_empty() && self.variables.is_empty() && self.classes.is_empty() && self.instantiated_classes.is_empty() && self.tearoffs.is_empty() && self.selectors.is_empty()
+        self.functions.is_empty()
+            && self.variables.is_empty()
+            && self.classes.is_empty()
+            && self.instantiated_classes.is_empty()
+            && self.tearoffs.is_empty()
+            && self.selectors.is_empty()
     }
 }
 
@@ -60,13 +67,20 @@ fn entry_key(t: &str) -> Option<(bool, String)> {
     let mut t = t.trim_start();
     // Position comment before the entry.
     while let Some(r) = t.strip_prefix("/*") {
-        t = r.split_once("*/").map(|(_, x)| x.trim_start()).unwrap_or("");
+        t = r
+            .split_once("*/")
+            .map(|(_, x)| x.trim_start())
+            .unwrap_or("");
     }
     let (is_static, t) = match t.strip_prefix("static ") {
         Some(r) => (true, r.trim_start()),
         None => (false, t),
     };
-    let t = t.strip_prefix("get ").or_else(|| t.strip_prefix("set ")).map(str::trim_start).unwrap_or(t);
+    let t = t
+        .strip_prefix("get ")
+        .or_else(|| t.strip_prefix("set "))
+        .map(str::trim_start)
+        .unwrap_or(t);
     let t = t.strip_prefix('*').map(str::trim_start).unwrap_or(t);
     let b = t.as_bytes();
     if b.is_empty() {
@@ -98,7 +112,10 @@ struct Definitions {
 }
 
 fn definitions(modules: &[(String, String)], idents: &HashSet<&str>) -> Definitions {
-    let mut d = Definitions { names: HashSet::new(), classes: HashSet::new() };
+    let mut d = Definitions {
+        names: HashSet::new(),
+        classes: HashSet::new(),
+    };
     for (_, text) in modules {
         // Every top-level statement the emitter writes starts at column 0:
         // reading by line start is robust to JS that the character scan does
@@ -107,14 +124,18 @@ fn definitions(modules: &[(String, String)], idents: &HashSet<&str>) -> Definiti
         let mut starts: Vec<usize> = vec![0];
         starts.extend(text.match_indices('\n').map(|(i, _)| i + 1));
         for start in starts {
-            if start >= text.len() || matches!(text.as_bytes()[start], b' ' | b'\t' | b'\n' | b'\r' | b'}') {
+            if start >= text.len()
+                || matches!(text.as_bytes()[start], b' ' | b'\t' | b'\n' | b'\r' | b'}')
+            {
                 continue;
             }
             let t = &text[start..];
             // `dart.defineLazy(ns, {…})` and `dart.copyProperties(ns.C, {…})`.
             let mut handled = false;
             for pre in ["dart.copyProperties(", "dart.defineLazy("] {
-                let Some(r) = t.strip_prefix(pre) else { continue };
+                let Some(r) = t.strip_prefix(pre) else {
+                    continue;
+                };
                 handled = true;
                 let Some(comma) = r.find(',') else { continue };
                 let target = r[..comma].trim();
@@ -126,7 +147,9 @@ fn definitions(modules: &[(String, String)], idents: &HashSet<&str>) -> Definiti
                 }
                 let Some(rel) = r.find('{') else { continue };
                 let open = t.len() - r.len() + rel;
-                let Some(close) = scan::closing_brace(t, open) else { continue };
+                let Some(close) = scan::closing_brace(t, open) else {
+                    continue;
+                };
                 let body = &t[open + 1..close];
                 for (a, z) in scan::object_entries(body) {
                     if let Some((_, k)) = entry_key(&body[a..z]) {
@@ -173,9 +196,10 @@ fn definitions(modules: &[(String, String)], idents: &HashSet<&str>) -> Definiti
                         d.names.insert(name);
                     }
                 } else if b.get(f) == Some(&b'[')
-                    && let Some((_, k)) = entry_key(&t2[f..]) {
-                        d.names.insert(format!("{ns}.{k}"));
-                    }
+                    && let Some((_, k)) = entry_key(&t2[f..])
+                {
+                    d.names.insert(format!("{ns}.{k}"));
+                }
             }
         }
     }
@@ -185,7 +209,14 @@ fn definitions(modules: &[(String, String)], idents: &HashSet<&str>) -> Definiti
 /// References to namespaces (`L$x.Name`, `core.Name`, `dart.f`) and
 /// `ident|Name` recipes in the text. The content of *strings* and comments
 /// is not a reference (except the recipes, which live inside *strings*).
-fn references(text: &str, idents: &HashSet<&str>, recipes: &HashMap<&str, &str>, ids: &HashMap<String, String>, classes: &HashSet<String>, out: &mut HashSet<String>) {
+fn references(
+    text: &str,
+    idents: &HashSet<&str>,
+    recipes: &HashMap<&str, &str>,
+    ids: &HashMap<String, String>,
+    classes: &HashSet<String>,
+    out: &mut HashSet<String>,
+) {
     let b = text.as_bytes();
     let mut i = 0usize;
     while i < b.len() {
@@ -275,7 +306,10 @@ fn references(text: &str, idents: &HashSet<&str>, recipes: &HashMap<&str, &str>,
     }
     // rti recipes: `ident|Name` (inside strings).
     for (p, _) in text.match_indices('|') {
-        if p == 0 || p + 1 >= b.len() || !(b[p + 1].is_ascii_alphabetic() || b[p + 1] == b'_' || b[p + 1] == b'$') {
+        if p == 0
+            || p + 1 >= b.len()
+            || !(b[p + 1].is_ascii_alphabetic() || b[p + 1] == b'_' || b[p + 1] == b'$')
+        {
             continue;
         }
         let mut start = p;
@@ -290,7 +324,9 @@ fn references(text: &str, idents: &HashSet<&str>, recipes: &HashMap<&str, &str>,
             }
             continue;
         }
-        let Some(var) = recipes.get(&text[start..p]) else { continue };
+        let Some(var) = recipes.get(&text[start..p]) else {
+            continue;
+        };
         out.insert(format!("{var}.{}", &text[p + 1..end]));
     }
 }
@@ -323,7 +359,10 @@ fn access_after(b: &[u8], f: usize) -> Access {
     if b.get(j) == Some(&b'?') && b.get(j + 1) == Some(&b'?') {
         j += 2;
     } else {
-        while matches!(b.get(j).copied(), Some(b'+' | b'-' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' | b'<' | b'>')) {
+        while matches!(
+            b.get(j).copied(),
+            Some(b'+' | b'-' | b'*' | b'/' | b'%' | b'&' | b'|' | b'^' | b'<' | b'>')
+        ) {
             j += 1;
         }
     }
@@ -350,11 +389,20 @@ fn access_after(b: &[u8], f: usize) -> Access {
 /// `symbolic` gets the uses that are not a string-keyed `.name`: `[$name]`,
 /// private symbols and the names of `dsend`/`dload`/`dput`. Only those reach
 /// the members of the classes keyed by `dartx` symbols (`World::dartx_class`).
-fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<String>, private: &mut HashSet<(String, String)>, symbolic: (&mut HashSet<String>, &mut HashSet<String>)) {
+fn text_selectors(
+    text: &str,
+    reads: &mut HashSet<String>,
+    writes: &mut HashSet<String>,
+    private: &mut HashSet<(String, String)>,
+    symbolic: (&mut HashSet<String>, &mut HashSet<String>),
+) {
     let (sym_reads, sym_writes) = symbolic;
     let b = text.as_bytes();
     let mut i = 0usize;
-    let record = |name: &str, e: Access, reads: &mut HashSet<String>, writes: &mut HashSet<String>| {
+    let record = |name: &str,
+                  e: Access,
+                  reads: &mut HashSet<String>,
+                  writes: &mut HashSet<String>| {
         match e {
             Access::Read => {
                 reads.insert(name.to_string());
@@ -373,8 +421,12 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
     // `_eval`.
     let mut privates: HashMap<&str, (&str, &str)> = HashMap::new();
     for line in text.lines() {
-        let Some(r) = line.strip_prefix("var ") else { continue };
-        let Some((var, rest)) = r.split_once(" = dart.privateName(") else { continue };
+        let Some(r) = line.strip_prefix("var ") else {
+            continue;
+        };
+        let Some((var, rest)) = r.split_once(" = dart.privateName(") else {
+            continue;
+        };
         let lib = rest.split_once(',').map_or("", |(l, _)| l.trim());
         let Some(q) = rest.find('"') else { continue };
         let rest = &rest[q + 1..];
@@ -385,8 +437,12 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
     // uses the member `+`.
     let mut operators: HashMap<&str, &str> = HashMap::new();
     for line in text.lines() {
-        let Some(r) = line.strip_prefix("var ") else { continue };
-        let Some((var, rest)) = r.split_once(" = dartx[\"") else { continue };
+        let Some(r) = line.strip_prefix("var ") else {
+            continue;
+        };
+        let Some((var, rest)) = r.split_once(" = dartx[\"") else {
+            continue;
+        };
         if let Some((op, _)) = rest.split_once("\"];") {
             operators.insert(var, op);
         }
@@ -421,7 +477,9 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                 }
                 i += 2;
             }
-            b'.' if i + 1 < b.len() && (b[i + 1].is_ascii_alphabetic() || b[i + 1] == b'_' || b[i + 1] == b'$') => {
+            b'.' if i + 1 < b.len()
+                && (b[i + 1].is_ascii_alphabetic() || b[i + 1] == b'_' || b[i + 1] == b'$') =>
+            {
                 let f = ident_end(b, i + 1);
                 // `opts.name` is the read of a named parameter in the emitted
                 // function's prologue, not a member access.
@@ -440,11 +498,12 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                     f += 1;
                 }
                 if b.get(f + 1) == Some(&b']')
-                    && let Some(n) = dartforge_emit_js::dart_name_of_private(&text[start..f]) {
-                        let e = access_after(b, f + 2);
-                        record(n, e, reads, writes);
-                        record(n, e, sym_reads, sym_writes);
-                    }
+                    && let Some(n) = dartforge_emit_js::dart_name_of_private(&text[start..f])
+                {
+                    let e = access_after(b, f + 2);
+                    record(n, e, reads, writes);
+                    record(n, e, sym_reads, sym_writes);
+                }
                 i = f + 1;
             }
             // An operator of a program class: `a["+"](b)`.
@@ -461,7 +520,9 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
                     i += 1;
                 }
             }
-            b'[' if i + 2 < b.len() && (b[i + 1] == b'$' || b[i + 1] == b'_' || b[i + 1].is_ascii_alphabetic()) => {
+            b'[' if i + 2 < b.len()
+                && (b[i + 1] == b'$' || b[i + 1] == b'_' || b[i + 1].is_ascii_alphabetic()) =>
+            {
                 let f = ident_end(b, i + 1);
                 if b.get(f) == Some(&b']') {
                     let var = &text[i + 1..f];
@@ -493,17 +554,33 @@ fn text_selectors(text: &str, reads: &mut HashSet<String>, writes: &mut HashSet<
 /// JS identifier → library, read from the `dart.trackLibraries("…", {"uri":
 /// L$ident, …})` that each module emits — without building a `Ctx` just for
 /// this.
-pub fn libraries_from_text(modules: &[(String, String)], program: &Program) -> HashMap<String, LibraryId> {
-    let by_uri: HashMap<&str, LibraryId> = program.libraries.iter().enumerate().map(|(i, l)| (l.uri.as_str(), LibraryId(i as u32))).collect();
+pub fn libraries_from_text(
+    modules: &[(String, String)],
+    program: &Program,
+) -> HashMap<String, LibraryId> {
+    let by_uri: HashMap<&str, LibraryId> = program
+        .libraries
+        .iter()
+        .enumerate()
+        .map(|(i, l)| (l.uri.as_str(), LibraryId(i as u32)))
+        .collect();
     let mut out = HashMap::new();
     for (_, t) in modules {
-        let Some(p) = t.find("dart.trackLibraries(") else { continue };
-        let Some(rel) = t[p..].find('{') else { continue };
+        let Some(p) = t.find("dart.trackLibraries(") else {
+            continue;
+        };
+        let Some(rel) = t[p..].find('{') else {
+            continue;
+        };
         let open = p + rel;
-        let Some(close) = scan::closing_brace(t, open) else { continue };
+        let Some(close) = scan::closing_brace(t, open) else {
+            continue;
+        };
         for line in t[open + 1..close].split(",\n") {
             let line = line.trim();
-            let Some((uri, var)) = line.rsplit_once(": ") else { continue };
+            let Some((uri, var)) = line.rsplit_once(": ") else {
+                continue;
+            };
             let uri = uri.trim().trim_matches('"');
             let var = var.trim();
             if !var.starts_with("L$") {
@@ -518,7 +595,13 @@ pub fn libraries_from_text(modules: &[(String, String)], program: &Program) -> H
 }
 
 /// Checks the emitted text against the world and returns what is missing.
-pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, program: &Program, interner: &Interner, world: &World) -> Missing {
+pub fn check(
+    modules: &[(String, String)],
+    libs: &HashMap<String, LibraryId>,
+    program: &Program,
+    interner: &Interner,
+    world: &World,
+) -> Missing {
     let idents: HashSet<&str> = libs.keys().map(String::as_str).collect();
     let defs = definitions(modules, &idents);
     // rti recipe (`main|D`, `_rti|Rti`) → namespace variable.
@@ -544,7 +627,9 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
         .enumerate()
         .filter_map(|(i, id)| {
             let c = program.class(ClassId(i as u32));
-            lib_var.get(&c.library).map(|v| (id, format!("{v}.{}", interner.resolve(c.name))))
+            lib_var
+                .get(&c.library)
+                .map(|v| (id, format!("{v}.{}", interner.resolve(c.name))))
         })
         .collect();
     let mut refs: HashSet<String> = HashSet::new();
@@ -572,13 +657,22 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
     let mut sel_r: HashSet<String> = HashSet::new();
     let mut sel_w: HashSet<String> = HashSet::new();
     let mut private: HashSet<(String, String)> = HashSet::new();
-    let (mut sym_r, mut sym_w): (HashSet<String>, HashSet<String>) = (HashSet::new(), HashSet::new());
+    let (mut sym_r, mut sym_w): (HashSet<String>, HashSet<String>) =
+        (HashSet::new(), HashSet::new());
     for (_, t) in modules {
-        text_selectors(t, &mut sel_r, &mut sel_w, &mut private, (&mut sym_r, &mut sym_w));
+        text_selectors(
+            t,
+            &mut sel_r,
+            &mut sel_w,
+            &mut private,
+            (&mut sym_r, &mut sym_w),
+        );
     }
     let mut new: HashSet<String> = HashSet::new();
     for (i, c) in program.classes.iter().enumerate() {
-        if (program.library(c.library).is_sdk && !world.include_sdk) || world.class_level(ClassId(i as u32)) != ClassLevel::Instantiated {
+        if (program.library(c.library).is_sdk && !world.include_sdk)
+            || world.class_level(ClassId(i as u32)) != ClassLevel::Instantiated
+        {
             continue;
         }
         for (&key, &f) in c.instance_members.iter() {
@@ -595,12 +689,24 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
             };
             let js = dartforge_emit_js::body::js_member_name(base);
             // A `dartx`-keyed class is only reached through symbols.
-            let (r, w) = if world.dartx_class(ClassId(i as u32)) { (&sym_r, &sym_w) } else { (&sel_r, &sel_w) };
-            let used = if write { w.contains(base) || w.contains(js.as_str()) } else { r.contains(base) || r.contains(js.as_str()) };
+            let (r, w) = if world.dartx_class(ClassId(i as u32)) {
+                (&sym_r, &sym_w)
+            } else {
+                (&sel_r, &sel_w)
+            };
+            let used = if write {
+                w.contains(base) || w.contains(js.as_str())
+            } else {
+                r.contains(base) || r.contains(js.as_str())
+            };
             if !used {
                 continue;
             }
-            let name = if write { format!("{base}_=") } else { base.to_string() };
+            let name = if write {
+                format!("{base}_=")
+            } else {
+                base.to_string()
+            };
             // Fix per (type, selector): the member should be live in the
             // class's cone, or nobody registered the name (a use the analysis
             // did not see) — a gap, it comes back as an unrestricted root. A
@@ -610,8 +716,14 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
             // library is this member: a restriction of the same name comes
             // from another library's private (or from code the emitter writes
             // on its own, like `instanceType(this)[_bind](T)`).
-            let own_private = base.starts_with('_') && lib_var.get(&c.library).is_some_and(|v| private.contains(&(v.to_string(), base.to_string())));
-            if own_private || world.selector_live_for(program, &name, ClassId(i as u32)) || !world.has_restriction(&name) {
+            let own_private = base.starts_with('_')
+                && lib_var
+                    .get(&c.library)
+                    .is_some_and(|v| private.contains(&(v.to_string(), base.to_string())));
+            if own_private
+                || world.selector_live_for(program, &name, ClassId(i as u32))
+                || !world.has_restriction(&name)
+            {
                 new.insert(name);
             }
         }
@@ -619,42 +731,68 @@ pub fn check(modules: &[(String, String)], libs: &HashMap<String, LibraryId>, pr
     let mut new: Vec<String> = new.into_iter().collect();
     new.sort();
     for n in &new {
-        missing.description.push(format!("selector `{n}` used in the text and pruned in an instantiated class"));
+        missing.description.push(format!(
+            "selector `{n}` used in the text and pruned in an instantiated class"
+        ));
     }
     missing.selectors = new;
     missing
 }
 
 /// `L$x.Name` / `L$x.C.m` → element.
-fn resolve_reference(r: &str, libs: &HashMap<String, LibraryId>, program: &Program, interner: &Interner, f: &mut Missing) -> bool {
-    let Some((ident, names)) = r.split_once('.') else { return false };
-    let Some(&lib) = libs.get(ident) else { return false };
+fn resolve_reference(
+    r: &str,
+    libs: &HashMap<String, LibraryId>,
+    program: &Program,
+    interner: &Interner,
+    f: &mut Missing,
+) -> bool {
+    let Some((ident, names)) = r.split_once('.') else {
+        return false;
+    };
+    let Some(&lib) = libs.get(ident) else {
+        return false;
+    };
     let (name, member) = match names.split_once('.') {
         Some((a, b)) => (a, Some(b)),
         None => (names, None),
     };
     // The SDK's `@JSExportName`: `dart.throw` is `throw_`, `dart.notNull` is
     // `_notNull`.
-    let declared = |n: &str| interner.lookup(n).and_then(|s| program.library(lib).declared.get(&s));
-    let Some(b) = declared(name).or_else(|| declared(&format!("{name}_"))).or_else(|| declared(&format!("_{name}"))) else { return false };
+    let declared = |n: &str| {
+        interner
+            .lookup(n)
+            .and_then(|s| program.library(lib).declared.get(&s))
+    };
+    let Some(b) = declared(name)
+        .or_else(|| declared(&format!("{name}_")))
+        .or_else(|| declared(&format!("_{name}")))
+    else {
+        return false;
+    };
     let mut ok = false;
     for el in [b.getter, b.setter].into_iter().flatten() {
         // A non-interop extension type: the emitter never writes the class
         // (only the recipe, in the subtypes' rti rules).
         if let Element::Class(c) = el
-            && program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType {
-                ok = true;
-                continue;
-            }
+            && program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType
+        {
+            ok = true;
+            continue;
+        }
         match (el, member) {
             (Element::Class(c), None) => {
                 f.classes.push(c);
-                f.description.push(format!("class {r} cited in the text and pruned"));
+                f.description
+                    .push(format!("class {r} cited in the text and pruned"));
                 ok = true;
             }
             (Element::Class(c), Some(m)) => {
                 let class = program.class(c);
-                let (tearoff, m) = match m.strip_prefix("_#").and_then(|x| x.strip_suffix("#tearOff")) {
+                let (tearoff, m) = match m
+                    .strip_prefix("_#")
+                    .and_then(|x| x.strip_suffix("#tearOff"))
+                {
                     Some(x) => (true, x),
                     None => (false, m),
                 };
@@ -662,23 +800,27 @@ fn resolve_reference(r: &str, libs: &HashMap<String, LibraryId>, program: &Progr
                 let mut found = None;
                 for cand in [m, m.strip_suffix('_').unwrap_or(m)] {
                     if let Some(s) = interner.lookup(cand)
-                        && let Some(&x) = class.static_members.get(&s) {
-                            found = Some(x);
-                            break;
-                        }
+                        && let Some(&x) = class.static_members.get(&s)
+                    {
+                        found = Some(x);
+                        break;
+                    }
                 }
                 if found.is_none() {
                     for cand in [ctor_name, ctor_name.strip_suffix('_').unwrap_or(ctor_name)] {
                         if let Some(s) = interner.lookup(cand)
-                            && let Some(&x) = class.constructors.get(&s) {
-                                found = Some(x);
-                                break;
-                            }
+                            && let Some(&x) = class.constructors.get(&s)
+                        {
+                            found = Some(x);
+                            break;
+                        }
                     }
                 }
                 if found.is_none() && ctor_name.is_empty() && class.constructors.is_empty() {
                     f.instantiated_classes.push(c);
-                    f.description.push(format!("{r} (class without a declared constructor) cited in the text and pruned"));
+                    f.description.push(format!(
+                        "{r} (class without a declared constructor) cited in the text and pruned"
+                    ));
                     ok = true;
                 }
                 if let Some(x) = found {
@@ -687,18 +829,21 @@ fn resolve_reference(r: &str, libs: &HashMap<String, LibraryId>, program: &Progr
                     } else {
                         f.functions.push(x);
                     }
-                    f.description.push(format!("{r} cited in the text and pruned"));
+                    f.description
+                        .push(format!("{r} cited in the text and pruned"));
                     ok = true;
                 }
             }
             (Element::Function(x), _) => {
                 f.functions.push(x);
-                f.description.push(format!("function {r} cited in the text and pruned"));
+                f.description
+                    .push(format!("function {r} cited in the text and pruned"));
                 ok = true;
             }
             (Element::Variable(v), _) => {
                 f.variables.push(v);
-                f.description.push(format!("variable {r} cited in the text and pruned"));
+                f.description
+                    .push(format!("variable {r} cited in the text and pruned"));
                 ok = true;
             }
             _ => {}
@@ -725,13 +870,31 @@ mod tests {
         )];
         let idents: HashSet<&str> = ["L$a"].into_iter().collect();
         let d = definitions(&m, &idents);
-        for n in ["L$a.C", "L$a.C.f", "L$a.C._#new#tearOff", "L$a.C.new", "L$a.x", "L$a.y", "L$a.h"] {
+        for n in [
+            "L$a.C",
+            "L$a.C.f",
+            "L$a.C._#new#tearOff",
+            "L$a.C.new",
+            "L$a.x",
+            "L$a.y",
+            "L$a.h",
+        ] {
             assert!(d.names.contains(n), "{n}: {:?}", d.names);
         }
-        assert!(!d.names.contains("L$a.C.g"), "an instance member is not a static definition");
+        assert!(
+            !d.names.contains("L$a.C.g"),
+            "an instance member is not a static definition"
+        );
         let recipes: HashMap<&str, &str> = [("a", "L$a")].into_iter().collect();
         let mut r = HashSet::new();
-        references(&m[0].1, &idents, &recipes, &HashMap::new(), &d.classes, &mut r);
+        references(
+            &m[0].1,
+            &idents,
+            &recipes,
+            &HashMap::new(),
+            &d.classes,
+            &mut r,
+        );
         let pend: Vec<&String> = r.iter().filter(|x| !d.names.contains(*x)).collect();
         assert_eq!(pend, vec!["L$a.z"]);
     }
@@ -741,7 +904,14 @@ mod tests {
         let idents: HashSet<&str> = ["L$main"].into_iter().collect();
         let recipes: HashMap<&str, &str> = [("main", "L$main")].into_iter().collect();
         let mut r = HashSet::new();
-        references("x[_is](dart_rti._Universe.eval(u, \"main|D<core|int>\"))", &idents, &recipes, &HashMap::new(), &HashSet::new(), &mut r);
+        references(
+            "x[_is](dart_rti._Universe.eval(u, \"main|D<core|int>\"))",
+            &idents,
+            &recipes,
+            &HashMap::new(),
+            &HashSet::new(),
+            &mut r,
+        );
         assert!(r.contains("L$main.D"), "{r:?}");
         assert!(!r.iter().any(|x| x.contains("core")));
     }
@@ -750,8 +920,17 @@ mod tests {
     fn selectors_from_text() {
         let mut r = HashSet::new();
         let mut w = HashSet::new();
-        text_selectors("a.foo(); // it's\nb[$bar]; dart.dsend(o, \"baz\", []); q.qux = 1; r.cor += 2; s.ok == 3;", &mut r, &mut w, &mut HashSet::new(), (&mut HashSet::new(), &mut HashSet::new()));
-        assert!(r.contains("foo") && r.contains("bar") && r.contains("baz"), "{r:?} {w:?}");
+        text_selectors(
+            "a.foo(); // it's\nb[$bar]; dart.dsend(o, \"baz\", []); q.qux = 1; r.cor += 2; s.ok == 3;",
+            &mut r,
+            &mut w,
+            &mut HashSet::new(),
+            (&mut HashSet::new(), &mut HashSet::new()),
+        );
+        assert!(
+            r.contains("foo") && r.contains("bar") && r.contains("baz"),
+            "{r:?} {w:?}"
+        );
         assert!(!r.contains("qux") && w.contains("qux"), "{r:?} {w:?}");
         assert!(r.contains("cor") && w.contains("cor"), "{r:?} {w:?}");
         assert!(r.contains("ok") && !w.contains("ok"), "{r:?} {w:?}");
@@ -761,8 +940,17 @@ mod tests {
     fn operator_selectors_from_text() {
         let mut r = HashSet::new();
         let mut w = HashSet::new();
-        text_selectors("var $modulo = dartx[\"%\"];\nd[$modulo](3); a[\"+\"](b); c[\"[]\"]; e[\"~/\"](2);", &mut r, &mut w, &mut HashSet::new(), (&mut HashSet::new(), &mut HashSet::new()));
-        assert!(r.contains("%") && r.contains("+") && r.contains("~/"), "{r:?}");
+        text_selectors(
+            "var $modulo = dartx[\"%\"];\nd[$modulo](3); a[\"+\"](b); c[\"[]\"]; e[\"~/\"](2);",
+            &mut r,
+            &mut w,
+            &mut HashSet::new(),
+            (&mut HashSet::new(), &mut HashSet::new()),
+        );
+        assert!(
+            r.contains("%") && r.contains("+") && r.contains("~/"),
+            "{r:?}"
+        );
         assert!(!r.contains("modulo"), "{r:?}");
     }
 }

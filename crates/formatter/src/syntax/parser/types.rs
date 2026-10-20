@@ -411,7 +411,9 @@ impl Parser<'_> {
                 if self.word(self.pos, "covariant") {
                     if matches!(
                         member,
-                        MemberKind::StaticMethod | MemberKind::TopLevelFunction | MemberKind::Extension
+                        MemberKind::StaticMethod
+                            | MemberKind::TopLevelFunction
+                            | MemberKind::Extension
                     ) {
                         return Err(self.error("Can't have modifier 'covariant' here."));
                     }
@@ -595,7 +597,9 @@ impl Parser<'_> {
             }
             if matches!(
                 member,
-                MemberKind::FunctionType | MemberKind::FunctionAlias | MemberKind::FunctionParameter
+                MemberKind::FunctionType
+                    | MemberKind::FunctionAlias
+                    | MemberKind::FunctionParameter
             ) {
                 return Err(self.error("Can't have a default value in a function type."));
             }

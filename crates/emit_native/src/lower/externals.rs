@@ -20,7 +20,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `dartforge_native_<Name>` and the result comes back in the representation of the
     /// return. Returns `false` if the function has no native.
     pub fn lower_external(&mut self, fid: usize, span: Span) -> bool {
-        let (native, recognized) = crate::source::native_pragma(self.ctx.program, self.ctx.interner, fid);
+        let (native, recognized) =
+            crate::source::native_pragma(self.ctx.program, self.ctx.interner, fid);
         if (recognized || native.is_some()) && self.lower_intrinsic(fid) {
             return true;
         }
@@ -30,7 +31,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match crate::natives::native(&name) {
             Some(n) if n.state == crate::natives::State::Runtime => {}
             _ => {
-                self.unsupported(&format!("native `{name}` without an implementation in the runtime"), span);
+                self.unsupported(
+                    &format!("native `{name}` without an implementation in the runtime"),
+                    span,
+                );
                 self.terminate(Terminator::Return(None));
                 return true;
             }

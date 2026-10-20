@@ -25,15 +25,15 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::codes_g as c;
-use super::strings::{literals, string_value};
-use super::rules::LintReport;
 use super::LintCode;
+use super::codes_g as c;
+use super::rules::LintReport;
+use super::strings::{literals, string_value};
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
-    self, Ast, BinaryOp, CollectionElement, CreationKeyword, DeclKind, DirectiveKind, ExprId, ExprKind, ForInit, MemberId, MemberKind,
-    StmtId, StmtKind, UnaryOp, VariableList,
+    self, Ast, BinaryOp, CollectionElement, CreationKeyword, DeclKind, DirectiveKind, ExprId,
+    ExprKind, ForInit, MemberId, MemberKind, StmtId, StmtKind, UnaryOp, VariableList,
 };
 use dartforge_intern::Interner;
 use std::collections::{HashMap, HashSet};
@@ -62,11 +62,19 @@ fn only_literals(a: &Ast, e: Option<ExprId>) -> bool {
         | ExprKind::List { .. }
         | ExprKind::SetOrMap { .. }
         | ExprKind::Record { .. } => true,
-        ExprKind::Unary { op: UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot | UnaryOp::PrefixInc | UnaryOp::PrefixDec, operand } => {
-            only_literals(a, Some(*operand))
+        ExprKind::Unary {
+            op:
+                UnaryOp::Neg | UnaryOp::Not | UnaryOp::BitNot | UnaryOp::PrefixInc | UnaryOp::PrefixDec,
+            operand,
+        } => only_literals(a, Some(*operand)),
+        ExprKind::Binary {
+            op: BinaryOp::IfNull,
+            left,
+            ..
+        } => only_literals(a, Some(*left)),
+        ExprKind::Binary { left, right, .. } => {
+            only_literals(a, Some(*left)) && only_literals(a, Some(*right))
         }
-        ExprKind::Binary { op: BinaryOp::IfNull, left, .. } => only_literals(a, Some(*left)),
-        ExprKind::Binary { left, right, .. } => only_literals(a, Some(*left)) && only_literals(a, Some(*right)),
         _ => false,
     }
 }
@@ -74,14 +82,18 @@ fn only_literals(a: &Ast, e: Option<ExprId>) -> bool {
 /// The `when` conditions of collections (the `if (x case p when c)` element).
 fn element_guards(el: &CollectionElement, out: &mut Vec<ExprId>) {
     match el {
-        CollectionElement::If { guard, then, else_, .. } => {
+        CollectionElement::If {
+            guard, then, else_, ..
+        } => {
             out.extend(guard.iter().copied());
             element_guards(then, out);
             if let Some(x) = else_ {
                 element_guards(x, out);
             }
         }
-        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => element_guards(body, out),
+        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+            element_guards(body, out)
+        }
         _ => {}
     }
 }
@@ -98,7 +110,15 @@ fn first_token(source: &str, start: usize) -> Span {
             }
         }
         Some(b'\'' | b'"') => {
-            end = literals(source, Span { start, end: source.len() }).first().map_or(start + 1, |l| l.span.end);
+            end = literals(
+                source,
+                Span {
+                    start,
+                    end: source.len(),
+                },
+            )
+            .first()
+            .map_or(start + 1, |l| l.span.end);
         }
         Some(c @ (b'+' | b'-')) if b.get(start + 1) == Some(&c) => end = start + 2,
         Some(_) => end = start + source[start..].chars().next().map_or(1, char::len_utf8),
@@ -115,23 +135,40 @@ fn first_token(source: &str, start: usize) -> Span {
 /// `stringValue`.
 fn doc_imports(source: &str, u: Unit<'_>) -> Vec<(Span, Option<String>)> {
     let mut v = Vec::new();
-    let Some(library) = u.unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::Library { .. })) else { return v };
+    let Some(library) = u
+        .unit
+        .directives
+        .iter()
+        .find(|d| matches!(d.kind, DirectiveKind::Library { .. }))
+    else {
+        return v;
+    };
     let comments = dartforge_frontend::comments::Comments::scan(source);
     let after = match library.metadata.last() {
         Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
         None => library.span.start,
     };
-    let doc = comments
-        .dart_doc(source, after)
-        .or_else(|| library.metadata.iter().rev().find_map(|m| comments.dart_doc(source, m.span.start)));
+    let doc = comments.dart_doc(source, after).or_else(|| {
+        library
+            .metadata
+            .iter()
+            .rev()
+            .find_map(|m| comments.dart_doc(source, m.span.start))
+    });
     let Some(doc) = doc else { return v };
     // The documentation lines: the run of `///` from `doc`, or the lines of
     // the `/** … */`; (content position, content).
     let mut lines: Vec<(usize, &str)> = Vec::new();
     if source[doc.start..doc.end].starts_with("///") {
-        for c in comments.before(source, after).into_iter().filter(|c| c.start >= doc.start) {
+        for c in comments
+            .before(source, after)
+            .into_iter()
+            .filter(|c| c.start >= doc.start)
+        {
             let text = &source[c.start..c.end];
-            let Some(content) = text.strip_prefix("///") else { break };
+            let Some(content) = text.strip_prefix("///") else {
+                break;
+            };
             lines.push((c.start + 3, content));
         }
     } else {
@@ -162,35 +199,70 @@ fn doc_imports(source: &str, u: Unit<'_>) -> Vec<(Span, Option<String>)> {
             continue;
         }
         previous_blank = content.trim().is_empty();
-        let Some(after_tag) = rest.strip_prefix("@docImport ") else { continue };
+        let Some(after_tag) = rest.strip_prefix("@docImport ") else {
+            continue;
+        };
         let uri_rel = after_tag.len() - after_tag.trim_start().len();
         let uri_start = pos + indent + "@docImport ".len() + uri_rel;
         let text = after_tag.trim_start();
         // The end: the `;`, or the end of the text without whitespace.
-        let end_rel = text.find(';').map(|k| k + 1).unwrap_or_else(|| text.trim_end().len());
-        let uri = literals(source, Span { start: uri_start, end: uri_start + end_rel }).first().map(|l| l.span);
+        let end_rel = text
+            .find(';')
+            .map(|k| k + 1)
+            .unwrap_or_else(|| text.trim_end().len());
+        let uri = literals(
+            source,
+            Span {
+                start: uri_start,
+                end: uri_start + end_rel,
+            },
+        )
+        .first()
+        .map(|l| l.span);
         let value = uri.and_then(|s| string_value(source, s));
-        v.push((Span { start: uri_start.saturating_sub("import ".len()), end: uri_start + end_rel }, value));
+        v.push((
+            Span {
+                start: uri_start.saturating_sub("import ".len()),
+                end: uri_start + end_rel,
+            },
+            value,
+        ));
     }
     v
 }
 
 /// `compareDirectives`: by package (up to the first `/`) and then by the rest.
 fn compare_directives(x: &str, y: &str) -> std::cmp::Ordering {
-    if (!x.starts_with("package:") || !y.starts_with("package:")) && !x.starts_with('/') && !y.starts_with('/') {
+    if (!x.starts_with("package:") || !y.starts_with("package:"))
+        && !x.starts_with('/')
+        && !y.starts_with('/')
+    {
         return x.cmp(y);
     }
-    let (Some(i), Some(j)) = (x.find('/'), y.find('/')) else { return x.cmp(y) };
-    x[..i].cmp(&y[..j]).then_with(|| x[i + 1..].cmp(&y[j + 1..]))
+    let (Some(i), Some(j)) = (x.find('/'), y.find('/')) else {
+        return x.cmp(y);
+    };
+    x[..i]
+        .cmp(&y[..j])
+        .then_with(|| x[i + 1..].cmp(&y[j + 1..]))
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let source = u.source;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
     // The (0-based) line number of a place.
     // `LineInfo`: `\n`, `\r\n` and a lone `\r` end a line.
@@ -210,7 +282,13 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     if enabled("prefer_conditional_assignment")
         && let Some(s) = sem
     {
-        fn assigns(s: &super::Semantics<'_>, interner: &Interner, a: &Ast, st: StmtId, tested: ExprId) -> bool {
+        fn assigns(
+            s: &super::Semantics<'_>,
+            interner: &Interner,
+            a: &Ast,
+            st: StmtId,
+            tested: ExprId,
+        ) -> bool {
             match &a.stmt(st).kind {
                 StmtKind::Expression(e) => {
                     matches!(&a.expr(*e).kind, ExprKind::Assign { target, .. } if super::same_elements(s, interner, a, Some(*target), Some(tested)))
@@ -220,8 +298,23 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
         }
         for st in a.stmts.iter() {
-            let StmtKind::If { condition, then, else_: None, .. } = &st.kind else { continue };
-            let ExprKind::Binary { op: BinaryOp::Eq, left, right } = &a.expr(unparenthesized(a, *condition)).kind else { continue };
+            let StmtKind::If {
+                condition,
+                then,
+                else_: None,
+                ..
+            } = &st.kind
+            else {
+                continue;
+            };
+            let ExprKind::Binary {
+                op: BinaryOp::Eq,
+                left,
+                right,
+            } = &a.expr(unparenthesized(a, *condition)).kind
+            else {
+                continue;
+            };
             let tested = if is_null(a, *right) {
                 *left
             } else if is_null(a, *left) {
@@ -242,7 +335,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         // The target of the assignment, or the operand of an `x++`/`x!`/`-x`,
         // of an expression statement.
         let assigned_target = |st: StmtId| -> Option<ExprId> {
-            let StmtKind::Expression(e) = &a.stmt(st).kind else { return None };
+            let StmtKind::Expression(e) = &a.stmt(st).kind else {
+                return None;
+            };
             match &a.expr(unparenthesized(a, *e)).kind {
                 ExprKind::Assign { target, .. } => Some(*target),
                 ExprKind::Unary { operand, .. } => Some(*operand),
@@ -250,14 +345,24 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
         };
         for st in a.stmts.iter() {
-            let StmtKind::Block(ss) = &st.kind else { continue };
+            let StmtKind::Block(ss) = &st.kind else {
+                continue;
+            };
             let n = ss.len();
             if n < 2 {
                 continue;
             }
-            let StmtKind::Return(Some(returned)) = &a.stmt(ss[n - 1]).kind else { continue };
-            let Some(second_to_last) = assigned_target(ss[n - 2]) else { continue };
-            let third_to_last = if n >= 3 { assigned_target(ss[n - 3]) } else { None };
+            let StmtKind::Return(Some(returned)) = &a.stmt(ss[n - 1]).kind else {
+                continue;
+            };
+            let Some(second_to_last) = assigned_target(ss[n - 2]) else {
+                continue;
+            };
+            let third_to_last = if n >= 3 {
+                assigned_target(ss[n - 3])
+            } else {
+                None
+            };
             if !super::same_elements(s, interner, a, Some(second_to_last), third_to_last)
                 && super::same_elements(s, interner, a, Some(*returned), Some(second_to_last))
             {
@@ -273,11 +378,19 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             let reported = match &s.kind {
                 StmtKind::DoWhile { condition, .. } => only_literals(a, Some(*condition)),
                 StmtKind::For { condition, .. } => only_literals(a, *condition),
-                StmtKind::If { condition, case_pattern, guard, .. } => {
+                StmtKind::If {
+                    condition,
+                    case_pattern,
+                    guard,
+                    ..
+                } => {
                     guards.extend(guard.iter().copied());
                     case_pattern.is_none() && only_literals(a, Some(*condition))
                 }
-                StmtKind::While { condition, .. } => !matches!(a.expr(*condition).kind, ExprKind::Bool(true)) && only_literals(a, Some(*condition)),
+                StmtKind::While { condition, .. } => {
+                    !matches!(a.expr(*condition).kind, ExprKind::Bool(true))
+                        && only_literals(a, Some(*condition))
+                }
                 StmtKind::Switch { cases, .. } => {
                     guards.extend(cases.iter().filter_map(|k| k.guard));
                     false
@@ -290,7 +403,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         }
         for e in a.exprs.iter() {
             match &e.kind {
-                ExprKind::Switch { cases, .. } => guards.extend(cases.iter().filter_map(|k| k.guard)),
+                ExprKind::Switch { cases, .. } => {
+                    guards.extend(cases.iter().filter_map(|k| k.guard))
+                }
                 ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
                     for el in elements.iter() {
                         element_guards(el, &mut guards);
@@ -302,12 +417,18 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         for g in guards {
             if only_literals(a, Some(g)) {
                 let s = a.expr(g).span;
-                let start = source.get(..s.start).and_then(|t| t.rfind("when")).unwrap_or(s.start);
-                report(&c::LITERAL_ONLY_BOOLEAN_EXPRESSIONS, Span { start, end: s.end }, &[]);
+                let start = source
+                    .get(..s.start)
+                    .and_then(|t| t.rfind("when"))
+                    .unwrap_or(s.start);
+                report(
+                    &c::LITERAL_ONLY_BOOLEAN_EXPRESSIONS,
+                    Span { start, end: s.end },
+                    &[],
+                );
             }
         }
     }
-
 
     // `type_init_formals`: the written type of `this.x` equal to the field's,
     // and that of `super.x` equal to the superclass constructor parameter's
@@ -316,15 +437,28 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         && let Some(s) = sem
     {
         for (mi, m) in a.members.iter().enumerate() {
-            let MemberKind::Constructor(k) = &m.kind else { continue };
+            let MemberKind::Constructor(k) = &m.kind else {
+                continue;
+            };
             for (pi, p) in k.parameters.iter().enumerate() {
                 let Some(t) = p.ty else { continue };
-                let Some(written) = super::written_type(s, t) else { continue };
+                let Some(written) = super::written_type(s, t) else {
+                    continue;
+                };
                 let target = if p.this_ {
-                    p.name.and_then(|n| super::class_field(s, MemberId(mi as u32), n.sym)).and_then(|v| super::variable_type(s, v))
+                    p.name
+                        .and_then(|n| super::class_field(s, MemberId(mi as u32), n.sym))
+                        .and_then(|v| super::variable_type(s, v))
                 } else if p.super_ {
-                    super::super_parameter(s, interner, MemberId(mi as u32), pi)
-                        .and_then(|(f, j)| s.outline.functions.get(f.0 as usize).and_then(|d| d.parameters.get(j)).map(|x| x.ty))
+                    super::super_parameter(s, interner, MemberId(mi as u32), pi).and_then(
+                        |(f, j)| {
+                            s.outline
+                                .functions
+                                .get(f.0 as usize)
+                                .and_then(|d| d.parameters.get(j))
+                                .map(|x| x.ty)
+                        },
+                    )
                 } else {
                     continue;
                 };
@@ -342,55 +476,92 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         && let Some(s) = sem
     {
         // The elements of the unit's top-level variables and fields.
-        let mut top_level: HashMap<(usize, usize), dartforge_elements::model::VariableId> = HashMap::new();
-        let mut fields: HashMap<(usize, usize), dartforge_elements::model::VariableId> = HashMap::new();
+        let mut top_level: HashMap<(usize, usize), dartforge_elements::model::VariableId> =
+            HashMap::new();
+        let mut fields: HashMap<(usize, usize), dartforge_elements::model::VariableId> =
+            HashMap::new();
         for (i, v) in s.program.variables.iter().enumerate() {
             let id = dartforge_elements::model::VariableId(i as u32);
             match v.node {
-                dartforge_elements::model::VariableRef::TopLevel { unit, decl, index } if unit == s.unit => {
+                dartforge_elements::model::VariableRef::TopLevel { unit, decl, index }
+                    if unit == s.unit =>
+                {
                     top_level.insert((decl.0 as usize, index), id);
                 }
-                dartforge_elements::model::VariableRef::Field { unit, member, index } if unit == s.unit => {
+                dartforge_elements::model::VariableRef::Field {
+                    unit,
+                    member,
+                    index,
+                } if unit == s.unit => {
                     fields.insert((member.0 as usize, index), id);
                 }
                 _ => {}
             }
         }
         let mut findings: Vec<Span> = Vec::new();
-        let from_list = |l: &VariableList, kind: &dyn Fn(usize, ast::Name) -> Option<dartforge_types::table::TypeId>, findings: &mut Vec<Span>| {
-            if l.final_ || l.const_ {
-                return;
-            }
-            for (k, v) in l.variables.iter().enumerate() {
-                if let Some(i) = v.initializer
-                    && is_null(a, i)
-                    && kind(k, v.name).is_some_and(|t| super::is_nullable(s, t))
-                {
-                    findings.push(Span { start: v.name.span.start, end: a.expr(i).span.end });
+        let from_list =
+            |l: &VariableList,
+             kind: &dyn Fn(usize, ast::Name) -> Option<dartforge_types::table::TypeId>,
+             findings: &mut Vec<Span>| {
+                if l.final_ || l.const_ {
+                    return;
                 }
-            }
-        };
+                for (k, v) in l.variables.iter().enumerate() {
+                    if let Some(i) = v.initializer
+                        && is_null(a, i)
+                        && kind(k, v.name).is_some_and(|t| super::is_nullable(s, t))
+                    {
+                        findings.push(Span {
+                            start: v.name.span.start,
+                            end: a.expr(i).span.end,
+                        });
+                    }
+                }
+            };
         for (di, d) in a.decls.iter().enumerate() {
             if let DeclKind::Variables(l) = &d.kind {
-                from_list(l, &|k, _| top_level.get(&(di, k)).and_then(|v| super::variable_type(s, *v)), &mut findings);
+                from_list(
+                    l,
+                    &|k, _| {
+                        top_level
+                            .get(&(di, k))
+                            .and_then(|v| super::variable_type(s, *v))
+                    },
+                    &mut findings,
+                );
             }
         }
         for (mi, m) in a.members.iter().enumerate() {
             if let MemberKind::Field(l) = &m.kind {
-                from_list(l, &|k, _| fields.get(&(mi, k)).and_then(|v| super::variable_type(s, *v)), &mut findings);
+                from_list(
+                    l,
+                    &|k, _| {
+                        fields
+                            .get(&(mi, k))
+                            .and_then(|v| super::variable_type(s, *v))
+                    },
+                    &mut findings,
+                );
             }
         }
         let local = |_: usize, n: ast::Name| s.body.local_type(n.span.start);
         for st in a.stmts.iter() {
             match &st.kind {
-                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => from_list(l, &local, &mut findings),
+                StmtKind::Variables(l)
+                | StmtKind::For {
+                    init: Some(ForInit::Variables(l)),
+                    ..
+                } => from_list(l, &local, &mut findings),
                 _ => {}
             }
         }
         // The parameters with a `null` default: the element's type (that of
         // the body's local; without a body, the written one, the field's or
         // the superclass parameter's).
-        let param_type = |mi: Option<usize>, pi: usize, p: &ast::Parameter| -> Option<dartforge_types::table::TypeId> {
+        let param_type = |mi: Option<usize>,
+                          pi: usize,
+                          p: &ast::Parameter|
+         -> Option<dartforge_types::table::TypeId> {
             let n = p.name?;
             if let Some(t) = s.body.local_type(n.span.start) {
                 return Some(t);
@@ -399,25 +570,45 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 return super::written_type(s, t);
             }
             if p.this_ {
-                return super::class_field(s, MemberId(mi? as u32), n.sym).and_then(|v| super::variable_type(s, v));
+                return super::class_field(s, MemberId(mi? as u32), n.sym)
+                    .and_then(|v| super::variable_type(s, v));
             }
             if p.super_ {
-                return super::super_parameter(s, interner, MemberId(mi? as u32), pi)
-                    .and_then(|(f, j)| s.outline.functions.get(f.0 as usize).and_then(|d| d.parameters.get(j)).map(|x| x.ty));
+                return super::super_parameter(s, interner, MemberId(mi? as u32), pi).and_then(
+                    |(f, j)| {
+                        s.outline
+                            .functions
+                            .get(f.0 as usize)
+                            .and_then(|d| d.parameters.get(j))
+                            .map(|x| x.ty)
+                    },
+                );
             }
             if p.function_parameters.is_some() {
                 // The old form without a return: a function type, nullable
                 // only with `?`.
-                return Some(if p.function_nullable { s.core.dynamic_ } else { s.core.function });
+                return Some(if p.function_nullable {
+                    s.core.dynamic_
+                } else {
+                    s.core.function
+                });
             }
             Some(s.core.dynamic_)
         };
         // The superclass parameter's default is `null` (or missing).
         let super_default_is_null = |mi: usize, pi: usize| -> bool {
-            let Some((f, j)) = super::super_parameter(s, interner, MemberId(mi as u32), pi) else { return false };
-            let dartforge_elements::model::FunctionRef::Constructor { unit, member } = s.program.function(f).node else { return true };
+            let Some((f, j)) = super::super_parameter(s, interner, MemberId(mi as u32), pi) else {
+                return false;
+            };
+            let dartforge_elements::model::FunctionRef::Constructor { unit, member } =
+                s.program.function(f).node
+            else {
+                return true;
+            };
             let au = &s.program.unit(unit).ast;
-            let MemberKind::Constructor(kk) = &au.member(member).kind else { return true };
+            let MemberKind::Constructor(kk) = &au.member(member).kind else {
+                return true;
+            };
             match kk.parameters.get(j).and_then(|x| x.default_value) {
                 None => true,
                 Some(d) => {
@@ -442,20 +633,26 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         }
         for list in ownerless {
             for (pi, p) in list.iter().enumerate() {
-                if p.default_value.is_some_and(|d| is_null(a, d)) && param_type(None, pi, p).is_some_and(|t| super::is_nullable(s, t)) {
+                if p.default_value.is_some_and(|d| is_null(a, d))
+                    && param_type(None, pi, p).is_some_and(|t| super::is_nullable(s, t))
+                {
                     findings.push(p.span);
                 }
             }
         }
         for (mi, m) in a.members.iter().enumerate() {
-            let MemberKind::Constructor(k) = &m.kind else { continue };
+            let MemberKind::Constructor(k) = &m.kind else {
+                continue;
+            };
             for (pi, p) in k.parameters.iter().enumerate() {
                 if let Some(inner) = &p.function_parameters {
                     let mut ls = Vec::new();
                     collect_lists(inner, &mut ls);
                     for list in ls {
                         for (qi, q) in list.iter().enumerate() {
-                            if q.default_value.is_some_and(|d| is_null(a, d)) && param_type(None, qi, q).is_some_and(|t| super::is_nullable(s, t)) {
+                            if q.default_value.is_some_and(|d| is_null(a, d))
+                                && param_type(None, qi, q).is_some_and(|t| super::is_nullable(s, t))
+                            {
                                 findings.push(q.span);
                             }
                         }
@@ -495,8 +692,15 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             })
             .collect();
         for (i, m) in a.members.iter().enumerate() {
-            let MemberKind::Constructor(k) = &m.kind else { continue };
-            if m.augment || k.redirect.is_some() || k.external || k.primary_body_part || primaries.contains(&MemberId(i as u32)) {
+            let MemberKind::Constructor(k) = &m.kind else {
+                continue;
+            };
+            if m.augment
+                || k.redirect.is_some()
+                || k.external
+                || k.primary_body_part
+                || primaries.contains(&MemberId(i as u32))
+            {
                 continue;
             }
             // The visited regions: the body and each initializer.
@@ -519,13 +723,20 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 .exprs
                 .iter()
                 .enumerate()
-                .filter(|(_, e)| matches!(e.kind, ExprKind::Identifier(_)) && regions.iter().any(|r| r.start <= e.span.start && e.span.end <= r.end))
+                .filter(|(_, e)| {
+                    matches!(e.kind, ExprKind::Identifier(_))
+                        && regions
+                            .iter()
+                            .any(|r| r.start <= e.span.start && e.span.end <= r.end)
+                })
                 .filter_map(|(k, _)| s.body.local_declaration(ExprId(k as u32)))
                 .collect();
             for p in k.parameters.iter().filter(|p| !p.this_ && !p.super_) {
                 let Some(n) = p.name else { continue };
                 let text = interner.resolve(n.sym);
-                let deprecated = p.metadata.iter().any(|x| dartforge_types::annotations::is_deprecated(s.program, interner, s.unit, x));
+                let deprecated = p.metadata.iter().any(|x| {
+                    dartforge_types::annotations::is_deprecated(s.program, interner, s.unit, x)
+                });
                 if deprecated || text.bytes().all(|b| b == b'_') || used.contains(&n.span.start) {
                     continue;
                 }
@@ -546,18 +757,27 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 _ => n.span.start,
             };
             if line_of(control_end) == line_of(first) {
-                report(&c::ALWAYS_PUT_CONTROL_BODY_ON_NEW_LINE, first_token(source, n.span.start), &[]);
+                report(
+                    &c::ALWAYS_PUT_CONTROL_BODY_ON_NEW_LINE,
+                    first_token(source, n.span.start),
+                    &[],
+                );
             }
         };
         // The end of the `)` that closes the header, before the body.
         let closing_paren = |start: usize, body: StmtId| -> Option<usize> {
             let until = a.stmt(body).span.start;
-            source.get(start..until).and_then(|t| t.rfind(')')).map(|i| start + i + 1)
+            source
+                .get(start..until)
+                .and_then(|t| t.rfind(')'))
+                .map(|i| start + i + 1)
         };
         for s in a.stmts.iter() {
             match &s.kind {
                 StmtKind::DoWhile { body, .. } => check_body(*body, s.span.start + 2),
-                StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } | StmtKind::While { body, .. } => {
+                StmtKind::For { body, .. }
+                | StmtKind::ForIn { body, .. }
+                | StmtKind::While { body, .. } => {
                     if let Some(f) = closing_paren(s.span.start, *body) {
                         check_body(*body, f);
                     }
@@ -568,7 +788,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     }
                     if let Some(else_stmt) = else_
                         && !matches!(a.stmt(*else_stmt).kind, StmtKind::If { .. })
-                        && let Some(word) = source.get(a.stmt(*then).span.end..a.stmt(*else_stmt).span.start).and_then(|t| t.rfind("else"))
+                        && let Some(word) = source
+                            .get(a.stmt(*then).span.end..a.stmt(*else_stmt).span.start)
+                            .and_then(|t| t.rfind("else"))
                     {
                         check_body(*else_stmt, a.stmt(*then).span.end + word + 4);
                     }
@@ -605,22 +827,44 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 report(code, span, args);
             }
         };
-        let uri_starts_with = |x: &(Span, Kind, Option<String>), p: &str| x.2.as_deref().is_some_and(|u| u.starts_with(p));
+        let uri_starts_with = |x: &(Span, Kind, Option<String>), p: &str| {
+            x.2.as_deref().is_some_and(|u| u.starts_with(p))
+        };
         let is_dart = |x: &&(Span, Kind, Option<String>)| uri_starts_with(x, "dart:");
         let is_package = |x: &&(Span, Kind, Option<String>)| uri_starts_with(x, "package:");
-        let is_absolute = |x: &&(Span, Kind, Option<String>)| x.2.as_deref().is_some_and(|u| u.contains(':'));
-        let is_relative = |x: &&(Span, Kind, Option<String>)| x.2.as_deref().is_some_and(|u| !u.contains(':'));
-        let words = [(Kind::Import, "import"), (Kind::Export, "export"), (Kind::DocImport, "@docImport")];
+        let is_absolute =
+            |x: &&(Span, Kind, Option<String>)| x.2.as_deref().is_some_and(|u| u.contains(':'));
+        let is_relative =
+            |x: &&(Span, Kind, Option<String>)| x.2.as_deref().is_some_and(|u| !u.contains(':'));
+        let words = [
+            (Kind::Import, "import"),
+            (Kind::Export, "export"),
+            (Kind::DocImport, "@docImport"),
+        ];
         // `_checkDartDirectiveGoFirst`.
         for (kind, word) in words {
-            for x in directives.iter().filter(|x| x.1 == kind).skip_while(is_dart).filter(is_dart) {
+            for x in directives
+                .iter()
+                .filter(|x| x.1 == kind)
+                .skip_while(is_dart)
+                .filter(is_dart)
+            {
                 report_once(x.0, &c::DIRECTIVES_ORDERING_DART, &[word]);
             }
         }
         // `_checkPackageDirectiveBeforeRelative`.
         for (kind, word) in words {
-            for x in directives.iter().filter(|x| x.1 == kind && !is_dart(x)).skip_while(is_absolute).filter(is_package) {
-                report_once(x.0, &c::DIRECTIVES_ORDERING_PACKAGE_BEFORE_RELATIVE, &[word]);
+            for x in directives
+                .iter()
+                .filter(|x| x.1 == kind && !is_dart(x))
+                .skip_while(is_absolute)
+                .filter(is_package)
+            {
+                report_once(
+                    x.0,
+                    &c::DIRECTIVES_ORDERING_PACKAGE_BEFORE_RELATIVE,
+                    &[word],
+                );
             }
         }
         // `_checkExportDirectiveAfterImportDirective`.
@@ -631,7 +875,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             .filter(|&i| matches!(u.unit.directives[i].kind, DirectiveKind::Export { .. }))
             .collect();
         for i in trailing_exports {
-            report_once(u.unit.directives[i].span, &c::DIRECTIVES_ORDERING_EXPORTS, &[]);
+            report_once(
+                u.unit.directives[i].span,
+                &c::DIRECTIVES_ORDERING_EXPORTS,
+                &[],
+            );
         }
         // `_checkDirectiveSectionOrderedAlphabetically`: each section in
         // order, comparing with the section's previous URI.
@@ -639,7 +887,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let sections: [DirectiveSection<'_>; 3] = [&is_dart, &is_relative, &is_package];
         for section in sections {
             for kind in [Kind::Import, Kind::Export, Kind::DocImport] {
-                let in_section: Vec<&(Span, Kind, Option<String>)> = directives.iter().filter(|x| x.1 == kind).filter(|x| section(x)).collect();
+                let in_section: Vec<&(Span, Kind, Option<String>)> = directives
+                    .iter()
+                    .filter(|x| x.1 == kind)
+                    .filter(|x| section(x))
+                    .collect();
                 for pair in in_section.windows(2) {
                     if let (Some(previous), Some(current)) = (&pair[0].2, &pair[1].2)
                         && compare_directives(previous, current) == std::cmp::Ordering::Greater
@@ -659,14 +911,33 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         for (k, n) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
             let candidate = match &n.kind {
-                ExprKind::InstanceCreation { keyword: Some(CreationKeyword::Const), .. } | ExprKind::Record { const_: true, .. } => true,
+                ExprKind::InstanceCreation {
+                    keyword: Some(CreationKeyword::Const),
+                    ..
+                }
+                | ExprKind::Record { const_: true, .. } => true,
                 ExprKind::List { const_: true, .. } | ExprKind::SetOrMap { const_: true, .. } => {
-                    !matches!(parents.parent(id), dartforge_frontend::parents::Parent::ConstantPattern { .. })
+                    !matches!(
+                        parents.parent(id),
+                        dartforge_frontend::parents::Parent::ConstantPattern { .. }
+                    )
                 }
                 _ => false,
             };
-            if candidate && source.get(n.span.start..).is_some_and(|t| t.starts_with("const")) && parents.in_constant_context(a, id) {
-                report(&c::UNNECESSARY_CONST, Span { start: n.span.start, end: n.span.start + 5 }, &[]);
+            if candidate
+                && source
+                    .get(n.span.start..)
+                    .is_some_and(|t| t.starts_with("const"))
+                && parents.in_constant_context(a, id)
+            {
+                report(
+                    &c::UNNECESSARY_CONST,
+                    Span {
+                        start: n.span.start,
+                        end: n.span.start + 5,
+                    },
+                    &[],
+                );
             }
         }
     }
@@ -680,17 +951,36 @@ mod tests {
     fn only(rule: &str, source: &str) -> Vec<String> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
         let mut reports = run(u, &names, &|r| r == rule, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| source[r.span.start..r.span.end].to_string()).collect()
+        reports
+            .into_iter()
+            .map(|r| source[r.span.start..r.span.end].to_string())
+            .collect()
     }
 
     #[test]
     fn assignments() {
         // The canonical elements need the unit's semantics.
-        assert!(only("prefer_conditional_assignment", "void f(int? x) {\n  if (x == null) x = 1;\n}\n").is_empty());
-        assert!(only("join_return_with_assignment", "int f(int x) {\n  x = 1;\n  return x;\n}\n").is_empty());
+        assert!(
+            only(
+                "prefer_conditional_assignment",
+                "void f(int? x) {\n  if (x == null) x = 1;\n}\n"
+            )
+            .is_empty()
+        );
+        assert!(
+            only(
+                "join_return_with_assignment",
+                "int f(int x) {\n  x = 1;\n  return x;\n}\n"
+            )
+            .is_empty()
+        );
     }
 
     #[test]
@@ -698,7 +988,12 @@ mod tests {
         let source = "void f(int x) {\n  if (true) {}\n  while (true) {}\n  while (1 > 2) {}\n  for (; 1 == 1;) {}\n  if (x > 0) {}\n  switch (x) {\n    case 1 when true:\n      break;\n  }\n}\n";
         assert_eq!(
             only("literal_only_boolean_expressions", source),
-            vec!["if (true) {}".to_string(), "while (1 > 2) {}".to_string(), "for (; 1 == 1;) {}".to_string(), "when true".to_string()]
+            vec![
+                "if (true) {}".to_string(),
+                "while (1 > 2) {}".to_string(),
+                "for (; 1 == 1;) {}".to_string(),
+                "when true".to_string()
+            ]
         );
     }
 
@@ -728,14 +1023,25 @@ mod tests {
         let source = "void f(bool x) {\n  if (x) return;\n  if (x) {\n    return;\n  } else return;\n  while (x) { f(x); }\n  do f(x); while (x);\n  if (x)\n    return;\n}\n";
         assert_eq!(
             only("always_put_control_body_on_new_line", source),
-            vec!["return".to_string(), "return".to_string(), "{".to_string(), "f".to_string()]
+            vec![
+                "return".to_string(),
+                "return".to_string(),
+                "{".to_string(),
+                "f".to_string()
+            ]
         );
     }
 
     #[test]
     fn directive_order() {
-        assert_eq!(compare_directives("package:a/z.dart", "package:b/a.dart"), std::cmp::Ordering::Less);
-        assert_eq!(compare_directives("b.dart", "a.dart"), std::cmp::Ordering::Greater);
+        assert_eq!(
+            compare_directives("package:a/z.dart", "package:b/a.dart"),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            compare_directives("b.dart", "a.dart"),
+            std::cmp::Ordering::Greater
+        );
         let source = "import 'package:b/b.dart';\nimport 'dart:io';\nimport 'package:a/a.dart';\nexport 'x.dart';\nimport 'z.dart';\nimport 'y.dart';\n";
         assert_eq!(
             only("directives_ordering", source),

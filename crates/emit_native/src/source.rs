@@ -38,7 +38,13 @@ use std::collections::{HashMap, HashSet};
 
 /// The SDK libraries the program compiles from source.
 pub fn source_libraries(program: &Program, interner: &Interner) -> Vec<LibraryId> {
-    let find_library = |uri: &str| program.libraries.iter().position(|l| l.uri == uri).map(|i| LibraryId(i as u32));
+    let find_library = |uri: &str| {
+        program
+            .libraries
+            .iter()
+            .position(|l| l.uri == uri)
+            .map(|i| LibraryId(i as u32))
+    };
     let Some(async_lib) = find_library("dart:async") else {
         return Vec::new();
     };
@@ -98,7 +104,12 @@ pub fn split_core_parts(program: &mut Program) -> Option<LibraryId> {
         features: origin.features,
         // The scope of each unit (A04) and the part that included it follow the
         // units that come into the new library.
-        unit_parents: origin.unit_parents.iter().filter(|(u, _)| units.contains(u)).map(|(u, p)| (*u, *p)).collect(),
+        unit_parents: origin
+            .unit_parents
+            .iter()
+            .filter(|(u, _)| units.contains(u))
+            .map(|(u, p)| (*u, *p))
+            .collect(),
         representative: Default::default(),
         group_owner: Default::default(),
         unit_scopes: origin
@@ -110,7 +121,9 @@ pub fn split_core_parts(program: &mut Program) -> Option<LibraryId> {
     };
     let id = LibraryId(program.libraries.len() as u32);
     program.libraries.push(new_one);
-    program.libraries[core.0 as usize].units.retain(|u| !units.contains(u));
+    program.libraries[core.0 as usize]
+        .units
+        .retain(|u| !units.contains(u));
     for u in &units {
         program.units[u.0 as usize].library = id;
     }
@@ -121,20 +134,25 @@ pub fn split_core_parts(program: &mut Program) -> Option<LibraryId> {
     }
     for f in &mut program.functions {
         let unit = match f.node {
-            FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => Some(unit),
+            FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => {
+                Some(unit)
+            }
             FunctionRef::None => None,
         };
         // Synthetic constructor: the unit is that of the class.
-        let unit = unit.or_else(|| f.class.and_then(|c| program.classes[c.0 as usize].decl.map(|d| d.unit)));
+        let unit = unit.or_else(|| {
+            f.class
+                .and_then(|c| program.classes[c.0 as usize].decl.map(|d| d.unit))
+        });
         if unit.is_some_and(|u| units.contains(&u)) {
             f.library = id;
         }
     }
     for v in &mut program.variables {
         let unit = match v.node {
-            VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } | VariableRef::EnumConstant { unit, .. } => {
-                Some(unit)
-            }
+            VariableRef::TopLevel { unit, .. }
+            | VariableRef::Field { unit, .. }
+            | VariableRef::EnumConstant { unit, .. } => Some(unit),
             _ => None,
         };
         if unit.is_some_and(|u| units.contains(&u)) {
@@ -157,24 +175,36 @@ fn uses_dart_async(program: &Program, interner: &Interner, async_lib: LibraryId)
         .map(|(i, _)| LibraryId(i as u32))
         .collect();
     for lib in program.libraries.iter().filter(|l| !l.is_sdk) {
-        if lib.imports.iter().any(|i| i.library == async_lib || with_loop.contains(&i.library)) {
+        if lib
+            .imports
+            .iter()
+            .any(|i| i.library == async_lib || with_loop.contains(&i.library))
+        {
             return true;
         }
         for &u in &lib.units {
             let ast = &program.unit(u).ast;
-            if ast.functions.iter().any(|f| f.modifier != AsyncModifier::None) {
+            if ast
+                .functions
+                .iter()
+                .any(|f| f.modifier != AsyncModifier::None)
+            {
                 return true;
             }
             for e in &ast.exprs {
                 match &e.kind {
                     ExprKind::Await(_) => return true,
-                    ExprKind::Identifier(n) if names.contains(interner.resolve(n.sym)) => return true,
+                    ExprKind::Identifier(n) if names.contains(interner.resolve(n.sym)) => {
+                        return true;
+                    }
                     _ => {}
                 }
             }
             for t in &ast.types {
                 if let TypeKind::Named { name, .. } = &t.kind
-                    && name.last().is_some_and(|n| names.contains(interner.resolve(n.sym)))
+                    && name
+                        .last()
+                        .is_some_and(|n| names.contains(interner.resolve(n.sym)))
                 {
                     return true;
                 }
@@ -197,36 +227,51 @@ pub fn has_pragma(program: &Program, interner: &Interner, fid: usize, text: &str
     let a = &program.unit(unit).ast;
     let metadata: &[ast::Annotation] = if let Some(member) = constructor {
         &a.members[member.0 as usize].metadata
-    } else { a
-        .members
+    } else {
+        a.members
+            .iter()
+            .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if Some(id) == function))
+            .map(|m| &*m.metadata)
+            .or_else(|| {
+                a.decls
+                    .iter()
+                    .find(|d| matches!(d.kind, ast::DeclKind::Function(id) if Some(id) == function))
+                    .map(|d| &*d.metadata)
+            })
+            .unwrap_or(&[])
+    };
+    metadata
         .iter()
-        .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if Some(id) == function))
-        .map(|m| &*m.metadata)
-        .or_else(|| a.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(id) if Some(id) == function)).map(|d| &*d.metadata))
-        .unwrap_or(&[]) };
-    metadata.iter().any(|an| pragma_with_string(interner, a, an, text))
+        .any(|an| pragma_with_string(interner, a, an, text))
 }
 
 /// The annotation is `@pragma("<text>", …)`.
-pub fn pragma_with_string(interner: &Interner, ast: &dartforge_frontend::ast::Ast, an: &dartforge_frontend::ast::Annotation, text: &str) -> bool {
+pub fn pragma_with_string(
+    interner: &Interner,
+    ast: &dartforge_frontend::ast::Ast,
+    an: &dartforge_frontend::ast::Annotation,
+    text: &str,
+) -> bool {
     if an.name.len() != 1 || interner.resolve(an.name[0].sym) != "pragma" {
         return false;
     }
-    let Some(args) = &an.arguments else { return false };
-    args.args.first().is_some_and(|a| match &ast.exprs[a.value.0 as usize].kind {
-        dartforge_frontend::ast::ExprKind::String(lit) => lit.constant_value().is_some_and(|t| t.as_bytes() == text.as_bytes()),
-        _ => false,
-    })
+    let Some(args) = &an.arguments else {
+        return false;
+    };
+    args.args
+        .first()
+        .is_some_and(|a| match &ast.exprs[a.value.0 as usize].kind {
+            dartforge_frontend::ast::ExprKind::String(lit) => lit
+                .constant_value()
+                .is_some_and(|t| t.as_bytes() == text.as_bytes()),
+            _ => false,
+        })
 }
 
 /// The `vm:external-name`/`vm:recognized` pragmas of a function: the name of the
 /// native, if there is one, and whether it is an intrinsic. The pragma lives on the `Member`/`Decl`
 /// that declares the function (the same one `natives::inventory` reads).
-pub fn native_pragma(
-    program: &Program,
-    interner: &Interner,
-    fid: usize,
-) -> (Option<String>, bool) {
+pub fn native_pragma(program: &Program, interner: &Interner, fid: usize) -> (Option<String>, bool) {
     use dartforge_elements::model::FunctionRef;
     use dartforge_frontend::ast;
     let f = &program.functions[fid];
@@ -247,7 +292,10 @@ pub fn native_pragma(
                 .unwrap_or(&[]);
             (unit, m)
         }
-        FunctionRef::Constructor { unit, member } => (unit, &*program.unit(unit).ast.members[member.0 as usize].metadata),
+        FunctionRef::Constructor { unit, member } => (
+            unit,
+            &*program.unit(unit).ast.members[member.0 as usize].metadata,
+        ),
         FunctionRef::None => return (None, false),
     };
     let mut native = None;
@@ -260,12 +308,14 @@ pub fn native_pragma(
         let strings: Vec<Option<String>> = args
             .args
             .iter()
-            .map(|a| match &program.unit(unit).ast.exprs[a.value.0 as usize].kind {
-                ast::ExprKind::String(lit) => {
-                    lit.constant_value().map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned())
-                }
-                _ => None,
-            })
+            .map(
+                |a| match &program.unit(unit).ast.exprs[a.value.0 as usize].kind {
+                    ast::ExprKind::String(lit) => lit
+                        .constant_value()
+                        .map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned()),
+                    _ => None,
+                },
+            )
             .collect();
         match strings.first().and_then(|t| t.as_deref()) {
             Some("vm:external-name") => native = strings.get(1).cloned().flatten(),
@@ -288,8 +338,12 @@ pub fn sdk_symbol(sym_name: &str) -> bool {
 /// diagnostics of a source function (`source_errors`, by the symbol of the
 /// top-level function that produced them) only go into `errors` if it stays.
 pub fn prune(module: &mut Module) {
-    let index: HashMap<&str, usize> =
-        module.functions.iter().enumerate().map(|(i, f)| (f.symbol.as_str(), i)).collect();
+    let index: HashMap<&str, usize> = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(i, f)| (f.symbol.as_str(), i))
+        .collect();
     let mut live = vec![false; module.functions.len()];
     let mut stack: Vec<usize> = Vec::new();
     let mark = |s: &str, live: &mut Vec<bool>, stack: &mut Vec<usize>| {
@@ -323,16 +377,22 @@ pub fn prune(module: &mut Module) {
             for (_, inst, _) in &b.instructions {
                 match inst {
                     Instruction::CallStatic { symbol, .. } => mark(symbol, &mut live, &mut stack),
-                    Instruction::AllocClosure { code_symbol, .. } | Instruction::TearOff { code_symbol } => {
+                    Instruction::AllocClosure { code_symbol, .. }
+                    | Instruction::TearOff { code_symbol } => {
                         mark(code_symbol, &mut live, &mut stack)
                     }
-                    Instruction::AllocClosureTyped { code_symbol, typed, .. } => {
+                    Instruction::AllocClosureTyped {
+                        code_symbol, typed, ..
+                    } => {
                         mark(code_symbol, &mut live, &mut stack);
                         mark(typed, &mut live, &mut stack);
                     }
-                    Instruction::LoadGlobal { symbol: sym_name, .. } | Instruction::StoreGlobal { symbol: sym_name, .. } => {
-                        mark(sym_name, &mut live, &mut stack)
+                    Instruction::LoadGlobal {
+                        symbol: sym_name, ..
                     }
+                    | Instruction::StoreGlobal {
+                        symbol: sym_name, ..
+                    } => mark(sym_name, &mut live, &mut stack),
                     _ => {}
                 }
             }
@@ -351,13 +411,27 @@ pub fn prune(module: &mut Module) {
         k += 1;
         v
     });
-    module.dart_scalar_parameters.retain(|sym_name, _| live_set.contains(sym_name));
-    module.dart_rti_parameters.retain(|sym_name, _| live_set.contains(sym_name));
-    module.dart_vector_parameters.retain(|sym_name, _| live_set.contains(sym_name));
-    module.arc_uniform_returns.retain(|sym_name| live_set.contains(sym_name));
-    module.arc_shared_functions.retain(|sym_name| live_set.contains(sym_name));
-    module.dart_ref_returns.retain(|sym_name| live_set.contains(sym_name));
-    module.arc_sites.retain(|sym_name, _| live_set.contains(sym_name));
+    module
+        .dart_scalar_parameters
+        .retain(|sym_name, _| live_set.contains(sym_name));
+    module
+        .dart_rti_parameters
+        .retain(|sym_name, _| live_set.contains(sym_name));
+    module
+        .dart_vector_parameters
+        .retain(|sym_name, _| live_set.contains(sym_name));
+    module
+        .arc_uniform_returns
+        .retain(|sym_name| live_set.contains(sym_name));
+    module
+        .arc_shared_functions
+        .retain(|sym_name| live_set.contains(sym_name));
+    module
+        .dart_ref_returns
+        .retain(|sym_name| live_set.contains(sym_name));
+    module
+        .arc_sites
+        .retain(|sym_name, _| live_set.contains(sym_name));
     for (owner, errors) in std::mem::take(&mut module.source_errors) {
         if live_set.contains(&owner) {
             module.errors.extend(errors);

@@ -14,7 +14,8 @@ use std::collections::{HashMap, HashSet};
 /// emitter converts between scalars by representation; a `Ref` (a collector
 /// root) is only exchanged with a `Ref`.
 pub fn compatible(local: Type, value: Type) -> bool {
-    local == value || (local != Type::Ref && value != Type::Ref && !local.is_vector() && !value.is_vector())
+    local == value
+        || (local != Type::Ref && value != Type::Ref && !local.is_vector() && !value.is_vector())
 }
 
 /// Promotes the promotable locals of `func`. Returns whether anything changed.
@@ -39,8 +40,14 @@ pub fn promote(func: &mut Function) -> bool {
     for b in &func.blocks {
         for (_, inst, _) in &b.instructions {
             match inst {
-                Instruction::Load { ptr: Operand::Val(_), .. } => {}
-                Instruction::Store { ptr: Operand::Val(p), val } => {
+                Instruction::Load {
+                    ptr: Operand::Val(_),
+                    ..
+                } => {}
+                Instruction::Store {
+                    ptr: Operand::Val(p),
+                    val,
+                } => {
                     if let Some(&t) = locals.get(p) {
                         let ok = match val {
                             Operand::Val(v) if v == p => false,
@@ -114,7 +121,8 @@ pub fn promote(func: &mut Function) -> bool {
     let children = cfg.children();
     let mut swap: HashMap<ValueId, Operand> = HashMap::new();
     let mut entries: Vec<Vec<(ValueId, BlockId, Operand)>> = vec![Vec::new(); n]; // (phi, origem, valor)
-    let mut stacks: HashMap<ValueId, Vec<Operand>> = local_order.iter().map(|&l| (l, Vec::new())).collect();
+    let mut stacks: HashMap<ValueId, Vec<Operand>> =
+        local_order.iter().map(|&l| (l, Vec::new())).collect();
     let ids: Vec<BlockId> = func.blocks.iter().map(|b| b.id).collect();
     // Explicit stack: (block, phase, how many were pushed per local).
     enum Step {
@@ -137,11 +145,20 @@ pub fn promote(func: &mut Function) -> bool {
                 }
                 for (v, inst, _) in &func.blocks[b].instructions {
                     match inst {
-                        Instruction::Load { ptr: Operand::Val(p), .. } if locals.contains_key(p) => {
-                            let current = stacks[p].last().cloned().unwrap_or_else(|| default_constant(locals[p]));
+                        Instruction::Load {
+                            ptr: Operand::Val(p),
+                            ..
+                        } if locals.contains_key(p) => {
+                            let current = stacks[p]
+                                .last()
+                                .cloned()
+                                .unwrap_or_else(|| default_constant(locals[p]));
                             swap.insert(*v, current);
                         }
-                        Instruction::Store { ptr: Operand::Val(p), val } if locals.contains_key(p) => {
+                        Instruction::Store {
+                            ptr: Operand::Val(p),
+                            val,
+                        } if locals.contains_key(p) => {
                             stacks.get_mut(p).expect("local").push(val.clone());
                             stacked.push(*p);
                         }
@@ -150,7 +167,10 @@ pub fn promote(func: &mut Function) -> bool {
                 }
                 for &s in &cfg.successors[b] {
                     for &(l, phi) in &phis[s] {
-                        let current = stacks[&l].last().cloned().unwrap_or_else(|| default_constant(locals[&l]));
+                        let current = stacks[&l]
+                            .last()
+                            .cloned()
+                            .unwrap_or_else(|| default_constant(locals[&l]));
                         entries[s].push((phi, ids[b], current));
                     }
                 }
@@ -168,7 +188,10 @@ pub fn promote(func: &mut Function) -> bool {
             continue;
         }
         for (v, inst, _) in &b.instructions {
-            if let Instruction::Load { ptr: Operand::Val(p), .. } = inst
+            if let Instruction::Load {
+                ptr: Operand::Val(p),
+                ..
+            } = inst
                 && let Some(&t) = locals.get(p)
             {
                 swap.insert(*v, default_constant(t));
@@ -180,16 +203,32 @@ pub fn promote(func: &mut Function) -> bool {
     for (i, b) in func.blocks.iter_mut().enumerate() {
         b.instructions.retain(|(v, inst, _)| match inst {
             Instruction::Alloca(_) => !locals.contains_key(v),
-            Instruction::Load { ptr: Operand::Val(p), .. } | Instruction::Store { ptr: Operand::Val(p), .. } => {
-                !locals.contains_key(p)
+            Instruction::Load {
+                ptr: Operand::Val(p),
+                ..
             }
+            | Instruction::Store {
+                ptr: Operand::Val(p),
+                ..
+            } => !locals.contains_key(p),
             _ => true,
         });
         let new_set: Vec<(ValueId, Instruction, Type)> = phis[i]
             .iter()
             .map(|&(l, phi)| {
-                let incoming = entries[i].iter().filter(|(p, _, _)| *p == phi).map(|(_, o, v)| (*o, v.clone())).collect();
-                (phi, Instruction::Phi { incoming, ty: locals[&l] }, locals[&l])
+                let incoming = entries[i]
+                    .iter()
+                    .filter(|(p, _, _)| *p == phi)
+                    .map(|(_, o, v)| (*o, v.clone()))
+                    .collect();
+                (
+                    phi,
+                    Instruction::Phi {
+                        incoming,
+                        ty: locals[&l],
+                    },
+                    locals[&l],
+                )
             })
             .collect();
         b.instructions.splice(0..0, new_set);
@@ -207,7 +246,8 @@ pub fn promote(func: &mut Function) -> bool {
         }
         o
     };
-    let resolved_set: HashMap<ValueId, Operand> = swap.keys().map(|&k| (k, solve(Operand::Val(k)))).collect();
+    let resolved_set: HashMap<ValueId, Operand> =
+        swap.keys().map(|&k| (k, solve(Operand::Val(k)))).collect();
     replace(func, &|v| resolved_set.get(&v).cloned());
     prune_phis(func, &phis.iter().flatten().map(|&(_, p)| p).collect());
     true
@@ -236,7 +276,8 @@ fn prune_phis(func: &mut Function, inserted: &HashSet<ValueId>) {
         let mut removed_done = false;
         for b in &mut func.blocks {
             let before = b.instructions.len();
-            b.instructions.retain(|(v, _, _)| !inserted.contains(v) || used_set.contains(v));
+            b.instructions
+                .retain(|(v, _, _)| !inserted.contains(v) || used_set.contains(v));
             removed_done |= b.instructions.len() != before;
         }
         if !removed_done {

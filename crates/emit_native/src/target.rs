@@ -41,11 +41,19 @@ pub enum NativeTarget {
 impl NativeTarget {
     /// The destination of a native compilation without `--target`.
     pub fn host() -> Self {
-        if cfg!(windows) { Self::WindowsX64 }
-        else if cfg!(target_os = "macos") {
-            if cfg!(target_arch = "aarch64") { Self::MacosArm64 } else { Self::MacosX64 }
-        } else if cfg!(target_arch = "aarch64") { Self::LinuxArm64 }
-        else { Self::LinuxX64 }
+        if cfg!(windows) {
+            Self::WindowsX64
+        } else if cfg!(target_os = "macos") {
+            if cfg!(target_arch = "aarch64") {
+                Self::MacosArm64
+            } else {
+                Self::MacosX64
+            }
+        } else if cfg!(target_arch = "aarch64") {
+            Self::LinuxArm64
+        } else {
+            Self::LinuxX64
+        }
     }
 
     /// Parses a Rust/LLVM triple (or the documented short platform name).
@@ -59,7 +67,9 @@ impl NativeTarget {
             "linux-arm64" | "aarch64-unknown-linux-gnu" => Ok(Self::LinuxArm64),
             "macos-x64" | "x86_64-apple-darwin" => Ok(Self::MacosX64),
             "macos-arm64" | "aarch64-apple-darwin" | "arm64-apple-darwin" => Ok(Self::MacosArm64),
-            _ => Err(format!("unsupported native target {name:?}; use windows-x64, linux-x64, linux-arm64, macos-x64 or macos-arm64")),
+            _ => Err(format!(
+                "unsupported native target {name:?}; use windows-x64, linux-x64, linux-arm64, macos-x64 or macos-arm64"
+            )),
         }
     }
 
@@ -99,12 +109,16 @@ pub fn select(target: NativeTarget) -> Result<(), String> {
     match DESTINATION.set(target) {
         Ok(()) => Ok(()),
         Err(_) if current() == target => Ok(()),
-        Err(_) => Err("native target was already initialized; use a separate compilation process".into()),
+        Err(_) => {
+            Err("native target was already initialized; use a separate compilation process".into())
+        }
     }
 }
 
 /// The frozen selection, initialized to the host when no destination was selected.
-pub fn current() -> NativeTarget { *DESTINATION.get_or_init(NativeTarget::host) }
+pub fn current() -> NativeTarget {
+    *DESTINATION.get_or_init(NativeTarget::host)
+}
 /// Whether this process is compiling for a different native destination.
 pub fn is_cross() -> bool {
     // An unsupported compiler host must never supply its own runtime archive
@@ -115,9 +129,13 @@ pub fn is_cross() -> bool {
     !native_host || current() != NativeTarget::host()
 }
 /// Architecture of the generated code, independent of the compiler CPU.
-pub fn is_aarch64() -> bool { current().is_arm64() }
+pub fn is_aarch64() -> bool {
+    current().is_arm64()
+}
 /// Whether the generated code uses a supported Unix ABI.
-pub fn is_unix() -> bool { target_os() != Os::Windows }
+pub fn is_unix() -> bool {
+    target_os() != Os::Windows
+}
 
 /// The operating system of the generated code, independent of compiler host.
 ///
@@ -125,7 +143,9 @@ pub fn is_unix() -> bool { target_os() != Os::Windows }
 /// use dartforge_emit_native::target::{NativeTarget, target_os};
 /// assert_eq!(target_os(), NativeTarget::host().os());
 /// ```
-pub fn target_os() -> Os { current().os() }
+pub fn target_os() -> Os {
+    current().os()
+}
 
 /// The exception model of the generated code
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13), through the variable
@@ -165,7 +185,9 @@ pub fn table_exceptions() -> Result<bool, String> {
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_EXCEPTIONS={other}: the exception models are `check` and `tables`")),
+        other => Err(format!(
+            "DARTFORGE_EXCEPTIONS={other}: the exception models are `check` and `tables`"
+        )),
     }
 }
 
@@ -191,7 +213,9 @@ pub fn arc_memory() -> Result<bool, String> {
     match value.as_str() {
         "" | "tracing" => Ok(false),
         "arc" => Ok(true),
-        other => Err(format!("DARTFORGE_MEMORY={other}: the memory policies are `tracing` and `arc`")),
+        other => Err(format!(
+            "DARTFORGE_MEMORY={other}: the memory policies are `tracing` and `arc`"
+        )),
     }
 }
 
@@ -238,12 +262,16 @@ pub fn roots_by_maps() -> Result<bool, String> {
                     "roots by maps (--roots=maps) exist on Windows x86-64 and on Linux and macOS on x86-64 and aarch64".to_string(),
                 );
             }
-            if !crate::generator::EMBEDDED_GENERATOR || std::env::var("DARTFORGE_GENERATOR").is_ok_and(|g| g == "clang") {
+            if !crate::generator::EMBEDDED_GENERATOR
+                || std::env::var("DARTFORGE_GENERATOR").is_ok_and(|g| g == "clang")
+            {
                 return Err("roots by maps (--roots=maps) require dartforge's embedded generator (Clang does not run the maps pass)".to_string());
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_ROOTS={other}: the roots modes are `shadow` and `maps`")),
+        other => Err(format!(
+            "DARTFORGE_ROOTS={other}: the roots modes are `shadow` and `maps`"
+        )),
     }
 }
 
@@ -276,7 +304,9 @@ pub fn symbolic_stack_trace() -> Result<bool, String> {
             }
             Ok(true)
         }
-        other => Err(format!("DARTFORGE_STACK_TRACE={other}: the stack traces are `symbolic` and `none`")),
+        other => Err(format!(
+            "DARTFORGE_STACK_TRACE={other}: the stack traces are `symbolic` and `none`"
+        )),
     }
 }
 
@@ -287,7 +317,10 @@ pub fn symbolic_stack_trace() -> Result<bool, String> {
 /// SDK); the default, 250 000, is 500 values rooted across 500
 /// points.
 pub fn maps_budget() -> u64 {
-    std::env::var("DARTFORGE_MAPS_BUDGET").ok().and_then(|v| v.trim().parse().ok()).unwrap_or(250_000)
+    std::env::var("DARTFORGE_MAPS_BUDGET")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(250_000)
 }
 
 /// The check build of the walk by maps (§15.2, E2.5):
@@ -319,12 +352,18 @@ pub fn check_roots() -> bool {
 ///
 /// The variable goes into the key of the compiled SDK.
 pub fn sabotage(name: &str) -> bool {
-    std::env::var("DARTFORGE_SABOTAGE").unwrap_or_default().split(',').any(|s| s.trim() == name)
+    std::env::var("DARTFORGE_SABOTAGE")
+        .unwrap_or_default()
+        .split(',')
+        .any(|s| s.trim() == name)
 }
 
 /// Extern `name` is in the `leaf:<name>` sabotage.
 pub fn sabotaged_leaf(name: &str) -> bool {
-    std::env::var("DARTFORGE_SABOTAGE").unwrap_or_default().split(',').any(|s| s.trim().strip_prefix("leaf:") == Some(name))
+    std::env::var("DARTFORGE_SABOTAGE")
+        .unwrap_or_default()
+        .split(',')
+        .any(|s| s.trim().strip_prefix("leaf:") == Some(name))
 }
 
 /// The `target datalayout`/`target triple` header of the module.
@@ -495,11 +534,37 @@ pub fn system_libraries() -> &'static [&'static str] {
     match target_os() {
         // `crypt32`: the system certificate store (the TLS
         // roots, `tls.rs`).
-        Os::Windows => &["-lws2_32", "-luserenv", "-lntdll", "-liphlpapi", "-lbcrypt", "-ladvapi32", "-lcrypt32", "-lkernel32"],
-        Os::Linux => &["-lgcc_s", "-lutil", "-lrt", "-lpthread", "-lm", "-ldl", "-lc"],
+        Os::Windows => &[
+            "-lws2_32",
+            "-luserenv",
+            "-lntdll",
+            "-liphlpapi",
+            "-lbcrypt",
+            "-ladvapi32",
+            "-lcrypt32",
+            "-lkernel32",
+        ],
+        Os::Linux => &[
+            "-lgcc_s",
+            "-lutil",
+            "-lrt",
+            "-lpthread",
+            "-lm",
+            "-ldl",
+            "-lc",
+        ],
         // `CoreFoundation`: `Platform.localeName` (io_plataforma.rs);
         // `Security`: the system keychain (the TLS roots, `tls.rs`).
-        Os::MacOs => &["-lSystem", "-lc", "-lm", "-liconv", "-framework", "CoreFoundation", "-framework", "Security"],
+        Os::MacOs => &[
+            "-lSystem",
+            "-lc",
+            "-lm",
+            "-liconv",
+            "-framework",
+            "CoreFoundation",
+            "-framework",
+            "Security",
+        ],
     }
 }
 
@@ -516,7 +581,10 @@ pub fn macos_sdk_root() -> Option<&'static std::path::Path> {
         if let Some(r) = std::env::var_os("SDKROOT").filter(|r| !r.is_empty()) {
             return Some(std::path::PathBuf::from(r));
         }
-        let exit = std::process::Command::new("xcrun").args(["--sdk", "macosx", "--show-sdk-path"]).output().ok()?;
+        let exit = std::process::Command::new("xcrun")
+            .args(["--sdk", "macosx", "--show-sdk-path"])
+            .output()
+            .ok()?;
         let path = String::from_utf8(exit.stdout).ok()?;
         let path = path.trim();
         (exit.status.success() && !path.is_empty()).then(|| std::path::PathBuf::from(path))

@@ -26,7 +26,7 @@
 //! the next collection point ([`Roots::clear_at`]).
 
 use crate::hir::*;
-use crate::lower::async_sm::{successors, uses_of, terminator_uses};
+use crate::lower::async_sm::{successors, terminator_uses, uses_of};
 use std::collections::HashMap;
 
 /// A set of `Ref` values (dense indices).
@@ -34,7 +34,8 @@ use std::collections::HashMap;
 struct Set(Vec<u64>);
 
 /// Observation of one instruction's definition and liveness before/after it.
-type RootVisitor<'a> = dyn FnMut(Option<&Instruction>, Option<ValueId>, Option<usize>, &Set, &Set) + 'a;
+type RootVisitor<'a> =
+    dyn FnMut(Option<&Instruction>, Option<ValueId>, Option<usize>, &Set, &Set) + 'a;
 
 impl Set {
     fn empty(n: usize) -> Self {
@@ -56,7 +57,9 @@ impl Set {
     }
     fn elements(&self) -> impl Iterator<Item = usize> + '_ {
         self.0.iter().enumerate().flat_map(|(k, &w)| {
-            (0..64).filter(move |b| w >> b & 1 == 1).map(move |b| k * 64 + b)
+            (0..64)
+                .filter(move |b| w >> b & 1 == 1)
+                .map(move |b| k * 64 + b)
         })
     }
 }
@@ -139,25 +142,44 @@ pub fn analyze_with(
     }
     for block in &func.blocks {
         for (vid, inst, _) in &block.instructions {
-            if types.get(vid) == Some(&Type::Ref) && !matches!(inst, Instruction::Const(Constant::Null) | Instruction::Alloca(_)) {
+            if types.get(vid) == Some(&Type::Ref)
+                && !matches!(
+                    inst,
+                    Instruction::Const(Constant::Null) | Instruction::Alloca(_)
+                )
+            {
                 candidates.push(*vid);
             }
         }
     }
     if candidates.is_empty() {
-        return Roots { slots, ..Roots::default() };
+        return Roots {
+            slots,
+            ..Roots::default()
+        };
     }
-    let index: HashMap<ValueId, usize> = candidates.iter().enumerate().map(|(i, v)| (*v, i)).collect();
+    let index: HashMap<ValueId, usize> = candidates
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (*v, i))
+        .collect();
     let n = candidates.len();
     let idx = |v: &ValueId| index.get(v).copied();
 
-    let position: HashMap<BlockId, usize> = func.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
+    let position: HashMap<BlockId, usize> = func
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.id, i))
+        .collect();
     // What each block reads from each predecessor through its `phi`s.
     let mut phi_uses: HashMap<(BlockId, BlockId), Vec<usize>> = HashMap::new();
     let mut phi_defs: Vec<Vec<usize>> = vec![Vec::new(); func.blocks.len()];
     for (bi, block) in func.blocks.iter().enumerate() {
         for (vid, inst, _) in &block.instructions {
-            let Instruction::Phi { incoming, .. } = inst else { continue };
+            let Instruction::Phi { incoming, .. } = inst else {
+                continue;
+            };
             if let Some(i) = idx(vid) {
                 phi_defs[bi].push(i);
             }
@@ -176,7 +198,9 @@ pub fn analyze_with(
         let mut s = Set::empty(n);
         let block = &func.blocks[b];
         for succ in successors(&block.terminator) {
-            let Some(&p) = position.get(&succ) else { continue };
+            let Some(&p) = position.get(&succ) else {
+                continue;
+            };
             let mut e = entry[p].clone();
             for &d in &phi_defs[p] {
                 e.take_out(d);
@@ -193,10 +217,7 @@ pub fn analyze_with(
     // The pass over a block: starting from what is live at the exit, visits each
     // instruction (what is live after it, the definition, the uses) and returns what is
     // live at the entry of the block (after the `phi`s, which are not uses).
-    let walk_block = |b: usize,
-                  exit: Set,
-                  visit: &mut RootVisitor<'_>|
-     -> Set {
+    let walk_block = |b: usize, exit: Set, visit: &mut RootVisitor<'_>| -> Set {
         let block = &func.blocks[b];
         let mut live_set = exit;
         // The terminator: uses; `throw` and the `phi` conversions at the end of the
@@ -325,8 +346,17 @@ pub fn analyze_with(
         color[a] = Some(c);
         slots.insert(candidates[a], base + c);
     }
-    let values = |c: &Set| -> Vec<ValueId> { c.elements().filter(|&i| rooted.has(i)).map(|i| candidates[i]).collect() };
-    let mut r = Roots { slots, rooted_set: values(&rooted), ..Roots::default() };
+    let values = |c: &Set| -> Vec<ValueId> {
+        c.elements()
+            .filter(|&i| rooted.has(i))
+            .map(|i| candidates[i])
+            .collect()
+    };
+    let mut r = Roots {
+        slots,
+        rooted_set: values(&rooted),
+        ..Roots::default()
+    };
     for (who, b, live_set) in &points {
         let v = values(live_set);
         match who {
@@ -354,8 +384,15 @@ pub fn analyze_with(
 /// collection point, each one of those slots that no live value occupies is zeroed
 /// (and holds nothing until written again). The frame is born zeroed.
 fn dead_slots(func: &Function, position: &HashMap<BlockId, usize>, r: &mut Roots) {
-    let Some(&first) = r.rooted_set.iter().filter_map(|v| r.slots.get(v)).min() else { return };
-    let n = r.rooted_set.iter().filter_map(|v| r.slots.get(v)).max().map_or(0, |m| m + 1);
+    let Some(&first) = r.rooted_set.iter().filter_map(|v| r.slots.get(v)).min() else {
+        return;
+    };
+    let n = r
+        .rooted_set
+        .iter()
+        .filter_map(|v| r.slots.get(v))
+        .max()
+        .map_or(0, |m| m + 1);
     let slot_of = |v: &ValueId| r.slots.get(v).copied().filter(|&s| s >= first);
     let nb = func.blocks.len();
     let mut preds: Vec<Vec<usize>> = vec![Vec::new(); nb];
@@ -383,36 +420,49 @@ fn dead_slots(func: &Function, position: &HashMap<BlockId, usize>, r: &mut Roots
         o
     };
     let live_at: HashMap<ValueId, Set> = r.live_at.iter().map(|(k, v)| (*k, occupied(v))).collect();
-    let live_at_end: HashMap<BlockId, Set> = r.live_at_end.iter().map(|(k, v)| (*k, occupied(v))).collect();
+    let live_at_end: HashMap<BlockId, Set> = r
+        .live_at_end
+        .iter()
+        .map(|(k, v)| (*k, occupied(v)))
+        .collect();
     // The pass over a block: from the slots that may hold a value at its entry, those at its
     // exit; `record` receives the zeroings.
-    let walk = |b: usize, mut state: Set, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| -> Set {
-        let block = &func.blocks[b];
-        let clear = |state: &mut Set, live: &Set, who: Option<ValueId>, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
-            let dead: Vec<usize> = state.elements().filter(|&s| !live.has(s)).collect();
-            for &s in &dead {
-                state.take_out(s);
+    let walk =
+        |b: usize, mut state: Set, record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| -> Set {
+            let block = &func.blocks[b];
+            let clear =
+                |state: &mut Set,
+                 live: &Set,
+                 who: Option<ValueId>,
+                 record: &mut dyn FnMut(Option<ValueId>, Vec<usize>)| {
+                    let dead: Vec<usize> = state.elements().filter(|&s| !live.has(s)).collect();
+                    for &s in &dead {
+                        state.take_out(s);
+                    }
+                    if !dead.is_empty() {
+                        record(who, dead);
+                    }
+                };
+            for (vid, _, _) in &block.instructions {
+                if let Some(live) = live_at.get(vid) {
+                    clear(&mut state, live, Some(*vid), record);
+                }
+                if let Some(s) = slot_of(vid) {
+                    state.by(s);
+                }
             }
-            if !dead.is_empty() {
-                record(who, dead);
+            if let Some(live) = live_at_end.get(&block.id) {
+                clear(&mut state, live, None, record);
             }
+            state
         };
-        for (vid, _, _) in &block.instructions {
-            if let Some(live) = live_at.get(vid) {
-                clear(&mut state, live, Some(*vid), record);
-            }
-            if let Some(s) = slot_of(vid) {
-                state.by(s);
-            }
-        }
-        if let Some(live) = live_at_end.get(&block.id) {
-            clear(&mut state, live, None, record);
-        }
-        state
-    };
     let mut exit = vec![Set::empty(n); nb];
     let entry_of = |b: usize, exit: &[Set]| {
-        let mut s = if b == 0 { entry_state.clone() } else { Set::empty(n) };
+        let mut s = if b == 0 {
+            entry_state.clone()
+        } else {
+            Set::empty(n)
+        };
         for &p in &preds[b] {
             s.join_set(&exit[p]);
         }

@@ -54,7 +54,8 @@ impl Displayer<'_> {
         if alias {
             self.table.format(t, self.interner, self.program)
         } else {
-            self.table.format_without_alias(t, self.interner, self.program)
+            self.table
+                .format_without_alias(t, self.interner, self.program)
         }
     }
 
@@ -68,7 +69,10 @@ impl Displayer<'_> {
     /// two or more arguments with the same text — even the elements that do not
     /// collide —, `<name> is defined in <path>`, at the element name, in its
     /// file.
-    pub fn arguments_and_context(&self, args: &[Arg<'_>]) -> (Vec<String>, Vec<dartforge_diagnostics::ContextMessage>) {
+    pub fn arguments_and_context(
+        &self,
+        args: &[Arg<'_>],
+    ) -> (Vec<String>, Vec<dartforge_diagnostics::ContextMessage>) {
         let mut context: Vec<dartforge_diagnostics::ContextMessage> = Vec::new();
         let mut output: Vec<String> = args
             .iter()
@@ -110,11 +114,19 @@ impl Displayer<'_> {
                 let mut suffix: Option<String> = None;
                 for &c in &elements_of[k] {
                     let element_name = self.program.class(c).name;
-                    let snippet = format!("{} is defined in {}", self.interner.resolve(element_name), self.file_of(c));
+                    let snippet = format!(
+                        "{} is defined in {}",
+                        self.interner.resolve(element_name),
+                        self.file_of(c)
+                    );
                     // The context message is output for every element (outside the `if` in
                     // the analyzer).
                     if let Some(span) = self.class_name(c) {
-                        context.push(dartforge_diagnostics::ContextMessage { file: Some(self.file_of(c).into()), span, message: snippet.clone().into() });
+                        context.push(dartforge_diagnostics::ContextMessage {
+                            file: Some(self.file_of(c).into()),
+                            span,
+                            message: snippet.clone().into(),
+                        });
                     }
                     if by_name.get(&element_name).is_none_or(|l| l.len() < 2) {
                         continue;
@@ -157,7 +169,13 @@ impl Displayer<'_> {
             return;
         }
         match self.table.get(t) {
-            Type::Function { ret, positional, optional, named, .. } => {
+            Type::Function {
+                ret,
+                positional,
+                optional,
+                named,
+                ..
+            } => {
                 self.elements(*ret, out, prof + 1);
                 for &p in positional.iter().chain(optional.iter()) {
                     self.elements(p, out, prof + 1);
@@ -169,7 +187,10 @@ impl Displayer<'_> {
                     self.elements(*p, out, prof + 1);
                 }
             }
-            Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => {
+            Type::Interface { class, args, .. }
+            | Type::ExtensionType {
+                decl: class, args, ..
+            } => {
                 if out.contains(class) {
                     return;
                 }

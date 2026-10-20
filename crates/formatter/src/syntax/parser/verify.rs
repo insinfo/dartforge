@@ -13,8 +13,8 @@
 
 use dartforge_frontend::token::Op;
 
-use super::super::tree::{Tree, Node, NodeId, ParameterKind};
-use super::super::token::{TokenKind, Tk, Tokens};
+use super::super::token::{Tk, TokenKind, Tokens};
+use super::super::tree::{Node, NodeId, ParameterKind, Tree};
 
 /// Calls `f` for each token field of `node` (mutable), in field order.
 pub fn tokens_mut(node: &mut Node, f: &mut dyn FnMut(&mut Tk)) {

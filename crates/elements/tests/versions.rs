@@ -150,7 +150,8 @@ fn marker_out_of_range_is_error() {
     let (p, d) = load_lenient(&high, &sdk, None, &mut Interner::new());
     assert_eq!(d.len(), 1, "{d:?}");
     assert!(
-        d[0].message.contains("greater than the latest known language version"),
+        d[0].message
+            .contains("greater than the latest known language version"),
         "{}",
         d[0].message
     );
@@ -159,7 +160,10 @@ fn marker_out_of_range_is_error() {
     fs::write(&low, "// @dart=2.9\nvoid main() {}").unwrap();
     let (_, d) = load_lenient(&low, &sdk, None, &mut Interner::new());
     assert!(
-        d.len() == 1 && d[0].message.contains("The language version must be >=2.12.0."),
+        d.len() == 1
+            && d[0]
+                .message
+                .contains("The language version must be >=2.12.0."),
         "{d:?}"
     );
 }

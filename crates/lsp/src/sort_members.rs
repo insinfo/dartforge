@@ -15,7 +15,9 @@
 //! Written without compiling or running (2026-10-04).
 
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{Ast, CompilationUnit, DeclKind, FunctionKind, MemberId, MemberKind, TypedefKind};
+use dartforge_frontend::ast::{
+    Ast, CompilationUnit, DeclKind, FunctionKind, MemberId, MemberKind, TypedefKind,
+};
 use dartforge_intern::Interner;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -89,7 +91,9 @@ impl Item {
         PRIORITIES
             .iter()
             .position(|&(is_static, kind, p)| {
-                kind == self.kind && is_static == self.is_static && (kind == Kind::ClassField || p == private)
+                kind == self.kind
+                    && is_static == self.is_static
+                    && (kind == Kind::ClassField || p == private)
             })
             .unwrap_or(0)
     }
@@ -111,9 +115,17 @@ pub(crate) fn comments(text: &str, from: usize, until: usize) -> Vec<Comment> {
     while i + 1 < until {
         if b[i] == b'/' && b[i + 1] == b'/' {
             let end = text[i..until].find('\n').map_or(until, |k| i + k);
-            let end_without_cr = if end > i && b[end - 1] == b'\r' { end - 1 } else { end };
+            let end_without_cr = if end > i && b[end - 1] == b'\r' {
+                end - 1
+            } else {
+                end
+            };
             let is_documentation = b.get(i + 2) == Some(&b'/') && b.get(i + 3) != Some(&b'/');
-            output.push(Comment { start: i, end: end_without_cr, is_documentation });
+            output.push(Comment {
+                start: i,
+                end: end_without_cr,
+                is_documentation,
+            });
             i = end;
         } else if b[i] == b'/' && b[i + 1] == b'*' {
             let mut level = 1;
@@ -130,7 +142,11 @@ pub(crate) fn comments(text: &str, from: usize, until: usize) -> Vec<Comment> {
                 }
             }
             let is_documentation = b.get(i + 2) == Some(&b'*') && b.get(i + 3) != Some(&b'/');
-            output.push(Comment { start: i, end: j.min(until), is_documentation });
+            output.push(Comment {
+                start: i,
+                end: j.min(until),
+                is_documentation,
+            });
             i = j;
         } else {
             i += 1;
@@ -141,7 +157,10 @@ pub(crate) fn comments(text: &str, from: usize, until: usize) -> Vec<Comment> {
 
 /// The line (0-based) of the offset.
 pub(crate) fn line_of(text: &str, offset: usize) -> usize {
-    text.as_bytes()[..offset.min(text.len())].iter().filter(|c| **c == b'\n').count()
+    text.as_bytes()[..offset.min(text.len())]
+        .iter()
+        .filter(|c| **c == b'\n')
+        .count()
 }
 
 /// `range.nodeWithComments`: the range of a node's text, with the leading
@@ -164,7 +183,9 @@ fn with_comments(text: &str, node: Span, previous: Option<usize>) -> (usize, usi
                 None => {
                     // Those that start on the previous token's line are its end-of-line comment.
                     let previous_line = line_of(text, previous_end.saturating_sub(1));
-                    cs.iter().find(|c| line_of(text, c.start) != previous_line).map_or(node.start, |c| c.start)
+                    cs.iter()
+                        .find(|c| line_of(text, c.start) != previous_line)
+                        .map_or(node.start, |c| c.start)
                 }
             }
         }
@@ -172,7 +193,9 @@ fn with_comments(text: &str, node: Span, previous: Option<usize>) -> (usize, usi
     // The end-of-line comment: those that start on the line where the node's
     // last token starts (here, the line of its last character).
     let end_line = line_of(text, node.end.saturating_sub(1));
-    let line_end = text[node.end.min(text.len())..].find('\n').map_or(text.len(), |k| node.end + k);
+    let line_end = text[node.end.min(text.len())..]
+        .find('\n')
+        .map_or(text.len(), |k| node.end + k);
     let mut end = node.end;
     for c in comments(text, node.end.min(text.len()), line_end) {
         // Only comments separated from the node by whitespace (no code in between).
@@ -206,7 +229,10 @@ fn sort(items: &[Item]) -> Vec<usize> {
             if a.kind == Kind::ClassField {
                 a.start.cmp(&b.start)
             } else {
-                a.name.to_lowercase().encode_utf16().cmp(b.name.to_lowercase().encode_utf16())
+                a.name
+                    .to_lowercase()
+                    .encode_utf16()
+                    .cmp(b.name.to_lowercase().encode_utf16())
             }
         })
     });
@@ -222,7 +248,10 @@ fn reorder(code: &mut String, items: &[Item]) {
     if order.iter().enumerate().all(|(i, &j)| i == j) {
         return;
     }
-    let texts: Vec<String> = items.iter().map(|it| code[it.start..it.end].to_string()).collect();
+    let texts: Vec<String> = items
+        .iter()
+        .map(|it| code[it.start..it.end].to_string())
+        .collect();
     // The accumulated shift of the slots on the left changes the offsets of
     // those on the right: the whole span is built at once.
     let (first, last) = (items[0].start, items[items.len() - 1].end);
@@ -249,30 +278,59 @@ fn members_of(decl: &DeclKind) -> Option<&[MemberId]> {
 
 /// The member items of a class; `None` abandons sorting it (a field without
 /// a variable).
-fn class_items(text: &str, ast: &Ast, names: &Interner, opening: usize, members: &[MemberId]) -> Option<Vec<Item>> {
+fn class_items(
+    text: &str,
+    ast: &Ast,
+    names: &Interner,
+    opening: usize,
+    members: &[MemberId],
+) -> Option<Vec<Item>> {
     let mut items = Vec::with_capacity(members.len());
     let mut previous: Option<usize> = None;
     for &mid in members {
         let member = ast.member(mid);
         let (kind, is_static, name) = match &member.kind {
-            MemberKind::Constructor(k) => (Kind::ClassConstructor, false, k.name.map_or(String::new(), |n| names.resolve(n.sym).to_string())),
+            MemberKind::Constructor(k) => (
+                Kind::ClassConstructor,
+                false,
+                k.name
+                    .map_or(String::new(), |n| names.resolve(n.sym).to_string()),
+            ),
             MemberKind::Field(l) => {
                 let first = l.variables.first()?;
-                (Kind::ClassField, l.static_, names.resolve(first.name.sym).to_string())
+                (
+                    Kind::ClassField,
+                    l.static_,
+                    names.resolve(first.name.sym).to_string(),
+                )
             }
             MemberKind::Method(f) => {
                 let func = ast.function(*f);
-                let base = func.name.map_or(String::new(), |n| names.resolve(n.sym).to_string());
+                let base = func
+                    .name
+                    .map_or(String::new(), |n| names.resolve(n.sym).to_string());
                 match func.kind {
-                    FunctionKind::Getter => (Kind::ClassAccessor, func.static_, format!("{base} getter")),
-                    FunctionKind::Setter => (Kind::ClassAccessor, func.static_, format!("{base} setter")),
-                    FunctionKind::Function | FunctionKind::Operator => (Kind::ClassMethod, func.static_, base),
+                    FunctionKind::Getter => {
+                        (Kind::ClassAccessor, func.static_, format!("{base} getter"))
+                    }
+                    FunctionKind::Setter => {
+                        (Kind::ClassAccessor, func.static_, format!("{base} setter"))
+                    }
+                    FunctionKind::Function | FunctionKind::Operator => {
+                        (Kind::ClassMethod, func.static_, base)
+                    }
                 }
             }
         };
         let previous_end = previous.unwrap_or(opening.min(member.span.start));
         let (start, end) = with_comments(text, member.span, Some(previous_end));
-        items.push(Item { kind, is_static, name, start, end });
+        items.push(Item {
+            kind,
+            is_static,
+            name,
+            start,
+            end,
+        });
         previous = Some(member.span.end);
     }
     Some(items)
@@ -280,12 +338,19 @@ fn class_items(text: &str, ast: &Ast, names: &Interner, opening: usize, members:
 
 /// `MemberSorter.sort`: the single edit `(offset, length, new text)` in
 /// source bytes, or `None` when nothing changes.
-pub(crate) fn sort_members(text: &str, unit: &CompilationUnit, ast: &Ast, names: &Interner) -> Option<(usize, usize, String)> {
+pub(crate) fn sort_members(
+    text: &str,
+    unit: &CompilationUnit,
+    ast: &Ast,
+    names: &Interner,
+) -> Option<(usize, usize, String)> {
     let mut code = text.to_string();
     // 1. The members of each class, in file order.
     for &d in unit.declarations.iter() {
         let decl = ast.decl(d);
-        let Some(members) = members_of(&decl.kind) else { continue };
+        let Some(members) = members_of(&decl.kind) else {
+            continue;
+        };
         if members.len() < 2 {
             continue;
         }
@@ -300,7 +365,11 @@ pub(crate) fn sort_members(text: &str, unit: &CompilationUnit, ast: &Ast, names:
             _ => None,
         };
         let opening = after_constants
-            .or_else(|| text.get(decl.span.start..first).and_then(|t| t.rfind('{')).map(|i| decl.span.start + i + 1))
+            .or_else(|| {
+                text.get(decl.span.start..first)
+                    .and_then(|t| t.rfind('{'))
+                    .map(|i| decl.span.start + i + 1)
+            })
             .unwrap_or(first);
         if let Some(items) = class_items(text, ast, names, opening, members) {
             reorder(&mut code, &items);
@@ -335,7 +404,14 @@ pub(crate) fn sort_members(text: &str, unit: &CompilationUnit, ast: &Ast, names:
                 TypedefKind::Alias(_) => (Kind::UnitGenericTypeAlias, text_of(x.name)),
             },
             DeclKind::Variables(l) => match l.variables.first() {
-                Some(first_) => (if l.const_ { Kind::UnitVariableConst } else { Kind::UnitVariable }, text_of(first_.name)),
+                Some(first_) => (
+                    if l.const_ {
+                        Kind::UnitVariableConst
+                    } else {
+                        Kind::UnitVariable
+                    },
+                    text_of(first_.name),
+                ),
                 None => {
                     abandon = true;
                     break;
@@ -343,7 +419,13 @@ pub(crate) fn sort_members(text: &str, unit: &CompilationUnit, ast: &Ast, names:
             },
         };
         let (start, end) = with_comments(text, decl.span, previous);
-        items.push(Item { kind, is_static: false, name, start, end });
+        items.push(Item {
+            kind,
+            is_static: false,
+            name,
+            start,
+            end,
+        });
         previous = Some(decl.span.end);
     }
     if !abandon && items.len() >= 2 {
@@ -370,11 +452,21 @@ fn simple_difference(old: &str, new: &str) -> Option<(usize, usize, String)> {
         prefix -= 1;
     }
     let max = a.len().min(n.len()) - prefix;
-    let mut suffix = a.iter().rev().zip(n.iter().rev()).take(max).take_while(|(x, y)| x == y).count();
+    let mut suffix = a
+        .iter()
+        .rev()
+        .zip(n.iter().rev())
+        .take(max)
+        .take_while(|(x, y)| x == y)
+        .count();
     while !old.is_char_boundary(a.len() - suffix) || !new.is_char_boundary(n.len() - suffix) {
         suffix -= 1;
     }
-    Some((prefix, a.len() - prefix - suffix, new[prefix..n.len() - suffix].to_string()))
+    Some((
+        prefix,
+        a.len() - prefix - suffix,
+        new[prefix..n.len() - suffix].to_string(),
+    ))
 }
 
 #[cfg(test)]
@@ -385,7 +477,9 @@ mod tests {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
         match sort_members(source, &p.unit, &p.ast, &names) {
-            Some((offset, length, new)) => format!("{}{}{}", &source[..offset], new, &source[offset + length..]),
+            Some((offset, length, new)) => {
+                format!("{}{}{}", &source[..offset], new, &source[offset + length..])
+            }
             None => source.to_string(),
         }
     }

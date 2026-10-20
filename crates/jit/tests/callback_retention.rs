@@ -88,7 +88,11 @@ fn escaping_internal_closure_code_remains_conservatively_resident() {
                 ret i64 %closure\n\
               }\n";
     let mut session = JitSession::new().unwrap();
-    session.add_reloadable_module("internal-closure", ir).unwrap();
-    session.hot_reload("internal-closure", &ir.replace("ret i64 7", "ret i64 11")).unwrap();
+    session
+        .add_reloadable_module("internal-closure", ir)
+        .unwrap();
+    session
+        .hot_reload("internal-closure", &ir.replace("ret i64 7", "ret i64 11"))
+        .unwrap();
     assert_eq!(session.retained_generations(), 2);
 }

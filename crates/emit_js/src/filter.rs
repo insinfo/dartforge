@@ -56,7 +56,11 @@ pub trait Liveness {
     /// Constant boolean value proven for expression `x` of unit `u`
     /// (`dartforge_world::Constants`): the emitter writes the literal, and the
     /// dead branch of an `if` disappears.
-    fn const_bool(&self, _u: dartforge_elements::model::UnitId, _x: dartforge_frontend::ast::ExprId) -> Option<bool> {
+    fn const_bool(
+        &self,
+        _u: dartforge_elements::model::UnitId,
+        _x: dartforge_frontend::ast::ExprId,
+    ) -> Option<bool> {
         None
     }
     /// The JS key of a named parameter (production profile:

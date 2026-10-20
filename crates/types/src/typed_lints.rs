@@ -25,7 +25,11 @@ pub type Finding = (Span, &'static str, Vec<String>);
 fn integer_value(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
     let literal = |x: ExprId| match &a.expr(x).kind {
         ExprKind::Int(s) => {
-            let text: String = source.get(s.start..s.end)?.chars().filter(|c| *c != '_').collect();
+            let text: String = source
+                .get(s.start..s.end)?
+                .chars()
+                .filter(|c| *c != '_')
+                .collect();
             match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
                 // Hexadecimal goes up to 64 bits (`0xFFFFFFFFFFFFFFFF` is -1).
                 Some(hex) => u64::from_str_radix(hex, 16).ok().map(|v| v as i64),
@@ -35,7 +39,10 @@ fn integer_value(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
         _ => None,
     };
     match &a.expr(e).kind {
-        ExprKind::Unary { op: UnaryOp::Neg, operand } => literal(*operand).map(|v| -v),
+        ExprKind::Unary {
+            op: UnaryOp::Neg,
+            operand,
+        } => literal(*operand).map(|v| -v),
         _ => literal(e),
     }
 }
@@ -50,7 +57,14 @@ pub(crate) fn unit_parents(program: &Program, u: UnitId) -> dartforge_frontend::
 }
 
 /// The findings of the typed rules in unit `u`.
-pub fn findings(program: &Program, table: &TypeTable, core: &CoreTypes, outline: &OutlineTypes, body: &UnitBodyTypes, u: UnitId) -> Vec<Finding> {
+pub fn findings(
+    program: &Program,
+    table: &TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    body: &UnitBodyTypes,
+    u: UnitId,
+) -> Vec<Finding> {
     let mut out: Vec<Finding> = Vec::new();
     let unit = program.unit(u);
     let a = &unit.ast;
@@ -63,13 +77,21 @@ pub fn findings(program: &Program, table: &TypeTable, core: &CoreTypes, outline:
             && k.const_
         {
             of_const.extend(k.initializers.iter().map(|i| match i {
-                Initializer::Field { span, .. } | Initializer::Super { span, .. } | Initializer::Redirect { span, .. } | Initializer::Assert { span, .. } => *span,
+                Initializer::Field { span, .. }
+                | Initializer::Super { span, .. }
+                | Initializer::Redirect { span, .. }
+                | Initializer::Assert { span, .. } => *span,
             }));
         }
     }
     // `inConstantContext`.
     let parents = unit_parents(program, u);
-    let in_constant = |e: ExprId| parents.in_constant_context(a, e) || of_const.iter().any(|k| k.start <= a.expr(e).span.start && a.expr(e).span.end <= k.end);
+    let in_constant = |e: ExprId| {
+        parents.in_constant_context(a, e)
+            || of_const
+                .iter()
+                .any(|k| k.start <= a.expr(e).span.start && a.expr(e).span.end <= k.end)
+    };
 
     // `_isLengthAccess`: `x.length` with `x` an `Iterable`, a `Map` or a
     // `String` (through parentheses and `as`).
@@ -81,20 +103,36 @@ pub fn findings(program: &Program, table: &TypeTable, core: &CoreTypes, outline:
                 _ => break,
             }
         }
-        let ExprKind::Property { target, name, .. } = &a.expr(e).kind else { return false };
+        let ExprKind::Property { target, name, .. } = &a.expr(e).kind else {
+            return false;
+        };
         if source.get(name.span.start..name.span.end) != Some("length") {
             return false;
         }
-        let Some(ty) = body.get_type(*target) else { return false };
-        let Type::Interface { class, .. } = table.get(ty) else { return false };
-        let implements = |tgt: Option<dartforge_elements::model::ClassId>| {
-            tgt.is_some_and(|k| *class == k || outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.contains_key(&k)))
+        let Some(ty) = body.get_type(*target) else {
+            return false;
         };
-        Some(*class) == core.string_class || implements(core.iterable_class) || implements(core.map_class)
+        let Type::Interface { class, .. } = table.get(ty) else {
+            return false;
+        };
+        let implements = |tgt: Option<dartforge_elements::model::ClassId>| {
+            tgt.is_some_and(|k| {
+                *class == k
+                    || outline
+                        .hierarchy
+                        .get(*class)
+                        .is_some_and(|d| d.supertypes.contains_key(&k))
+            })
+        };
+        Some(*class) == core.string_class
+            || implements(core.iterable_class)
+            || implements(core.map_class)
     };
 
     for (k, e) in a.exprs.iter().enumerate() {
-        let ExprKind::Binary { op, left, right } = &e.kind else { continue };
+        let ExprKind::Binary { op, left, right } = &e.kind else {
+            continue;
+        };
         // The constant on one side and the `length` on the other.
         let (the_value, to_the_right) = match integer_value(a, source, *right) {
             Some(v) if of_length(*left) => (v, true),
@@ -129,8 +167,10 @@ pub fn findings(program: &Program, table: &TypeTable, core: &CoreTypes, outline:
             }
         } else if the_value < 0 {
             match (to_the_right, op) {
-                (true, BinaryOp::Eq | BinaryOp::LtEq | BinaryOp::Lt) | (false, BinaryOp::Eq | BinaryOp::GtEq | BinaryOp::Gt) => Some(false_),
-                (true, BinaryOp::NotEq | BinaryOp::GtEq | BinaryOp::Gt) | (false, BinaryOp::NotEq | BinaryOp::LtEq | BinaryOp::Lt) => Some(true_),
+                (true, BinaryOp::Eq | BinaryOp::LtEq | BinaryOp::Lt)
+                | (false, BinaryOp::Eq | BinaryOp::GtEq | BinaryOp::Gt) => Some(false_),
+                (true, BinaryOp::NotEq | BinaryOp::GtEq | BinaryOp::Gt)
+                | (false, BinaryOp::NotEq | BinaryOp::LtEq | BinaryOp::Lt) => Some(true_),
                 _ => None,
             }
         } else {

@@ -11,14 +11,16 @@
 //! reports an error that the analyzer accompanies with these messages calls
 //! [`BodyInferrer::attach_non_promotion`].
 
+use super::BodyInferrer;
 use super::body::{Base, Body};
 use super::flow::NonPromotionReason;
-use super::BodyInferrer;
-use crate::field_promotion::{self, WhyNotPromoted, LibraryPromotion};
+use crate::field_promotion::{self, LibraryPromotion, WhyNotPromoted};
 use crate::resolved::LocalId;
 use crate::table::TypeId;
 use dartforge_diagnostics::{ContextMessage, Span};
-use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, LibraryId, Program, UnitId};
+use dartforge_elements::model::{
+    ClassId, ClassKind, FunctionElementId, FunctionKind, LibraryId, Program, UnitId,
+};
 use dartforge_frontend::ast::{ExprId, ExprKind};
 use dartforge_intern::SymbolId;
 use std::rc::Rc;
@@ -35,8 +37,18 @@ fn the_kind(program: &Program, c: ClassId) -> &'static str {
 
 /// A context message at a point of `u` (the file, when it is not the
 /// error's).
-fn context(program: &Program, error_unit: UnitId, u: UnitId, span: Span, message: String) -> ContextMessage {
-    ContextMessage { file: (u != error_unit).then(|| program.unit_path(u).into()), span, message: message.into() }
+fn context(
+    program: &Program,
+    error_unit: UnitId,
+    u: UnitId,
+    span: Span,
+    message: String,
+) -> ContextMessage {
+    ContextMessage {
+        file: (u != error_unit).then(|| program.unit_path(u).into()),
+        span,
+        message: message.into(),
+    }
 }
 
 impl BodyInferrer<'_> {
@@ -45,7 +57,10 @@ impl BodyInferrer<'_> {
         if let Some(p) = self.promotion_by_library.get(&lib) {
             return p.clone();
         }
-        if let Some(p) = self.shared.and_then(|s| s.promotion.borrow().get(&lib).cloned()) {
+        if let Some(p) = self
+            .shared
+            .and_then(|s| s.promotion.borrow().get(&lib).cloned())
+        {
             self.promotion_by_library.insert(lib, p.clone());
             return p;
         }
@@ -93,7 +108,9 @@ impl BodyInferrer<'_> {
         if fe.kind != FunctionKind::ImplicitAccessor {
             return Some(WhyNotPromoted::NotAField);
         }
-        let Some(v) = fe.variable else { return Some(WhyNotPromoted::NotAField) };
+        let Some(v) = fe.variable else {
+            return Some(WhyNotPromoted::NotAField);
+        };
         let ve = self.program.variable(v);
         if ve.class.is_none() && ve.extension.is_none() {
             return Some(WhyNotPromoted::NotAField);
@@ -139,7 +156,13 @@ impl BodyInferrer<'_> {
     /// `whyNotPromoted` of the read `e` of a non-promotable property: the
     /// promoted types (in the current flow) of each earlier generation, from
     /// newest to oldest, all with the same reason.
-    pub(crate) fn record_property_non_promotion(&mut self, cx: &Body, e: ExprId, property_key: (Base, u32, SymbolId), f: FunctionElementId) {
+    pub(crate) fn record_property_non_promotion(
+        &mut self,
+        cx: &Body,
+        e: ExprId,
+        property_key: (Base, u32, SymbolId),
+        f: FunctionElementId,
+    ) {
         let key = (cx.unit, e);
         let own = cx.read_generation.get(&e).copied();
         let mut lists: Vec<Vec<TypeId>> = Vec::new();
@@ -149,9 +172,10 @@ impl BodyInferrer<'_> {
                     continue;
                 }
                 if let Some(m) = cx.flow.model(g)
-                    && !m.chain.is_empty() {
-                        lists.push(m.chain.clone());
-                    }
+                    && !m.chain.is_empty()
+                {
+                    lists.push(m.chain.clone());
+                }
             }
         }
         if lists.is_empty() {
@@ -161,7 +185,12 @@ impl BodyInferrer<'_> {
         let name = property_key.2;
         let inherent = self.why_not_promoted(name, f);
         let enabled = field_promotion::enabled(self.program, cx.lib);
-        let reason = NonPromotionReason::Property { name, member: f, inherent, enabled };
+        let reason = NonPromotionReason::Property {
+            name,
+            member: f,
+            inherent,
+            enabled,
+        };
         let mut r: Vec<(TypeId, NonPromotionReason)> = Vec::new();
         for l in lists {
             for t in l {
@@ -176,15 +205,27 @@ impl BodyInferrer<'_> {
     /// `whyNotPromotedImplicitThis` (and that of written `this`/`super`): each
     /// promoted type of `this`, with `ThisNotPromoted`.
     fn this_reasons(&self, cx: &Body) -> Vec<(TypeId, NonPromotionReason)> {
-        let Some(id) = cx.local_this else { return Vec::new() };
-        let Some(m) = cx.flow.model(id) else { return Vec::new() };
-        m.chain.iter().map(|&t| (t, NonPromotionReason::This)).collect()
+        let Some(id) = cx.local_this else {
+            return Vec::new();
+        };
+        let Some(m) = cx.flow.model(id) else {
+            return Vec::new();
+        };
+        m.chain
+            .iter()
+            .map(|&t| (t, NonPromotionReason::This))
+            .collect()
     }
 
     /// `computeWhyNotPromotedMessages(errorEntity, whyNotPromoted(target))`: the
     /// messages of the first non-potentially-nullable type in the map. `target`
     /// `None` is the implicit `this`; `error` is the `errorEntity`.
-    pub(crate) fn non_promotion_messages(&mut self, cx: &Body, target: Option<ExprId>, error: Span) -> Vec<ContextMessage> {
+    pub(crate) fn non_promotion_messages(
+        &mut self,
+        cx: &Body,
+        target: Option<ExprId>,
+        error: Span,
+    ) -> Vec<ContextMessage> {
         let reasons = match target {
             Some(e) => {
                 let a = &self.program.unit(cx.unit).ast;
@@ -194,7 +235,11 @@ impl BodyInferrer<'_> {
                 }
                 match &a.expr(x).kind {
                     ExprKind::This | ExprKind::Super => self.this_reasons(cx),
-                    _ => self.non_promotions.get(&(cx.unit, x)).cloned().unwrap_or_default(),
+                    _ => self
+                        .non_promotions
+                        .get(&(cx.unit, x))
+                        .cloned()
+                        .unwrap_or_default(),
                 }
             }
             None => self.this_reasons(cx),
@@ -209,31 +254,65 @@ impl BodyInferrer<'_> {
     }
 
     /// O `_WhyNotPromotedVisitor`.
-    fn reason_messages(&mut self, cx: &Body, m: &NonPromotionReason, error: Span) -> Vec<ContextMessage> {
+    fn reason_messages(
+        &mut self,
+        cx: &Body,
+        m: &NonPromotionReason,
+        error: Span,
+    ) -> Vec<ContextMessage> {
         match m {
             NonPromotionReason::Write { name, span } => {
-                let text = format!("Variable '{}' could not be promoted due to an assignment", self.interner.resolve(*name));
-                vec![ContextMessage { file: None, span: *span, message: text.into() }]
+                let text = format!(
+                    "Variable '{}' could not be promoted due to an assignment",
+                    self.interner.resolve(*name)
+                );
+                vec![ContextMessage {
+                    file: None,
+                    span: *span,
+                    message: text.into(),
+                }]
             }
-            NonPromotionReason::This => vec![ContextMessage { file: None, span: error, message: "'this' can't be promoted".into() }],
-            NonPromotionReason::Property { name, member, inherent, enabled } => {
+            NonPromotionReason::This => vec![ContextMessage {
+                file: None,
+                span: error,
+                message: "'this' can't be promoted".into(),
+            }],
+            NonPromotionReason::Property {
+                name,
+                member,
+                inherent,
+                enabled,
+            } => {
                 let program = self.program;
                 let fe = program.function(*member);
                 // `receiverElement is PropertyAccessorElement`: only getters.
-                if !matches!(fe.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
+                if !matches!(
+                    fe.kind,
+                    FunctionKind::Getter | FunctionKind::ImplicitAccessor
+                ) {
                     return Vec::new();
                 }
                 let text = self.interner.resolve(*name).to_string();
                 let where_ = program.non_synthetic_function_name(*member);
-                let unavailable = format!("'{text}' couldn't be promoted because field promotion is only available in Dart 3.2 and above.");
+                let unavailable = format!(
+                    "'{text}' couldn't be promoted because field promotion is only available in Dart 3.2 and above."
+                );
                 let mut r = Vec::new();
                 match inherent {
                     Some(pq) => {
                         let message = match pq {
-                            WhyNotPromoted::NotAField => format!("'{text}' refers to a getter so it couldn't be promoted."),
-                            WhyNotPromoted::NotPrivate => format!("'{text}' refers to a public property so it couldn't be promoted."),
-                            WhyNotPromoted::External => format!("'{text}' refers to an external field so it couldn't be promoted."),
-                            WhyNotPromoted::NonFinal => format!("'{text}' refers to a non-final field so it couldn't be promoted."),
+                            WhyNotPromoted::NotAField => {
+                                format!("'{text}' refers to a getter so it couldn't be promoted.")
+                            }
+                            WhyNotPromoted::NotPrivate => format!(
+                                "'{text}' refers to a public property so it couldn't be promoted."
+                            ),
+                            WhyNotPromoted::External => format!(
+                                "'{text}' refers to an external field so it couldn't be promoted."
+                            ),
+                            WhyNotPromoted::NonFinal => format!(
+                                "'{text}' refers to a non-final field so it couldn't be promoted."
+                            ),
                         };
                         if let Some((u, s)) = where_ {
                             r.push(context(program, cx.unit, u, s, message));
@@ -247,31 +326,53 @@ impl BodyInferrer<'_> {
                         if let Some(i) = info.info.get(name) {
                             let conflict = |ty: &str, c: Option<ClassId>| {
                                 let (k, n) = match c {
-                                    Some(c) => (the_kind(program, c), self.interner.resolve(program.class(c).name).to_string()),
+                                    Some(c) => (
+                                        the_kind(program, c),
+                                        self.interner.resolve(program.class(c).name).to_string(),
+                                    ),
                                     None => ("class", String::new()),
                                 };
-                                format!("'{text}' couldn't be promoted because there is a conflicting {ty} in {k} '{n}'")
+                                format!(
+                                    "'{text}' couldn't be promoted because there is a conflicting {ty} in {k} '{n}'"
+                                )
                             };
                             for &v in &i.fields {
                                 if let Some((u, s)) = program.variable_name(v) {
-                                    r.push(context(program, cx.unit, u, s, conflict("non-promotable field", program.variable(v).class)));
+                                    r.push(context(
+                                        program,
+                                        cx.unit,
+                                        u,
+                                        s,
+                                        conflict("non-promotable field", program.variable(v).class),
+                                    ));
                                 }
                             }
                             for &g in &i.getters {
                                 if let Some((u, s)) = program.non_synthetic_function_name(g) {
-                                    r.push(context(program, cx.unit, u, s, conflict("getter", program.function(g).class)));
+                                    r.push(context(
+                                        program,
+                                        cx.unit,
+                                        u,
+                                        s,
+                                        conflict("getter", program.function(g).class),
+                                    ));
                                 }
                             }
                             for &c in &i.nsm_classes {
                                 if let Some((u, s)) = program.class_name(c) {
-                                    r.push(context(program, cx.unit, u, s, conflict("noSuchMethod forwarder", Some(c))));
+                                    r.push(context(
+                                        program,
+                                        cx.unit,
+                                        u,
+                                        s,
+                                        conflict("noSuchMethod forwarder", Some(c)),
+                                    ));
                                 }
                             }
                         }
-                        if !enabled
-                            && let Some((u, s)) = where_ {
-                                r.push(context(program, cx.unit, u, s, unavailable));
-                            }
+                        if !enabled && let Some((u, s)) = where_ {
+                            r.push(context(program, cx.unit, u, s, unavailable));
+                        }
                     }
                 }
                 r
@@ -282,7 +383,13 @@ impl BodyInferrer<'_> {
     /// Attaches the why-not-promoted messages of `target` to the diagnostics
     /// reported since `since` (the error that the analyzer accompanies with
     /// them).
-    pub(crate) fn attach_non_promotion(&mut self, since: usize, cx: &Body, target: Option<ExprId>, error: Span) {
+    pub(crate) fn attach_non_promotion(
+        &mut self,
+        since: usize,
+        cx: &Body,
+        target: Option<ExprId>,
+        error: Span,
+    ) {
         if self.diagnostics.len() <= since {
             return;
         }

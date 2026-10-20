@@ -13,8 +13,14 @@ use dartforge_frontend::ast;
 
 /// The target class and the written constructor name (`None`: the unnamed
 /// one).
-pub fn class_and_constructor(program: &Program, unit: UnitId, r: &ast::RedirectTarget) -> Option<(ClassId, Option<ast::Name>)> {
-    let ast::TypeKind::Named { name, .. } = &program.unit(unit).ast.ty(r.ty).kind else { return None };
+pub fn class_and_constructor(
+    program: &Program,
+    unit: UnitId,
+    r: &ast::RedirectTarget,
+) -> Option<(ClassId, Option<ast::Name>)> {
+    let ast::TypeKind::Named { name, .. } = &program.unit(unit).ast.ty(r.ty).kind else {
+        return None;
+    };
     let (b, constructor) = match (&name[..], r.constructor) {
         ([n], ctor) => (program.lookup_in_unit(unit, n.sym), ctor),
         ([p, n], None) => match program.lookup_prefixed_in_unit(unit, p.sym, n.sym) {
@@ -22,7 +28,10 @@ pub fn class_and_constructor(program: &Program, unit: UnitId, r: &ast::RedirectT
             None => (program.lookup_in_unit(unit, p.sym), Some(*n)),
         },
         ([p, n], ctor) => (program.lookup_prefixed_in_unit(unit, p.sym, n.sym), ctor),
-        ([p, n, c], None) => (program.lookup_prefixed_in_unit(unit, p.sym, n.sym), Some(*c)),
+        ([p, n, c], None) => (
+            program.lookup_prefixed_in_unit(unit, p.sym, n.sym),
+            Some(*c),
+        ),
         _ => (None, None),
     };
     match b?.getter? {

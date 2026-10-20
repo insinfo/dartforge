@@ -45,22 +45,50 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             (_, Some("String_getHashCode"), Some(s)) if args.is_empty() && self.is_ref(s) => {
                 Some(self.helper("df.string_hash", vec![(s.clone(), Type::Ref)], Type::I64))
             }
-            (_, Some(n @ ("Internal_allocateOneByteString" | "Internal_allocateTwoByteString")), None) if args.len() == 1 => {
+            (
+                _,
+                Some(n @ ("Internal_allocateOneByteString" | "Internal_allocateTwoByteString")),
+                None,
+            ) if args.len() == 1 => {
                 let len = self.coerce(args[0].clone(), Type::I64);
                 let two = Operand::Constant(Constant::Bool(n == "Internal_allocateTwoByteString"));
-                Some(self.helper("df.string_allocate", vec![(len, Type::I64), (two, Type::I1)], Type::Ref))
+                Some(self.helper(
+                    "df.string_allocate",
+                    vec![(len, Type::I64), (two, Type::I1)],
+                    Type::Ref,
+                ))
             }
-            (_, Some("Internal_writeIntoOneByteString" | "Internal_writeIntoTwoByteString"), None) if args.len() == 3 => {
+            (
+                _,
+                Some("Internal_writeIntoOneByteString" | "Internal_writeIntoTwoByteString"),
+                None,
+            ) if args.len() == 3 => {
                 let s = self.coerce(args[0].clone(), Type::Ref);
                 let i = self.coerce(args[1].clone(), Type::I64);
                 let u = self.coerce(args[2].clone(), Type::I64);
-                self.helper("df.string_write", vec![(s, Type::Ref), (i, Type::I64), (u, Type::I64)], Type::Void);
+                self.helper(
+                    "df.string_write",
+                    vec![(s, Type::Ref), (i, Type::I64), (u, Type::I64)],
+                    Type::Void,
+                );
                 Some(Operand::Constant(Constant::Null))
             }
-            (_, Some(n @ ("DartForge_string_equals_object" | "DartForge_string_equals")), Some(s)) if args.len() == 1 && self.is_ref(s) => {
+            (
+                _,
+                Some(n @ ("DartForge_string_equals_object" | "DartForge_string_equals")),
+                Some(s),
+            ) if args.len() == 1 && self.is_ref(s) => {
                 let other = self.coerce(args[0].clone(), Type::Ref);
-                let name = if n == "DartForge_string_equals" { "df.string_equals" } else { "df.string_equals_object" };
-                Some(self.helper(name, vec![(s.clone(), Type::Ref), (other, Type::Ref)], Type::I1))
+                let name = if n == "DartForge_string_equals" {
+                    "df.string_equals"
+                } else {
+                    "df.string_equals_object"
+                };
+                Some(self.helper(
+                    name,
+                    vec![(s.clone(), Type::Ref), (other, Type::Ref)],
+                    Type::I1,
+                ))
             }
             _ => None,
         }
@@ -76,7 +104,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `llvm/ir_strings.rs`, `HELPER_EFFECTS`), so there is no exception
     /// check.
     fn helper(&mut self, name: &str, args: Vec<(Operand, Type)>, ret: Type) -> Operand {
-        self.emit(Instruction::CallRuntime { name: name.to_string(), args, ret_ty: ret }, ret)
+        self.emit(
+            Instruction::CallRuntime {
+                name: name.to_string(),
+                args,
+                ret_ty: ret,
+            },
+            ret,
+        )
     }
 
     /// `s.codeUnitAt(i)`: the code unit read inline when `0 <= i < length`; out of
@@ -87,10 +122,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let fast = self.new_block();
         let slow = self.new_block();
         let end = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: inside, then_block: fast, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: inside,
+            then_block: fast,
+            else_block: slow,
+        });
 
         self.set_block(fast);
-        let u = self.helper("df.string_code_unit", vec![(s.clone(), Type::Ref), (i.clone(), Type::I64)], Type::I64);
+        let u = self.helper(
+            "df.string_code_unit",
+            vec![(s.clone(), Type::Ref), (i.clone(), Type::I64)],
+            Type::I64,
+        );
         let fast_end = self.current_block;
         self.terminate(Terminator::Branch(end));
 
@@ -106,6 +149,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let slow_end = self.current_block;
         self.terminate(Terminator::Branch(end));
         self.set_block(end);
-        self.emit(Instruction::Phi { incoming: vec![(fast_end, u), (slow_end, r)], ty: Type::I64 }, Type::I64)
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(fast_end, u), (slow_end, r)],
+                ty: Type::I64,
+            },
+            Type::I64,
+        )
     }
 }

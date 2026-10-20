@@ -16,9 +16,10 @@
 
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
-    self, Annotation, Arguments, Ast, AsyncModifier, CollectionElement, Combinator, CompilationUnit, DeclKind, DirectiveKind, ExprId,
-    ExprKind, ForInTarget, ForInit, FunctionBody, Initializer, ListPatternElement, MemberKind, Parameter, ParameterKind, PatternId,
-    PatternKind, StmtId, StmtKind, StringLit, TypeId, TypeKind, TypeParameter, UnaryOp,
+    self, Annotation, Arguments, Ast, AsyncModifier, CollectionElement, Combinator,
+    CompilationUnit, DeclKind, DirectiveKind, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody,
+    Initializer, ListPatternElement, MemberKind, Parameter, ParameterKind, PatternId, PatternKind,
+    StmtId, StmtKind, StringLit, TypeId, TypeKind, TypeParameter, UnaryOp,
 };
 use dartforge_frontend::comments::Comments;
 use dartforge_frontend::token::{Kind, Op, Token};
@@ -231,7 +232,10 @@ impl AnalyzerTree {
     }
 
     pub fn span(&self, n: usize) -> Span {
-        Span { start: self.nodes[n].start, end: self.nodes[n].end }
+        Span {
+            start: self.nodes[n].start,
+            end: self.nodes[n].end,
+        }
     }
 }
 
@@ -296,7 +300,9 @@ impl Tokens {
     }
 
     fn is_word(&self, i: usize, source: &str, word: &str) -> bool {
-        self.list.get(i).is_some_and(|t| matches!(t.kind, Kind::Ident | Kind::Keyword(_)) && t.text(source) == word)
+        self.list.get(i).is_some_and(|t| {
+            matches!(t.kind, Kind::Ident | Kind::Keyword(_)) && t.text(source) == word
+        })
     }
 
     /// The token immediately before `off`, if it is `op`.
@@ -372,7 +378,14 @@ pub fn build_resolved(
     constructor_calls: &std::collections::HashSet<ExprId>,
     prefix_idents: &std::collections::HashSet<ExprId>,
 ) -> AnalyzerTree {
-    build_with(source, a, unit, before_3_0, Some(constructor_calls), Some(prefix_idents))
+    build_with(
+        source,
+        a,
+        unit,
+        before_3_0,
+        Some(constructor_calls),
+        Some(prefix_idents),
+    )
 }
 
 fn build_with<'a>(
@@ -390,13 +403,26 @@ fn build_with<'a>(
         comments: Comments::scan(source),
         nodes: Vec::new(),
         before_3_0,
-        local_metadata: a.local_metadata.iter().map(|(s, m)| (s.0, &m[..])).collect(),
+        local_metadata: a
+            .local_metadata
+            .iter()
+            .map(|(s, m)| (s.0, &m[..]))
+            .collect(),
         constructor_calls,
         prefix_idents,
         for_parts: HashMap::new(),
     };
     // The root first (index 0), the children afterwards.
-    c.nodes.push(Node { kind: "CompilationUnit", start: 0, end: source.len(), children: Vec::new(), parent: None, name_override: None, mark: Mark::Nothing, binding: Binding::Nothing });
+    c.nodes.push(Node {
+        kind: "CompilationUnit",
+        start: 0,
+        end: source.len(),
+        children: Vec::new(),
+        parent: None,
+        name_override: None,
+        mark: Mark::Nothing,
+        binding: Binding::Nothing,
+    });
     let mut children = Vec::new();
     if let Some(s) = unit.script_tag {
         children.extend(c.leaf("ScriptTag", s));
@@ -411,23 +437,45 @@ fn build_with<'a>(
     }
     items.sort();
     for (_, directive, i) in items {
-        let n = if directive { c.directive(&unit.directives[i]) } else { c.decl(unit.declarations[i]) };
+        let n = if directive {
+            c.directive(&unit.directives[i])
+        } else {
+            c.decl(unit.declarations[i])
+        };
         children.extend(n);
     }
     c.link(0, children);
-    AnalyzerTree { nodes: c.nodes, for_parts: c.for_parts }
+    AnalyzerTree {
+        nodes: c.nodes,
+        for_parts: c.for_parts,
+    }
 }
 
 impl<'a> Builder<'a> {
     // -- Infraestrutura --------------------------------------------------------
 
     /// A node with the given children; never an empty node.
-    fn node(&mut self, kind: &'static str, start: usize, end: usize, children: Vec<usize>) -> Option<usize> {
+    fn node(
+        &mut self,
+        kind: &'static str,
+        start: usize,
+        end: usize,
+        children: Vec<usize>,
+    ) -> Option<usize> {
         if end <= start {
             return None;
         }
         let id = self.nodes.len();
-        self.nodes.push(Node { kind, start, end, children: Vec::new(), parent: None, name_override: None, mark: Mark::Nothing, binding: Binding::Nothing });
+        self.nodes.push(Node {
+            kind,
+            start,
+            end,
+            children: Vec::new(),
+            parent: None,
+            name_override: None,
+            mark: Mark::Nothing,
+            binding: Binding::Nothing,
+        });
         self.link(id, children);
         Some(id)
     }
@@ -492,7 +540,12 @@ impl<'a> Builder<'a> {
     /// tokens from it on.
     fn doc(&mut self, pos: usize) -> Option<(usize, usize, Vec<Span>)> {
         let start = self.comments.dart_doc(self.source, pos)?;
-        let chain: Vec<Span> = self.comments.before(self.source, pos).into_iter().filter(|s| s.start >= start.start).collect();
+        let chain: Vec<Span> = self
+            .comments
+            .before(self.source, pos)
+            .into_iter()
+            .filter(|s| s.start >= start.start)
+            .collect();
         let text = &self.source[start.start..start.end];
         let mut end = start.end;
         if text.starts_with("///") {
@@ -510,10 +563,15 @@ impl<'a> Builder<'a> {
         let mut refs = Vec::new();
         for r in dartforge_frontend::doc_references::references(self.source, chain) {
             let names: Vec<Span> = r.parts.iter().map(|(s, _)| *s).collect();
-            let (Some(first), Some(last)) = (names.first().copied(), names.last().copied()) else { continue };
+            let (Some(first), Some(last)) = (names.first().copied(), names.last().copied()) else {
+                continue;
+            };
             // The `CommentReference` goes from the `new` (when present) to the end of the name.
             let a = if r.has_new {
-                self.source[..first.start].trim_end().strip_suffix("new").map_or(first.start, str::len)
+                self.source[..first.start]
+                    .trim_end()
+                    .strip_suffix("new")
+                    .map_or(first.start, str::len)
             } else {
                 first.start
             };
@@ -523,14 +581,29 @@ impl<'a> Builder<'a> {
                 [x, y] => {
                     let fx = self.leaf("SimpleIdentifier", *x);
                     let fy = self.leaf("SimpleIdentifier", *y);
-                    self.node("PrefixedIdentifier", x.start, y.end, fx.into_iter().chain(fy).collect())
+                    self.node(
+                        "PrefixedIdentifier",
+                        x.start,
+                        y.end,
+                        fx.into_iter().chain(fy).collect(),
+                    )
                 }
                 [x, y, z] => {
                     let fx = self.leaf("SimpleIdentifier", *x);
                     let fy = self.leaf("SimpleIdentifier", *y);
-                    let p = self.node("PrefixedIdentifier", x.start, y.end, fx.into_iter().chain(fy).collect());
+                    let p = self.node(
+                        "PrefixedIdentifier",
+                        x.start,
+                        y.end,
+                        fx.into_iter().chain(fy).collect(),
+                    );
                     let fz = self.leaf("SimpleIdentifier", *z);
-                    self.node("PropertyAccess", x.start, z.end, p.into_iter().chain(fz).collect())
+                    self.node(
+                        "PropertyAccess",
+                        x.start,
+                        z.end,
+                        p.into_iter().chain(fz).collect(),
+                    )
                 }
                 _ => None,
             };
@@ -542,10 +615,17 @@ impl<'a> Builder<'a> {
     /// The `[doc/annot]` children (in offset order) and the node's start: the
     /// `AstBuilder`'s `_findComment` (before the token after the annotations;
     /// otherwise before each annotation, from the last to the first).
-    fn doc_and_annotations(&mut self, start: usize, metadata: &'a [Annotation]) -> (usize, Vec<usize>) {
+    fn doc_and_annotations(
+        &mut self,
+        start: usize,
+        metadata: &'a [Annotation],
+    ) -> (usize, Vec<usize>) {
         // The token after the annotations (the declaration's).
         let after = match metadata.last() {
-            Some(m) => self.t.after(m.span.end).map_or(start, |i| self.t.span(i).start),
+            Some(m) => self
+                .t
+                .after(m.span.end)
+                .map_or(start, |i| self.t.span(i).start),
             None => start,
         };
         let mut doc = self.doc(after);
@@ -570,7 +650,10 @@ impl<'a> Builder<'a> {
             items.push((m.span.start, self.annotation(m)));
         }
         items.sort_by_key(|(p, _)| *p);
-        (start_pos, items.into_iter().filter_map(|(_, n)| n).collect())
+        (
+            start_pos,
+            items.into_iter().filter_map(|(_, n)| n).collect(),
+        )
     }
 
     /// `Annotation`: `@` → arguments ?? constructor name ?? name.
@@ -583,7 +666,10 @@ impl<'a> Builder<'a> {
         let mut children = Vec::new();
         // `@A<T>.b(…)`: the name is `A` and the constructor `b`; `@p.A<T>(…)`:
         // the name is `p.A`.
-        let types_before_second = m.name.len() == 2 && m.type_args.first().is_some_and(|t| self.a.ty(*t).span.start < m.name[1].span.start);
+        let types_before_second = m.name.len() == 2
+            && m.type_args
+                .first()
+                .is_some_and(|t| self.a.ty(*t).span.start < m.name[1].span.start);
         let (name, constructor): (&[ast::Name], Option<ast::Name>) = match m.name.len() {
             3 => (&m.name[..2], Some(m.name[2])),
             2 if types_before_second => (&m.name[..1], Some(m.name[1])),
@@ -594,7 +680,12 @@ impl<'a> Builder<'a> {
             [x, y] => {
                 let fx = self.identifier(*x);
                 let fy = self.identifier(*y);
-                children.extend(self.node("PrefixedIdentifier", x.span.start, y.span.end, fx.into_iter().chain(fy).collect()));
+                children.extend(self.node(
+                    "PrefixedIdentifier",
+                    x.span.start,
+                    y.span.end,
+                    fx.into_iter().chain(fy).collect(),
+                ));
             }
             _ => {}
         }
@@ -615,7 +706,9 @@ impl<'a> Builder<'a> {
     }
 
     fn dotted_names(&mut self, kind: &'static str, names: &[ast::Name]) -> Option<usize> {
-        let (Some(p), Some(u)) = (names.first(), names.last()) else { return None };
+        let (Some(p), Some(u)) = (names.first(), names.last()) else {
+            return None;
+        };
         let children: Vec<usize> = names.iter().filter_map(|n| self.identifier(*n)).collect();
         self.node(kind, p.span.start, u.span.end, children)
     }
@@ -640,8 +733,13 @@ impl<'a> Builder<'a> {
             Combinator::Show(n) => ("ShowCombinator", n),
             Combinator::Hide(n) => ("HideCombinator", n),
         };
-        let (Some(p), Some(u)) = (names.first(), names.last()) else { return None };
-        let word = self.t.before(p.span.start).map_or(p.span.start, |i| self.t.span(i).start);
+        let (Some(p), Some(u)) = (names.first(), names.last()) else {
+            return None;
+        };
+        let word = self
+            .t
+            .before(p.span.start)
+            .map_or(p.span.start, |i| self.t.span(i).start);
         let children: Vec<usize> = names.iter().filter_map(|n| self.identifier(*n)).collect();
         self.node(kind, word, u.span.end, children)
     }
@@ -660,7 +758,13 @@ impl<'a> Builder<'a> {
                 children.extend(self.dotted_names("LibraryIdentifier", name));
                 "LibraryDirective"
             }
-            DirectiveKind::Import { uri, configurations, prefix, combinators, .. } => {
+            DirectiveKind::Import {
+                uri,
+                configurations,
+                prefix,
+                combinators,
+                ..
+            } => {
                 children.extend(doc);
                 children.extend(self.uri_literal(uri));
                 for c in configurations {
@@ -675,7 +779,11 @@ impl<'a> Builder<'a> {
                 }
                 "ImportDirective"
             }
-            DirectiveKind::Export { uri, configurations, combinators } => {
+            DirectiveKind::Export {
+                uri,
+                configurations,
+                combinators,
+            } => {
                 for c in configurations {
                     children.extend(self.configuration(c));
                 }
@@ -712,10 +820,15 @@ impl<'a> Builder<'a> {
 
     /// The keyword token before the first type of a clause.
     fn clause(&mut self, kind: &'static str, types: &[TypeId]) -> Option<usize> {
-        let (Some(p), Some(u)) = (types.first(), types.last()) else { return None };
+        let (Some(p), Some(u)) = (types.first(), types.last()) else {
+            return None;
+        };
         let ps = self.a.ty(*p).span;
         let us = self.a.ty(*u).span;
-        let word = self.t.before(ps.start).map_or(ps.start, |i| self.t.span(i).start);
+        let word = self
+            .t
+            .before(ps.start)
+            .map_or(ps.start, |i| self.t.span(i).start);
         let children: Vec<usize> = types.iter().filter_map(|t| self.ty(*t)).collect();
         self.node(kind, word, us.end, children)
     }
@@ -790,14 +903,27 @@ impl<'a> Builder<'a> {
                 // `RepresentationDeclaration`: `.name` ?? `(` → `)`.
                 let mut rep = Vec::new();
                 if let Some(c) = x.constructor {
-                    let dot = self.t.op_before(c.span.start, Op::Dot).map_or(c.span.start, |i| self.t.span(i).start);
-                    rep.extend(self.node("RepresentationConstructorName", dot, c.span.end, Vec::new()));
+                    let dot = self
+                        .t
+                        .op_before(c.span.start, Op::Dot)
+                        .map_or(c.span.start, |i| self.t.span(i).start);
+                    rep.extend(self.node(
+                        "RepresentationConstructorName",
+                        dot,
+                        c.span.end,
+                        Vec::new(),
+                    ));
                 }
                 for m in x.representation_metadata.iter() {
                     rep.extend(self.annotation(m));
                 }
                 rep.extend(self.ty(x.representation_type));
-                children.extend(self.node("RepresentationDeclaration", x.representation_span.start, x.representation_span.end, rep));
+                children.extend(self.node(
+                    "RepresentationDeclaration",
+                    x.representation_span.start,
+                    x.representation_span.end,
+                    rep,
+                ));
                 children.extend(self.clause("ImplementsClause", &x.implements));
                 for &m in &x.members {
                     children.extend(self.member(m));
@@ -810,7 +936,10 @@ impl<'a> Builder<'a> {
                     children.extend(self.ty(*t));
                     self.node("GenericTypeAlias", start, d.span.end, children)
                 }
-                ast::TypedefKind::Legacy { return_type, parameters } => {
+                ast::TypedefKind::Legacy {
+                    return_type,
+                    parameters,
+                } => {
                     if let Some(r) = return_type {
                         children.extend(self.ty(*r));
                     }
@@ -836,7 +965,13 @@ impl<'a> Builder<'a> {
 
     /// `FunctionDeclaration` (top-level or local): `returnType`,
     /// `FunctionExpression`.
-    fn function_decl(&mut self, fid: ast::FunctionId, start: usize, mut children: Vec<usize>, from_decl: bool) -> Option<usize> {
+    fn function_decl(
+        &mut self,
+        fid: ast::FunctionId,
+        start: usize,
+        mut children: Vec<usize>,
+        from_decl: bool,
+    ) -> Option<usize> {
         let f = self.a.function(fid);
         if let Some(r) = f.return_type {
             children.extend(self.ty(r));
@@ -856,11 +991,16 @@ impl<'a> Builder<'a> {
         let tps = self.type_params(&f.type_params);
         let after_types = tps.map_or(after_name, |n| self.nodes[n].end);
         children.extend(tps);
-        let params = f.parameters.as_ref().and_then(|ps| self.param_list(ps, after_types));
+        let params = f
+            .parameters
+            .as_ref()
+            .and_then(|ps| self.param_list(ps, after_types));
         children.extend(params);
         let body = self.body(&f.body, f.modifier, f.span.end, from_decl);
         children.extend(body);
-        let start = children.first().map_or(f.span.start, |&n| self.nodes[n].start);
+        let start = children
+            .first()
+            .map_or(f.span.start, |&n| self.nodes[n].start);
         let end = body.map_or(f.span.end, |n| self.nodes[n].end);
         let n = self.node("FunctionExpression", start, end, children);
         let n = self.bind_to(n, Binding::Function(fid));
@@ -868,13 +1008,28 @@ impl<'a> Builder<'a> {
     }
 
     /// A function's body.
-    fn body(&mut self, b: &'a FunctionBody, modifier: AsyncModifier, function_end: usize, from_decl: bool) -> Option<usize> {
+    fn body(
+        &mut self,
+        b: &'a FunctionBody,
+        modifier: AsyncModifier,
+        function_end: usize,
+        from_decl: bool,
+    ) -> Option<usize> {
         match b {
             FunctionBody::Block(s) => {
                 let block = self.stmt(*s);
                 let bs = self.a.stmt(*s).span;
-                let start = if modifier == AsyncModifier::None { bs.start } else { self.modifier_start(bs.start) };
-                self.node("BlockFunctionBody", start, bs.end, block.into_iter().collect())
+                let start = if modifier == AsyncModifier::None {
+                    bs.start
+                } else {
+                    self.modifier_start(bs.start)
+                };
+                self.node(
+                    "BlockFunctionBody",
+                    start,
+                    bs.end,
+                    block.into_iter().collect(),
+                )
             }
             FunctionBody::Expression(e) => {
                 let es = self.a.expr(*e).span;
@@ -884,20 +1039,45 @@ impl<'a> Builder<'a> {
                     (_, Some(i)) => self.modifier_start(self.t.span(i).start),
                     (_, None) => es.start,
                 };
-                let end = if from_decl { self.t.op_after(es.end, Op::Semicolon).map_or(es.end, |i| self.t.span(i).end) } else { es.end };
+                let end = if from_decl {
+                    self.t
+                        .op_after(es.end, Op::Semicolon)
+                        .map_or(es.end, |i| self.t.span(i).end)
+                } else {
+                    es.end
+                };
                 let expr = self.expr(*e);
-                self.node("ExpressionFunctionBody", start, end, expr.into_iter().collect())
+                self.node(
+                    "ExpressionFunctionBody",
+                    start,
+                    end,
+                    expr.into_iter().collect(),
+                )
             }
             FunctionBody::Empty => {
-                let i = self.t.before(function_end).filter(|&i| self.t.is_op(i, Op::Semicolon))?;
+                let i = self
+                    .t
+                    .before(function_end)
+                    .filter(|&i| self.t.is_op(i, Op::Semicolon))?;
                 self.leaf("EmptyFunctionBody", self.t.span(i))
             }
             FunctionBody::Native(s) => {
-                let end = self.t.before(function_end).filter(|&i| self.t.is_op(i, Op::Semicolon)).map_or(function_end, |i| self.t.span(i).end);
+                let end = self
+                    .t
+                    .before(function_end)
+                    .filter(|&i| self.t.is_op(i, Op::Semicolon))
+                    .map_or(function_end, |i| self.t.span(i).end);
                 let lit = s.as_ref().and_then(|s| self.string(s));
                 let native = match s {
-                    Some(l) => self.t.before(l.span.start).map_or(l.span.start, |i| self.t.span(i).start),
-                    None => self.t.before(end).and_then(|i| self.t.before(self.t.span(i).start)).map_or(end, |i| self.t.span(i).start),
+                    Some(l) => self
+                        .t
+                        .before(l.span.start)
+                        .map_or(l.span.start, |i| self.t.span(i).start),
+                    None => self
+                        .t
+                        .before(end)
+                        .and_then(|i| self.t.before(self.t.span(i).start))
+                        .map_or(end, |i| self.t.span(i).start),
                 };
                 self.node("NativeFunctionBody", native, end, lit.into_iter().collect())
             }
@@ -915,7 +1095,11 @@ impl<'a> Builder<'a> {
         {
             i = j;
         }
-        if self.t.is_word(i, self.source, "async") || self.t.is_word(i, self.source, "sync") { self.t.span(i).start } else { pos }
+        if self.t.is_word(i, self.source, "async") || self.t.is_word(i, self.source, "sync") {
+            self.t.span(i).start
+        } else {
+            pos
+        }
     }
 
     fn enum_constant(&mut self, k: &'a ast::EnumConstant) -> Option<usize> {
@@ -930,14 +1114,22 @@ impl<'a> Builder<'a> {
         let mut args_start = tas.map(|n| self.nodes[n].start);
         args.extend(tas);
         if let Some(c) = k.constructor {
-            let dot = self.t.op_before(c.span.start, Op::Dot).map_or(c.span.start, |i| self.t.span(i).start);
+            let dot = self
+                .t
+                .op_before(c.span.start, Op::Dot)
+                .map_or(c.span.start, |i| self.t.span(i).start);
             args_start = args_start.or(Some(dot));
             args.extend(self.node("ConstructorSelector", dot, c.span.end, Vec::new()));
         }
         if let Some(a) = &k.arguments {
             args_start = args_start.or(Some(a.span.start));
             args.extend(self.arg_list(a));
-            children.extend(self.node("EnumConstantArguments", args_start.unwrap_or(a.span.start), a.span.end, args));
+            children.extend(self.node(
+                "EnumConstantArguments",
+                args_start.unwrap_or(a.span.start),
+                a.span.end,
+                args,
+            ));
         }
         self.node("EnumConstantDeclaration", start, k.span.end, children)
     }
@@ -1010,13 +1202,19 @@ impl<'a> Builder<'a> {
 
     fn initializer_raw(&mut self, i: &'a Initializer) -> Option<usize> {
         match i {
-            Initializer::Field { span, name, value, .. } => {
+            Initializer::Field {
+                span, name, value, ..
+            } => {
                 let mut f = Vec::new();
                 f.extend(self.identifier(*name));
                 f.extend(self.expr(*value));
                 self.node("ConstructorFieldInitializer", span.start, span.end, f)
             }
-            Initializer::Super { span, constructor, arguments } => {
+            Initializer::Super {
+                span,
+                constructor,
+                arguments,
+            } => {
                 let mut f = Vec::new();
                 if let Some(n) = constructor {
                     f.extend(self.identifier(*n));
@@ -1024,7 +1222,11 @@ impl<'a> Builder<'a> {
                 f.extend(self.arg_list(arguments));
                 self.node("SuperConstructorInvocation", span.start, span.end, f)
             }
-            Initializer::Redirect { span, constructor, arguments } => {
+            Initializer::Redirect {
+                span,
+                constructor,
+                arguments,
+            } => {
                 let mut f = Vec::new();
                 if let Some(n) = constructor {
                     f.extend(self.identifier(*n));
@@ -1032,7 +1234,11 @@ impl<'a> Builder<'a> {
                 f.extend(self.arg_list(arguments));
                 self.node("RedirectingConstructorInvocation", span.start, span.end, f)
             }
-            Initializer::Assert { span, condition, message } => {
+            Initializer::Assert {
+                span,
+                condition,
+                message,
+            } => {
                 let mut f = Vec::new();
                 f.extend(self.expr(*condition));
                 if let Some(m) = message {
@@ -1048,21 +1254,40 @@ impl<'a> Builder<'a> {
     /// `VariableDeclarationList`: from the first of `late`/`final`/`const`/`var`
     /// ?? type ?? 1st variable (after `static`/`covariant`/`abstract`/
     /// `external`) to the end of the last variable.
-    fn variable_list(&mut self, l: &'a ast::VariableList, container_start: usize, metadata: &'a [Annotation]) -> Option<usize> {
+    fn variable_list(
+        &mut self,
+        l: &'a ast::VariableList,
+        container_start: usize,
+        metadata: &'a [Annotation],
+    ) -> Option<usize> {
         self.variable_list_with(l, container_start, metadata, false)
     }
 
-    fn local_variable_list(&mut self, l: &'a ast::VariableList, container_start: usize, metadata: &'a [Annotation]) -> Option<usize> {
+    fn local_variable_list(
+        &mut self,
+        l: &'a ast::VariableList,
+        container_start: usize,
+        metadata: &'a [Annotation],
+    ) -> Option<usize> {
         self.variable_list_with(l, container_start, metadata, true)
     }
 
-    fn variable_list_with(&mut self, l: &'a ast::VariableList, container_start: usize, metadata: &'a [Annotation], locals: bool) -> Option<usize> {
+    fn variable_list_with(
+        &mut self,
+        l: &'a ast::VariableList,
+        container_start: usize,
+        metadata: &'a [Annotation],
+        locals: bool,
+    ) -> Option<usize> {
         let first = l.variables.first()?;
         let last = l.variables.last()?;
-        let end = last.initializer.map_or(last.name.span.end, |e| self.a.expr(e).span.end);
+        let end = last
+            .initializer
+            .map_or(last.name.span.end, |e| self.a.expr(e).span.end);
         // The list's first token: the list's first modifier between the start
         // of the container and the type (or the 1st variable).
-        let bound = l.ty.map_or(first.name.span.start, |t| self.a.ty(t).span.start);
+        let bound =
+            l.ty.map_or(first.name.span.start, |t| self.a.ty(t).span.start);
         let mut start = bound;
         let mut i = self.t.index(container_start);
         while let Some(tk) = self.t.list.get(i) {
@@ -1076,15 +1301,30 @@ impl<'a> Builder<'a> {
             }
             i += 1;
         }
-        let (start, mut children) = if metadata.is_empty() { (start, Vec::new()) } else { self.doc_and_annotations(start, metadata) };
+        let (start, mut children) = if metadata.is_empty() {
+            (start, Vec::new())
+        } else {
+            self.doc_and_annotations(start, metadata)
+        };
         if let Some(t) = l.ty {
             children.extend(self.ty(t));
         }
         for v in l.variables.iter() {
-            let end_v = v.initializer.map_or(v.name.span.end, |e| self.a.expr(e).span.end);
+            let end_v = v
+                .initializer
+                .map_or(v.name.span.end, |e| self.a.expr(e).span.end);
             let start = v.initializer.and_then(|e| self.expr(e));
-            let n = self.node("VariableDeclaration", v.name.span.start, end_v, start.into_iter().collect());
-            children.extend(if locals { self.mark(n, Mark::LocalVariable) } else { n });
+            let n = self.node(
+                "VariableDeclaration",
+                v.name.span.start,
+                end_v,
+                start.into_iter().collect(),
+            );
+            children.extend(if locals {
+                self.mark(n, Mark::LocalVariable)
+            } else {
+                n
+            });
         }
         self.node("VariableDeclarationList", start, end, children)
     }
@@ -1094,14 +1334,22 @@ impl<'a> Builder<'a> {
     fn param_list(&mut self, ps: &'a [Parameter], after: usize) -> Option<usize> {
         let open = match ps.first() {
             Some(p) => {
-                let start = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
+                let start = p
+                    .metadata
+                    .first()
+                    .map_or(p.span.start, |m| m.span.start.min(p.span.start));
                 self.t.last_op(Op::LParen, 0, start)?
             }
             None => self.t.first_op(Op::LParen, after, usize::MAX)?,
         };
         let close = self.t.pair_of(open)?;
         let children: Vec<usize> = ps.iter().filter_map(|p| self.param(p)).collect();
-        self.node("FormalParameterList", self.t.span(open).start, self.t.span(close).end, children)
+        self.node(
+            "FormalParameterList",
+            self.t.span(open).start,
+            self.t.span(close).end,
+            children,
+        )
     }
 
     fn param(&mut self, p: &'a Parameter) -> Option<usize> {
@@ -1110,7 +1358,10 @@ impl<'a> Builder<'a> {
     }
 
     fn param_raw(&mut self, p: &'a Parameter) -> Option<usize> {
-        let start = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
+        let start = p
+            .metadata
+            .first()
+            .map_or(p.span.start, |m| m.span.start.min(p.span.start));
         let mut children = Vec::new();
         for m in p.metadata.iter() {
             children.extend(self.annotation(m));
@@ -1144,7 +1395,11 @@ impl<'a> Builder<'a> {
             if let Some(t) = p.ty {
                 children.extend(self.ty(t));
             }
-            let end = p.name.map(|n| n.span.end).or_else(|| p.ty.map(|t| self.a.ty(t).span.end)).unwrap_or(p.span.end);
+            let end = p
+                .name
+                .map(|n| n.span.end)
+                .or_else(|| p.ty.map(|t| self.a.ty(t).span.end))
+                .unwrap_or(p.span.end);
             let kind = if p.this_ {
                 "FieldFormalParameter"
             } else if p.super_ {
@@ -1171,8 +1426,13 @@ impl<'a> Builder<'a> {
 
     /// `TypeParameterList`: `<` → `>`.
     fn type_params(&mut self, tps: &'a [TypeParameter]) -> Option<usize> {
-        let (Some(p), Some(u)) = (tps.first(), tps.last()) else { return None };
-        let p_start = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
+        let (Some(p), Some(u)) = (tps.first(), tps.last()) else {
+            return None;
+        };
+        let p_start = p
+            .metadata
+            .first()
+            .map_or(p.span.start, |m| m.span.start.min(p.span.start));
         let lt = self.t.op_before(p_start, Op::Lt)?;
         let gt = self.t.op_after(u.span.end, Op::Gt)?;
         let mut children = Vec::new();
@@ -1184,18 +1444,30 @@ impl<'a> Builder<'a> {
             let n = self.node("TypeParameter", start, tp.span.end, f);
             children.extend(self.bind_to(n, Binding::TypeParameter(address(tp))));
         }
-        self.node("TypeParameterList", self.t.span(lt).start, self.t.span(gt).end, children)
+        self.node(
+            "TypeParameterList",
+            self.t.span(lt).start,
+            self.t.span(gt).end,
+            children,
+        )
     }
 
     /// `TypeArgumentList`: `<` → `>` around the types.
     fn type_args(&mut self, types: &[TypeId]) -> Option<usize> {
-        let (Some(p), Some(u)) = (types.first(), types.last()) else { return None };
+        let (Some(p), Some(u)) = (types.first(), types.last()) else {
+            return None;
+        };
         let ps = self.a.ty(*p).span;
         let us = self.a.ty(*u).span;
         let lt = self.t.op_before(ps.start, Op::Lt)?;
         let gt = self.t.op_after(us.end, Op::Gt)?;
         let children: Vec<usize> = types.iter().filter_map(|t| self.ty(*t)).collect();
-        self.node("TypeArgumentList", self.t.span(lt).start, self.t.span(gt).end, children)
+        self.node(
+            "TypeArgumentList",
+            self.t.span(lt).start,
+            self.t.span(gt).end,
+            children,
+        )
     }
 
     /// `ArgumentList` with the parentheses; `name: e` is a `NamedExpression`
@@ -1217,12 +1489,20 @@ impl<'a> Builder<'a> {
         match name {
             None => self.expr(value),
             Some(n) => {
-                let colon = self.t.op_after(n.span.end, Op::Colon).map_or(n.span.end, |i| self.t.span(i).end);
+                let colon = self
+                    .t
+                    .op_after(n.span.end, Op::Colon)
+                    .map_or(n.span.end, |i| self.t.span(i).end);
                 let id = self.identifier(n);
                 let label = self.node("Label", n.span.start, colon, id.into_iter().collect());
                 let e = self.expr(value);
                 let end = self.a.expr(value).span.end;
-                self.node("NamedExpression", n.span.start, end, label.into_iter().chain(e).collect())
+                self.node(
+                    "NamedExpression",
+                    n.span.start,
+                    end,
+                    label.into_iter().chain(e).collect(),
+                )
             }
         }
     }
@@ -1241,20 +1521,33 @@ impl<'a> Builder<'a> {
                 let mut children = Vec::new();
                 if name.len() == 2 {
                     // `ImportPrefixReference`: the prefix with the dot.
-                    let dot = self.t.op_after(name[0].span.end, Op::Dot).map_or(name[0].span.end, |i| self.t.span(i).end);
-                    children.extend(self.node("ImportPrefixReference", name[0].span.start, dot, Vec::new()));
+                    let dot = self
+                        .t
+                        .op_after(name[0].span.end, Op::Dot)
+                        .map_or(name[0].span.end, |i| self.t.span(i).end);
+                    children.extend(self.node(
+                        "ImportPrefixReference",
+                        name[0].span.start,
+                        dot,
+                        Vec::new(),
+                    ));
                 }
                 children.extend(self.type_args(args));
                 self.node("NamedType", ty.span.start, ty.span.end, children)
             }
             TypeKind::Void => self.leaf("NamedType", ty.span),
-            TypeKind::Function { return_type, type_params, parameters } => {
+            TypeKind::Function {
+                return_type,
+                type_params,
+                parameters,
+            } => {
                 let mut children = Vec::new();
                 if let Some(r) = return_type {
                     children.extend(self.ty(*r));
                 }
                 let tps = self.type_params(type_params);
-                let after = tps.map_or_else(|| self.function_keyword_pos(ty.span), |n| self.nodes[n].end);
+                let after =
+                    tps.map_or_else(|| self.function_keyword_pos(ty.span), |n| self.nodes[n].end);
                 children.extend(tps);
                 children.extend(self.param_list(parameters, after));
                 self.node("GenericFunctionType", ty.span.start, ty.span.end, children)
@@ -1264,7 +1557,12 @@ impl<'a> Builder<'a> {
                 for p in positional.iter() {
                     let f = self.ty(*p);
                     let s = self.a.ty(*p).span;
-                    children.extend(self.node("RecordTypeAnnotationPositionalField", s.start, s.end, f.into_iter().collect()));
+                    children.extend(self.node(
+                        "RecordTypeAnnotationPositionalField",
+                        s.start,
+                        s.end,
+                        f.into_iter().collect(),
+                    ));
                 }
                 if let (Some(p), Some(u)) = (named.first(), named.last()) {
                     let start = self.a.ty(p.1).span.start;
@@ -1274,7 +1572,12 @@ impl<'a> Builder<'a> {
                     for (n, t) in named.iter() {
                         let f = self.ty(*t);
                         let s = self.a.ty(*t).span;
-                        fields.extend(self.node("RecordTypeAnnotationNamedField", s.start, n.span.end, f.into_iter().collect()));
+                        fields.extend(self.node(
+                            "RecordTypeAnnotationNamedField",
+                            s.start,
+                            n.span.end,
+                            f.into_iter().collect(),
+                        ));
                     }
                     let (a, b) = match (open, close) {
                         (Some(a), Some(b)) => (self.t.span(a).start, self.t.span(b).end),
@@ -1322,14 +1625,29 @@ impl<'a> Builder<'a> {
                 let meta = self.local_metadata.get(&sid.0).copied().unwrap_or(&[]);
                 let list = self.local_variable_list(l, s.span.start, meta);
                 let start = list.map_or(s.span.start, |n| self.nodes[n].start.min(s.span.start));
-                self.node("VariableDeclarationStatement", start, s.span.end, list.into_iter().collect())
+                self.node(
+                    "VariableDeclarationStatement",
+                    start,
+                    s.span.end,
+                    list.into_iter().collect(),
+                )
             }
             StmtKind::PatternVariables { pattern, value, .. } => {
                 let end = a.expr(*value).span.end;
                 let p = self.pattern(*pattern);
                 let e = self.expr(*value);
-                let decl = self.node("PatternVariableDeclaration", s.span.start, end, p.into_iter().chain(e).collect());
-                self.node("PatternVariableDeclarationStatement", s.span.start, s.span.end, decl.into_iter().collect())
+                let decl = self.node(
+                    "PatternVariableDeclaration",
+                    s.span.start,
+                    end,
+                    p.into_iter().chain(e).collect(),
+                );
+                self.node(
+                    "PatternVariableDeclarationStatement",
+                    s.span.start,
+                    s.span.end,
+                    decl.into_iter().collect(),
+                )
             }
             StmtKind::Function(fid) => {
                 let meta = self.local_metadata.get(&sid.0).copied().unwrap_or(&[]);
@@ -1342,13 +1660,29 @@ impl<'a> Builder<'a> {
                 };
                 let start = d.map_or(s.span.start, |n| self.nodes[n].start);
                 let end = d.map_or(s.span.end, |n| self.nodes[n].end);
-                self.node("FunctionDeclarationStatement", start, end, d.into_iter().collect())
+                self.node(
+                    "FunctionDeclarationStatement",
+                    start,
+                    end,
+                    d.into_iter().collect(),
+                )
             }
             StmtKind::Expression(e) => {
                 let x = self.expr(*e);
-                self.node("ExpressionStatement", s.span.start, s.span.end, x.into_iter().collect())
+                self.node(
+                    "ExpressionStatement",
+                    s.span.start,
+                    s.span.end,
+                    x.into_iter().collect(),
+                )
             }
-            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+            StmtKind::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 let mut children = Vec::new();
                 children.extend(self.expr(*condition));
                 children.extend(self.case_clause(*case_pattern, *guard));
@@ -1358,25 +1692,56 @@ impl<'a> Builder<'a> {
                 }
                 self.node("IfStatement", s.span.start, s.span.end, children)
             }
-            StmtKind::For { init, condition, updates, body, .. } => {
+            StmtKind::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 let parts = self.for_parts(s.span.start, init.as_ref(), *condition, updates);
                 let body = self.stmt(*body);
-                self.node("ForStatement", s.span.start, s.span.end, parts.into_iter().chain(body).collect())
+                self.node(
+                    "ForStatement",
+                    s.span.start,
+                    s.span.end,
+                    parts.into_iter().chain(body).collect(),
+                )
             }
-            StmtKind::ForIn { target, iterable, body, .. } => {
+            StmtKind::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 let parts = self.for_in_parts(s.span.start, target, *iterable);
                 let body = self.stmt(*body);
-                self.node("ForStatement", s.span.start, s.span.end, parts.into_iter().chain(body).collect())
+                self.node(
+                    "ForStatement",
+                    s.span.start,
+                    s.span.end,
+                    parts.into_iter().chain(body).collect(),
+                )
             }
             StmtKind::While { condition, body } => {
                 let c = self.expr(*condition);
                 let b = self.stmt(*body);
-                self.node("WhileStatement", s.span.start, s.span.end, c.into_iter().chain(b).collect())
+                self.node(
+                    "WhileStatement",
+                    s.span.start,
+                    s.span.end,
+                    c.into_iter().chain(b).collect(),
+                )
             }
             StmtKind::DoWhile { body, condition } => {
                 let b = self.stmt(*body);
                 let c = self.expr(*condition);
-                self.node("DoStatement", s.span.start, s.span.end, b.into_iter().chain(c).collect())
+                self.node(
+                    "DoStatement",
+                    s.span.start,
+                    s.span.end,
+                    b.into_iter().chain(c).collect(),
+                )
             }
             StmtKind::Switch { value, cases } => {
                 let mut children = Vec::new();
@@ -1387,19 +1752,37 @@ impl<'a> Builder<'a> {
                 self.node("SwitchStatement", s.span.start, s.span.end, children)
             }
             StmtKind::Break(l) | StmtKind::Continue(l) => {
-                let kind = if matches!(s.kind, StmtKind::Break(_)) { "BreakStatement" } else { "ContinueStatement" };
+                let kind = if matches!(s.kind, StmtKind::Break(_)) {
+                    "BreakStatement"
+                } else {
+                    "ContinueStatement"
+                };
                 let r = l.and_then(|n| self.identifier(n));
                 self.node(kind, s.span.start, s.span.end, r.into_iter().collect())
             }
             StmtKind::Return(e) => {
                 let x = e.and_then(|e| self.expr(e));
-                self.node("ReturnStatement", s.span.start, s.span.end, x.into_iter().collect())
+                self.node(
+                    "ReturnStatement",
+                    s.span.start,
+                    s.span.end,
+                    x.into_iter().collect(),
+                )
             }
             StmtKind::Yield { value, .. } => {
                 let x = self.expr(*value);
-                self.node("YieldStatement", s.span.start, s.span.end, x.into_iter().collect())
+                self.node(
+                    "YieldStatement",
+                    s.span.start,
+                    s.span.end,
+                    x.into_iter().collect(),
+                )
             }
-            StmtKind::Try { body, catches, finally_ } => {
+            StmtKind::Try {
+                body,
+                catches,
+                finally_,
+            } => {
                 let mut children = Vec::new();
                 children.extend(self.stmt(*body));
                 for c in catches.iter() {
@@ -1444,7 +1827,10 @@ impl<'a> Builder<'a> {
 
     /// A statement `Label`: name → `:`.
     fn label(&mut self, n: ast::Name) -> Option<usize> {
-        let end = self.t.op_after(n.span.end, Op::Colon).map_or(n.span.end, |i| self.t.span(i).end);
+        let end = self
+            .t
+            .op_after(n.span.end, Op::Colon)
+            .map_or(n.span.end, |i| self.t.span(i).end);
         let id = self.identifier(n);
         let id = self.mark(id, Mark::DeclarationContext);
         self.node("Label", n.span.start, end, id.into_iter().collect())
@@ -1454,7 +1840,10 @@ impl<'a> Builder<'a> {
     fn case_clause(&mut self, pattern: Option<PatternId>, guard: Option<ExprId>) -> Option<usize> {
         let p = pattern?;
         let ps = self.a.pattern(p).span;
-        let word = self.t.before(ps.start).map_or(ps.start, |i| self.t.span(i).start);
+        let word = self
+            .t
+            .before(ps.start)
+            .map_or(ps.start, |i| self.t.span(i).start);
         let gp = self.guarded_pattern(p, guard);
         let end = gp.map_or(ps.end, |n| self.nodes[n].end);
         self.node("CaseClause", word, end, gp.into_iter().collect())
@@ -1468,7 +1857,10 @@ impl<'a> Builder<'a> {
         let mut end = ps.end;
         if let Some(g) = guard {
             let gs = self.a.expr(g).span;
-            let when = self.t.before(gs.start).map_or(gs.start, |i| self.t.span(i).start);
+            let when = self
+                .t
+                .before(gs.start)
+                .map_or(gs.start, |i| self.t.span(i).start);
             let e = self.expr(g);
             children.extend(self.node("WhenClause", when, gs.end, e.into_iter().collect()));
             end = gs.end;
@@ -1509,8 +1901,12 @@ impl<'a> Builder<'a> {
 
     /// The two depth-zero `;`s inside the `(` of a `for`.
     fn for_semicolons(&self, for_start: usize) -> (Option<usize>, Option<usize>, Option<usize>) {
-        let Some(open) = self.t.first_op(Op::LParen, for_start, usize::MAX) else { return (None, None, None) };
-        let Some(close) = self.t.pair_of(open) else { return (Some(open), None, None) };
+        let Some(open) = self.t.first_op(Op::LParen, for_start, usize::MAX) else {
+            return (None, None, None);
+        };
+        let Some(close) = self.t.pair_of(open) else {
+            return (Some(open), None, None);
+        };
         let mut first = None;
         let mut second = None;
         let mut i = open + 1;
@@ -1534,7 +1930,13 @@ impl<'a> Builder<'a> {
         (Some(open), first, second)
     }
 
-    fn for_parts(&mut self, for_start: usize, init: Option<&'a ForInit>, cond: Option<ExprId>, updates: &'a [ExprId]) -> Option<usize> {
+    fn for_parts(
+        &mut self,
+        for_start: usize,
+        init: Option<&'a ForInit>,
+        cond: Option<ExprId>,
+        updates: &'a [ExprId],
+    ) -> Option<usize> {
         let (_, p1, p2) = self.for_semicolons(for_start);
         let end = match updates.last() {
             Some(u) => self.a.expr(*u).span.end,
@@ -1545,7 +1947,10 @@ impl<'a> Builder<'a> {
         let (kind, start) = match init {
             Some(ForInit::Variables(l)) => {
                 // The list starts right after the `(` of the `for`.
-                let after_paren = self.t.first_op(Op::LParen, for_start, usize::MAX).map_or(for_start, |i| self.t.span(i).end);
+                let after_paren = self
+                    .t
+                    .first_op(Op::LParen, for_start, usize::MAX)
+                    .map_or(for_start, |i| self.t.span(i).end);
                 let list = self.local_variable_list(l, after_paren, &[]);
                 let start = list.map_or(after_paren, |n| self.nodes[n].start);
                 children.extend(list);
@@ -1557,17 +1962,29 @@ impl<'a> Builder<'a> {
                 ("ForPartsWithExpression", s.start)
             }
             Some(ForInit::Pattern { pattern, value, .. }) => {
-                let open = self.t.first_op(Op::LParen, for_start, usize::MAX).map_or(0, |i| self.t.span(i).end);
+                let open = self
+                    .t
+                    .first_op(Op::LParen, for_start, usize::MAX)
+                    .map_or(0, |i| self.t.span(i).end);
                 let word = self.t.after(open).map_or(open, |i| self.t.span(i).start);
                 let end_v = self.a.expr(*value).span.end;
                 let p = self.pattern(*pattern);
                 let e = self.expr(*value);
-                children.extend(self.node("PatternVariableDeclaration", word, end_v, p.into_iter().chain(e).collect()));
+                children.extend(self.node(
+                    "PatternVariableDeclaration",
+                    word,
+                    end_v,
+                    p.into_iter().chain(e).collect(),
+                ));
                 ("ForPartsWithPattern", word)
             }
             None => ("ForPartsWithExpression", p1.map(|i| self.t.span(i).start)?),
         };
-        parts.initialization = if init.is_some() { children.first().copied() } else { None };
+        parts.initialization = if init.is_some() {
+            children.first().copied()
+        } else {
+            None
+        };
         if let Some(c) = cond {
             let n = self.expr(c);
             parts.condition = n;
@@ -1585,13 +2002,23 @@ impl<'a> Builder<'a> {
         n
     }
 
-    fn for_in_parts(&mut self, for_start: usize, callee: &'a ForInTarget, iterable: ExprId) -> Option<usize> {
+    fn for_in_parts(
+        &mut self,
+        for_start: usize,
+        callee: &'a ForInTarget,
+        iterable: ExprId,
+    ) -> Option<usize> {
         let end = self.a.expr(iterable).span.end;
-        let open = self.t.first_op(Op::LParen, for_start, usize::MAX).map_or(for_start, |i| self.t.span(i).end);
+        let open = self
+            .t
+            .first_op(Op::LParen, for_start, usize::MAX)
+            .map_or(for_start, |i| self.t.span(i).end);
         let first = self.t.after(open).map_or(open, |i| self.t.span(i).start);
         let mut children = Vec::new();
         let (kind, start) = match callee {
-            ForInTarget::Declared { metadata, ty, name, .. } => {
+            ForInTarget::Declared {
+                metadata, ty, name, ..
+            } => {
                 let (start, mut f) = self.doc_and_annotations(first, metadata);
                 if let Some(t) = ty {
                     f.extend(self.ty(*t));
@@ -1628,7 +2055,10 @@ impl<'a> Builder<'a> {
                 | ExprKind::Call { target, .. }
                 | ExprKind::TypeArguments { target, .. }
                 | ExprKind::Assign { target, .. } => *target,
-                ExprKind::Unary { op: UnaryOp::PostfixInc | UnaryOp::PostfixDec | UnaryOp::NullAssert, operand } => *operand,
+                ExprKind::Unary {
+                    op: UnaryOp::PostfixInc | UnaryOp::PostfixDec | UnaryOp::NullAssert,
+                    operand,
+                } => *operand,
                 _ => return false,
             };
         }
@@ -1639,7 +2069,10 @@ impl<'a> Builder<'a> {
     fn expr_start(&self, e: ExprId) -> usize {
         let s = self.a.expr(e).span;
         if self.in_cascade(e) {
-            let i = self.t.before(s.start).filter(|&i| self.t.is_op(i, Op::DotDot) || self.t.is_op(i, Op::QuestionDotDot));
+            let i = self
+                .t
+                .before(s.start)
+                .filter(|&i| self.t.is_op(i, Op::DotDot) || self.t.is_op(i, Op::QuestionDotDot));
             if let Some(i) = i {
                 return self.t.span(i).start;
             }
@@ -1661,7 +2094,10 @@ impl<'a> Builder<'a> {
     fn expr_raw(&mut self, e: ExprId) -> Option<usize> {
         let a = self.a;
         let x = a.expr(e);
-        let s = Span { start: self.expr_start(e), end: x.span.end };
+        let s = Span {
+            start: self.expr_start(e),
+            end: x.span.end,
+        };
         match &x.kind {
             ExprKind::Int(_) => self.leaf("IntegerLiteral", s),
             ExprKind::Double(_) => self.leaf("DoubleLiteral", s),
@@ -1680,10 +2116,28 @@ impl<'a> Builder<'a> {
             ExprKind::DotShorthand { .. } => self.leaf("DotShorthand", s),
             ExprKind::Parenthesized(i) => {
                 let f = self.expr(*i);
-                self.node("ParenthesizedExpression", s.start, s.end, f.into_iter().collect())
+                self.node(
+                    "ParenthesizedExpression",
+                    s.start,
+                    s.end,
+                    f.into_iter().collect(),
+                )
             }
-            ExprKind::List { type_args, elements, .. } | ExprKind::SetOrMap { type_args, elements, .. } => {
-                let kind = if matches!(x.kind, ExprKind::List { .. }) { "ListLiteral" } else { "SetOrMapLiteral" };
+            ExprKind::List {
+                type_args,
+                elements,
+                ..
+            }
+            | ExprKind::SetOrMap {
+                type_args,
+                elements,
+                ..
+            } => {
+                let kind = if matches!(x.kind, ExprKind::List { .. }) {
+                    "ListLiteral"
+                } else {
+                    "SetOrMapLiteral"
+                };
                 let mut children = Vec::new();
                 children.extend(self.type_args(type_args));
                 for el in elements.iter() {
@@ -1691,7 +2145,9 @@ impl<'a> Builder<'a> {
                 }
                 self.node(kind, s.start, s.end, children)
             }
-            ExprKind::Record { positional, named, .. } => {
+            ExprKind::Record {
+                positional, named, ..
+            } => {
                 let mut items: Vec<(usize, Option<ast::Name>, ExprId)> = Vec::new();
                 for p in positional.iter() {
                     items.push((a.expr(*p).span.start, None, *p));
@@ -1706,9 +2162,17 @@ impl<'a> Builder<'a> {
                 }
                 self.node("RecordLiteral", s.start, s.end, children)
             }
-            ExprKind::InstanceCreation { keyword, ty, constructor, arguments } => {
+            ExprKind::InstanceCreation {
+                keyword,
+                ty,
+                constructor,
+                arguments,
+            } => {
                 let ts = a.ty(*ty).span;
-                if keyword.is_none() && constructor.is_none() && !self.constructor_calls.is_some_and(|c| c.contains(&e)) {
+                if keyword.is_none()
+                    && constructor.is_none()
+                    && !self.constructor_calls.is_some_and(|c| c.contains(&e))
+                {
                     // `A<T>()` without a keyword: `MethodInvocation`.
                     return self.type_invocation(s, *ty, arguments);
                 }
@@ -1732,13 +2196,28 @@ impl<'a> Builder<'a> {
                 // The closure starts at the type parameters or at the `(`.
                 Some(n)
             }
-            ExprKind::Property { target, name, null_aware } => {
+            ExprKind::Property {
+                target,
+                name,
+                null_aware,
+            } => {
                 let mut children = Vec::new();
                 children.extend(self.expr(*target));
                 let id = self.identifier(*name);
                 children.extend(self.mark(id, Mark::Expr(e)));
-                let prefixed = !*null_aware && matches!(a.expr(*target).kind, ExprKind::Identifier(_)) && !self.in_cascade(e);
-                self.node(if prefixed { "PrefixedIdentifier" } else { "PropertyAccess" }, s.start, s.end, children)
+                let prefixed = !*null_aware
+                    && matches!(a.expr(*target).kind, ExprKind::Identifier(_))
+                    && !self.in_cascade(e);
+                self.node(
+                    if prefixed {
+                        "PrefixedIdentifier"
+                    } else {
+                        "PropertyAccess"
+                    },
+                    s.start,
+                    s.end,
+                    children,
+                )
             }
             ExprKind::Index { target, index, .. } => {
                 let mut children = Vec::new();
@@ -1755,19 +2234,34 @@ impl<'a> Builder<'a> {
             }
             ExprKind::Unary { op, operand } => {
                 let kind = match op {
-                    UnaryOp::PostfixInc | UnaryOp::PostfixDec | UnaryOp::NullAssert => "PostfixExpression",
+                    UnaryOp::PostfixInc | UnaryOp::PostfixDec | UnaryOp::NullAssert => {
+                        "PostfixExpression"
+                    }
                     _ => "PrefixExpression",
                 };
                 let f = self.expr(*operand);
                 let n = self.node(kind, s.start, s.end, f.into_iter().collect());
-                if kind == "PrefixExpression" { self.mark(n, Mark::Operator(e)) } else { n }
+                if kind == "PrefixExpression" {
+                    self.mark(n, Mark::Operator(e))
+                } else {
+                    n
+                }
             }
             ExprKind::Binary { left, right, .. } => {
                 let l = self.expr(*left);
                 let r = self.expr(*right);
-                self.node("BinaryExpression", s.start, s.end, l.into_iter().chain(r).collect())
+                self.node(
+                    "BinaryExpression",
+                    s.start,
+                    s.end,
+                    l.into_iter().chain(r).collect(),
+                )
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 let mut f = Vec::new();
                 f.extend(self.expr(*condition));
                 f.extend(self.expr(*then));
@@ -1775,7 +2269,11 @@ impl<'a> Builder<'a> {
                 self.node("ConditionalExpression", s.start, s.end, f)
             }
             ExprKind::Is { value, ty, .. } | ExprKind::As { value, ty } => {
-                let kind = if matches!(x.kind, ExprKind::Is { .. }) { "IsExpression" } else { "AsExpression" };
+                let kind = if matches!(x.kind, ExprKind::Is { .. }) {
+                    "IsExpression"
+                } else {
+                    "AsExpression"
+                };
                 let v = self.expr(*value);
                 let t = self.ty(*ty);
                 self.node(kind, s.start, s.end, v.into_iter().chain(t).collect())
@@ -1783,14 +2281,26 @@ impl<'a> Builder<'a> {
             ExprKind::Assign { target, value, .. } => {
                 let l = self.expr(*target);
                 let r = self.expr(*value);
-                self.node("AssignmentExpression", s.start, s.end, l.into_iter().chain(r).collect())
+                self.node(
+                    "AssignmentExpression",
+                    s.start,
+                    s.end,
+                    l.into_iter().chain(r).collect(),
+                )
             }
             ExprKind::PatternAssign { pattern, value } => {
                 let p = self.pattern(*pattern);
                 let v = self.expr(*value);
-                self.node("PatternAssignment", s.start, s.end, p.into_iter().chain(v).collect())
+                self.node(
+                    "PatternAssignment",
+                    s.start,
+                    s.end,
+                    p.into_iter().chain(v).collect(),
+                )
             }
-            ExprKind::Cascade { target, sections, .. } => {
+            ExprKind::Cascade {
+                target, sections, ..
+            } => {
                 let mut f = Vec::new();
                 f.extend(self.expr(*target));
                 for sec in sections.iter() {
@@ -1814,7 +2324,12 @@ impl<'a> Builder<'a> {
                     let b = self.expr(c.body);
                     let start = self.a.pattern(c.pattern).span.start;
                     let end = self.a.expr(c.body).span.end;
-                    let n = self.node("SwitchExpressionCase", start, end, gp.into_iter().chain(b).collect());
+                    let n = self.node(
+                        "SwitchExpressionCase",
+                        start,
+                        end,
+                        gp.into_iter().chain(b).collect(),
+                    );
                     f.extend(self.bind_to(n, Binding::SwitchExprCase(e, k)));
                 }
                 self.node("SwitchExpression", s.start, s.end, f)
@@ -1842,19 +2357,33 @@ impl<'a> Builder<'a> {
 
     /// `MethodInvocation` (an identifier target or `target.name`) or
     /// `FunctionExpressionInvocation`.
-    fn call(&mut self, e: ExprId, s: Span, callee: ExprId, arguments: &'a Arguments) -> Option<usize> {
+    fn call(
+        &mut self,
+        e: ExprId,
+        s: Span,
+        callee: ExprId,
+        arguments: &'a Arguments,
+    ) -> Option<usize> {
         let a = self.a;
         // `f<int>(x)`: the type arguments may come on the target.
         let (callee, target_types): (ExprId, Option<&'a [TypeId]>) = match &a.expr(callee).kind {
             ExprKind::TypeArguments { target, type_args }
-                if matches!(a.expr(*target).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) =>
+                if matches!(
+                    a.expr(*target).kind,
+                    ExprKind::Identifier(_) | ExprKind::Property { .. }
+                ) =>
             {
                 (*target, Some(&type_args[..]))
             }
             _ => (callee, None),
         };
         if self.constructor_calls.is_some_and(|c| c.contains(&e))
-            && let Some(n) = self.creation_without_new(s, callee, target_types.unwrap_or(&arguments.type_args), arguments)
+            && let Some(n) = self.creation_without_new(
+                s,
+                callee,
+                target_types.unwrap_or(&arguments.type_args),
+                arguments,
+            )
         {
             return Some(n);
         }
@@ -1893,7 +2422,13 @@ impl<'a> Builder<'a> {
     /// that invoke a constructor become `InstanceCreationExpression` with
     /// `ConstructorName(NamedType, name?)`; the invocation's type arguments go
     /// to the `NamedType`.
-    fn creation_without_new(&mut self, s: Span, callee: ExprId, types: &'a [TypeId], arguments: &'a Arguments) -> Option<usize> {
+    fn creation_without_new(
+        &mut self,
+        s: Span,
+        callee: ExprId,
+        types: &'a [TypeId],
+        arguments: &'a Arguments,
+    ) -> Option<usize> {
         let a = self.a;
         let is_prefix = |x: ExprId| self.prefix_idents.is_some_and(|p| p.contains(&x));
         // `A<T>.n()` and `p.A<T>.n()` (`parseImplicitCreationExpression`): the
@@ -1901,34 +2436,53 @@ impl<'a> Builder<'a> {
         // stay on the `NamedType`.
         let mut type_types: Option<&'a [TypeId]> = None;
         // (prefix, type, named constructor)
-        let (prefix, ty, name): (Option<ast::Name>, ast::Name, Option<(ast::Name, ExprId)>) = match &a.expr(callee).kind {
-            ExprKind::Identifier(n) => (None, *n, None),
-            ExprKind::Property { target, name, .. } => match &a.expr(*target).kind {
-                ExprKind::Identifier(p) if is_prefix(*target) => (Some(*p), *name, None),
-                ExprKind::Identifier(c) => (None, *c, Some((*name, callee))),
-                ExprKind::Property { target: t2, name: c, .. } => match &a.expr(*t2).kind {
-                    ExprKind::Identifier(p) if is_prefix(*t2) => (Some(*p), *c, Some((*name, callee))),
+        let (prefix, ty, name): (Option<ast::Name>, ast::Name, Option<(ast::Name, ExprId)>) =
+            match &a.expr(callee).kind {
+                ExprKind::Identifier(n) => (None, *n, None),
+                ExprKind::Property { target, name, .. } => match &a.expr(*target).kind {
+                    ExprKind::Identifier(p) if is_prefix(*target) => (Some(*p), *name, None),
+                    ExprKind::Identifier(c) => (None, *c, Some((*name, callee))),
+                    ExprKind::Property {
+                        target: t2,
+                        name: c,
+                        ..
+                    } => match &a.expr(*t2).kind {
+                        ExprKind::Identifier(p) if is_prefix(*t2) => {
+                            (Some(*p), *c, Some((*name, callee)))
+                        }
+                        _ => return None,
+                    },
+                    ExprKind::TypeArguments {
+                        target: inner,
+                        type_args,
+                    } => {
+                        type_types = Some(&type_args[..]);
+                        match &a.expr(*inner).kind {
+                            ExprKind::Identifier(c) => (None, *c, Some((*name, callee))),
+                            ExprKind::Property {
+                                target: t2,
+                                name: c,
+                                ..
+                            } => match &a.expr(*t2).kind {
+                                ExprKind::Identifier(p) if is_prefix(*t2) => {
+                                    (Some(*p), *c, Some((*name, callee)))
+                                }
+                                _ => return None,
+                            },
+                            _ => return None,
+                        }
+                    }
                     _ => return None,
                 },
-                ExprKind::TypeArguments { target: inner, type_args } => {
-                    type_types = Some(&type_args[..]);
-                    match &a.expr(*inner).kind {
-                        ExprKind::Identifier(c) => (None, *c, Some((*name, callee))),
-                        ExprKind::Property { target: t2, name: c, .. } => match &a.expr(*t2).kind {
-                            ExprKind::Identifier(p) if is_prefix(*t2) => (Some(*p), *c, Some((*name, callee))),
-                            _ => return None,
-                        },
-                        _ => return None,
-                    }
-                }
                 _ => return None,
-            },
-            _ => return None,
-        };
+            };
         let mut f = Vec::new();
         let type_start = prefix.map_or(ty.span.start, |p| p.span.start);
         if let Some(p) = prefix {
-            let dot = self.t.op_after(p.span.end, Op::Dot).map_or(p.span.end, |i| self.t.span(i).end);
+            let dot = self
+                .t
+                .op_after(p.span.end, Op::Dot)
+                .map_or(p.span.end, |i| self.t.span(i).end);
             f.extend(self.node("ImportPrefixReference", p.span.start, dot, Vec::new()));
         }
         // The type arguments stay on the type when they come right after it
@@ -1972,33 +2526,62 @@ impl<'a> Builder<'a> {
             CollectionElement::Expression(e) => self.expr(*e),
             CollectionElement::NullAwareExpression(e) => {
                 let s = self.a.expr(*e).span;
-                let q = self.t.op_before(s.start, Op::Question).map_or(s.start, |i| self.t.span(i).start);
+                let q = self
+                    .t
+                    .op_before(s.start, Op::Question)
+                    .map_or(s.start, |i| self.t.span(i).start);
                 let f = self.expr(*e);
                 self.node("NullAwareElement", q, s.end, f.into_iter().collect())
             }
-            CollectionElement::MapEntry { key, value, null_aware_key, .. } => {
+            CollectionElement::MapEntry {
+                key,
+                value,
+                null_aware_key,
+                ..
+            } => {
                 let ks = self.a.expr(*key).span;
-                let start = if *null_aware_key { self.t.op_before(ks.start, Op::Question).map_or(ks.start, |i| self.t.span(i).start) } else { ks.start };
+                let start = if *null_aware_key {
+                    self.t
+                        .op_before(ks.start, Op::Question)
+                        .map_or(ks.start, |i| self.t.span(i).start)
+                } else {
+                    ks.start
+                };
                 let k = self.expr(*key);
                 let v = self.expr(*value);
                 let end = self.a.expr(*value).span.end;
-                self.node("MapLiteralEntry", start, end, k.into_iter().chain(v).collect())
+                self.node(
+                    "MapLiteralEntry",
+                    start,
+                    end,
+                    k.into_iter().chain(v).collect(),
+                )
             }
             CollectionElement::Spread { value, .. } => {
                 let s = self.a.expr(*value).span;
                 let three = self
                     .t
                     .before(s.start)
-                    .filter(|&i| self.t.is_op(i, Op::Ellipsis) || self.t.is_op(i, Op::EllipsisQuestion))
+                    .filter(|&i| {
+                        self.t.is_op(i, Op::Ellipsis) || self.t.is_op(i, Op::EllipsisQuestion)
+                    })
                     .map_or(s.start, |i| self.t.span(i).start);
                 let f = self.expr(*value);
                 self.node("SpreadElement", three, s.end, f.into_iter().collect())
             }
-            CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+            CollectionElement::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 let cs = self.a.expr(*condition).span;
                 // `if (`: the `if` before the `(` that opens the condition.
                 let open = self.t.last_op(Op::LParen, 0, cs.start);
-                let word = open.and_then(|i| self.t.before(self.t.span(i).start)).map_or(cs.start, |i| self.t.span(i).start);
+                let word = open
+                    .and_then(|i| self.t.before(self.t.span(i).start))
+                    .map_or(cs.start, |i| self.t.span(i).start);
                 let mut f = Vec::new();
                 f.extend(self.expr(*condition));
                 f.extend(self.case_clause(*case_pattern, *guard));
@@ -2012,21 +2595,42 @@ impl<'a> Builder<'a> {
                 }
                 self.node("IfElement", word, end, f)
             }
-            CollectionElement::For { await_, init, condition, updates, body } => {
+            CollectionElement::For {
+                await_,
+                init,
+                condition,
+                updates,
+                body,
+            } => {
                 let body_start = self.element_start(body);
                 let (word, open) = self.for_before(body_start, *await_);
                 let parts = self.for_parts(open, init.as_ref(), *condition, updates);
                 let b = self.element(body);
                 let end = b.map_or(body_start, |n| self.nodes[n].end);
-                self.node("ForElement", word, end, parts.into_iter().chain(b).collect())
+                self.node(
+                    "ForElement",
+                    word,
+                    end,
+                    parts.into_iter().chain(b).collect(),
+                )
             }
-            CollectionElement::ForIn { await_, target, iterable, body } => {
+            CollectionElement::ForIn {
+                await_,
+                target,
+                iterable,
+                body,
+            } => {
                 let body_start = self.element_start(body);
                 let (word, open) = self.for_before(body_start, *await_);
                 let parts = self.for_in_parts(open, target, *iterable);
                 let b = self.element(body);
                 let end = b.map_or(body_start, |n| self.nodes[n].end);
-                self.node("ForElement", word, end, parts.into_iter().chain(b).collect())
+                self.node(
+                    "ForElement",
+                    word,
+                    end,
+                    parts.into_iter().chain(b).collect(),
+                )
             }
         }
     }
@@ -2034,12 +2638,18 @@ impl<'a> Builder<'a> {
     /// The first offset of an element (without building nodes).
     fn element_start(&self, el: &CollectionElement) -> usize {
         match el {
-            CollectionElement::Expression(e) | CollectionElement::NullAwareExpression(e) | CollectionElement::Spread { value: e, .. } => {
-                self.t.before(self.a.expr(*e).span.start).map_or(self.a.expr(*e).span.start, |i| self.t.span(i).start).min(self.a.expr(*e).span.start)
-            }
+            CollectionElement::Expression(e)
+            | CollectionElement::NullAwareExpression(e)
+            | CollectionElement::Spread { value: e, .. } => self
+                .t
+                .before(self.a.expr(*e).span.start)
+                .map_or(self.a.expr(*e).span.start, |i| self.t.span(i).start)
+                .min(self.a.expr(*e).span.start),
             CollectionElement::MapEntry { key, .. } => self.a.expr(*key).span.start,
             CollectionElement::If { condition, .. } => self.a.expr(*condition).span.start,
-            CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => self.element_start(body),
+            CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+                self.element_start(body)
+            }
         }
     }
 
@@ -2100,7 +2710,13 @@ impl<'a> Builder<'a> {
                             dartforge_frontend::token::Interp::Ident => 1,
                         };
                         let text_end = fragment.end.saturating_sub(cut).max(fragment.start);
-                        elements.extend(self.leaf("InterpolationString", Span { start: fragment.start, end: text_end }));
+                        elements.extend(self.leaf(
+                            "InterpolationString",
+                            Span {
+                                start: fragment.start,
+                                end: text_end,
+                            },
+                        ));
                         // The interpolated expression.
                         let e = interpolations.get(next).copied();
                         next += 1;
@@ -2116,22 +2732,40 @@ impl<'a> Builder<'a> {
                             }
                             j += 1;
                         }
-                        let Some(t2) = self.t.list.get(j).copied() else { break };
+                        let Some(t2) = self.t.list.get(j).copied() else {
+                            break;
+                        };
                         // `${e}`: the `}` is the 1st character of the next fragment.
                         let interp_end = match mode {
-                            dartforge_frontend::token::Interp::Brace => (t2.span.start + 1).min(t2.span.end),
+                            dartforge_frontend::token::Interp::Brace => {
+                                (t2.span.start + 1).min(t2.span.end)
+                            }
                             dartforge_frontend::token::Interp::Ident => expr_end,
                         };
-                        elements.extend(self.node("InterpolationExpression", text_end, interp_end, expr_node.into_iter().collect()));
+                        elements.extend(self.node(
+                            "InterpolationExpression",
+                            text_end,
+                            interp_end,
+                            expr_node.into_iter().collect(),
+                        ));
                         let text_start = interp_end.max(t2.span.start);
                         match t2.kind {
                             Kind::StrMid(_, m) => {
-                                fragment = Span { start: text_start, end: t2.span.end };
+                                fragment = Span {
+                                    start: text_start,
+                                    end: t2.span.end,
+                                };
                                 mode = m;
                                 i = j + 1;
                             }
                             _ => {
-                                elements.extend(self.leaf("InterpolationString", Span { start: text_start, end: t2.span.end }));
+                                elements.extend(self.leaf(
+                                    "InterpolationString",
+                                    Span {
+                                        start: text_start,
+                                        end: t2.span.end,
+                                    },
+                                ));
                                 end = t2.span.end;
                                 i = j + 1;
                                 closed_now = true;
@@ -2174,14 +2808,21 @@ impl<'a> Builder<'a> {
                 let t = ty.and_then(|t| self.ty(t));
                 self.node("WildcardPattern", s.start, s.end, t.into_iter().collect())
             }
-            PatternKind::Variable { ty, final_, var_, .. } => {
+            PatternKind::Variable {
+                ty, final_, var_, ..
+            } => {
                 if !final_ && !var_ && ty.is_none() {
                     // A loose `x`: in an assignment it is an
                     // `AssignedVariablePattern`; in a declaration, a `DeclaredVariablePattern`.
                     return self.leaf("DeclaredVariablePattern", s);
                 }
                 let t = ty.and_then(|t| self.ty(t));
-                self.node("DeclaredVariablePattern", s.start, s.end, t.into_iter().collect())
+                self.node(
+                    "DeclaredVariablePattern",
+                    s.start,
+                    s.end,
+                    t.into_iter().collect(),
+                )
             }
             PatternKind::Constant(e) => {
                 let f = self.expr(*e);
@@ -2192,26 +2833,47 @@ impl<'a> Builder<'a> {
                 self.node("RelationalPattern", s.start, s.end, f.into_iter().collect())
             }
             PatternKind::Or(l, r) | PatternKind::And(l, r) => {
-                let kind = if matches!(x.kind, PatternKind::Or(..)) { "LogicalOrPattern" } else { "LogicalAndPattern" };
+                let kind = if matches!(x.kind, PatternKind::Or(..)) {
+                    "LogicalOrPattern"
+                } else {
+                    "LogicalAndPattern"
+                };
                 let a1 = self.pattern(*l);
                 let b1 = self.pattern(*r);
                 self.node(kind, s.start, s.end, a1.into_iter().chain(b1).collect())
             }
             PatternKind::NullCheck(i) | PatternKind::NullAssert(i) => {
-                let kind = if matches!(x.kind, PatternKind::NullCheck(_)) { "NullCheckPattern" } else { "NullAssertPattern" };
+                let kind = if matches!(x.kind, PatternKind::NullCheck(_)) {
+                    "NullCheckPattern"
+                } else {
+                    "NullAssertPattern"
+                };
                 let f = self.pattern(*i);
                 self.node(kind, s.start, s.end, f.into_iter().collect())
             }
             PatternKind::Cast { pattern, ty } => {
                 let f = self.pattern(*pattern);
                 let t = self.ty(*ty);
-                self.node("CastPattern", s.start, s.end, f.into_iter().chain(t).collect())
+                self.node(
+                    "CastPattern",
+                    s.start,
+                    s.end,
+                    f.into_iter().chain(t).collect(),
+                )
             }
             PatternKind::Parenthesized(i) => {
                 let f = self.pattern(*i);
-                self.node("ParenthesizedPattern", s.start, s.end, f.into_iter().collect())
+                self.node(
+                    "ParenthesizedPattern",
+                    s.start,
+                    s.end,
+                    f.into_iter().collect(),
+                )
             }
-            PatternKind::List { type_args, elements } => {
+            PatternKind::List {
+                type_args,
+                elements,
+            } => {
                 let mut f = Vec::new();
                 f.extend(self.type_args(type_args));
                 for el in elements.iter() {
@@ -2225,14 +2887,21 @@ impl<'a> Builder<'a> {
                                 .map(|i| self.t.span(i));
                             let inner = q.and_then(|q| self.pattern(q));
                             if let Some(ts) = three {
-                                f.extend(self.node("RestPatternElement", ts.start, end.unwrap_or(ts.end), inner.into_iter().collect()));
+                                f.extend(self.node(
+                                    "RestPatternElement",
+                                    ts.start,
+                                    end.unwrap_or(ts.end),
+                                    inner.into_iter().collect(),
+                                ));
                             }
                         }
                     }
                 }
                 self.node("ListPattern", s.start, s.end, f)
             }
-            PatternKind::Map { type_args, entries, .. } => {
+            PatternKind::Map {
+                type_args, entries, ..
+            } => {
                 let mut f = Vec::new();
                 f.extend(self.type_args(type_args));
                 for en in entries.iter() {
@@ -2240,12 +2909,20 @@ impl<'a> Builder<'a> {
                     let v = self.pattern(en.value);
                     let start = self.a.expr(en.key).span.start;
                     let end = self.a.pattern(en.value).span.end;
-                    f.extend(self.node("MapPatternEntry", start, end, k.into_iter().chain(v).collect()));
+                    f.extend(self.node(
+                        "MapPatternEntry",
+                        start,
+                        end,
+                        k.into_iter().chain(v).collect(),
+                    ));
                 }
                 self.node("MapPattern", s.start, s.end, f)
             }
             PatternKind::Record { fields } => {
-                let f: Vec<usize> = fields.iter().filter_map(|c| self.pattern_field(c)).collect();
+                let f: Vec<usize> = fields
+                    .iter()
+                    .filter_map(|c| self.pattern_field(c))
+                    .collect();
                 self.node("RecordPattern", s.start, s.end, f)
             }
             PatternKind::Object { ty, fields } => {
@@ -2264,8 +2941,14 @@ impl<'a> Builder<'a> {
         let mut f = Vec::new();
         // `PatternFieldName`: `name:` or `:` (implicit name).
         let colon = match c.name {
-            Some(n) => self.t.op_after(n.span.end, Op::Colon).map(|i| (n.span.start, self.t.span(i).end)),
-            None => self.t.op_before(ps.start, Op::Colon).map(|i| (self.t.span(i).start, self.t.span(i).end)),
+            Some(n) => self
+                .t
+                .op_after(n.span.end, Op::Colon)
+                .map(|i| (n.span.start, self.t.span(i).end)),
+            None => self
+                .t
+                .op_before(ps.start, Op::Colon)
+                .map(|i| (self.t.span(i).start, self.t.span(i).end)),
         };
         let has_name = c.name.is_some() || c.span.start < ps.start;
         if has_name && let Some((a, b)) = colon {
@@ -2279,12 +2962,18 @@ impl<'a> Builder<'a> {
 /// The selection ranges at `offset`: the `NodeLocator` node and its ancestors,
 /// without the unit, without repeating the previous range
 /// (`DartSelectionRangeComputer`).
-pub fn selections(text: &str, features: dartforge_frontend::LibraryFeatures, offset: usize) -> Vec<Span> {
+pub fn selections(
+    text: &str,
+    features: dartforge_frontend::LibraryFeatures,
+    offset: usize,
+) -> Vec<Span> {
     let before_3_0 = features.version().major < 3;
     let mut names = dartforge_intern::Interner::new();
     let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
     let tree = build(text, &parsed.ast, &parsed.unit, before_3_0);
-    let Some(node) = tree.locate(offset, offset) else { return Vec::new() };
+    let Some(node) = tree.locate(offset, offset) else {
+        return Vec::new();
+    };
     let mut v: Vec<Span> = Vec::new();
     for n in tree.chain(node) {
         let s = tree.span(n);
@@ -2375,8 +3064,14 @@ mod tests {
 
     fn chain(text: &str, cursor: &str) -> Vec<String> {
         let offset = text.find(cursor).expect("cursor") + cursor.len() / 2;
-        let features = dartforge_frontend::LibraryFeatures::new(dartforge_frontend::LanguageVersion::CURRENT, &[]);
-        selections(text, features, offset).into_iter().map(|s| text[s.start..s.end].to_string()).collect()
+        let features = dartforge_frontend::LibraryFeatures::new(
+            dartforge_frontend::LanguageVersion::CURRENT,
+            &[],
+        );
+        selections(text, features, offset)
+            .into_iter()
+            .map(|s| text[s.start..s.end].to_string())
+            .collect()
     }
 
     #[test]

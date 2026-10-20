@@ -99,14 +99,22 @@ impl<'s, 'i> Parser<'s, 'i> {
             let text = &self.source[name.span.start..name.span.end];
             if matches!(text, "when" | "as") {
                 let text = text.to_string();
-                self.error_at(codes::parser::ILLEGAL_PATTERN_IDENTIFIER_NAME, name.span, &[&text]);
+                self.error_at(
+                    codes::parser::ILLEGAL_PATTERN_IDENTIFIER_NAME,
+                    name.span,
+                    &[&text],
+                );
             }
             return;
         }
         match self.default_context {
             PatternContext::Declaration => {
                 if let Some(p) = word {
-                    self.error_at(codes::parser::VARIABLE_PATTERN_KEYWORD_IN_DECLARATION_CONTEXT, p, &[]);
+                    self.error_at(
+                        codes::parser::VARIABLE_PATTERN_KEYWORD_IN_DECLARATION_CONTEXT,
+                        p,
+                        &[],
+                    );
                 }
             }
             PatternContext::Matching => {
@@ -117,8 +125,16 @@ impl<'s, 'i> Parser<'s, 'i> {
             PatternContext::Assignment => {
                 if !stray {
                     let text = self.source[name.span.start..name.span.end].to_string();
-                    let text = if text.is_empty() { "(unnamed)".to_string() } else { text };
-                    self.error_at(codes::parser::PATTERN_ASSIGNMENT_DECLARES_VARIABLE, name.span, &[&text]);
+                    let text = if text.is_empty() {
+                        "(unnamed)".to_string()
+                    } else {
+                        text
+                    };
+                    self.error_at(
+                        codes::parser::PATTERN_ASSIGNMENT_DECLARES_VARIABLE,
+                        name.span,
+                        &[&text],
+                    );
                 }
             }
         }
@@ -257,8 +273,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             PatternKind::Relational { .. }
         );
         loop {
-            if !allowed
-                && (self.at_op(Op::Question) || self.at_op(Op::Bang) || self.at_ident("as"))
+            if !allowed && (self.at_op(Op::Question) || self.at_op(Op::Bang) || self.at_ident("as"))
             {
                 let end_offset = self.tokens[self.pos - 1].span.end;
                 self.error_at(
@@ -526,10 +541,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         match self.kind() {
             Kind::Op(op @ (Op::Bang | Op::Tilde)) => {
                 if ctx != ConstContext::NoneFound {
-                    self.error(
-                        codes::parser::INVALID_CONSTANT_PATTERN_UNARY,
-                        &[op.text()],
-                    );
+                    self.error(codes::parser::INVALID_CONSTANT_PATTERN_UNARY, &[op.text()]);
                 }
                 self.advance();
                 let operand = self.parse_unary(false)?;
@@ -611,11 +623,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                     (ConstContext::NumericOnly, _) if literal => {
                         // The whole string (with interpolations) is the fasta token.
                         let span = self.string_or_token_span();
-                        self.error_at(
-                            codes::parser::INVALID_CONSTANT_PATTERN_NEGATION,
-                            span,
-                            &[],
-                        );
+                        self.error_at(codes::parser::INVALID_CONSTANT_PATTERN_NEGATION, span, &[]);
                     }
                     _ => {}
                 }
@@ -689,7 +697,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         // `await e` in a refutable context: the bare identifier goes to the
         // constant pattern (`parsePrecedenceExpression`), which reads the `await`.
-        if self.text() == "await" && (self.in_async || self.looks_like_expression_after_await(pos, true)) && self.default_context == PatternContext::Matching {
+        if self.text() == "await"
+            && (self.in_async || self.looks_like_expression_after_await(pos, true))
+            && self.default_context == PatternContext::Matching
+        {
             return self.parse_constant_pattern(start);
         }
         // `a--`/`a++`: fasta reads the whole `unaryExpression` as a constant
@@ -1044,7 +1055,10 @@ mod tests {
             ))
         };
         let e = |c: &str, t: &str| vec![(c.to_string(), t.to_string())];
-        assert_eq!(case_("const 1 + 2"), e("invalid_constant_const_prefix", "1"));
+        assert_eq!(
+            case_("const 1 + 2"),
+            e("invalid_constant_const_prefix", "1")
+        );
         assert_eq!(case_("const a"), e("invalid_constant_const_prefix", "a"));
         assert_eq!(case_("const A.b"), e("invalid_constant_const_prefix", "b"));
         assert_eq!(case_("const A.n()"), vec![]);
@@ -1066,7 +1080,10 @@ mod tests {
         );
         assert_eq!(case_("!true"), e("invalid_constant_pattern_unary", "!"));
         assert_eq!(case_("1 >> 2"), e("invalid_constant_pattern_binary", ">>"));
-        assert_eq!(case_("1 is int"), e("invalid_constant_pattern_binary", "is"));
+        assert_eq!(
+            case_("1 is int"),
+            e("invalid_constant_pattern_binary", "is")
+        );
         assert_eq!(case_("a + 1"), e("invalid_constant_pattern_binary", "+"));
         assert_eq!(
             case_("const const A()"),
@@ -1093,10 +1110,15 @@ mod tests {
     #[test]
     fn initializer_without_function_literal() {
         assert_eq!(
-            unit_errors("class A { bool b; A(Object? v, {bool? c}) : b = c ?? (v == null) { print(1); } }"),
+            unit_errors(
+                "class A { bool b; A(Object? v, {bool? c}) : b = c ?? (v == null) { print(1); } }"
+            ),
             vec![]
         );
-        assert_eq!(unit_errors("class A { var f; A() : f = g((x) { return x; }) {} }"), vec![]);
+        assert_eq!(
+            unit_errors("class A { var f; A() : f = g((x) { return x; }) {} }"),
+            vec![]
+        );
     }
 
     /// `ensureCloseParen`: the missing `)` is reported at the current token and

@@ -20,26 +20,37 @@
 //! compares the nodes' `toString` (`dartforge_frontend::source`).
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
-    self, BinaryOp, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, MemberKind, ParameterKind, StmtKind, VariableList,
+    self, BinaryOp, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, MemberKind, ParameterKind,
+    StmtKind, VariableList,
 };
 use dartforge_intern::Interner;
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let source = u.source;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
     // The `toString` of an expression.
-    let source_of = |e: ExprId| -> String { dartforge_frontend::source::from_expr(a, source, interner, e) };
+    let source_of =
+        |e: ExprId| -> String { dartforge_frontend::source::from_expr(a, source, interner, e) };
     // All the unit's parameter lists, with the nested ones.
     fn collect_lists<'x>(list: &'x [ast::Parameter], out: &mut Vec<&'x [ast::Parameter]>) {
         out.push(list);
@@ -76,8 +87,17 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // `prefer_if_null_operators`: `a == null ? b : a` and `a != null ? a : b`.
     if enabled("prefer_if_null_operators") {
         for e in a.exprs.iter() {
-            let ExprKind::Conditional { condition, then, else_ } = &e.kind else { continue };
-            let ExprKind::Binary { op, left, right } = &a.expr(*condition).kind else { continue };
+            let ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } = &e.kind
+            else {
+                continue;
+            };
+            let ExprKind::Binary { op, left, right } = &a.expr(*condition).kind else {
+                continue;
+            };
             if !matches!(op, BinaryOp::Eq | BinaryOp::NotEq) {
                 continue;
             }
@@ -98,18 +118,33 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     if enabled("avoid_single_cascade_in_expression_statements") {
         for s in a.stmts.iter() {
             if let StmtKind::Expression(e) = &s.kind
-                && let ExprKind::Cascade { sections, null_aware, .. } = &a.expr(*e).kind
+                && let ExprKind::Cascade {
+                    sections,
+                    null_aware,
+                    ..
+                } = &a.expr(*e).kind
                 && sections.len() == 1
             {
-                report(&c::AVOID_SINGLE_CASCADE_IN_EXPRESSION_STATEMENTS, a.expr(*e).span, &[if *null_aware { "?." } else { "." }]);
+                report(
+                    &c::AVOID_SINGLE_CASCADE_IN_EXPRESSION_STATEMENTS,
+                    a.expr(*e).span,
+                    &[if *null_aware { "?." } else { "." }],
+                );
             }
         }
     }
     // `use_function_type_syntax_for_parameters`: `void f(int g(int x))`.
     if enabled("use_function_type_syntax_for_parameters") {
         for list in &param_lists {
-            for p in list.iter().filter(|p| p.function_parameters.is_some() && !p.this_ && !p.super_) {
-                report(&c::USE_FUNCTION_TYPE_SYNTAX_FOR_PARAMETERS, p.span, &[p.name.map_or("", |n| interner.resolve(n.sym))]);
+            for p in list
+                .iter()
+                .filter(|p| p.function_parameters.is_some() && !p.this_ && !p.super_)
+            {
+                report(
+                    &c::USE_FUNCTION_TYPE_SYNTAX_FOR_PARAMETERS,
+                    p.span,
+                    &[p.name.map_or("", |n| interner.resolve(n.sym))],
+                );
             }
         }
     }
@@ -118,7 +153,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let mut check = |n: ast::Name| {
             let text = interner.resolve(n.sym);
             if text.starts_with('_') && !text.bytes().all(|b| b == b'_') {
-                report(&c::NO_LEADING_UNDERSCORES_FOR_LOCAL_IDENTIFIERS, n.span, &[text]);
+                report(
+                    &c::NO_LEADING_UNDERSCORES_FOR_LOCAL_IDENTIFIERS,
+                    n.span,
+                    &[text],
+                );
             }
         };
         let from_list = |l: &VariableList, check: &mut dyn FnMut(ast::Name)| {
@@ -128,8 +167,15 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         };
         for s in a.stmts.iter() {
             match &s.kind {
-                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => from_list(l, &mut check),
-                StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => check(*name),
+                StmtKind::Variables(l)
+                | StmtKind::For {
+                    init: Some(ForInit::Variables(l)),
+                    ..
+                } => from_list(l, &mut check),
+                StmtKind::ForIn {
+                    target: ForInTarget::Declared { name, .. },
+                    ..
+                } => check(*name),
                 StmtKind::Function(f) => {
                     if let Some(n) = a.function(*f).name {
                         check(n);
@@ -208,9 +254,20 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 }
                 // Inside a function body, the unchanged element; outside, the
                 // `final` list.
-                let reported = if local { sem.is_some_and(|s| !super::is_mutated(s, a, v.name.span.start)) } else { l.final_ };
+                let reported = if local {
+                    sem.is_some_and(|s| !super::is_mutated(s, a, v.name.span.start))
+                } else {
+                    l.final_
+                };
                 if reported {
-                    report(&c::PREFER_FUNCTION_DECLARATIONS_OVER_VARIABLES, Span { start: v.name.span.start, end: a.expr(init).span.end }, &[]);
+                    report(
+                        &c::PREFER_FUNCTION_DECLARATIONS_OVER_VARIABLES,
+                        Span {
+                            start: v.name.span.start,
+                            end: a.expr(init).span.end,
+                        },
+                        &[],
+                    );
                 }
             }
         };
@@ -226,7 +283,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         }
         for s in a.stmts.iter() {
             match &s.kind {
-                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => check(l, true),
+                StmtKind::Variables(l)
+                | StmtKind::For {
+                    init: Some(ForInit::Variables(l)),
+                    ..
+                } => check(l, true),
                 _ => {}
             }
         }
@@ -274,7 +335,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 for el in elements.iter() {
                     collection_lists(el, &mut ls);
                 }
-                let local = bodies.iter().any(|c| c.start <= e.span.start && e.span.end <= c.end);
+                let local = bodies
+                    .iter()
+                    .any(|c| c.start <= e.span.start && e.span.end <= c.end);
                 for l in ls {
                     check(l, local);
                 }
@@ -291,38 +354,72 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
         let mut reports = run(u, &names, &|_| true, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| (r.code.name, source[r.span.start..r.span.end].to_string())).collect()
+        reports
+            .into_iter()
+            .map(|r| (r.code.name, source[r.span.start..r.span.end].to_string()))
+            .collect()
     }
 
     #[test]
     fn expressions() {
-        assert_eq!(findings("int f(int? a) => a == null ? 0 : a;\n"), vec![("prefer_if_null_operators", "a == null ? 0 : a".to_string())]);
+        assert_eq!(
+            findings("int f(int? a) => a == null ? 0 : a;\n"),
+            vec![("prefer_if_null_operators", "a == null ? 0 : a".to_string())]
+        );
         assert!(findings("int f(int? a, int b) => a == null ? 0 : b;\n").is_empty());
         assert_eq!(
             findings("void f(List<int> l) {\n  l..add(1);\n}\n"),
-            vec![("avoid_single_cascade_in_expression_statements", "l..add(1)".to_string())]
+            vec![(
+                "avoid_single_cascade_in_expression_statements",
+                "l..add(1)".to_string()
+            )]
         );
     }
 
     #[test]
     fn names_and_parameters() {
-        assert_eq!(findings("void f(int g(int x)) {}\n"), vec![("use_function_type_syntax_for_parameters", "int g(int x)".to_string())]);
+        assert_eq!(
+            findings("void f(int g(int x)) {}\n"),
+            vec![(
+                "use_function_type_syntax_for_parameters",
+                "int g(int x)".to_string()
+            )]
+        );
         assert_eq!(
             findings("void f(int _a, {int? _b}) {\n  var _c = 1;\n  var __ = 2;\n}\n"),
             vec![
-                ("no_leading_underscores_for_local_identifiers", "_a".to_string()),
-                ("no_leading_underscores_for_local_identifiers", "_c".to_string()),
+                (
+                    "no_leading_underscores_for_local_identifiers",
+                    "_a".to_string()
+                ),
+                (
+                    "no_leading_underscores_for_local_identifiers",
+                    "_c".to_string()
+                ),
             ]
         );
     }
 
     #[test]
     fn functions_in_variables() {
-        assert_eq!(findings("final f = () {};\nvar g = () {};\n"), vec![("prefer_function_declarations_over_variables", "f = () {}".to_string())]);
+        assert_eq!(
+            findings("final f = () {};\nvar g = () {};\n"),
+            vec![(
+                "prefer_function_declarations_over_variables",
+                "f = () {}".to_string()
+            )]
+        );
         // The local needs the unit's semantics (the mutation is by element).
-        assert!(findings("void m() {\n  var a = () {};\n  var b = () {};\n  b = () {};\n}\n").is_empty());
+        assert!(
+            findings("void m() {\n  var a = () {};\n  var b = () {};\n  b = () {};\n}\n")
+                .is_empty()
+        );
     }
 }

@@ -36,7 +36,9 @@ use std::collections::HashMap;
 /// `Option<Name>` cost the same as the value without `Option`: the tree has
 /// thousands of optional names (named argument, named constructor, unnamed
 /// parameter), and the niche saves 8 bytes on each one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct SymbolId(std::num::NonZeroU32);
 
 impl SymbolId {

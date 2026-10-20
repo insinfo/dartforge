@@ -370,9 +370,19 @@ fn test_supertype_resolution() {
 
     let sub_class = prog.classes.iter().find(|c| c.name == sub_sym).unwrap();
 
-    let base_id = ClassId(prog.classes.iter().position(|c| c.name == base_sym).unwrap() as u32);
+    let base_id = ClassId(
+        prog.classes
+            .iter()
+            .position(|c| c.name == base_sym)
+            .unwrap() as u32,
+    );
     let mix_id = ClassId(prog.classes.iter().position(|c| c.name == mix_sym).unwrap() as u32);
-    let iface_id = ClassId(prog.classes.iter().position(|c| c.name == iface_sym).unwrap() as u32);
+    let iface_id = ClassId(
+        prog.classes
+            .iter()
+            .position(|c| c.name == iface_sym)
+            .unwrap() as u32,
+    );
 
     assert_eq!(sub_class.supertype_class, Some(base_id));
     assert_eq!(sub_class.mixin_classes, vec![mix_id]);
@@ -424,13 +434,21 @@ fn build_runner_output_outside_lib() {
     fs::create_dir_all(proj.join("test")).unwrap();
     fs::create_dir_all(proj.join("lib")).unwrap();
     fs::create_dir_all(proj.join(".dart_tool/build/generated/gentest/test")).unwrap();
-    fs::write(proj.join("pubspec.yaml"), "name: gentest\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    fs::write(
+        proj.join("pubspec.yaml"),
+        "name: gentest\nenvironment:\n  sdk: ^3.6.0\n",
+    )
+    .unwrap();
     fs::write(
         proj.join(".dart_tool/package_config.json"),
         r#"{"configVersion":2,"packages":[{"name":"gentest","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"}]}"#,
     )
     .unwrap();
-    fs::write(proj.join("test/x_test.dart"), "import 'x_test.template.dart' as ng;\nint f() => ng.valor;\nconst base = 1;\n").unwrap();
+    fs::write(
+        proj.join("test/x_test.dart"),
+        "import 'x_test.template.dart' as ng;\nint f() => ng.valor;\nconst base = 1;\n",
+    )
+    .unwrap();
     fs::write(
         proj.join(".dart_tool/build/generated/gentest/test/x_test.template.dart"),
         "import 'x_test.dart' as orig;\nconst valor = orig.base + 1;\n",
@@ -439,18 +457,40 @@ fn build_runner_output_outside_lib() {
     let entry_path = proj.join("test/x_test.dart");
     let config = proj.join(".dart_tool/package_config.json");
     let prog = load(&entry_path, &sdk, Some(&config), &mut interner).expect("loading failed");
-    let generated = prog.libraries.iter().find(|l| l.uri.ends_with("test/x_test.template.dart")).expect("generated library");
+    let generated = prog
+        .libraries
+        .iter()
+        .find(|l| l.uri.ends_with("test/x_test.template.dart"))
+        .expect("generated library");
     assert!(generated.uri.starts_with("file://"), "{}", generated.uri);
     let unit = &prog.units[generated.units[0].0 as usize];
-    let path = unit.path.as_ref().unwrap().to_string_lossy().replace('\\', "/");
-    assert!(path.contains(".dart_tool/build/generated/gentest/test/x_test.template.dart"), "{path}");
+    let path = unit
+        .path
+        .as_ref()
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    assert!(
+        path.contains(".dart_tool/build/generated/gentest/test/x_test.template.dart"),
+        "{path}"
+    );
     let value = interner.intern("valor");
     assert!(generated.declared.contains_key(&value));
     // The generated file's relative import (`x_test.dart`) is the `test/`
     // library, not a nonexistent file in the generated folder.
     let orig = interner.intern("orig");
-    let target = generated.imports.iter().find(|i| i.prefix == Some(orig)).expect("import from the generated file");
-    assert!(prog.library(target.library).uri.ends_with("/proj/test/x_test.dart"), "{}", prog.library(target.library).uri);
+    let target = generated
+        .imports
+        .iter()
+        .find(|i| i.prefix == Some(orig))
+        .expect("import from the generated file");
+    assert!(
+        prog.library(target.library)
+            .uri
+            .ends_with("/proj/test/x_test.dart"),
+        "{}",
+        prog.library(target.library).uri
+    );
 }
 
 /// `parts-with-imports`: a part's imports apply in it and in its parts and
@@ -461,48 +501,114 @@ fn build_runner_output_outside_lib() {
 fn import_scope_per_unit() {
     let tmp = tempdir().unwrap();
     let mut sdk = empty_sdk(tmp.path());
-    sdk.experiments.push(dartforge_frontend::features::Feature::EnhancedParts);
+    sdk.experiments
+        .push(dartforge_frontend::features::Feature::EnhancedParts);
     let mut interner = Interner::new();
     let proj = tmp.path().join("proj");
     fs::create_dir_all(&proj).unwrap();
     fs::write(proj.join("a.dart"), "int nome() => 1;\n").unwrap();
     fs::write(proj.join("b.dart"), "int nome() => 2;\nint local() => 2;\n").unwrap();
     fs::write(proj.join("c.dart"), "int nome() => 3;\n").unwrap();
-    fs::write(proj.join("main.dart"), "import 'a.dart';\nimport 'a.dart' as p;\npart 'parte.dart';\nint local() => 0;\n").unwrap();
+    fs::write(
+        proj.join("main.dart"),
+        "import 'a.dart';\nimport 'a.dart' as p;\npart 'parte.dart';\nint local() => 0;\n",
+    )
+    .unwrap();
     fs::write(proj.join("parte.dart"), "part of 'main.dart';\nimport 'b.dart';\nimport 'b.dart' as p;\npart 'neta.dart';\npart 'outra.dart';\n").unwrap();
     fs::write(proj.join("neta.dart"), "part of 'parte.dart';\n").unwrap();
-    fs::write(proj.join("outra.dart"), "part of 'parte.dart';\nimport 'c.dart';\n").unwrap();
+    fs::write(
+        proj.join("outra.dart"),
+        "part of 'parte.dart';\nimport 'c.dart';\n",
+    )
+    .unwrap();
     let prog = load(&proj.join("main.dart"), &sdk, None, &mut interner).expect("loading failed");
-    let lib = prog.libraries.iter().position(|l| l.uri.ends_with("/main.dart")).map(|i| LibraryId(i as u32)).unwrap();
+    let lib = prog
+        .libraries
+        .iter()
+        .position(|l| l.uri.ends_with("/main.dart"))
+        .map(|i| LibraryId(i as u32))
+        .unwrap();
     let unit = |suffix: &str| {
-        *prog.library(lib).units.iter().find(|u| prog.unit(**u).uri.ends_with(suffix)).expect(suffix)
+        *prog
+            .library(lib)
+            .units
+            .iter()
+            .find(|u| prog.unit(**u).uri.ends_with(suffix))
+            .expect(suffix)
     };
     let from = |u: UnitId, name_: &str| -> String {
-        let b = prog.lookup_in_unit(u, interner.lookup(name_).unwrap()).expect(name_);
+        let b = prog
+            .lookup_in_unit(u, interner.lookup(name_).unwrap())
+            .expect(name_);
         assert!(!b.ambiguous, "{name_}");
         match b.getter {
-            Some(Element::Function(f)) => prog.library(prog.function(f).library).uri.rsplit('/').next().unwrap().to_string(),
+            Some(Element::Function(f)) => prog
+                .library(prog.function(f).library)
+                .uri
+                .rsplit('/')
+                .next()
+                .unwrap()
+                .to_string(),
             other => format!("{other:?}"),
         }
     };
     let prefixed = |u: UnitId| -> String {
-        let (p, n) = (interner.lookup("p").unwrap(), interner.lookup("nome").unwrap());
+        let (p, n) = (
+            interner.lookup("p").unwrap(),
+            interner.lookup("nome").unwrap(),
+        );
         let b = prog.lookup_prefixed_in_unit(u, p, n).expect("p.nome");
         match b.getter {
-            Some(Element::Function(f)) => prog.library(prog.function(f).library).uri.rsplit('/').next().unwrap().to_string(),
+            Some(Element::Function(f)) => prog
+                .library(prog.function(f).library)
+                .uri
+                .rsplit('/')
+                .next()
+                .unwrap()
+                .to_string(),
             other => format!("{other:?}"),
         }
     };
-    let (m, pa, ne, either) = (unit("/main.dart"), unit("/parte.dart"), unit("/neta.dart"), unit("/outra.dart"));
-    assert_eq!((from(m, "nome"), from(pa, "nome"), from(ne, "nome"), from(either, "nome")), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "c.dart".into()));
-    assert_eq!((prefixed(m), prefixed(pa), prefixed(ne), prefixed(either)), ("a.dart".into(), "b.dart".into(), "b.dart".into(), "b.dart".into()));
+    let (m, pa, ne, either) = (
+        unit("/main.dart"),
+        unit("/parte.dart"),
+        unit("/neta.dart"),
+        unit("/outra.dart"),
+    );
+    assert_eq!(
+        (
+            from(m, "nome"),
+            from(pa, "nome"),
+            from(ne, "nome"),
+            from(either, "nome")
+        ),
+        (
+            "a.dart".into(),
+            "b.dart".into(),
+            "b.dart".into(),
+            "c.dart".into()
+        )
+    );
+    assert_eq!(
+        (prefixed(m), prefixed(pa), prefixed(ne), prefixed(either)),
+        (
+            "a.dart".into(),
+            "b.dart".into(),
+            "b.dart".into(),
+            "b.dart".into()
+        )
+    );
     // The library's declaration wins over the part's import.
     assert_eq!(from(pa, "local"), "main.dart");
     // Without imports in parts, nothing changes: the library scope applies to
     // all of them.
     let proj2 = tmp.path().join("proj2");
     fs::create_dir_all(&proj2).unwrap();
-    fs::write(proj2.join("main.dart"), "import 'a.dart';\npart 'parte.dart';\n").unwrap();
+    fs::write(
+        proj2.join("main.dart"),
+        "import 'a.dart';\npart 'parte.dart';\n",
+    )
+    .unwrap();
     fs::write(proj2.join("a.dart"), "int nome() => 1;\n").unwrap();
     fs::write(proj2.join("parte.dart"), "part of 'main.dart';\n").unwrap();
     let prog2 = load(&proj2.join("main.dart"), &sdk, None, &mut interner).expect("loading failed");
@@ -536,18 +642,44 @@ fn part_by_package_uri() {
     fs::create_dir_all(proj.join("lib/src/sub")).unwrap();
     fs::create_dir_all(proj.join(".dart_tool")).unwrap();
     fs::create_dir_all(proj.join("bin")).unwrap();
-    fs::write(proj.join("pubspec.yaml"), "name: p\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    fs::write(
+        proj.join("pubspec.yaml"),
+        "name: p\nenvironment:\n  sdk: ^3.6.0\n",
+    )
+    .unwrap();
     fs::write(
         proj.join(".dart_tool/package_config.json"),
         r#"{"configVersion":2,"packages":[{"name":"p","rootUri":"../","packageUri":"lib/","languageVersion":"3.6"}]}"#,
     )
     .unwrap();
-    fs::write(proj.join("lib/src/a.dart"), "library a;\npart 'package:p/src/sub/b.dart';\nint f() => g();\n").unwrap();
-    fs::write(proj.join("lib/src/sub/b.dart"), "part of a;\nint g() => 1;\n").unwrap();
-    fs::write(proj.join("bin/main.dart"), "import 'package:p/src/a.dart';\nvoid main() { f(); }\n").unwrap();
+    fs::write(
+        proj.join("lib/src/a.dart"),
+        "library a;\npart 'package:p/src/sub/b.dart';\nint f() => g();\n",
+    )
+    .unwrap();
+    fs::write(
+        proj.join("lib/src/sub/b.dart"),
+        "part of a;\nint g() => 1;\n",
+    )
+    .unwrap();
+    fs::write(
+        proj.join("bin/main.dart"),
+        "import 'package:p/src/a.dart';\nvoid main() { f(); }\n",
+    )
+    .unwrap();
     let config = proj.join(".dart_tool/package_config.json");
-    let prog = load(&proj.join("bin/main.dart"), &sdk, Some(&config), &mut interner).expect("loading failed");
-    let a = prog.libraries.iter().find(|l| l.uri == "package:p/src/a.dart").expect("library a");
+    let prog = load(
+        &proj.join("bin/main.dart"),
+        &sdk,
+        Some(&config),
+        &mut interner,
+    )
+    .expect("loading failed");
+    let a = prog
+        .libraries
+        .iter()
+        .find(|l| l.uri == "package:p/src/a.dart")
+        .expect("library a");
     assert_eq!(a.units.len(), 2, "the part entered the library");
     let g = interner.intern("g");
     assert!(a.declared.contains_key(&g));

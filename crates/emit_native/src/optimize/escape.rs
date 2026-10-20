@@ -45,7 +45,8 @@ pub fn replace_objects(func: &mut Function) -> bool {
         for (v, inst, _) in &b.instructions {
             // Only program objects (cid ≥ 128): runtime classes have a
             // layout and identity known to the runtime (§2.4).
-            if let Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } = inst
+            if let Instruction::CallRuntime { name, args, .. }
+            | Instruction::DeclaredFieldCall { name, args, .. } = inst
                 && name == "dartforge_object_new"
                 && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                     if *c >= dartforge_runtime::layout::FIRST_FREE_CID)
@@ -62,13 +63,21 @@ pub fn replace_objects(func: &mut Function) -> bool {
         for (_, inst, ty) in &b.instructions {
             // The recognized access: the object and the field, not in another position.
             let recognized = match inst {
-                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
+                Instruction::CallRuntime { name, args, .. }
+                | Instruction::DeclaredFieldCall { name, args, .. }
+                    if name == "dartforge_object_get" && args.len() == 2 =>
+                {
                     match (&args[0].0, const_index(&args[1].0)) {
-                        (Operand::Val(o), Some(i)) if candidates.contains_key(o) => Some((*o, i, Access::Le(*ty), None)),
+                        (Operand::Val(o), Some(i)) if candidates.contains_key(o) => {
+                            Some((*o, i, Access::Le(*ty), None))
+                        }
                         _ => None,
                     }
                 }
-                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
+                Instruction::CallRuntime { name, args, .. }
+                | Instruction::DeclaredFieldCall { name, args, .. }
+                    if name == "dartforge_object_set" && args.len() == 4 =>
+                {
                     match (&args[0].0, const_index(&args[1].0), flag(&args[3].0)) {
                         (Operand::Val(o), Some(i), Some(r)) if candidates.contains_key(o) => {
                             let t = operand_type(&args[2].0, &types).unwrap_or(Type::Void);
@@ -77,10 +86,15 @@ pub fn replace_objects(func: &mut Function) -> bool {
                         _ => None,
                     }
                 }
-                Instruction::GetField { object: Operand::Val(o), index } if candidates.contains_key(o) => {
-                    Some((*o, *index, Access::Le(*ty), None))
-                }
-                Instruction::SetField { object: Operand::Val(o), index, value } if candidates.contains_key(o) => {
+                Instruction::GetField {
+                    object: Operand::Val(o),
+                    index,
+                } if candidates.contains_key(o) => Some((*o, *index, Access::Le(*ty), None)),
+                Instruction::SetField {
+                    object: Operand::Val(o),
+                    index,
+                    value,
+                } if candidates.contains_key(o) => {
                     let t = operand_type(value, &types).unwrap_or(Type::Void);
                     Some((*o, *index, Access::Writes(t, t == Type::Ref), Some(value)))
                 }
@@ -118,7 +132,11 @@ pub fn replace_objects(func: &mut Function) -> bool {
     // All accesses must agree on the representation of the field;
     // typed reads cannot load a legacy write in bits.
     let mut locals: HashMap<(ValueId, usize), Type> = HashMap::new();
-    let mut order: Vec<ValueId> = candidates.keys().copied().filter(|v| !escaped.contains(v)).collect();
+    let mut order: Vec<ValueId> = candidates
+        .keys()
+        .copied()
+        .filter(|v| !escaped.contains(v))
+        .collect();
     order.sort_by_key(|v| v.0);
     let mut accepted = Vec::new();
     'objetos: for v in order {
@@ -127,10 +145,16 @@ pub fn replace_objects(func: &mut Function) -> bool {
             let t = match a {
                 Access::Le(t) => *t,
                 Access::Writes(t, true) if *t == Type::Ref => Type::Ref,
-                Access::Writes(t, false) if matches!(t, Type::I64 | Type::F64 | Type::I1 | Type::I8) => *t,
+                Access::Writes(t, false)
+                    if matches!(t, Type::I64 | Type::F64 | Type::I1 | Type::I8) =>
+                {
+                    *t
+                }
                 _ => continue 'objetos,
             };
-            if !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8) || *fields.entry(*i).or_insert(t) != t {
+            if !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8)
+                || *fields.entry(*i).or_insert(t) != t
+            {
                 continue 'objetos;
             }
         }
@@ -163,42 +187,73 @@ pub fn replace_objects(func: &mut Function) -> bool {
                 _ => Operand::Constant(Constant::Int(0)),
             };
             next += 1;
-            initializations.entry(k.0).or_default().push((ValueId(next), Instruction::Store {
-                ptr: Operand::Val(addresses[&k]), val,
-            }, Type::Void));
+            initializations.entry(k.0).or_default().push((
+                ValueId(next),
+                Instruction::Store {
+                    ptr: Operand::Val(addresses[&k]),
+                    val,
+                },
+                Type::Void,
+            ));
         }
     }
     let accepted: std::collections::HashSet<ValueId> = accepted.into_iter().collect();
     for b in &mut func.blocks {
-        b.instructions = std::mem::take(&mut b.instructions).into_iter().flat_map(|inst| {
-            if accepted.contains(&inst.0) {
-                initializations.remove(&inst.0).unwrap_or_default()
-            } else { vec![inst] }
-        }).collect();
+        b.instructions = std::mem::take(&mut b.instructions)
+            .into_iter()
+            .flat_map(|inst| {
+                if accepted.contains(&inst.0) {
+                    initializations.remove(&inst.0).unwrap_or_default()
+                } else {
+                    vec![inst]
+                }
+            })
+            .collect();
         for (_, inst, ty) in &mut b.instructions {
             let new = match inst {
-                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_get" && args.len() == 2 => {
+                Instruction::CallRuntime { name, args, .. }
+                | Instruction::DeclaredFieldCall { name, args, .. }
+                    if name == "dartforge_object_get" && args.len() == 2 =>
+                {
                     match (&args[0].0, const_index(&args[1].0)) {
                         (Operand::Val(o), Some(i)) if accepted.contains(o) => {
-                            Some(Instruction::Load { ptr: Operand::Val(addresses[&(*o, i)]), ty: *ty })
+                            Some(Instruction::Load {
+                                ptr: Operand::Val(addresses[&(*o, i)]),
+                                ty: *ty,
+                            })
                         }
                         _ => None,
                     }
                 }
-                Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_object_set" && args.len() == 4 => {
+                Instruction::CallRuntime { name, args, .. }
+                | Instruction::DeclaredFieldCall { name, args, .. }
+                    if name == "dartforge_object_set" && args.len() == 4 =>
+                {
                     match (&args[0].0, const_index(&args[1].0)) {
                         (Operand::Val(o), Some(i)) if accepted.contains(o) => {
-                            Some(Instruction::Store { ptr: Operand::Val(addresses[&(*o, i)]), val: args[2].0.clone() })
+                            Some(Instruction::Store {
+                                ptr: Operand::Val(addresses[&(*o, i)]),
+                                val: args[2].0.clone(),
+                            })
                         }
                         _ => None,
                     }
                 }
-                Instruction::GetField { object: Operand::Val(o), index } if accepted.contains(o) => {
-                    Some(Instruction::Load { ptr: Operand::Val(addresses[&(*o, *index)]), ty: *ty })
-                }
-                Instruction::SetField { object: Operand::Val(o), index, value } if accepted.contains(o) => {
-                    Some(Instruction::Store { ptr: Operand::Val(addresses[&(*o, *index)]), val: value.clone() })
-                }
+                Instruction::GetField {
+                    object: Operand::Val(o),
+                    index,
+                } if accepted.contains(o) => Some(Instruction::Load {
+                    ptr: Operand::Val(addresses[&(*o, *index)]),
+                    ty: *ty,
+                }),
+                Instruction::SetField {
+                    object: Operand::Val(o),
+                    index,
+                    value,
+                } if accepted.contains(o) => Some(Instruction::Store {
+                    ptr: Operand::Val(addresses[&(*o, *index)]),
+                    val: value.clone(),
+                }),
                 _ => None,
             };
             if let Some(n) = new {

@@ -22,8 +22,8 @@
 //! (checked against `dart language-server`), and this one offers none
 //! either; no fix is made up.
 
-use crate::query::Query;
 use crate::project::Project;
+use crate::query::Query;
 use crate::{DocumentStore, Edit};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{Element, UnitId};
@@ -110,7 +110,12 @@ impl CodeAction {
 
     /// [`Self::with_write`] with the write starting at byte `base` of the text
     /// of edit `i`.
-    pub(crate) fn with_write_at(mut self, i: usize, base: usize, e: &crate::snippets::Write) -> Self {
+    pub(crate) fn with_write_at(
+        mut self,
+        i: usize,
+        base: usize,
+        e: &crate::snippets::Write,
+    ) -> Self {
         if let Some((k, n)) = e.selection {
             self = self.with_selection(i, base + k, n);
         }
@@ -123,10 +128,23 @@ impl CodeAction {
 
     /// A linked group (`addLinkedEdit`) with the positions given in bytes of the
     /// text of edit `i`.
-    pub(crate) fn with_group(mut self, i: usize, relative: &[usize], length: usize, suggestions: Vec<String>) -> Self {
-        let positions: Vec<usize> = relative.iter().filter_map(|&r| self.in_final_document(i, r)).collect();
+    pub(crate) fn with_group(
+        mut self,
+        i: usize,
+        relative: &[usize],
+        length: usize,
+        suggestions: Vec<String>,
+    ) -> Self {
+        let positions: Vec<usize> = relative
+            .iter()
+            .filter_map(|&r| self.in_final_document(i, r))
+            .collect();
         if !positions.is_empty() {
-            self.linked.groups.push(LinkedGroup { positions, length, suggestions });
+            self.linked.groups.push(LinkedGroup {
+                positions,
+                length,
+                suggestions,
+            });
         }
         self
     }
@@ -147,7 +165,9 @@ pub struct LinkedGroup {
 /// message (docs/LSP-ESPECIFICACAO.md §13.7.2, generated in `action_kinds_g.rs`).
 pub(crate) fn dart_kind(id: &str) -> Option<(u16, &'static str)> {
     let t = crate::action_kinds_g::KINDS;
-    t.binary_search_by(|(i, _, _)| (*i).cmp(id)).ok().map(|k| (t[k].1, t[k].2))
+    t.binary_search_by(|(i, _, _)| (*i).cmp(id))
+        .ok()
+        .map(|k| (t[k].1, t[k].2))
 }
 
 /// The line range of a diagnostic: from the start of the start's line to the
@@ -163,7 +183,12 @@ pub(crate) fn diagnostic_lines(text: &str, d: &Diagnostic) -> (usize, usize) {
 /// The kinds whose producers (in the variants this server emits) have
 /// `applicability = singleLocation`: they are not part of "Fix all in file"
 /// even with the `.multi` kind (`canBeAppliedAcrossSingleFile` false).
-const ONLY_ONE_PLACE: &[&str] = &["quickfix.add.await", "quickfix.convert.bodyToBlock", "quickfix.remove.abstract", "quickfix.remove.initializer"];
+const ONLY_ONE_PLACE: &[&str] = &[
+    "quickfix.add.await",
+    "quickfix.convert.bodyToBlock",
+    "quickfix.remove.abstract",
+    "quickfix.remove.initializer",
+];
 
 /// The same error code (`errorCode.name`).
 fn same_code(a: &Diagnostic, b: &Diagnostic) -> bool {
@@ -191,12 +216,16 @@ pub(crate) fn fix_in_whole_file(
     let mut done: Vec<(Span, String)> = Vec::new();
     for a in isolated {
         let Some(d) = &a.diagnostic else { continue };
-        let Some(rest) = a.kind.strip_prefix("quickfix.") else { continue };
+        let Some(rest) = a.kind.strip_prefix("quickfix.") else {
+            continue;
+        };
         if ONLY_ONE_PLACE.contains(&a.kind.as_str()) {
             continue;
         }
         let multi = format!("dart.fix.{rest}.multi");
-        let Some((_, message)) = dart_kind(&multi) else { continue };
+        let Some((_, message)) = dart_kind(&multi) else {
+            continue;
+        };
         if done.iter().any(|(s, e)| *s == d.span && *e == a.kind) {
             continue;
         }
@@ -213,12 +242,16 @@ pub(crate) fn fix_in_whole_file(
             }
             let (la, lb) = diagnostic_lines(text, o);
             let produced = produce(o, la, lb);
-            let Some(p) = produced.into_iter().find(|p| p.kind == a.kind && p.diagnostic.as_ref().is_some_and(|x| x.span == o.span)) else {
+            let Some(p) = produced.into_iter().find(|p| {
+                p.kind == a.kind && p.diagnostic.as_ref().is_some_and(|x| x.span == o.span)
+            }) else {
                 times += 1;
                 continue;
             };
             let conflicts = p.edits.iter().any(|e| {
-                edits.iter().any(|x| x.uri == e.uri && e.span.start < x.span.end && x.span.start < e.span.end)
+                edits.iter().any(|x| {
+                    x.uri == e.uri && e.span.start < x.span.end && x.span.start < e.span.end
+                })
             });
             if conflicts {
                 continue;
@@ -232,7 +265,8 @@ pub(crate) fn fix_in_whole_file(
                 kind: format!("quickfix.{rest}.multi"),
                 edits,
                 diagnostic: Some(d.clone()),
-                create_file: None, linked: Default::default(),
+                create_file: None,
+                linked: Default::default(),
             });
         }
     }
@@ -268,7 +302,8 @@ pub(crate) fn fix_syntax(
                     text: ";".into(),
                 }],
                 diagnostic: Some(d.clone()),
-                create_file: None, linked: Default::default(),
+                create_file: None,
+                linked: Default::default(),
             });
         }
     }
@@ -298,7 +333,10 @@ pub(crate) fn insert_import(
         // `preferredQuoteForUris`: the quote of the existing directives.
         let quote = imports
             .iter()
-            .find_map(|(d, _)| text.get(d.span.start..d.span.end).and_then(|s| s.find(['\'', '"']).map(|i| &s[i..=i])))
+            .find_map(|(d, _)| {
+                text.get(d.span.start..d.span.end)
+                    .and_then(|s| s.find(['\'', '"']).map(|i| &s[i..=i]))
+            })
             .unwrap_or("'");
         let line = format!("import {quote}{new_uri}{quote};");
         let is_dart = new_uri.starts_with("dart:");
@@ -322,7 +360,10 @@ pub(crate) fn insert_import(
         };
         let before = |d: &ast::Directive, empty_line: bool| -> (Span, String) {
             let start = d.span.start;
-            (Span { start, end: start }, format!("{line}\n{}", if empty_line { "\n" } else { "" }))
+            (
+                Span { start, end: start },
+                format!("{line}\n{}", if empty_line { "\n" } else { "" }),
+            )
         };
         let mut last: Option<&ast::Directive> = None;
         let mut last_dart: Option<&ast::Directive> = None;
@@ -361,9 +402,16 @@ pub(crate) fn insert_import(
             last_is_package = existing_package;
         }
         let d = last.expect("there are imports");
-        let empty_line = if is_package { last_is_dart } else { !is_dart && (last_is_dart || last_is_package) };
+        let empty_line = if is_package {
+            last_is_dart
+        } else {
+            !is_dart && (last_is_dart || last_is_package)
+        };
         return (
-            Span { start: d.span.end, end: d.span.end },
+            Span {
+                start: d.span.end,
+                end: d.span.end,
+            },
             format!("{}\n{line}", if empty_line { "\n" } else { "" }),
         );
     }
@@ -386,10 +434,7 @@ pub(crate) fn insert_import(
             .map_or(text.len(), |i| s.end + i + 1)
     });
     (
-        Span {
-            start,
-            end: start,
-        },
+        Span { start, end: start },
         format!("import '{new_uri}';\n\n"),
     )
 }
@@ -469,7 +514,10 @@ fn undefined_with_context(query: &Query, unit: UnitId, start: usize, end: usize)
             && query.program.lookup(lib, n.sym).is_none()
         {
             let text = query.name(n.sym);
-            if !["dynamic", "Never", "void", "Function", "Record"].contains(&text) && !type_param(&u.ast, n) && !text.starts_with('_') {
+            if !["dynamic", "Never", "void", "Function", "Record"].contains(&text)
+                && !type_param(&u.ast, n)
+                && !text.starts_with('_')
+            {
                 output.push(Undefined::Type(text.to_string(), n.span.start));
             }
         }
@@ -478,7 +526,10 @@ fn undefined_with_context(query: &Query, unit: UnitId, start: usize, end: usize)
 }
 
 /// The kind (`ElementKind`) of a program element.
-fn element_kind(p: &dartforge_elements::model::Program, el: Element) -> Option<crate::known_libraries::Kind> {
+fn element_kind(
+    p: &dartforge_elements::model::Program,
+    el: Element,
+) -> Option<crate::known_libraries::Kind> {
     use crate::known_libraries::Kind as E;
     use dartforge_elements::model::ClassKind;
     Some(match el {
@@ -516,8 +567,10 @@ pub(crate) fn import(
     start: usize,
     end: usize,
 ) -> Vec<CodeAction> {
-    use crate::known_libraries::{OF_TYPE, Kind as E};
-    let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+    use crate::known_libraries::{Kind as E, OF_TYPE};
+    let Some(unit) = project.uri_unit(uri) else {
+        return Vec::new();
+    };
     let query = &project.query;
     let p = &query.program;
     let lib = p.unit(unit).library;
@@ -525,28 +578,64 @@ pub(crate) fn import(
     if missing.is_empty() {
         return Vec::new();
     }
-    let Some(file) = crate::project::uri_file(uri) else { return Vec::new() };
+    let Some(file) = crate::project::uri_file(uri) else {
+        return Vec::new();
+    };
     let cx = crate::refactorings::Context::new(project, unit);
-    let resolver = crate::known_libraries::Resolver { sdk, packages: dartforge_elements::config::PackageConfig::discover(&file).and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()) };
+    let resolver = crate::known_libraries::Resolver {
+        sdk,
+        packages: dartforge_elements::config::PackageConfig::discover(&file)
+            .and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()),
+    };
     let candidates = crate::known_libraries::candidates(&file, sdk, known, documents);
     let library_uri = p.library(lib).uri.clone();
     let rule = |r: &str| crate::refactorings_exec::enabled_rule(project, unit, r);
-    let (always_package, always_relative) = (rule("always_use_package_imports"), rule("prefer_relative_imports"));
+    let (always_package, always_relative) = (
+        rule("always_use_package_imports"),
+        rule("prefer_relative_imports"),
+    );
     let defining = p.library(lib).units.first().copied();
     let mut output = Vec::new();
     for ind in &missing {
         let (name, offset, variants): (&str, usize, Vec<Vec<E>>) = match ind {
             Undefined::Type(n, o) => (n, *o, vec![OF_TYPE.to_vec()]),
-            Undefined::Function(n, o) => (n, *o, vec![vec![E::Extension], vec![E::ExtensionType], vec![E::Function, E::Variable], OF_TYPE.to_vec()]),
-            Undefined::Identifier(n, o) => (n, *o, vec![vec![E::Extension], vec![E::Function, E::Variable], vec![E::Variable], OF_TYPE.to_vec()]),
+            Undefined::Function(n, o) => (
+                n,
+                *o,
+                vec![
+                    vec![E::Extension],
+                    vec![E::ExtensionType],
+                    vec![E::Function, E::Variable],
+                    OF_TYPE.to_vec(),
+                ],
+            ),
+            Undefined::Identifier(n, o) => (
+                n,
+                *o,
+                vec![
+                    vec![E::Extension],
+                    vec![E::Function, E::Variable],
+                    vec![E::Variable],
+                    OF_TYPE.to_vec(),
+                ],
+            ),
         };
         let symbol = query.names.lookup(name);
         for kinds in variants {
             // The existing imports (`libraryImports` of the defining unit).
             let mut by_show: BTreeSet<String> = BTreeSet::new();
-            for imp in p.library(lib).imports.iter().filter(|i| Some(i.unit) == defining) {
+            for imp in p
+                .library(lib)
+                .imports
+                .iter()
+                .filter(|i| Some(i.unit) == defining)
+            {
                 let Some(s) = symbol else { break };
-                let binding = p.library(imp.library).exported.get(&s).and_then(|b| b.getter.or(b.setter));
+                let binding = p
+                    .library(imp.library)
+                    .exported
+                    .get(&s)
+                    .and_then(|b| b.getter.or(b.setter));
                 let Some(el) = binding else { continue };
                 if !element_kind(p, el).is_some_and(|e| kinds.contains(&e)) {
                     continue;
@@ -557,32 +646,68 @@ pub(crate) fn import(
                     output.push(CodeAction {
                         title: format!("Use imported library '{imported_uri}' with prefix '{pr}'"),
                         kind: "quickfix.import.libraryPrefix".into(),
-                        edits: vec![Edit { uri: uri.to_string(), span: Span { start: offset, end: offset }, text: format!("{pr}.") }],
+                        edits: vec![Edit {
+                            uri: uri.to_string(),
+                            span: Span {
+                                start: offset,
+                                end: offset,
+                            },
+                            text: format!("{pr}."),
+                        }],
                         diagnostic: None,
-                        create_file: None, linked: Default::default(),
+                        create_file: None,
+                        linked: Default::default(),
                     });
                     continue;
                 }
                 if let [ast::Combinator::Show(ns)] = &imp.combinators[..] {
                     let sdk_lib = p.library(imp.library).is_sdk;
                     let library_name = if sdk_lib {
-                        p.library(imp.library).units.first().and_then(|&x| p.unit(x).path.as_deref()).and_then(|c| c.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                        p.library(imp.library)
+                            .units
+                            .first()
+                            .and_then(|&x| p.unit(x).path.as_deref())
+                            .and_then(|c| c.file_name())
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_default()
                     } else {
-                        p.library(imp.library).units.first().and_then(|&x| project.unit_uri(x)).unwrap_or(imported_uri.clone())
+                        p.library(imp.library)
+                            .units
+                            .first()
+                            .and_then(|&x| project.unit_uri(x))
+                            .unwrap_or(imported_uri.clone())
                     };
                     by_show.insert(imported_uri.clone());
                     let imp_source = &p.unit(imp.unit).source;
-                    let mut names: BTreeSet<String> = ns.iter().map(|n| imp_source[n.span.start..n.span.end].to_string()).collect();
+                    let mut names: BTreeSet<String> = ns
+                        .iter()
+                        .map(|n| imp_source[n.span.start..n.span.end].to_string())
+                        .collect();
                     names.insert(name.to_string());
-                    let (Some(a), Some(b)) = (ns.first(), ns.last()) else { continue };
-                    let start_ = imp_source[..a.span.start].rfind("show").unwrap_or(a.span.start);
+                    let (Some(a), Some(b)) = (ns.first(), ns.last()) else {
+                        continue;
+                    };
+                    let start_ = imp_source[..a.span.start]
+                        .rfind("show")
+                        .unwrap_or(a.span.start);
                     if let Some(uri_def) = project.unit_uri(imp.unit) {
                         output.push(CodeAction {
                             title: format!("Update library '{library_name}' import"),
                             kind: "quickfix.import.libraryShow".into(),
-                            edits: vec![Edit { uri: uri_def, span: Span { start: start_, end: b.span.end }, text: format!("show {}", names.into_iter().collect::<Vec<_>>().join(", ")) }],
+                            edits: vec![Edit {
+                                uri: uri_def,
+                                span: Span {
+                                    start: start_,
+                                    end: b.span.end,
+                                },
+                                text: format!(
+                                    "show {}",
+                                    names.into_iter().collect::<Vec<_>>().join(", ")
+                                ),
+                            }],
                             diagnostic: None,
-                            create_file: None, linked: Default::default(),
+                            create_file: None,
+                            linked: Default::default(),
                         });
                     }
                 }
@@ -592,8 +717,15 @@ pub(crate) fn import(
                 if c.path == file {
                     continue;
                 }
-                let Some((declarer, kind)) = known.exported_entry(&c.path, name, &resolver, documents) else { continue };
-                if !kinds.contains(&kind) || by_show.contains(&c.uri) || c.uri.ends_with(".template.dart") {
+                let Some((declarer, kind)) =
+                    known.exported_entry(&c.path, name, &resolver, documents)
+                else {
+                    continue;
+                };
+                if !kinds.contains(&kind)
+                    || by_show.contains(&c.uri)
+                    || c.uri.ends_with(".template.dart")
+                {
                     continue;
                 }
                 let ty = if c.sdk {
@@ -606,8 +738,13 @@ pub(crate) fn import(
                     "quickfix.import.libraryProject1"
                 };
                 // `canBeRelativeImport`: both `package:` of the same package.
-                let package = |s: &str| s.strip_prefix("package:").and_then(|r| r.split('/').next()).map(str::to_string);
-                let can_relative = package(&c.uri).is_some() && package(&c.uri) == package(&library_uri);
+                let package = |s: &str| {
+                    s.strip_prefix("package:")
+                        .and_then(|r| r.split('/').next())
+                        .map(str::to_string)
+                };
+                let can_relative =
+                    package(&c.uri).is_some() && package(&c.uri) == package(&library_uri);
                 let modes: Vec<bool> = if !can_relative || always_package {
                     vec![false]
                 } else if always_relative {
@@ -616,13 +753,16 @@ pub(crate) fn import(
                     vec![false, true]
                 };
                 for relative in modes {
-                    if let Some((text_uri, edits)) = crate::refactorings_move::import_one(&cx, &c.uri, relative) {
+                    if let Some((text_uri, edits)) =
+                        crate::refactorings_move::import_one(&cx, &c.uri, relative)
+                    {
                         output.push(CodeAction {
                             title: format!("Import library '{text_uri}'"),
                             kind: ty.into(),
                             edits,
                             diagnostic: None,
-                            create_file: None, linked: Default::default(),
+                            create_file: None,
+                            linked: Default::default(),
                         });
                     }
                 }
@@ -657,7 +797,8 @@ fn fix(
             })
             .collect(),
         diagnostic: Some(d.clone()),
-        create_file: None, linked: Default::default(),
+        create_file: None,
+        linked: Default::default(),
     }
 }
 
@@ -706,31 +847,68 @@ pub(crate) fn fix_published(
         match code(d) {
             Some("unused_local_variable") => {
                 // `RemoveUnusedLocalVariable` (singleLocation).
-                let Some(edits) = cx().remove_local_variable(d.span) else { continue };
-                output.push(fix(uri, "Remove unused local variable".into(), "quickfix.remove.unusedLocalVariable", edits, d));
+                let Some(edits) = cx().remove_local_variable(d.span) else {
+                    continue;
+                };
+                output.push(fix(
+                    uri,
+                    "Remove unused local variable".into(),
+                    "quickfix.remove.unusedLocalVariable",
+                    edits,
+                    d,
+                ));
             }
-            Some("unused_element") if d.code.is_some_and(|c| c.info().unique.ends_with("UNUSED_ELEMENT_PARAMETER")) => {
+            Some("unused_element")
+                if d.code
+                    .is_some_and(|c| c.info().unique.ends_with("UNUSED_ELEMENT_PARAMETER")) =>
+            {
                 // `RemoveUnusedParameter`.
-                let Some(s) = cx().remove_parameter(d.span) else { continue };
-                output.push(fix(uri, "Remove the unused parameter".into(), "quickfix.remove.unusedParameter", vec![(s, String::new())], d));
+                let Some(s) = cx().remove_parameter(d.span) else {
+                    continue;
+                };
+                output.push(fix(
+                    uri,
+                    "Remove the unused parameter".into(),
+                    "quickfix.remove.unusedParameter",
+                    vec![(s, String::new())],
+                    d,
+                ));
             }
             Some("unused_element") => {
                 // `RemoveUnusedElement`: without references in the unit.
-                let Some(ranges) = cx().remove_element(d.span) else { continue };
+                let Some(ranges) = cx().remove_element(d.span) else {
+                    continue;
+                };
                 let edits = ranges.into_iter().map(|s| (s, String::new())).collect();
-                output.push(fix(uri, "Remove unused element".into(), "quickfix.remove.unusedElement", edits, d));
+                output.push(fix(
+                    uri,
+                    "Remove unused element".into(),
+                    "quickfix.remove.unusedElement",
+                    edits,
+                    d,
+                ));
             }
             Some("unnecessary_cast") => {
                 // `RemoveUnnecessaryCast`: the `coveringNode` is the `AsExpression`;
                 // deletes ` as T` and the surrounding parentheses while the precedence of
                 // the parenthesis's parent does not exceed that of `as`.
                 let cx = cx();
-                let Some(n) = cx.tree.locate2(d.span.start, d.span.end.saturating_sub(1)) else { continue };
+                let Some(n) = cx.tree.locate2(d.span.start, d.span.end.saturating_sub(1)) else {
+                    continue;
+                };
                 if cx.kind(n) != "AsExpression" {
                     continue;
                 }
-                let Some(&expression) = cx.children(n).first() else { continue };
-                let mut edits = vec![(Span { start: cx.tree.nodes[expression].end, end: cx.tree.nodes[n].end }, String::new())];
+                let Some(&expression) = cx.children(n).first() else {
+                    continue;
+                };
+                let mut edits = vec![(
+                    Span {
+                        start: cx.tree.nodes[expression].end,
+                        end: cx.tree.nodes[n].end,
+                    },
+                    String::new(),
+                )];
                 let mut current = n;
                 while let Some(p) = cx.parent(current)
                     && cx.kind(p) == "ParenthesizedExpression"
@@ -739,11 +917,29 @@ pub(crate) fn fix_published(
                         break;
                     }
                     let s = cx.tree.span(p);
-                    edits.push((Span { start: s.start, end: s.start + 1 }, String::new()));
-                    edits.push((Span { start: s.end - 1, end: s.end }, String::new()));
+                    edits.push((
+                        Span {
+                            start: s.start,
+                            end: s.start + 1,
+                        },
+                        String::new(),
+                    ));
+                    edits.push((
+                        Span {
+                            start: s.end - 1,
+                            end: s.end,
+                        },
+                        String::new(),
+                    ));
                     current = p;
                 }
-                output.push(fix(uri, "Remove unnecessary cast".into(), "quickfix.remove.unnecessaryCast", edits, d));
+                output.push(fix(
+                    uri,
+                    "Remove unnecessary cast".into(),
+                    "quickfix.remove.unnecessaryCast",
+                    edits,
+                    d,
+                ));
             }
             Some("unnecessary_non_null_assertion") => {
                 if &text[d.span.start..d.span.end] == "!" {
@@ -759,9 +955,17 @@ pub(crate) fn fix_published(
             Some("invalid_null_aware_operator") => {
                 // `ReplaceWithNotNullAware` over the `coveringNode`.
                 let cx = cx();
-                let Some(n) = cx.tree.locate2(d.span.start, d.span.end.saturating_sub(1)) else { continue };
+                let Some(n) = cx.tree.locate2(d.span.start, d.span.end.saturating_sub(1)) else {
+                    continue;
+                };
                 if let Some((s, new, title)) = cx.swap_null_aware_operator(n) {
-                    output.push(fix(uri, format!("Replace with '{title}'"), "quickfix.replace.withNotNullAware", vec![(s, new)], d));
+                    output.push(fix(
+                        uri,
+                        format!("Replace with '{title}'"),
+                        "quickfix.replace.withNotNullAware",
+                        vec![(s, new)],
+                        d,
+                    ));
                 }
             }
             Some("instance_access_to_static_member") => {
@@ -776,9 +980,14 @@ pub(crate) fn fix_published(
                         output.push(CodeAction {
                             title: format!("Change access to static using '{name}'"),
                             kind: "quickfix.change.toStaticAccess".into(),
-                            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+                            edits: m
+                                .files
+                                .into_iter()
+                                .flat_map(|(_, l)| l.into_iter().rev())
+                                .collect(),
                             diagnostic: Some(d.clone()),
-                            create_file: None, linked: Default::default(),
+                            create_file: None,
+                            linked: Default::default(),
                         });
                     }
                 }
@@ -821,7 +1030,9 @@ pub(crate) fn fix_published(
                 // `AddNeNull` (static type without `?` → nothing) and `AddAwait.nonBool`
                 // (`Future<bool>` → `await `), in this order.
                 let cx = cx();
-                let Some(n) = cx.tree.locate(d.span.start, d.span.end) else { continue };
+                let Some(n) = cx.tree.locate(d.span.start, d.span.end) else {
+                    continue;
+                };
                 if !cx.is_expression(n) {
                     continue;
                 }
@@ -831,7 +1042,13 @@ pub(crate) fn fix_published(
                         uri,
                         "Add != null".into(),
                         "quickfix.add.neNull",
-                        vec![(Span { start: d.span.end, end: d.span.end }, " != null".into())],
+                        vec![(
+                            Span {
+                                start: d.span.end,
+                                end: d.span.end,
+                            },
+                            " != null".into(),
+                        )],
                         d,
                     ));
                 }
@@ -848,7 +1065,13 @@ pub(crate) fn fix_published(
                         uri,
                         "Add 'await' keyword".into(),
                         "quickfix.add.await",
-                        vec![(Span { start: d.span.start, end: d.span.start }, "await ".into())],
+                        vec![(
+                            Span {
+                                start: d.span.start,
+                                end: d.span.start,
+                            },
+                            "await ".into(),
+                        )],
                         d,
                     ));
                 }
@@ -883,7 +1106,17 @@ fn tokens(text: &str, start: usize, end: usize) -> Vec<dartforge_frontend::token
 /// `writeOrReadElement` is the synthetic getter (the implicit accessor) of a
 /// non-synthetic field without a setter; the field, its unit and name, the
 /// list and the member that declares it.
-fn written_field<'p>(project: &'p Project, unit: UnitId, d: &Diagnostic) -> Option<(dartforge_elements::model::VariableId, UnitId, Span, &'p ast::VariableList, &'p ast::Member)> {
+fn written_field<'p>(
+    project: &'p Project,
+    unit: UnitId,
+    d: &Diagnostic,
+) -> Option<(
+    dartforge_elements::model::VariableId,
+    UnitId,
+    Span,
+    &'p ast::VariableList,
+    &'p ast::Member,
+)> {
     let query = &project.query;
     let p = &query.program;
     let u = p.unit(unit);
@@ -897,12 +1130,22 @@ fn written_field<'p>(project: &'p Project, unit: UnitId, d: &Diagnostic) -> Opti
         matches.then_some(ast::ExprId(i as u32))
     })?;
     let f = match bodies.get_resolved(id)? {
-        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => *f,
-        Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => p.variable(*v).getter?,
+        Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }
+        | Resolved::Element(Element::Function(f)) => *f,
+        Resolved::Member {
+            member: MemberRef::Variable(v),
+            ..
+        }
+        | Resolved::Element(Element::Variable(v)) => p.variable(*v).getter?,
         _ => return None,
     };
     let fe = p.function(f);
-    if fe.kind != dartforge_elements::model::FunctionKind::ImplicitAccessor || query.name(fe.name).ends_with('=') {
+    if fe.kind != dartforge_elements::model::FunctionKind::ImplicitAccessor
+        || query.name(fe.name).ends_with('=')
+    {
         return None;
     }
     let v = fe.variable?;
@@ -915,7 +1158,9 @@ fn written_field<'p>(project: &'p Project, unit: UnitId, d: &Diagnostic) -> Opti
         ast::MemberKind::Field(l) => l.variables.iter().any(|x| x.name.span == name_),
         _ => false,
     })?;
-    let ast::MemberKind::Field(l) = &member.kind else { return None };
+    let ast::MemberKind::Field(l) = &member.kind else {
+        return None;
+    };
     Some((v, u_decl, name_, l, member))
 }
 
@@ -928,7 +1173,11 @@ fn non_final_field(project: &Project, unit: UnitId, d: &Diagnostic) -> Option<Co
     let p = &project.query.program;
     let (v, u_decl, name, l, member) = written_field(project, unit, d)?;
     let class = p.variable(v).class?;
-    if !matches!(p.class(class).kind, dartforge_elements::model::ClassKind::Class | dartforge_elements::model::ClassKind::MixinApplication) {
+    if !matches!(
+        p.class(class).kind,
+        dartforge_elements::model::ClassKind::Class
+            | dartforge_elements::model::ClassKind::MixinApplication
+    ) {
         return None;
     }
     if l.variables.len() != 1 || !l.final_ || l.const_ {
@@ -937,20 +1186,42 @@ fn non_final_field(project: &Project, unit: UnitId, d: &Diagnostic) -> Option<Co
     let text = p.unit(u_decl).source.as_str();
     let final_ = tokens(text, member.span.start, name.start)
         .into_iter()
-        .find(|t| t.kind == dartforge_frontend::token::Kind::Keyword(dartforge_frontend::token::Keyword::Final))?;
+        .find(|t| {
+            t.kind
+                == dartforge_frontend::token::Kind::Keyword(
+                    dartforge_frontend::token::Keyword::Final,
+                )
+        })?;
     let (span, new) = match l.ty {
         // `range.startStart(final, type)`.
-        Some(t) => (Span { start: final_.span.start, end: p.unit(u_decl).ast.ty(t).span.start }, String::new()),
+        Some(t) => (
+            Span {
+                start: final_.span.start,
+                end: p.unit(u_decl).ast.ty(t).span.start,
+            },
+            String::new(),
+        ),
         // `range.startStart(final, variable)` with `var `.
-        None => (Span { start: final_.span.start, end: name.start }, "var ".to_string()),
+        None => (
+            Span {
+                start: final_.span.start,
+                end: name.start,
+            },
+            "var ".to_string(),
+        ),
     };
     let uri_decl = project.unit_uri(u_decl)?;
     Some(CodeAction {
         title: format!("Make field '{}' not final", &text[name.start..name.end]),
         kind: "quickfix.makeFieldNotFinal".into(),
-        edits: vec![Edit { uri: uri_decl, span, text: new }],
+        edits: vec![Edit {
+            uri: uri_decl,
+            span,
+            text: new,
+        }],
         diagnostic: Some(d.clone()),
-        create_file: None, linked: Default::default(),
+        create_file: None,
+        linked: Default::default(),
     })
 }
 
@@ -967,14 +1238,27 @@ fn late_field(project: &Project, unit: UnitId, d: &Diagnostic) -> Option<CodeAct
     let text = p.unit(u_decl).source.as_str();
     let final_ = tokens(text, member.span.start, name.start)
         .into_iter()
-        .find(|t| t.kind == dartforge_frontend::token::Kind::Keyword(dartforge_frontend::token::Keyword::Final))?;
+        .find(|t| {
+            t.kind
+                == dartforge_frontend::token::Kind::Keyword(
+                    dartforge_frontend::token::Keyword::Final,
+                )
+        })?;
     let uri_decl = project.unit_uri(u_decl)?;
     Some(CodeAction {
         title: "Add 'late' modifier".into(),
         kind: "quickfix.add.late".into(),
-        edits: vec![Edit { uri: uri_decl, span: Span { start: final_.span.start, end: final_.span.start }, text: "late ".into() }],
+        edits: vec![Edit {
+            uri: uri_decl,
+            span: Span {
+                start: final_.span.start,
+                end: final_.span.start,
+            },
+            text: "late ".into(),
+        }],
         diagnostic: Some(d.clone()),
-        create_file: None, linked: Default::default(),
+        create_file: None,
+        linked: Default::default(),
     })
 }
 
@@ -982,12 +1266,21 @@ fn late_field(project: &Project, unit: UnitId, d: &Diagnostic) -> Option<CodeAct
 /// `Remove initializer`, in this order (that of `RemoveAbstract` and
 /// `RemoveInitializer` in Dart's producer list). `RemoveAbstract` skips a
 /// list of several variables whose type is not nullable.
-fn initialized_abstract_field(project: &Project, unit: UnitId, uri: &str, ast: &ast::Ast, text: &str, d: &Diagnostic) -> Vec<CodeAction> {
+fn initialized_abstract_field(
+    project: &Project,
+    unit: UnitId,
+    uri: &str,
+    ast: &ast::Ast,
+    text: &str,
+    d: &Diagnostic,
+) -> Vec<CodeAction> {
     let mut output = Vec::new();
     let Some((member, list, var)) = ast.members.iter().find_map(|m| match &m.kind {
-        ast::MemberKind::Field(l) if l.abstract_ => {
-            l.variables.iter().find(|x| x.name.span == d.span).map(|x| (m, l, x))
-        }
+        ast::MemberKind::Field(l) if l.abstract_ => l
+            .variables
+            .iter()
+            .find(|x| x.name.span == d.span)
+            .map(|x| (m, l, x)),
         _ => None,
     }) else {
         return output;
@@ -1001,11 +1294,29 @@ fn initialized_abstract_field(project: &Project, unit: UnitId, uri: &str, ast: &
     if list.variables.len() <= 1 || nullable() {
         let abstract_ = tokens(text, member.span.start, var.name.span.start)
             .into_iter()
-            .find(|t| t.kind == dartforge_frontend::token::Kind::Ident && &text[t.span.start..t.span.end] == "abstract");
+            .find(|t| {
+                t.kind == dartforge_frontend::token::Kind::Ident
+                    && &text[t.span.start..t.span.end] == "abstract"
+            });
         if let Some(t) = abstract_ {
             // `[abstract.offset, nextToken.offset)`.
-            let next = tokens(text, t.span.end, var.name.span.end).into_iter().find(|x| x.kind != dartforge_frontend::token::Kind::Eof).map_or(var.name.span.start, |x| x.span.start);
-            output.push(fix(uri, "Remove the 'abstract' keyword".into(), "quickfix.remove.abstract", vec![(Span { start: t.span.start, end: next }, String::new())], d));
+            let next = tokens(text, t.span.end, var.name.span.end)
+                .into_iter()
+                .find(|x| x.kind != dartforge_frontend::token::Kind::Eof)
+                .map_or(var.name.span.start, |x| x.span.start);
+            output.push(fix(
+                uri,
+                "Remove the 'abstract' keyword".into(),
+                "quickfix.remove.abstract",
+                vec![(
+                    Span {
+                        start: t.span.start,
+                        end: next,
+                    },
+                    String::new(),
+                )],
+                d,
+            ));
         }
     }
     if let Some(init) = var.initializer {
@@ -1014,7 +1325,13 @@ fn initialized_abstract_field(project: &Project, unit: UnitId, uri: &str, ast: &
             uri,
             "Remove initializer".into(),
             "quickfix.remove.initializer",
-            vec![(Span { start: var.name.span.end, end }, String::new())],
+            vec![(
+                Span {
+                    start: var.name.span.end,
+                    end,
+                },
+                String::new(),
+            )],
             d,
         ));
     }
@@ -1030,7 +1347,11 @@ fn create_file(project: &Project, unit: UnitId, _uri: &str, d: &Diagnostic) -> O
     let p = project.program();
     let u = p.unit(unit);
     let (literal, part) = u.unit.directives.iter().find_map(|dir| match &dir.kind {
-        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } if uri.span == d.span => Some((uri, false)),
+        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. }
+            if uri.span == d.span =>
+        {
+            Some((uri, false))
+        }
         DirectiveKind::Part { uri } if uri.span == d.span => Some((uri, true)),
         _ => None,
     })?;
@@ -1056,11 +1377,20 @@ fn create_file(project: &Project, unit: UnitId, _uri: &str, d: &Diagnostic) -> O
     } else if text.contains(':') {
         return None;
     } else {
-        Url::from_file_path(&current).ok()?.join(&text).ok()?.to_file_path().ok()?
+        Url::from_file_path(&current)
+            .ok()?
+            .join(&text)
+            .ok()?
+            .to_file_path()
+            .ok()?
     };
     let name = target.file_name()?.to_string_lossy().into_owned();
     let content = if part {
-        let library = p.library(u.library).units.first().and_then(|&x| p.unit(x).path.clone())?;
+        let library = p
+            .library(u.library)
+            .units
+            .first()
+            .and_then(|&x| p.unit(x).path.clone())?;
         let folder = target.parent()?;
         let relative = crate::refactorings_method::relative_path(&library, folder);
         let eol = crate::refactorings_exec::Text::new(&u.source).eol();
@@ -1092,7 +1422,14 @@ pub(crate) fn organize_imports(uri: &str, text: &str) -> CodeAction {
     let edits = crate::organize_imports::organize(text, &analyzed.unit, &[], false, true)
         .and_then(|new| crate::organize_imports::edit(text, &new))
         .map(|(offset, length, new)| {
-            vec![Edit { uri: uri.to_string(), span: Span { start: offset, end: offset + length }, text: new }]
+            vec![Edit {
+                uri: uri.to_string(),
+                span: Span {
+                    start: offset,
+                    end: offset + length,
+                },
+                text: new,
+            }]
         })
         .unwrap_or_default();
     CodeAction {
@@ -1100,6 +1437,7 @@ pub(crate) fn organize_imports(uri: &str, text: &str) -> CodeAction {
         kind: "source.organizeImports".into(),
         edits,
         diagnostic: None,
-        create_file: None, linked: Default::default(),
+        create_file: None,
+        linked: Default::default(),
     }
 }

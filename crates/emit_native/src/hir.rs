@@ -298,7 +298,9 @@ pub enum Instruction {
     /// let copy = Instruction::ArcCopy { value: Operand::Val(ValueId(0)) };
     /// assert!(matches!(copy, Instruction::ArcCopy { .. }));
     /// ```
-    ArcCopy { value: Operand },
+    ArcCopy {
+        value: Operand,
+    },
     /// Consumes an owned token, without collecting or running Dart.
     /// The token verifier must prove availability and single consumption.
     ///
@@ -307,7 +309,9 @@ pub enum Instruction {
     /// let drop = Instruction::ArcDrop { value: Operand::Val(ValueId(1)) };
     /// assert!(matches!(drop, Instruction::ArcDrop { .. }));
     /// ```
-    ArcDrop { value: Operand },
+    ArcDrop {
+        value: Operand,
+    },
     /// Transfers the token to the Ref result without changing the physical RC.
     /// Consumes the logical origin; keep the operation until ownership is verified.
     ///
@@ -316,7 +320,9 @@ pub enum Instruction {
     /// let movement = Instruction::ArcMove { value: Operand::Val(ValueId(1)) };
     /// assert!(matches!(movement, Instruction::ArcMove { .. }));
     /// ```
-    ArcMove { value: Operand },
+    ArcMove {
+        value: Operand,
+    },
 
     /// Loads a classified slot and produces an owned token independent of the slot.
     ///
@@ -326,7 +332,9 @@ pub enum Instruction {
     /// let load = Instruction::ArcLoadStrong { slot };
     /// assert!(matches!(load, Instruction::ArcLoadStrong { .. }));
     /// ```
-    ArcLoadStrong { slot: StrongSlot },
+    ArcLoadStrong {
+        slot: StrongSlot,
+    },
     /// Publishes the already evaluated reference before releasing the old content.
     ///
     /// ```
@@ -337,7 +345,11 @@ pub enum Instruction {
     /// };
     /// assert!(matches!(store, Instruction::ArcStoreStrong { .. }));
     /// ```
-    ArcStoreStrong { slot: StrongSlot, value: Operand, mode: StrongStoreMode },
+    ArcStoreStrong {
+        slot: StrongSlot,
+        value: Operand,
+        mode: StrongStoreMode,
+    },
 
     // Integer arithmetic and logic
     Add(Operand, Operand),
@@ -370,16 +382,33 @@ pub enum Instruction {
     // Primitive conversions
     IntToDouble(Operand),
     DoubleToInt(Operand),
-    ZExt { op: Operand, from: Type, to: Type },
-    Trunc { op: Operand, from: Type, to: Type },
+    ZExt {
+        op: Operand,
+        from: Type,
+        to: Type,
+    },
+    Trunc {
+        op: Operand,
+        from: Type,
+        to: Type,
+    },
     /// Reinterprets the bits between `i64` and `double` (a value read from the heap or
     /// written to it). It is not a numeric conversion: that is `IntToDouble`.
-    Bitcast { op: Operand, to: Type },
+    Bitcast {
+        op: Operand,
+        to: Type,
+    },
     /// A scalar (`I64`/`F64`/`I1`) in a `Ref` position: a box in the heap (R3).
-    Box { op: Operand, from: Type },
+    Box {
+        op: Operand,
+        from: Type,
+    },
     /// A box back to the scalar; null or another type throws `TypeError`
     /// (a pending exception — the emitter checks it, as in a call).
-    Unbox { op: Operand, to: Type },
+    Unbox {
+        op: Operand,
+        to: Type,
+    },
 
     // Heap allocations
     AllocObject {
@@ -894,11 +923,20 @@ impl Function {
                 .filter(|n| !n.is_empty())
                 .unwrap_or_else(|| self.name.clone()),
         };
-        let printing = |s: &str, p: char| s.len() == 9 && s.starts_with(p) && s[1..].bytes().all(|b| b.is_ascii_hexdigit());
+        let printing = |s: &str, p: char| {
+            s.len() == 9 && s.starts_with(p) && s[1..].bytes().all(|b| b.is_ascii_hexdigit())
+        };
         let mut parts = base.split('$');
         let mut name = parts.next().unwrap_or_default().to_string();
         for p in parts {
-            if p.is_empty() || p == "async" || p == "ent" || p == "new" || printing(p, 'e') || printing(p, 'q') || p.bytes().all(|b| b.is_ascii_digit()) {
+            if p.is_empty()
+                || p == "async"
+                || p == "ent"
+                || p == "new"
+                || printing(p, 'e')
+                || printing(p, 'q')
+                || p.bytes().all(|b| b.is_ascii_digit())
+            {
                 continue;
             }
             if let Some(k) = p.strip_prefix("clo")
@@ -1134,14 +1172,16 @@ pub struct Module {
     /// The lowering records only unboxed int/double/bool. Hidden/native i64
     /// parameters are not classified by width. These facts
     /// still need to feed the ARC plans and survive the passes.
-    pub dart_scalar_parameters: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
+    pub dart_scalar_parameters:
+        std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
     /// Native IDs of the canonical RTI universe, produced explicitly.
     /// They are neither Ref nor Dart scalars; the life of the universe/pins requires another protocol.
     pub dart_rti_parameters: std::collections::HashMap<String, std::collections::HashSet<ValueId>>,
     /// Vectors of the uniform ABI registered explicitly by the lowering.
     /// Life/bounds depend on the protocol of the caller. Descriptors are immutable;
     /// the first two slots are native counts, without heap references.
-    pub dart_vector_parameters: std::collections::HashMap<String, std::collections::HashMap<ValueId, DartEntryVector>>,
+    pub dart_vector_parameters:
+        std::collections::HashMap<String, std::collections::HashMap<ValueId, DartEntryVector>>,
     /// Typed bodies of source Dart functions whose ABI returns an Owned Ref.
     /// Nominal provenance of the lowering; does not automatically include uniform
     /// entries, FFI callbacks or HIR functions supplied by another producer.
@@ -1176,9 +1216,11 @@ pub struct Module {
     /// Registration facts from the same compiled SDK summaries used at link time.
     pub arc_external_ancestry: ArcExternalAncestry,
     /// Artifact-bound allocation return facts from the exact selected linked SDK.
-    pub(crate) imported_allocation_returns: Option<crate::pruning::receiver_provenance::allocation_certificates::Imports>,
+    pub(crate) imported_allocation_returns:
+        Option<crate::pruning::receiver_provenance::allocation_certificates::Imports>,
     /// Snapshot-bound SDK allocation/exposure facts; unknown records never authorize pruning.
-    pub(crate) imported_allocation_inventory: Option<std::sync::Arc<crate::pruning::allocation_inventory::imports::Inventory>>,
+    pub(crate) imported_allocation_inventory:
+        Option<std::sync::Arc<crate::pruning::allocation_inventory::imports::Inventory>>,
     /// The ARC preparation accepts direct calls to Dart functions of another
     /// already prepared image (the prepared source SDK), with the summary taken
     /// from the call itself: arguments by the representation of the operands,
@@ -1196,7 +1238,10 @@ pub struct Module {
     /// Pre-optimization nominal origin of the allocations recognized by the ARC lowering.
     /// SSA IDs index the current version; copies of the inliner keep the origin
     /// site. Specialized contexts and reload dependencies are still missing.
-    pub arc_sites: std::collections::HashMap<String, std::collections::HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
+    pub arc_sites: std::collections::HashMap<
+        String,
+        std::collections::HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
+    >,
     /// Declared representations of the fields per class/position, only under ARC.
     /// Includes inheritance, mixins and the enum prefix; late with an initializer stays Ref.
     /// Does not certify the type of the receiver, the physical shape of the heap or the reload version/pins.
@@ -1320,7 +1365,11 @@ impl Module {
 
     /// Registers or looks up a global selector_id for a name and arity.
     pub fn get_or_register_selector(&mut self, name: &str, arity: usize) -> u32 {
-        if let Some(pos) = self.selectors.iter().position(|s| s.name == name && s.arity == arity) {
+        if let Some(pos) = self
+            .selectors
+            .iter()
+            .position(|s| s.name == name && s.arity == arity)
+        {
             return pos as u32;
         }
         let id = self.selectors.len() as u32;
@@ -1343,17 +1392,33 @@ impl Instruction {
                     && declaration.storage_type != Type::Ptr
                     && !declaration.storage_type.is_vector()
                     && args.first().is_some_and(|(_, ty)| *ty == Type::Ref)
-                    && args.get(1).is_some_and(|(index, ty)| *ty == Type::I64
-                        && matches!(index, Operand::Constant(Constant::Int(i))
-                            if usize::try_from(*i).ok() == Some(declaration.layout_index)))
-                    && ((name == "dartforge_object_get" && args.len() == 2
-                        && ret_ty == if declaration.storage_type == Type::Ref { Type::Ref } else { Type::I64 })
-                        || (name == "dartforge_object_set" && args.len() == 4
-                            && ret_ty == Type::Void && args[2].1 == Type::I64 && args[3].1 == Type::I8
+                    && args.get(1).is_some_and(|(index, ty)| {
+                        *ty == Type::I64
+                            && matches!(index, Operand::Constant(Constant::Int(i))
+                            if usize::try_from(*i).ok() == Some(declaration.layout_index))
+                    })
+                    && ((name == "dartforge_object_get"
+                        && args.len() == 2
+                        && ret_ty
+                            == if declaration.storage_type == Type::Ref {
+                                Type::Ref
+                            } else {
+                                Type::I64
+                            })
+                        || (name == "dartforge_object_set"
+                            && args.len() == 4
+                            && ret_ty == Type::Void
+                            && args[2].1 == Type::I64
+                            && args[3].1 == Type::I8
                             && matches!(&args[3].0, Operand::Constant(Constant::Int(tag))
                                 if *tag == i64::from(declaration.storage_type == Type::Ref)))) =>
             {
-                Self::DeclaredFieldCall { declaration, name, args, ret_ty }
+                Self::DeclaredFieldCall {
+                    declaration,
+                    name,
+                    args,
+                    ret_ty,
+                }
             }
             (instruction, _) => instruction,
         }
@@ -1365,9 +1430,15 @@ mod declared_field_tests {
     use super::*;
 
     fn declaration(owner: &str) -> FieldDeclaration {
-        FieldDeclaration { library_uri: "package:fixture/base.dart".into(), owner: owner.into(),
-            name: "_encoder".into(), is_final: true, is_late: false,
-            layout_index: 0, storage_type: Type::Ref }
+        FieldDeclaration {
+            library_uri: "package:fixture/base.dart".into(),
+            owner: owner.into(),
+            name: "_encoder".into(),
+            is_final: true,
+            is_late: false,
+            layout_index: 0,
+            storage_type: Type::Ref,
+        }
     }
 
     #[test]
@@ -1386,24 +1457,46 @@ mod declared_field_tests {
 
     #[test]
     fn attachment_preserves_checked_arguments_and_unknown_operations() {
-        let call = Instruction::CallRuntime { name: "dartforge_object_get".into(),
-            args: vec![(Operand::Val(ValueId(1)), Type::Ref),
-                (Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref };
-        let annotated = call.clone().with_field_declaration(Some(declaration("Base")));
-        assert!(matches!(annotated, Instruction::DeclaredFieldCall { ref name, ref args,
-            ret_ty: Type::Ref, .. } if name == "dartforge_object_get" && args.len() == 2));
-        assert!(matches!(call.with_field_declaration(None), Instruction::CallRuntime { .. }));
-        let unrelated = Instruction::CallRuntime { name: "untrusted_getter".into(),
-            args: vec![], ret_ty: Type::Ref };
-        assert!(matches!(unrelated.with_field_declaration(Some(declaration("Base"))),
-            Instruction::CallRuntime { .. }));
+        let call = Instruction::CallRuntime {
+            name: "dartforge_object_get".into(),
+            args: vec![
+                (Operand::Val(ValueId(1)), Type::Ref),
+                (Operand::Constant(Constant::Int(0)), Type::I64),
+            ],
+            ret_ty: Type::Ref,
+        };
+        let annotated = call
+            .clone()
+            .with_field_declaration(Some(declaration("Base")));
+        assert!(
+            matches!(annotated, Instruction::DeclaredFieldCall { ref name, ref args,
+            ret_ty: Type::Ref, .. } if name == "dartforge_object_get" && args.len() == 2)
+        );
+        assert!(matches!(
+            call.with_field_declaration(None),
+            Instruction::CallRuntime { .. }
+        ));
+        let unrelated = Instruction::CallRuntime {
+            name: "untrusted_getter".into(),
+            args: vec![],
+            ret_ty: Type::Ref,
+        };
+        assert!(matches!(
+            unrelated.with_field_declaration(Some(declaration("Base"))),
+            Instruction::CallRuntime { .. }
+        ));
     }
 
     #[test]
     fn declaration_attachment_refuses_incompatible_abi_and_slot() {
-        let get = Instruction::CallRuntime { name: "dartforge_object_get".into(),
-            args: vec![(Operand::Val(ValueId(1)), Type::Ref),
-                (Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref };
+        let get = Instruction::CallRuntime {
+            name: "dartforge_object_get".into(),
+            args: vec![
+                (Operand::Val(ValueId(1)), Type::Ref),
+                (Operand::Constant(Constant::Int(0)), Type::I64),
+            ],
+            ret_ty: Type::Ref,
+        };
         let mut invalid = Vec::new();
         for index in [-1, 1] {
             let mut call = get.clone();
@@ -1413,69 +1506,123 @@ mod declared_field_tests {
             invalid.push(call);
         }
         let mut wrong_receiver = get.clone();
-        if let Instruction::CallRuntime { args, .. } = &mut wrong_receiver { args[0].1 = Type::I64; }
+        if let Instruction::CallRuntime { args, .. } = &mut wrong_receiver {
+            args[0].1 = Type::I64;
+        }
         invalid.push(wrong_receiver);
         let mut wrong_result = get.clone();
-        if let Instruction::CallRuntime { ret_ty, .. } = &mut wrong_result { *ret_ty = Type::I64; }
+        if let Instruction::CallRuntime { ret_ty, .. } = &mut wrong_result {
+            *ret_ty = Type::I64;
+        }
         invalid.push(wrong_result);
         for tag in [0, 2] {
-            invalid.push(Instruction::CallRuntime { name: "dartforge_object_set".into(),
-                args: vec![(Operand::Val(ValueId(1)), Type::Ref),
+            invalid.push(Instruction::CallRuntime {
+                name: "dartforge_object_set".into(),
+                args: vec![
+                    (Operand::Val(ValueId(1)), Type::Ref),
                     (Operand::Constant(Constant::Int(0)), Type::I64),
                     (Operand::Val(ValueId(2)), Type::I64),
-                    (Operand::Constant(Constant::Int(tag)), Type::I8)], ret_ty: Type::Void });
+                    (Operand::Constant(Constant::Int(tag)), Type::I8),
+                ],
+                ret_ty: Type::Void,
+            });
         }
         for call in invalid {
-            assert!(matches!(call.with_field_declaration(Some(declaration("Base"))),
-                Instruction::CallRuntime { .. }));
+            assert!(matches!(
+                call.with_field_declaration(Some(declaration("Base"))),
+                Instruction::CallRuntime { .. }
+            ));
         }
     }
 
     #[test]
     fn cloned_field_call_keeps_identity_and_remaps_all_arguments() {
-        let call = Instruction::CallRuntime { name: "dartforge_object_set".into(),
-            args: vec![(Operand::Val(ValueId(1)), Type::Ref),
+        let call = Instruction::CallRuntime {
+            name: "dartforge_object_set".into(),
+            args: vec![
+                (Operand::Val(ValueId(1)), Type::Ref),
                 (Operand::Constant(Constant::Int(0)), Type::I64),
                 (Operand::Val(ValueId(3)), Type::I64),
-                (Operand::Constant(Constant::Int(1)), Type::I8)], ret_ty: Type::Void };
-        let annotated = call.clone().with_field_declaration(Some(declaration("Base")));
+                (Operand::Constant(Constant::Int(1)), Type::I8),
+            ],
+            ret_ty: Type::Void,
+        };
+        let annotated = call
+            .clone()
+            .with_field_declaration(Some(declaration("Base")));
         let mut cloned = annotated.clone();
         crate::optimize::operands::operands_mut(&mut cloned, &mut |operand| {
-            if let Operand::Val(value) = operand { value.0 += 10; }
+            if let Operand::Val(value) = operand {
+                value.0 += 10;
+            }
         });
         let mut arguments = Vec::new();
         crate::optimize::operands::operands(&cloned, &mut |operand| {
-            if let Operand::Val(value) = operand { arguments.push(value.0); }
+            if let Operand::Val(value) = operand {
+                arguments.push(value.0);
+            }
         });
         assert_eq!(arguments, vec![11, 13]);
-        assert!(matches!(cloned, Instruction::DeclaredFieldCall { declaration: identity, .. }
-            if identity == declaration("Base")));
-        assert!(matches!(annotated, Instruction::DeclaredFieldCall { ref args, .. }
-            if matches!(args[0].0, Operand::Val(ValueId(1)))));
+        assert!(
+            matches!(cloned, Instruction::DeclaredFieldCall { declaration: identity, .. }
+            if identity == declaration("Base"))
+        );
+        assert!(
+            matches!(annotated, Instruction::DeclaredFieldCall { ref args, .. }
+            if matches!(args[0].0, Operand::Val(ValueId(1))))
+        );
     }
 
     #[test]
     fn llvm_keeps_exact_checked_field_emission() {
         for (name, args, ret_ty) in [
-            ("dartforge_object_get", vec![(Operand::Constant(Constant::Null), Type::Ref),
-                (Operand::Constant(Constant::Int(0)), Type::I64)], Type::Ref),
-            ("dartforge_object_set", vec![(Operand::Constant(Constant::Null), Type::Ref),
-                (Operand::Constant(Constant::Int(0)), Type::I64),
-                (Operand::Constant(Constant::Int(0)), Type::I64),
-                (Operand::Constant(Constant::Int(1)), Type::I8)], Type::Void),
+            (
+                "dartforge_object_get",
+                vec![
+                    (Operand::Constant(Constant::Null), Type::Ref),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                ],
+                Type::Ref,
+            ),
+            (
+                "dartforge_object_set",
+                vec![
+                    (Operand::Constant(Constant::Null), Type::Ref),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                    (Operand::Constant(Constant::Int(1)), Type::I8),
+                ],
+                Type::Void,
+            ),
         ] {
-            let call = Instruction::CallRuntime { name: name.into(), args, ret_ty };
-            let module = |instruction| Module { functions: vec![Function {
-                symbol: "field_witness".into(), name: "field_witness".into(), params: vec![],
-                return_ty: ret_ty, debug_info: None, blocks: vec![BasicBlock {
-                    id: BlockId(0), instructions: vec![(ValueId(0), instruction, ret_ty)],
-                    terminator: Terminator::Return((ret_ty != Type::Void).then_some(Operand::Val(ValueId(0)))),
+            let call = Instruction::CallRuntime {
+                name: name.into(),
+                args,
+                ret_ty,
+            };
+            let module = |instruction| Module {
+                functions: vec![Function {
+                    symbol: "field_witness".into(),
+                    name: "field_witness".into(),
+                    params: vec![],
+                    return_ty: ret_ty,
+                    debug_info: None,
+                    blocks: vec![BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![(ValueId(0), instruction, ret_ty)],
+                        terminator: Terminator::Return(
+                            (ret_ty != Type::Void).then_some(Operand::Val(ValueId(0))),
+                        ),
+                    }],
                 }],
-            }], ..Module::default() };
+                ..Module::default()
+            };
             let plain = module(call.clone());
             let annotated = module(call.with_field_declaration(Some(declaration("Base"))));
-            assert_eq!(crate::llvm::LlvmEmitter::new(&plain).emit_all(),
-                crate::llvm::LlvmEmitter::new(&annotated).emit_all());
+            assert_eq!(
+                crate::llvm::LlvmEmitter::new(&plain).emit_all(),
+                crate::llvm::LlvmEmitter::new(&annotated).emit_all()
+            );
         }
     }
 }

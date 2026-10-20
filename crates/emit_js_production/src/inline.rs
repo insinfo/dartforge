@@ -36,8 +36,9 @@
 //! `DARTFORGE_JSPROD_INLINE=0` turns it off.
 
 use oxc_ast::ast::{
-    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, Class, ClassElement, Expression, FormalParameters, Function, FunctionBody,
-    MethodDefinitionKind, ObjectPropertyKind, PropertyKey, Statement, UnaryOperator,
+    Argument, ArrayExpressionElement, AssignmentTarget, BindingPattern, Class, ClassElement,
+    Expression, FormalParameters, Function, FunctionBody, MethodDefinitionKind, ObjectPropertyKind,
+    PropertyKey, Statement, UnaryOperator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
@@ -143,7 +144,10 @@ impl Body<'_> {
                     if self.uses.iter().any(|u| u.2 == k) {
                         return false;
                     }
-                    if self.evaluated || self.conditional > 0 || self.last_param.is_some_and(|l| l > k) {
+                    if self.evaluated
+                        || self.conditional > 0
+                        || self.last_param.is_some_and(|l| l > k)
+                    {
                         self.simple_args = true;
                     }
                     self.last_param = Some(k);
@@ -154,7 +158,10 @@ impl Body<'_> {
                 }
                 true
             }
-            Expression::StringLiteral(_) | Expression::NumericLiteral(_) | Expression::BooleanLiteral(_) | Expression::NullLiteral(_) => true,
+            Expression::StringLiteral(_)
+            | Expression::NumericLiteral(_)
+            | Expression::BooleanLiteral(_)
+            | Expression::NullLiteral(_) => true,
             Expression::StaticMemberExpression(m) => {
                 if m.optional || !self.expr(&m.object) {
                     return false;
@@ -219,11 +226,15 @@ impl Body<'_> {
             }
             Expression::ParenthesizedExpression(p) => self.expr(&p.expression),
             Expression::ArrayExpression(a) => a.elements.iter().all(|x| match x {
-                ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => false,
+                ArrayExpressionElement::SpreadElement(_) | ArrayExpressionElement::Elision(_) => {
+                    false
+                }
                 x => x.as_expression().is_some_and(|x| self.expr(x)),
             }),
             Expression::ObjectExpression(o) => o.properties.iter().all(|p| match p {
-                ObjectPropertyKind::ObjectProperty(p) => !p.computed && !p.method && !p.shorthand && self.expr(&p.value),
+                ObjectPropertyKind::ObjectProperty(p) => {
+                    !p.computed && !p.method && !p.shorthand && self.expr(&p.value)
+                }
                 ObjectPropertyKind::SpreadProperty(_) => false,
             }),
             _ => false,
@@ -231,7 +242,8 @@ impl Body<'_> {
     }
 
     fn arguments(&mut self, args: &[Argument<'_>]) -> bool {
-        args.iter().all(|a| a.as_expression().is_some_and(|x| self.expr(x)))
+        args.iter()
+            .all(|a| a.as_expression().is_some_and(|x| self.expr(x)))
     }
 }
 
@@ -258,7 +270,9 @@ fn plain_params(p: &FormalParameters<'_>) -> Option<Vec<(String, bool)>> {
     p.items
         .iter()
         .map(|x| match &x.pattern {
-            BindingPattern::BindingIdentifier(b) => Some((b.name.to_string(), x.initializer.is_some())),
+            BindingPattern::BindingIdentifier(b) => {
+                Some((b.name.to_string(), x.initializer.is_some()))
+            }
             _ => None,
         })
         .collect()
@@ -312,7 +326,15 @@ impl<'s> Scan<'s> {
         &self.source[s.start as usize..s.end as usize]
     }
 
-    fn define(&mut self, key: String, params: Option<Vec<(String, bool)>>, body: Option<&FunctionBody<'_>>, own: (u32, u32), removal: (u32, u32, String), from_assignment: bool) {
+    fn define(
+        &mut self,
+        key: String,
+        params: Option<Vec<(String, bool)>>,
+        body: Option<&FunctionBody<'_>>,
+        own: (u32, u32),
+        removal: (u32, u32, String),
+        from_assignment: bool,
+    ) {
         if self.defs.contains_key(&key) || self.refused.contains(&key) {
             self.defs.remove(&key);
             self.refused.insert(key);
@@ -332,19 +354,30 @@ impl<'s> Scan<'s> {
             return;
         }
         let (params, defaults): (Vec<String>, Vec<bool>) = params.into_iter().unzip();
-        let mut b = Body { params: &params, uses: Vec::new(), free: Vec::new(), evaluated: false, conditional: 0, simple_args: false, last_param: None };
+        let mut b = Body {
+            params: &params,
+            uses: Vec::new(),
+            free: Vec::new(),
+            evaluated: false,
+            conditional: 0,
+            simple_args: false,
+            last_param: None,
+        };
         // `arguments` would be the caller's after the inlining.
         if !b.expr(e) || b.free.iter().any(|n| n == "arguments") {
             self.refused.insert(key);
             return;
         }
-        let used: Vec<bool> = (0..params.len()).map(|k| b.uses.iter().any(|u| u.2 == k)).collect();
+        let used: Vec<bool> = (0..params.len())
+            .map(|k| b.uses.iter().any(|u| u.2 == k))
+            .collect();
         // A default value only matters when the parameter is read.
         if used.iter().zip(&defaults).any(|(&u, &d)| u && d) {
             self.refused.insert(key);
             return;
         }
-        let body_size = minified_estimate(&self.source[span.start as usize..span.end as usize]).saturating_sub(2 * b.uses.len());
+        let body_size = minified_estimate(&self.source[span.start as usize..span.end as usize])
+            .saturating_sub(2 * b.uses.len());
         let call_size = minified_estimate(&key) + 2 + params.len().saturating_sub(1);
         let def = Def {
             expr: (span.start, span.end),
@@ -367,26 +400,51 @@ impl<'s> Scan<'s> {
 
     fn class_statics(&mut self, owner: &str, class: &Class<'_>) {
         for el in class.body.body.iter() {
-            let ClassElement::MethodDefinition(m) = el else { continue };
+            let ClassElement::MethodDefinition(m) = el else {
+                continue;
+            };
             if !m.r#static || m.computed || m.kind != MethodDefinitionKind::Method {
                 continue;
             }
-            let PropertyKey::StaticIdentifier(k) = &m.key else { continue };
+            let PropertyKey::StaticIdentifier(k) = &m.key else {
+                continue;
+            };
             let f = &m.value;
             if f.generator || f.r#async {
                 continue;
             }
             let key = format!("{owner}.{}", k.name);
-            self.define(key, plain_params(&f.params), f.body.as_deref(), (m.span.start, m.span.end), (m.span.start, m.span.end, k.name.to_string()), false);
+            self.define(
+                key,
+                plain_params(&f.params),
+                f.body.as_deref(),
+                (m.span.start, m.span.end),
+                (m.span.start, m.span.end, k.name.to_string()),
+                false,
+            );
         }
     }
 
-    fn function_value(&mut self, name: &str, f: &Function<'_>, own: (u32, u32), removal: (u32, u32, String), from_assignment: bool) {
+    fn function_value(
+        &mut self,
+        name: &str,
+        f: &Function<'_>,
+        own: (u32, u32),
+        removal: (u32, u32, String),
+        from_assignment: bool,
+    ) {
         if f.generator || f.r#async {
             self.refused.insert(name.to_string());
             return;
         }
-        self.define(name.to_string(), plain_params(&f.params), f.body.as_deref(), own, removal, from_assignment);
+        self.define(
+            name.to_string(),
+            plain_params(&f.params),
+            f.body.as_deref(),
+            own,
+            removal,
+            from_assignment,
+        );
     }
 }
 
@@ -399,11 +457,12 @@ impl<'a> Visit<'a> for Scan<'_> {
             self.iifes += 1;
         }
         if self.depth <= 2
-            && let Some(b) = &it.body {
-                for s in b.statements.iter() {
-                    self.top_statements.insert(s.span().start);
-                }
+            && let Some(b) = &it.body
+        {
+            for s in b.statements.iter() {
+                self.top_statements.insert(s.span().start);
             }
+        }
         walk::walk_function(self, it, flags);
         self.iife = saved;
         self.depth -= 1;
@@ -419,15 +478,26 @@ impl<'a> Visit<'a> for Scan<'_> {
             match it {
                 Statement::VariableDeclaration(d) => {
                     for v in d.declarations.iter() {
-                        let BindingPattern::BindingIdentifier(b) = &v.id else { continue };
+                        let BindingPattern::BindingIdentifier(b) = &v.id else {
+                            continue;
+                        };
                         let name = b.name.to_string();
-                        self.top_names.entry(name.clone()).or_default().insert(scope);
+                        self.top_names
+                            .entry(name.clone())
+                            .or_default()
+                            .insert(scope);
                         self.top_bindings.insert(b.span.start);
                         *self.top_decls.entry(name.clone()).or_default() += 1;
                         match &v.init {
                             Some(Expression::ClassExpression(c)) => self.class_statics(&name, c),
                             // A `var` declarator is never removed (the statement may hold others).
-                            Some(Expression::FunctionExpression(f)) => self.function_value(&name, f, (f.span.start, f.span.end), (0, 0, String::new()), false),
+                            Some(Expression::FunctionExpression(f)) => self.function_value(
+                                &name,
+                                f,
+                                (f.span.start, f.span.end),
+                                (0, 0, String::new()),
+                                false,
+                            ),
                             _ => {}
                         }
                     }
@@ -435,23 +505,40 @@ impl<'a> Visit<'a> for Scan<'_> {
                 Statement::FunctionDeclaration(f) => {
                     if let Some(id) = &f.id {
                         let name = id.name.to_string();
-                        self.top_names.entry(name.clone()).or_default().insert(scope);
+                        self.top_names
+                            .entry(name.clone())
+                            .or_default()
+                            .insert(scope);
                         self.top_bindings.insert(id.span.start);
-                        self.function_value(&name, f, (f.span.start, f.span.end), (f.span.start, f.span.end, name.clone()), false);
+                        self.function_value(
+                            &name,
+                            f,
+                            (f.span.start, f.span.end),
+                            (f.span.start, f.span.end, name.clone()),
+                            false,
+                        );
                     }
                 }
                 Statement::ExpressionStatement(s) => {
                     if let Expression::AssignmentExpression(a) = &s.expression {
                         let target = match &a.left {
-                            AssignmentTarget::AssignmentTargetIdentifier(i) => Some(i.name.to_string()),
-                            AssignmentTarget::StaticMemberExpression(m) => Some(self.text(m.span).to_string()),
+                            AssignmentTarget::AssignmentTargetIdentifier(i) => {
+                                Some(i.name.to_string())
+                            }
+                            AssignmentTarget::StaticMemberExpression(m) => {
+                                Some(self.text(m.span).to_string())
+                            }
                             _ => None,
                         };
                         if let Some(t) = target {
                             match &a.right {
-                                Expression::FunctionExpression(f) => {
-                                    self.function_value(&t, f, (f.span.start, f.span.end), (s.span.start, s.span.end, t.clone()), true)
-                                }
+                                Expression::FunctionExpression(f) => self.function_value(
+                                    &t,
+                                    f,
+                                    (f.span.start, f.span.end),
+                                    (s.span.start, s.span.end, t.clone()),
+                                    true,
+                                ),
                                 Expression::ClassExpression(c) => self.class_statics(&t, c),
                                 _ => {}
                             }
@@ -513,11 +600,12 @@ impl<'a> Visit<'a> for Sites<'_> {
     }
     fn visit_call_expression(&mut self, it: &oxc_ast::ast::CallExpression<'a>) {
         if it.span.start >= self.covered
-            && let Some(new) = self.inline(it) {
-                self.edits.push((it.span.start, it.span.end, new));
-                self.covered = it.span.end;
-                return;
-            }
+            && let Some(new) = self.inline(it)
+        {
+            self.edits.push((it.span.start, it.span.end, new));
+            self.covered = it.span.end;
+            return;
+        }
         walk::walk_call_expression(self, it);
     }
 }
@@ -529,21 +617,30 @@ impl Sites<'_> {
         }
         let key = match &it.callee {
             Expression::Identifier(i) => i.name.as_str(),
-            Expression::StaticMemberExpression(m) if !m.optional && matches!(m.object, Expression::Identifier(_)) => {
+            Expression::StaticMemberExpression(m)
+                if !m.optional && matches!(m.object, Expression::Identifier(_)) =>
+            {
                 &self.source[m.span.start as usize..m.span.end as usize]
             }
             _ => return None,
         };
         let d = self.defs.get(key)?;
         // Fewer arguments: the parameters left out must be unused.
-        if it.arguments.len() > d.arity || d.used[it.arguments.len()..].iter().any(|&u| u) || (it.span.start >= d.own.0 && it.span.end <= d.own.1) {
+        if it.arguments.len() > d.arity
+            || d.used[it.arguments.len()..].iter().any(|&u| u)
+            || (it.span.start >= d.own.0 && it.span.end <= d.own.1)
+        {
             return None;
         }
         // Free names declared at the top of an IIFE only mean the same in it.
         if d.iife.is_some() && d.iife != self.iife {
             return None;
         }
-        let args: Vec<&Expression<'_>> = it.arguments.iter().map(|a| a.as_expression()).collect::<Option<_>>()?;
+        let args: Vec<&Expression<'_>> = it
+            .arguments
+            .iter()
+            .map(|a| a.as_expression())
+            .collect::<Option<_>>()?;
         if d.simple_args && !args.iter().all(|a| stable_argument(a)) {
             return None;
         }
@@ -613,12 +710,21 @@ fn round(source: &str) -> Result<(String, usize, HashMap<String, Def>), String> 
         if scan.assigned.get(key).copied().unwrap_or(0) > usize::from(d.from_assignment) {
             return false;
         }
-        d.free.iter().all(|n| !scan.locals.contains(n) && scan.top_names.get(n).is_none_or(|s| s.len() == 1 && (s.contains(&None) || s.contains(&d.iife))))
+        d.free.iter().all(|n| {
+            !scan.locals.contains(n)
+                && scan
+                    .top_names
+                    .get(n)
+                    .is_none_or(|s| s.len() == 1 && (s.contains(&None) || s.contains(&d.iife)))
+        })
     });
     for (key, d) in defs.iter_mut() {
         // A definition whose free names are all global or of the file's top
         // can be inlined anywhere.
-        if d.free.iter().all(|n| scan.top_names.get(n).is_none_or(|s| s.contains(&None))) {
+        if d.free
+            .iter()
+            .all(|n| scan.top_names.get(n).is_none_or(|s| s.contains(&None)))
+        {
             d.iife = None;
         }
         // `f = function…` with `var f` in the hoisted list.
@@ -632,11 +738,27 @@ fn round(source: &str) -> Result<(String, usize, HashMap<String, Def>), String> 
     let counts = identifier_counts(source);
     defs.retain(|key, d| {
         let name = key.rsplit('.').next().unwrap_or(key);
-        let calls = counts.get(name).copied().unwrap_or(0).saturating_sub(d.allowed);
-        let removed = if d.removal.2.is_empty() { 0 } else { d.def_size };
+        let calls = counts
+            .get(name)
+            .copied()
+            .unwrap_or(0)
+            .saturating_sub(d.allowed);
+        let removed = if d.removal.2.is_empty() {
+            0
+        } else {
+            d.def_size
+        };
         calls * d.call_size + removed >= calls * d.body_size
     });
-    let mut sites = Sites { source, defs: &defs, depth: 0, iife: None, iifes: 0, edits: Vec::new(), covered: 0 };
+    let mut sites = Sites {
+        source,
+        defs: &defs,
+        depth: 0,
+        iife: None,
+        iifes: 0,
+        edits: Vec::new(),
+        covered: 0,
+    };
     sites.visit_program(&parsed.program);
     let n = sites.edits.len();
     let edits = std::mem::take(&mut sites.edits);
@@ -746,7 +868,9 @@ mod tests {
 
     #[test]
     fn drops_the_arguments_of_unused_parameters() {
-        let src = wrap("f = function(a, b, c = null, d = null) { return !g(a, b); };\nh(f(x.y, z, \"expr\", loc));\nh(f(x, z));\nh(f(x, z, w.v));\nh(f(1, 2, \"expr\", 5));");
+        let src = wrap(
+            "f = function(a, b, c = null, d = null) { return !g(a, b); };\nh(f(x.y, z, \"expr\", loc));\nh(f(x, z));\nh(f(x, z, w.v));\nh(f(1, 2, \"expr\", 5));",
+        );
         let out = apply(&src).unwrap();
         // The callee is looked up in the body; mutable arguments stay eager.
         assert!(out.contains("h(f(x.y, z, \"expr\", loc))"), "{out}");
@@ -759,12 +883,20 @@ mod tests {
     #[test]
     #[ignore = "requires Node on PATH"]
     fn unused_argument_preserves_temporal_dead_zone_error() {
-        let source = wrap("f = function(unused) { return 7; };\ntry { console.log(f(value)); } catch (error) { console.log(error.name); }\nlet value = 1;");
+        let source = wrap(
+            "f = function(unused) { return 7; };\ntry { console.log(f(value)); } catch (error) { console.log(error.name); }\nlet value = 1;",
+        );
         let transformed = apply(&source).unwrap();
         for code in [&source, &transformed] {
-            let output = std::process::Command::new("node").args(["-e", code]).output().unwrap();
+            let output = std::process::Command::new("node")
+                .args(["-e", code])
+                .output()
+                .unwrap();
             assert!(output.status.success() && output.stderr.is_empty());
-            assert_eq!(String::from_utf8(output.stdout).unwrap(), "ReferenceError\n");
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                "ReferenceError\n"
+            );
         }
     }
 
@@ -777,7 +909,9 @@ mod tests {
 
     #[test]
     fn removes_a_definition_without_uses() {
-        let src = wrap("C = class C0 { static only(r) { return r.kind; } static other() { return 1; } };\nC.only(x);");
+        let src = wrap(
+            "C = class C0 { static only(r) { return r.kind; } static other() { return 1; } };\nC.only(x);",
+        );
         let out = apply(&src).unwrap();
         assert!(!out.contains("static only"), "{out}");
     }

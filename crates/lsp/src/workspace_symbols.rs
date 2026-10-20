@@ -22,10 +22,12 @@
 //! parts changes.
 
 use crate::fuzzy_matcher::{Matcher, Style};
-use dartforge_frontend::ast::{self, Annotation, Ast, DeclKind, DirectiveKind, FunctionKind, MemberKind, TypeKind};
+use dartforge_frontend::ast::{
+    self, Annotation, Ast, DeclKind, DirectiveKind, FunctionKind, MemberKind, TypeKind,
+};
 use dartforge_frontend::comments::Comments;
 use dartforge_intern::Interner;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -110,7 +112,10 @@ impl NameUnion {
 #[derive(Debug, Clone)]
 enum Summary {
     /// `Name<args>` (the last segment of `p.Name`).
-    Name { name: String, args: Vec<Summary> },
+    Name {
+        name: String,
+        args: Vec<Summary>,
+    },
     /// `R Function(…)`, with the written return.
     Function(Option<Box<Summary>>),
     /// `(int, String)`.
@@ -141,18 +146,29 @@ enum Paren {
 /// from another library).
 type LocalTypes = HashMap<String, Option<Alias>>;
 
-fn paren(r: &Summary, ctx: &[Paren], locals: &LocalTypes, global: &HashMap<String, Alias>, depth: u32) -> Paren {
+fn paren(
+    r: &Summary,
+    ctx: &[Paren],
+    locals: &LocalTypes,
+    global: &HashMap<String, Alias>,
+    depth: u32,
+) -> Paren {
     match r {
         Summary::Void => Paren::None,
         Summary::Registration => Paren::StartsWith,
         Summary::Parameter(i) => ctx.get(*i).copied().unwrap_or(Paren::None),
         // `R Function(…)`: starts with `(` only when the return does.
         Summary::Function(return_) => match return_ {
-            Some(x) if paren(x, ctx, locals, global, depth) == Paren::StartsWith => Paren::StartsWith,
+            Some(x) if paren(x, ctx, locals, global, depth) == Paren::StartsWith => {
+                Paren::StartsWith
+            }
             _ => Paren::Contains,
         },
         Summary::Name { name, args } => {
-            let arguments: Vec<Paren> = args.iter().map(|a| paren(a, ctx, locals, global, depth)).collect();
+            let arguments: Vec<Paren> = args
+                .iter()
+                .map(|a| paren(a, ctx, locals, global, depth))
+                .collect();
             if depth < 16 {
                 let alias = match locals.get(name) {
                     Some(local) => local.as_ref(),
@@ -163,7 +179,11 @@ fn paren(r: &Summary, ctx: &[Paren], locals: &LocalTypes, global: &HashMap<Strin
                     return paren(&a.target, &arguments, locals, global, depth + 1);
                 }
             }
-            if arguments.iter().any(|p| *p != Paren::None) { Paren::Contains } else { Paren::None }
+            if arguments.iter().any(|p| *p != Paren::None) {
+                Paren::Contains
+            } else {
+                Paren::None
+            }
         }
     }
 }
@@ -173,16 +193,27 @@ fn summarize(ast: &Ast, names: &Interner, t: ast::TypeId, parameters: &[String])
     match &ty.kind {
         TypeKind::Void => Summary::Void,
         TypeKind::Record { .. } => Summary::Registration,
-        TypeKind::Function { return_type, .. } => Summary::Function(return_type.map(|r| Box::new(summarize(ast, names, r, parameters)))),
+        TypeKind::Function { return_type, .. } => {
+            Summary::Function(return_type.map(|r| Box::new(summarize(ast, names, r, parameters))))
+        }
         TypeKind::Named { name, args } => {
-            let name_ = name.last().map(|n| names.resolve(n.sym).to_string()).unwrap_or_default();
+            let name_ = name
+                .last()
+                .map(|n| names.resolve(n.sym).to_string())
+                .unwrap_or_default();
             if name.len() == 1
                 && args.is_empty()
                 && let Some(i) = parameters.iter().position(|p| *p == name_)
             {
                 return Summary::Parameter(i);
             }
-            Summary::Name { name: name_, args: args.iter().map(|a| summarize(ast, names, *a, parameters)).collect() }
+            Summary::Name {
+                name: name_,
+                args: args
+                    .iter()
+                    .map(|a| summarize(ast, names, *a, parameters))
+                    .collect(),
+            }
         }
     }
 }
@@ -213,7 +244,12 @@ impl Kind {
     /// The preferences of `declarationKindToSymbolKind`.
     fn preferences(self) -> &'static [u64] {
         match self {
-            Kind::Class | Kind::ClassAlias | Kind::Extension | Kind::ExtensionType | Kind::Mixin | Kind::Typedef => &[5],
+            Kind::Class
+            | Kind::ClassAlias
+            | Kind::Extension
+            | Kind::ExtensionType
+            | Kind::Mixin
+            | Kind::Typedef => &[5],
             Kind::Constructor => &[9],
             Kind::Enum => &[10],
             Kind::EnumConstant => &[22, 10],
@@ -234,9 +270,16 @@ enum Signature {
     /// `A A.n(…)`: the first `(` is the list's.
     List { empty: bool },
     /// `R get x`: only the return can have a `(`.
-    Getter { return_: Option<Summary>, augment: bool },
+    Getter {
+        return_: Option<Summary>,
+        augment: bool,
+    },
     /// `R name<T>(…)`.
-    Executable { return_: Option<Summary>, empty: bool, augment: bool },
+    Executable {
+        return_: Option<Summary>,
+        empty: bool,
+        augment: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -383,13 +426,29 @@ impl Read<'_> {
         self.lines.offset_position(self.source, offset)
     }
 
-    fn declaration(&self, name: String, kind: Kind, container: Option<String>, signature: Signature, start: usize, end: usize) -> Declaration {
-        Declaration { name, kind, container, signature, start: self.position(start), end: self.position(end) }
+    fn declaration(
+        &self,
+        name: String,
+        kind: Kind,
+        container: Option<String>,
+        signature: Signature,
+        start: usize,
+        end: usize,
+    ) -> Declaration {
+        Declaration {
+            name,
+            kind,
+            container,
+            signature,
+            start: self.position(start),
+            end: self.position(end),
+        }
     }
 
     /// The end of a variable: that of the initializer, else that of the name.
     fn variable_end(&self, v: &ast::Variable) -> usize {
-        v.initializer.map_or(v.name.span.end, |e| self.ast.expr(e).span.end)
+        v.initializer
+            .map_or(v.name.span.end, |e| self.ast.expr(e).span.end)
     }
 }
 
@@ -407,21 +466,39 @@ impl Collector<'_, '_> {
         self.output.push(d);
     }
 
-    fn function_signature(&self, f: &ast::Function, augment: bool, type_parameters: &[String]) -> Signature {
-        let return_ = f.return_type.map(|t| summarize(self.l.ast, self.l.names, t, type_parameters));
+    fn function_signature(
+        &self,
+        f: &ast::Function,
+        augment: bool,
+        type_parameters: &[String],
+    ) -> Signature {
+        let return_ = f
+            .return_type
+            .map(|t| summarize(self.l.ast, self.l.names, t, type_parameters));
         match f.kind {
             FunctionKind::Getter => Signature::Getter { return_, augment },
-            FunctionKind::Setter => Signature::List { empty: f.parameters.as_ref().is_none_or(|p| p.is_empty()) },
-            FunctionKind::Function | FunctionKind::Operator => {
-                Signature::Executable { return_, empty: f.parameters.as_ref().is_none_or(|p| p.is_empty()), augment }
-            }
+            FunctionKind::Setter => Signature::List {
+                empty: f.parameters.as_ref().is_none_or(|p| p.is_empty()),
+            },
+            FunctionKind::Function | FunctionKind::Operator => Signature::Executable {
+                return_,
+                empty: f.parameters.as_ref().is_none_or(|p| p.is_empty()),
+                augment,
+            },
         }
     }
 
     /// The members of a class, mixin, enum, extension or extension type, in the
     /// order of `_addClasses`/`_addExtensions`: accessors, constructors, fields
     /// (`first_fields` before the declared ones) and methods.
-    fn members(&mut self, members: &[ast::MemberId], container: Option<&str>, constructors: bool, first_fields: Vec<Declaration>, first_constructors: Vec<Declaration>) {
+    fn members(
+        &mut self,
+        members: &[ast::MemberId],
+        container: Option<&str>,
+        constructors: bool,
+        first_fields: Vec<Declaration>,
+        first_constructors: Vec<Declaration>,
+    ) {
         let l = self.l;
         let ast = l.ast;
         let container = container.map(str::to_string);
@@ -438,7 +515,14 @@ impl Collector<'_, '_> {
                         let name = l.name(v.name);
                         self.union.add(&name);
                         let start_ = if i == 0 { start } else { v.name.span.start };
-                        fields.push(l.declaration(name, Kind::Field, container.clone(), Signature::None, start_, l.variable_end(v)));
+                        fields.push(l.declaration(
+                            name,
+                            Kind::Field,
+                            container.clone(),
+                            Signature::None,
+                            start_,
+                            l.variable_end(v),
+                        ));
                     }
                 }
                 MemberKind::Method(fid) => {
@@ -448,17 +532,51 @@ impl Collector<'_, '_> {
                     self.union.add(&name);
                     let signature = self.function_signature(f, m.augment, &[]);
                     match f.kind {
-                        FunctionKind::Getter => accessors.push(l.declaration(name, Kind::Getter, container.clone(), signature, start, m.span.end)),
-                        FunctionKind::Setter => accessors.push(l.declaration(name, Kind::Setter, container.clone(), signature, start, m.span.end)),
-                        _ => methods.push(l.declaration(name, Kind::Method, container.clone(), signature, start, m.span.end)),
+                        FunctionKind::Getter => accessors.push(l.declaration(
+                            name,
+                            Kind::Getter,
+                            container.clone(),
+                            signature,
+                            start,
+                            m.span.end,
+                        )),
+                        FunctionKind::Setter => accessors.push(l.declaration(
+                            name,
+                            Kind::Setter,
+                            container.clone(),
+                            signature,
+                            start,
+                            m.span.end,
+                        )),
+                        _ => methods.push(l.declaration(
+                            name,
+                            Kind::Method,
+                            container.clone(),
+                            signature,
+                            start,
+                            m.span.end,
+                        )),
                     }
                 }
                 MemberKind::Constructor(c) => {
                     if !constructors {
                         continue;
                     }
-                    let name = c.name.map(|n| l.name(n)).filter(|n| n != "new").unwrap_or_default();
-                    ctors.push(l.declaration(name, Kind::Constructor, container.clone(), Signature::List { empty: c.parameters.is_empty() }, start, m.span.end));
+                    let name = c
+                        .name
+                        .map(|n| l.name(n))
+                        .filter(|n| n != "new")
+                        .unwrap_or_default();
+                    ctors.push(l.declaration(
+                        name,
+                        Kind::Constructor,
+                        container.clone(),
+                        Signature::List {
+                            empty: c.parameters.is_empty(),
+                        },
+                        start,
+                        m.span.end,
+                    ));
                 }
             }
         }
@@ -498,12 +616,18 @@ impl Collector<'_, '_> {
         }
         for did in accessors {
             let d = ast.decl(did);
-            let DeclKind::Function(fid) = d.kind else { continue };
+            let DeclKind::Function(fid) = d.kind else {
+                continue;
+            };
             let f = ast.function(fid);
             let Some(n) = f.name else { continue };
             let name = l.name(n);
             self.union.add(&name);
-            let kind = if f.kind == FunctionKind::Getter { Kind::Getter } else { Kind::Setter };
+            let kind = if f.kind == FunctionKind::Getter {
+                Kind::Getter
+            } else {
+                Kind::Setter
+            };
             let signature = self.function_signature(f, d.augment, &[]);
             let start = l.annotated_start(d.span.start, &d.metadata);
             self.push(l.declaration(name, kind, None, signature, start, d.span.end));
@@ -516,22 +640,47 @@ impl Collector<'_, '_> {
                     let name = l.name(c.name);
                     self.union.add(&name);
                     self.types.insert(name.clone(), None);
-                    let kind = if c.mixin_application { Kind::ClassAlias } else { Kind::Class };
-                    self.push(l.declaration(name.clone(), kind, None, Signature::None, start, d.span.end));
+                    let kind = if c.mixin_application {
+                        Kind::ClassAlias
+                    } else {
+                        Kind::Class
+                    };
+                    self.push(l.declaration(
+                        name.clone(),
+                        kind,
+                        None,
+                        Signature::None,
+                        start,
+                        d.span.end,
+                    ));
                     self.members(&c.members, Some(&name), true, Vec::new(), Vec::new());
                 }
                 DeclKind::Enum(e) => {
                     let name = l.name(e.name);
                     self.union.add(&name);
                     self.types.insert(name.clone(), None);
-                    self.push(l.declaration(name, Kind::Enum, None, Signature::None, start, d.span.end));
+                    self.push(l.declaration(
+                        name,
+                        Kind::Enum,
+                        None,
+                        Signature::None,
+                        start,
+                        d.span.end,
+                    ));
                     // The constants are fields; the synthetic `values` only goes into the union.
                     let mut constants = Vec::new();
                     for k in &e.constants {
                         let n = l.name(k.name);
                         self.union.add(&n);
                         let ci = l.annotated_start(k.span.start, &k.metadata);
-                        constants.push(l.declaration(n, Kind::EnumConstant, None, Signature::None, ci, k.span.end));
+                        constants.push(l.declaration(
+                            n,
+                            Kind::EnumConstant,
+                            None,
+                            Signature::None,
+                            ci,
+                            k.span.end,
+                        ));
                     }
                     self.union.add("values");
                     self.members(&e.members, None, true, constants, Vec::new());
@@ -540,7 +689,14 @@ impl Collector<'_, '_> {
                     let name = l.name(m.name);
                     self.union.add(&name);
                     self.types.insert(name.clone(), None);
-                    self.push(l.declaration(name.clone(), Kind::Mixin, None, Signature::None, start, d.span.end));
+                    self.push(l.declaration(
+                        name.clone(),
+                        Kind::Mixin,
+                        None,
+                        Signature::None,
+                        start,
+                        d.span.end,
+                    ));
                     self.members(&m.members, Some(&name), true, Vec::new(), Vec::new());
                 }
                 _ => {}
@@ -548,45 +704,88 @@ impl Collector<'_, '_> {
         }
         for did in extensions {
             let d = ast.decl(did);
-            let DeclKind::Extension(x) = &d.kind else { continue };
+            let DeclKind::Extension(x) = &d.kind else {
+                continue;
+            };
             if let Some(n) = x.name {
                 let name = l.name(n);
                 self.union.add(&name);
                 let start = l.annotated_start(d.span.start, &d.metadata);
-                self.push(l.declaration(name, Kind::Extension, None, Signature::None, start, d.span.end));
+                self.push(l.declaration(
+                    name,
+                    Kind::Extension,
+                    None,
+                    Signature::None,
+                    start,
+                    d.span.end,
+                ));
             }
             self.members(&x.members, None, false, Vec::new(), Vec::new());
         }
         for did in extension_types {
             let d = ast.decl(did);
-            let DeclKind::ExtensionType(x) = &d.kind else { continue };
+            let DeclKind::ExtensionType(x) = &d.kind else {
+                continue;
+            };
             let name = l.name(x.name);
             self.union.add(&name);
             self.types.insert(name.clone(), None);
             let start = l.annotated_start(d.span.start, &d.metadata);
-            self.push(l.declaration(name.clone(), Kind::ExtensionType, None, Signature::None, start, d.span.end));
+            self.push(l.declaration(
+                name.clone(),
+                Kind::ExtensionType,
+                None,
+                Signature::None,
+                start,
+                d.span.end,
+            ));
             // The representation field and the primary constructor
             // (`_builtRepresentationDeclaration`) come before the declared ones.
-            let field_name_ = Some(l.name(x.representation_name)).filter(|n| !n.is_empty()).unwrap_or_else(|| "<empty>".to_string());
+            let field_name_ = Some(l.name(x.representation_name))
+                .filter(|n| !n.is_empty())
+                .unwrap_or_else(|| "<empty>".to_string());
             self.union.add(&field_name_);
-            let field_start = x.representation_metadata.first().map_or(l.ast.ty(x.representation_type).span.start, |m| m.span.start);
-            let field = l.declaration(field_name_, Kind::Field, Some(name.clone()), Signature::None, field_start, x.representation_name.span.end);
+            let field_start = x
+                .representation_metadata
+                .first()
+                .map_or(l.ast.ty(x.representation_type).span.start, |m| m.span.start);
+            let field = l.declaration(
+                field_name_,
+                Kind::Field,
+                Some(name.clone()),
+                Signature::None,
+                field_start,
+                x.representation_name.span.end,
+            );
             let (ctor_name, ctor_start) = match x.constructor {
                 Some(n) => {
                     let text = l.name(n);
                     // The node starts at the `.` of the name.
                     let before = l.source[..n.span.start].trim_end();
-                    let dot = if before.ends_with('.') { before.len() - 1 } else { n.span.start };
+                    let dot = if before.ends_with('.') {
+                        before.len() - 1
+                    } else {
+                        n.span.start
+                    };
                     (if text == "new" { String::new() } else { text }, dot)
                 }
                 None => (String::new(), x.representation_span.start),
             };
-            let ctor = l.declaration(ctor_name, Kind::Constructor, Some(name.clone()), Signature::List { empty: false }, ctor_start, x.representation_span.end);
+            let ctor = l.declaration(
+                ctor_name,
+                Kind::Constructor,
+                Some(name.clone()),
+                Signature::List { empty: false },
+                ctor_start,
+                x.representation_span.end,
+            );
             self.members(&x.members, Some(&name), true, vec![field], vec![ctor]);
         }
         for did in functions {
             let d = ast.decl(did);
-            let DeclKind::Function(fid) = d.kind else { continue };
+            let DeclKind::Function(fid) = d.kind else {
+                continue;
+            };
             let f = ast.function(fid);
             let Some(n) = f.name else { continue };
             let name = l.name(n);
@@ -598,27 +797,47 @@ impl Collector<'_, '_> {
         }
         for did in aliases {
             let d = ast.decl(did);
-            let DeclKind::Typedef(t) = &d.kind else { continue };
+            let DeclKind::Typedef(t) = &d.kind else {
+                continue;
+            };
             let name = l.name(t.name);
             self.union.add(&name);
             let parameters: Vec<String> = t.type_params.iter().map(|p| l.name(p.name)).collect();
             let target = match &t.kind {
                 ast::TypedefKind::Alias(a) => summarize(ast, l.names, *a, &parameters),
-                ast::TypedefKind::Legacy { return_type, .. } => Summary::Function(return_type.map(|r| Box::new(summarize(ast, l.names, r, &parameters)))),
+                ast::TypedefKind::Legacy { return_type, .. } => Summary::Function(
+                    return_type.map(|r| Box::new(summarize(ast, l.names, r, &parameters))),
+                ),
             };
             self.types.insert(name.clone(), Some(Alias { target }));
             let start = l.annotated_start(d.span.start, &d.metadata);
-            self.push(l.declaration(name, Kind::Typedef, None, Signature::None, start, d.span.end));
+            self.push(l.declaration(
+                name,
+                Kind::Typedef,
+                None,
+                Signature::None,
+                start,
+                d.span.end,
+            ));
         }
         for did in variables {
             let d = ast.decl(did);
-            let DeclKind::Variables(list) = &d.kind else { continue };
+            let DeclKind::Variables(list) = &d.kind else {
+                continue;
+            };
             let start = l.annotated_start(d.span.start, &d.metadata);
             for (i, v) in list.variables.iter().enumerate() {
                 let name = l.name(v.name);
                 self.union.add(&name);
                 let start_ = if i == 0 { start } else { v.name.span.start };
-                self.push(l.declaration(name, Kind::Variable, None, Signature::None, start_, l.variable_end(v)));
+                self.push(l.declaration(
+                    name,
+                    Kind::Variable,
+                    None,
+                    Signature::None,
+                    start_,
+                    l.variable_end(v),
+                ));
             }
         }
     }
@@ -640,11 +859,17 @@ fn parts(unit: &ast::CompilationUnit, path: &Path) -> Vec<PathBuf> {
 }
 
 fn is_part(unit: &ast::CompilationUnit) -> bool {
-    unit.directives.iter().any(|d| matches!(d.kind, DirectiveKind::PartOf { .. }))
+    unit.directives
+        .iter()
+        .any(|d| matches!(d.kind, DirectiveKind::PartOf { .. }))
 }
 
 /// Indexes the library at `path`: `None` when it is a part or cannot be read.
-fn index(path: &Path, read_: &Reader<'_>, uri_of: &dyn Fn(&Path) -> String) -> (Vec<(PathBuf, Fingerprint)>, Option<Library>) {
+fn index(
+    path: &Path,
+    read_: &Reader<'_>,
+    uri_of: &dyn Fn(&Path) -> String,
+) -> (Vec<(PathBuf, Fingerprint)>, Option<Library>) {
     let mut files = Vec::new();
     let mut union = NameUnion::empty();
     let mut types = LocalTypes::new();
@@ -677,7 +902,12 @@ fn index(path: &Path, read_: &Reader<'_>, uri_of: &dyn Fn(&Path) -> String) -> (
             lines: crate::utf16::LineTable::build(&source),
             comments: Comments::scan(&source),
         };
-        let mut collector = Collector { l: &read, output: Vec::new(), union: &mut union, types: &mut types };
+        let mut collector = Collector {
+            l: &read,
+            output: Vec::new(),
+            union: &mut union,
+            types: &mut types,
+        };
         collector.unit(&analyzed.unit);
         let declarations = collector.output;
         let uri = uri_of(&file);
@@ -686,13 +916,30 @@ fn index(path: &Path, read_: &Reader<'_>, uri_of: &dyn Fn(&Path) -> String) -> (
             pending.push(p);
         }
     }
-    (files, Some(Library { union, units, types }))
+    (
+        files,
+        Some(Library {
+            union,
+            units,
+            types,
+        }),
+    )
 }
 
 impl Index {
     /// The library at `path`, from the cache when none of its files changed.
-    fn library(&mut self, path: &Path, read: &Reader<'_>, open: &HashMap<PathBuf, Fingerprint>, uri_of: &dyn Fn(&Path) -> String) -> Option<Arc<Library>> {
-        let current = |p: &Path| open.get(&dartforge_elements::generated::key(p)).cloned().or_else(|| disk_fingerprint(p));
+    fn library(
+        &mut self,
+        path: &Path,
+        read: &Reader<'_>,
+        open: &HashMap<PathBuf, Fingerprint>,
+        uri_of: &dyn Fn(&Path) -> String,
+    ) -> Option<Arc<Library>> {
+        let current = |p: &Path| {
+            open.get(&dartforge_elements::generated::key(p))
+                .cloned()
+                .or_else(|| disk_fingerprint(p))
+        };
         if let Some(e) = self.entries.get(path)
             && e.files.iter().all(|(p, i)| current(p).as_ref() == Some(i))
         {
@@ -700,7 +947,13 @@ impl Index {
         }
         let (files, library) = index(path, read, uri_of);
         let library = library.map(Arc::new);
-        self.entries.insert(path.to_path_buf(), Entry { files, library: library.clone() });
+        self.entries.insert(
+            path.to_path_buf(),
+            Entry {
+                files,
+                library: library.clone(),
+            },
+        );
         library
     }
 
@@ -734,7 +987,10 @@ impl Index {
     ) -> Vec<Value> {
         // Open documents count through the editor's text (the overlay), with the
         // client's URI.
-        let open: HashMap<PathBuf, Fingerprint> = open_texts.iter().map(|(k, (_, t))| (k.clone(), text_fingerprint(t))).collect();
+        let open: HashMap<PathBuf, Fingerprint> = open_texts
+            .iter()
+            .map(|(k, (_, t))| (k.clone(), text_fingerprint(t)))
+            .collect();
         let read = |p: &Path| -> Option<(String, Fingerprint)> {
             let k = dartforge_elements::generated::key(p);
             if let (Some((_, t)), Some(i)) = (open_texts.get(&k), open.get(&k)) {
@@ -749,7 +1005,9 @@ impl Index {
         let uri_of = |p: &Path| -> String {
             match open_texts.get(&dartforge_elements::generated::key(p)) {
                 Some((uri, _)) => uri.clone(),
-                None => url::Url::from_file_path(p).map(|u| u.to_string()).unwrap_or_default(),
+                None => url::Url::from_file_path(p)
+                    .map(|u| u.to_string())
+                    .unwrap_or_default(),
             }
         };
         // The files in `OwnedFiles` order (added ones, then the known ones that
@@ -776,7 +1034,10 @@ impl Index {
                 include(p, &mut paths);
             }
         }
-        let libraries: Vec<Arc<Library>> = paths.iter().filter_map(|c| self.library(c, read, open, &uri_of)).collect();
+        let libraries: Vec<Arc<Library>> = paths
+            .iter()
+            .filter_map(|c| self.library(c, read, open, &uri_of))
+            .collect();
         // The `typedef`s of every library, to expand aliases from another library
         // (the first one of each name).
         let mut global: HashMap<String, Alias> = HashMap::new();
@@ -810,11 +1071,23 @@ impl Index {
 }
 
 /// The `SymbolInformation` of a declaration.
-fn symbol(d: &Declaration, uri: &str, locals: &LocalTypes, global: &HashMap<String, Alias>, kinds: Option<&[u64]>) -> Value {
+fn symbol(
+    d: &Declaration,
+    uri: &str,
+    locals: &LocalTypes,
+    global: &HashMap<String, Alias>,
+    kinds: Option<&[u64]>,
+) -> Value {
     let by_return = |return_: &Option<Summary>, augment: bool| {
-        let p = return_.as_ref().map_or(Paren::None, |r| paren(r, &[], locals, global, 0));
+        let p = return_
+            .as_ref()
+            .map_or(Paren::None, |r| paren(r, &[], locals, global, 0));
         // `augment ` before the return: the `(` is never at the start.
-        if augment && p == Paren::StartsWith { Paren::Contains } else { p }
+        if augment && p == Paren::StartsWith {
+            Paren::Contains
+        } else {
+            p
+        }
     };
     // `parameters`: the displayed text from the first `(` (which cannot be the
     // first character); `()` when it is only the empty list.
@@ -831,7 +1104,11 @@ fn symbol(d: &Declaration, uri: &str, locals: &LocalTypes, global: &HashMap<Stri
             Paren::Contains => "(…)",
             _ => "",
         },
-        Signature::Executable { return_, empty, augment } => match by_return(return_, *augment) {
+        Signature::Executable {
+            return_,
+            empty,
+            augment,
+        } => match by_return(return_, *augment) {
             Paren::StartsWith => "",
             Paren::Contains => "(…)",
             Paren::None if *empty => "()",
@@ -839,7 +1116,13 @@ fn symbol(d: &Declaration, uri: &str, locals: &LocalTypes, global: &HashMap<Stri
         },
     };
     let accepts = |k: u64| kinds.map_or(k <= 18, |l| l.contains(&k));
-    let kind = d.kind.preferences().iter().copied().find(|k| accepts(*k)).unwrap_or(19);
+    let kind = d
+        .kind
+        .preferences()
+        .iter()
+        .copied()
+        .find(|k| accepts(*k))
+        .unwrap_or(19);
     let mut v = json!({
         "name": format!("{}{suffix}", d.name),
         "kind": kind,
@@ -860,7 +1143,9 @@ fn symbol(d: &Declaration, uri: &str, locals: &LocalTypes, global: &HashMap<Stri
 /// `discoverRecursively`: the `.dart` files of the folder and its subfolders,
 /// in file system order (the same as Dart's `Directory.listSync`).
 fn discover(folder: &Path, output: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(folder) else { return };
+    let Ok(entries) = std::fs::read_dir(folder) else {
+        return;
+    };
     for e in entries.flatten() {
         let path = e.path();
         let Ok(ty) = e.file_type() else { continue };
@@ -877,9 +1162,17 @@ fn discover(folder: &Path, output: &mut Vec<PathBuf>) {
 /// The entries of the `libraries` map of the SDK's `libraries.dart`, in
 /// written order: `'name': const LibraryInfo('path', …)`.
 fn read_libraries_dart(lib: &Path) -> Vec<PathBuf> {
-    let file = lib.join("_internal").join("sdk_library_metadata").join("lib").join("libraries.dart");
-    let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
-    let Some(start) = text.find("libraries = const {") else { return Vec::new() };
+    let file = lib
+        .join("_internal")
+        .join("sdk_library_metadata")
+        .join("lib")
+        .join("libraries.dart");
+    let Ok(text) = std::fs::read_to_string(&file) else {
+        return Vec::new();
+    };
+    let Some(start) = text.find("libraries = const {") else {
+        return Vec::new();
+    };
     let body = &text[start..];
     let end = body.find("\n};").unwrap_or(body.len());
     let body = &body[..end];
@@ -888,9 +1181,17 @@ fn read_libraries_dart(lib: &Path) -> Vec<PathBuf> {
     while let Some(i) = rest.find("LibraryInfo(") {
         rest = &rest[i + "LibraryInfo(".len()..];
         let entry_text = rest.trim_start();
-        let Some(quotes) = entry_text.chars().next().filter(|c| *c == '\'' || *c == '"') else { continue };
+        let Some(quotes) = entry_text
+            .chars()
+            .next()
+            .filter(|c| *c == '\'' || *c == '"')
+        else {
+            continue;
+        };
         let content = &entry_text[1..];
-        let Some(f) = content.find(quotes) else { continue };
+        let Some(f) = content.find(quotes) else {
+            continue;
+        };
         let relative = &content[..f];
         output.push(dartforge_elements::generated::key(&lib.join(relative)));
     }
@@ -901,21 +1202,38 @@ fn read_libraries_dart(lib: &Path) -> Vec<PathBuf> {
 /// `.dart_tool/package_config.json`, in file order.
 pub(crate) fn package_folders(root: &Path) -> Vec<PathBuf> {
     let file = root.join(".dart_tool").join("package_config.json");
-    let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
-    let Ok(json) = serde_json::from_str::<Value>(&text) else { return Vec::new() };
-    let Some(packages) = json.get("packages").and_then(Value::as_array) else { return Vec::new() };
-    let Some(base) = file.parent() else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(&file) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<Value>(&text) else {
+        return Vec::new();
+    };
+    let Some(packages) = json.get("packages").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+    let Some(base) = file.parent() else {
+        return Vec::new();
+    };
     let resolve = |uri: &str, relative_to: &Path| -> Option<PathBuf> {
         if let Ok(u) = url::Url::parse(uri) {
             return u.to_file_path().ok();
         }
-        Some(dartforge_elements::generated::key(&relative_to.join(uri.trim_end_matches('/'))))
+        Some(dartforge_elements::generated::key(
+            &relative_to.join(uri.trim_end_matches('/')),
+        ))
     };
     let mut output = Vec::new();
     for p in packages {
-        let Some(root_uri) = p.get("rootUri").and_then(Value::as_str) else { continue };
-        let Some(package_root) = resolve(root_uri, base) else { continue };
-        let package_uri = p.get("packageUri").and_then(Value::as_str).unwrap_or("lib/");
+        let Some(root_uri) = p.get("rootUri").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(package_root) = resolve(root_uri, base) else {
+            continue;
+        };
+        let package_uri = p
+            .get("packageUri")
+            .and_then(Value::as_str)
+            .unwrap_or("lib/");
         if let Some(lib) = resolve(package_uri, &package_root) {
             output.push(lib);
         }
@@ -946,16 +1264,50 @@ mod tests {
             name: "f".into(),
             kind: Kind::Function,
             container: None,
-            signature: Signature::Executable { return_: Some(Summary::Registration), empty: true, augment: false },
+            signature: Signature::Executable {
+                return_: Some(Summary::Registration),
+                empty: true,
+                augment: false,
+            },
             start: (0, 0),
             end: (0, 1),
         };
-        assert_eq!(symbol(&f, "file:///a.dart", &locals, &global, None)["name"], "f");
-        let g = Declaration { signature: Signature::Executable { return_: Some(Summary::Function(None)), empty: true, augment: false }, ..f.clone() };
-        assert_eq!(symbol(&g, "file:///a.dart", &locals, &global, None)["name"], "f(…)");
-        let h = Declaration { signature: Signature::Executable { return_: None, empty: true, augment: false }, ..f.clone() };
-        assert_eq!(symbol(&h, "file:///a.dart", &locals, &global, None)["name"], "f()");
-        let k = Declaration { kind: Kind::EnumConstant, signature: Signature::None, ..f };
-        assert_eq!(symbol(&k, "file:///a.dart", &locals, &global, None)["kind"], 10);
+        assert_eq!(
+            symbol(&f, "file:///a.dart", &locals, &global, None)["name"],
+            "f"
+        );
+        let g = Declaration {
+            signature: Signature::Executable {
+                return_: Some(Summary::Function(None)),
+                empty: true,
+                augment: false,
+            },
+            ..f.clone()
+        };
+        assert_eq!(
+            symbol(&g, "file:///a.dart", &locals, &global, None)["name"],
+            "f(…)"
+        );
+        let h = Declaration {
+            signature: Signature::Executable {
+                return_: None,
+                empty: true,
+                augment: false,
+            },
+            ..f.clone()
+        };
+        assert_eq!(
+            symbol(&h, "file:///a.dart", &locals, &global, None)["name"],
+            "f()"
+        );
+        let k = Declaration {
+            kind: Kind::EnumConstant,
+            signature: Signature::None,
+            ..f
+        };
+        assert_eq!(
+            symbol(&k, "file:///a.dart", &locals, &global, None)["kind"],
+            10
+        );
     }
 }

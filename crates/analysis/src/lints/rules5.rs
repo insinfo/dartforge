@@ -15,18 +15,22 @@
 //! code.
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{self, DeclKind, ExprKind, MemberId, MemberKind, ParameterKind, StmtKind, VariableList};
+use dartforge_frontend::ast::{
+    self, DeclKind, ExprKind, MemberId, MemberKind, ParameterKind, StmtKind, VariableList,
+};
 use dartforge_intern::Interner;
 
 /// The literal `lexeme` is a single raw string (`r'…'`, `r"""…"""`): it starts
 /// with `r` and the opening quote only appears again at the end.
 fn is_single_raw_string(lexeme: &str) -> bool {
-    let Some(rest) = lexeme.strip_prefix('r') else { return false };
+    let Some(rest) = lexeme.strip_prefix('r') else {
+        return false;
+    };
     let quote = if rest.starts_with("'''") {
         "'''"
     } else if rest.starts_with("\"\"\"") {
@@ -39,21 +43,35 @@ fn is_single_raw_string(lexeme: &str) -> bool {
         return false;
     };
     let inner = &rest[quote.len()..];
-    inner.find(quote).is_some_and(|k| k + quote.len() == inner.len())
+    inner
+        .find(quote)
+        .is_some_and(|k| k + quote.len() == inner.len())
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    _sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let source = u.source;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
 
     // The two constructor order rules, in classes, enums and extension
     // types.
-    let (first, unnamed_first) = (enabled("sort_constructors_first"), enabled("sort_unnamed_constructors_first"));
+    let (first, unnamed_first) = (
+        enabled("sort_constructors_first"),
+        enabled("sort_unnamed_constructors_first"),
+    );
     if first || unnamed_first {
         for d in a.decls.iter() {
             let members: &[MemberId] = match &d.kind {
@@ -64,7 +82,8 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, _se
             };
             // In an extension type, the unnamed rule only applies with a
             // named primary constructor.
-            let unnamed_here = unnamed_first && !matches!(&d.kind, DeclKind::ExtensionType(x) if x.constructor.is_none());
+            let unnamed_here = unnamed_first
+                && !matches!(&d.kind, DeclKind::ExtensionType(x) if x.constructor.is_none());
             let (mut other, mut named) = (false, false);
             for id in members {
                 let MemberKind::Constructor(k) = &a.member(*id).kind else {
@@ -77,7 +96,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, _se
                     report(&c::SORT_CONSTRUCTORS_FIRST, range, &[]);
                 }
                 match k.name {
-                    None if unnamed_here && named => report(&c::SORT_UNNAMED_CONSTRUCTORS_FIRST, range, &[]),
+                    None if unnamed_here && named => {
+                        report(&c::SORT_UNNAMED_CONSTRUCTORS_FIRST, range, &[])
+                    }
                     None => {}
                     Some(_) => named = true,
                 }
@@ -96,7 +117,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, _se
                     continue;
                 }
                 let required = p.required
-                    || p.metadata.iter().any(|m| m.arguments.is_none() && m.name.last().is_some_and(|n| interner.resolve(n.sym) == "required"));
+                    || p.metadata.iter().any(|m| {
+                        m.arguments.is_none()
+                            && m.name
+                                .last()
+                                .is_some_and(|n| interner.resolve(n.sym) == "required")
+                    });
                 if required {
                     if let (true, Some(n)) = (seen_optional, p.name) {
                         findings.push(n);
@@ -126,7 +152,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, _se
     if enabled("avoid_multiple_declarations_per_line") {
         let mut check = |l: &VariableList| {
             if let Some(second) = l.variables.get(1) {
-                report(&c::AVOID_MULTIPLE_DECLARATIONS_PER_LINE, second.name.span, &[]);
+                report(
+                    &c::AVOID_MULTIPLE_DECLARATIONS_PER_LINE,
+                    second.name.span,
+                    &[],
+                );
             }
         };
         for d in a.decls.iter() {
@@ -147,20 +177,28 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, _se
     }
     // `eol_at_end_of_file`: no line break at the end, or more than one.
     if enabled("eol_at_end_of_file") && !source.is_empty() {
-        let too_many = source.ends_with("\n\n") || source.ends_with("\r\r") || source.ends_with("\r\n\r\n");
+        let too_many =
+            source.ends_with("\n\n") || source.ends_with("\r\r") || source.ends_with("\r\n\r\n");
         let missing = !(source.ends_with('\n') || source.ends_with('\r'));
         if too_many || missing {
             let pos = source.trim_end().len();
             // One character from the end of the content (or the end, if none).
-            let end = source[pos..].chars().next().map_or(pos, |x| pos + x.len_utf8());
+            let end = source[pos..]
+                .chars()
+                .next()
+                .map_or(pos, |x| pos + x.len_utf8());
             report(&c::EOL_AT_END_OF_FILE, Span { start: pos, end }, &[]);
         }
     }
     // `unnecessary_raw_strings`: a raw string without `\` or `$`.
     if enabled("unnecessary_raw_strings") {
         for e in a.exprs.iter() {
-            let ExprKind::String(_) = &e.kind else { continue };
-            let Some(lexeme) = source.get(e.span.start..e.span.end) else { continue };
+            let ExprKind::String(_) = &e.kind else {
+                continue;
+            };
+            let Some(lexeme) = source.get(e.span.start..e.span.end) else {
+                continue;
+            };
             if is_single_raw_string(lexeme) && !lexeme.contains('\\') && !lexeme.contains('$') {
                 report(&c::UNNECESSARY_RAW_STRINGS, e.span, &[]);
             }
@@ -176,10 +214,17 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
         let mut reports = run(u, &names, &|rule| rule != "eol_at_end_of_file", None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| (r.code.name, source[r.span.start..r.span.end].to_string())).collect()
+        reports
+            .into_iter()
+            .map(|r| (r.code.name, source[r.span.start..r.span.end].to_string()))
+            .collect()
     }
 
     #[test]
@@ -199,21 +244,51 @@ mod tests {
     fn parameters_and_declarations() {
         assert_eq!(
             findings("void f({int? a, required int b}) {}\n"),
-            vec![("always_put_required_named_parameters_first", "b".to_string())]
+            vec![(
+                "always_put_required_named_parameters_first",
+                "b".to_string()
+            )]
         );
-        assert_eq!(findings("int a = 1, b = 2;\n"), vec![("avoid_multiple_declarations_per_line", "b".to_string())]);
+        assert_eq!(
+            findings("int a = 1, b = 2;\n"),
+            vec![("avoid_multiple_declarations_per_line", "b".to_string())]
+        );
         assert!(findings("void f() {\n  for (var i = 0, j = 1; i < j; i++) {}\n}\n").is_empty());
     }
 
     #[test]
     fn raw_strings_and_end_of_file() {
-        assert_eq!(findings("var s = r'abc';\nvar t = r'a\\b';\n"), vec![("unnecessary_raw_strings", "r'abc'".to_string())]);
-        assert!(is_single_raw_string("r'''a'b'''") && !is_single_raw_string("'a'") && !is_single_raw_string("r'a' r'b'"));
+        assert_eq!(
+            findings("var s = r'abc';\nvar t = r'a\\b';\n"),
+            vec![("unnecessary_raw_strings", "r'abc'".to_string())]
+        );
+        assert!(
+            is_single_raw_string("r'''a'b'''")
+                && !is_single_raw_string("'a'")
+                && !is_single_raw_string("r'a' r'b'")
+        );
         let end = |source: &str| {
             let mut names = Interner::new();
             let p = dartforge_frontend::parser::parse(source, &mut names);
-            run(Unit { ast: &p.ast, unit: &p.unit, source }, &names, &|rule| rule == "eol_at_end_of_file", None).len()
+            run(
+                Unit {
+                    ast: &p.ast,
+                    unit: &p.unit,
+                    source,
+                },
+                &names,
+                &|rule| rule == "eol_at_end_of_file",
+                None,
+            )
+            .len()
         };
-        assert_eq!((end("var a = 1;"), end("var a = 1;\n"), end("var a = 1;\n\n")), (1, 0, 1));
+        assert_eq!(
+            (
+                end("var a = 1;"),
+                end("var a = 1;\n"),
+                end("var a = 1;\n\n")
+            ),
+            (1, 0, 1)
+        );
     }
 }

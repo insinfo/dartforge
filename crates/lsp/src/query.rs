@@ -15,7 +15,7 @@ use dartforge_frontend::ast::{DeclKind, MemberKind};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::scope::MemberResolver;
 use dartforge_types::{
-    BodyInferrer, BodyTypes, CoreTypes, ProbedScope, OutlineTypes, Type, TypeId, TypeTable,
+    BodyInferrer, BodyTypes, CoreTypes, OutlineTypes, ProbedScope, Type, TypeId, TypeTable,
     resolve_outline,
 };
 
@@ -28,7 +28,10 @@ pub(crate) enum SwapMode {
     /// The document's new text (`didChange`): all bodies of the unit when its
     /// library is among the inferred ones, otherwise only the initializers that
     /// top-level inference records on demand.
-    Final { inferred_bodies: bool, register_locals: bool },
+    Final {
+        inferred_bodies: bool,
+        register_locals: bool,
+    },
 }
 
 /// What [`Query::swap_unit`] replaced.
@@ -69,8 +72,7 @@ impl Query {
         let core = CoreTypes::init(&mut table, &program, &names);
         let (mut outline, _) = resolve_outline(&program, &names, &mut table, &core);
         let (bodies, scope) = {
-            let mut inferrer =
-                BodyInferrer::new(&program, &names, &mut table, &core, &mut outline);
+            let mut inferrer = BodyInferrer::new(&program, &names, &mut table, &core, &mut outline);
             inferrer.only_libraries = Some(libraries.iter().map(|l| l.0).collect());
             inferrer.allocate_bodies_of(libraries);
             inferrer.record_locals = register_locals;
@@ -112,21 +114,46 @@ impl Query {
                 };
                 (vec![c], false, Some((u, offset)), false)
             }
-            SwapMode::Final { inferred_bodies, register_locals } => {
-                (dartforge_types::unit_bodies(&self.program, &self.outline, u, inferred_bodies), inferred_bodies, None, register_locals)
-            }
+            SwapMode::Final {
+                inferred_bodies,
+                register_locals,
+            } => (
+                dartforge_types::unit_bodies(&self.program, &self.outline, u, inferred_bodies),
+                inferred_bodies,
+                None,
+                register_locals,
+            ),
         };
-        let r = dartforge_types::infer_bodies(&self.program, &self.names, &mut self.table, &self.core, &mut self.outline, u, &bodies, metadata, probe, register);
+        let r = dartforge_types::infer_bodies(
+            &self.program,
+            &self.names,
+            &mut self.table,
+            &self.core,
+            &mut self.outline,
+            u,
+            &bodies,
+            metadata,
+            probe,
+            register,
+        );
         let tables = std::mem::replace(&mut self.bodies.units[u.0 as usize], r.tables);
         let scope = std::mem::replace(&mut self.scope, r.scope);
-        Some(Swap { previous, tables, scope })
+        Some(Swap {
+            previous,
+            tables,
+            scope,
+        })
     }
 
     /// Undoes a [`Query::swap_unit`] (completion, §16.7 rule 3: the retained
     /// state goes back to the document's text; the types interned in the table
     /// by the speculative inference stay, which is harmless).
     pub fn undo(&mut self, swap: Swap) {
-        let Swap { previous, tables, scope } = swap;
+        let Swap {
+            previous,
+            tables,
+            scope,
+        } = swap;
         let u = previous.unit();
         self.bodies.units[u.0 as usize] = tables;
         self.scope = scope;
@@ -143,7 +170,18 @@ impl Query {
             let units = self.program.library(lib).units.clone();
             for u in units {
                 let bodies = dartforge_types::unit_bodies(&self.program, &self.outline, u, true);
-                let r = dartforge_types::infer_bodies(&self.program, &self.names, &mut self.table, &self.core, &mut self.outline, u, &bodies, true, None, true);
+                let r = dartforge_types::infer_bodies(
+                    &self.program,
+                    &self.names,
+                    &mut self.table,
+                    &self.core,
+                    &mut self.outline,
+                    u,
+                    &bodies,
+                    true,
+                    None,
+                    true,
+                );
                 self.bodies.units[u.0 as usize] = r.tables;
             }
         }
@@ -160,7 +198,8 @@ impl Query {
     /// `preferTypeAlias`): the alias does not appear; `InvalidType` and `Never?`
     /// do.
     pub fn format(&self, ty: TypeId) -> String {
-        self.table.format_without_alias(ty, &self.names, &self.program)
+        self.table
+            .format_without_alias(ty, &self.names, &self.program)
     }
 
     /// Text of a symbol.
@@ -203,7 +242,18 @@ impl Query {
             dartforge_elements::model::VariableRef::None => return None,
         };
         let bodies = [dartforge_types::BodyRef::Variable(variable)];
-        let _ = dartforge_types::infer_bodies(&self.program, &self.names, &mut self.table, &self.core, &mut self.outline, unit, &bodies, false, None, false);
+        let _ = dartforge_types::infer_bodies(
+            &self.program,
+            &self.names,
+            &mut self.table,
+            &self.core,
+            &mut self.outline,
+            unit,
+            &bodies,
+            false,
+            None,
+            false,
+        );
         self.variable_type(variable)
     }
 
@@ -339,10 +389,7 @@ impl Query {
             FunctionRef::Constructor { unit, member } => {
                 Some((unit, p.unit(unit).ast.member(member).span.start))
             }
-            FunctionRef::None => p
-                .function(f)
-                .variable
-                .and_then(|v| self.variable_start(v)),
+            FunctionRef::None => p.function(f).variable.and_then(|v| self.variable_start(v)),
         }
     }
 

@@ -9,9 +9,16 @@ use common::{Project, apply};
 use serde_json::{Value, json};
 
 fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
-    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("no {needle:?}")).0;
+    let i = text
+        .match_indices(needle)
+        .nth(n)
+        .unwrap_or_else(|| panic!("no {needle:?}"))
+        .0;
     let before = &text[..i];
-    (before.matches('\n').count() as u32, before.rsplit('\n').next().unwrap().encode_utf16().count() as u32)
+    (
+        before.matches('\n').count() as u32,
+        before.rsplit('\n').next().unwrap().encode_utf16().count() as u32,
+    )
 }
 
 fn actions(p: &mut Project, rel: &str, pos: (u32, u32)) -> Value {
@@ -27,7 +34,11 @@ fn actions(p: &mut Project, rel: &str, pos: (u32, u32)) -> Value {
 }
 
 fn titles(r: &Value) -> Vec<String> {
-    r.as_array().unwrap().iter().map(|a| a["title"].as_str().unwrap().to_string()).collect()
+    r.as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["title"].as_str().unwrap().to_string())
+        .collect()
 }
 
 fn action<'a>(r: &'a Value, title: &str) -> &'a Value {
@@ -43,9 +54,11 @@ fn action<'a>(r: &'a Value, title: &str) -> &'a Value {
 /// server requests.
 fn command_edit(p: &mut Project, action: &Value) -> Value {
     let command = &action["command"];
-    p.server.receive(json!({"jsonrpc": "2.0", "id": 9000, "method": "workspace/executeCommand", "params": {
-        "command": command["command"], "arguments": command["arguments"],
-    }}));
+    p.server.receive(
+        json!({"jsonrpc": "2.0", "id": 9000, "method": "workspace/executeCommand", "params": {
+            "command": command["command"], "arguments": command["arguments"],
+        }}),
+    );
     let outputs = p.server.pump();
     outputs
         .into_iter()
@@ -59,7 +72,8 @@ fn missing_overrides_abstract_class_and_no_such_method() {
     let mut p = Project::with_literals("correcoes-sobrescritas");
     let text = "abstract class Forma {\n  double area();\n  double get perimetro;\n}\n\nclass Quadrado extends Forma {\n  final double lado;\n  Quadrado(this.lado);\n}\n";
     p.open("lib/a.dart", text);
-    p.server.await_diagnostics(std::time::Duration::from_secs(120));
+    p.server
+        .await_diagnostics(std::time::Duration::from_secs(120));
     let r = actions(&mut p, "lib/a.dart", location(text, "Quadrado extends", 0));
     let a = action(&r, "Create 2 missing overrides");
     assert_eq!(a["kind"], "quickfix.create.missingOverrides");
@@ -69,7 +83,10 @@ fn missing_overrides_abstract_class_and_no_such_method() {
     );
     let a = action(&r, "Make class 'Quadrado' abstract");
     assert_eq!(a["kind"], "quickfix.makeClassAbstract");
-    assert!(apply(&a["edit"], &p.uri("lib/a.dart"), text).contains("abstract class Quadrado extends Forma"));
+    assert!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text)
+            .contains("abstract class Quadrado extends Forma")
+    );
     let a = action(&r, "Create 'noSuchMethod' method");
     assert!(apply(&a["edit"], &p.uri("lib/a.dart"), text).contains("  @override\n  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);\n}"));
 }
@@ -88,10 +105,18 @@ fn create_method_function_class_and_getter_for_undefined_names() {
     );
     let r = actions(&mut p, "lib/a.dart", location(text, "raio", 0));
     let t = titles(&r);
-    assert!(t.contains(&"Create getter 'raio'".to_string()) && t.contains(&"Create field 'raio'".to_string()), "{t:?}");
+    assert!(
+        t.contains(&"Create getter 'raio'".to_string())
+            && t.contains(&"Create field 'raio'".to_string()),
+        "{t:?}"
+    );
     let r = actions(&mut p, "lib/a.dart", location(text, "Retangulo", 0));
     let t = titles(&r);
-    assert!(t.contains(&"Create class 'Retangulo'".to_string()) && t.contains(&"Create function 'Retangulo'".to_string()), "{t:?}");
+    assert!(
+        t.contains(&"Create class 'Retangulo'".to_string())
+            && t.contains(&"Create function 'Retangulo'".to_string()),
+        "{t:?}"
+    );
     // `q.y` is one step away from `x`: replace it.
     let (l, c) = location(text, "q.y", 0);
     let r = actions(&mut p, "lib/a.dart", (l, c + 2));
@@ -113,7 +138,13 @@ fn inlay_type_and_parameter_hints() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|d| (d["position"]["line"].as_u64().unwrap(), d["position"]["character"].as_u64().unwrap(), d["label"][0]["value"].as_str().unwrap().to_string()))
+        .map(|d| {
+            (
+                d["position"]["line"].as_u64().unwrap(),
+                d["position"]["character"].as_u64().unwrap(),
+                d["label"][0]["value"].as_str().unwrap().to_string(),
+            )
+        })
         .collect();
     assert!(hints.contains(&(2, 6, "int".into())), "{hints:?}");
     assert!(hints.contains(&(2, 15, "a:".into())), "{hints:?}");
@@ -136,7 +167,18 @@ fn annotation_initializer_setter_and_pattern_hints() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|d| (d["position"]["line"].as_u64().unwrap(), d["position"]["character"].as_u64().unwrap(), d["label"].as_array().unwrap().iter().map(|x| x["value"].as_str().unwrap()).collect::<String>()))
+        .map(|d| {
+            (
+                d["position"]["line"].as_u64().unwrap(),
+                d["position"]["character"].as_u64().unwrap(),
+                d["label"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x["value"].as_str().unwrap())
+                    .collect::<String>(),
+            )
+        })
         .collect();
     assert!(hints.contains(&(3, 20, "m:".into())), "{hints:?}");
     assert!(hints.contains(&(4, 6, "void".into())), "{hints:?}");
@@ -144,7 +186,10 @@ fn annotation_initializer_setter_and_pattern_hints() {
     assert!(hints.contains(&(8, 14, "dynamic".into())), "{hints:?}");
     assert!(hints.contains(&(10, 3, "m:".into())), "{hints:?}");
     assert!(!hints.contains(&(12, 11, "<int>".into())), "{hints:?}");
-    assert!(hints.contains(&(13, 19, "<int, String>".into())), "{hints:?}");
+    assert!(
+        hints.contains(&(13, 19, "<int, String>".into())),
+        "{hints:?}"
+    );
     assert!(hints.contains(&(17, 13, "List<int>".into())), "{hints:?}");
     assert!(hints.contains(&(18, 8, "int".into())), "{hints:?}");
     // `late` with an initializer that calls a method of the same class: the
@@ -167,7 +212,18 @@ fn nested_type_and_collection_for_in_hints() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|d| (d["position"]["line"].as_u64().unwrap(), d["position"]["character"].as_u64().unwrap(), d["label"].as_array().unwrap().iter().map(|x| x["value"].as_str().unwrap()).collect::<String>()))
+        .map(|d| {
+            (
+                d["position"]["line"].as_u64().unwrap(),
+                d["position"]["character"].as_u64().unwrap(),
+                d["label"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x["value"].as_str().unwrap())
+                    .collect::<String>(),
+            )
+        })
         .collect();
     // Raw `C` inside `List<C>`: `<dynamic>` after it.
     assert!(hints.contains(&(2, 28, "<dynamic>".into())), "{hints:?}");
@@ -180,11 +236,25 @@ fn basic_semantic_tokens() {
     let mut p = Project::with_literals("correcoes-tokens");
     let r = p.initialization.clone();
     let caption = r["result"]["capabilities"]["semanticTokensProvider"]["legend"].clone();
-    let types: Vec<String> = caption["tokenTypes"].as_array().unwrap().iter().map(|t| t.as_str().unwrap().to_string()).collect();
+    let types: Vec<String> = caption["tokenTypes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t.as_str().unwrap().to_string())
+        .collect();
     let text = "/// Doc.\nclass A {\n  int x = 1;\n  void m(int y) {\n    print(y + x);\n  }\n}\n";
     p.open("lib/a.dart", text);
-    let r = p.request("textDocument/semanticTokens/full", json!({"textDocument": {"uri": p.uri("lib/a.dart")}}))["result"].clone();
-    let data: Vec<u64> = r["data"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+    let r = p.request(
+        "textDocument/semanticTokens/full",
+        json!({"textDocument": {"uri": p.uri("lib/a.dart")}}),
+    )["result"]
+        .clone();
+    let data: Vec<u64> = r["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_u64().unwrap())
+        .collect();
     let (mut l, mut c) = (0u64, 0u64);
     let mut tokens = Vec::new();
     for g in data.chunks(5) {
@@ -196,7 +266,12 @@ fn basic_semantic_tokens() {
         }
         tokens.push((l, c, g[2], types[g[3] as usize].clone()));
     }
-    let type_in = |line: u64, column: u64| tokens.iter().find(|t| t.0 == line && t.1 == column).map(|t| t.3.clone());
+    let type_in = |line: u64, column: u64| {
+        tokens
+            .iter()
+            .find(|t| t.0 == line && t.1 == column)
+            .map(|t| t.3.clone())
+    };
     assert_eq!(type_in(0, 0).as_deref(), Some("comment"));
     assert_eq!(type_in(1, 0).as_deref(), Some("keyword"));
     assert_eq!(type_in(1, 6).as_deref(), Some("class"));
@@ -227,7 +302,13 @@ fn rewrite_assists() {
     // On the name of an `=>`-bodied function: block and async.
     let r = actions(&mut p, "lib/a.dart", location(text, "dobro(int", 0));
     let a = action(&r, "Convert to block body");
-    assert_eq!(apply(&a["edit"], &uri, text).lines().take(3).collect::<Vec<_>>(), vec!["int dobro(int v) {", "  return v * 2;", "}"]);
+    assert_eq!(
+        apply(&a["edit"], &uri, text)
+            .lines()
+            .take(3)
+            .collect::<Vec<_>>(),
+        vec!["int dobro(int v) {", "  return v * 2;", "}"]
+    );
     let a = action(&r, "Convert to async function body");
     assert!(apply(&a["edit"], &uri, text).starts_with("Future<int> dobro(int v) async => v * 2;"));
     // On `var x`: split; on a use, inline.
@@ -246,7 +327,10 @@ fn rewrite_assists() {
     // Expression statement with a value: store it in a local.
     let r = actions(&mut p, "lib/a.dart", location(text, "dobro(3)", 0));
     let a = action(&r, "Assign value to new local variable");
-    assert!(apply(&a["edit"], &uri, text).contains("  var dobro2 = dobro(3);\n") || apply(&a["edit"], &uri, text).contains("  var dobro = dobro(3);\n"));
+    assert!(
+        apply(&a["edit"], &uri, text).contains("  var dobro2 = dobro(3);\n")
+            || apply(&a["edit"], &uri, text).contains("  var dobro = dobro(3);\n")
+    );
 }
 
 #[test]

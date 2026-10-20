@@ -36,7 +36,8 @@ fn gdb_stops_at_the_dart_line_and_shows_the_stack() {
         eprintln!("no gdb: debugging test does not run");
         return;
     }
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/tmp-depuracao-{}", std::process::id()));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("../../target/tmp-depuracao-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("test directory");
     let source = dir.join("main.dart");
     std::fs::write(&source, PROGRAM).unwrap();
@@ -49,14 +50,29 @@ fn gdb_stops_at_the_dart_line_and_shows_the_stack() {
         .arg("--debug")
         .output()
         .expect("CLI");
-    assert!(compilation.status.success(), "{}", String::from_utf8_lossy(&compilation.stderr));
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
 
     // Two breakpoints: at the `return` of `twice` (without an instruction of
     // its own) and in the method body; the stack of each and the program output.
     let gdb = Command::new("gdb")
         .args(["-batch", "-nx"])
-        .args(["-ex", "break main.dart:3", "-ex", "break main.dart:9", "-ex", "run", "-ex", "bt 2"])
-        .args(["-ex", "delete 1", "-ex", "continue", "-ex", "bt 2", "-ex", "continue"])
+        .args([
+            "-ex",
+            "break main.dart:3",
+            "-ex",
+            "break main.dart:9",
+            "-ex",
+            "run",
+            "-ex",
+            "bt 2",
+        ])
+        .args([
+            "-ex", "delete 1", "-ex", "continue", "-ex", "bt 2", "-ex", "continue",
+        ])
         .arg(&exe)
         .output()
         .expect("gdb");
@@ -65,7 +81,10 @@ fn gdb_stops_at_the_dart_line_and_shows_the_stack() {
     let frames: Vec<&str> = output.lines().filter(|l| l.starts_with('#')).collect();
     let frame = |l: &str| {
         // `#0  0x… in twice () at main.dart:3` or `#0  twice () at main.dart:3`.
-        let after = l.split_once(" in ").map_or_else(|| l.split_once("  ").map_or(l, |(_, rest)| rest), |(_, r)| r);
+        let after = l.split_once(" in ").map_or_else(
+            || l.split_once("  ").map_or(l, |(_, rest)| rest),
+            |(_, r)| r,
+        );
         let name = after.split(" (").next().unwrap_or("");
         let location = after.rsplit(" at ").next().unwrap_or("");
         format!("{name} {location}")
@@ -73,9 +92,17 @@ fn gdb_stops_at_the_dart_line_and_shows_the_stack() {
     let view: Vec<String> = frames.iter().map(|l| frame(l)).collect();
     assert_eq!(
         view,
-        ["twice main.dart:3", "main main.dart:17", "Account.deposit main.dart:9", "main main.dart:20"],
+        [
+            "twice main.dart:3",
+            "main main.dart:17",
+            "Account.deposit main.dart:9",
+            "main main.dart:20"
+        ],
         "gdb output:\n{output}\n{}",
         String::from_utf8_lossy(&gdb.stderr)
     );
-    assert!(output.contains("balance 6\n6\n"), "the program output:\n{output}");
+    assert!(
+        output.contains("balance 6\n6\n"),
+        "the program output:\n{output}"
+    );
 }

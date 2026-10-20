@@ -13,9 +13,11 @@
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
 use dartforge_elements::model::Element;
-use dartforge_frontend::ast::{self, CollectionElement, CreationKeyword, ExprId, ExprKind, UnaryOp};
-use dartforge_types::table::{Type as DartType, TypeId};
+use dartforge_frontend::ast::{
+    self, CollectionElement, CreationKeyword, ExprId, ExprKind, UnaryOp,
+};
 use dartforge_types::resolved::{MemberRef, Resolved};
+use dartforge_types::table::{Type as DartType, TypeId};
 
 #[cfg(test)]
 mod cache_failure_tests;
@@ -24,7 +26,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Name of a `#x` literal; private names carry the identity of the
     /// library and use a hexadecimal suffix, like the VM's mangled name.
     pub fn symbol_literal_name(&self, names: &[ast::Name]) -> String {
-        let mut name = names.iter().map(|n| self.ctx.symbol_name(n.sym)).collect::<Vec<_>>().join(".");
+        let mut name = names
+            .iter()
+            .map(|n| self.ctx.symbol_name(n.sym))
+            .collect::<Vec<_>>()
+            .join(".");
         if name.starts_with('_') {
             let lib = self.ctx.program.unit(self.unit_id).library;
             let uri = &self.ctx.program.library(lib).uri;
@@ -40,7 +46,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match &expr.kind {
             ExprKind::Int(s) => {
                 let t = self.source()[s.start..s.end].replace('_', "");
-                let v: i64 = if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X")) {
+                let v: i64 = if let Some(h) = t.strip_prefix("0x").or_else(|| t.strip_prefix("0X"))
+                {
                     u64::from_str_radix(h, 16).ok()? as i64
                 } else {
                     // See `lower_expr`: the literal is read as a `u64`.
@@ -64,7 +71,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(format!("s:{:?}", String::from_utf8_lossy(v.as_bytes())))
             }
             ExprKind::Parenthesized(x) => self.constant_key(ast, *x, in_const),
-            ExprKind::Unary { op: UnaryOp::Neg, operand } => {
+            ExprKind::Unary {
+                op: UnaryOp::Neg,
+                operand,
+            } => {
                 let k = self.constant_key(ast, *operand, in_const)?;
                 Some(format!("neg({k})"))
             }
@@ -76,10 +86,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let b = self.constant_key(ast, *right, true)?;
                 let int = |k: &str| k.strip_prefix("i:").and_then(|v| v.parse::<i64>().ok());
                 match (op, int(&a), int(&b)) {
-                    (ast::BinaryOp::Add, Some(x), Some(y)) => Some(format!("i:{}", x.wrapping_add(y))),
-                    (ast::BinaryOp::Sub, Some(x), Some(y)) => Some(format!("i:{}", x.wrapping_sub(y))),
-                    (ast::BinaryOp::Mul, Some(x), Some(y)) => Some(format!("i:{}", x.wrapping_mul(y))),
-                    (ast::BinaryOp::Add, None, None) if a.starts_with("s:") && b.starts_with("s:") => {
+                    (ast::BinaryOp::Add, Some(x), Some(y)) => {
+                        Some(format!("i:{}", x.wrapping_add(y)))
+                    }
+                    (ast::BinaryOp::Sub, Some(x), Some(y)) => {
+                        Some(format!("i:{}", x.wrapping_sub(y)))
+                    }
+                    (ast::BinaryOp::Mul, Some(x), Some(y)) => {
+                        Some(format!("i:{}", x.wrapping_mul(y)))
+                    }
+                    (ast::BinaryOp::Add, None, None)
+                        if a.starts_with("s:") && b.starts_with("s:") =>
+                    {
                         // Two constant strings: the concatenated text.
                         let ta: String = serde_string(&a)?;
                         let tb: String = serde_string(&b)?;
@@ -91,15 +109,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Identifier(_) | ExprKind::Property { .. } => {
                 let vid = match self.ctx.get_resolved(self.unit_id, e) {
                     Some(Resolved::Element(Element::Variable(v))) => *v,
-                    Some(Resolved::Element(Element::Function(f))) => self.ctx.program.functions[f.0 as usize].variable?,
-                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => *v,
-                    Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
+                    Some(Resolved::Element(Element::Function(f))) => {
                         self.ctx.program.functions[f.0 as usize].variable?
                     }
+                    Some(Resolved::Member {
+                        member: MemberRef::Variable(v),
+                        ..
+                    }) => *v,
+                    Some(Resolved::Member {
+                        member: MemberRef::Function(f),
+                        ..
+                    }) => self.ctx.program.functions[f.0 as usize].variable?,
                     _ => return None,
                 };
                 let var = &self.ctx.program.variables[vid.0 as usize];
-                let enum_ = matches!(var.node, dartforge_elements::model::VariableRef::EnumConstant { .. });
+                let enum_ = matches!(
+                    var.node,
+                    dartforge_elements::model::VariableRef::EnumConstant { .. }
+                );
                 if !(var.const_ || enum_) {
                     return None;
                 }
@@ -108,31 +135,48 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 // String constants also need their scalar identity when a native
                 // environment query is used through an imported alias.
-                if var.const_ && self.ctx.get_type(self.unit_id, e) == Some(self.ctx.core.string)
-                    && let Some(init) = self.variable_initializer_in(vid) {
-                        let unit = match var.node {
-                            dartforge_elements::model::VariableRef::Field { unit, .. }
-                            | dartforge_elements::model::VariableRef::TopLevel { unit, .. } => Some(unit),
-                            _ => None,
-                        };
-                        if let Some(unit) = unit {
-                            let other = FnBuilder::new(self.ctx, unit, String::new(), String::new(), Type::Ref);
-                            if let Some(key) = other.constant_key(&self.ctx.program.unit(unit).ast, init, true)
-                                && key.starts_with("s:") { return Some(key); }
+                if var.const_
+                    && self.ctx.get_type(self.unit_id, e) == Some(self.ctx.core.string)
+                    && let Some(init) = self.variable_initializer_in(vid)
+                {
+                    let unit = match var.node {
+                        dartforge_elements::model::VariableRef::Field { unit, .. }
+                        | dartforge_elements::model::VariableRef::TopLevel { unit, .. } => {
+                            Some(unit)
+                        }
+                        _ => None,
+                    };
+                    if let Some(unit) = unit {
+                        let other =
+                            FnBuilder::new(self.ctx, unit, String::new(), String::new(), Type::Ref);
+                        if let Some(key) =
+                            other.constant_key(&self.ctx.program.unit(unit).ast, init, true)
+                            && key.starts_with("s:")
+                        {
+                            return Some(key);
                         }
                     }
+                }
                 let library = self.ctx.library_name(var.library);
                 let owner = if let Some(cid) = var.class {
-                    format!(".{}", self.ctx.symbol_name(self.ctx.program.class(cid).name))
+                    format!(
+                        ".{}",
+                        self.ctx.symbol_name(self.ctx.program.class(cid).name)
+                    )
                 } else if let Some(eid) = var.extension {
                     let name_str = self.ctx.program.extension(eid).name?;
                     format!(".{}", self.ctx.symbol_name(name_str))
                 } else {
                     String::new()
                 };
-                Some(format!("g:{:?}", (library, owner, self.ctx.symbol_name(var.name))))
+                Some(format!(
+                    "g:{:?}",
+                    (library, owner, self.ctx.symbol_name(var.name))
+                ))
             }
-            ExprKind::InstanceCreation { keyword, arguments, .. } => {
+            ExprKind::InstanceCreation {
+                keyword, arguments, ..
+            } => {
                 let in_const = in_const || *keyword == Some(CreationKeyword::Const);
                 if !in_const {
                     return None;
@@ -148,29 +192,43 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 };
                 self.creation_key(ast, e, f.0 as usize, arguments)
             }
-            ExprKind::List { const_, elements, .. } => {
+            ExprKind::List {
+                const_, elements, ..
+            } => {
                 if !(in_const || *const_) {
                     return None;
                 }
                 let parts = self.elements_parts(ast, elements, false)?;
                 Some(format!("l{}:[{}]", self.type_in_key(e)?, parts.join(",")))
             }
-            ExprKind::SetOrMap { const_, elements, .. } => {
+            ExprKind::SetOrMap {
+                const_, elements, ..
+            } => {
                 if !(in_const || *const_) {
                     return None;
                 }
                 let set = self.literal_is_set(e, elements);
                 let parts = self.elements_parts(ast, elements, !set)?;
-                Some(format!("{}{}:{{{}}}", if set { "c" } else { "m" }, self.type_in_key(e)?, parts.join(",")))
+                Some(format!(
+                    "{}{}:{{{}}}",
+                    if set { "c" } else { "m" },
+                    self.type_in_key(e)?,
+                    parts.join(",")
+                ))
             }
-            ExprKind::Record { positional, named, .. } if in_const => {
+            ExprKind::Record {
+                positional, named, ..
+            } if in_const => {
                 let mut parts = Vec::new();
                 for x in positional.iter() {
                     parts.push(self.constant_key(ast, *x, true)?);
                 }
                 let mut named_args: Vec<(String, String)> = Vec::new();
                 for (n, x) in named.iter() {
-                    named_args.push((self.ctx.symbol_name(n.sym).to_string(), self.constant_key(ast, *x, true)?));
+                    named_args.push((
+                        self.ctx.symbol_name(n.sym).to_string(),
+                        self.constant_key(ast, *x, true)?,
+                    ));
                 }
                 named_args.sort();
                 for (n, k) in named_args {
@@ -186,7 +244,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// spreads of another constant collection come in element by element and
     /// an `if` with a constant condition through the chosen branch (`const [...a, 3]` is
     /// the same constant as `const [1, 2, 3]`). `map`: `k=>v` entries.
-    fn elements_parts(&self, ast: &ast::Ast, elements: &[CollectionElement], map: bool) -> Option<Vec<String>> {
+    fn elements_parts(
+        &self,
+        ast: &ast::Ast,
+        elements: &[CollectionElement],
+        map: bool,
+    ) -> Option<Vec<String>> {
         let mut parts = Vec::new();
         for el in elements {
             self.element_parts(ast, el, map, &mut parts)?;
@@ -194,10 +257,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(parts)
     }
 
-    fn element_parts(&self, ast: &ast::Ast, el: &CollectionElement, map: bool, parts: &mut Vec<String>) -> Option<()> {
+    fn element_parts(
+        &self,
+        ast: &ast::Ast,
+        el: &CollectionElement,
+        map: bool,
+        parts: &mut Vec<String>,
+    ) -> Option<()> {
         match el {
-            CollectionElement::Expression(x) if !map => parts.push(self.constant_key(ast, *x, true)?),
-            CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false } if map => {
+            CollectionElement::Expression(x) if !map => {
+                parts.push(self.constant_key(ast, *x, true)?)
+            }
+            CollectionElement::MapEntry {
+                key,
+                value,
+                null_aware_key: false,
+                null_aware_value: false,
+            } if map => {
                 let k = self.constant_key(ast, *key, true)?;
                 let v = self.constant_key(ast, *value, true)?;
                 parts.push(format!("{k}=>{v}"));
@@ -208,17 +284,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 parts.extend(self.spread_parts(ast, *value, map)?);
             }
-            CollectionElement::If { condition, case_pattern: None, guard: None, then, else_ } => {
-                match self.constant_key(ast, *condition, true)?.as_str() {
-                    "b:true" => self.element_parts(ast, then, map, parts)?,
-                    "b:false" => {
-                        if let Some(e) = else_ {
-                            self.element_parts(ast, e, map, parts)?;
-                        }
+            CollectionElement::If {
+                condition,
+                case_pattern: None,
+                guard: None,
+                then,
+                else_,
+            } => match self.constant_key(ast, *condition, true)?.as_str() {
+                "b:true" => self.element_parts(ast, then, map, parts)?,
+                "b:false" => {
+                    if let Some(e) = else_ {
+                        self.element_parts(ast, e, map, parts)?;
                     }
-                    _ => return None,
                 }
-            }
+                _ => return None,
+            },
             _ => return None,
         }
         Some(())
@@ -245,8 +325,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Identifier(_) | ExprKind::Property { .. } => {
                 let vid = match self.ctx.get_resolved(self.unit_id, e) {
                     Some(Resolved::Element(Element::Variable(v))) => *v,
-                    Some(Resolved::Element(Element::Function(f))) => self.ctx.program.functions[f.0 as usize].variable?,
-                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => *v,
+                    Some(Resolved::Element(Element::Function(f))) => {
+                        self.ctx.program.functions[f.0 as usize].variable?
+                    }
+                    Some(Resolved::Member {
+                        member: MemberRef::Variable(v),
+                        ..
+                    }) => *v,
                     _ => return None,
                 };
                 let var = &self.ctx.program.variables[vid.0 as usize];
@@ -267,7 +352,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // with its resolutions and source. With the current AST, the
                 // index pointed to another expression (the key came out wrong,
                 // `identical` gave false) or outside the arena (panic).
-                let other = FnBuilder::new(self.ctx, unit_ref, String::new(), String::new(), Type::Ref);
+                let other =
+                    FnBuilder::new(self.ctx, unit_ref, String::new(), String::new(), Type::Ref);
                 let ast_other = &self.ctx.program.unit(unit_ref).ast;
                 other.spread_parts(ast_other, init, map)
             }
@@ -278,9 +364,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The static type in the key (`const <int>[]` and `const <String>[]` are
     /// different constants).
     fn type_in_key(&self, e: ExprId) -> Option<String> {
-        self.ctx
-            .get_type(self.unit_id, e)
-            .map_or_else(|| Some(String::new()), |t| self.stable_type(t).map(|s| format!("<{s}>")))
+        self.ctx.get_type(self.unit_id, e).map_or_else(
+            || Some(String::new()),
+            |t| self.stable_type(t).map(|s| format!("<{s}>")),
+        )
     }
 
     /// Structural identity of the type, without `TypeId`/`ClassId`/`SymbolId`, whose
@@ -296,33 +383,75 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             DartType::Void => Some("void".into()),
             DartType::Never => Some("Never".into()),
             DartType::Null => Some("Null".into()),
-            DartType::Interface { class, args, nullable }
-            | DartType::ExtensionType { decl: class, args, nullable } => {
+            DartType::Interface {
+                class,
+                args,
+                nullable,
+            }
+            | DartType::ExtensionType {
+                decl: class,
+                args,
+                nullable,
+            } => {
                 let c = self.ctx.program.class(*class);
                 let lib = self.ctx.library_name(c.library);
-                Some(format!("{lib:?}.{}<{}>{nullable}", self.ctx.symbol_name(c.name), parts(args)?.join(",")))
+                Some(format!(
+                    "{lib:?}.{}<{}>{nullable}",
+                    self.ctx.symbol_name(c.name),
+                    parts(args)?.join(",")
+                ))
             }
-            DartType::FutureOr { arg, nullable } => Some(format!("FutureOr<{}>{nullable}", self.stable_type(*arg)?)),
-            DartType::Record { positional, named, nullable } => {
+            DartType::FutureOr { arg, nullable } => {
+                Some(format!("FutureOr<{}>{nullable}", self.stable_type(*arg)?))
+            }
+            DartType::Record {
+                positional,
+                named,
+                nullable,
+            } => {
                 let mut fields: Vec<_> = named
                     .iter()
-                    .map(|(n, t)| Some((self.ctx.symbol_name(*n).to_owned(), self.stable_type(*t)?)))
+                    .map(|(n, t)| {
+                        Some((self.ctx.symbol_name(*n).to_owned(), self.stable_type(*t)?))
+                    })
                     .collect::<Option<_>>()?;
                 fields.sort();
-                Some(format!("record({};{:?}){nullable}", parts(positional)?.join(","), fields))
+                Some(format!(
+                    "record({};{:?}){nullable}",
+                    parts(positional)?.join(","),
+                    fields
+                ))
             }
-            DartType::Function { type_params, ret, positional, optional, named, nullable } if type_params.is_empty() => {
+            DartType::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+            } if type_params.is_empty() => {
                 let mut fields: Vec<_> = named
                     .iter()
-                    .map(|(n, t, req)| Some((self.ctx.symbol_name(*n).to_owned(), self.stable_type(*t)?, req)))
+                    .map(|(n, t, req)| {
+                        Some((
+                            self.ctx.symbol_name(*n).to_owned(),
+                            self.stable_type(*t)?,
+                            req,
+                        ))
+                    })
                     .collect::<Option<_>>()?;
                 fields.sort();
                 Some(format!(
                     "fn({};{};{:?})->{}{nullable}",
-                    parts(positional)?.join(","), parts(optional)?.join(","), fields, self.stable_type(*ret)?
+                    parts(positional)?.join(","),
+                    parts(optional)?.join(","),
+                    fields,
+                    self.stable_type(*ret)?
                 ))
             }
-            DartType::Function { .. } | DartType::TypeParameter { .. } | DartType::Intersection { .. } => None,
+            DartType::Function { .. }
+            | DartType::TypeParameter { .. }
+            | DartType::Intersection { .. } => None,
         }
     }
 
@@ -331,30 +460,53 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Link<BeginToken>()` are distinct objects (the type arguments are
     /// part of the identity of the constant), otherwise the second would be the first,
     /// with the wrong reified type (the `groupingStack` of the analyzer's scanner).
-    fn creation_key(&self, ast: &ast::Ast, e: ExprId, fid: usize, arguments: &ast::Arguments) -> Option<String> {
-        if let Some((kind, has)) = self.environment_factory(dartforge_elements::model::FunctionElementId(fid as u32)) {
+    fn creation_key(
+        &self,
+        ast: &ast::Ast,
+        e: ExprId,
+        fid: usize,
+        arguments: &ast::Arguments,
+    ) -> Option<String> {
+        if let Some((kind, has)) =
+            self.environment_factory(dartforge_elements::model::FunctionElementId(fid as u32))
+        {
             let key = arguments.args.iter().find(|a| a.name.is_none())?.value;
             self.environment_key(self.unit_id, key, 0)?;
             return match self.environment_value(self.unit_id, key, kind, has) {
                 Some(Constant::Bool(value)) => Some(format!("b:{value}")),
                 Some(Constant::String(value)) => Some(format!("s:{value:?}")),
                 _ => {
-                    if let Some(default) = arguments.args.iter().find(|a| a.name.is_some_and(|n| self.ctx.symbol_name(n.sym) == "defaultValue")) {
+                    if let Some(default) = arguments.args.iter().find(|a| {
+                        a.name
+                            .is_some_and(|n| self.ctx.symbol_name(n.sym) == "defaultValue")
+                    }) {
                         self.constant_key(ast, default.value, true)
                     } else {
-                        Some(match kind { "bool" => "b:false", "int" => "i:0", _ => "s:\"\"" }.to_string())
+                        Some(
+                            match kind {
+                                "bool" => "b:false",
+                                "int" => "i:0",
+                                _ => "s:\"\"",
+                            }
+                            .to_string(),
+                        )
                     }
-                },
+                }
             };
         }
         if !super::user_function(self.ctx, fid) {
             return None;
         }
         if self.ctx.program.functions[fid].class == self.ctx.sdk_class("core", "Symbol") {
-            let text = arguments.args.first().and_then(|a| match &ast.expr(a.value).kind {
-                ExprKind::String(s) => s.constant_value().map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned()),
-                _ => None,
-            })?;
+            let text = arguments
+                .args
+                .first()
+                .and_then(|a| match &ast.expr(a.value).kind {
+                    ExprKind::String(s) => s
+                        .constant_value()
+                        .map(|v| String::from_utf8_lossy(v.as_bytes()).into_owned()),
+                    _ => None,
+                })?;
             return Some(format!("sym:{text:?}"));
         }
         let mut pos = Vec::new();
@@ -374,8 +526,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .class
             .and_then(|c| self.ctx.outline.classes.get(c.0 as usize))
             .is_some_and(|d| !d.type_params.is_empty());
-        let ty = if generic { self.type_in_key(e)? } else { String::new() };
-        Some(format!("o:{}{ty}({})", super::symbol_of(self.ctx, fid), pos.join(",")))
+        let ty = if generic {
+            self.type_in_key(e)?
+        } else {
+            String::new()
+        };
+        Some(format!(
+            "o:{}{ty}({})",
+            super::symbol_of(self.ctx, fid),
+            pos.join(",")
+        ))
     }
 
     /// If `e` is a canonical constant (`const`, a constant collection
@@ -386,9 +546,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let ctx_const = self.in_const_context;
         let explicit = match &ast.expr(e).kind {
-            ExprKind::InstanceCreation { keyword, .. } => ctx_const || *keyword == Some(CreationKeyword::Const),
+            ExprKind::InstanceCreation { keyword, .. } => {
+                ctx_const || *keyword == Some(CreationKeyword::Const)
+            }
             ExprKind::Symbol(_) => true,
-            ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } => ctx_const || *const_,
+            ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } => {
+                ctx_const || *const_
+            }
             ExprKind::Call { .. } | ExprKind::Record { .. } => ctx_const,
             _ => false,
         };
@@ -425,15 +589,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.dart_ref_returns.insert(getter.clone());
             }
             let root = 0x4000_0000 | (hash as u32 & 0x3fff_ffff);
-            self.extra_globals.push((root, Type::Ref, value_symbol.clone()));
-            let mut g = FnBuilder::new(self.ctx, self.unit_id, getter.clone(), "const".to_string(), Type::Ref);
+            self.extra_globals
+                .push((root, Type::Ref, value_symbol.clone()));
+            let mut g = FnBuilder::new(
+                self.ctx,
+                self.unit_id,
+                getter.clone(),
+                "const".to_string(),
+                Type::Ref,
+            );
             g.constant_in_progress = Some(e);
             g.in_const_context = true;
             // The local `const`s visible here (the getter is another function: it
             // evaluates them again, through the initializer, which is constant).
             g.local_const_keys = self.local_const_keys.clone();
             g.lower_constant_getter(ast, e, &value_symbol, root);
-            self.extra_globals.extend(std::mem::take(&mut g.extra_globals));
+            self.extra_globals
+                .extend(std::mem::take(&mut g.extra_globals));
             self.absorb(g);
         }
         Some(getter)
@@ -452,22 +624,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             });
             return;
         }
-        let collection = matches!(ast.expr(e).kind, ExprKind::List { .. } | ExprKind::SetOrMap { .. });
+        let collection = matches!(
+            ast.expr(e).kind,
+            ExprKind::List { .. } | ExprKind::SetOrMap { .. }
+        );
         self.lower_canonical_getter(value, root, collection, |b| b.lower_expr(ast, e));
     }
 
     /// The `_ConstMap<K, V>`/`_ConstSet<E>` that adopts the content of `source`
     /// (the `_Map`/`_Set` of the literal), with the type arguments of `ty`.
-    fn source_constant_collection(&mut self, source: Operand, ty: Option<TypeId>, set: bool, span: dartforge_diagnostics::Span) -> Operand {
+    fn source_constant_collection(
+        &mut self,
+        source: Operand,
+        ty: Option<TypeId>,
+        set: bool,
+        span: dartforge_diagnostics::Span,
+    ) -> Operand {
         let name_str = if set { "_ConstSet" } else { "_ConstMap" };
         let Some(cid) = self.ctx.sdk_class("_compact_hash", name_str) else {
             return self.unsupported(&format!("constant without `{name_str}`"), span);
         };
-        let ctor = self
-            .ctx
-            .interner
-            .lookup("_fromSource")
-            .and_then(|k| self.ctx.program.classes[cid.0 as usize].constructors.get(&k).copied());
+        let ctor = self.ctx.interner.lookup("_fromSource").and_then(|k| {
+            self.ctx.program.classes[cid.0 as usize]
+                .constructors
+                .get(&k)
+                .copied()
+        });
         let Some(ctor) = ctor else {
             return self.unsupported(&format!("missing `{name_str}._fromSource`"), span);
         };
@@ -476,7 +658,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some(DartType::Interface { args, .. }) if args.len() == n => args.to_vec(),
             _ => vec![self.ctx.core.dynamic_; n],
         };
-        let mut recipe = super::rti::Recipe { text: String::new(), variables: false };
+        let mut recipe = super::rti::Recipe {
+            text: String::new(),
+            variables: false,
+        };
         for (i, a) in args.iter().enumerate() {
             if i > 0 {
                 recipe.text.push(',');
@@ -495,7 +680,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// The canonical constant that `generate` produces, through the getter `value_symbol`
     /// + `.get` (created on the first read; `collection`: it becomes immutable).
-    pub fn generated_constant(&mut self, value_symbol: &str, collection: bool, generate: impl FnOnce(&mut Self) -> Operand) -> Operand {
+    pub fn generated_constant(
+        &mut self,
+        value_symbol: &str,
+        collection: bool,
+        generate: impl FnOnce(&mut Self) -> Operand,
+    ) -> Operand {
         let getter = format!("{value_symbol}.get");
         if !self.done_entries.contains(&getter) {
             self.done_entries.insert(getter.clone());
@@ -506,17 +696,38 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             let hash = super::closures::hash_name(value_symbol) as u64;
             let root = 0x4000_0000 | (hash as u32 & 0x3fff_ffff);
-            self.extra_globals.push((root, Type::Ref, value_symbol.to_string()));
-            let mut g = FnBuilder::new(self.ctx, self.unit_id, getter.clone(), "const".to_string(), Type::Ref);
+            self.extra_globals
+                .push((root, Type::Ref, value_symbol.to_string()));
+            let mut g = FnBuilder::new(
+                self.ctx,
+                self.unit_id,
+                getter.clone(),
+                "const".to_string(),
+                Type::Ref,
+            );
             g.in_const_context = true;
             g.lower_canonical_getter(value_symbol, root, collection, generate);
-            self.extra_globals.extend(std::mem::take(&mut g.extra_globals));
+            self.extra_globals
+                .extend(std::mem::take(&mut g.extra_globals));
             self.absorb(g);
         }
-        self.emit_call_with_check(Instruction::CallStatic { symbol: getter, args: Vec::new(), ret_ty: Type::Ref }, Type::Ref)
+        self.emit_call_with_check(
+            Instruction::CallStatic {
+                symbol: getter,
+                args: Vec::new(),
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
-    fn lower_canonical_getter(&mut self, value: &str, root: u32, collection: bool, generate: impl FnOnce(&mut Self) -> Operand) {
+    fn lower_canonical_getter(
+        &mut self,
+        value: &str,
+        root: u32,
+        collection: bool,
+        generate: impl FnOnce(&mut Self) -> Operand,
+    ) {
         let flag = format!("{value}$ok");
         let ok = self.emit(
             Instruction::LoadGlobal {
@@ -584,7 +795,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_mark_constant".to_string(),
-                args: vec![(v.clone(), Type::Ref), (Operand::Constant(Constant::Function(self.func.symbol.clone())), Type::I64)],
+                args: vec![
+                    (v.clone(), Type::Ref),
+                    (
+                        Operand::Constant(Constant::Function(self.func.symbol.clone())),
+                        Type::I64,
+                    ),
+                ],
                 ret_ty: Type::Void,
             },
             Type::Void,

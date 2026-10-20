@@ -13,12 +13,12 @@
 //! let output = format("main(){print( 'oi' );}", &FormatOptions::default()).unwrap();
 //! assert_eq!(output, "main() {\n  print('oi');\n}\n");
 //! ```
-pub mod short;
 pub mod edits;
+pub mod short;
 pub mod syntax;
 
-use short::writer::{BlockCache, LineWriter};
 use short::visitor::SourceVisitor;
+use short::writer::{BlockCache, LineWriter};
 pub use syntax::token::SyntaxError;
 
 /// Formatter options (`DartFormatter`).
@@ -75,9 +75,19 @@ impl std::error::Error for FormatError {}
 /// beyond whitespace (the same sanity check `dart_style` does).
 pub fn format(source: &str, options: &FormatOptions) -> Result<String, FormatError> {
     let (tokens, tree) = syntax::parser::parse(source).map_err(FormatError::Syntax)?;
-    let line_ending = options.line_ending.clone().unwrap_or_else(|| infer_line_ending(source));
+    let line_ending = options
+        .line_ending
+        .clone()
+        .unwrap_or_else(|| infer_line_ending(source));
     let root = tree.root.expect("compilation unit");
-    let visitor = SourceVisitor::new(source, &tokens, &tree, options.page_width, options.indent as i32, line_ending);
+    let visitor = SourceVisitor::new(
+        source,
+        &tokens,
+        &tree,
+        options.page_width,
+        options.indent as i32,
+        line_ending,
+    );
     let (mut arenas, chunks) = visitor.run(root);
     let mut cache = BlockCache::new();
     let result = LineWriter::new(chunks, &mut cache).write_lines(&mut arenas, true);

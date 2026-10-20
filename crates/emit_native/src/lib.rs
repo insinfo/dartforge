@@ -1,35 +1,35 @@
 //! DartForge's LLVM native compiler on the new track.
 
-pub mod target;
-pub mod erasure;
 pub mod cache;
-pub mod object_cache;
+pub mod compact_stack_trace;
 pub mod context;
 pub mod contracts;
+pub mod cross;
+#[cfg(feature = "embedded-llvm")]
+pub mod distributed_lto;
 pub mod driver;
-pub mod source;
+pub mod erasure;
 mod finalizables;
 pub mod gcmap;
-pub mod compact_stack_trace;
 pub mod generator;
+pub mod hir;
+pub mod linked_images;
 pub mod linker;
 pub mod linker_macos;
 pub mod linker_windows;
-#[cfg(feature = "embedded-llvm")]
-pub mod distributed_lto;
-pub mod cross;
-pub mod hir;
 pub mod llvm;
 pub mod lower;
-pub mod native_world;
 pub mod native_inputs;
-pub mod linked_images;
-pub mod partition;
+pub mod native_world;
 pub mod natives;
+pub mod object_cache;
 pub mod optimize;
+pub mod partition;
 pub mod pruning;
-pub mod summary;
 pub mod sdk_module;
+pub mod source;
+pub mod summary;
+pub mod target;
 
 use context::Context;
 use dartforge_elements::Program;
@@ -91,14 +91,24 @@ pub struct DartFlags {
 
 impl DartFlags {
     /// Asserts on, `dart.vm.product` false (`dart run --enable-asserts`).
-    pub const DEVELOPMENT: DartFlags = DartFlags { enable_asserts: true, product: false };
+    pub const DEVELOPMENT: DartFlags = DartFlags {
+        enable_asserts: true,
+        product: false,
+    };
     /// Asserts off, `dart.vm.product` true (`dart compile exe`).
-    pub const PRODUCTION: DartFlags = DartFlags { enable_asserts: false, product: true };
+    pub const PRODUCTION: DartFlags = DartFlags {
+        enable_asserts: false,
+        product: true,
+    };
 
     /// The tag of the flags in the key of the compiled SDK.
     pub fn cache_tag(self) -> String {
         let on = |b: bool| if b { "on" } else { "off" };
-        format!("asserts={};product={}", on(self.enable_asserts), on(self.product))
+        format!(
+            "asserts={};product={}",
+            on(self.enable_asserts),
+            on(self.product)
+        )
     }
 }
 
@@ -109,11 +119,13 @@ impl Default for DartFlags {
 }
 
 /// Veja [`CompileOptions::generator`].
-pub type Generator<'a> = &'a (dyn Fn(
+pub type Generator<'a> = &'a (
+        dyn Fn(
     &dartforge_elements::model::Program,
     &Interner,
 ) -> Result<std::sync::Arc<dartforge_elements::generated::Generation>, String>
-         + Sync);
+            + Sync
+    );
 
 /// Time of each phase of the emission (everything before Clang).
 #[derive(Debug, Clone, Copy, Default)]
@@ -146,11 +158,22 @@ impl EmittedIr {
     pub fn print_times(&self) {
         eprintln!("  Front-end: {:?}", self.times.frontend);
         let (live_set, all) = self.times.live_functions;
-        eprintln!("  World:     {:?} ({live_set} of {all} program functions live)", self.times.world);
+        eprintln!(
+            "  World:     {:?} ({live_set} of {all} program functions live)",
+            self.times.world
+        );
         eprintln!("  HIR:       {:?}", self.times.hir);
         eprintln!("  LLVM IR:   {:?}", self.times.llvm_ir);
-        let pct = if self.text.is_empty() { 0.0 } else { 100.0 * self.sdk_byte_count as f64 / self.text.len() as f64 };
-        eprintln!("  IR:        {} bytes, {} from the SDK ({pct:.1}%)", self.text.len(), self.sdk_byte_count);
+        let pct = if self.text.is_empty() {
+            0.0
+        } else {
+            100.0 * self.sdk_byte_count as f64 / self.text.len() as f64
+        };
+        eprintln!(
+            "  IR:        {} bytes, {} from the SDK ({pct:.1}%)",
+            self.text.len(),
+            self.sdk_byte_count
+        );
     }
 }
 
@@ -161,12 +184,22 @@ pub const UNSUPPORTED_PREFIX: &str = "not supported by the native backend: ";
 /// [`pruning::prune_hir`] with the summaries of the SDK libraries of the profile (the
 /// SDK comes out of the cache, or is compiled now, as the link would do right
 /// after). `None` when the module does not use the source SDK.
-fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path, flags: DartFlags, timings: bool) -> Result<Option<pruning::HirPruning>, String> {
+fn prune_program_hir(
+    module: &mut hir::Module,
+    production: bool,
+    sdk_lib: &Path,
+    flags: DartFlags,
+    timings: bool,
+) -> Result<Option<pruning::HirPruning>, String> {
     module.imported_allocation_inventory = None;
     if module.sdk_library || module.sdk_records.is_empty() {
         return Ok(None);
     }
-    let profile = if production { sdk_module::SdkProfile::Production } else { sdk_module::SdkProfile::Development };
+    let profile = if production {
+        sdk_module::SdkProfile::Production
+    } else {
+        sdk_module::SdkProfile::Development
+    };
     let clang = driver::NativeDriverOptions::default().clang;
     // The same directory, the same Clang and the same flags as the link
     // (`driver::compile_and_link`): the same cache key.
@@ -177,26 +210,49 @@ fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path,
     let summaries = pruning::read_summaries(&sdk.summaries)?;
     let refs: Vec<&pruning::Summary> = summaries.iter().map(|r| r.as_ref()).collect();
     module.arc_external_ancestry = hir::ArcExternalAncestry::from_summaries(&refs);
-    let artifacts: Vec<_> = sdk.objects.iter().zip(&sdk.summaries).flat_map(|(object, summary)| [
-        object.file_name().unwrap().to_string_lossy().to_string(), summary.file_name().unwrap().to_string_lossy().to_string()]).collect();
+    let artifacts: Vec<_> = sdk
+        .objects
+        .iter()
+        .zip(&sdk.summaries)
+        .flat_map(|(object, summary)| {
+            [
+                object.file_name().unwrap().to_string_lossy().to_string(),
+                summary.file_name().unwrap().to_string_lossy().to_string(),
+            ]
+        })
+        .collect();
     if let Some(directory) = sdk.objects.first().and_then(|path| path.parent()) {
-        module.imported_allocation_returns = Some(pruning::receiver_provenance::allocation_certificates::load(
-            directory, &sdk.key, production, &artifacts));
-        if production && std::env::var("DARTFORGE_CLOSED_CLASS_REACHABILITY").as_deref() == Ok("1") {
+        module.imported_allocation_returns =
+            Some(pruning::receiver_provenance::allocation_certificates::load(
+                directory, &sdk.key, production, &artifacts,
+            ));
+        if production && std::env::var("DARTFORGE_CLOSED_CLASS_REACHABILITY").as_deref() == Ok("1")
+        {
             let runtime = cache::RuntimeCache::for_production()?.lib_path;
-            module.imported_allocation_inventory = pruning::allocation_inventory::imports::Inventory::load(
-                directory, &sdk.key, production, &artifacts, &runtime).map(std::sync::Arc::new);
+            module.imported_allocation_inventory =
+                pruning::allocation_inventory::imports::Inventory::load(
+                    directory, &sdk.key, production, &artifacts, &runtime,
+                )
+                .map(std::sync::Arc::new);
             if timings {
                 match &module.imported_allocation_inventory {
                     Some(inventory) => {
                         let (unique, known, pure) = inventory.counts();
-                        eprintln!("  SDK inventory: {unique} unique definitions, {known} covered allocation closures, {pure} exposure-free empty closures");
+                        eprintln!(
+                            "  SDK inventory: {unique} unique definitions, {known} covered allocation closures, {pure} exposure-free empty closures"
+                        );
                         let (strings, cids) = inventory.image_string_counts();
-                        eprintln!("  SDK static strings: {strings} checked literal definitions, CIDs {cids:?}; linked image ranges remain unverified");
+                        eprintln!(
+                            "  SDK static strings: {strings} checked literal definitions, CIDs {cids:?}; linked image ranges remain unverified"
+                        );
                         let source_images = inventory.clean_source_image_count();
-                        eprintln!("  SDK source image census: {source_images} modules without opaque source contributions; linker inputs remain unverified");
+                        eprintln!(
+                            "  SDK source image census: {source_images} modules without opaque source contributions; linker inputs remain unverified"
+                        );
                     }
-                    None => eprintln!("  SDK inventory unavailable; imported class coverage remains open"),
+                    None => eprintln!(
+                        "  SDK inventory unavailable; imported class coverage remains open"
+                    ),
                 }
             }
         }
@@ -212,14 +268,19 @@ fn prune_program_hir(module: &mut hir::Module, production: bool, sdk_lib: &Path,
 /// keeps it in the native cache, by version; without `dart`, only the number of the
 /// `version` file (`sqlite3` prints `Platform.version`).
 fn sdk_version(root: &Path) -> Option<String> {
-    let number = std::fs::read_to_string(root.join("version")).ok()?.trim().to_string();
+    let number = std::fs::read_to_string(root.join("version"))
+        .ok()?
+        .trim()
+        .to_string();
     let saved = cache::native_cache_dir().join(format!("sdk_version_{number}.txt"));
     if let Ok(v) = std::fs::read_to_string(&saved)
         && v.starts_with(&number)
     {
         return Some(v.trim().to_string());
     }
-    let dart = root.join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" });
+    let dart = root
+        .join("bin")
+        .join(if cfg!(windows) { "dart.exe" } else { "dart" });
     let complete = std::process::Command::new(&dart)
         .arg("--version")
         .output()
@@ -227,7 +288,11 @@ fn sdk_version(root: &Path) -> Option<String> {
         .and_then(|s| {
             // `Dart SDK version: 3.6.2 (stable) (…) on "windows_x64"` (on
             // standard output since 2.15; before, on standard error).
-            let text = format!("{}{}", String::from_utf8_lossy(&s.stdout), String::from_utf8_lossy(&s.stderr));
+            let text = format!(
+                "{}{}",
+                String::from_utf8_lossy(&s.stdout),
+                String::from_utf8_lossy(&s.stderr)
+            );
             let rest = text.split("Dart SDK version: ").nth(1)?;
             let v = rest.split(" on \"").next()?.trim().to_string();
             v.starts_with(&number).then_some(v)
@@ -256,7 +321,9 @@ pub const LARGE_PROGRAM_FUNCTIONS: usize = 50_000;
 /// diagnostic, all of them, with the position and indented by two spaces.
 fn compile_error(errors: &[String]) -> String {
     let first_one = &errors[0];
-    let summary = first_one.rsplit_once(" (").map_or(first_one.as_str(), |(a, _)| a);
+    let summary = first_one
+        .rsplit_once(" (")
+        .map_or(first_one.as_str(), |(a, _)| a);
     let mut text = format!("compile error: {summary}");
     for e in errors {
         text.push_str("\n  ");
@@ -270,8 +337,7 @@ fn compile_error(errors: &[String]) -> String {
 /// diagnostic, in order, without the position. Empty when the error is not about a
 /// construct (loading, panic, HIR verifier).
 pub fn error_constructs(text: &str) -> Vec<String> {
-    text
-        .lines()
+    text.lines()
         .filter_map(|l| {
             let d = l.strip_prefix("  ")?.strip_prefix(UNSUPPORTED_PREFIX)?;
             Some(d.rsplit_once(" (").map_or(d, |(a, _)| a).to_string())
@@ -322,20 +388,36 @@ pub fn emit_ir_with(entry: &Path, options: &CompileOptions) -> Result<EmittedIr,
 /// [`emit_ir_with`] with explicit [`DartFlags`] (asserts, `dart.vm.product`):
 /// the CLI passes [`DartFlags::PRODUCTION`] with `--optimize`; the
 /// differential harness keeps [`DartFlags::DEVELOPMENT`], the oracle's.
-pub fn emit_ir_with_flags(entry: &Path, options: &CompileOptions, flags: DartFlags) -> Result<EmittedIr, String> {
+pub fn emit_ir_with_flags(
+    entry: &Path,
+    options: &CompileOptions,
+    flags: DartFlags,
+) -> Result<EmittedIr, String> {
     emit_ir_internal(entry, options, None, None, options.optimize, true, flags)
 }
 
 /// [`emit_ir`] of a new generation of a running program (the JIT hot
 /// reload): `previous_ir` is the IR of the live generation, from which the layout
 /// of the global area that the new generation extends comes ([`ir_area`]).
-pub fn emit_reloadable_ir(entry: &Path, options: &CompileOptions, previous_ir: Option<&str>) -> Result<EmittedIr, String> {
+pub fn emit_reloadable_ir(
+    entry: &Path,
+    options: &CompileOptions,
+    previous_ir: Option<&str>,
+) -> Result<EmittedIr, String> {
     let area = previous_ir.and_then(ir_area);
     // J03: the same class with the same id as in the live generation.
     let ids = previous_ir.map(context::ir_ids);
     // The JIT frees the memory of a generation (J02): no static objects in the
     // program modules (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
-    emit_ir_internal(entry, options, area, ids, false, false, DartFlags::DEVELOPMENT)
+    emit_ir_internal(
+        entry,
+        options,
+        area,
+        ids,
+        false,
+        false,
+        DartFlags::DEVELOPMENT,
+    )
 }
 
 /// The names (hashes) of the slots of the global area of the program in IR `ir`:
@@ -345,7 +427,11 @@ pub fn ir_area(ir: &str) -> Option<Vec<i64>> {
     let list = &line[line.rfind('[')? + 1..line.rfind(']')?];
     let values: Vec<i64> = list
         .split(',')
-        .map(|v| v.trim().strip_prefix("i64 ").and_then(|n| n.trim().parse().ok()))
+        .map(|v| {
+            v.trim()
+                .strip_prefix("i64 ")
+                .and_then(|n| n.trim().parse().ok())
+        })
         .collect::<Option<_>>()?;
     let n = usize::try_from(*values.get(1)?).ok()?;
     (values.len() == n + 2).then(|| values[2..].to_vec())
@@ -411,7 +497,8 @@ fn emit_ir_internal(
     let (program, elements_diags) = match options.generator {
         Some(generate) => {
             let mut resolution_names = Interner::new();
-            let (resolution, _) = load_lenient(entry, &sdk, options.packages, &mut resolution_names);
+            let (resolution, _) =
+                load_lenient(entry, &sdk, options.packages, &mut resolution_names);
             let generation = generate(&resolution, &resolution_names)?;
             dartforge_elements::load::load_lenient_generated(
                 entry,
@@ -440,15 +527,24 @@ fn emit_ir_internal(
 
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
-    let (mut outline, outline_diags) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+    let (mut outline, outline_diags) =
+        dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
     // Local declaration bindings are also needed by constant evaluation (a
     // later const initializer may refer to an earlier local constant).
-    let user_libraries: Vec<_> = program.libraries.iter().enumerate()
+    let user_libraries: Vec<_> = program
+        .libraries
+        .iter()
+        .enumerate()
         .filter(|(_, lib)| !lib.is_sdk)
         .map(|(i, _)| dartforge_elements::model::LibraryId(i as u32))
         .collect();
     let (bodies, body_diags) = dartforge_types::infer_library_bodies_with_locals(
-        &program, &interner, &mut table, &core, &mut outline, &user_libraries,
+        &program,
+        &interner,
+        &mut table,
+        &core,
+        &mut outline,
+        &user_libraries,
     );
     // Language errors of the 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §3) and
     // reads of a local that is not definitely assigned abort
@@ -471,20 +567,38 @@ fn emit_ir_internal(
     // opaque but their public constructor declarations available.
     let inferred = user_libraries.iter().copied().collect();
     let constant_diags = dartforge_types::const_eval::verify(
-        &program, &interner, &mut table, &core, &outline, &bodies, &inferred, &user_libraries,
+        &program,
+        &interner,
+        &mut table,
+        &core,
+        &outline,
+        &bodies,
+        &inferred,
+        &user_libraries,
     );
-    let mut constant_errors = constant_diags.iter()
+    let mut constant_errors = constant_diags
+        .iter()
         .filter(|(_, d)| d.severity == dartforge_diagnostics::Severity::Error);
     if let Some((unit, first)) = constant_errors.next() {
         let mut message = format!("error: {}: {first}", program.unit_path(*unit));
         for (unit, diagnostic) in constant_errors {
-            message.push_str(&format!("\nerror: {}: {diagnostic}", program.unit_path(*unit)));
+            message.push_str(&format!(
+                "\nerror: {}: {diagnostic}",
+                program.unit_path(*unit)
+            ));
         }
         return Err(message);
     }
 
     let normalized_annotations = dartforge_types::optimization_annotations::normalize(
-        &program, &interner, &mut table, &core, &outline, &bodies, &inferred, &user_libraries,
+        &program,
+        &interner,
+        &mut table,
+        &core,
+        &outline,
+        &bodies,
+        &inferred,
+        &user_libraries,
     );
     let contract_report = contracts::inspect(&normalized_annotations, &program, options.contracts)?;
 
@@ -512,7 +626,10 @@ fn emit_ir_internal(
     let t_world = Instant::now();
     ctx.world = native_world::compute(&program, &interner, &table, &outline, &bodies);
     let world_duration = t_world.elapsed();
-    let world_stat = ctx.world.as_ref().map_or((0, 0), |m| (m.stats.live_functions, m.stats.user_functions));
+    let world_stat = ctx
+        .world
+        .as_ref()
+        .map_or((0, 0), |m| (m.stats.live_functions, m.stats.user_functions));
     // A program without `main` in the entry library does not run: the VM
     // rejects it ("Invoked Dart programs must have a 'main' function defined").
     // On reload, it is the file read in the middle of a write (empty), which cannot
@@ -525,9 +642,11 @@ fn emit_ir_internal(
             && interner.resolve(f.name) == "main"
     });
     if !has_main {
-        return Err("compile error: the program does not define a `main` function \
+        return Err(
+            "compile error: the program does not define a `main` function \
                     (Invoked Dart programs must have a 'main' function defined)"
-            .to_string());
+                .to_string(),
+        );
     }
     // The ids of the SDK classes are those of the compiled SDK, not those of what this
     // program loaded (`context::IdTable`).
@@ -559,8 +678,13 @@ fn emit_ir_internal(
     if prune && !std::env::var("DARTFORGE_NO_HIR_PRUNING").is_ok_and(|v| v == "1") {
         let t_prune = Instant::now();
         optimize::prepare_for_pruning(&mut hir_module);
-        if let Some(e) = prune_program_hir(&mut hir_module, options.optimize, &sdk_dir, flags, options.timings)?
-            && options.timings
+        if let Some(e) = prune_program_hir(
+            &mut hir_module,
+            options.optimize,
+            &sdk_dir,
+            flags,
+            options.timings,
+        )? && options.timings
         {
             eprintln!(
                 "  HIR pruning: {} of {} functions, {} of {} pairs, {} FFI signatures, {} reachability rounds ({:?})",
@@ -568,7 +692,11 @@ fn emit_ir_internal(
                 e.functions,
                 e.live_pairs,
                 e.pairs,
-                if e.ffi.1 { e.ffi.0.to_string() } else { "all".to_string() },
+                if e.ffi.1 {
+                    e.ffi.0.to_string()
+                } else {
+                    "all".to_string()
+                },
                 e.reachability_rounds,
                 t_prune.elapsed()
             );
@@ -576,7 +704,13 @@ fn emit_ir_internal(
         if optimize::specialize_constants(&mut hir_module, table_exceptions) > 0 {
             // New bodies and folded branches change reachability. Reuse the
             // same SDK summaries before computing effect or escape facts.
-            prune_program_hir(&mut hir_module, options.optimize, &sdk_dir, flags, options.timings)?;
+            prune_program_hir(
+                &mut hir_module,
+                options.optimize,
+                &sdk_dir,
+                flags,
+                options.timings,
+            )?;
         }
     }
     // 2b. HIR optimization (inlining, scalar replacement: `optimize/`).
@@ -606,7 +740,11 @@ fn emit_ir_internal(
             .map_err(|e| format!("ARC ports of the program: {e}"))?;
     }
     if options.timings {
-        eprintln!("  HIR:       baixar {:?}, otimizar {:?}", t_optimize.duration_since(t_hir), t_optimize.elapsed());
+        eprintln!(
+            "  HIR:       baixar {:?}, otimizar {:?}",
+            t_optimize.duration_since(t_hir),
+            t_optimize.elapsed()
+        );
     }
     let hir_duration = t_hir.elapsed();
 
@@ -628,7 +766,10 @@ fn emit_ir_internal(
     let large_size = hir_module.functions.len() >= LARGE_PROGRAM_FUNCTIONS;
     let large = options.optimize && large_size;
     if large && options.timings {
-        eprintln!("  Large program: {} HIR functions (fields and helpers by call)", hir_module.functions.len());
+        eprintln!(
+            "  Large program: {} HIR functions (fields and helpers by call)",
+            hir_module.functions.len()
+        );
     }
     let fields_per_call = match std::env::var("DARTFORGE_FIELDS_BY_CALL") {
         Ok(v) => v == "1",
@@ -642,11 +783,16 @@ fn emit_ir_internal(
         .with_body_without_outside(prune)
         // Development (`-O0`): the address of the fields by call (C9).
         .with_fields_per_call(!options.optimize || fields_per_call)
-        .with_outlined_helpers(llvm::out_of_line_helpers(!options.optimize && large_size, large))
+        .with_outlined_helpers(llvm::out_of_line_helpers(
+            !options.optimize && large_size,
+            large,
+        ))
         // `optsize` on the functions of the large program: −8.7% in the executable of the
         // backend, without changing the time (docs/NATIVO-PRODUCAO-GRANDE.md §5);
         // `DARTFORGE_OPTSIZE_PROGRAM=0` turns it off.
-        .with_optimize_size(large && !std::env::var("DARTFORGE_OPTSIZE_PROGRAM").is_ok_and(|v| v == "0"))
+        .with_optimize_size(
+            large && !std::env::var("DARTFORGE_OPTSIZE_PROGRAM").is_ok_and(|v| v == "0"),
+        )
         .with_production(options.optimize)
         // Production: the SDK tables assembled at link time are registered when
         // the isolate is prepared; the inline allocation has no registration test.
@@ -672,12 +818,20 @@ fn emit_ir_internal(
     // collector's walk through `_Unwind_Backtrace`, which stops at a frame without a
     // table — macOS libunwind ends it there, and the roots of the outer frames
     // went unvisited).
-    let llvm_ir = if (table_exceptions || roots_by_maps) && crate::target::is_unix() { sdk_module::with_uwtable(&llvm_ir) } else { llvm_ir };
+    let llvm_ir = if (table_exceptions || roots_by_maps) && crate::target::is_unix() {
+        sdk_module::with_uwtable(&llvm_ir)
+    } else {
+        llvm_ir
+    };
     // With exceptions by check and the shadow stack nothing unwinds Dart
     // code: without the CFI of each function (`sdk_module::with_nounwind`).
     // Only on Itanium targets: on x64 COFF every function has an unwind
     // table anyway, and Windows was not measured.
-    let llvm_ir = if crate::target::is_unix() && !table_exceptions && !roots_by_maps { sdk_module::with_nounwind(&llvm_ir) } else { llvm_ir };
+    let llvm_ir = if crate::target::is_unix() && !table_exceptions && !roots_by_maps {
+        sdk_module::with_nounwind(&llvm_ir)
+    } else {
+        llvm_ir
+    };
     // The thread context read inline (`sdk_module::with_context_in_tls`) in
     // every Unix AOT profile — exceptions by check or by tables, tracing or ARC
     // memory —: inline in a small program, a call in a large one. Only roots by
@@ -687,7 +841,11 @@ fn emit_ir_internal(
     // on this host. `options.optimize` links the runtime statically (a single
     // image): the slot of the context is then `dso_local`.
     let llvm_ir = if crate::target::is_unix() && prune && !roots_by_maps {
-        let mode = if large { sdk_module::ContextInTls::PerCall } else { sdk_module::ContextInTls::Inline };
+        let mode = if large {
+            sdk_module::ContextInTls::PerCall
+        } else {
+            sdk_module::ContextInTls::Inline
+        };
         sdk_module::with_context_in_tls(&llvm_ir, mode, "df.ctx.tls.program", options.optimize)
     } else {
         llvm_ir
@@ -696,7 +854,10 @@ fn emit_ir_internal(
 
     let sdk_byte_count = sdk_bytes(&llvm_ir, &program);
     Ok(EmittedIr {
-        text: format!("; DartForge contract provenance {}\n{llvm_ir}", contract_report.cache_tag()),
+        text: format!(
+            "; DartForge contract provenance {}\n{llvm_ir}",
+            contract_report.cache_tag()
+        ),
         contracts: contract_report,
         sdk_lib: sdk_dir,
         times: EmissionTimes {
@@ -738,11 +899,7 @@ fn sdk_bytes(text: &str, program: &Program) -> usize {
 }
 
 /// Compiles a Dart program into a native executable.
-pub fn compile(
-    entry: &Path,
-    exit: &Path,
-    options: &CompileOptions,
-) -> Result<PathBuf, String> {
+pub fn compile(entry: &Path, exit: &Path, options: &CompileOptions) -> Result<PathBuf, String> {
     compile_with(entry, exit, options)
 }
 
@@ -784,8 +941,12 @@ pub fn compile_with_flags(
     // this report never certifies a request merely because code was emitted.
     let report_path = contracts::manifest_path(exit);
     let mut manifest = ir.contracts.json().clone();
-    let image = std::fs::read(exit)
-        .map_err(|e| format!("could not bind contract provenance to {}: {e}", exit.display()))?;
+    let image = std::fs::read(exit).map_err(|e| {
+        format!(
+            "could not bind contract provenance to {}: {e}",
+            exit.display()
+        )
+    })?;
     manifest["artifact"] = serde_json::json!({
         "path": exit.display().to_string(),
         "blake3": blake3::hash(&image).to_hex().to_string(),
@@ -795,8 +956,12 @@ pub fn compile_with_flags(
     });
     let report = serde_json::to_vec_pretty(&manifest)
         .map_err(|e| format!("could not serialize contract provenance: {e}"))?;
-    std::fs::write(&report_path, report)
-        .map_err(|e| format!("could not write contract provenance {}: {e}", report_path.display()))?;
+    std::fs::write(&report_path, report).map_err(|e| {
+        format!(
+            "could not write contract provenance {}: {e}",
+            report_path.display()
+        )
+    })?;
 
     let total_duration = t_total.elapsed();
     let peak_memory = dartforge_instrument::peak_bytes();
@@ -828,7 +993,8 @@ pub(crate) fn sdk_tests() -> &'static Path {
             sdk.display()
         );
         sdk
-    }).as_path()
+    })
+    .as_path()
 }
 
 #[cfg(test)]
@@ -836,7 +1002,18 @@ mod tests {
     use super::*;
 
     fn emit(entry: &Path) -> EmittedIr {
-        let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+        let options = CompileOptions {
+            contracts: crate::contracts::ContractMode::Verify,
+            sdk: Some(sdk_tests()),
+            packages: None,
+            timings: false,
+            optimize: false,
+            language_version: None,
+            experiments: Vec::new(),
+            debug: false,
+            generator: None,
+            cpu: None,
+        };
         emit_ir(entry, &options).expect("emitir IR")
     }
 
@@ -938,14 +1115,23 @@ void main() {
 
     #[test]
     fn constant_validation_preserves_local_bindings_and_sdk_public_const_factories() {
-        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
-            let dir = tempfile::tempdir().unwrap();
-            let entry = dir.path().join("main.dart");
-            std::fs::write(&entry, "class C { final int n; const C(this.n); }\n\
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                let dir = tempfile::tempdir().unwrap();
+                let entry = dir.path().join("main.dart");
+                std::fs::write(
+                    &entry,
+                    "class C { final int n; const C(this.n); }\n\
                 void main() { const n = 4; const first = C(n); const values = [first, C(n)]; \
-                const flag = bool.fromEnvironment('flag'); print(values.length); print(flag); }\n").unwrap();
-            assert!(emit(&entry).text.contains("@dart_main"));
-        }).unwrap().join().unwrap();
+                const flag = bool.fromEnvironment('flag'); print(values.length); print(flag); }\n",
+                )
+                .unwrap();
+                assert!(emit(&entry).text.contains("@dart_main"));
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 
     #[test]
@@ -1007,7 +1193,18 @@ void main() {
         let dir = tempfile::tempdir().unwrap();
         let entry = dir.path().join("main.dart");
         std::fs::write(&entry, "void main() {\n  int? k = 1;\n  var a = {?k: 1};\n  var b = {?k: 2};\n  print(a.length + b.length);\n}\n").unwrap();
-        let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+        let options = CompileOptions {
+            contracts: crate::contracts::ContractMode::Verify,
+            sdk: Some(sdk_tests()),
+            packages: None,
+            timings: false,
+            optimize: false,
+            language_version: None,
+            experiments: Vec::new(),
+            debug: false,
+            generator: None,
+            cpu: None,
+        };
         let error = std::thread::Builder::new()
             .stack_size(64 << 20)
             .spawn(move || emit_ir(&entry, &options).map(|ir| ir.text))
@@ -1016,10 +1213,24 @@ void main() {
             .unwrap()
             .expect_err("null-aware map entry is rejected in native");
         let lines: Vec<&str> = error.lines().collect();
-        assert_eq!(lines[0], "compile error: not supported by the native backend: null-aware map entry", "{error}");
-        assert_eq!(lines[1], "  not supported by the native backend: null-aware map entry (main.dart:3:11)", "{error}");
-        assert_eq!(lines[2], "  not supported by the native backend: null-aware map entry (main.dart:4:11)", "{error}");
-        assert_eq!(error_constructs(&error), ["null-aware map entry", "null-aware map entry"]);
+        assert_eq!(
+            lines[0], "compile error: not supported by the native backend: null-aware map entry",
+            "{error}"
+        );
+        assert_eq!(
+            lines[1],
+            "  not supported by the native backend: null-aware map entry (main.dart:3:11)",
+            "{error}"
+        );
+        assert_eq!(
+            lines[2],
+            "  not supported by the native backend: null-aware map entry (main.dart:4:11)",
+            "{error}"
+        );
+        assert_eq!(
+            error_constructs(&error),
+            ["null-aware map entry", "null-aware map entry"]
+        );
     }
 
     /// The defined symbols (`define … @<symbol>(`) of an IR.
@@ -1058,10 +1269,21 @@ void main() {
         };
         let (ia, ib, ia2) = (emit_into(a), emit_into(b), emit_into(a));
         let (sa, sb) = (symbols(&ia), symbols(&ib));
-        for s in ["df.main$2edart..a", "df.main$2edart.C.m", "df.main$2edart.C.s", "df.main$2edart.C.new", "df.main$2edart..g", "dart_main"] {
+        for s in [
+            "df.main$2edart..a",
+            "df.main$2edart.C.m",
+            "df.main$2edart.C.s",
+            "df.main$2edart.C.new",
+            "df.main$2edart..g",
+            "dart_main",
+        ] {
             assert!(sa.contains(s), "{s} in {sa:?}");
         }
-        assert!(sa.is_subset(&sb), "symbols of A that disappeared in B: {:?}", sa.difference(&sb).collect::<Vec<_>>());
+        assert!(
+            sa.is_subset(&sb),
+            "symbols of A that disappeared in B: {:?}",
+            sa.difference(&sb).collect::<Vec<_>>()
+        );
         // The same program in another directory gives the same IR, except for the
         // data constants (`@df.arr.*`): the RTI table carries the `file:` URI
         // of the library of each class (`dart:mirrors`), which depends
@@ -1074,10 +1296,13 @@ void main() {
         // for definitions actually emitted in this IR; declaration/function
         // identities and instructions remain subject to the exact comparison.
         let normalize_vectors = |ir: &str| {
-            let definitions: Vec<_> = ir.lines().filter_map(|line| {
-                let name = line.strip_prefix('@')?.split_once(" = ")?.0;
-                name.starts_with("df.const.i64.").then_some(name)
-            }).collect();
+            let definitions: Vec<_> = ir
+                .lines()
+                .filter_map(|line| {
+                    let name = line.strip_prefix('@')?.split_once(" = ")?.0;
+                    name.starts_with("df.const.i64.").then_some(name)
+                })
+                .collect();
             let mut normalized = ir.to_string();
             for (ordinal, name) in definitions.into_iter().enumerate() {
                 let old = format!("@{name}");
@@ -1088,8 +1313,9 @@ void main() {
                     let end = offset + old.len();
                     // Do not rewrite a longer declaration/function identifier
                     // merely because it begins with a pooled data symbol.
-                    if normalized.as_bytes().get(end).is_some_and(|byte|
-                        byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'$' | b'-')) {
+                    if normalized.as_bytes().get(end).is_some_and(|byte| {
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'$' | b'-')
+                    }) {
                         continue;
                     }
                     text.push_str(&normalized[start..offset]);
@@ -1097,18 +1323,27 @@ void main() {
                     start = end;
                 }
                 text.push_str(&normalized[start..]);
-                normalized = text.replace(&format!("$\"{name}\""), &format!("$\"df.arr.{ordinal}\""));
+                normalized =
+                    text.replace(&format!("$\"{name}\""), &format!("$\"df.arr.{ordinal}\""));
             }
             normalized
         };
         let (normalized_a, normalized_a2) = (normalize_vectors(&ia), normalize_vectors(&ia2));
-        let (la, la2): (Vec<_>, Vec<_>) = (normalized_a.lines().collect(), normalized_a2.lines().collect());
-        assert_eq!(la.len(), la2.len(), "the same program in another directory gives the same IR");
+        let (la, la2): (Vec<_>, Vec<_>) = (
+            normalized_a.lines().collect(),
+            normalized_a2.lines().collect(),
+        );
+        assert_eq!(
+            la.len(),
+            la2.len(),
+            "the same program in another directory gives the same IR"
+        );
         let rti_table = |l: &str| l.contains("@dartforge_rti_init_table(");
         for (x, y) in la.iter().zip(&la2) {
             if x != y {
                 assert!(
-                    (x.starts_with("@df.arr.") && y.starts_with("@df.arr.")) || (rti_table(x) && rti_table(y)),
+                    (x.starts_with("@df.arr.") && y.starts_with("@df.arr."))
+                        || (rti_table(x) && rti_table(y)),
                     "the same program in another directory gives the same IR:\n{x}\n{y}"
                 );
             }
@@ -1139,9 +1374,20 @@ void main() {
         assert!(!synchronous.text.contains("@df.dart$3aasync"));
         assert_eq!(synchronous.sdk_byte_count, 0);
 
-        let asynchronous = emit_source("Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n");
-        assert!(asynchronous.text.contains("call void @dartforge_event_loop(ptr @df.call_dart0)"));
-        assert!(asynchronous.text.contains("define i64 @df.main$2edart..f$async$q"), "the body of the state machine");
+        let asynchronous = emit_source(
+            "Future<int> f() async { await null; return 2; }\nFuture<void> main() async { print(await f()); }\n",
+        );
+        assert!(
+            asynchronous
+                .text
+                .contains("call void @dartforge_event_loop(ptr @df.call_dart0)")
+        );
+        assert!(
+            asynchronous
+                .text
+                .contains("define i64 @df.main$2edart..f$async$q"),
+            "the body of the state machine"
+        );
         // `dart:async` comes from the cached SDK module (`sdk_module.rs`): the IR
         // of the program only calls it, it does not define its functions (`sdk_byte_count`
         // may be 0).
@@ -1166,10 +1412,14 @@ mod inline_pragma_tests {
 
     #[test]
     fn source_inline_requests_reach_native_bodies_and_async_state_machines() {
-        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
-            let dir = tempfile::tempdir().unwrap();
-            let entry = dir.path().join("inline.dart");
-            std::fs::write(&entry, r#"
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                let dir = tempfile::tempdir().unwrap();
+                let entry = dir.path().join("inline.dart");
+                std::fs::write(
+                    &entry,
+                    r#"
 @pragma('vm:prefer-inline') int preferred(int x) => x + 1;
 @pragma('vm:prefer-inline') @pragma('vm:never-inline') int forbidden(int x) => x + 2;
 class C {
@@ -1189,34 +1439,65 @@ Future<void> main() async {
   print(preferred(1)); print(forbidden(1)); print(c.method(1)); print(c.value);
   print(await asyncValue());
 }
-"#).unwrap();
-            for optimize in [false, true] {
-                let options = CompileOptions { contracts: crate::contracts::ContractMode::Verify, sdk: Some(sdk_tests()), packages: None, timings: false,
-                    optimize, language_version: None, experiments: Vec::new(), debug: false,
-                    generator: None, cpu: None };
-                let ir = emit_ir(&entry, &options).unwrap().text;
-                let headers: Vec<_> = ir.lines().filter(|l| l.starts_with("define ")).collect();
-                let check = |symbol: &str, attribute: &str| {
-                    let header = headers.iter().find(|l| l.contains(&format!("@{symbol}("))).unwrap();
-                    assert!(header.contains(attribute), "{header}");
-                };
-                check("df.inline$2edart..forbidden", " noinline");
-                assert!(ir.contains("call i64 @df.inline$2edart..forbidden("), "never-inline must retain the call boundary");
-                check("df.inline$2edart.C.new", " noinline");
-                check("df.inline$2edart.C.value", " noinline");
-                check("df.inline$2edart..asyncValue", " noinline");
-                let body = headers.iter().find(|l| l.contains("@df.inline$2edart..asyncValue$async$q") && !l.contains("$ent(")).unwrap();
-                assert!(body.contains(" noinline"), "{body}");
-                for local in ["$localDirect", "$localClosure", "$localAsync"] {
-                    let body = headers.iter().find(|l| l.contains(local) && !l.contains("$ent(") && !l.contains("$async$q")).unwrap();
+"#,
+                )
+                .unwrap();
+                for optimize in [false, true] {
+                    let options = CompileOptions {
+                        contracts: crate::contracts::ContractMode::Verify,
+                        sdk: Some(sdk_tests()),
+                        packages: None,
+                        timings: false,
+                        optimize,
+                        language_version: None,
+                        experiments: Vec::new(),
+                        debug: false,
+                        generator: None,
+                        cpu: None,
+                    };
+                    let ir = emit_ir(&entry, &options).unwrap().text;
+                    let headers: Vec<_> = ir.lines().filter(|l| l.starts_with("define ")).collect();
+                    let check = |symbol: &str, attribute: &str| {
+                        let header = headers
+                            .iter()
+                            .find(|l| l.contains(&format!("@{symbol}(")))
+                            .unwrap();
+                        assert!(header.contains(attribute), "{header}");
+                    };
+                    check("df.inline$2edart..forbidden", " noinline");
+                    assert!(
+                        ir.contains("call i64 @df.inline$2edart..forbidden("),
+                        "never-inline must retain the call boundary"
+                    );
+                    check("df.inline$2edart.C.new", " noinline");
+                    check("df.inline$2edart.C.value", " noinline");
+                    check("df.inline$2edart..asyncValue", " noinline");
+                    let body = headers
+                        .iter()
+                        .find(|l| {
+                            l.contains("@df.inline$2edart..asyncValue$async$q")
+                                && !l.contains("$ent(")
+                        })
+                        .unwrap();
                     assert!(body.contains(" noinline"), "{body}");
+                    for local in ["$localDirect", "$localClosure", "$localAsync"] {
+                        let body = headers
+                            .iter()
+                            .find(|l| {
+                                l.contains(local) && !l.contains("$ent(") && !l.contains("$async$q")
+                            })
+                            .unwrap();
+                        assert!(body.contains(" noinline"), "{body}");
+                    }
+                    if !optimize {
+                        check("df.inline$2edart..preferred", " inlinehint");
+                        check("df.inline$2edart.C.method", " inlinehint");
+                    }
                 }
-                if !optimize {
-                    check("df.inline$2edart..preferred", " inlinehint");
-                    check("df.inline$2edart.C.method", " inlinehint");
-                }
-            }
-        }).unwrap().join().unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }
 

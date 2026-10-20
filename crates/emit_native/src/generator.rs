@@ -51,8 +51,18 @@ impl Generation {
     /// The program object in the requested profile: `-O0` in development;
     /// in production with the source SDK, bitcode (`lto`).
     pub fn of_program(optimize: bool, lto: bool) -> Self {
-        let prelink = std::env::var("DARTFORGE_PRELINK_O").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 2).unwrap_or(2);
-        Generation { optimize, format: if lto { Format::Bitcode } else { Format::Object }, shared: false, cpu: None, prelink }
+        let prelink = std::env::var("DARTFORGE_PRELINK_O")
+            .ok()
+            .and_then(|v| v.trim().parse::<u8>().ok())
+            .filter(|n| *n <= 2)
+            .unwrap_or(2);
+        Generation {
+            optimize,
+            format: if lto { Format::Bitcode } else { Format::Object },
+            shared: false,
+            cpu: None,
+            prelink,
+        }
     }
 
     /// The description that goes into the cache keys.
@@ -60,7 +70,9 @@ impl Generation {
         // The pipeline swapped for measurement (`dartforge_llvm::generate`) changes the
         // object: it goes into the key.
         let pipeline = match std::env::var("DARTFORGE_OBJECT_PIPELINE") {
-            Ok(p) if self.optimize && self.format == Format::Object && !p.is_empty() => format!(" {p}"),
+            Ok(p) if self.optimize && self.format == Format::Object && !p.is_empty() => {
+                format!(" {p}")
+            }
             _ => String::new(),
         };
         format!(
@@ -71,7 +83,8 @@ impl Generation {
                 Format::Bitcode => "bitcode-lto",
             },
             if self.shared { " compartilhado" } else { "" },
-            self.cpu.map_or(String::new(), |c| format!(" {}", c.description()))
+            self.cpu
+                .map_or(String::new(), |c| format!(" {}", c.description()))
         )
     }
 
@@ -136,12 +149,16 @@ impl Cpu {
         let x86 = !crate::target::is_aarch64();
         match name {
             "native" if !crate::target::is_cross() => Ok(Cpu::Native),
-            "native" => Err("--cpu native cannot be used for a foreign target; select its baseline CPU".into()),
+            "native" => Err(
+                "--cpu native cannot be used for a foreign target; select its baseline CPU".into(),
+            ),
             "x86-64" if x86 => Ok(Cpu::X86_64),
             "x86-64-v2" if x86 => Ok(Cpu::X86_64V2),
             "x86-64-v3" if x86 => Ok(Cpu::X86_64V3),
             "x86-64-v4" if x86 => Ok(Cpu::X86_64V4),
-            _ if x86 => Err(format!("--cpu {name}: use x86-64, x86-64-v2, x86-64-v3, x86-64-v4 or native")),
+            _ if x86 => Err(format!(
+                "--cpu {name}: use x86-64, x86-64-v2, x86-64-v3, x86-64-v4 or native"
+            )),
             _ => Err(format!("--cpu {name}: on this target, only `native`")),
         }
     }
@@ -187,7 +204,21 @@ fn machine_resources() -> String {
         macro_rules! resources {
             ($($f:tt),*) => { $( if std::arch::is_x86_feature_detected!($f) { r.push($f); } )* };
         }
-        resources!("sse4.2", "popcnt", "avx", "avx2", "bmi2", "fma", "f16c", "avx512f", "avx512bw", "avx512vl", "avx512dq", "gfni", "vpclmulqdq");
+        resources!(
+            "sse4.2",
+            "popcnt",
+            "avx",
+            "avx2",
+            "bmi2",
+            "fma",
+            "f16c",
+            "avx512f",
+            "avx512bw",
+            "avx512vl",
+            "avx512dq",
+            "gfni",
+            "vpclmulqdq"
+        );
         r.join(",")
     }
     #[cfg(not(target_arch = "x86_64"))]
@@ -246,8 +277,10 @@ impl Generator {
     pub fn identity(&self) -> Result<String, String> {
         match self {
             #[cfg(feature = "embedded-llvm")]
-            Generator::Builtin => dartforge_llvm::identity().map(|id| format!("{id} target={}", crate::target::current().triple())),
-            Generator::Clang(clang) => crate::object_cache::clang_identity(clang).map(|id| format!("{id} target={}", crate::target::current().triple())),
+            Generator::Builtin => dartforge_llvm::identity()
+                .map(|id| format!("{id} target={}", crate::target::current().triple())),
+            Generator::Clang(clang) => crate::object_cache::clang_identity(clang)
+                .map(|id| format!("{id} target={}", crate::target::current().triple())),
         }
     }
 
@@ -276,15 +309,22 @@ impl Generator {
                 // `DARTFORGE_NO_COMPACT_MAP=1` leaves the LLVM one in COFF
                 // (measurement); in ELF the conversion is mandatory, and Mach-O stays
                 // in the LLVM format.
-                if generation.format == Format::Object && ir.contains(dartforge_llvm::GC_MARK) && crate::gcmap::convert_here() {
+                if generation.format == Format::Object
+                    && ir.contains(dartforge_llvm::GC_MARK)
+                    && crate::gcmap::convert_here()
+                {
                     crate::gcmap::convert(&mut bytes)?;
                 }
                 // The symbolic stack trace: the 12-byte-per-entry table becomes
                 // DFPC (`compact_stack_trace.rs`); `DARTFORGE_STACK_TRACE_RAW=1` leaves it.
-                if generation.format == Format::Object && ir.contains("@df.pcf.") && crate::compact_stack_trace::convert_here() {
+                if generation.format == Format::Object
+                    && ir.contains("@df.pcf.")
+                    && crate::compact_stack_trace::convert_here()
+                {
                     crate::compact_stack_trace::convert(&mut bytes)?;
                 }
-                std::fs::write(exit, bytes).map_err(|e| format!("failed to write {}: {e}", exit.display()))
+                std::fs::write(exit, bytes)
+                    .map_err(|e| format!("failed to write {}: {e}", exit.display()))
             }
             Generator::Clang(clang) => {
                 // Roots by maps: `clang -x ir` does not run
@@ -294,16 +334,21 @@ impl Generator {
                 // production, and the pass runs at the closing of the distributed ThinLTO
                 // (`distributed_lto.rs`), which is the only path that takes
                 // that bitcode to the linker.
-                if ir.contains("gc \"statepoint-example\"") && generation.format != Format::Bitcode {
+                if ir.contains("gc \"statepoint-example\"") && generation.format != Format::Bitcode
+                {
                     return Err("roots by maps (--roots=maps) require dartforge's embedded generator, not Clang".to_string());
                 }
                 let ll = exit.with_extension("ll");
-                std::fs::write(&ll, ir).map_err(|e| format!("failed to write LLVM IR to {}: {e}", ll.display()))?;
+                std::fs::write(&ll, ir)
+                    .map_err(|e| format!("failed to write LLVM IR to {}: {e}", ll.display()))?;
                 let dir = exit.parent().unwrap_or(Path::new("."));
                 let result = Command::new(clang)
                     .current_dir(dir)
                     .args(generation.args_clang())
-                    .args(crate::target::is_cross().then(|| format!("--target={}", crate::target::current().triple())))
+                    .args(
+                        crate::target::is_cross()
+                            .then(|| format!("--target={}", crate::target::current().triple())),
+                    )
                     .arg(ll.file_name().unwrap_or_default())
                     .arg("-o")
                     .arg(exit.file_name().unwrap_or_default())
@@ -316,7 +361,11 @@ impl Generator {
                 let result = result?;
                 if !result.status.success() {
                     let text = String::from_utf8_lossy(&result.stderr);
-                    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(20).collect();
+                    let lines: Vec<&str> = text
+                        .lines()
+                        .filter(|l| !l.trim().is_empty())
+                        .take(20)
+                        .collect();
                     return Err(format!(
                         "Clang failed to compile the IR ({}):\n{}",
                         result.status,
@@ -343,18 +392,35 @@ mod tests {
 
     #[test]
     fn clang_flags() {
-        let g = Generation { optimize: true, format: Format::Bitcode, shared: false, cpu: None, prelink: 2 };
+        let g = Generation {
+            optimize: true,
+            format: Format::Bitcode,
+            shared: false,
+            cpu: None,
+            prelink: 2,
+        };
         assert!(g.args_clang().contains(&"-flto=thin"));
-        assert!(Generation::of_program(false, false).args_clang().contains(&"-O0"));
+        assert!(
+            Generation::of_program(false, false)
+                .args_clang()
+                .contains(&"-O0")
+        );
     }
 
     #[cfg(feature = "embedded-llvm")]
     #[test]
     fn embedded_generates_object() {
         let dir = tempfile::tempdir().unwrap();
-        let obj = dir.path().join(format!("x.{}", crate::target::ext_object()));
-        let ir = format!("{}define i64 @f() {{\n  ret i64 7\n}}\n", crate::target::ir_header());
-        Generator::Builtin.generate(&ir, Generation::of_program(true, false), &obj).unwrap();
+        let obj = dir
+            .path()
+            .join(format!("x.{}", crate::target::ext_object()));
+        let ir = format!(
+            "{}define i64 @f() {{\n  ret i64 7\n}}\n",
+            crate::target::ir_header()
+        );
+        Generator::Builtin
+            .generate(&ir, Generation::of_program(true, false), &obj)
+            .unwrap();
         assert!(std::fs::metadata(&obj).unwrap().len() > 0);
     }
 }

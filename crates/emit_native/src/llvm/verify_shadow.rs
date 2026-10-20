@@ -49,7 +49,9 @@ fn names(line: &str) -> Vec<&str> {
         if b[i] == b'%' {
             let ini = i + 1;
             let mut end = ini;
-            while end < b.len() && (b[end].is_ascii_alphanumeric() || matches!(b[end], b'.' | b'_' | b'$' | b'-')) {
+            while end < b.len()
+                && (b[end].is_ascii_alphanumeric() || matches!(b[end], b'.' | b'_' | b'$' | b'-'))
+            {
                 end += 1;
             }
             if end > ini {
@@ -113,7 +115,15 @@ fn collection(line: &str, helpers: &HashMap<&str, bool>) -> bool {
             if let Some(&c) = helpers.get(name) {
                 return c;
             }
-            if matches!(name, "df.body" | "df.barrier" | "df.element_barrier" | "df.is_object" | "df.young_child" | "df.throw") {
+            if matches!(
+                name,
+                "df.body"
+                    | "df.barrier"
+                    | "df.element_barrier"
+                    | "df.is_object"
+                    | "df.young_child"
+                    | "df.throw"
+            ) {
                 return false;
             }
             if name.starts_with("df.") || name.starts_with("df_") || name == "dart_main" {
@@ -183,7 +193,11 @@ fn blocks<'a>(body: &[&'a str], helpers: &HashMap<&str, bool>) -> Vec<Block<'a>>
     let mut in_switch = false;
     for &l in body {
         if let Some(r) = label(l) {
-            v.push(Block { name: r, lines: Vec::new(), successors: Vec::new() });
+            v.push(Block {
+                name: r,
+                lines: Vec::new(),
+                successors: Vec::new(),
+            });
             continue;
         }
         let t = l.trim();
@@ -191,7 +205,11 @@ fn blocks<'a>(body: &[&'a str], helpers: &HashMap<&str, bool>) -> Vec<Block<'a>>
             continue;
         }
         if v.is_empty() {
-            v.push(Block { name: "", lines: Vec::new(), successors: Vec::new() });
+            v.push(Block {
+                name: "",
+                lines: Vec::new(),
+                successors: Vec::new(),
+            });
         }
         let b = v.last_mut().expect("block");
         // Successors: `label %x` in terminators (the `switch` over several lines).
@@ -218,7 +236,10 @@ fn blocks<'a>(body: &[&'a str], helpers: &HashMap<&str, bool>) -> Vec<Block<'a>>
                 k += 1;
             }
         }
-        let mut line = Line { text: t, ..Default::default() };
+        let mut line = Line {
+            text: t,
+            ..Default::default()
+        };
         let (def, rest) = match t.split_once(" = ") {
             Some((d, r)) if d.starts_with('%') => (v_number(&d[1..]), r),
             _ => (None, t),
@@ -230,7 +251,12 @@ fn blocks<'a>(body: &[&'a str], helpers: &HashMap<&str, bool>) -> Vec<Block<'a>>
                 let inside = par.split(']').next().unwrap_or_default();
                 let mut parts = inside.split(',');
                 let value = parts.next().unwrap_or_default().trim();
-                let origin = parts.next().unwrap_or_default().trim().trim_start_matches('%').trim_matches('"');
+                let origin = parts
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .trim_start_matches('%')
+                    .trim_matches('"');
                 if let Some(n) = value.strip_prefix('%').and_then(v_number) {
                     line.phi.push((n, origin));
                 }
@@ -256,7 +282,11 @@ pub fn verify(ir: &str) -> Result<(), String> {
     while i < lines.len() {
         let l = lines[i];
         if let Some(rest) = l.strip_prefix(REFS_MARK) {
-            refs = Some(rest.split_whitespace().filter_map(|x| x.strip_prefix('v')?.parse().ok()).collect());
+            refs = Some(
+                rest.split_whitespace()
+                    .filter_map(|x| x.strip_prefix('v')?.parse().ok())
+                    .collect(),
+            );
             i += 1;
             continue;
         }
@@ -264,7 +294,12 @@ pub fn verify(ir: &str) -> Result<(), String> {
             i += 1;
             continue;
         }
-        let name = l.split('@').nth(1).and_then(|x| x.split('(').next()).unwrap_or_default().to_string();
+        let name = l
+            .split('@')
+            .nth(1)
+            .and_then(|x| x.split('(').next())
+            .unwrap_or_default()
+            .to_string();
         let ini = i + 1;
         let mut end = ini;
         while end < lines.len() && lines[end] != "}" {
@@ -276,7 +311,8 @@ pub fn verify(ir: &str) -> Result<(), String> {
             for n in names(params).into_iter().filter_map(v_number) {
                 r.remove(&n);
             }
-            check_function(&lines[ini..end], &r, &helpers).map_err(|e| format!("shadow mode checker, `{name}`: {e}\n  {l}"))?;
+            check_function(&lines[ini..end], &r, &helpers)
+                .map_err(|e| format!("shadow mode checker, `{name}`: {e}\n  {l}"))?;
         }
         i = end + 1;
     }
@@ -284,7 +320,11 @@ pub fn verify(ir: &str) -> Result<(), String> {
 }
 
 /// Checks a function: at each collection point, every live `Ref` is in a slot.
-fn check_function(body: &[&str], refs: &HashSet<u32>, helpers: &HashMap<&str, bool>) -> Result<(), String> {
+fn check_function(
+    body: &[&str],
+    refs: &HashSet<u32>,
+    helpers: &HashMap<&str, bool>,
+) -> Result<(), String> {
     let bs = blocks(body, helpers);
     if bs.is_empty() {
         return Ok(());
@@ -342,8 +382,13 @@ fn check_function(body: &[&str], refs: &HashSet<u32>, helpers: &HashMap<&str, bo
         let rest = t.strip_prefix("store ")?;
         let (value, dest) = rest.rsplit_once(", ptr ")?;
         let dest = dest.split(',').next()?.trim().strip_prefix('%')?;
-        let slot = slot_number(dest).or_else(|| v_number(dest).and_then(|a| local_in_slot.get(&a).copied()))?;
-        let v = value.split_whitespace().last().and_then(|x| x.strip_prefix('%')).and_then(v_number);
+        let slot = slot_number(dest)
+            .or_else(|| v_number(dest).and_then(|a| local_in_slot.get(&a).copied()))?;
+        let v = value
+            .split_whitespace()
+            .last()
+            .and_then(|x| x.strip_prefix('%'))
+            .and_then(v_number);
         Some((slot, v))
     };
     type Slots = HashMap<usize, u32>;
@@ -368,13 +413,19 @@ fn check_function(body: &[&str], refs: &HashSet<u32>, helpers: &HashMap<&str, bo
     while changed {
         changed = false;
         for i in 0..n {
-            let Some(entry) = at_entry[i].clone() else { continue };
+            let Some(entry) = at_entry[i].clone() else {
+                continue;
+            };
             let exit = transfer(&bs[i], entry);
             for s in &bs[i].successors {
                 let Some(&j) = index.get(s) else { continue };
                 let new = match &at_entry[j] {
                     None => exit.clone(),
-                    Some(current) => current.iter().filter(|(k, v)| exit.get(k) == Some(v)).map(|(k, v)| (*k, *v)).collect(),
+                    Some(current) => current
+                        .iter()
+                        .filter(|(k, v)| exit.get(k) == Some(v))
+                        .map(|(k, v)| (*k, *v))
+                        .collect(),
                 };
                 if at_entry[j].as_ref() != Some(&new) {
                     at_entry[j] = Some(new);
@@ -385,7 +436,9 @@ fn check_function(body: &[&str], refs: &HashSet<u32>, helpers: &HashMap<&str, bo
     }
     // --- the check at each collection point ---
     for (i, b) in bs.iter().enumerate() {
-        let Some(mut slots) = at_entry[i].clone() else { continue };
+        let Some(mut slots) = at_entry[i].clone() else {
+            continue;
+        };
         // The liveness before each line, from back to front.
         let mut live = live_at_exit(&bs, &index, &live_at_entry, i, refs);
         let mut live_before: Vec<HashSet<u32>> = vec![HashSet::new(); b.lines.len()];
@@ -401,10 +454,17 @@ fn check_function(body: &[&str], refs: &HashSet<u32>, helpers: &HashMap<&str, bo
         for (k, l) in b.lines.iter().enumerate() {
             if l.collection {
                 let saved_set: HashSet<u32> = slots.values().copied().collect();
-                let mut missing_set: Vec<u32> = live_before[k].iter().copied().filter(|v| !saved_set.contains(v)).collect();
+                let mut missing_set: Vec<u32> = live_before[k]
+                    .iter()
+                    .copied()
+                    .filter(|v| !saved_set.contains(v))
+                    .collect();
                 missing_set.sort_unstable();
                 if let Some(v) = missing_set.first() {
-                    return Err(format!("`%v{v}` live without a slot at collection point `{}` (block `{}`)", l.text, b.name));
+                    return Err(format!(
+                        "`%v{v}` live without a slot at collection point `{}` (block `{}`)",
+                        l.text, b.name
+                    ));
                 }
             }
             if let Some((s, v)) = write_op(l) {
@@ -424,12 +484,28 @@ fn check_function(body: &[&str], refs: &HashSet<u32>, helpers: &HashMap<&str, bo
 
 /// What is live at the end of block `i`: what is live at the entry of each successor
 /// (minus its `phi`s) and the operands of the `phi`s that come from this block.
-fn live_at_exit(bs: &[Block<'_>], index: &HashMap<&str, usize>, live_at_entry: &[HashSet<u32>], i: usize, refs: &HashSet<u32>) -> HashSet<u32> {
+fn live_at_exit(
+    bs: &[Block<'_>],
+    index: &HashMap<&str, usize>,
+    live_at_entry: &[HashSet<u32>],
+    i: usize,
+    refs: &HashSet<u32>,
+) -> HashSet<u32> {
     let mut live = HashSet::new();
     for s in &bs[i].successors {
         let Some(&j) = index.get(s) else { continue };
-        let phi_defs: HashSet<u32> = bs[j].lines.iter().filter(|l| !l.phi.is_empty()).filter_map(|l| l.def).collect();
-        live.extend(live_at_entry[j].iter().copied().filter(|v| !phi_defs.contains(v)));
+        let phi_defs: HashSet<u32> = bs[j]
+            .lines
+            .iter()
+            .filter(|l| !l.phi.is_empty())
+            .filter_map(|l| l.def)
+            .collect();
+        live.extend(
+            live_at_entry[j]
+                .iter()
+                .copied()
+                .filter(|v| !phi_defs.contains(v)),
+        );
         for l in &bs[j].lines {
             for (v, origin) in &l.phi {
                 if *origin == bs[i].name && refs.contains(v) {

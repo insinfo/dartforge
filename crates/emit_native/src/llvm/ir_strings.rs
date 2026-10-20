@@ -23,7 +23,7 @@
 
 use super::LlvmEmitter;
 use crate::hir::*;
-use dartforge_runtime::layout::{self, cid, offsets, state, flags};
+use dartforge_runtime::layout::{self, cid, flags, offsets, state};
 use std::fmt::Write;
 
 /// The `@df.string_*` helpers (§3.5), printed in the prelude of each module by
@@ -218,13 +218,19 @@ fn static_literal(bytes: &[u8]) -> (String, String) {
     let text = dartforge_runtime::heap::Text::from_wtf8(bytes);
     let seen = text.view();
     let two = !seen.is_one_byte();
-    let c = if two { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING };
+    let c = if two {
+        cid::TWO_BYTE_STRING
+    } else {
+        cid::ONE_BYTE_STRING
+    };
     let len = seen.len();
     let w = layout::string_words(len, two);
     // The code units in bytes (little-endian), padded with zeros up to the word.
     let mut units: Vec<u8> = match seen {
         dartforge_runtime::text::TextRef::OneByte(b) => b.to_vec(),
-        dartforge_runtime::text::TextRef::TwoByte(u) => u.iter().flat_map(|x| x.to_le_bytes()).collect(),
+        dartforge_runtime::text::TextRef::TwoByte(u) => {
+            u.iter().flat_map(|x| x.to_le_bytes()).collect()
+        }
     };
     units.resize(8 * (w - 1), 0);
     let mut h = blake3::Hasher::new();
@@ -248,7 +254,11 @@ fn static_literal(bytes: &[u8]) -> (String, String) {
         s.push('"');
         s
     };
-    let comdat = if crate::target::has_comdat() { ", comdat" } else { "" };
+    let comdat = if crate::target::has_comdat() {
+        ", comdat"
+    } else {
+        ""
+    };
     let mut def = String::new();
     if crate::target::has_comdat() {
         writeln!(def, "$\"df.s.{key}\" = comdat any").unwrap();
@@ -288,20 +298,37 @@ impl LlvmEmitter<'_> {
         writeln!(o, "  %lsp{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
         writeln!(o, "  %lsv{v} = load i64, ptr %lsp{v}, align 8").unwrap();
         writeln!(o, "  %lsz{v} = icmp eq i64 %lsv{v}, 0").unwrap();
-        writeln!(o, "  %lsx{v} = call i1 @llvm.expect.i1(i1 %lsz{v}, i1 false)").unwrap();
+        writeln!(
+            o,
+            "  %lsx{v} = call i1 @llvm.expect.i1(i1 %lsz{v}, i1 false)"
+        )
+        .unwrap();
         writeln!(o, "  br i1 %lsx{v}, label %ls{v}.nova, label %ls{v}.fim").unwrap();
         writeln!(o, "ls{v}.nova:").unwrap();
-        writeln!(o, "  %lsn{v} = call i64 @dartforge_string_new(ptr @.str.{idx}, i64 {len})").unwrap();
+        writeln!(
+            o,
+            "  %lsn{v} = call i64 @dartforge_string_new(ptr @.str.{idx}, i64 {len})"
+        )
+        .unwrap();
         writeln!(o, "  store i64 %lsn{v}, ptr %lsp{v}, align 8").unwrap();
         writeln!(o, "  br label %ls{v}.fim").unwrap();
         writeln!(o, "ls{v}.fim:").unwrap();
-        writeln!(o, "  %v{v} = phi i64 [ %lsv{v}, %{previous} ], [ %lsn{v}, %ls{v}.nova ]").unwrap();
+        writeln!(
+            o,
+            "  %v{v} = phi i64 [ %lsv{v}, %{previous} ], [ %lsn{v}, %ls{v}.nova ]"
+        )
+        .unwrap();
         self.current_label = format!("ls{v}.fim");
     }
 
     /// The `alloca` of the entry block that `ConcatStrings` uses (if it does).
     pub(super) fn concat_strings_buffer(&mut self, v: u32, parts: &[Operand]) {
-        writeln!(self.out, "  %jbuf{v} = alloca [{} x i64]", 2 * parts.len().max(1)).unwrap();
+        writeln!(
+            self.out,
+            "  %jbuf{v} = alloca [{} x i64]",
+            2 * parts.len().max(1)
+        )
+        .unwrap();
     }
 
     /// Interpolation: the parts (a `Ref` string or an unboxed `int`) into one string.
@@ -316,14 +343,34 @@ impl LlvmEmitter<'_> {
             } else {
                 (0, self.coerce(p, Type::Ref))
             };
-            writeln!(self.out, "  %jk{v}_{i} = getelementptr [{} x i64], ptr %jbuf{v}, i64 0, i64 {}", 2 * n, 2 * i).unwrap();
+            writeln!(
+                self.out,
+                "  %jk{v}_{i} = getelementptr [{} x i64], ptr %jbuf{v}, i64 0, i64 {}",
+                2 * n,
+                2 * i
+            )
+            .unwrap();
             writeln!(self.out, "  store i64 {kind}, ptr %jk{v}_{i}").unwrap();
-            writeln!(self.out, "  %jp{v}_{i} = getelementptr [{} x i64], ptr %jbuf{v}, i64 0, i64 {}", 2 * n, 2 * i + 1).unwrap();
+            writeln!(
+                self.out,
+                "  %jp{v}_{i} = getelementptr [{} x i64], ptr %jbuf{v}, i64 0, i64 {}",
+                2 * n,
+                2 * i + 1
+            )
+            .unwrap();
             writeln!(self.out, "  store i64 {s}, ptr %jp{v}_{i}").unwrap();
         }
         // Under ARC, the factory roots the parts and hands over the owner of the result.
-        let name = if self.arc_owned_factories() { "dartforge_arc_string_join_owned_v1" } else { "dartforge_string_join_typed" };
-        writeln!(self.out, "  %v{v} = call i64 @{name}(ptr %jbuf{v}, i64 {n})").unwrap();
+        let name = if self.arc_owned_factories() {
+            "dartforge_arc_string_join_owned_v1"
+        } else {
+            "dartforge_string_join_typed"
+        };
+        writeln!(
+            self.out,
+            "  %v{v} = call i64 @{name}(ptr %jbuf{v}, i64 {n})"
+        )
+        .unwrap();
     }
 
     /// The module-level globals of the strings: the static literals used
@@ -333,7 +380,8 @@ impl LlvmEmitter<'_> {
         if literals.is_empty() {
             return;
         }
-        self.out.push_str("; Static string literals (docs/NATIVO-ESPACO-UNIFICADO.md §2.11)\n");
+        self.out
+            .push_str("; Static string literals (docs/NATIVO-ESPACO-UNIFICADO.md §2.11)\n");
         for def in literals.values() {
             self.out.push_str(def);
         }
@@ -363,14 +411,24 @@ mod tests {
         // The header word built in `@df.string_allocate` is the one from `layout`.
         for (len, two) in [(0usize, false), (5, false), (9, true), (60, false)] {
             let w = layout::string_words(len, two);
-            let c = if two { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING };
+            let c = if two {
+                cid::TWO_BYTE_STRING
+            } else {
+                cid::ONE_BYTE_STRING
+            };
             let assembled = (c as u64) << 32 | (w as u64) << 16 | 513;
-            assert_eq!(assembled, layout::header_word(state::YOUNG, flags::RAW, w, c));
+            assert_eq!(
+                assembled,
+                layout::header_word(state::YOUNG, flags::RAW, w, c)
+            );
             // The helper's computation of `w`: 1 + ((len << two) + 7) >> 3.
             assert_eq!(1 + (((len << u32::from(two)) + 7) >> 3), w);
         }
         for (name, _, _) in HELPER_EFFECTS {
-            assert!(HELPERS.contains(&format!("@{name}(")), "{name} without a definition");
+            assert!(
+                HELPERS.contains(&format!("@{name}(")),
+                "{name} without a definition"
+            );
         }
     }
 
@@ -380,7 +438,12 @@ mod tests {
         assert_eq!(key.len(), 32);
         let w0 = layout::header_word(state::PERMANENT, flags::RAW, 2, cid::ONE_BYTE_STRING) as i64;
         let hash = layout::string_hash("ab".encode_utf16());
-        assert!(def.contains(&format!("{{ i64 {w0}, i64 {hash}, i64 2, [8 x i8] c\"ab\\00\\00\\00\\00\\00\\00\" }}")), "{def}");
+        assert!(
+            def.contains(&format!(
+                "{{ i64 {w0}, i64 {hash}, i64 2, [8 x i8] c\"ab\\00\\00\\00\\00\\00\\00\" }}"
+            )),
+            "{def}"
+        );
         assert!(def.contains("linkonce_odr constant"));
         // The same string gives the same key; the shape goes into the key.
         assert_eq!(static_literal(b"ab").0, key);

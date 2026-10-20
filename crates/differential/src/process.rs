@@ -16,12 +16,20 @@ pub struct Output {
 impl Output {
     /// Synthetic output for a failure of the harness itself (missing tool, timeout…).
     pub fn error(message: impl Into<String>) -> Output {
-        Output { stdout: String::new(), stderr: message.into(), code: -1 }
+        Output {
+            stdout: String::new(),
+            stderr: message.into(),
+            code: -1,
+        }
     }
 
     /// First non-empty line of stderr — the report's grouping key.
     pub fn first_stderr_line(&self) -> &str {
-        self.stderr.lines().map(str::trim_end).find(|l| !l.trim().is_empty()).unwrap_or("")
+        self.stderr
+            .lines()
+            .map(str::trim_end)
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("")
     }
 }
 
@@ -60,9 +68,12 @@ fn read_capped(mut r: impl Read) -> Vec<u8> {
         // The marker is part of the compared (and cached) output: changing
         // it requires a new oracle cache.
         kept.extend_from_slice(
-            format!("
+            format!(
+                "
 [output truncated by the harness: {discarded} more bytes]
-").as_bytes(),
+"
+            )
+            .as_bytes(),
         );
     }
     kept
@@ -74,7 +85,13 @@ pub fn run(program: &str, args: &[String], cwd: &Path, limit: Duration) -> Outpu
 }
 
 /// Like `run`, prepending `extra_path` to the child's `PATH` (LLVM DLLs for `dartforge`).
-pub fn run_with_path(program: &str, args: &[String], cwd: &Path, limit: Duration, extra_path: &[std::path::PathBuf]) -> Output {
+pub fn run_with_path(
+    program: &str,
+    args: &[String],
+    cwd: &Path,
+    limit: Duration,
+    extra_path: &[std::path::PathBuf],
+) -> Output {
     run_with_env(program, args, cwd, limit, extra_path, &[])
 }
 
@@ -90,7 +107,11 @@ pub fn run_with_env(
     env: &[(&str, &str)],
 ) -> Output {
     let mut cmd = Command::new(program);
-    cmd.args(args).current_dir(cwd).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.args(args)
+        .current_dir(cwd)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     for (k, v) in env {
         cmd.env(k, v);
     }
@@ -132,10 +153,18 @@ pub fn run_with_env(
     let code = match status {
         Some(s) => s.code().unwrap_or(-3),
         None if timed_out => {
-            stderr = format!("timed out ({} s): {program} {}\n{stderr}", limit.as_secs(), args.join(" "));
+            stderr = format!(
+                "timed out ({} s): {program} {}\n{stderr}",
+                limit.as_secs(),
+                args.join(" ")
+            );
             TIMEOUT_CODE
         }
         None => -3,
     };
-    Output { stdout, stderr, code }
+    Output {
+        stdout,
+        stderr,
+        code,
+    }
 }

@@ -33,7 +33,11 @@ fn library_with_two_exports(dir: &std::path::Path, names: &[&str]) -> std::path:
          define i32 @GetCurrentProcessId() {\n  %p = call i32 @getpid()\n  ret i32 %p\n}\n",
     )
     .unwrap();
-    let dll = dir.join(if cfg!(target_os = "macos") { "libdois.dylib" } else { "libdois.so" });
+    let dll = dir.join(if cfg!(target_os = "macos") {
+        "libdois.dylib"
+    } else {
+        "libdois.so"
+    });
     let clang = std::env::var_os("DARTFORGE_CLANG").unwrap_or_else(|| "clang".into());
     let status = std::process::Command::new(clang)
         .args(["-x", "ir", "-shared", "-fPIC"])
@@ -52,20 +56,28 @@ fn library_with_two_exports(dir: &std::path::Path, names: &[&str]) -> std::path:
 #[test]
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn internal_helpers_do_not_become_trampolines() {
-    let ir = |value: i64| format!("\
+    let ir = |value: i64| {
+        format!(
+            "\
 define internal i64 @df_clo_invalido() {{ ret i64 {value} }}
 define i64 @df_fn_0() {{
   %r = call i64 @df_clo_invalido()
   ret i64 %r
 }}
-");
+"
+        )
+    };
     let mut session = JitSession::new().expect("session");
-    let first_one = session.add_reloadable_module("app", &ir(1)).expect("first generation");
+    let first_one = session
+        .add_reloadable_module("app", &ir(1))
+        .expect("first generation");
     assert_eq!(first_one.entries, 1);
     assert_eq!(session.stable_entries("app"), vec!["df_fn_0"]);
     let input = session.stable_entry("df_fn_0").unwrap();
     assert_eq!(input.call(&session).unwrap(), 1);
-    session.hot_reload("app", &ir(2)).expect("second generation");
+    session
+        .hot_reload("app", &ir(2))
+        .expect("second generation");
     assert_eq!(input.call(&session).unwrap(), 2);
 }
 
@@ -77,10 +89,16 @@ define i64 @df_fn_0() {{
 fn session_main_with_dll_calls_new_generation() {
     struct Directory(std::path::PathBuf);
     impl Drop for Directory {
-        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
-    let dir = Directory(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-jit-main-dll-{}", std::process::id())));
+    let dir = Directory(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+            "../../target/tmp-jit-main-dll-{}",
+            std::process::id()
+        )),
+    );
     std::fs::create_dir_all(&dir.0).unwrap();
     let dll = library_with_two_exports(&dir.0, &["GetTickCount"]);
 
@@ -99,12 +117,16 @@ fn session_main_with_dll_calls_new_generation() {
 fn reload_failure_does_not_destroy_good_version() {
     let ir = |value: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {value}\n}}\n");
     let mut session = JitSession::new().expect("session");
-    session.add_reloadable_module("app", &ir(7)).expect("generation 1");
+    session
+        .add_reloadable_module("app", &ir(7))
+        .expect("generation 1");
     let input = session.stable_entry("df_fn_0").expect("stable entry");
     let address = session.lookup("df_fn_0").expect("stable address");
     assert_eq!(input.call(&session).unwrap(), 7);
 
-    let error = session.hot_reload("app", "THIS IS NOT LLVM IR @@@ {{{").unwrap_err();
+    let error = session
+        .hot_reload("app", "THIS IS NOT LLVM IR @@@ {{{")
+        .unwrap_err();
     assert_eq!(error.stage, "parse-ir");
 
     let ir_without_external = "declare i64 @sqlite3_open(i64)\n\
@@ -120,7 +142,9 @@ fn reload_failure_does_not_destroy_good_version() {
     assert_eq!(session.lookup("df_fn_0").unwrap(), address);
     assert_eq!(input.call(&session).unwrap(), 7);
 
-    session.hot_reload("app", &ir(8)).expect("reload after failures");
+    session
+        .hot_reload("app", &ir(8))
+        .expect("reload after failures");
     assert_eq!(session.generation("app"), Some(2));
     assert_eq!(session.lookup("df_fn_0").unwrap(), address);
     assert_eq!(input.call(&session).unwrap(), 8);
@@ -131,7 +155,9 @@ fn reload_failure_does_not_destroy_good_version() {
 #[test]
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn live_counter_survives_reload() {
-    let ir = |step: i64| format!("\
+    let ir = |step: i64| {
+        format!(
+            "\
 declare i64 @dartforge_object_new(i64, i64)
 declare i64 @dartforge_object_get(i64, i64)
 declare void @dartforge_object_set(i64, i64, i64, i8)
@@ -145,10 +171,14 @@ define i64 @df_fn_1(i64 %h) {{
   call void @dartforge_object_set(i64 %h, i64 0, i64 %n, i8 0)
   ret i64 %n
 }}
-");
+"
+        )
+    };
 
     let mut session = JitSession::new().expect("session");
-    session.add_reloadable_module("contador", &ir(1)).expect("generation 1");
+    session
+        .add_reloadable_module("contador", &ir(1))
+        .expect("generation 1");
     let create = session.stable_entry("df_fn_0").expect("create counter");
     let add_up = session.stable_entry("df_fn_1").expect("increment counter");
     let address = session.lookup("df_fn_1").expect("stable address");
@@ -157,7 +187,9 @@ define i64 @df_fn_1(i64 %h) {{
     assert_eq!(add_up.call_with(&session, counter).unwrap(), 2);
     assert_eq!(add_up.call_with(&session, counter).unwrap(), 3);
 
-    session.hot_reload("contador", &ir(10)).expect("generation 2");
+    session
+        .hot_reload("contador", &ir(10))
+        .expect("generation 2");
     assert_eq!(session.lookup("df_fn_1").unwrap(), address);
     assert_eq!(add_up.call_with(&session, counter).unwrap(), 13);
     assert_eq!(add_up.call_with(&session, counter).unwrap(), 23);
@@ -171,7 +203,9 @@ define i64 @df_fn_1(i64 %h) {{
 fn five_reloads_preserve_stable_entry() {
     let ir = |value: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {value}\n}}\n");
     let mut session = JitSession::new().expect("session");
-    session.add_reloadable_module("app", &ir(0)).expect("initial generation");
+    session
+        .add_reloadable_module("app", &ir(0))
+        .expect("initial generation");
     let input = session.stable_entry("df_fn_0").expect("stable entry");
     let address = session.lookup("df_fn_0").expect("public address");
     assert_eq!(input.call(&session).unwrap(), 0);
@@ -194,22 +228,33 @@ fn five_reloads_preserve_stable_entry() {
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn generation_of_removed_function_is_retained() {
     let with_both = |value: i64| {
-        format!("define i64 @df_fn_0() {{\n  ret i64 {value}\n}}\ndefine i64 @df_fn_1() {{\n  ret i64 {}\n}}\n", value + 100)
+        format!(
+            "define i64 @df_fn_0() {{\n  ret i64 {value}\n}}\ndefine i64 @df_fn_1() {{\n  ret i64 {}\n}}\n",
+            value + 100
+        )
     };
     let only_the_first = |value: i64| format!("define i64 @df_fn_0() {{\n  ret i64 {value}\n}}\n");
     let mut session = JitSession::new().expect("session");
-    session.add_reloadable_module("app", &with_both(1)).expect("generation 1");
+    session
+        .add_reloadable_module("app", &with_both(1))
+        .expect("generation 1");
     let second_one = session.stable_entry("df_fn_1").expect("stable entry");
     assert_eq!(second_one.call(&session).unwrap(), 101);
-    let r = session.hot_reload("app", &only_the_first(2)).expect("generation 2");
+    let r = session
+        .hot_reload("app", &only_the_first(2))
+        .expect("generation 2");
     // `df_fn_1` still calls the body of generation 1.
     assert_eq!(r.retained_generations, 2);
     assert_eq!(second_one.call(&session).unwrap(), 101);
-    let r = session.hot_reload("app", &only_the_first(3)).expect("generation 3");
+    let r = session
+        .hot_reload("app", &only_the_first(3))
+        .expect("generation 3");
     // Generation 2 goes away; 1 stays because of `df_fn_1`.
     assert_eq!(r.retained_generations, 2);
     assert_eq!(second_one.call(&session).unwrap(), 101);
-    let r = session.hot_reload("app", &with_both(4)).expect("generation 4");
+    let r = session
+        .hot_reload("app", &with_both(4))
+        .expect("generation 4");
     // Both come back in 4: 1 and 3 leave.
     assert_eq!(r.retained_generations, 1);
     assert_eq!(second_one.call(&session).unwrap(), 104);
@@ -225,7 +270,8 @@ fn collision_with_other_module_does_not_destroy_promotion() {
 define i64 @df_fn_1() { ret i64 1 }\n";
     let mut session = JitSession::new().expect("session");
     session.add_ir_module("app", old).expect("old program");
-    session.add_ir_module("biblioteca", "define i64 @df_fn_1() { ret i64 2 }\n")
+    session
+        .add_ir_module("biblioteca", "define i64 @df_fn_1() { ret i64 2 }\n")
         .expect("another resident definition");
     assert_eq!(session.run_main().unwrap().exit_code, 7);
 
@@ -243,7 +289,9 @@ define i64 @df_fn_1() { ret i64 1 }\n";
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn missing_external_global_does_not_destroy_promotion() {
     let mut session = JitSession::new().expect("session");
-    session.add_ir_module("app", "define i32 @main() { ret i32 7 }\n").unwrap();
+    session
+        .add_ir_module("app", "define i32 @main() { ret i32 7 }\n")
+        .unwrap();
     assert_eq!(session.run_main().unwrap().exit_code, 7);
 
     let ir = "@missing = external global i64\n\
@@ -263,8 +311,11 @@ define i32 @main() {\n\
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn unknown_name_does_not_promote_the_only_module() {
     let mut session = JitSession::new().expect("session");
-    session.add_ir_module("app", "define i32 @main() { ret i32 7 }\n").unwrap();
-    let error = session.hot_reload("other", "define i32 @main() { ret i32 8 }\n")
+    session
+        .add_ir_module("app", "define i32 @main() { ret i32 7 }\n")
+        .unwrap();
+    let error = session
+        .hot_reload("other", "define i32 @main() { ret i32 8 }\n")
         .unwrap_err();
     assert_eq!(error.stage, "contract");
     assert!(error.message.contains("other"), "{error}");
@@ -284,7 +335,9 @@ define i32 @main() {\n\
   %codigo = zext i8 %anterior to i32\n\
   ret i32 %codigo\n}\n";
     let mut session = JitSession::new().expect("session");
-    session.add_reloadable_module("app", ir).expect("generation 1");
+    session
+        .add_reloadable_module("app", ir)
+        .expect("generation 1");
     assert_eq!(session.run_main().unwrap().exit_code, 0);
     assert_eq!(session.run_main().unwrap().exit_code, 0);
 
@@ -298,15 +351,23 @@ define i32 @main() {\n\
 #[test]
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn equal_statics_in_distinct_modules_stay_independent() {
-    let ir = |function: &str| format!("@dfg_0_ok = internal global i64 0\n\
+    let ir = |function: &str| {
+        format!(
+            "@dfg_0_ok = internal global i64 0\n\
 define i64 @{function}() {{\n\
   %anterior = load i64, ptr @dfg_0_ok\n\
   %novo = add i64 %anterior, 1\n\
   store i64 %novo, ptr @dfg_0_ok\n\
-  ret i64 %anterior\n}}\n");
+  ret i64 %anterior\n}}\n"
+        )
+    };
     let mut session = JitSession::new().expect("session");
-    session.add_reloadable_module("app", &ir("df_fn_0")).expect("app");
-    session.add_reloadable_module("biblioteca", &ir("df_fn_1")).expect("biblioteca");
+    session
+        .add_reloadable_module("app", &ir("df_fn_0"))
+        .expect("app");
+    session
+        .add_reloadable_module("biblioteca", &ir("df_fn_1"))
+        .expect("biblioteca");
     let app = session.stable_entry("df_fn_0").expect("app entry");
     let library = session.stable_entry("df_fn_1").expect("library entry");
     assert_eq!(app.call(&session).unwrap(), 0);
@@ -320,7 +381,9 @@ define i64 @{function}() {{\n\
 #[test]
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn reload_preserves_program_statics_without_copying_caches() {
-    let ir = |step: i64| format!("@dfg_0 = internal global i64 0\n\
+    let ir = |step: i64| {
+        format!(
+            "@dfg_0 = internal global i64 0\n\
 @dfg_0$ok = internal global i8 0\n\
 @df.ic.0 = private global [2 x i64] zeroinitializer\n\
 define i64 @df_fn_0() {{\n\
@@ -338,9 +401,13 @@ define i64 @df_fn_1() {{\n\
 define i64 @df_fn_2() {{\n\
   %ok = load i8, ptr @dfg_0$ok\n\
   %largo = zext i8 %ok to i64\n\
-  ret i64 %largo\n}}\n");
+  ret i64 %largo\n}}\n"
+        )
+    };
     let mut session = JitSession::new().expect("session");
-    session.add_reloadable_module("app", &ir(1)).expect("generation 1");
+    session
+        .add_reloadable_module("app", &ir(1))
+        .expect("generation 1");
     let next_offset = session.stable_entry("df_fn_0").expect("static");
     let cache = session.stable_entry("df_fn_1").expect("cache");
     let initialized = session.stable_entry("df_fn_2").expect("indicador");
@@ -371,7 +438,9 @@ define i64 @df_fn_2() { ret i64 99 }\n";
 #[test]
 #[ignore = "requires LLVM-C.dll reachable by the loader; use scripts/env.ps1"]
 fn reload_preserves_globals_with_current_emitter_name() {
-    let ir = |step: i64| format!("@dfg.app.C.contador = internal global i64 0\n\
+    let ir = |step: i64| {
+        format!(
+            "@dfg.app.C.contador = internal global i64 0\n\
 @dfg.app.C.contador$ok = internal global i8 0\n\
 define i64 @df_fn_0() {{\n\
   %anterior = load i64, ptr @dfg.app.C.contador\n\
@@ -382,9 +451,13 @@ define i64 @df_fn_0() {{\n\
 define i64 @df_fn_1() {{\n\
   %ok = load i8, ptr @dfg.app.C.contador$ok\n\
   %valor = zext i8 %ok to i64\n\
-  ret i64 %valor\n}}\n");
+  ret i64 %valor\n}}\n"
+        )
+    };
     let mut session = JitSession::new().expect("session");
-    session.add_reloadable_module("app", &ir(1)).expect("generation 1");
+    session
+        .add_reloadable_module("app", &ir(1))
+        .expect("generation 1");
     let advance = session.stable_entry("df_fn_0").expect("advance");
     let initialized = session.stable_entry("df_fn_1").expect("indicador");
     assert_eq!(advance.call(&session).unwrap(), 1);
@@ -402,35 +475,54 @@ define i64 @df_fn_1() {{\n\
 fn reload_publishes_new_dll_external() {
     struct Directory(std::path::PathBuf);
     impl Drop for Directory {
-        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
     }
     // The copy stays in the worktree target (E: on the owner's machine),
     // never in the TEMP of C:. kernel32 offers two exports without compiling the SDK.
-    let dir = Directory(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target")
-        .join(format!("tmp-jit-sdk-export-{}", std::process::id())));
+    let dir = Directory(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target")
+            .join(format!("tmp-jit-sdk-export-{}", std::process::id())),
+    );
     std::fs::create_dir_all(&dir.0).unwrap();
     let dll = library_with_two_exports(&dir.0, &["GetTickCount", "GetCurrentProcessId"]);
 
-    let ir = |name: &str, fixed_return: bool| format!("\
+    let ir = |name: &str, fixed_return: bool| {
+        format!(
+            "\
 declare i32 @{name}()
 define i64 @df_fn_0() {{
   %valor = call i32 @{name}()
   %largo = zext i32 %valor to i64
   {}
 }}
-", if fixed_return { "ret i64 1" } else { "ret i64 %largo" });
+",
+            if fixed_return {
+                "ret i64 1"
+            } else {
+                "ret i64 %largo"
+            }
+        )
+    };
     let mut session = JitSession::new_with_sdk(&dll, &["GetTickCount".to_owned()]).unwrap();
-    session.add_reloadable_module("app", &ir("GetTickCount", true)).unwrap();
+    session
+        .add_reloadable_module("app", &ir("GetTickCount", true))
+        .unwrap();
     let input = session.stable_entry("df_fn_0").unwrap();
     assert_eq!(input.call(&session).unwrap(), 1);
 
-    let error = session.hot_reload("app", &ir("GetMissingExport", false)).unwrap_err();
+    let error = session
+        .hot_reload("app", &ir("GetMissingExport", false))
+        .unwrap_err();
     assert_eq!(error.stage, "contract");
     assert_eq!(session.generation("app"), Some(1));
     assert_eq!(input.call(&session).unwrap(), 1);
 
-    session.hot_reload("app", &ir("GetCurrentProcessId", false)).unwrap();
+    session
+        .hot_reload("app", &ir("GetCurrentProcessId", false))
+        .unwrap();
     assert_eq!(session.generation("app"), Some(2));
     assert_eq!(input.call(&session).unwrap(), i64::from(std::process::id()));
 }
@@ -452,23 +544,38 @@ fn changed_signature_gets_new_entry() {
         )
     };
     let mut session = JitSession::new().expect("session");
-    session.add_reloadable_module("app", v1).expect("generation 1");
+    session
+        .add_reloadable_module("app", v1)
+        .expect("generation 1");
     let uses = session.stable_entry("df_uses").expect("entry");
     let old_value = session.stable_entry("df_fn_0").expect("entry");
     assert_eq!(uses.call(&session).unwrap(), 1);
 
-    session.hot_reload("app", &v2(0)).expect("new signature accepted");
+    session
+        .hot_reload("app", &v2(0))
+        .expect("new signature accepted");
     assert_eq!(uses.call(&session).unwrap(), 5);
-    assert_eq!(old_value.call(&session).unwrap(), 1, "the original entry keeps the old body");
+    assert_eq!(
+        old_value.call(&session).unwrap(),
+        1,
+        "the original entry keeps the old body"
+    );
     let new_area = session.stable_entry("df_fn_0$sig1").expect("new entry");
     assert_eq!(new_area.call_with(&session, 9).unwrap(), 9);
 
-    session.hot_reload("app", &v2(100)).expect("same signature, new body");
+    session
+        .hot_reload("app", &v2(100))
+        .expect("same signature, new body");
     assert_eq!(uses.call(&session).unwrap(), 105);
     assert_eq!(new_area.call_with(&session, 9).unwrap(), 109);
-    assert!(session.stable_entry("df_fn_0$sig2").is_err(), "the same signature reuses the entry");
+    assert!(
+        session.stable_entry("df_fn_0$sig2").is_err(),
+        "the same signature reuses the entry"
+    );
 
-    session.hot_reload("app", v1).expect("back to the original signature");
+    session
+        .hot_reload("app", v1)
+        .expect("back to the original signature");
     assert_eq!(uses.call(&session).unwrap(), 1);
     assert_eq!(old_value.call(&session).unwrap(), 1);
 }
@@ -489,7 +596,9 @@ fn unchanged_function_stays_in_live_implementation() {
         )
     };
     let mut session = JitSession::new().expect("session");
-    session.add_reloadable_module("app", &ir(1, 7)).expect("generation 1");
+    session
+        .add_reloadable_module("app", &ir(1, 7))
+        .expect("generation 1");
     let caller = session.stable_entry("df_fn_0").expect("entry");
     let uses_local = session.stable_entry("df_fn_2").expect("entry");
     assert_eq!(caller.call(&session).unwrap(), 1);
@@ -518,7 +627,12 @@ fn unchanged_function_stays_in_live_implementation() {
     assert_eq!(r.retained_generations, 4);
 
     // Everything changes again: the old generations leave.
-    let r = session.hot_reload("app", &ir(3, 9).replace("%r = call", "%q = add i64 0, 0\n  %r = call")).expect("generation 5");
+    let r = session
+        .hot_reload(
+            "app",
+            &ir(3, 9).replace("%r = call", "%q = add i64 0, 0\n  %r = call"),
+        )
+        .expect("generation 5");
     assert_eq!((r.entries, r.kept), (3, 0), "{r:?}");
     assert_eq!(caller.call(&session).unwrap(), 3);
     assert_eq!(r.retained_generations, 1);
@@ -531,10 +645,16 @@ fn unchanged_function_stays_in_live_implementation() {
 fn current_and_legacy_rti_entries_are_republished_on_every_generation() {
     for symbols in [
         ["df.prepare_rti", "df.prepare_rti", "df.prepare_rti"],
-        ["dartforge_rti_init", "dartforge_rti_init", "dartforge_rti_init"],
+        [
+            "dartforge_rti_init",
+            "dartforge_rti_init",
+            "dartforge_rti_init",
+        ],
         ["dartforge_rti_init", "df.prepare_rti", "df.prepare_rti"],
     ] {
-        let ir = |symbol: &str| format!(r#"
+        let ir = |symbol: &str| {
+            format!(
+                r#"
 @dfg.rti_counter = internal global i64 0
 define void @{symbol}() {{
   %old = load i64, ptr @dfg.rti_counter
@@ -546,14 +666,28 @@ define i64 @df_fn_0() {{
   %value = load i64, ptr @dfg.rti_counter
   ret i64 %value
 }}
-"#);
+"#
+            )
+        };
         let mut session = JitSession::new().unwrap();
-        session.add_reloadable_module("rti", &ir(symbols[0])).unwrap();
+        session
+            .add_reloadable_module("rti", &ir(symbols[0]))
+            .unwrap();
         let counter = session.stable_entry("df_fn_0").unwrap();
-        assert_eq!(counter.call(&session).unwrap(), 0, "{symbols:?}: initial load");
+        assert_eq!(
+            counter.call(&session).unwrap(),
+            0,
+            "{symbols:?}: initial load"
+        );
         for generation in 1..=2 {
-            session.hot_reload("rti", &ir(symbols[generation as usize])).unwrap();
-            assert_eq!(counter.call(&session).unwrap(), generation, "{symbols:?}: reload {generation}");
+            session
+                .hot_reload("rti", &ir(symbols[generation as usize]))
+                .unwrap();
+            assert_eq!(
+                counter.call(&session).unwrap(),
+                generation,
+                "{symbols:?}: reload {generation}"
+            );
         }
     }
 }

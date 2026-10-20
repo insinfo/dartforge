@@ -31,7 +31,8 @@ pub(super) fn prepare(
 ) -> Result<(usize, usize), String> {
     let mut next_item = next_val(f, p);
     let mut id = || {
-        let v = u32::try_from(next_item).map_err(|_| "SSA IDs exhausted while preparing ARC edges")?;
+        let v =
+            u32::try_from(next_item).map_err(|_| "SSA IDs exhausted while preparing ARC edges")?;
         next_item += 1;
         Ok(ValueId(v))
     };
@@ -277,10 +278,7 @@ mod tests {
                 }
             ));
             let prepared = format!("{m:?}/{plans:?}");
-            assert_eq!(
-                prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                (0, 0)
-            );
+            assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             assert_eq!(format!("{m:?}/{plans:?}"), prepared);
             crate::llvm::LlvmEmitter::new(&m).emit_all();
         }
@@ -359,10 +357,7 @@ mod tests {
         let mut p = DartFunctionPlan::default();
         p.tokens.ret = TokenReturn::Owned;
         let mut plans = HashMap::from([("phi_borrow_vivo".into(), p)]);
-        assert_eq!(
-            prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-            (1, 1)
-        );
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 1));
         assert_eq!(m.functions[0].blocks.len(), 4);
         let ops = &m.functions[0].blocks[3].instructions;
         assert!(matches!(
@@ -427,10 +422,7 @@ mod tests {
             ],
         });
         let mut plans = HashMap::from([("laco_owned".into(), DartFunctionPlan::default())]);
-        assert_eq!(
-            prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-            (0, 2)
-        );
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 2));
         for b in &m.functions[0].blocks[3..] {
             assert!(matches!(
                 b.instructions[0].1,
@@ -440,10 +432,7 @@ mod tests {
             ));
         }
         let before = format!("{m:?}/{plans:?}");
-        assert_eq!(
-            prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-            (0, 0)
-        );
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         assert_eq!(format!("{m:?}/{plans:?}"), before);
         crate::llvm::LlvmEmitter::new(&m).emit_all();
     }

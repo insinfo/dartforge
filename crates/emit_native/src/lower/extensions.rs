@@ -45,7 +45,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `is_call`: the expression is a call (`x.g()`); for a getter, the value
     /// it returns is called with the arguments (even with none).
-    fn call_armed_extension(&mut self, recv: Operand, fid: usize, evaluated: &[Evaluated], is_call: bool, span: Span) -> Operand {
+    fn call_armed_extension(
+        &mut self,
+        recv: Operand,
+        fid: usize,
+        evaluated: &[Evaluated],
+        is_call: bool,
+        span: Span,
+    ) -> Operand {
         let f = &self.ctx.program.functions[fid];
         if !super::user_function(self.ctx, fid) || !super::members::has_body(self.ctx, fid) {
             return self.unsupported("SDK extension member", span);
@@ -87,13 +94,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// `r.x` resolved to an extension getter (or method tear-off).
-    pub fn read_extension(&mut self, recv: Operand, fid: usize, receiver: Option<TypeId>, span: Span) -> Operand {
+    pub fn read_extension(
+        &mut self,
+        recv: Operand,
+        fid: usize,
+        receiver: Option<TypeId>,
+        span: Span,
+    ) -> Operand {
         let f = &self.ctx.program.functions[fid];
         // A STATIC method of the extension cited without qualification in its
         // body (`codeUnits.any(_maiuscula)`) is a static tear-off, like
         // `Ext._maiuscula`; static getters and fields are read.
         if f.static_ && f.kind == FunctionKind::Function && f.variable.is_none() {
-            let el = dartforge_elements::model::Element::Function(dartforge_elements::model::FunctionElementId(fid as u32));
+            let el = dartforge_elements::model::Element::Function(
+                dartforge_elements::model::FunctionElementId(fid as u32),
+            );
             return self.read_element(el, span);
         }
         if f.kind == FunctionKind::Getter || f.static_ {
@@ -107,7 +122,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// environment, whose entry calls the member like `call_extension`. The
     /// type arguments of a generic extension come from the static type of the
     /// receiver, so there is one entry per (member, receiver type).
-    fn extension_tearoff(&mut self, recv: Operand, fid: usize, receiver: Option<TypeId>, span: Span) -> Operand {
+    fn extension_tearoff(
+        &mut self,
+        recv: Operand,
+        fid: usize,
+        receiver: Option<TypeId>,
+        span: Span,
+    ) -> Operand {
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = match receiver {
             Some(t) if self.generic_extension(fid) => format!("{target}$tearx{}", t.0),
@@ -116,7 +137,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
-            let name = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.functions[fid].name)
+                .to_string();
             let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), name, Type::Ref);
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
@@ -129,7 +153,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     .parameters
                     .iter()
                     .zip(vals)
-                    .map(|(p, v)| (if p.kind == ParameterKind::Named { p.name } else { None }, v))
+                    .map(|(p, v)| {
+                        (
+                            if p.kind == ParameterKind::Named {
+                                p.name
+                            } else {
+                                None
+                            },
+                            v,
+                        )
+                    })
                     .collect();
                 let r = e.call_extension(receiver_op, fid, &evaluated, receiver, None, span);
                 let r = if matches!(e.operand_type(&r), Type::Void) {
@@ -142,8 +175,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.absorb(e);
         }
         let recv = self.coerce(recv, Type::Ref);
-        let env = self.emit(Instruction::AllocEnv { values: vec![recv.clone()] }, Type::Ref);
-        let c = self.emit(Instruction::AllocClosure { code_symbol: symbol_ent, env }, Type::Ref);
+        let env = self.emit(
+            Instruction::AllocEnv {
+                values: vec![recv.clone()],
+            },
+            Type::Ref,
+        );
+        let c = self.emit(
+            Instruction::AllocClosure {
+                code_symbol: symbol_ent,
+                env,
+            },
+            Type::Ref,
+        );
         // The signature with the owner's type arguments taken from the static
         // type of the receiver (the tuple of the call the entry would make).
         let tuple = if self.generic_extension(fid) {

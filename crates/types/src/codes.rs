@@ -37,10 +37,8 @@ pub const ASSIGNMENT_TO_FINAL_LOCAL: DiagnosticCode = DiagnosticCode::new(
     "The final local variable '{0}' can only be assigned once.",
 );
 
-pub const ASSIGNMENT_TO_FINAL: DiagnosticCode = DiagnosticCode::new(
-    "assignment_to_final",
-    "The final variable has no setter.",
-);
+pub const ASSIGNMENT_TO_FINAL: DiagnosticCode =
+    DiagnosticCode::new("assignment_to_final", "The final variable has no setter.");
 
 pub const ASSIGNMENT_TO_FINAL_NO_SETTER: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_final_no_setter",
@@ -52,20 +50,14 @@ pub const ASSIGNMENT_TO_METHOD: DiagnosticCode = DiagnosticCode::new(
     "A value can't be assigned to a method.",
 );
 
-pub const UNDEFINED_EXTENSION_SETTER: DiagnosticCode = DiagnosticCode::new(
-    "undefined_extension_setter",
-    "Extension setter not found",
-);
+pub const UNDEFINED_EXTENSION_SETTER: DiagnosticCode =
+    DiagnosticCode::new("undefined_extension_setter", "Extension setter not found");
 
-pub const UNDEFINED_EXTENSION_GETTER: DiagnosticCode = DiagnosticCode::new(
-    "undefined_extension_getter",
-    "Extension getter not found",
-);
+pub const UNDEFINED_EXTENSION_GETTER: DiagnosticCode =
+    DiagnosticCode::new("undefined_extension_getter", "Extension getter not found");
 
-pub const UNDEFINED_EXTENSION_METHOD: DiagnosticCode = DiagnosticCode::new(
-    "undefined_extension_method",
-    "Extension method not found",
-);
+pub const UNDEFINED_EXTENSION_METHOD: DiagnosticCode =
+    DiagnosticCode::new("undefined_extension_method", "Extension method not found");
 
 pub const STATIC_ACCESS_TO_INSTANCE_MEMBER: DiagnosticCode = DiagnosticCode::new(
     "static_access_to_instance_member",
@@ -122,10 +114,8 @@ pub const ASSIGNMENT_TO_CONST: DiagnosticCode = DiagnosticCode::new(
     "Constant variables can't be assigned a new value.",
 );
 
-pub const ASSIGNMENT_TO_TYPE: DiagnosticCode = DiagnosticCode::new(
-    "assignment_to_type",
-    "Types can't be assigned a value.",
-);
+pub const ASSIGNMENT_TO_TYPE: DiagnosticCode =
+    DiagnosticCode::new("assignment_to_type", "Types can't be assigned a value.");
 
 pub const ASSIGNMENT_TO_FUNCTION: DiagnosticCode = DiagnosticCode::new(
     "assignment_to_function",
@@ -143,10 +133,8 @@ pub const DEFINITELY_UNASSIGNED_VARIABLE: DiagnosticCode = DiagnosticCode::new(
 );
 
 // Member and identifier resolution errors
-pub const UNDEFINED_IDENTIFIER: DiagnosticCode = DiagnosticCode::new(
-    "undefined_identifier",
-    "Nome indefinido '{0}'.",
-);
+pub const UNDEFINED_IDENTIFIER: DiagnosticCode =
+    DiagnosticCode::new("undefined_identifier", "Nome indefinido '{0}'.");
 
 pub const REFERENCED_BEFORE_DECLARATION: DiagnosticCode = DiagnosticCode::new(
     "referenced_before_declaration",
@@ -273,10 +261,8 @@ pub const UNNECESSARY_TYPE_CHECK_TRUE: DiagnosticCode = DiagnosticCode::new(
     "The type test always evaluates to true.",
 );
 
-pub const DEAD_CODE: DiagnosticCode = DiagnosticCode::new(
-    "dead_code",
-    "Unreachable code (dead code).",
-);
+pub const DEAD_CODE: DiagnosticCode =
+    DiagnosticCode::new("dead_code", "Unreachable code (dead code).");
 
 // Language errors of the 3.7–3.13 features (docs/VERSOES-LINGUAGEM.md §3).
 //
@@ -334,7 +320,5 @@ pub const DOT_SHORTHAND_NO_MEMBER: DiagnosticCode = DiagnosticCode::new(
     "'{1}' has no static member or constructor '{0}' for the dot shorthand",
 );
 
-pub const PRIMARY_CONSTRUCTOR: DiagnosticCode = DiagnosticCode::new(
-    "primary_constructor",
-    "primary constructor: {0}",
-);
+pub const PRIMARY_CONSTRUCTOR: DiagnosticCode =
+    DiagnosticCode::new("primary_constructor", "primary constructor: {0}");

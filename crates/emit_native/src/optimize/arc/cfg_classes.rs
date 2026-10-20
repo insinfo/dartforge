@@ -83,7 +83,9 @@ pub(super) fn prepare(
             if !live_set.insert(id) {
                 continue;
             }
-            let b = blocks.get(&id).ok_or("ARC class: destination outside the CFG")?;
+            let b = blocks
+                .get(&id)
+                .ok_or("ARC class: destination outside the CFG")?;
             let dests = super::super::cfg::successors(&b.terminator)
                 .into_iter()
                 .chain(
@@ -278,8 +280,7 @@ mod tests {
         prepare_arc_dart_module(&mut m, &mut ps).unwrap();
         for f in &m.functions {
             let p = &ps[&f.symbol];
-            verify_dart_function_contract(f, &p.classes, &p.tokens, &p.tables, &p.scopes)
-                .unwrap();
+            verify_dart_function_contract(f, &p.classes, &p.tokens, &p.tables, &p.scopes).unwrap();
         }
     }
 

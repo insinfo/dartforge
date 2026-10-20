@@ -77,24 +77,49 @@ fn closed(ctx: &Context, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>
     closed_until(ctx, t, subst, 8)
 }
 
-fn closed_until(ctx: &Context, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>, prof: u32) -> bool {
-    let closed = |ctx: &Context, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>| closed_until(ctx, t, subst, prof);
+fn closed_until(
+    ctx: &Context,
+    t: TypeId,
+    subst: Option<&HashMap<TypeParamId, TypeId>>,
+    prof: u32,
+) -> bool {
+    let closed = |ctx: &Context, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>| {
+        closed_until(ctx, t, subst, prof)
+    };
     match ctx.table.get(t) {
         // The substitution may lead to another parameter (that of the supertype to that of the class
         // of the receiver), replaced by the same map.
         T::TypeParameter { param, .. } | T::Intersection { param, .. } => {
-            prof > 0 && subst.and_then(|s| s.get(param)).is_some_and(|&x| closed_until(ctx, x, subst, prof - 1))
+            prof > 0
+                && subst
+                    .and_then(|s| s.get(param))
+                    .is_some_and(|&x| closed_until(ctx, x, subst, prof - 1))
         }
-        T::Interface { args, .. } | T::ExtensionType { args, .. } => args.iter().all(|a| closed(ctx, *a, subst)),
+        T::Interface { args, .. } | T::ExtensionType { args, .. } => {
+            args.iter().all(|a| closed(ctx, *a, subst))
+        }
         T::FutureOr { arg, .. } => closed(ctx, *arg, subst),
-        T::Function { type_params, ret, positional, optional, named, .. } => {
+        T::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
             type_params.is_empty()
                 && closed(ctx, *ret, subst)
-                && positional.iter().chain(optional.iter()).all(|p| closed(ctx, *p, subst))
+                && positional
+                    .iter()
+                    .chain(optional.iter())
+                    .all(|p| closed(ctx, *p, subst))
                 && named.iter().all(|(_, p, _)| closed(ctx, *p, subst))
         }
-        T::Record { positional, named, .. } => {
-            positional.iter().all(|p| closed(ctx, *p, subst)) && named.iter().all(|(_, p)| closed(ctx, *p, subst))
+        T::Record {
+            positional, named, ..
+        } => {
+            positional.iter().all(|p| closed(ctx, *p, subst))
+                && named.iter().all(|(_, p)| closed(ctx, *p, subst))
         }
         T::Dynamic | T::Void | T::Never | T::Null => true,
     }
@@ -115,14 +140,17 @@ fn declared_covariant(ctx: &Context, fid: usize) -> Vec<(usize, Option<SymbolId>
             let af = ctx.program.unit(unit).ast.function(function);
             for (i, p) in af.parameters.as_deref().unwrap_or(&[]).iter().enumerate() {
                 if p.covariant {
-                    let name = (p.kind == ParameterKind::Named).then(|| p.external_name().map(|n| n.sym)).flatten();
+                    let name = (p.kind == ParameterKind::Named)
+                        .then(|| p.external_name().map(|n| n.sym))
+                        .flatten();
                     exit.push((i, name));
                 }
             }
         }
         FunctionRef::None => {
             if let Some(v) = f.variable
-                && let dartforge_elements::model::VariableRef::Field { unit, member, .. } = ctx.program.variables[v.0 as usize].node
+                && let dartforge_elements::model::VariableRef::Field { unit, member, .. } =
+                    ctx.program.variables[v.0 as usize].node
                 && let MemberKind::Field(vl) = &ctx.program.unit(unit).ast.member(member).kind
                 && vl.covariant
             {
@@ -143,16 +171,35 @@ fn mentions_covariant(ctx: &Context, t: TypeId, c: ClassId, positive: bool) -> b
         T::TypeParameter { param, .. } | T::Intersection { param, .. } => {
             positive && matches!(ctx.table.param(*param).owner, TypeParamOwner::Class(d) if d == c)
         }
-        T::Interface { args, .. } | T::ExtensionType { args, .. } => args.iter().any(|a| mentions_covariant(ctx, *a, c, positive)),
+        T::Interface { args, .. } | T::ExtensionType { args, .. } => args
+            .iter()
+            .any(|a| mentions_covariant(ctx, *a, c, positive)),
         T::FutureOr { arg, .. } => mentions_covariant(ctx, *arg, c, positive),
-        T::Function { ret, positional, optional, named, .. } => {
+        T::Function {
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
             mentions_covariant(ctx, *ret, c, positive)
-                || positional.iter().chain(optional.iter()).any(|p| mentions_covariant(ctx, *p, c, !positive))
-                || named.iter().any(|(_, p, _)| mentions_covariant(ctx, *p, c, !positive))
+                || positional
+                    .iter()
+                    .chain(optional.iter())
+                    .any(|p| mentions_covariant(ctx, *p, c, !positive))
+                || named
+                    .iter()
+                    .any(|(_, p, _)| mentions_covariant(ctx, *p, c, !positive))
         }
-        T::Record { positional, named, .. } => {
-            positional.iter().any(|p| mentions_covariant(ctx, *p, c, positive))
-                || named.iter().any(|(_, p)| mentions_covariant(ctx, *p, c, positive))
+        T::Record {
+            positional, named, ..
+        } => {
+            positional
+                .iter()
+                .any(|p| mentions_covariant(ctx, *p, c, positive))
+                || named
+                    .iter()
+                    .any(|(_, p)| mentions_covariant(ctx, *p, c, positive))
         }
         T::Dynamic | T::Void | T::Never | T::Null => false,
     }
@@ -164,7 +211,8 @@ fn corresponding(ctx: &Context, fid: usize, i: usize, g: usize) -> Option<usize>
     let p = ctx.outline.functions.get(fid)?.parameters.get(i)?;
     let gp = &ctx.outline.functions.get(g)?.parameters;
     if p.kind == ParameterKind::Named {
-        gp.iter().position(|q| q.kind == ParameterKind::Named && q.external_name == p.external_name)
+        gp.iter()
+            .position(|q| q.kind == ParameterKind::Named && q.external_name == p.external_name)
     } else {
         (gp.get(i)?.kind != ParameterKind::Named).then_some(i)
     }
@@ -173,13 +221,25 @@ fn corresponding(ctx: &Context, fid: usize, i: usize, g: usize) -> Option<usize>
 /// The `j`-th parameter of `g` is covariant in `g` itself: written
 /// `covariant`, or generic covariant of the class of `g`.
 fn covariant_in(ctx: &Context, g: usize, j: usize) -> bool {
-    let Some(q) = ctx.outline.functions.get(g).and_then(|o| o.parameters.get(j)) else { return false };
-    let name = (q.kind == ParameterKind::Named).then_some(q.external_name).flatten();
+    let Some(q) = ctx
+        .outline
+        .functions
+        .get(g)
+        .and_then(|o| o.parameters.get(j))
+    else {
+        return false;
+    };
+    let name = (q.kind == ParameterKind::Named)
+        .then_some(q.external_name)
+        .flatten();
     let written = declared_covariant(ctx, g).iter().any(|(k, n)| match name {
         Some(x) => *n == Some(x),
         None => n.is_none() && *k == j,
     });
-    written || ctx.program.functions[g].class.is_some_and(|c| mentions_covariant(ctx, q.ty, c, true))
+    written
+        || ctx.program.functions[g]
+            .class
+            .is_some_and(|c| mentions_covariant(ctx, q.ty, c, true))
 }
 
 /// Parameter `i` of `fid` is covariant: in the member itself, or because the
@@ -192,9 +252,12 @@ fn inherited_covariant(ctx: &Context, fid: usize, i: usize) -> bool {
     }
     let f = &ctx.program.functions[fid];
     let Some(c) = f.class else { return false };
-    let Some(data) = ctx.outline.hierarchy.get(c) else { return false };
+    let Some(data) = ctx.outline.hierarchy.get(c) else {
+        return false;
+    };
     let name = ctx.symbol_name(f.name);
-    let key = if f.kind == dartforge_elements::model::FunctionKind::Setter && !name.ends_with("_=") {
+    let key = if f.kind == dartforge_elements::model::FunctionKind::Setter && !name.ends_with("_=")
+    {
         ctx.interner.lookup(&format!("{name}_="))
     } else {
         Some(f.name)
@@ -202,10 +265,13 @@ fn inherited_covariant(ctx: &Context, fid: usize, i: usize) -> bool {
     let Some(key) = key else { return false };
     data.supertypes.keys().any(|&s| {
         s != c
-            && ctx.program.classes[s.0 as usize].instance_members.get(&key).is_some_and(|g| {
-                let g = g.0 as usize;
-                corresponding(ctx, fid, i, g).is_some_and(|j| covariant_in(ctx, g, j))
-            })
+            && ctx.program.classes[s.0 as usize]
+                .instance_members
+                .get(&key)
+                .is_some_and(|g| {
+                    let g = g.0 as usize;
+                    corresponding(ctx, fid, i, g).is_some_and(|j| covariant_in(ctx, g, j))
+                })
     })
 }
 
@@ -217,7 +283,9 @@ fn inherited_covariant(ctx: &Context, fid: usize, i: usize) -> bool {
 /// usual conversion.
 pub fn checked_at_entry(ctx: &Context, fid: usize, ty: TypeId) -> bool {
     let f = &ctx.program.functions[fid];
-    let generic = f.class.is_some_and(|c| mentions_covariant(ctx, ty, c, true));
+    let generic = f
+        .class
+        .is_some_and(|c| mentions_covariant(ctx, ty, c, true));
     let nominal = matches!(ctx.table.get(ty), T::Interface { .. });
     !top(ctx, ty) && (generic || nominal)
 }
@@ -231,8 +299,13 @@ pub fn covariant_parameter(ctx: &Context, fid: usize, i: usize) -> bool {
 /// Method `fid` gets the typed entry: its `$c` checks some
 /// parameter that the typed call waives.
 pub fn needs_typed_entry(ctx: &Context, fid: usize) -> bool {
-    let Some(o) = ctx.outline.functions.get(fid) else { return false };
-    o.parameters.iter().enumerate().any(|(i, p)| checked_at_entry(ctx, fid, p.ty) && !covariant_parameter(ctx, fid, i))
+    let Some(o) = ctx.outline.functions.get(fid) else {
+        return false;
+    };
+    o.parameters
+        .iter()
+        .enumerate()
+        .any(|(i, p)| checked_at_entry(ctx, fid, p.ty) && !covariant_parameter(ctx, fid, i))
 }
 
 /// The selector of the typed call corresponding to `selector` (`c:m` → `tc:m`).
@@ -273,14 +346,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     fn target_types(&self, target: ast::ExprId, expr_id: ast::ExprId) -> Option<InvocationTypes> {
         if let Some(t) = self.ctx.get_type(self.unit_id, target)
-            && let T::Function { type_params, positional, optional, named, .. } = self.ctx.table.get(t)
+            && let T::Function {
+                type_params,
+                positional,
+                optional,
+                named,
+                ..
+            } = self.ctx.table.get(t)
         {
             if !type_params.is_empty() {
                 return None;
             }
-            let without = |ty: &TypeId| ParameterType { ty: *ty, subst: None };
+            let without = |ty: &TypeId| ParameterType {
+                ty: *ty,
+                subst: None,
+            };
             return Some(InvocationTypes {
-                positionals: positional.iter().chain(optional.iter()).map(without).collect(),
+                positionals: positional
+                    .iter()
+                    .chain(optional.iter())
+                    .map(without)
+                    .collect(),
                 named: named.iter().map(|(n, ty, _)| (*n, without(ty))).collect(),
             });
         }
@@ -291,8 +377,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .cloned();
         let fid = match resolved {
             Some(Resolved::Constructor(f)) => f.0 as usize,
-            Some(Resolved::Element(dartforge_elements::model::Element::Function(f))) => f.0 as usize,
-            Some(Resolved::Member { member: MemberRef::Function(f), .. }) => f.0 as usize,
+            Some(Resolved::Element(dartforge_elements::model::Element::Function(f))) => {
+                f.0 as usize
+            }
+            Some(Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            }) => f.0 as usize,
             _ => return None,
         };
         let typ = self.ctx.get_type(self.unit_id, expr_id);
@@ -317,11 +408,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             && *class == c
             && args.len() == data.type_params.len()
         {
-            subst = Some(data.type_params.iter().copied().zip(args.iter().copied()).collect::<HashMap<_, _>>());
+            subst = Some(
+                data.type_params
+                    .iter()
+                    .copied()
+                    .zip(args.iter().copied())
+                    .collect::<HashMap<_, _>>(),
+            );
         }
         let mut t = InvocationTypes::default();
         for p in o.parameters.iter() {
-            let x = ParameterType { ty: p.ty, subst: subst.clone() };
+            let x = ParameterType {
+                ty: p.ty,
+                subst: subst.clone(),
+            };
             if p.kind == ParameterKind::Named {
                 if let Some(n) = p.external_name {
                     t.named.push((n, x));
@@ -345,12 +445,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         i_pos: usize,
         value: &Operand,
     ) {
-        let Some(static_ty) = self.ctx.get_type(self.unit_id, expr) else { return };
+        let Some(static_ty) = self.ctx.get_type(self.unit_id, expr) else {
+            return;
+        };
         if static_ty != self.ctx.core.dynamic_ {
             self.mark_checked(value);
             return;
         }
-        let Some(p) = types.and_then(|t| t.of_argument(name, i_pos)).cloned() else { return };
+        let Some(p) = types.and_then(|t| t.of_argument(name, i_pos)).cloned() else {
+            return;
+        };
         if top(self.ctx, p.ty) {
             self.mark_checked(value);
         } else if closed(self.ctx, p.ty, p.subst.as_ref()) {
@@ -372,7 +476,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// when the expression is not `dynamic` (operands of operators and of
     /// indexing, which do not go through `evaluate_args`).
     pub(super) fn mark_if_typed(&mut self, expr: ast::ExprId, value: &Operand) {
-        if self.ctx.get_type(self.unit_id, expr).is_some_and(|t| t != self.ctx.core.dynamic_) {
+        if self
+            .ctx
+            .get_type(self.unit_id, expr)
+            .is_some_and(|t| t != self.ctx.core.dynamic_)
+        {
             self.mark_checked(value);
         }
     }
@@ -395,24 +503,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// representation of the parameter. It is the check the VM does at the entry
     /// of the method; here the call is direct, so it goes at the call
     /// site, per implementation.
-    pub(super) fn check_target_covariants(&mut self, target: usize, recv: &Operand, evaluated: &[Evaluated]) {
+    pub(super) fn check_target_covariants(
+        &mut self,
+        target: usize,
+        recv: &Operand,
+        evaluated: &[Evaluated],
+    ) {
         if !super::user_function(self.ctx, target) {
             return;
         }
-        let Some(o) = self.ctx.outline.functions.get(target) else { return };
+        let Some(o) = self.ctx.outline.functions.get(target) else {
+            return;
+        };
         if !o.type_params.is_empty() {
             return;
         }
         let params = o.parameters.clone();
-        let mut positionals = evaluated.iter().filter(|(n, _)| n.is_none()).map(|(_, v)| v.clone());
+        let mut positionals = evaluated
+            .iter()
+            .filter(|(n, _)| n.is_none())
+            .map(|(_, v)| v.clone());
         for (i, p) in params.iter().enumerate() {
             let v = if p.kind == ParameterKind::Named {
-                evaluated.iter().find(|(n, _)| n.is_some() && *n == p.external_name).map(|(_, v)| v.clone())
+                evaluated
+                    .iter()
+                    .find(|(n, _)| n.is_some() && *n == p.external_name)
+                    .map(|(_, v)| v.clone())
             } else {
                 positionals.next()
             };
             let Some(v) = v else { continue };
-            if top(self.ctx, p.ty) || !covariant_parameter(self.ctx, target, i) || self.is_terminated() {
+            if top(self.ctx, p.ty)
+                || !covariant_parameter(self.ctx, target, i)
+                || self.is_terminated()
+            {
                 continue;
             }
             // An unboxed scalar in the representation of the parameter already belongs to it.
@@ -423,13 +547,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let r = self.coerce(recv.clone(), Type::Ref);
             let saved = (
                 self.this_param.replace(r),
-                std::mem::replace(&mut self.enclosing_class, self.ctx.program.functions[target].class),
+                std::mem::replace(
+                    &mut self.enclosing_class,
+                    self.ctx.program.functions[target].class,
+                ),
                 std::mem::replace(&mut self.class_by_tuple, false),
                 self.type_tuple.take(),
             );
             let typ = self.type_rti(p.ty);
-            (self.this_param, self.enclosing_class, self.class_by_tuple, self.type_tuple) = saved;
-            let name = p.name.map(|n| self.ctx.symbol_name(n).to_string()).unwrap_or_default();
+            (
+                self.this_param,
+                self.enclosing_class,
+                self.class_by_tuple,
+                self.type_tuple,
+            ) = saved;
+            let name = p
+                .name
+                .map(|n| self.ctx.symbol_name(n).to_string())
+                .unwrap_or_default();
             let v = self.coerce(v, Type::Ref);
             self.cast_rti_in(v, typ, super::rti::CastContext::Parameter(name));
         }
@@ -439,13 +574,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// supertype).
     fn interface_member(&self, c: ClassId, name: &str) -> Option<usize> {
         let sym = self.ctx.interner.lookup(name)?;
-        if let Some(f) = self.ctx.program.classes[c.0 as usize].instance_members.get(&sym) {
+        if let Some(f) = self.ctx.program.classes[c.0 as usize]
+            .instance_members
+            .get(&sym)
+        {
             return Some(f.0 as usize);
         }
         let data = self.ctx.outline.hierarchy.get(c)?;
-        let mut supers: Vec<ClassId> = data.supertypes.keys().copied().filter(|s| *s != c).collect();
+        let mut supers: Vec<ClassId> = data
+            .supertypes
+            .keys()
+            .copied()
+            .filter(|s| *s != c)
+            .collect();
         supers.sort_by_key(|s| s.0);
-        supers.into_iter().find_map(|s| self.ctx.program.classes[s.0 as usize].instance_members.get(&sym).map(|f| f.0 as usize))
+        supers.into_iter().find_map(|s| {
+            self.ctx.program.classes[s.0 as usize]
+                .instance_members
+                .get(&sym)
+                .map(|f| f.0 as usize)
+        })
     }
 
     /// Argument `value` (expression `arg`) of the `i`-th parameter of
@@ -462,15 +610,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         name: &str,
         i: usize,
     ) {
-        let Some(static_ty) = self.ctx.get_type(self.unit_id, arg) else { return };
+        let Some(static_ty) = self.ctx.get_type(self.unit_id, arg) else {
+            return;
+        };
         if static_ty != self.ctx.core.dynamic_ {
             self.mark_checked(value);
             return;
         }
-        let Some(rt) = self.ctx.get_type(self.unit_id, receiver) else { return };
-        let T::Interface { class: rc, args: rargs, .. } = self.ctx.table.get(rt).clone() else { return };
-        let Some(fid) = self.interface_member(rc, name) else { return };
-        let Some(p) = self.ctx.outline.functions.get(fid).and_then(|o| o.parameters.get(i)).cloned() else { return };
+        let Some(rt) = self.ctx.get_type(self.unit_id, receiver) else {
+            return;
+        };
+        let T::Interface {
+            class: rc,
+            args: rargs,
+            ..
+        } = self.ctx.table.get(rt).clone()
+        else {
+            return;
+        };
+        let Some(fid) = self.interface_member(rc, name) else {
+            return;
+        };
+        let Some(p) = self
+            .ctx
+            .outline
+            .functions
+            .get(fid)
+            .and_then(|o| o.parameters.get(i))
+            .cloned()
+        else {
+            return;
+        };
         if top(self.ctx, p.ty) {
             self.mark_checked(value);
             return;
@@ -482,7 +652,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(dc) = self.ctx.program.functions[fid].class
             && dc != rc
             && let Some(data) = self.ctx.outline.classes.get(dc.0 as usize)
-            && let Some(&sup) = self.ctx.outline.hierarchy.get(rc).and_then(|h| h.supertypes.get(&dc))
+            && let Some(&sup) = self
+                .ctx
+                .outline
+                .hierarchy
+                .get(rc)
+                .and_then(|h| h.supertypes.get(&dc))
             && let T::Interface { args: sargs, .. } = self.ctx.table.get(sup)
         {
             subst.extend(data.type_params.iter().copied().zip(sargs.iter().copied()));
@@ -502,17 +677,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub(super) fn single_implementation(&self, fid: usize) -> Option<usize> {
         let f = &self.ctx.program.functions[fid];
         let cid = f.class?;
-        if f.static_ || !self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
+        if f.static_
+            || !self
+                .ctx
+                .program
+                .library(self.ctx.program.classes[cid.0 as usize].library)
+                .is_sdk
+        {
             return None;
         }
         let name = self.ctx.symbol_name(f.name).to_string();
         if !super::sdk_source::closed_member(self.ctx, cid, &name) {
             return None;
         }
-        let [super::sdk_source::Implementation::Function(g)] = super::sdk_source::implementations(self.ctx, cid, &name)[..] else {
+        let [super::sdk_source::Implementation::Function(g)] =
+            super::sdk_source::implementations(self.ctx, cid, &name)[..]
+        else {
             return None;
         };
-        let n = |x: usize| self.ctx.outline.functions.get(x).map(|o| o.parameters.len());
+        let n = |x: usize| {
+            self.ctx
+                .outline
+                .functions
+                .get(x)
+                .map(|o| o.parameters.len())
+        };
         (n(g) == n(fid)).then_some(g)
     }
 }

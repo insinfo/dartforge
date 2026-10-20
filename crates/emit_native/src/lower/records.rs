@@ -44,7 +44,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ));
         }
         items.sort_by_key(|(s, _, _)| *s);
-        let mut names: Vec<String> = named.iter().map(|(n, _)| self.ctx.symbol_name(n.sym).to_string()).collect();
+        let mut names: Vec<String> = named
+            .iter()
+            .map(|(n, _)| self.ctx.symbol_name(n.sym).to_string())
+            .collect();
         names.sort();
         let Some(id) = self.ctx.shape_id(positional.len(), &names) else {
             return self.unsupported("record with an unknown shape", span);
@@ -60,7 +63,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     k_pos += 1;
                     i
                 }
-                Some(n) => positional.len() + names.iter().position(|x| *x == n).expect("shape name"),
+                Some(n) => {
+                    positional.len() + names.iter().position(|x| *x == n).expect("shape name")
+                }
             };
             values.push((idx, v));
         }
@@ -69,7 +74,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name: "dartforge_object_new".to_string(),
                 args: vec![
                     (Operand::Constant(Constant::Int(i64::from(id))), Type::I64),
-                    (Operand::Constant(Constant::Int((positional.len() + names.len()) as i64)), Type::I64),
+                    (
+                        Operand::Constant(Constant::Int((positional.len() + names.len()) as i64)),
+                        Type::I64,
+                    ),
                 ],
                 ret_ty: Type::Ref,
             },
@@ -90,13 +98,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Void,
             );
         }
-        let names = self.emit(Instruction::Const(Constant::String(names.join(","))), Type::Ref);
+        let names = self.emit(
+            Instruction::Const(Constant::String(names.join(","))),
+            Type::Ref,
+        );
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_rti_named_record".to_string(),
                 args: vec![
                     (obj.clone(), Type::Ref),
-                    (Operand::Constant(Constant::Int(positional.len() as i64)), Type::I64),
+                    (
+                        Operand::Constant(Constant::Int(positional.len() as i64)),
+                        Type::I64,
+                    ),
                     (names, Type::Ref),
                 ],
                 ret_ty: Type::Void,
@@ -121,7 +135,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// The shapes with field `name` (`$k` or named): (id, index).
     pub fn shapes_with_field(&self, name: &str) -> Vec<(i64, usize)> {
-        let positional = name.strip_prefix('$').and_then(|d| d.parse::<usize>().ok()).filter(|k| *k >= 1);
+        let positional = name
+            .strip_prefix('$')
+            .and_then(|d| d.parse::<usize>().ok())
+            .filter(|k| *k >= 1);
         let mut exit = Vec::new();
         for (k, (npos, names)) in self.ctx.record_shapes.iter().enumerate() {
             let id = i64::from(SHAPE_BASE_ID) + k as i64;
@@ -143,7 +160,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_object_get".to_string(),
-                args: vec![(obj, Type::Ref), (Operand::Constant(Constant::Int(i as i64)), Type::I64)],
+                args: vec![
+                    (obj, Type::Ref),
+                    (Operand::Constant(Constant::Int(i as i64)), Type::I64),
+                ],
                 ret_ty: Type::Ref,
             },
             Type::Ref,
@@ -160,7 +180,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         pattern: &mut dyn FnMut(&mut Self) -> Operand,
     ) -> Option<Operand> {
         let shapes = self.shapes_with_field(name);
-        let positional = name.strip_prefix('$').and_then(|d| d.parse::<i64>().ok()).filter(|k| *k >= 1);
+        let positional = name
+            .strip_prefix('$')
+            .and_then(|d| d.parse::<i64>().ok())
+            .filter(|k| *k >= 1);
         if shapes.is_empty() && positional.is_none() {
             return None;
         }
@@ -205,10 +228,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // field `k` (1-based) in word `k`; outside the shape,
                 // `NoSuchMethodError`.
                 let n = self.object_word(recv.clone(), 0, Type::I64);
-                let fits = self.emit(Instruction::ICmp(ICmpOp::Sge, n, Operand::Constant(Constant::Int(k))), Type::I1);
+                let fits = self.emit(
+                    Instruction::ICmp(ICmpOp::Sge, n, Operand::Constant(Constant::Int(k))),
+                    Type::I1,
+                );
                 let b_read = self.new_block();
                 let b_outside = self.new_block();
-                self.terminate(Terminator::CondBranch { cond: fits, then_block: b_read, else_block: b_outside });
+                self.terminate(Terminator::CondBranch {
+                    cond: fits,
+                    then_block: b_read,
+                    else_block: b_outside,
+                });
                 self.set_block(b_read);
                 let v = self.object_word(recv.clone(), k, Type::Ref);
                 entries.push((self.current_block, v));
@@ -262,7 +292,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let this = Operand::Val(self.add_param("this".to_string(), Type::Ref));
         let (npos, names) = self.ctx.record_shapes[k].clone();
-        let mut text = self.emit(Instruction::Const(Constant::String("(".to_string())), Type::Ref);
+        let mut text = self.emit(
+            Instruction::Const(Constant::String("(".to_string())),
+            Type::Ref,
+        );
         for i in 0..npos + names.len() {
             let mut prefix = String::new();
             if i > 0 {
@@ -280,7 +313,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let s = self.text_of(v);
             text = self.concatenate(text, s);
         }
-        let end = self.emit(Instruction::Const(Constant::String(")".to_string())), Type::Ref);
+        let end = self.emit(
+            Instruction::Const(Constant::String(")".to_string())),
+            Type::Ref,
+        );
         let r = self.concatenate(text, end);
         self.terminate(Terminator::Return(Some(r)));
     }
@@ -362,10 +398,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 });
                 self.set_block(following);
             }
-            self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Bool(true)))));
+            self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Bool(
+                true,
+            )))));
         }
         self.set_block(b_false);
-        self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Bool(false)))));
+        self.terminate(Terminator::Return(Some(Operand::Constant(Constant::Bool(
+            false,
+        )))));
         self.set_block(b_runtime);
         let r = self.emit(
             Instruction::CallRuntime {
@@ -395,7 +435,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut hash = Operand::Constant(Constant::Int(i64::from(SHAPE_BASE_ID) + k as i64));
         for i in 0..npos + names.len() {
             let field = self.shape_field(this.clone(), i);
-            let code = self.call_by_name(field, super::sdk_source::AccessKind::Read, "hashCode", &[]);
+            let code =
+                self.call_by_name(field, super::sdk_source::AccessKind::Read, "hashCode", &[]);
             let code = self.coerce(code, Type::I64);
             let multiplied = self.emit(
                 Instruction::Mul(hash, Operand::Constant(Constant::Int(31))),
@@ -427,7 +468,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         let join = self.new_block();
         let b_default = self.new_block();
-        let blocks: Vec<(i64, usize, BlockId)> = shapes.iter().map(|&(id, i)| (id, i, self.new_block())).collect();
+        let blocks: Vec<(i64, usize, BlockId)> = shapes
+            .iter()
+            .map(|&(id, i)| (id, i, self.new_block()))
+            .collect();
         self.terminate(Terminator::Switch {
             val: cls,
             default: b_default,

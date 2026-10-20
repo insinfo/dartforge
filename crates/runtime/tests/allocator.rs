@@ -1,9 +1,7 @@
 //! The executable's allocator with per-thread free lists (`src/allocator.rs`),
 //! called directly (the crate's tests do not install it as the global allocator).
 
-use dartforge_runtime::abi::{
-    CachingAllocator, flush_allocation_cache, enable_allocation_cache,
-};
+use dartforge_runtime::abi::{CachingAllocator, enable_allocation_cache, flush_allocation_cache};
 use std::alloc::{GlobalAlloc, Layout};
 
 /// On a new thread, so that the lists start empty and enabled.

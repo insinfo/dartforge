@@ -17,12 +17,23 @@ pub fn the_collect(m: &Engine<'_>, cx: &Ctx, e: ExprId, nodes: &mut Vec<Span>) {
 
 /// Like [`the_collect`], saying whether the parameters count and whether the
 /// node is in a constant context.
-pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_const: bool, nodes: &mut Vec<Span>) {
+pub fn collect_into(
+    m: &Engine<'_>,
+    cx: &Ctx,
+    e: ExprId,
+    params_list: bool,
+    in_const: bool,
+    nodes: &mut Vec<Span>,
+) {
     let u = cx.unit;
     let a = m.ast(u);
     let span = a.expr(e).span;
     match &a.expr(e).kind {
-        ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::Bool(_) | ExprKind::Null | ExprKind::Symbol(_) => {}
+        ExprKind::Int(_)
+        | ExprKind::Double(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Null
+        | ExprKind::Symbol(_) => {}
         ExprKind::String(lit) => {
             for p in lit.parts.iter() {
                 if let ast::StringPart::Interpolation(x) = p {
@@ -40,7 +51,10 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
             // `const .id(…)` is always a constant `DotShorthandConstructorInvocation`
             // (`isConst` by the keyword), resolved or not
             // (`potentially_constant.dart`, 3.13).
-            if matches!(a.expr(*target).kind, ExprKind::DotShorthand { const_: true, .. }) {
+            if matches!(
+                a.expr(*target).kind,
+                ExprKind::DotShorthand { const_: true, .. }
+            ) {
                 return;
             }
             if let Some(Resolved::Constructor(_)) = m.resolved(u, e) {
@@ -52,16 +66,26 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
             // `identical(a, b)`.
             if arguments.args.len() == 2
                 && let ExprKind::Identifier(n) = &a.expr(*target).kind
-                    && m.interner.resolve(n.sym) == "identical"
-                        && let Some(Resolved::Element(Element::Function(f))) = m.resolved(u, *target)
-                            && Some(m.program.function(*f).library) == m.core.core_library {
-                                collect_into(m, cx, arguments.args[0].value, params_list, in_const, nodes);
-                                collect_into(m, cx, arguments.args[1].value, params_list, in_const, nodes);
-                                return;
-                            }
+                && m.interner.resolve(n.sym) == "identical"
+                && let Some(Resolved::Element(Element::Function(f))) = m.resolved(u, *target)
+                && Some(m.program.function(*f).library) == m.core.core_library
+            {
+                collect_into(m, cx, arguments.args[0].value, params_list, in_const, nodes);
+                collect_into(m, cx, arguments.args[1].value, params_list, in_const, nodes);
+                return;
+            }
             nodes.push(span);
         }
-        ExprKind::List { const_, elements, type_args } | ExprKind::SetOrMap { const_, elements, type_args } => {
+        ExprKind::List {
+            const_,
+            elements,
+            type_args,
+        }
+        | ExprKind::SetOrMap {
+            const_,
+            elements,
+            type_args,
+        } => {
             if !(*const_ || in_const) {
                 nodes.push(span);
                 return;
@@ -90,7 +114,11 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
             }
         }
         ExprKind::Parenthesized(x) => collect_into(m, cx, *x, params_list, in_const, nodes),
-        ExprKind::Record { const_, positional, named } => {
+        ExprKind::Record {
+            const_,
+            positional,
+            named,
+        } => {
             let c = *const_ || in_const;
             for x in positional.iter() {
                 collect_into(m, cx, *x, params_list, c, nodes);
@@ -110,7 +138,11 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
                 nodes.push(span);
             }
         }
-        ExprKind::Conditional { condition, then, else_ } => {
+        ExprKind::Conditional {
+            condition,
+            then,
+            else_,
+        } => {
             collect_into(m, cx, *condition, params_list, in_const, nodes);
             collect_into(m, cx, *then, params_list, in_const, nodes);
             collect_into(m, cx, *else_, params_list, in_const, nodes);
@@ -126,19 +158,22 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
                 return;
             }
             if let ExprKind::Property { target: t2, .. } = &a.expr(*target).kind
-                && matches!(a.expr(*t2).kind, ExprKind::Identifier(_)) {
-                    match getter_variable(m, cx, e) {
-                        Some(Some(true)) | Some(None) => return,
-                        Some(Some(false)) => {
-                            nodes.push(name.span);
-                            return;
-                        }
-                        None => {}
+                && matches!(a.expr(*t2).kind, ExprKind::Identifier(_))
+            {
+                match getter_variable(m, cx, e) {
+                    Some(Some(true)) | Some(None) => return,
+                    Some(Some(false)) => {
+                        nodes.push(name.span);
+                        return;
                     }
+                    None => {}
                 }
+            }
             nodes.push(span);
         }
-        ExprKind::As { value, .. } | ExprKind::Is { value, .. } => collect_into(m, cx, *value, params_list, in_const, nodes),
+        ExprKind::As { value, .. } | ExprKind::Is { value, .. } => {
+            collect_into(m, cx, *value, params_list, in_const, nodes)
+        }
         // `DotShorthandNameExpression` (3.13): the getter of a `const`
         // variable (the enum constant, the `const` static field) and the
         // tear-off of a static method are potentially constant; the rest
@@ -152,16 +187,18 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
                         Some(f) => {
                             let fe = m.program.function(*f);
                             match fe.kind {
-                                FunctionKind::ImplicitAccessor => fe.variable.is_some_and(|v| m.program.variable(v).const_),
+                                FunctionKind::ImplicitAccessor => {
+                                    fe.variable.is_some_and(|v| m.program.variable(v).const_)
+                                }
                                 FunctionKind::Getter | FunctionKind::Setter => false,
                                 _ => true,
                             }
                         }
-                        None => k
-                            .enum_constants
-                            .iter()
-                            .chain(k.fields.iter())
-                            .any(|&v| m.program.variable(v).name == name.sym && m.program.variable(v).static_ && m.program.variable(v).const_),
+                        None => k.enum_constants.iter().chain(k.fields.iter()).any(|&v| {
+                            m.program.variable(v).name == name.sym
+                                && m.program.variable(v).static_
+                                && m.program.variable(v).const_
+                        }),
                     }
                 }
                 _ => false,
@@ -173,7 +210,10 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
         ExprKind::TypeArguments { target, .. } => {
             // `FunctionReference`/`TypeLiteral`: the type arguments are accepted;
             // the function is collected.
-            if !matches!(m.resolved(u, *target), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_)))) {
+            if !matches!(
+                m.resolved(u, *target),
+                Some(Resolved::Element(Element::Class(_) | Element::Typedef(_)))
+            ) {
                 collect_into(m, cx, *target, params_list, in_const, nodes);
             }
         }
@@ -187,14 +227,24 @@ pub fn collect_into(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, in_c
 /// a class or alias without a deferred prefix (and its arguments are too),
 /// or when it is `dynamic`, `Never` or `void`; a function, through its
 /// return, bounds and simple parameters; a record, through its fields.
-fn constant_type(m: &Engine<'_>, u: dartforge_elements::model::UnitId, t: ast::TypeId, potential: bool) -> bool {
+fn constant_type(
+    m: &Engine<'_>,
+    u: dartforge_elements::model::UnitId,
+    t: ast::TypeId,
+    potential: bool,
+) -> bool {
     use crate::table::Type;
     let a = &m.program.unit(u).ast;
-    let resolved = m.body.units.get(u.0 as usize).and_then(|b| b.annotation_types.get(&t).copied());
+    let resolved = m
+        .body
+        .units
+        .get(u.0 as usize)
+        .and_then(|b| b.annotation_types.get(&t).copied());
     match &a.ty(t).kind {
         ast::TypeKind::Void => true,
         ast::TypeKind::Named { name, args } => {
-            let is_parameter = resolved.is_some_and(|x| matches!(m.table.get(x), Type::TypeParameter { .. }));
+            let is_parameter =
+                resolved.is_some_and(|x| matches!(m.table.get(x), Type::TypeParameter { .. }));
             if is_parameter {
                 return potential;
             }
@@ -203,42 +253,78 @@ fn constant_type(m: &Engine<'_>, u: dartforge_elements::model::UnitId, t: ast::T
                 [n] => (m.program.lookup_in_unit(u, n.sym), false),
                 [p, n] => (
                     m.program.lookup_prefixed_in_unit(u, p.sym, n.sym),
-                    m.program.library(lib).imports.iter().any(|i| i.prefix == Some(p.sym) && i.deferred),
+                    m.program
+                        .library(lib)
+                        .imports
+                        .iter()
+                        .any(|i| i.prefix == Some(p.sym) && i.deferred),
                 ),
                 _ => (None, false),
             };
-            let named_one = matches!(binding.and_then(|b| b.getter), Some(Element::Class(_) | Element::Typedef(_)));
+            let named_one = matches!(
+                binding.and_then(|b| b.getter),
+                Some(Element::Class(_) | Element::Typedef(_))
+            );
             if named_one {
                 return !deferred && args.iter().all(|&x| constant_type(m, u, x, potential));
             }
-            resolved.is_some_and(|x| matches!(m.table.get(x), Type::Dynamic | Type::Never | Type::Void))
+            resolved
+                .is_some_and(|x| matches!(m.table.get(x), Type::Dynamic | Type::Never | Type::Void))
         }
-        ast::TypeKind::Function { return_type, type_params, parameters } => {
+        ast::TypeKind::Function {
+            return_type,
+            type_params,
+            parameters,
+        } => {
             if let Some(r) = return_type
                 && !constant_type(m, u, *r, potential)
             {
                 return false;
             }
-            if type_params.iter().filter_map(|p| p.bound).any(|b| !constant_type(m, u, b, potential)) {
+            if type_params
+                .iter()
+                .filter_map(|p| p.bound)
+                .any(|b| !constant_type(m, u, b, potential))
+            {
                 return false;
             }
-            parameters.iter().filter(|p| p.function_parameters.is_none()).all(|p| p.ty.is_none_or(|x| constant_type(m, u, x, potential)))
+            parameters
+                .iter()
+                .filter(|p| p.function_parameters.is_none())
+                .all(|p| p.ty.is_none_or(|x| constant_type(m, u, x, potential)))
         }
-        ast::TypeKind::Record { positional, named } => {
-            positional.iter().chain(named.iter().map(|(_, t)| t)).all(|&x| constant_type(m, u, x, potential))
-        }
+        ast::TypeKind::Record { positional, named } => positional
+            .iter()
+            .chain(named.iter().map(|(_, t)| t))
+            .all(|&x| constant_type(m, u, x, potential)),
     }
 }
 
-fn element(m: &Engine<'_>, cx: &Ctx, el: &CollectionElement, params_list: bool, nodes: &mut Vec<Span>) {
+fn element(
+    m: &Engine<'_>,
+    cx: &Ctx,
+    el: &CollectionElement,
+    params_list: bool,
+    nodes: &mut Vec<Span>,
+) {
     match el {
-        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => collect_into(m, cx, *x, params_list, true, nodes),
+        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
+            collect_into(m, cx, *x, params_list, true, nodes)
+        }
         CollectionElement::MapEntry { key, value, .. } => {
             collect_into(m, cx, *key, params_list, true, nodes);
             collect_into(m, cx, *value, params_list, true, nodes);
         }
-        CollectionElement::Spread { value, .. } => collect_into(m, cx, *value, params_list, true, nodes),
-        CollectionElement::If { condition, then, else_, case_pattern, .. } => {
+        CollectionElement::Spread { value, .. } => {
+            collect_into(m, cx, *value, params_list, true, nodes)
+        }
+        CollectionElement::If {
+            condition,
+            then,
+            else_,
+            case_pattern,
+            ..
+        } => {
             if case_pattern.is_some() {
                 nodes.push(m.element_span(cx.unit, el));
                 return;
@@ -249,7 +335,9 @@ fn element(m: &Engine<'_>, cx: &Ctx, el: &CollectionElement, params_list: bool, 
                 element(m, cx, x, params_list, nodes);
             }
         }
-        CollectionElement::For { .. } | CollectionElement::ForIn { .. } => nodes.push(m.element_span(cx.unit, el)),
+        CollectionElement::For { .. } | CollectionElement::ForIn { .. } => {
+            nodes.push(m.element_span(cx.unit, el))
+        }
     }
 }
 
@@ -257,13 +345,21 @@ fn element(m: &Engine<'_>, cx: &Ctx, el: &CollectionElement, params_list: bool, 
 /// variable: `Some(None)`; something else: `None`.
 fn getter_variable(m: &Engine<'_>, cx: &Ctx, e: ExprId) -> Option<Option<bool>> {
     match m.resolved(cx.unit, e)? {
-        Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => {
-            Some(Some(m.program.variable(*v).const_))
-        }
-        Resolved::Element(Element::Function(f)) | Resolved::Member { member: MemberRef::Function(f), .. } => {
+        Resolved::Element(Element::Variable(v))
+        | Resolved::Member {
+            member: MemberRef::Variable(v),
+            ..
+        } => Some(Some(m.program.variable(*v).const_)),
+        Resolved::Element(Element::Function(f))
+        | Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        } => {
             let fe = m.program.function(*f);
             match fe.kind {
-                FunctionKind::ImplicitAccessor => Some(fe.variable.map(|v| m.program.variable(v).const_)),
+                FunctionKind::ImplicitAccessor => {
+                    Some(fe.variable.map(|v| m.program.variable(v).const_))
+                }
                 FunctionKind::Getter => Some(Some(false)),
                 _ => None,
             }
@@ -283,10 +379,17 @@ fn identifier(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, nodes: &mu
             collect_into(m, cx, *target, params_list, true, nodes);
             return;
         }
-        if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = res {
+        if let Some(Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }) = res
+        {
             let fe = m.program.function(*f);
             if fe.static_ && matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator) {
-                if !matches!(m.resolved(u, *target), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_)))) {
+                if !matches!(
+                    m.resolved(u, *target),
+                    Some(Resolved::Element(Element::Class(_) | Element::Typedef(_)))
+                ) {
                     nodes.push(span);
                 }
                 return;
@@ -308,12 +411,20 @@ fn identifier(m: &Engine<'_>, cx: &Ctx, e: ExprId, params_list: bool, nodes: &mu
                 nodes.push(span);
             }
         }
-        Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
+        Some(Resolved::Element(Element::Variable(v)))
+        | Some(Resolved::Member {
+            member: MemberRef::Variable(v),
+            ..
+        }) => {
             if !m.program.variable(*v).const_ {
                 nodes.push(span);
             }
         }
-        Some(Resolved::Element(Element::Function(f))) | Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
+        Some(Resolved::Element(Element::Function(f)))
+        | Some(Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }) => {
             let fe = m.program.function(*f);
             match fe.kind {
                 FunctionKind::ImplicitAccessor => {

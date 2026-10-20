@@ -17,14 +17,14 @@
 //! Only the analyzer uses this path (see [`enabled`]); the compilers keep the
 //! old typing of `super::type_check`.
 
+use super::super::BodyInferrer;
 use super::super::body::{Body, Local, MemberName};
 use super::super::expr::{self, declare_local, infer};
 use super::super::flow::Flow;
 use super::super::members::Search;
-use super::super::BodyInferrer;
 use super::{
-    invalid_annotation, implicit_named_field, implicit_name, never_matches, record_pattern_type,
-    object_pattern_type,
+    implicit_name, implicit_named_field, invalid_annotation, never_matches, object_pattern_type,
+    record_pattern_type,
 };
 use crate::resolved::LocalId;
 use crate::table::{Type, TypeId};
@@ -65,7 +65,8 @@ pub(crate) fn enabled(inf: &BodyInferrer<'_>) -> bool {
 }
 
 fn language_patterns(inf: &BodyInferrer<'_>, cx: &Body) -> bool {
-    inf.program.library(cx.lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0)
+    inf.program.library(cx.lib).features.version()
+        >= dartforge_frontend::features::LanguageVersion::new(3, 0)
 }
 
 /// A synthetic local for the promotion key of a matched value.
@@ -74,7 +75,15 @@ pub(crate) fn new_key(inf: &BodyInferrer<'_>, cx: &mut Body, typ: TypeId) -> Loc
         Some(s) => s,
         None => inf.program.classes[0].name,
     };
-    cx.declare_synthetic(Local { name: the_name, ty: typ, final_: true, late: false, const_: false, offset: 0, local_function: false })
+    cx.declare_synthetic(Local {
+        name: the_name,
+        ty: typ,
+        final_: true,
+        late: false,
+        const_: false,
+        offset: 0,
+        local_function: false,
+    })
 }
 
 /// Matches against reference `r` what `f` types and returns the "did not
@@ -86,7 +95,10 @@ pub(crate) fn match_(
     f: impl FnOnce(&mut BodyInferrer<'_>, &mut Body),
 ) -> Flow {
     let not_matched = cx.flow.unreachable();
-    let saved = cx.matching.replace(Matching { not_matched, stack: vec![r] });
+    let saved = cx.matching.replace(Matching {
+        not_matched,
+        stack: vec![r],
+    });
     f(inf, cx);
     let end = std::mem::replace(&mut cx.matching, saved);
     match end {
@@ -106,7 +118,9 @@ fn matched(cx: &Body, r: &MatchedRef) -> TypeId {
 
 /// `_unmatched = _join(_unmatched, extra)`.
 fn join_not_matched(inf: &mut BodyInferrer<'_>, cx: &mut Body, extra: &Flow) {
-    let Some(old) = cx.matching.as_ref().map(|c| c.not_matched.clone()) else { return };
+    let Some(old) = cx.matching.as_ref().map(|c| c.not_matched.clone()) else {
+        return;
+    };
     let new_ = inf.join(&old, extra);
     if let Some(c) = cx.matching.as_mut() {
         c.not_matched = new_;
@@ -159,14 +173,24 @@ fn promote_not(inf: &mut BodyInferrer<'_>, f: &mut Flow, id: LocalId, declared: 
     let reachable = f.reachable;
     let s = f.current_type(id, declared);
     let fat = expr::factor(inf, s, k);
-    let target = if fat == s || matches!(inf.table.get(fat), Type::Never) { s } else { fat };
+    let target = if fat == s || matches!(inf.table.get(fat), Type::Never) {
+        s
+    } else {
+        fat
+    };
     inf.promote_tested(f, id, declared, target, k);
     f.reachable = reachable;
 }
 
 /// `promoteForPattern` (`:5191-5258`): returns whether `K` covers the
 /// matched type.
-fn promote_for_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, k: TypeId, failure: bool, can: bool) -> bool {
+fn promote_for_pattern(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    k: TypeId,
+    failure: bool,
+    can: bool,
+) -> bool {
     // The invalid known type (`Unresolved()`, `:5196-5199`): the current state
     // goes to "did not match", without promotion, and does not cover.
     if inf.table.is_invalid(k) {
@@ -178,7 +202,11 @@ fn promote_for_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, k: TypeId, fai
     let t = matched(cx, &r);
     // A non-nullable matched type: the known one becomes its non-nullable
     // (`:5201-5207`), and `case int? x?` promotes to `int`.
-    let k = if classify(inf, t) == Class::NonNull { inf.non_null_promotion(k) } else { k };
+    let k = if classify(inf, t) == Class::NonNull {
+        inf.non_null_promotion(k)
+    } else {
+        k
+    };
     let covers = inf.sub(t, k);
     let mut yes = cx.flow.clone();
     let mut not_ = cx.flow.clone();
@@ -223,7 +251,13 @@ fn check_null(inf: &mut BodyInferrer<'_>, cx: &mut Body) -> Option<Flow> {
 
 /// `_handleEqualityCheckPattern` (`:5832-5903`): constant pattern (`==`) and
 /// relational `==`/`!=` against `the_operand`, of type `operand_type`.
-fn equality(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_operand: ExprId, operand_type: TypeId, different: bool) {
+fn equality(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    the_operand: ExprId,
+    operand_type: TypeId,
+    different: bool,
+) {
     let Some(r) = top(cx) else { return };
     let t = matched(cx, &r);
     let a = &inf.program.unit(cx.unit).ast;
@@ -240,7 +274,9 @@ fn equality(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_operand: ExprId, oper
             join_not_matched(inf, cx, &current);
             cx.flow.reachable = false;
         }
-    } else if (ct == Class::Null && co == Class::NonNull) || (co == Class::Null && ct == Class::NonNull) {
+    } else if (ct == Class::Null && co == Class::NonNull)
+        || (co == Class::Null && ct == Class::NonNull)
+    {
         // No information (in weak mode they could be equal).
         join_not_matched(inf, cx, &current);
     } else if null_literal {
@@ -260,10 +296,21 @@ fn equality(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_operand: ExprId, oper
 /// `pushSubpattern(typ)` … `popSubpattern`: `f` types the subpattern
 /// against a new reference of type `typ`; returns the demonstrated type
 /// (the reference's promoted one after the subpattern).
-fn with_subpattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, typ: TypeId, f: impl FnOnce(&mut BodyInferrer<'_>, &mut Body)) -> TypeId {
+fn with_subpattern(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    typ: TypeId,
+    f: impl FnOnce(&mut BodyInferrer<'_>, &mut Body),
+) -> TypeId {
     let the_key = new_key(inf, cx, typ);
     if let Some(c) = cx.matching.as_mut() {
-        c.stack.push(MatchedRef { key: the_key, ty: typ, target: None, property: false, version: None });
+        c.stack.push(MatchedRef {
+            key: the_key,
+            ty: typ,
+            target: None,
+            property: false,
+            version: None,
+        });
     }
     f(inf, cx);
     let shown = cx.flow.current_type(the_key, typ);
@@ -274,17 +321,28 @@ fn with_subpattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, typ: TypeId, f: im
 }
 
 /// The `as` keyword of a cast pattern, between the subpattern and the type.
-fn as_keyword(inf: &BodyInferrer<'_>, cx: &Body, internal: PatternId, ty: ast::TypeId) -> Option<Span> {
+fn as_keyword(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    internal: PatternId,
+    ty: ast::TypeId,
+) -> Option<Span> {
     let a = &inf.program.unit(cx.unit).ast;
     let (start, end) = (a.pattern(internal).span.end, a.ty(ty).span.start);
     let source = inf.program.unit(cx.unit).source.as_bytes();
     let snippet = source.get(start..end)?;
     let mut i = 0;
     while i + 2 <= snippet.len() {
-        let before_ok = i == 0 || !(snippet[i - 1].is_ascii_alphanumeric() || snippet[i - 1] == b'_');
-        let after_ok = snippet.get(i + 2).is_none_or(|c| !(c.is_ascii_alphanumeric() || *c == b'_'));
+        let before_ok =
+            i == 0 || !(snippet[i - 1].is_ascii_alphanumeric() || snippet[i - 1] == b'_');
+        let after_ok = snippet
+            .get(i + 2)
+            .is_none_or(|c| !(c.is_ascii_alphanumeric() || *c == b'_'));
         if &snippet[i..i + 2] == b"as" && before_ok && after_ok {
-            return Some(Span { start: start + i, end: start + i + 2 });
+            return Some(Span {
+                start: start + i,
+                end: start + i + 2,
+            });
         }
         i += 1;
     }
@@ -308,14 +366,23 @@ fn refutable_in_irrefutable(inf: &mut BodyInferrer<'_>, cx: &mut Body, sp: Span)
     if !irrefutable_now(cx) {
         return false;
     }
-    inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::REFUTABLE_PATTERN_IN_IRREFUTABLE_CONTEXT, sp, &[]);
+    inf.warning_with_code(
+        dartforge_diagnostics::codes::compile_time_error::REFUTABLE_PATTERN_IN_IRREFUTABLE_CONTEXT,
+        sp,
+        &[],
+    );
     cx.forced_refutable = true;
     true
 }
 
 /// `patternTypeMismatchInIrrefutableContext` (`shared_type_analyzer.dart:174-185`),
 /// on the whole pattern, with the matched type and the required one.
-fn wrong_type_in_irrefutable(inf: &mut BodyInferrer<'_>, matched: TypeId, the_required: TypeId, sp: Span) {
+fn wrong_type_in_irrefutable(
+    inf: &mut BodyInferrer<'_>,
+    matched: TypeId,
+    the_required: TypeId,
+    sp: Span,
+) {
     let a1 = inf.table.format(matched, inf.interner, inf.program);
     let a2 = inf.table.format(the_required, inf.interner, inf.program);
     inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::PATTERN_TYPE_MISMATCH_IN_IRREFUTABLE_CONTEXT, sp, &[&a1, &a2]);
@@ -323,7 +390,12 @@ fn wrong_type_in_irrefutable(inf: &mut BodyInferrer<'_>, matched: TypeId, the_re
 
 /// The variables the pattern declares, in `VariableBinder` order (a `||`
 /// joins those of both sides, the left first).
-pub(crate) fn declared_variables(inf: &BodyInferrer<'_>, cx: &Body, p: PatternId, output: &mut Vec<ast::Name>) {
+pub(crate) fn declared_variables(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    p: PatternId,
+    output: &mut Vec<ast::Name>,
+) {
     let a = &inf.program.unit(cx.unit).ast;
     let by = |n: ast::Name, output: &mut Vec<ast::Name>| {
         if !output.iter().any(|x| x.sym == n.sym) {
@@ -331,12 +403,19 @@ pub(crate) fn declared_variables(inf: &BodyInferrer<'_>, cx: &Body, p: PatternId
         }
     };
     match &a.pattern(p).kind {
-        PatternKind::Variable { final_, var_, ty, name } => {
+        PatternKind::Variable {
+            final_,
+            var_,
+            ty,
+            name,
+        } => {
             if !(cx.refutable_pattern && !*var_ && !*final_ && ty.is_none()) {
                 by(*name, output);
             }
         }
-        PatternKind::Wildcard { .. } | PatternKind::Constant(_) | PatternKind::Relational { .. } => {}
+        PatternKind::Wildcard { .. }
+        | PatternKind::Constant(_)
+        | PatternKind::Relational { .. } => {}
         PatternKind::Or(x, y) | PatternKind::And(x, y) => {
             let mut l = Vec::new();
             declared_variables(inf, cx, *x, &mut l);
@@ -345,12 +424,16 @@ pub(crate) fn declared_variables(inf: &BodyInferrer<'_>, cx: &Body, p: PatternId
                 by(n, output);
             }
         }
-        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => declared_variables(inf, cx, *x, output),
+        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => {
+            declared_variables(inf, cx, *x, output)
+        }
         PatternKind::Cast { pattern, .. } => declared_variables(inf, cx, *pattern, output),
         PatternKind::List { elements, .. } => {
             for e in elements.iter() {
                 match e {
-                    ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) => declared_variables(inf, cx, *x, output),
+                    ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) => {
+                        declared_variables(inf, cx, *x, output)
+                    }
                     ListPatternElement::Rest(None) => {}
                 }
             }
@@ -405,11 +488,23 @@ fn variables_missing_in_or(inf: &mut BodyInferrer<'_>, cx: &Body, x: PatternId, 
 /// subpattern).
 fn duplicate_rests(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) {
     let a = &inf.program.unit(cx.unit).ast;
-    let PatternKind::List { type_args, elements } = &a.pattern(p).kind else { return };
+    let PatternKind::List {
+        type_args,
+        elements,
+    } = &a.pattern(p).kind
+    else {
+        return;
+    };
     let source = inf.program.unit(cx.unit).source.as_str();
     let sp = a.pattern(p).span;
     let after_types = type_args.last().map_or(sp.start, |x| a.ty(*x).span.end);
-    let Some(open) = source.get(after_types..sp.end).and_then(|s| s.find('[')).map(|i| after_types + i) else { return };
+    let Some(open) = source
+        .get(after_types..sp.end)
+        .and_then(|s| s.find('['))
+        .map(|i| after_types + i)
+    else {
+        return;
+    };
     let mut cursor = open + 1;
     let mut rests: Vec<Span> = Vec::new();
     for (i, e) in elements.iter().enumerate() {
@@ -419,11 +514,19 @@ fn duplicate_rests(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) {
                 let bound = match sub {
                     Some(x) => a.pattern(*x).span.start,
                     None => elements.get(i + 1).map_or(sp.end, |next| match next {
-                        ListPatternElement::Pattern(y) | ListPatternElement::Rest(Some(y)) => a.pattern(*y).span.start,
+                        ListPatternElement::Pattern(y) | ListPatternElement::Rest(Some(y)) => {
+                            a.pattern(*y).span.start
+                        }
                         ListPatternElement::Rest(None) => sp.end,
                     }),
                 };
-                let Some(start) = source.get(cursor..bound.max(cursor)).and_then(|s| s.find("...")).map(|k| cursor + k) else { continue };
+                let Some(start) = source
+                    .get(cursor..bound.max(cursor))
+                    .and_then(|s| s.find("..."))
+                    .map(|k| cursor + k)
+                else {
+                    continue;
+                };
                 let end = sub.map_or(start + 3, |x| a.pattern(x).span.end);
                 rests.push(Span { start, end });
                 cursor = end;
@@ -433,18 +536,32 @@ fn duplicate_rests(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) {
     // `duplicateRestElementInPattern`: the context is the first one.
     let Some(&first) = rests.first() else { return };
     for s in rests.into_iter().skip(1) {
-        inf.warning_with_context(dartforge_diagnostics::codes::compile_time_error::DUPLICATE_REST_ELEMENT_IN_PATTERN, s, &[], vec![(None, first, "The first rest element.".to_string())]);
+        inf.warning_with_context(
+            dartforge_diagnostics::codes::compile_time_error::DUPLICATE_REST_ELEMENT_IN_PATTERN,
+            s,
+            &[],
+            vec![(None, first, "The first rest element.".to_string())],
+        );
     }
 }
 
-pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, final_: bool, assignment: bool, of_e: bool) {
+pub(crate) fn type_check(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    p: PatternId,
+    final_: bool,
+    assignment: bool,
+    of_e: bool,
+) {
     use dartforge_diagnostics::codes::{static_warning as sw, warning as w};
     let a = &inf.program.unit(cx.unit).ast;
     let Some(r) = top(cx) else { return };
     // The matched type is that at the pattern's ENTRY, before it promotes
     // itself.
     let t = matched(cx, &r);
-    inf.body_types.units[cx.unit.0 as usize].matched_types.insert(p, t);
+    inf.body_types.units[cx.unit.0 as usize]
+        .matched_types
+        .insert(p, t);
     let pattern_span = a.pattern(p).span;
     match &a.pattern(p).kind {
         PatternKind::Wildcard { ty: Some(x) } => {
@@ -467,7 +584,12 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                 inf.warning_with_code(w::UNNECESSARY_WILDCARD_PATTERN, pattern_span, &[]);
             }
         }
-        PatternKind::Variable { final_: f2, var_, ty, name } => {
+        PatternKind::Variable {
+            final_: f2,
+            var_,
+            ty,
+            name,
+        } => {
             let (f2, ty, name) = (*f2, *ty, *name);
             if cx.refutable_pattern && !*var_ && !f2 && ty.is_none() {
                 // `case bound:` is the constant pattern of a `const`: it may match or
@@ -477,31 +599,44 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                 // `evaluation.dart:1790-1870`): without `const`, the generic error, which
                 // `ConstantVerifier` reports at the name.
                 let referenced = expr::resolve_name(inf, cx, name.sym, false);
-                let resolved = match &referenced {
-                    expr::NameRef::Element(el) => Some(crate::resolved::Resolved::Element(*el)),
-                    expr::NameRef::LexicalMember(f, static_) => Some(expr::lexical_member_resolved(inf, cx, *f, *static_)),
-                    expr::NameRef::ConstantEnum(v) => inf.program.variable(*v).class.map(|c| crate::resolved::Resolved::Member {
-                        class: c,
-                        member: crate::resolved::MemberRef::Variable(*v),
-                        via_super: false,
-                    }),
-                    _ => None,
-                };
+                let resolved =
+                    match &referenced {
+                        expr::NameRef::Element(el) => Some(crate::resolved::Resolved::Element(*el)),
+                        expr::NameRef::LexicalMember(f, static_) => {
+                            Some(expr::lexical_member_resolved(inf, cx, *f, *static_))
+                        }
+                        expr::NameRef::ConstantEnum(v) => inf.program.variable(*v).class.map(|c| {
+                            crate::resolved::Resolved::Member {
+                                class: c,
+                                member: crate::resolved::MemberRef::Variable(*v),
+                                via_super: false,
+                            }
+                        }),
+                        _ => None,
+                    };
                 if let Some(r) = resolved {
-                    inf.body_types.units[cx.unit.0 as usize].pattern_names.insert(p, r);
+                    inf.body_types.units[cx.unit.0 as usize]
+                        .pattern_names
+                        .insert(p, r);
                 }
                 let non_constant = match referenced {
                     expr::NameRef::Local(id) => !cx.local(id).const_,
-                    expr::NameRef::Element(dartforge_elements::model::Element::Variable(v)) => !inf.program.variable(v).const_,
+                    expr::NameRef::Element(dartforge_elements::model::Element::Variable(v)) => {
+                        !inf.program.variable(v).const_
+                    }
                     expr::NameRef::Element(dartforge_elements::model::Element::Function(f)) => {
-                        !matches!(inf.program.function(f).kind, dartforge_elements::model::FunctionKind::Function)
+                        !matches!(
+                            inf.program.function(f).kind,
+                            dartforge_elements::model::FunctionKind::Function
+                        )
                     }
                     expr::NameRef::LexicalMember(f, static_) => {
                         let fe = inf.program.function(f);
                         match fe.kind {
                             dartforge_elements::model::FunctionKind::Function => !static_,
                             dartforge_elements::model::FunctionKind::ImplicitAccessor => {
-                                !static_ || !fe.variable.is_some_and(|v| inf.program.variable(v).const_)
+                                !static_
+                                    || !fe.variable.is_some_and(|v| inf.program.variable(v).const_)
                             }
                             _ => true,
                         }
@@ -510,7 +645,9 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                     _ => false,
                 };
                 if non_constant {
-                    inf.body_types.units[cx.unit.0 as usize].non_constant_name_patterns.insert(p);
+                    inf.body_types.units[cx.unit.0 as usize]
+                        .non_constant_name_patterns
+                        .insert(p);
                 }
                 match expr::resolve_name(inf, cx, name.sym, false) {
                     expr::NameRef::None_ => expr::undefined_name_without_this(inf, cx, name),
@@ -519,7 +656,11 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                     // gives `CONST_TYPE_PARAMETER` at the name (3.6.2
                     // `evaluation.dart:1847-1859`).
                     expr::NameRef::TypeParam(_) => {
-                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::CONST_TYPE_PARAMETER, name.span, &[]);
+                        inf.warning_with_code(
+                            dartforge_diagnostics::codes::compile_time_error::CONST_TYPE_PARAMETER,
+                            name.span,
+                            &[],
+                        );
                     }
                     _ => {}
                 }
@@ -548,7 +689,9 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                         expr::check_final_local(inf, cx, id, name.span);
                         expr::write_in_primary(inf, cx, id, name.span);
                     }
-                    expr::NameRef::ImplicitThis | expr::NameRef::Forward(_) | expr::NameRef::None_ => {
+                    expr::NameRef::ImplicitThis
+                    | expr::NameRef::Forward(_)
+                    | expr::NameRef::None_ => {
                         expr::undefined_name_without_this(inf, cx, name);
                     }
                     _ => {
@@ -563,7 +706,10 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                     promote_for_pattern(inf, cx, decl, true, false);
                     let written = matched(cx, &r);
                     let mut f = std::mem::replace(&mut cx.flow, Flow::reachable());
-                    let reason = crate::inference::flow::NonPromotionReason::Write { name: name.sym, span: pattern_span };
+                    let reason = crate::inference::flow::NonPromotionReason::Write {
+                        name: name.sym,
+                        span: pattern_span,
+                    };
                     inf.assign_flow(&mut f, id, decl, written, Some(reason));
                     cx.flow = f;
                 }
@@ -594,7 +740,15 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             let id = declare_local(
                 inf,
                 cx,
-                Local { name: name.sym, ty: k, final_: final_ || f2, late: false, const_: false, offset: name.span.start, local_function: false },
+                Local {
+                    name: name.sym,
+                    ty: k,
+                    final_: final_ || f2,
+                    late: false,
+                    const_: false,
+                    offset: name.span.start,
+                    local_function: false,
+                },
                 true,
             );
             // `declaredVariablePattern` + `assignMatchedPatternVariable` (3.6.2
@@ -607,7 +761,8 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             // scrutinee, `case String? a?:` matches `Object` and the promotion to the
             // declared `String?` gives `String`.
             let promoted = matched(cx, &r);
-            if ty.is_some() && !(final_ || f2) && !inf.is_dynamic(promoted) && inf.sub(promoted, k) {
+            if ty.is_some() && !(final_ || f2) && !inf.is_dynamic(promoted) && inf.sub(promoted, k)
+            {
                 let mut f = std::mem::replace(&mut cx.flow, Flow::reachable());
                 inf.write_flow(&mut f, id, k, promoted, true, None);
                 cx.flow = f;
@@ -627,7 +782,11 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             // `caseExpressionTypeMismatch` (`shared_type_analyzer.dart:32-45`):
             // without patterns (< 3.0), the constant of a `case` whose type is not
             // a subtype of the scrutinee's type.
-            if !language_patterns(inf, cx) && cx.refutable_pattern && !inf.is_dynamic(c) && !inf.sub(c, t) {
+            if !language_patterns(inf, cx)
+                && cx.refutable_pattern
+                && !inf.is_dynamic(c)
+                && !inf.sub(c, t)
+            {
                 let sp = inf.span_expr(cx.unit, e);
                 let a1 = inf.table.format(c, inf.interner, inf.program);
                 let a2 = inf.table.format(t, inf.interner, inf.program);
@@ -672,7 +831,10 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             // `logicalOrPattern_begin`: the left operand has its own "did not
             // match", which is the right one's entry.
             let empty = cx.flow.unreachable();
-            let previous = cx.matching.as_mut().map(|c| std::mem::replace(&mut c.not_matched, empty));
+            let previous = cx
+                .matching
+                .as_mut()
+                .map(|c| std::mem::replace(&mut c.not_matched, empty));
             let start_x = cx.locals.len();
             type_check(inf, cx, x, final_, assignment, false);
             let start_y = cx.locals.len();
@@ -686,7 +848,10 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             // code (Appendix B of §B).
             // The fragment starts at the `||` operator and goes to the end of the
             // operand (`dead_code_verifier.dart:321-324`).
-            let (end_x, sp_y) = (inf.program.unit(cx.unit).ast.pattern(x).span.end, inf.program.unit(cx.unit).ast.pattern(y).span);
+            let (end_x, sp_y) = (
+                inf.program.unit(cx.unit).ast.pattern(x).span.end,
+                inf.program.unit(cx.unit).ast.pattern(y).span,
+            );
             super::super::statements::enter_flow(cx, sp_y.end);
             if !cx.flow.reachable && cx.dead_code.is_none() {
                 let source = inf.program.unit(cx.unit).source.as_bytes();
@@ -694,7 +859,13 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                     .get(end_x..sp_y.start)
                     .and_then(|snippet| snippet.windows(2).position(|w| w == b"||"))
                     .map_or(sp_y.start, |i| end_x + i);
-                inf.warning(crate::codes::DEAD_CODE.template.to_string(), Span { start: operator, end: sp_y.end });
+                inf.warning(
+                    crate::codes::DEAD_CODE.template.to_string(),
+                    Span {
+                        start: operator,
+                        end: sp_y.end,
+                    },
+                );
                 cx.dead_code = Some(cx.flow_ends.len());
             }
             type_check(inf, cx, y, final_, assignment, false);
@@ -706,7 +877,8 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             // remains, assigned.
             for d in start_y..cx.locals.len() {
                 let the_name = cx.locals[d].name;
-                if let Some(e) = (start_x..start_y).find(|&e| cx.locals[e].name == the_name && cx.locals[e].offset != 0)
+                if let Some(e) = (start_x..start_y)
+                    .find(|&e| cx.locals[e].name == the_name && cx.locals[e].offset != 0)
                     && let Some(m) = matched_left.model(LocalId(e as u32)).cloned()
                 {
                     if matched_left.vars.len() <= d {
@@ -741,15 +913,28 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                     // `nullCheckOrAssertPattern_begin` (3.6.2): a `?` may still not
                     // match a non-nullable value (mixed mode); only sound flow
                     // analysis (3.9) skips that join.
-                    if !assertion && !inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::SoundFlowAnalysis) {
+                    if !assertion
+                        && !inf
+                            .program
+                            .library(cx.lib)
+                            .features
+                            .has(dartforge_frontend::Feature::SoundFlowAnalysis)
+                    {
                         let current = cx.flow.clone();
                         join_not_matched(inf, cx, &current);
                     }
                     // The matched value cannot be null: the `?`/`!` does nothing. A `?` in
                     // an irrefutable context is already another error.
                     if assertion || (!forced && !irrefutable_now(cx)) {
-                        let token = Span { start: pattern_span.end.saturating_sub(1), end: pattern_span.end };
-                        let code = if assertion { sw::UNNECESSARY_NULL_ASSERT_PATTERN } else { sw::UNNECESSARY_NULL_CHECK_PATTERN };
+                        let token = Span {
+                            start: pattern_span.end.saturating_sub(1),
+                            end: pattern_span.end,
+                        };
+                        let code = if assertion {
+                            sw::UNNECESSARY_NULL_ASSERT_PATTERN
+                        } else {
+                            sw::UNNECESSARY_NULL_CHECK_PATTERN
+                        };
                         inf.warning_with_code(code, token, &[]);
                     }
                 }
@@ -772,45 +957,62 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             record_pattern_type(inf, cx, p, c, inv);
             let sp = inf.program.unit(cx.unit).ast.ty(ty).span;
             never_matches(inf, cx, t, c, sp);
-            if !inv && !inf.table.is_invalid(c) && inf.sub(t, c)
-                && let Some(keyword) = as_keyword(inf, cx, pattern, ty) {
-                    inf.warning_with_code(w::UNNECESSARY_CAST_PATTERN, keyword, &[]);
-                }
+            if !inv
+                && !inf.table.is_invalid(c)
+                && inf.sub(t, c)
+                && let Some(keyword) = as_keyword(inf, cx, pattern, ty)
+            {
+                inf.warning_with_code(w::UNNECESSARY_CAST_PATTERN, keyword, &[]);
+            }
             if inf.is_non_nullable(c) && classify(inf, t) == Class::Null {
                 inf.warning_with_code(w::CAST_FROM_NULL_ALWAYS_FAILS, pattern_span, &[]);
             }
             // A cast does not fail on a wrong type (it throws): nothing goes to
             // "did not match".
             promote_for_pattern(inf, cx, c, false, false);
-            with_subpattern(inf, cx, c, |inf, cx| type_check(inf, cx, pattern, final_, assignment, false));
+            with_subpattern(inf, cx, c, |inf, cx| {
+                type_check(inf, cx, pattern, final_, assignment, false)
+            });
         }
-        PatternKind::List { type_args, elements } => {
+        PatternKind::List {
+            type_args,
+            elements,
+        } => {
             let el = if let Some(x) = type_args.first() {
                 inf.type_argument_type(cx, *x)
             } else if inf.is_dynamic(t) {
                 // `dynamic` and the invalid type give elements of the same type.
                 t
             } else {
-                inf.as_instance_of(t, inf.core.list_class).map(|a| a[0]).unwrap_or(inf.core.object_nullable)
+                inf.as_instance_of(t, inf.core.list_class)
+                    .map(|a| a[0])
+                    .unwrap_or(inf.core.object_nullable)
             };
             let the_required = inf.list(el);
             {
-                let inv = type_args.first().is_some_and(|&x| invalid_annotation(inf, cx, x, el));
+                let inv = type_args
+                    .first()
+                    .is_some_and(|&x| invalid_annotation(inf, cx, x, el));
                 record_pattern_type(inf, cx, p, the_required, inv);
                 never_matches(inf, cx, t, the_required, pattern_span);
             }
             // Only `[...]` (one element, and it is the rest) matches every list.
-            let only_rest = elements.len() == 1 && matches!(elements[0], ListPatternElement::Rest(_));
+            let only_rest =
+                elements.len() == 1 && matches!(elements[0], ListPatternElement::Rest(_));
             promote_for_pattern(inf, cx, the_required, true, !only_rest);
             for e in elements.iter() {
                 match e {
                     ListPatternElement::Pattern(x) => {
                         let x = *x;
-                        with_subpattern(inf, cx, el, |inf, cx| type_check(inf, cx, x, final_, assignment, false));
+                        with_subpattern(inf, cx, el, |inf, cx| {
+                            type_check(inf, cx, x, final_, assignment, false)
+                        });
                     }
                     ListPatternElement::Rest(Some(x)) => {
                         let x = *x;
-                        with_subpattern(inf, cx, the_required, |inf, cx| type_check(inf, cx, x, final_, assignment, false));
+                        with_subpattern(inf, cx, the_required, |inf, cx| {
+                            type_check(inf, cx, x, final_, assignment, false)
+                        });
                     }
                     ListPatternElement::Rest(None) => {}
                 }
@@ -820,9 +1022,14 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                 wrong_type_in_irrefutable(inf, t, the_required, pattern_span);
             }
         }
-        PatternKind::Map { type_args, entries, .. } => {
+        PatternKind::Map {
+            type_args, entries, ..
+        } => {
             let (k, v) = if type_args.len() == 2 {
-                (inf.type_argument_type(cx, type_args[0]), inf.type_argument_type(cx, type_args[1]))
+                (
+                    inf.type_argument_type(cx, type_args[0]),
+                    inf.type_argument_type(cx, type_args[1]),
+                )
             } else if inf.is_dynamic(t) {
                 (t, t)
             } else {
@@ -834,8 +1041,14 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             let mut map_required = None;
             match inf.core.map_class {
                 Some(mc) => {
-                    let the_required = inf.table.intern(Type::Interface { class: mc, args: vec![k, v].into_boxed_slice(), nullable: false });
-                    let inv = type_args.len() == 2 && (invalid_annotation(inf, cx, type_args[0], k) || invalid_annotation(inf, cx, type_args[1], v));
+                    let the_required = inf.table.intern(Type::Interface {
+                        class: mc,
+                        args: vec![k, v].into_boxed_slice(),
+                        nullable: false,
+                    });
+                    let inv = type_args.len() == 2
+                        && (invalid_annotation(inf, cx, type_args[0], k)
+                            || invalid_annotation(inf, cx, type_args[1], v));
                     record_pattern_type(inf, cx, p, the_required, inv);
                     // `visitMapPattern` (3.6.2 `resolver.dart:1549-1554`): on the whole
                     // pattern.
@@ -852,7 +1065,9 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             for en in entries.iter() {
                 let (key, val) = (en.key, en.value);
                 infer(inf, cx, key, k);
-                with_subpattern(inf, cx, v, |inf, cx| type_check(inf, cx, val, final_, assignment, false));
+                with_subpattern(inf, cx, v, |inf, cx| {
+                    type_check(inf, cx, val, final_, assignment, false)
+                });
             }
             if let Some(the_required) = map_required
                 && irrefutable_now(cx)
@@ -862,11 +1077,20 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             }
         }
         PatternKind::Record { fields } => {
-            let the_fields: Vec<(Option<ast::Name>, PatternId)> = fields.iter().map(|f| (f.name, f.pattern)).collect();
+            let the_fields: Vec<(Option<ast::Name>, PatternId)> =
+                fields.iter().map(|f| (f.name, f.pattern)).collect();
             // The record's shape: `(Object?, …, {Object? n})`.
             let names: Vec<Option<dartforge_intern::SymbolId>> = the_fields
                 .iter()
-                .map(|&(n, x)| n.map(|n| n.sym).or_else(|| if implicit_named_field(inf, cx, p, x) { implicit_name(inf, cx, x) } else { None }))
+                .map(|&(n, x)| {
+                    n.map(|n| n.sym).or_else(|| {
+                        if implicit_named_field(inf, cx, p, x) {
+                            implicit_name(inf, cx, x)
+                        } else {
+                            None
+                        }
+                    })
+                })
                 .collect();
             let fields_top = inf.core.object_nullable;
             let assemble = |inf: &mut BodyInferrer<'_>, types: &[TypeId]| -> TypeId {
@@ -878,7 +1102,11 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                         None => pos.push(typ),
                     }
                 }
-                inf.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
+                inf.table.intern(Type::Record {
+                    positional: pos.into_boxed_slice(),
+                    named: nm.into_boxed_slice(),
+                    nullable: false,
+                })
             };
             let the_required = assemble(inf, &vec![fields_top; the_fields.len()]);
             // `RecordPatternImpl.resolvePattern` (3.6.2 `ast.dart:14858-14865`):
@@ -896,14 +1124,18 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
             // the one promoted to `(Object?, …)`.
             let promoted = t;
             let rec = match inf.table.get(promoted).clone() {
-                Type::Record { positional, named, .. } => Some((positional, named)),
+                Type::Record {
+                    positional, named, ..
+                } => Some((positional, named)),
                 _ => None,
             };
             let mut ipos = 0;
             let mut the_shown: Vec<TypeId> = Vec::with_capacity(the_fields.len());
             for (i, &(_, x)) in the_fields.iter().enumerate() {
                 let ft = match (&rec, names[i]) {
-                    (Some((_, named)), Some(nm)) => named.iter().find(|(s, _)| *s == nm).map(|(_, t)| *t),
+                    (Some((_, named)), Some(nm)) => {
+                        named.iter().find(|(s, _)| *s == nm).map(|(_, t)| *t)
+                    }
                     (Some((pos, _)), None) => {
                         let finding = pos.get(ipos).copied();
                         ipos += 1;
@@ -912,7 +1144,9 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                     _ => None,
                 };
                 let ft = ft.unwrap_or(if inf.is_dynamic(t) { t } else { fields_top });
-                let d = with_subpattern(inf, cx, ft, |inf, cx| type_check(inf, cx, x, final_, assignment, false));
+                let d = with_subpattern(inf, cx, ft, |inf, cx| {
+                    type_check(inf, cx, x, final_, assignment, false)
+                });
                 the_shown.push(d);
             }
             // The second promotion, to the record of the types demonstrated by the
@@ -925,7 +1159,8 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
         }
         PatternKind::Object { ty, fields } => {
             let ty = *ty;
-            let the_fields: Vec<(Option<ast::Name>, PatternId)> = fields.iter().map(|f| (f.name, f.pattern)).collect();
+            let the_fields: Vec<(Option<ast::Name>, PatternId)> =
+                fields.iter().map(|f| (f.name, f.pattern)).collect();
             let obj = object_pattern_type(inf, cx, ty, t);
             let inv = invalid_annotation(inf, cx, ty, obj);
             record_pattern_type(inf, cx, p, obj, inv);
@@ -963,9 +1198,13 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                                     if inf.program.class(*class).kind == dartforge_elements::model::ClassKind::ExtensionType
                             );
                             if m.of_extension || of_extension_type {
-                                inf.body_types.units[cx.unit.0 as usize].extension_fields.insert(x, m.ty);
+                                inf.body_types.units[cx.unit.0 as usize]
+                                    .extension_fields
+                                    .insert(x, m.ty);
                             }
-                            inf.body_types.units[cx.unit.0 as usize].field_elements.insert(x, m.resolved.clone());
+                            inf.body_types.units[cx.unit.0 as usize]
+                                .field_elements
+                                .insert(x, m.resolved.clone());
                             m.ty
                         }
                         Search::NeverType => inf.core.never,
@@ -977,7 +1216,9 @@ pub(crate) fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId
                 if matches!(inf.table.get(ft), Type::Never) {
                     cx.flow.reachable = false;
                 }
-                with_subpattern(inf, cx, ft, |inf, cx| type_check(inf, cx, x, final_, assignment, false));
+                with_subpattern(inf, cx, ft, |inf, cx| {
+                    type_check(inf, cx, x, final_, assignment, false)
+                });
             }
             if irrefutable_now(cx) && !inf.assignable(t, obj) {
                 wrong_type_in_irrefutable(inf, t, obj, pattern_span);
@@ -1002,7 +1243,11 @@ pub(crate) fn the_case(
     // In a `switch`, all cases match the SAME reference: the promotions of a
     // case's "did not match" reach the next one.
     let reuse = match (cx.switch_scrutinee, scrutinee) {
-        (Some(Some((e0, the_key, version))), Some(e)) if e0 == e && cx.flow.model(the_key).is_some() => Some((the_key, version)),
+        (Some(Some((e0, the_key, version))), Some(e))
+            if e0 == e && cx.flow.model(the_key).is_some() =>
+        {
+            Some((the_key, version))
+        }
         _ => None,
     };
     let (the_key, version) = match reuse {
@@ -1023,7 +1268,13 @@ pub(crate) fn the_case(
             (the_key, version)
         }
     };
-    let r = MatchedRef { key: the_key, ty: t, target, property, version };
+    let r = MatchedRef {
+        key: the_key,
+        ty: t,
+        target,
+        property,
+        version,
+    };
     let refutable_before = std::mem::replace(&mut cx.refutable_pattern, true);
     let forced_before = std::mem::replace(&mut cx.forced_refutable, false);
     let first_local = cx.locals.len();
@@ -1032,8 +1283,11 @@ pub(crate) fn the_case(
     let mut hidden = Vec::new();
     declared_variables(inf, cx, p, &mut hidden);
     let base_hidden = cx.pattern_hidden.len();
-    cx.pattern_hidden.extend(hidden.iter().map(|n| (n.sym, n.span)));
-    let mut not_ = match_(inf, cx, r, |inf, cx| type_check(inf, cx, p, false, false, false));
+    cx.pattern_hidden
+        .extend(hidden.iter().map(|n| (n.sym, n.span)));
+    let mut not_ = match_(inf, cx, r, |inf, cx| {
+        type_check(inf, cx, p, false, false, false)
+    });
     cx.pattern_hidden.truncate(base_hidden);
     cx.refutable_pattern = refutable_before;
     cx.forced_refutable = forced_before;
@@ -1041,7 +1295,8 @@ pub(crate) fn the_case(
     if let Some(g) = guard {
         // `visitGuardedPattern`: the pattern's variables, during the guard.
         let base = cx.variables_in_guard.len();
-        cx.variables_in_guard.extend((first_local..cx.locals.len()).map(|i| LocalId(i as u32)));
+        cx.variables_in_guard
+            .extend((first_local..cx.locals.len()).map(|i| LocalId(i as u32)));
         let (gv, gf) = expr::checked_condition(inf, cx, g);
         cx.variables_in_guard.truncate(base);
         cx.flow = gv;
@@ -1067,6 +1322,14 @@ pub(crate) fn irrefutable(
         .and_then(|e| expr::promotion_target(inf, cx, e))
         .filter(|&id| cx.is_property(id));
     let the_key = new_key(inf, cx, t);
-    let r = MatchedRef { key: the_key, ty: t, target, property: target.is_some(), version: None };
-    let _ = match_(inf, cx, r, |inf, cx| type_check(inf, cx, p, final_, assignment, false));
+    let r = MatchedRef {
+        key: the_key,
+        ty: t,
+        target,
+        property: target.is_some(),
+        version: None,
+    };
+    let _ = match_(inf, cx, r, |inf, cx| {
+        type_check(inf, cx, p, final_, assignment, false)
+    });
 }

@@ -20,7 +20,11 @@ fn digest(element_type: &str, count: usize, values: &[i64]) -> blake3::Hash {
 }
 
 pub(super) fn symbol(values: &[i64]) -> String {
-    format!("df.const.i64.{}.{}", values.len(), digest("i64", values.len(), values).to_hex())
+    format!(
+        "df.const.i64.{}.{}",
+        values.len(),
+        digest("i64", values.len(), values).to_hex()
+    )
 }
 
 #[cfg(test)]

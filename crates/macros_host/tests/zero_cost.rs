@@ -7,7 +7,9 @@ use dartforge_elements::load::load_lenient;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
 use dartforge_macros_host::assembly::ExecutionResult;
-use dartforge_macros_host::executor::{Availability, ExecutionRequest, MacroExecutor, QueryService};
+use dartforge_macros_host::executor::{
+    Availability, ExecutionRequest, MacroExecutor, QueryService,
+};
 use dartforge_macros_host::protocol::Handshake;
 use serde_json::Value;
 use std::path::Path;
@@ -25,7 +27,11 @@ impl MacroExecutor for Forbidden {
     fn instantiate(&mut self, _: &str, _: &str, _: &Value) -> Result<(u64, Vec<String>), String> {
         panic!("zero cost")
     }
-    fn execute(&mut self, _: &ExecutionRequest, _: &mut dyn QueryService) -> Result<ExecutionResult, String> {
+    fn execute(
+        &mut self,
+        _: &ExecutionRequest,
+        _: &mut dyn QueryService,
+    ) -> Result<ExecutionResult, String> {
         panic!("zero cost")
     }
     fn shut_down(&mut self) {
@@ -44,7 +50,10 @@ fn no_macro_opens_no_session() {
     let mut names = Interner::new();
     let (p, d) = load_lenient(&input, &sdk, None, &mut names);
     assert!(d.is_empty(), "{d:?}");
-    assert!(!dartforge_macros_host::has_macros(&p), "01_print declares no macro class");
+    assert!(
+        !dartforge_macros_host::has_macros(&p),
+        "01_print declares no macro class"
+    );
     let libraries = p.libraries.len();
     let mut reloads = 0usize;
     let mut load = |_: &mut Interner, _| -> (dartforge_elements::model::Program, Vec<Diagnostic>) {

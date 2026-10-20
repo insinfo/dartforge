@@ -50,7 +50,11 @@ pub struct Effects {
 }
 
 /// Conservative: allocates and throws, does not call Dart.
-pub const CONSERVATIVE: Effects = Effects { allocates: true, throws: true, calls_dart: false };
+pub const CONSERVATIVE: Effects = Effects {
+    allocates: true,
+    throws: true,
+    calls_dart: false,
+};
 
 /// A native from `@pragma("vm:external-name", name)`.
 #[derive(Debug, Clone, Copy)]
@@ -61,11 +65,19 @@ pub struct NativeEntry {
 }
 
 const fn runtime(name: &'static str) -> NativeEntry {
-    NativeEntry { name, state: State::Runtime, effects: CONSERVATIVE }
+    NativeEntry {
+        name,
+        state: State::Runtime,
+        effects: CONSERVATIVE,
+    }
 }
 
 const fn embedded(name: &'static str) -> NativeEntry {
-    NativeEntry { name, state: State::Builtin, effects: CONSERVATIVE }
+    NativeEntry {
+        name,
+        state: State::Builtin,
+        effects: CONSERVATIVE,
+    }
 }
 
 /// Natives that the SDK declares with different returns depending on the use site
@@ -173,11 +185,18 @@ pub const INTRINSICS: &[(&str, &str)] = &[
 
 /// The runtime function of a VM intrinsic, if the native backend has it.
 pub fn intrinsic(member: &str) -> Option<&'static str> {
-    INTRINSICS.iter().find(|(m, _)| *m == member).map(|(_, n)| *n)
+    INTRINSICS
+        .iter()
+        .find(|(m, _)| *m == member)
+        .map(|(_, n)| *n)
 }
 
 const fn pending(name: &'static str) -> NativeEntry {
-    NativeEntry { name, state: State::Pending, effects: CONSERVATIVE }
+    NativeEntry {
+        name,
+        state: State::Pending,
+        effects: CONSERVATIVE,
+    }
 }
 
 /// Every native of the source libraries with the `native_sdk/` overlay,
@@ -742,7 +761,10 @@ pub const NATIVES: &[NativeEntry] = &[
 
 /// The entry of a native, if it exists.
 pub fn native(name: &str) -> Option<&'static NativeEntry> {
-    NATIVES.binary_search_by(|n| n.name.cmp(name)).ok().map(|i| &NATIVES[i])
+    NATIVES
+        .binary_search_by(|n| n.name.cmp(name))
+        .ok()
+        .map(|i| &NATIVES[i])
 }
 
 /// The packages of the unified space specification
@@ -772,8 +794,12 @@ pub fn in_unified_space(name: &str) -> Option<(Package, bool)> {
     use Package::*;
     let r = match name {
         // P1: strings.
-        "String_getLength" | "Internal_allocateOneByteString" | "Internal_allocateTwoByteString"
-        | "Internal_writeIntoOneByteString" | "Internal_writeIntoTwoByteString" | "String_getHashCode"
+        "String_getLength"
+        | "Internal_allocateOneByteString"
+        | "Internal_allocateTwoByteString"
+        | "Internal_writeIntoOneByteString"
+        | "Internal_writeIntoTwoByteString"
+        | "String_getHashCode"
         | "DartForge_string_codeUnitAt" => (P1, true),
         "String_charAt"
         | "String_concat"
@@ -790,14 +816,23 @@ pub fn in_unified_space(name: &str) -> Option<(Package, bool)> {
         | "Double_toString"
         | "DartForge_double_bits"
         | "DartForge_print" => (P1, false),
-        n if n.starts_with("DartForge_string_") || n.starts_with("DartForge_sb_") || n.starts_with("DartForge_regexp_") => {
+        n if n.starts_with("DartForge_string_")
+            || n.starts_with("DartForge_sb_")
+            || n.starts_with("DartForge_regexp_") =>
+        {
             (P1, false)
         }
         // P0: the class of the value.
         "ClassID_getID" => (P0, true),
         // P3: core lists (the inline code for `List<E>` in `lower/typed_items.rs` belongs to P4).
-        "List_getLength" | "GrowableList_getLength" | "GrowableList_getCapacity" | "GrowableList_setLength"
-        | "GrowableList_setData" | "GrowableList_setIndexed" | "List_setIndexed" | "DartForge_list_get" => (P3, true),
+        "List_getLength"
+        | "GrowableList_getLength"
+        | "GrowableList_getCapacity"
+        | "GrowableList_setLength"
+        | "GrowableList_setData"
+        | "GrowableList_setIndexed"
+        | "List_setIndexed"
+        | "DartForge_list_get" => (P3, true),
         "List_allocate"
         | "List_slice"
         | "ImmutableList_from"
@@ -814,8 +849,13 @@ pub fn in_unified_space(name: &str) -> Option<(Package, bool)> {
         n if n.starts_with("DartForge_hash_") => (P3, false),
         // P2: caixas, closures, records.
         n if n.starts_with("DartForge_record_") => (P2, true),
-        "Closure_equals" | "Closure_computeHash" | "Function_apply" | "Identical_comparison" | "Double_parse"
-        | "DartForge_int_hashCode" | "Object_getHash" => (P2, false),
+        "Closure_equals"
+        | "Closure_computeHash"
+        | "Function_apply"
+        | "Identical_comparison"
+        | "Double_parse"
+        | "DartForge_int_hashCode"
+        | "Object_getHash" => (P2, false),
         n if n.starts_with("Double_")
             || n.starts_with("Integer_")
             || n.starts_with("Mint_")
@@ -825,12 +865,22 @@ pub fn in_unified_space(name: &str) -> Option<(Package, bool)> {
             (P2, false)
         }
         // P4: typed lists and SIMD.
-        "TypedDataBase_length" | "TypedDataView_typedData" | "TypedDataView_offsetInBytes" => (P4, true),
-        n if n.starts_with("TypedData_Get") || n.starts_with("TypedData_Set") || n.starts_with("DartForge_typed_") => {
+        "TypedDataBase_length" | "TypedDataView_typedData" | "TypedDataView_offsetInBytes" => {
+            (P4, true)
+        }
+        n if n.starts_with("TypedData_Get")
+            || n.starts_with("TypedData_Set")
+            || n.starts_with("DartForge_typed_") =>
+        {
             (P4, true)
         }
         "TypedDataBase_setClampedRange" => (P4, false),
-        n if n.starts_with("Float32x4_") || n.starts_with("Int32x4_") || n.starts_with("Float64x2_") => (P4, false),
+        n if n.starts_with("Float32x4_")
+            || n.starts_with("Int32x4_")
+            || n.starts_with("Float64x2_") =>
+        {
+            (P4, false)
+        }
         // P5: transversais.
         n if n.starts_with("WeakReference_")
             || n.starts_with("WeakProperty_")
@@ -889,11 +939,16 @@ pub fn recognized_kind(
                 .unwrap_or(&[]);
             (unit, m)
         }
-        FunctionRef::Constructor { unit, member } => (unit, &program.unit(unit).ast.members[member.0 as usize].metadata),
+        FunctionRef::Constructor { unit, member } => (
+            unit,
+            &program.unit(unit).ast.members[member.0 as usize].metadata,
+        ),
         FunctionRef::None => return None,
     };
     let text = |e: ast::ExprId| match &program.unit(unit).ast.exprs[e.0 as usize].kind {
-        ast::ExprKind::String(lit) => lit.constant_value().map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned()),
+        ast::ExprKind::String(lit) => lit
+            .constant_value()
+            .map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned()),
         _ => None,
     };
     metadata.iter().find_map(|an| {
@@ -933,7 +988,9 @@ pub fn pragmas(
                 })
                 .unwrap_or(&[])
         }
-        FunctionRef::Constructor { unit, member } => &program.unit(unit).ast.members[member.0 as usize].metadata,
+        FunctionRef::Constructor { unit, member } => {
+            &program.unit(unit).ast.members[member.0 as usize].metadata
+        }
         FunctionRef::None => &[],
     };
     let unit = match f.node {
@@ -951,12 +1008,14 @@ pub fn pragmas(
         let strings: Vec<Option<String>> = args
             .args
             .iter()
-            .map(|a| match &program.unit(u).ast.exprs[a.value.0 as usize].kind {
-                ast::ExprKind::String(lit) => {
-                    lit.constant_value().map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned())
-                }
-                _ => None,
-            })
+            .map(
+                |a| match &program.unit(u).ast.exprs[a.value.0 as usize].kind {
+                    ast::ExprKind::String(lit) => lit
+                        .constant_value()
+                        .map(|t| String::from_utf8_lossy(t.as_bytes()).into_owned()),
+                    _ => None,
+                },
+            )
             .collect();
         match strings.first().and_then(|t| t.as_deref()) {
             Some("vm:external-name") => native = strings.get(1).cloned().flatten(),
@@ -981,12 +1040,18 @@ pub fn inventory(
             continue;
         }
         let lib = program.library(f.library);
-        let Some(lib_name) = lib.uri.strip_prefix("dart:") else { continue };
+        let Some(lib_name) = lib.uri.strip_prefix("dart:") else {
+            continue;
+        };
         if !libraries.contains(&lib_name) {
             continue;
         }
         let (native, recognized) = pragmas(program, interner, f);
-        let owner = f.class.map(|c| interner.resolve(program.classes[c.0 as usize].name).to_string());
+        let owner = f.class.map(|c| {
+            interner
+                .resolve(program.classes[c.0 as usize].name)
+                .to_string()
+        });
         let name = interner.resolve(f.name).to_string();
         exit.push(SdkExternal {
             library: lib.uri.clone(),
@@ -1006,12 +1071,15 @@ pub fn inventory(
 mod inventory {
     use super::*;
 
-
-
     #[test]
     fn table_is_sorted_and_without_duplicates() {
         for par in NATIVES.windows(2) {
-            assert!(par[0].name < par[1].name, "{} before {}", par[0].name, par[1].name);
+            assert!(
+                par[0].name < par[1].name,
+                "{} before {}",
+                par[0].name,
+                par[1].name
+            );
         }
         assert!(native("String_getLength").is_some());
         assert!(native("Inexistente").is_none());
@@ -1035,16 +1103,23 @@ mod inventory {
                 source.push_str("void main() {}\n");
                 std::fs::write(&entry, source).unwrap();
                 let mut interner = dartforge_intern::Interner::new();
-                let (program, diags) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+                let (program, diags) =
+                    dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
                 assert!(diags.is_empty(), "{diags:?}");
                 inventory(&program, &interner, crate::sdk_module::SOURCE_LIBRARIES)
             })
             .unwrap()
             .join()
             .unwrap();
-        let names: std::collections::BTreeSet<&str> = externals.iter().filter_map(|e| e.native.as_deref()).collect();
+        let names: std::collections::BTreeSet<&str> = externals
+            .iter()
+            .filter_map(|e| e.native.as_deref())
+            .collect();
         let without_entry: Vec<&&str> = names.iter().filter(|n| native(n).is_none()).collect();
-        assert!(without_entry.is_empty(), "source natives without an entry in NATIVES: {without_entry:?}");
+        assert!(
+            without_entry.is_empty(),
+            "source natives without an entry in NATIVES: {without_entry:?}"
+        );
         // These portable package bodies are replaced only after declaration
         // identity and contract version are checked by the lowering pass.
         // native_pump_contract_tests checks the actual package declarations.
@@ -1056,9 +1131,15 @@ mod inventory {
             "DartForge_native_pump_set_dispatcher",
             "DartForge_native_pump_supported",
         ];
-        let leftover: Vec<&str> = NATIVES.iter().map(|n| n.name)
-            .filter(|n| !names.contains(n) && !package_contracts.contains(n)).collect();
-        assert!(leftover.is_empty(), "NATIVES entries that are no longer source natives: {leftover:?}");
+        let leftover: Vec<&str> = NATIVES
+            .iter()
+            .map(|n| n.name)
+            .filter(|n| !names.contains(n) && !package_contracts.contains(n))
+            .collect();
+        assert!(
+            leftover.is_empty(),
+            "NATIVES entries that are no longer source natives: {leftover:?}"
+        );
         // An unpatched `external` without a native nor `vm:recognized` has no
         // implementation anywhere — not even in the VM.
         let orphans: Vec<String> = externals
@@ -1066,7 +1147,15 @@ mod inventory {
             .filter(|e| e.native.is_none() && !e.recognized)
             .map(|e| format!("{}::{}", e.library, e.member))
             .collect();
-        println!("externals: {} distinct natives, {} intrinsics, {} without a pragma", names.len(), externals.iter().filter(|e| e.native.is_none() && e.recognized).count(), orphans.len());
+        println!(
+            "externals: {} distinct natives, {} intrinsics, {} without a pragma",
+            names.len(),
+            externals
+                .iter()
+                .filter(|e| e.native.is_none() && e.recognized)
+                .count(),
+            orphans.len()
+        );
         for o in &orphans {
             println!("  without a pragma: {o}");
         }

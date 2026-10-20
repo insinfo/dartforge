@@ -20,7 +20,7 @@
 #![allow(unsafe_code)]
 
 use crate::heap::Heap;
-use crate::layout::{self, Ref, cid, offsets, state, flags};
+use crate::layout::{self, Ref, cid, flags, offsets, state};
 
 // ---------------------------------------------------------------------------
 // Texto: the owner of the units before allocating.
@@ -104,15 +104,26 @@ impl Text {
         while i < bytes.len() {
             let b0 = u32::from(bytes[i]);
             let cont = |k: usize| -> Option<u32> {
-                bytes.get(i + k).filter(|&&b| b & 0xC0 == 0x80).map(|&b| u32::from(b & 0x3F))
+                bytes
+                    .get(i + k)
+                    .filter(|&&b| b & 0xC0 == 0x80)
+                    .map(|&b| u32::from(b & 0x3F))
             };
             let (point, n) = if b0 < 0x80 {
                 (Some(b0), 1)
             } else if b0 & 0xE0 == 0xC0 {
-                (cont(1).map(|c1| ((b0 & 0x1F) << 6) | c1).filter(|&p| p >= 0x80), 2)
+                (
+                    cont(1)
+                        .map(|c1| ((b0 & 0x1F) << 6) | c1)
+                        .filter(|&p| p >= 0x80),
+                    2,
+                )
             } else if b0 & 0xF0 == 0xE0 {
                 (
-                    cont(1).zip(cont(2)).map(|(c1, c2)| ((b0 & 0x0F) << 12) | (c1 << 6) | c2).filter(|&p| p >= 0x800),
+                    cont(1)
+                        .zip(cont(2))
+                        .map(|(c1, c2)| ((b0 & 0x0F) << 12) | (c1 << 6) | c2)
+                        .filter(|&p| p >= 0x800),
                     3,
                 )
             } else if b0 & 0xF8 == 0xF0 {
@@ -254,7 +265,6 @@ impl Text {
     pub fn hash_vm(&self) -> i64 {
         i64::from(self.view().hash_vm())
     }
-
 }
 
 /// One unit (a point ≤ 0xFFFF, surrogates included) or a surrogate pair.
@@ -275,7 +285,11 @@ fn encode_wtf8(out: &mut Vec<u8>, p: u32) {
     } else if p < 0x800 {
         out.extend_from_slice(&[0xC0 | (p >> 6) as u8, 0x80 | (p & 0x3F) as u8]);
     } else if p < 0x10000 {
-        out.extend_from_slice(&[0xE0 | (p >> 12) as u8, 0x80 | ((p >> 6) & 0x3F) as u8, 0x80 | (p & 0x3F) as u8]);
+        out.extend_from_slice(&[
+            0xE0 | (p >> 12) as u8,
+            0x80 | ((p >> 6) & 0x3F) as u8,
+            0x80 | (p & 0x3F) as u8,
+        ]);
     } else {
         out.extend_from_slice(&[
             0xF0 | (p >> 18) as u8,
@@ -417,7 +431,11 @@ impl<'a> TextRef<'a> {
     }
     /// The units, in order.
     pub fn units(self) -> UnitsIter<'a> {
-        UnitsIter { text: self, i: 0, end: self.len() }
+        UnitsIter {
+            text: self,
+            i: 0,
+            end: self.len(),
+        }
     }
     /// The units `start..end`.
     pub fn piece(self, start: usize, end: usize) -> TextRef<'a> {
@@ -457,7 +475,11 @@ impl<'a> TextRef<'a> {
         }
         let mut out = Vec::with_capacity(self.len() + 8);
         for p in self.points() {
-            let p = if swap_released && (0xD800..0xE000).contains(&p) { 0xFFFD } else { p };
+            let p = if swap_released && (0xD800..0xE000).contains(&p) {
+                0xFFFD
+            } else {
+                p
+            };
             encode_wtf8(&mut out, p);
         }
         out
@@ -641,8 +663,12 @@ impl ExactSizeIterator for UnitsIter<'_> {}
 unsafe fn disable<'b>(t: TextRef<'_>) -> TextRef<'b> {
     match t {
         // SAFETY: contract above.
-        TextRef::OneByte(b) => TextRef::OneByte(unsafe { std::slice::from_raw_parts(b.as_ptr(), b.len()) }),
-        TextRef::TwoByte(u) => TextRef::TwoByte(unsafe { std::slice::from_raw_parts(u.as_ptr(), u.len()) }),
+        TextRef::OneByte(b) => {
+            TextRef::OneByte(unsafe { std::slice::from_raw_parts(b.as_ptr(), b.len()) })
+        }
+        TextRef::TwoByte(u) => {
+            TextRef::TwoByte(unsafe { std::slice::from_raw_parts(u.as_ptr(), u.len()) })
+        }
     }
 }
 
@@ -652,7 +678,11 @@ unsafe fn disable<'b>(t: TextRef<'_>) -> TextRef<'b> {
 
 /// The cid of the string in the requested form.
 const fn string_cid(two: bool) -> i32 {
-    if two { cid::TWO_BYTE_STRING } else { cid::ONE_BYTE_STRING }
+    if two {
+        cid::TWO_BYTE_STRING
+    } else {
+        cid::ONE_BYTE_STRING
+    }
 }
 
 /// The bytes of one unit of a string of the form `two`.
@@ -706,22 +736,38 @@ unsafe fn copy_small(dst: *mut u8, src: *const u8, n: usize) {
             0 => {}
             1 => dst.write(src.read()),
             2..=3 => {
-                dst.cast::<u16>().write_unaligned(src.cast::<u16>().read_unaligned());
-                dst.add(n - 2).cast::<u16>().write_unaligned(src.add(n - 2).cast::<u16>().read_unaligned());
+                dst.cast::<u16>()
+                    .write_unaligned(src.cast::<u16>().read_unaligned());
+                dst.add(n - 2)
+                    .cast::<u16>()
+                    .write_unaligned(src.add(n - 2).cast::<u16>().read_unaligned());
             }
             4..=7 => {
-                dst.cast::<u32>().write_unaligned(src.cast::<u32>().read_unaligned());
-                dst.add(n - 4).cast::<u32>().write_unaligned(src.add(n - 4).cast::<u32>().read_unaligned());
+                dst.cast::<u32>()
+                    .write_unaligned(src.cast::<u32>().read_unaligned());
+                dst.add(n - 4)
+                    .cast::<u32>()
+                    .write_unaligned(src.add(n - 4).cast::<u32>().read_unaligned());
             }
             8..=16 => {
-                dst.cast::<u64>().write_unaligned(src.cast::<u64>().read_unaligned());
-                dst.add(n - 8).cast::<u64>().write_unaligned(src.add(n - 8).cast::<u64>().read_unaligned());
+                dst.cast::<u64>()
+                    .write_unaligned(src.cast::<u64>().read_unaligned());
+                dst.add(n - 8)
+                    .cast::<u64>()
+                    .write_unaligned(src.add(n - 8).cast::<u64>().read_unaligned());
             }
             17..=32 => {
-                dst.cast::<u64>().write_unaligned(src.cast::<u64>().read_unaligned());
-                dst.add(8).cast::<u64>().write_unaligned(src.add(8).cast::<u64>().read_unaligned());
-                dst.add(n - 16).cast::<u64>().write_unaligned(src.add(n - 16).cast::<u64>().read_unaligned());
-                dst.add(n - 8).cast::<u64>().write_unaligned(src.add(n - 8).cast::<u64>().read_unaligned());
+                dst.cast::<u64>()
+                    .write_unaligned(src.cast::<u64>().read_unaligned());
+                dst.add(8)
+                    .cast::<u64>()
+                    .write_unaligned(src.add(8).cast::<u64>().read_unaligned());
+                dst.add(n - 16)
+                    .cast::<u64>()
+                    .write_unaligned(src.add(n - 16).cast::<u64>().read_unaligned());
+                dst.add(n - 8)
+                    .cast::<u64>()
+                    .write_unaligned(src.add(n - 8).cast::<u64>().read_unaligned());
             }
             _ => std::ptr::copy_nonoverlapping(src, dst, n),
         }
@@ -793,8 +839,16 @@ impl Heap {
         let (b, c) = self.string_block(h).expect("compiler bug: string expected");
         // SAFETY: a live string block (`string_block`): the state at `b + STATE`
         // and the length at `b + LENGTH`.
-        let (state, len) = unsafe { (*((b + offsets::STATE) as *const u8), *((b + offsets::LENGTH) as *const i64)) };
-        assert!(state != state::PERMANENT, "compiler bug: write to a static object");
+        let (state, len) = unsafe {
+            (
+                *((b + offsets::STATE) as *const u8),
+                *((b + offsets::LENGTH) as *const i64),
+            )
+        };
+        assert!(
+            state != state::PERMANENT,
+            "compiler bug: write to a static object"
+        );
         self.fresh_body(h);
         (b, len as usize, c == cid::TWO_BYTE_STRING)
     }
@@ -828,11 +882,20 @@ impl Heap {
     /// destination's form was chosen by whoever allocated it).
     pub fn write_string(&mut self, dest: Ref, pos: usize, t: TextRef<'_>) {
         let (b, len, two) = self.string_under_construction(dest);
-        assert!(pos + t.len() <= len, "compiler bug: write beyond the end of the string");
+        assert!(
+            pos + t.len() <= len,
+            "compiler bug: write beyond the end of the string"
+        );
         // SAFETY: the units of the live string `dest` run from `b+24` for `len`
         // units of its form, and `pos + t.len() ≤ len`; `t` is not in `dest`
         // (another block, or a buffer of the caller).
-        unsafe { write_units((b + offsets::UNITS + pos * unit_size(two)) as *mut u8, two, t) };
+        unsafe {
+            write_units(
+                (b + offsets::UNITS + pos * unit_size(two)) as *mut u8,
+                two,
+                t,
+            )
+        };
     }
 
     /// Copies the units `start..end` of string `source` to position `pos` of string
@@ -841,7 +904,10 @@ impl Heap {
     /// # Panics
     /// If `source` is not a string or the range is outside it.
     pub fn copy_string(&mut self, dest: Ref, pos: usize, source: Ref, start: usize, end: usize) {
-        let t = self.text(source).expect("compiler bug: string expected").piece(start, end);
+        let t = self
+            .text(source)
+            .expect("compiler bug: string expected")
+            .piece(start, end);
         // SAFETY: `source` is alive (the caller has it) and `write_string` neither
         // allocates nor collects; `dest` is another block, so the slices do not
         // overlap.
@@ -866,11 +932,18 @@ impl Heap {
     /// The units `start..end` of string `h` (rooted by the caller) in a new string,
     /// in canonical form (the VM's `_substringUnchecked`).
     pub fn string_slice(&mut self, h: Ref, start: usize, end: usize) -> Ref {
-        let one = self.text(h).expect("compiler bug: string expected").piece(start, end).fits_in_one_byte();
+        let one = self
+            .text(h)
+            .expect("compiler bug: string expected")
+            .piece(start, end)
+            .fits_in_one_byte();
         let (r, p) = self.new_string_units(end - start, !one);
         // The source is read again after the allocation (which may have collected;
         // the caller roots it).
-        let t = self.text(h).expect("compiler bug: string expected").piece(start, end);
+        let t = self
+            .text(h)
+            .expect("compiler bug: string expected")
+            .piece(start, end);
         // SAFETY: `p` has room for `end - start` units of the form chosen for the
         // piece; `r` is another block than `h`, so the copy does not overlap.
         unsafe { write_units(p, !one, t) };
@@ -948,14 +1021,18 @@ impl Heap {
         if a == b {
             return layout::is_object(a) && self.is_string(a);
         }
-        let (Some(ta), Some(tb)) = (self.text(a), self.text(b)) else { return false };
+        let (Some(ta), Some(tb)) = (self.text(a), self.text(b)) else {
+            return false;
+        };
         if ta.len() != tb.len() {
             return false;
         }
         // The already computed hashes differ: different units.
         let hash = |h: Ref| -> u32 {
             // SAFETY: `map` of a live string block, only read.
-            unsafe { *((h - layout::HANDLE_OFFSET) as usize as *const u32).byte_add(offsets::STRING_HASH) }
+            unsafe {
+                *((h - layout::HANDLE_OFFSET) as usize as *const u32).byte_add(offsets::STRING_HASH)
+            }
         };
         let (ha, hb) = (hash(a), hash(b));
         if ha != 0 && hb != 0 && ha != hb {
@@ -1027,11 +1104,17 @@ fn index_image(start: usize, end: usize, ix: &mut std::collections::HashMap<u32,
         let state_byte = word as u8;
         let fl = (word >> 8) as u8;
         let c = (word >> 32) as i32;
-        if state_byte != state::PERMANENT || fl & flags::FORMAT != flags::RAW || !cid::is_string(c) {
+        if state_byte != state::PERMANENT || fl & flags::FORMAT != flags::RAW || !cid::is_string(c)
+        {
             break;
         }
         // SAFETY: a static string header: the hash and the length follow.
-        let (hash, len) = unsafe { (*((b + offsets::STRING_HASH) as *const u32), *((b + offsets::LENGTH) as *const i64)) };
+        let (hash, len) = unsafe {
+            (
+                *((b + offsets::STRING_HASH) as *const u32),
+                *((b + offsets::LENGTH) as *const i64),
+            )
+        };
         let w = layout::string_words(len as usize, c == cid::TWO_BYTE_STRING);
         let size = layout::HEADER_SIZE + 8 * w;
         if len < 0 || b + size > end {
@@ -1054,14 +1137,18 @@ pub fn string_static(t: TextRef<'_>) -> Option<Ref> {
         .as_ref()
         .is_some_and(|(n, _)| *n == images.len());
     if !ready_flag {
-        let mut g = STRING_STATICS.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut g = STRING_STATICS
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let (n, ix) = g.get_or_insert_with(|| (0, std::collections::HashMap::new()));
         for &(i, f) in &images[*n..] {
             index_image(i, f, ix);
         }
         *n = images.len();
     }
-    let g = STRING_STATICS.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let g = STRING_STATICS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (_, ix) = g.as_ref()?;
     let hash = t.hash_vm();
     ix.get(&hash)?.iter().rev().find_map(|&b| {
@@ -1109,8 +1196,14 @@ mod tests_strings {
         assert_ne!(one, TextRef::OneByte(b"abc"));
         assert_eq!(Text::from_rust_str("ab"), Text::TwoByte(vec![0x61, 0x62]));
         assert_eq!(one.compare(two), std::cmp::Ordering::Equal);
-        assert_eq!(one.compare(TextRef::TwoByte(&[0x61, 0x63])), std::cmp::Ordering::Less);
-        assert_eq!(TextRef::OneByte(b"b").compare(TextRef::OneByte(b"ab")), std::cmp::Ordering::Greater);
+        assert_eq!(
+            one.compare(TextRef::TwoByte(&[0x61, 0x63])),
+            std::cmp::Ordering::Less
+        );
+        assert_eq!(
+            TextRef::OneByte(b"b").compare(TextRef::OneByte(b"ab")),
+            std::cmp::Ordering::Greater
+        );
     }
 
     #[test]

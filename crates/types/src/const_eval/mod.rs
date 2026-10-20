@@ -6,8 +6,8 @@
 //! Runs after body inference, over its side tables (static types and
 //! resolutions): [`verify`] gives the diagnostics of a library.
 
-pub mod evaluation;
 pub mod cycles;
+pub mod evaluation;
 pub mod exhaustiveness;
 pub mod graph;
 pub mod potential;
@@ -40,7 +40,8 @@ pub fn switch_witnesses(
     the_inferred: &HashSet<LibraryId>,
     lib: LibraryId,
 ) -> std::collections::HashMap<(UnitId, usize), Vec<Vec<WitnessPart>>> {
-    let mut m = evaluation::Engine::new(program, interner, table, core, outline, body, the_inferred);
+    let mut m =
+        evaluation::Engine::new(program, interner, table, core, outline, body, the_inferred);
     m.witnesses = Some(std::collections::HashMap::new());
     let _ = verifier::the_verify(&mut m, lib);
     m.witnesses.take().unwrap_or_default()
@@ -60,7 +61,17 @@ pub fn verify(
     the_inferred: &HashSet<LibraryId>,
     libs: &[LibraryId],
 ) -> Vec<(UnitId, Diagnostic)> {
-    verify_with_crashes(program, interner, table, core, outline, body, the_inferred, libs).0
+    verify_with_crashes(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        body,
+        the_inferred,
+        libs,
+    )
+    .0
 }
 
 /// [`verify`], with the libraries on which analyzer 3.6.2 throws
@@ -78,13 +89,16 @@ pub fn verify_with_crashes(
     the_inferred: &HashSet<LibraryId>,
     libs: &[LibraryId],
 ) -> (Vec<(UnitId, Diagnostic)>, Vec<LibraryId>) {
-    let mut m = evaluation::Engine::new(program, interner, table, core, outline, body, the_inferred);
+    let mut m =
+        evaluation::Engine::new(program, interner, table, core, outline, body, the_inferred);
     let mut out = Vec::new();
     let mut broken = Vec::new();
     for &lib in libs {
         m.analyzer_break = false;
         out.extend(verifier::the_verify(&mut m, lib));
-        if m.analyzer_break && program.library_reference(lib) == dartforge_diagnostics::AnalyzerReference::V3_6 {
+        if m.analyzer_break
+            && program.library_reference(lib) == dartforge_diagnostics::AnalyzerReference::V3_6
+        {
             broken.push(lib);
         }
     }

@@ -7,7 +7,7 @@
 //! on without proving any error about them.
 
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
-use dartforge_diagnostics::{codes::compile_time_error as c, Code};
+use dartforge_diagnostics::{Code, codes::compile_time_error as c};
 use dartforge_elements::model::{ClassId, FunctionElementId, VariableId};
 use dartforge_intern::SymbolId;
 use std::rc::Rc;
@@ -43,15 +43,36 @@ pub enum InstanceState {
     Str(Option<Text>),
     /// `NullState`; `invalid` is the fictitious object of an unresolved
     /// expression (`_unresolvedObject`).
-    Null { invalid: bool },
+    Null {
+        invalid: bool,
+    },
     Symbol(Option<Rc<str>>),
     Type(Option<TypeId>),
-    Function { element: Function, args: Option<Rc<[TypeId]>> },
-    List { element: TypeId, elements: Rc<Vec<Value>>, unknown: bool },
-    Set { elements: Rc<Vec<Value>>, unknown: bool },
-    Map { entries: Rc<Vec<(Value, Value)>>, unknown: bool },
-    Record { positional: Rc<Vec<Value>>, named: Rc<Vec<(SymbolId, Value)>> },
-    Generic { fields: Rc<Vec<(Field, Value)>>, unknown: bool },
+    Function {
+        element: Function,
+        args: Option<Rc<[TypeId]>>,
+    },
+    List {
+        element: TypeId,
+        elements: Rc<Vec<Value>>,
+        unknown: bool,
+    },
+    Set {
+        elements: Rc<Vec<Value>>,
+        unknown: bool,
+    },
+    Map {
+        entries: Rc<Vec<(Value, Value)>>,
+        unknown: bool,
+    },
+    Record {
+        positional: Rc<Vec<Value>>,
+        named: Rc<Vec<(SymbolId, Value)>>,
+    },
+    Generic {
+        fields: Rc<Vec<(Field, Value)>>,
+        unknown: bool,
+    },
 }
 
 /// `DartObjectImpl`.
@@ -72,7 +93,10 @@ pub struct Exception {
 
 impl Exception {
     pub fn new(code: Code) -> Self {
-        Exception { code, runtime: false }
+        Exception {
+            code,
+            runtime: false,
+        }
     }
 }
 
@@ -90,8 +114,18 @@ impl InstanceState {
             InstanceState::Double(v) => v.is_none(),
             InstanceState::Str(v) => v.is_none(),
             InstanceState::List { unknown, .. } => *unknown,
-            InstanceState::Set { unknown: the_unknown, .. } | InstanceState::Map { unknown: the_unknown, .. } => *the_unknown,
-            InstanceState::Generic { unknown: the_unknown, .. } => *the_unknown,
+            InstanceState::Set {
+                unknown: the_unknown,
+                ..
+            }
+            | InstanceState::Map {
+                unknown: the_unknown,
+                ..
+            } => *the_unknown,
+            InstanceState::Generic {
+                unknown: the_unknown,
+                ..
+            } => *the_unknown,
             _ => false,
         }
     }
@@ -113,19 +147,38 @@ impl InstanceState {
     }
 
     pub fn is_bool_num_string_or_null(&self) -> bool {
-        matches!(self, InstanceState::Bool(_) | InstanceState::Int(_) | InstanceState::Double(_) | InstanceState::Str(_) | InstanceState::Null { .. })
+        matches!(
+            self,
+            InstanceState::Bool(_)
+                | InstanceState::Int(_)
+                | InstanceState::Double(_)
+                | InstanceState::Str(_)
+                | InstanceState::Null { .. }
+        )
     }
 
     fn assert_bool(s: &InstanceState) -> R<()> {
-        if s.is_bool() { Ok(()) } else { throws(c::CONST_EVAL_TYPE_BOOL) }
+        if s.is_bool() {
+            Ok(())
+        } else {
+            throws(c::CONST_EVAL_TYPE_BOOL)
+        }
     }
 
     fn assert_int_or_null(s: &InstanceState) -> R<()> {
-        if matches!(s, InstanceState::Int(_) | InstanceState::Null { .. }) { Ok(()) } else { throws(c::CONST_EVAL_TYPE_INT) }
+        if matches!(s, InstanceState::Int(_) | InstanceState::Null { .. }) {
+            Ok(())
+        } else {
+            throws(c::CONST_EVAL_TYPE_INT)
+        }
     }
 
     fn assert_num_or_null(s: &InstanceState) -> R<()> {
-        if s.is_num() || s.is_null() { Ok(()) } else { throws(c::CONST_EVAL_TYPE_NUM) }
+        if s.is_num() || s.is_null() {
+            Ok(())
+        } else {
+            throws(c::CONST_EVAL_TYPE_NUM)
+        }
     }
 
     fn assert_num_string_or_null(s: &InstanceState) -> R<()> {
@@ -137,7 +190,11 @@ impl InstanceState {
     }
 
     fn assert_string(s: &InstanceState) -> R<()> {
-        if matches!(s, InstanceState::Str(_)) { Ok(()) } else { throws(c::CONST_EVAL_TYPE_STRING) }
+        if matches!(s, InstanceState::Str(_)) {
+            Ok(())
+        } else {
+            throws(c::CONST_EVAL_TYPE_STRING)
+        }
     }
 
     /// `convertToBool`.
@@ -150,19 +207,29 @@ impl InstanceState {
     }
 
     /// `convertToString`.
-    pub fn to_text(&self, format_type: &dyn Fn(TypeId) -> String, function_name: &dyn Fn(Function) -> String) -> R<InstanceState> {
+    pub fn to_text(
+        &self,
+        format_type: &dyn Fn(TypeId) -> String,
+        function_name: &dyn Fn(Function) -> String,
+    ) -> R<InstanceState> {
         Ok(match self {
-            InstanceState::Bool(v) => InstanceState::Str(v.map(|b| the_text(if b { "true" } else { "false" }))),
+            InstanceState::Bool(v) => {
+                InstanceState::Str(v.map(|b| the_text(if b { "true" } else { "false" })))
+            }
             InstanceState::Int(v) => InstanceState::Str(v.map(|i| the_text(&i.to_string()))),
             InstanceState::Double(v) => InstanceState::Str(v.map(|d| the_text(&double_as_dart(d)))),
             InstanceState::Str(v) => InstanceState::Str(v.clone()),
             InstanceState::Null { .. } => InstanceState::Str(Some(the_text("null"))),
             InstanceState::Symbol(v) => InstanceState::Str(v.as_ref().map(|s| the_text(s))),
             InstanceState::Type(t) => InstanceState::Str(t.map(|t| the_text(&format_type(t)))),
-            InstanceState::Function { element, .. } => InstanceState::Str(Some(the_text(&function_name(*element)))),
-            InstanceState::List { .. } | InstanceState::Set { .. } | InstanceState::Map { .. } | InstanceState::Record { .. } | InstanceState::Generic { .. } => {
-                InstanceState::Str(None)
+            InstanceState::Function { element, .. } => {
+                InstanceState::Str(Some(the_text(&function_name(*element))))
             }
+            InstanceState::List { .. }
+            | InstanceState::Set { .. }
+            | InstanceState::Map { .. }
+            | InstanceState::Record { .. }
+            | InstanceState::Generic { .. } => InstanceState::Str(None),
         })
     }
 
@@ -172,7 +239,11 @@ impl InstanceState {
             InstanceState::Int(v) => {
                 Self::assert_num_or_null(d)?;
                 let Some(a) = v else {
-                    return Ok(if matches!(d, InstanceState::Double(_)) { InstanceState::Double(None) } else { InstanceState::Int(None) });
+                    return Ok(if matches!(d, InstanceState::Double(_)) {
+                        InstanceState::Double(None)
+                    } else {
+                        InstanceState::Int(None)
+                    });
                 };
                 match d {
                     InstanceState::Int(b) => Ok(InstanceState::Int(b.map(|b| a.wrapping_add(b)))),
@@ -182,7 +253,9 @@ impl InstanceState {
             }
             InstanceState::Double(v) => {
                 Self::assert_num_or_null(d)?;
-                let Some(a) = v else { return Ok(InstanceState::Double(None)) };
+                let Some(a) = v else {
+                    return Ok(InstanceState::Double(None));
+                };
                 match d {
                     InstanceState::Int(b) => Ok(InstanceState::Double(b.map(|b| a + b as f64))),
                     InstanceState::Double(b) => Ok(InstanceState::Double(b.map(|b| a + b))),
@@ -201,9 +274,13 @@ impl InstanceState {
     /// `concatenate`.
     pub fn concatenate(&self, d: &InstanceState) -> R<InstanceState> {
         if let InstanceState::Str(v) = self {
-            let Some(a) = v else { return Ok(InstanceState::Str(None)) };
+            let Some(a) = v else {
+                return Ok(InstanceState::Str(None));
+            };
             if let InstanceState::Str(b) = d {
-                let Some(b) = b else { return Ok(InstanceState::Str(None)) };
+                let Some(b) = b else {
+                    return Ok(InstanceState::Str(None));
+                };
                 let mut u: Vec<u16> = a.to_vec();
                 u.extend_from_slice(b);
                 return Ok(InstanceState::Str(Some(u.into())));
@@ -224,12 +301,18 @@ impl InstanceState {
             InstanceState::Int(v) => {
                 Self::assert_num_or_null(d)?;
                 let Some(a) = *v else {
-                    return Ok(if matches!(d, InstanceState::Double(_)) { unknown_int_with_double } else { InstanceState::Int(None) });
+                    return Ok(if matches!(d, InstanceState::Double(_)) {
+                        unknown_int_with_double
+                    } else {
+                        InstanceState::Int(None)
+                    });
                 };
                 match d {
                     InstanceState::Int(b) => match b {
                         None => Ok(InstanceState::Int(None)),
-                        Some(b) => int(a, *b).unwrap_or_else(|| throws(c::CONST_EVAL_THROWS_EXCEPTION)),
+                        Some(b) => {
+                            int(a, *b).unwrap_or_else(|| throws(c::CONST_EVAL_THROWS_EXCEPTION))
+                        }
                     },
                     InstanceState::Double(b) => match b {
                         None => Ok(InstanceState::Double(None)),
@@ -240,7 +323,9 @@ impl InstanceState {
             }
             InstanceState::Double(v) => {
                 Self::assert_num_or_null(d)?;
-                let Some(a) = *v else { return Ok(InstanceState::Double(None)) };
+                let Some(a) = *v else {
+                    return Ok(InstanceState::Double(None));
+                };
                 match d {
                     InstanceState::Int(b) => match b {
                         None => Ok(InstanceState::Double(None)),
@@ -263,12 +348,22 @@ impl InstanceState {
 
     /// `minus`.
     pub fn subtract(&self, d: &InstanceState) -> R<InstanceState> {
-        self.arithmetic(d, |a, b| Some(Ok(InstanceState::Int(Some(a.wrapping_sub(b))))), |a, b| Ok(InstanceState::Double(Some(a - b))), InstanceState::Double(None))
+        self.arithmetic(
+            d,
+            |a, b| Some(Ok(InstanceState::Int(Some(a.wrapping_sub(b))))),
+            |a, b| Ok(InstanceState::Double(Some(a - b))),
+            InstanceState::Double(None),
+        )
     }
 
     /// `times`.
     pub fn multiply(&self, d: &InstanceState) -> R<InstanceState> {
-        self.arithmetic(d, |a, b| Some(Ok(InstanceState::Int(Some(a.wrapping_mul(b))))), |a, b| Ok(InstanceState::Double(Some(a * b))), InstanceState::Double(None))
+        self.arithmetic(
+            d,
+            |a, b| Some(Ok(InstanceState::Int(Some(a.wrapping_mul(b))))),
+            |a, b| Ok(InstanceState::Double(Some(a * b))),
+            InstanceState::Double(None),
+        )
     }
 
     /// `divide`: always `double` (the unknown `int` too).
@@ -303,29 +398,48 @@ impl InstanceState {
         match self {
             InstanceState::Int(v) => {
                 Self::assert_num_or_null(d)?;
-                let Some(a) = *v else { return Ok(InstanceState::Int(None)) };
+                let Some(a) = *v else {
+                    return Ok(InstanceState::Int(None));
+                };
                 match d {
-                    InstanceState::Int(None) | InstanceState::Double(None) => Ok(InstanceState::Int(None)),
-                    InstanceState::Int(Some(0)) => Err(Exception { code: c::CONST_EVAL_THROWS_IDBZE, runtime: true }),
+                    InstanceState::Int(None) | InstanceState::Double(None) => {
+                        Ok(InstanceState::Int(None))
+                    }
+                    InstanceState::Int(Some(0)) => Err(Exception {
+                        code: c::CONST_EVAL_THROWS_IDBZE,
+                        runtime: true,
+                    }),
                     InstanceState::Int(Some(b)) => Ok(InstanceState::Int(Some(a.wrapping_div(*b)))),
                     InstanceState::Double(Some(b)) => {
                         let r = a as f64 / b;
-                        if r.is_finite() { Ok(InstanceState::Int(Some(r as i64))) } else { throws(c::CONST_EVAL_THROWS_EXCEPTION) }
+                        if r.is_finite() {
+                            Ok(InstanceState::Int(Some(r as i64)))
+                        } else {
+                            throws(c::CONST_EVAL_THROWS_EXCEPTION)
+                        }
                     }
                     _ => throws(c::CONST_EVAL_THROWS_EXCEPTION),
                 }
             }
             InstanceState::Double(v) => {
                 Self::assert_num_or_null(d)?;
-                let Some(a) = *v else { return Ok(InstanceState::Int(None)) };
+                let Some(a) = *v else {
+                    return Ok(InstanceState::Int(None));
+                };
                 let b = match d {
-                    InstanceState::Int(None) | InstanceState::Double(None) => return Ok(InstanceState::Int(None)),
+                    InstanceState::Int(None) | InstanceState::Double(None) => {
+                        return Ok(InstanceState::Int(None));
+                    }
                     InstanceState::Int(Some(b)) => *b as f64,
                     InstanceState::Double(Some(b)) => *b,
                     _ => return throws(c::CONST_EVAL_THROWS_EXCEPTION),
                 };
                 let r = a / b;
-                if r.is_finite() { Ok(InstanceState::Int(Some(r as i64))) } else { throws(c::CONST_EVAL_THROWS_EXCEPTION) }
+                if r.is_finite() {
+                    Ok(InstanceState::Int(Some(r as i64)))
+                } else {
+                    throws(c::CONST_EVAL_THROWS_EXCEPTION)
+                }
             }
             _ => {
                 Self::assert_num_or_null(self)?;
@@ -335,7 +449,11 @@ impl InstanceState {
         }
     }
 
-    fn compare(&self, d: &InstanceState, f: impl Fn(std::cmp::Ordering) -> bool) -> R<InstanceState> {
+    fn compare(
+        &self,
+        d: &InstanceState,
+        f: impl Fn(std::cmp::Ordering) -> bool,
+    ) -> R<InstanceState> {
         let value = |s: &InstanceState| -> Option<Option<f64>> {
             match s {
                 InstanceState::Int(v) => Some(v.map(|i| i as f64)),
@@ -344,7 +462,9 @@ impl InstanceState {
             }
         };
         match (self, d) {
-            (InstanceState::Int(Some(a)), InstanceState::Int(Some(b))) => Ok(InstanceState::Bool(Some(f(a.cmp(b))))),
+            (InstanceState::Int(Some(a)), InstanceState::Int(Some(b))) => {
+                Ok(InstanceState::Bool(Some(f(a.cmp(b)))))
+            }
             _ => {
                 let Some(a) = value(self) else {
                     Self::assert_num_or_null(self)?;
@@ -352,9 +472,15 @@ impl InstanceState {
                     return throws(c::CONST_EVAL_THROWS_EXCEPTION);
                 };
                 Self::assert_num_or_null(d)?;
-                let Some(a) = a else { return Ok(InstanceState::Bool(None)) };
-                let Some(b) = value(d) else { return throws(c::CONST_EVAL_THROWS_EXCEPTION) };
-                let Some(b) = b else { return Ok(InstanceState::Bool(None)) };
+                let Some(a) = a else {
+                    return Ok(InstanceState::Bool(None));
+                };
+                let Some(b) = value(d) else {
+                    return throws(c::CONST_EVAL_THROWS_EXCEPTION);
+                };
+                let Some(b) = b else {
+                    return Ok(InstanceState::Bool(None));
+                };
                 Ok(InstanceState::Bool(Some(match a.partial_cmp(&b) {
                     Some(o) => f(o),
                     None => false,
@@ -376,14 +502,22 @@ impl InstanceState {
         self.compare(d, |o| o != std::cmp::Ordering::Greater)
     }
 
-    fn bits(&self, d: &InstanceState, f: impl Fn(i64, i64) -> Option<InstanceState>) -> R<InstanceState> {
+    fn bits(
+        &self,
+        d: &InstanceState,
+        f: impl Fn(i64, i64) -> Option<InstanceState>,
+    ) -> R<InstanceState> {
         match self {
             InstanceState::Int(v) => {
                 Self::assert_int_or_null(d)?;
-                let Some(a) = *v else { return Ok(InstanceState::Int(None)) };
+                let Some(a) = *v else {
+                    return Ok(InstanceState::Int(None));
+                };
                 match d {
                     InstanceState::Int(None) => Ok(InstanceState::Int(None)),
-                    InstanceState::Int(Some(b)) => f(a, *b).map_or_else(|| throws(c::CONST_EVAL_THROWS_EXCEPTION), Ok),
+                    InstanceState::Int(Some(b)) => {
+                        f(a, *b).map_or_else(|| throws(c::CONST_EVAL_THROWS_EXCEPTION), Ok)
+                    }
                     _ => throws(c::CONST_EVAL_THROWS_EXCEPTION),
                 }
             }
@@ -410,7 +544,11 @@ impl InstanceState {
             if bit_length(b) > 31 {
                 Some(InstanceState::Int(None))
             } else if b >= 0 {
-                Some(InstanceState::Int(Some(if b >= 64 { 0 } else { a.wrapping_shl(b as u32) })))
+                Some(InstanceState::Int(Some(if b >= 64 {
+                    0
+                } else {
+                    a.wrapping_shl(b as u32)
+                })))
             } else {
                 None
             }
@@ -421,7 +559,11 @@ impl InstanceState {
             if bit_length(b) > 31 {
                 Some(InstanceState::Int(None))
             } else if b >= 0 {
-                Some(InstanceState::Int(Some(if b >= 64 { if a < 0 { -1 } else { 0 } } else { a >> b })))
+                Some(InstanceState::Int(Some(if b >= 64 {
+                    if a < 0 { -1 } else { 0 }
+                } else {
+                    a >> b
+                })))
             } else {
                 None
             }
@@ -477,7 +619,10 @@ impl InstanceState {
     fn logical(&self, d: &InstanceState, f: impl Fn(bool, bool) -> bool) -> R<InstanceState> {
         Self::assert_bool(self)?;
         Self::assert_bool(d)?;
-        let (InstanceState::Bool(a), InstanceState::Bool(b)) = (self.to_bool()?, d.to_bool()?) else { unreachable!() };
+        let (InstanceState::Bool(a), InstanceState::Bool(b)) = (self.to_bool()?, d.to_bool()?)
+        else {
+            unreachable!()
+        };
         Ok(InstanceState::Bool(match (a, b) {
             (Some(a), Some(b)) => Some(f(a, b)),
             _ => None,
@@ -528,10 +673,18 @@ pub fn double_as_dart(d: f64) -> String {
         return "NaN".into();
     }
     if d.is_infinite() {
-        return if d > 0.0 { "Infinity".into() } else { "-Infinity".into() };
+        return if d > 0.0 {
+            "Infinity".into()
+        } else {
+            "-Infinity".into()
+        };
     }
     if d == 0.0 {
-        return if d.is_sign_negative() { "-0.0".into() } else { "0.0".into() };
+        return if d.is_sign_negative() {
+            "-0.0".into()
+        } else {
+            "0.0".into()
+        };
     }
     let abs = d.abs();
     if (1e-6..1e21).contains(&abs) {
@@ -550,21 +703,42 @@ impl Value {
     /// The type comes already erased (`extensionTypeErasure`, done by the
     /// engine).
     pub fn new(ty: TypeId, state: InstanceState) -> Value {
-        Value { ty, state, variable: None }
+        Value {
+            ty,
+            state,
+            variable: None,
+        }
     }
 
     pub fn null(core: &CoreTypes) -> Value {
-        Value { ty: core.null, state: InstanceState::Null { invalid: false }, variable: None }
+        Value {
+            ty: core.null,
+            state: InstanceState::Null { invalid: false },
+            variable: None,
+        }
     }
 
     pub fn bool_(core: &CoreTypes, v: Option<bool>) -> Value {
-        Value { ty: core.bool_, state: InstanceState::Bool(v), variable: None }
+        Value {
+            ty: core.bool_,
+            state: InstanceState::Bool(v),
+            variable: None,
+        }
     }
 
     /// `validWithUnknownValue` (the type already erased).
-    pub fn unknown(table: &TypeTable, core: &CoreTypes, ty: TypeId, list_element: Option<TypeId>) -> Value {
+    pub fn unknown(
+        table: &TypeTable,
+        core: &CoreTypes,
+        ty: TypeId,
+        list_element: Option<TypeId>,
+    ) -> Value {
         let cls = match table.get(ty) {
-            Type::Interface { class, nullable: false, .. } => Some(*class),
+            Type::Interface {
+                class,
+                nullable: false,
+                ..
+            } => Some(*class),
             _ => None,
         };
         // An unknown of a nullable type (`bool?`, `int?`) has the state of the
@@ -585,15 +759,32 @@ impl Value {
         } else if ty == core.string || of(core.string_class) {
             InstanceState::Str(None)
         } else if cls.is_some() && cls == core.list_class {
-            InstanceState::List { element: list_element.unwrap_or(core.dynamic_), elements: Rc::new(Vec::new()), unknown: true }
+            InstanceState::List {
+                element: list_element.unwrap_or(core.dynamic_),
+                elements: Rc::new(Vec::new()),
+                unknown: true,
+            }
         } else if cls.is_some() && cls == core.map_class {
-            InstanceState::Map { entries: Rc::new(Vec::new()), unknown: true }
+            InstanceState::Map {
+                entries: Rc::new(Vec::new()),
+                unknown: true,
+            }
         } else if cls.is_some() && cls == core.set_class {
-            InstanceState::Set { elements: Rc::new(Vec::new()), unknown: true }
+            InstanceState::Set {
+                elements: Rc::new(Vec::new()),
+                unknown: true,
+            }
         } else {
-            InstanceState::Generic { fields: Rc::new(Vec::new()), unknown: true }
+            InstanceState::Generic {
+                fields: Rc::new(Vec::new()),
+                unknown: true,
+            }
         };
-        Value { ty, state, variable: None }
+        Value {
+            ty,
+            state,
+            variable: None,
+        }
     }
 
     pub fn actually_unknown(&self) -> bool {

@@ -27,7 +27,8 @@ use dartforge_macros_host::Output;
 use dartforge_macros_host::assembly::ExecutionResult;
 use dartforge_macros_host::cache::MacroCache;
 use dartforge_macros_host::executor::{
-    Availability, DfexecExecutor, ExecutionRequest, MacroExecutor, QueryService, RecordedChannel, RecordingChannel, session_to_text,
+    Availability, DfexecExecutor, ExecutionRequest, MacroExecutor, QueryService, RecordedChannel,
+    RecordingChannel, session_to_text,
 };
 use dartforge_macros_host::model::View;
 use dartforge_macros_host::protocol::Handshake;
@@ -55,19 +56,32 @@ struct Case {
 fn case(name: &str) -> Option<Case> {
     let dir = root().join("corpus/macros").join(name);
     let config = dir.join(".dart_tool/package_config.json");
-    config.is_file().then(|| Case { input: dir.join("main.dart"), config, dir })
+    config.is_file().then(|| Case {
+        input: dir.join("main.dart"),
+        config,
+        dir,
+    })
 }
 
 /// Runs the whole host with `executor` and returns the text of each
 /// augmented library.
 fn apply(c: &Case, sdk: &SdkLayout, executor: &mut dyn MacroExecutor) -> Vec<(PathBuf, String)> {
     let mut names = Interner::new();
-    let (p, d) = load_lenient_generated(&c.input, sdk, Some(&c.config), &mut names, None, None, None);
+    let (p, d) =
+        load_lenient_generated(&c.input, sdk, Some(&c.config), &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
-    let mut load = |i: &mut Interner, g| load_lenient_generated(&c.input, sdk, Some(&c.config), i, None, None, g);
+    let mut load = |i: &mut Interner, g| {
+        load_lenient_generated(&c.input, sdk, Some(&c.config), i, None, None, g)
+    };
     let output = match dartforge_macros_host::apply(p, &mut names, None, &mut load, executor) {
         Ok(s) => s,
-        Err(ds) => panic!("{}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n")),
+        Err(ds) => panic!(
+            "{}",
+            ds.iter()
+                .map(|d| d.message.clone())
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
     };
     output.texts.into_iter().map(|t| (t.path, t.text)).collect()
 }
@@ -75,10 +89,19 @@ fn apply(c: &Case, sdk: &SdkLayout, executor: &mut dyn MacroExecutor) -> Vec<(Pa
 fn check(c: &Case, texts: &[(PathBuf, String)]) {
     assert!(!texts.is_empty(), "no augmentation assembled");
     for (path, text) in texts {
-        let name = path.file_name().unwrap().to_string_lossy().replace(".macro.dart", ".augmentation.dart");
-        let expected = std::fs::read_to_string(c.dir.join("esperado").join(&name)).expect("CFE golden");
+        let name = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .replace(".macro.dart", ".augmentation.dart");
+        let expected =
+            std::fs::read_to_string(c.dir.join("esperado").join(&name)).expect("CFE golden");
         if *text != expected {
-            let line = text.lines().zip(expected.lines()).position(|(a, b)| a != b).unwrap_or(0);
+            let line = text
+                .lines()
+                .zip(expected.lines())
+                .position(|(a, b)| a != b)
+                .unwrap_or(0);
             panic!(
                 "{name}: differs from CFE 3.6.2 at line {}\n  ours: {:?}\n  CFE:  {:?}\n--- ours ---\n{text}",
                 line + 1,
@@ -96,23 +119,48 @@ fn recorded_session_reproduces_the_cfe_text() {
         eprintln!("no SDK or no pub get of corpus/macros/410_json_codable: skipped");
         return;
     };
-    let recorded = std::fs::read_to_string(c.dir.join("esperado/session.dfexec")).expect("recorded session");
+    let recorded =
+        std::fs::read_to_string(c.dir.join("esperado/session.dfexec")).expect("recorded session");
     let mut executor = DfexecExecutor::new(RecordedChannel::from_text(&recorded).unwrap());
     let texts = apply(&c, &sdk, &mut executor);
-    assert_eq!(executor.channel().remaining(), 0, "part of the recorded session was left unconsumed");
+    assert_eq!(
+        executor.channel().remaining(),
+        0,
+        "part of the recorded session was left unconsumed"
+    );
     check(&c, &texts);
 }
 
 /// Like [`apply`], with the expansion cache and the diff-based reload.
-fn apply_with_cache(c: &Case, sdk: &SdkLayout, executor: &mut dyn MacroExecutor, cache: &mut MacroCache) -> Output {
+fn apply_with_cache(
+    c: &Case,
+    sdk: &SdkLayout,
+    executor: &mut dyn MacroExecutor,
+    cache: &mut MacroCache,
+) -> Output {
     let mut names = Interner::new();
-    let (p, d) = load_lenient_generated(&c.input, sdk, Some(&c.config), &mut names, None, None, None);
+    let (p, d) =
+        load_lenient_generated(&c.input, sdk, Some(&c.config), &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
-    let mut load =
-        |i: &mut Interner, g, u: &mut AnalyzedUnitCache| load_lenient_generated(&c.input, sdk, Some(&c.config), i, None, Some(u), g);
-    match dartforge_macros_host::apply_incremental(p, &mut names, None, &mut load, executor, Some(cache)) {
+    let mut load = |i: &mut Interner, g, u: &mut AnalyzedUnitCache| {
+        load_lenient_generated(&c.input, sdk, Some(&c.config), i, None, Some(u), g)
+    };
+    match dartforge_macros_host::apply_incremental(
+        p,
+        &mut names,
+        None,
+        &mut load,
+        executor,
+        Some(cache),
+    ) {
         Ok(s) => s,
-        Err(ds) => panic!("{}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n")),
+        Err(ds) => panic!(
+            "{}",
+            ds.iter()
+                .map(|d| d.message.clone())
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
     }
 }
 
@@ -129,7 +177,11 @@ impl MacroExecutor for Forbidden {
     fn instantiate(&mut self, _: &str, _: &str, _: &Value) -> Result<(u64, Vec<String>), String> {
         panic!("the executor could not instantiate")
     }
-    fn execute(&mut self, _: &ExecutionRequest, _: &mut dyn QueryService) -> Result<ExecutionResult, String> {
+    fn execute(
+        &mut self,
+        _: &ExecutionRequest,
+        _: &mut dyn QueryService,
+    ) -> Result<ExecutionResult, String> {
         panic!("the executor could not execute")
     }
     fn shut_down(&mut self) {
@@ -148,20 +200,38 @@ fn cache_reuses_json_codable_without_executor() {
         eprintln!("no SDK or no pub get of corpus/macros/410_json_codable: skipped");
         return;
     };
-    let recorded = std::fs::read_to_string(c.dir.join("esperado/session.dfexec")).expect("recorded session");
+    let recorded =
+        std::fs::read_to_string(c.dir.join("esperado/session.dfexec")).expect("recorded session");
     let mut executor = DfexecExecutor::new(RecordedChannel::from_text(&recorded).unwrap());
     let mut cache = MacroCache::new("recorded session");
     let first = apply_with_cache(&c, &sdk, &mut executor, &mut cache);
-    assert_eq!(executor.channel().remaining(), 0, "part of the recorded session was left unconsumed");
+    assert_eq!(
+        executor.channel().remaining(),
+        0,
+        "part of the recorded session was left unconsumed"
+    );
     assert_eq!((first.executed_macros, first.measurement.reused), (8, 0));
-    let texts: Vec<_> = first.texts.iter().map(|t| (t.path.clone(), t.text.clone())).collect();
+    let texts: Vec<_> = first
+        .texts
+        .iter()
+        .map(|t| (t.path.clone(), t.text.clone()))
+        .collect();
     check(&c, &texts);
 
     let second = apply_with_cache(&c, &sdk, &mut Forbidden, &mut cache);
     assert_eq!((second.executed_macros, second.measurement.reused), (0, 8));
-    let texts: Vec<_> = second.texts.iter().map(|t| (t.path.clone(), t.text.clone())).collect();
+    let texts: Vec<_> = second
+        .texts
+        .iter()
+        .map(|t| (t.path.clone(), t.text.clone()))
+        .collect();
     check(&c, &texts);
-    let order = |s: &Output| s.expansions.iter().map(|e| (e.application.clone(), e.phase)).collect::<Vec<_>>();
+    let order = |s: &Output| {
+        s.expansions
+            .iter()
+            .map(|e| (e.application.clone(), e.phase))
+            .collect::<Vec<_>>()
+    };
     assert_eq!(order(&first), order(&second));
 }
 
@@ -171,15 +241,29 @@ fn vm_runs_the_macro_and_matches_the_cfe() {
     let dart = std::env::var_os("DARTFORGE_DART_SDK")
         .map(PathBuf::from)
         .or_else(|| SdkLayout::discover().and_then(|l| l.parent().map(Path::to_path_buf)))
-        .map(|s| s.join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" }))
+        .map(|s| {
+            s.join("bin")
+                .join(if cfg!(windows) { "dart.exe" } else { "dart" })
+        })
         .expect("DARTFORGE_DART_SDK");
     let (Some(sdk), Some(c)) = (sdk(), case("410_json_codable")) else {
         panic!("no SDK or no pub get of corpus/macros/410_json_codable");
     };
     let apps = {
         let mut names = Interner::new();
-        let (p, _) = load_lenient_generated(&c.input, &sdk, Some(&c.config), &mut names, None, None, None);
-        dartforge_macros_host::applications::detect(&View { program: &p, interner: &names })
+        let (p, _) = load_lenient_generated(
+            &c.input,
+            &sdk,
+            Some(&c.config),
+            &mut names,
+            None,
+            None,
+            None,
+        );
+        dartforge_macros_host::applications::detect(&View {
+            program: &p,
+            interner: &names,
+        })
     };
     assert_eq!(apps.len(), 4, "{apps:?}");
     let work = tempfile::tempdir().unwrap();
@@ -189,7 +273,10 @@ fn vm_runs_the_macro_and_matches_the_cfe() {
         work_dir: work.path().to_path_buf(),
     };
     let vm = dartforge_macros_host::vm::start(&cfg, &apps, Some(&c.config)).unwrap();
-    let channel = RecordingChannel { inner: vm.into_channel(), session: Vec::new() };
+    let channel = RecordingChannel {
+        inner: vm.into_channel(),
+        session: Vec::new(),
+    };
     let mut executor = DfexecExecutor::new(channel);
     let texts = apply(&c, &sdk, &mut executor);
     if std::env::var_os("DARTFORGE_RECORD_SESSION").is_some() {
@@ -209,15 +296,35 @@ fn vm_runs_the_macro_and_matches_the_cfe() {
 #[test]
 #[ignore = "requires DARTFORGE_NATIVE_COMPILER (dartforge with the native feature), the SDK and the pub get of corpus/macros"]
 fn native_executor_matches_the_cfe() {
-    let compiler = PathBuf::from(std::env::var_os("DARTFORGE_NATIVE_COMPILER").expect("DARTFORGE_NATIVE_COMPILER"));
+    let compiler = PathBuf::from(
+        std::env::var_os("DARTFORGE_NATIVE_COMPILER").expect("DARTFORGE_NATIVE_COMPILER"),
+    );
     let sdk = sdk().expect("SDK (DARTFORGE_SDK_LIB)");
     let mut checked = 0;
-    for name in ["410_json_codable", "411_pedido_independente", "412_argumento_posicional", "413_argumentos_nomeados"] {
-        let Some(c) = case(name) else { panic!("no pub get of corpus/macros/{name}") };
+    for name in [
+        "410_json_codable",
+        "411_pedido_independente",
+        "412_argumento_posicional",
+        "413_argumentos_nomeados",
+    ] {
+        let Some(c) = case(name) else {
+            panic!("no pub get of corpus/macros/{name}")
+        };
         let apps = {
             let mut names = Interner::new();
-            let (p, _) = load_lenient_generated(&c.input, &sdk, Some(&c.config), &mut names, None, None, None);
-            dartforge_macros_host::applications::detect(&View { program: &p, interner: &names })
+            let (p, _) = load_lenient_generated(
+                &c.input,
+                &sdk,
+                Some(&c.config),
+                &mut names,
+                None,
+                None,
+                None,
+            );
+            dartforge_macros_host::applications::detect(&View {
+                program: &p,
+                interner: &names,
+            })
         };
         assert!(!apps.is_empty(), "{name}: no application");
         let work = tempfile::tempdir().unwrap();
@@ -231,11 +338,19 @@ fn native_executor_matches_the_cfe() {
         let exe = dartforge_macros_host::native::compile(&cfg, &apps, Some(&c.config)).unwrap();
         let compilation = t0.elapsed();
         // The second time comes from the cache: the same key, no compilation.
-        assert_eq!(dartforge_macros_host::native::compile(&cfg, &apps, Some(&c.config)).unwrap(), exe);
-        let mut executor = dartforge_macros_host::native::start(&cfg, &apps, Some(&c.config)).unwrap();
+        assert_eq!(
+            dartforge_macros_host::native::compile(&cfg, &apps, Some(&c.config)).unwrap(),
+            exe
+        );
+        let mut executor =
+            dartforge_macros_host::native::start(&cfg, &apps, Some(&c.config)).unwrap();
         let t1 = std::time::Instant::now();
         let texts = apply(&c, &sdk, &mut executor);
-        println!("{name}: compilation {:.1} s, application {:.0} ms", compilation.as_secs_f64(), t1.elapsed().as_secs_f64() * 1000.0);
+        println!(
+            "{name}: compilation {:.1} s, application {:.0} ms",
+            compilation.as_secs_f64(),
+            t1.elapsed().as_secs_f64() * 1000.0
+        );
         check(&c, &texts);
         checked += 1;
     }

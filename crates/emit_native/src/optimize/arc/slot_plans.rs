@@ -119,9 +119,7 @@ impl SharedFramesCfgContract {
                     | Instruction::TearOff { code_symbol: s }
                     | Instruction::AllocClosure { code_symbol: s, .. } => name(s),
                     Instruction::AllocClosureTyped {
-                        code_symbol,
-                        typed,
-                        ..
+                        code_symbol, typed, ..
                     } => {
                         name(code_symbol);
                         name(typed);
@@ -180,7 +178,10 @@ impl SharedFramesCfgContract {
     pub(super) fn pairs(&self) -> &HashMap<ValueId, ValueId> {
         static EMPTY: std::sync::LazyLock<HashMap<ValueId, ValueId>> =
             std::sync::LazyLock::new(HashMap::new);
-        self.group.borrowed_set.get(&self.internal).unwrap_or(&EMPTY)
+        self.group
+            .borrowed_set
+            .get(&self.internal)
+            .unwrap_or(&EMPTY)
     }
 
     pub(super) fn targets(&self) -> HashMap<String, Vec<(usize, usize)>> {
@@ -188,15 +189,22 @@ impl SharedFramesCfgContract {
             .borrowed_set
             .iter()
             .map(|(s, ps)| {
-                let f = self.group.functions.iter().find(|f| f.symbol == *s).unwrap();
+                let f = self
+                    .group
+                    .functions
+                    .iter()
+                    .find(|f| f.symbol == *s)
+                    .unwrap();
                 let positions: HashMap<_, _> = f
                     .params
                     .iter()
                     .enumerate()
                     .map(|(p, (v, _, _))| (*v, p))
                     .collect();
-                let mut order: Vec<_> =
-                    ps.iter().map(|(q, i)| (positions[q], positions[i])).collect();
+                let mut order: Vec<_> = ps
+                    .iter()
+                    .map(|(q, i)| (positions[q], positions[i]))
+                    .collect();
                 order.sort_unstable();
                 (
                     self.names.get(s).cloned().unwrap_or_else(|| s.clone()),
@@ -385,9 +393,7 @@ pub(super) fn remap_function(f: &mut Function, map: &HashMap<String, String>) {
                 | Instruction::TearOff { code_symbol: s }
                 | Instruction::AllocClosure { code_symbol: s, .. } => name(s),
                 Instruction::AllocClosureTyped {
-                    code_symbol,
-                    typed,
-                    ..
+                    code_symbol, typed, ..
                 } => {
                     name(code_symbol);
                     name(typed);
@@ -416,11 +422,7 @@ pub(super) fn remap_function(f: &mut Function, map: &HashMap<String, String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn prepare() -> (
-        Module,
-        ArcRefSlotsDraft,
-        HashMap<String, DartFunctionPlan>,
-    ) {
+    fn prepare() -> (Module, ArcRefSlotsDraft, HashMap<String, DartFunctionPlan>) {
         let m = super::super::slot_lives::tests::origin();
         let r = lower_shared_ref_slots(&m).unwrap();
         let p = r
@@ -442,10 +444,7 @@ mod tests {
             let p = &ps[&f.symbol];
             super::super::frames::verify_with_plan(f, &p.tokens).unwrap();
             assert!(p.tokens.shared_frames.is_some());
-            assert_eq!(
-                p.tokens.shared_frames,
-                p.tables.shared_frames
-            );
+            assert_eq!(p.tokens.shared_frames, p.tables.shared_frames);
         }
         assert!(m.dart_scalar_parameters.is_empty());
     }
@@ -480,11 +479,7 @@ mod tests {
         let (m, r, mut ps) = prepare();
         produce_cfg_ref_slot_plans(&m, &r, &mut ps).unwrap();
         let mut a = r.functions[1].clone();
-        let c = ps[&a.symbol]
-            .tokens
-            .shared_frames
-            .as_ref()
-            .unwrap();
+        let c = ps[&a.symbol].tokens.shared_frames.as_ref().unwrap();
         a.blocks[0].instructions.insert(
             1,
             (
@@ -568,14 +563,8 @@ mod tests {
             Type::Void,
         ));
         let p = ps.get_mut(&leaf.symbol).unwrap();
-        produce_and_verify_dart_tokens(
-            &leaf,
-            &mut p.classes,
-            &mut p.tokens,
-            &p.tables,
-            &p.scopes,
-        )
-        .unwrap();
+        produce_and_verify_dart_tokens(&leaf, &mut p.classes, &mut p.tokens, &p.tables, &p.scopes)
+            .unwrap();
         assert_eq!(p.classes[&ValueId(2)], Ownership::Owned);
         assert!(p.tables.foreign_cleanup.is_none());
     }
@@ -598,8 +587,7 @@ mod tests {
         prepare_arc_dart_functions(&mut fs, &mut ps).unwrap();
         for f in &fs {
             let p = &ps[&f.symbol];
-            verify_dart_function_contract(f, &p.classes, &p.tokens, &p.tables, &p.scopes)
-                .unwrap();
+            verify_dart_function_contract(f, &p.classes, &p.tokens, &p.tables, &p.scopes).unwrap();
         }
     }
 
@@ -641,14 +629,8 @@ mod tests {
             if resume {
                 p.tables.exits.insert(BlockId(1), ExceptionExit::Resume);
             }
-            produce_and_verify_dart_tokens(
-                &a,
-                &mut p.classes,
-                &mut p.tokens,
-                &p.tables,
-                &p.scopes,
-            )
-            .unwrap();
+            produce_and_verify_dart_tokens(&a, &mut p.classes, &mut p.tokens, &p.tables, &p.scopes)
+                .unwrap();
             super::super::check_resumes(&a, &p.tables).unwrap();
             let frames = super::super::frames::at_landing_pad_entry(&a, &p.tables).unwrap();
             assert!(
@@ -676,9 +658,17 @@ mod inline_policy_tests {
     #[test]
     fn physical_body_names_preserve_inline_policy() {
         let mut module = Module::new();
-        module.inline_policies.insert("body".into(), crate::hir::InlinePolicy::Never);
-        remap_facts(&mut module, &HashMap::from([("body".into(), "body$arcslots_v1".into())]));
+        module
+            .inline_policies
+            .insert("body".into(), crate::hir::InlinePolicy::Never);
+        remap_facts(
+            &mut module,
+            &HashMap::from([("body".into(), "body$arcslots_v1".into())]),
+        );
         assert!(!module.inline_policies.contains_key("body"));
-        assert_eq!(module.inline_policies["body$arcslots_v1"], crate::hir::InlinePolicy::Never);
+        assert_eq!(
+            module.inline_policies["body$arcslots_v1"],
+            crate::hir::InlinePolicy::Never
+        );
     }
 }

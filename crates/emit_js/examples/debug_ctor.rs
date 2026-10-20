@@ -16,7 +16,11 @@ fn main() {
         types(&entry);
         return;
     }
-    let sdk = SdkLayout::load(std::path::Path::new("C:/tools/dartsdk-3.6.2/lib"), "dartdevc").unwrap();
+    let sdk = SdkLayout::load(
+        std::path::Path::new("C:/tools/dartsdk-3.6.2/lib"),
+        "dartdevc",
+    )
+    .unwrap();
     let mut interner = Interner::new();
     let (program, diags) = load_lenient(&entry, &sdk, None, &mut interner);
     println!("diags: {}", diags.len());
@@ -28,26 +32,51 @@ fn main() {
     for (i, c) in program.classes.iter().enumerate() {
         if interner.resolve(c.name) == class_name {
             let lib = program.library(c.library);
-            println!("class {} in {} (id {i}) supertype_class={:?} mixins={:?}", class_name, lib.uri, c.supertype_class, c.mixin_classes);
-            for (sym, fid) in &c.static_members { let f = program.function(*fid); println!("  static {} kind={:?} node={:?}", interner.resolve(*sym), f.kind, f.node); }
+            println!(
+                "class {} in {} (id {i}) supertype_class={:?} mixins={:?}",
+                class_name, lib.uri, c.supertype_class, c.mixin_classes
+            );
+            for (sym, fid) in &c.static_members {
+                let f = program.function(*fid);
+                println!(
+                    "  static {} kind={:?} node={:?}",
+                    interner.resolve(*sym),
+                    f.kind,
+                    f.node
+                );
+            }
             for (sym, fid) in &c.constructors {
                 let f = program.function(*fid);
                 let n = interner.resolve(*sym);
                 if n != ctor_name && !ctor_name.is_empty() {
                     continue;
                 }
-                println!("  ctor '{n}' fid={:?} factory={} external={} patched_by={:?} node={:?}", fid, f.factory, f.external, f.patched_by, f.node);
+                println!(
+                    "  ctor '{n}' fid={:?} factory={} external={} patched_by={:?} node={:?}",
+                    fid, f.factory, f.external, f.patched_by, f.node
+                );
                 if let FunctionRef::Constructor { unit, member } = f.node {
                     let u = program.unit(unit);
                     let m = u.ast.member(member);
                     if let MemberKind::Constructor(ctor) = &m.kind {
-                        println!("    unit={} redirect={:?} body={:?}", u.uri, ctor.redirect.as_ref().map(|r| &u.source[r.span.start..r.span.end]), matches!(ctor.body, dartforge_frontend::ast::FunctionBody::Empty));
+                        println!(
+                            "    unit={} redirect={:?} body={:?}",
+                            u.uri,
+                            ctor.redirect
+                                .as_ref()
+                                .map(|r| &u.source[r.span.start..r.span.end]),
+                            matches!(ctor.body, dartforge_frontend::ast::FunctionBody::Empty)
+                        );
                         if let Some(r) = &ctor.redirect {
                             let t = u.ast.ty(r.ty);
                             if let dartforge_frontend::ast::TypeKind::Named { name, .. } = &t.kind {
                                 let sym = name[0].sym;
                                 let b = program.lookup(u.library, sym);
-                                println!("    target {:?} lookup={:?}", interner.resolve(sym), b.map(|b| matches!(b.getter, Some(Element::Class(_)))));
+                                println!(
+                                    "    target {:?} lookup={:?}",
+                                    interner.resolve(sym),
+                                    b.map(|b| matches!(b.getter, Some(Element::Class(_))))
+                                );
                             }
                         }
                     }
@@ -59,17 +88,32 @@ fn main() {
 
 #[allow(dead_code)]
 fn types(entry: &std::path::Path) {
-    let sdk = SdkLayout::load(std::path::Path::new("C:/tools/dartsdk-3.6.2/lib"), "dartdevc").unwrap();
+    let sdk = SdkLayout::load(
+        std::path::Path::new("C:/tools/dartsdk-3.6.2/lib"),
+        "dartdevc",
+    )
+    .unwrap();
     let mut interner = Interner::new();
     let (program, _) = load_lenient(entry, &sdk, None, &mut interner);
     let mut table = dartforge_types::TypeTable::new();
     let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-    let (_bodies, diags) = dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    let (_bodies, diags) =
+        dartforge_types::infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
     for (i, v) in program.variables.iter().enumerate() {
-        if program.library(v.library).is_sdk { continue; }
+        if program.library(v.library).is_sdk {
+            continue;
+        }
         let d = &outline.variables[i];
-        println!("var {} declared={:?} inferred={:?}", interner.resolve(v.name), d.declared_type.map(|t| table.format(t, &interner, &program)), d.inferred.map(|t| table.format(t, &interner, &program)));
+        println!(
+            "var {} declared={:?} inferred={:?}",
+            interner.resolve(v.name),
+            d.declared_type
+                .map(|t| table.format(t, &interner, &program)),
+            d.inferred.map(|t| table.format(t, &interner, &program))
+        );
     }
-    for d in diags.iter().take(10) { println!("  {d}"); }
+    for d in diags.iter().take(10) {
+        println!("  {d}");
+    }
 }

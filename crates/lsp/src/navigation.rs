@@ -3,13 +3,16 @@
 //! `ExportDirective` and `PartDirective` when the target exists.
 
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{Ast, CompilationUnit, DeclKind, Directive, DirectiveKind, ExprKind, ForInTarget, ForInit, FunctionKind, MemberKind, Name, ParameterKind, StmtKind, StringLit, TypeKind};
-use dartforge_frontend::LibraryFeatures;
-use dartforge_intern::Interner;
 use dartforge_elements::config::PackageConfig;
+use dartforge_frontend::LibraryFeatures;
+use dartforge_frontend::ast::{
+    Ast, CompilationUnit, DeclKind, Directive, DirectiveKind, ExprKind, ForInTarget, ForInit,
+    FunctionKind, MemberKind, Name, ParameterKind, StmtKind, StringLit, TypeKind,
+};
+use dartforge_intern::Interner;
 use url::Url;
 
-use crate::{SyntacticAnalyzer, DocumentStore};
+use crate::{DocumentStore, SyntacticAnalyzer};
 
 pub(super) enum Target {
     File(String),
@@ -61,7 +64,9 @@ fn directive_target(current_uri: &str, unit: &CompilationUnit, offset: usize) ->
         let Some(literal) = literal else { continue };
         if literal.span.start <= offset && offset < literal.span.end {
             let base = Url::parse(current_uri).ok()?;
-            if base.scheme() != "file" { return None; }
+            if base.scheme() != "file" {
+                return None;
+            }
             return resolve(&base, literal);
         }
     }
@@ -77,20 +82,33 @@ fn local_type(
     // Imports/exports/parts may bring in names that the AST of a single file
     // cannot distinguish. Until library resolution comes to the LSP, return
     // empty.
-    if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. })) {
+    if unit
+        .directives
+        .iter()
+        .any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
+    {
         return None;
     }
     let reference = ast.types.iter().find_map(|ty| {
-        let TypeKind::Named { name, .. } = &ty.kind else { return None };
-        if name.len() != 1 { return None; }
+        let TypeKind::Named { name, .. } = &ty.kind else {
+            return None;
+        };
+        if name.len() != 1 {
+            return None;
+        }
         let n = name[0];
         (n.span.start <= offset && offset < n.span.end).then_some(n)
     })?;
     let key = reference.sym;
     // A homonymous type parameter may shadow the top-level declaration.
-    if ast.functions.iter().any(|f| f.type_params.iter().any(|p| p.name.sym == key))
-        || ast.types.iter().any(|t| matches!(&t.kind, TypeKind::Function { type_params, .. }
-            if type_params.iter().any(|p| p.name.sym == key)))
+    if ast
+        .functions
+        .iter()
+        .any(|f| f.type_params.iter().any(|p| p.name.sym == key))
+        || ast.types.iter().any(|t| {
+            matches!(&t.kind, TypeKind::Function { type_params, .. }
+            if type_params.iter().any(|p| p.name.sym == key))
+        })
         || unit.declarations.iter().any(|id| {
             let parameters = match &ast.decl(*id).kind {
                 DeclKind::Class(d) => d.type_params.as_ref(),
@@ -118,7 +136,9 @@ fn local_type(
         (name_.sym == key).then_some((name_.span, ty_, generic))
     });
     let single = found.next()?;
-    if found.next().is_some() { return None; }
+    if found.next().is_some() {
+        return None;
+    }
     Some(LocalType {
         declaration: single.0,
         reference: reference.span,
@@ -136,14 +156,19 @@ fn top_variable(
     names: &Interner,
     offset: usize,
 ) -> Option<LocalType> {
-    if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
+    if unit
+        .directives
+        .iter()
+        .any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
         || !ast.patterns.is_empty()
     {
         return None;
     }
     let reference = reference_expr(ast, offset)?;
     let key = reference.sym;
-    if shadowed(ast, key) { return None; }
+    if shadowed(ast, key) {
+        return None;
+    }
     let mut found = Vec::new();
     for id in &unit.declarations {
         match &ast.decl(*id).kind {
@@ -157,52 +182,86 @@ fn top_variable(
             DeclKind::Enum(d) if d.name.sym == key => return None,
             DeclKind::ExtensionType(d) if d.name.sym == key => return None,
             DeclKind::Typedef(d) if d.name.sym == key => return None,
-            DeclKind::Function(f) if ast.function(*f).name.is_some_and(|n| n.sym == key) => return None,
+            DeclKind::Function(f) if ast.function(*f).name.is_some_and(|n| n.sym == key) => {
+                return None;
+            }
             DeclKind::Extension(d) if d.name.is_some_and(|n| n.sym == key) => return None,
             _ => {}
         }
     }
-    if found.len() != 1 { return None; }
+    if found.len() != 1 {
+        return None;
+    }
     let (declaration, ty) = found[0];
     let static_type = ty.and_then(|t| primitive_type(ast, names, t));
-    let description = static_type.as_ref().map(|t| format!("{t} {}", names.resolve(key)));
-    Some(LocalType { declaration, reference: reference.span, description, static_type })
+    let description = static_type
+        .as_ref()
+        .map(|t| format!("{t} {}", names.resolve(key)));
+    Some(LocalType {
+        declaration,
+        reference: reference.span,
+        description,
+        static_type,
+    })
 }
 
 pub(super) fn reference_expr(ast: &dartforge_frontend::ast::Ast, offset: usize) -> Option<Name> {
     ast.exprs.iter().find_map(|e| {
-        let ExprKind::Identifier(n) = &e.kind else { return None };
+        let ExprKind::Identifier(n) = &e.kind else {
+            return None;
+        };
         (n.span.start <= offset && offset < n.span.end).then_some(*n)
     })
 }
 
-pub(super) fn shadowed(ast: &dartforge_frontend::ast::Ast, key: dartforge_intern::SymbolId) -> bool {
-    ast.functions.iter().any(|f| f.parameters.as_ref().is_some_and(|ps| ps.iter().any(|p| p.name.is_some_and(|n| n.sym == key))))
-        || ast.members.iter().any(|m| match &m.kind {
-            MemberKind::Field(v) => v.variables.iter().any(|x| x.name.sym == key),
-            MemberKind::Method(f) => ast.function(*f).name.is_some_and(|n| n.sym == key),
-            MemberKind::Constructor(c) => c.name.is_some_and(|n| n.sym == key),
-        })
-        || ast.stmts.iter().any(|s| match &s.kind {
-            StmtKind::Variables(v) => v.variables.iter().any(|x| x.name.sym == key),
-            StmtKind::Function(f) => ast.function(*f).name.is_some_and(|n| n.sym == key),
-            StmtKind::For { init: Some(ForInit::Variables(v)), .. } =>
-                v.variables.iter().any(|x| x.name.sym == key),
-            StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => name.sym == key,
-            StmtKind::Try { catches, .. } => catches.iter().any(|c|
-                c.exception.is_some_and(|n| n.sym == key)
-                    || c.stack_trace.is_some_and(|n| n.sym == key)),
-            _ => false,
-        })
+pub(super) fn shadowed(
+    ast: &dartforge_frontend::ast::Ast,
+    key: dartforge_intern::SymbolId,
+) -> bool {
+    ast.functions.iter().any(|f| {
+        f.parameters
+            .as_ref()
+            .is_some_and(|ps| ps.iter().any(|p| p.name.is_some_and(|n| n.sym == key)))
+    }) || ast.members.iter().any(|m| match &m.kind {
+        MemberKind::Field(v) => v.variables.iter().any(|x| x.name.sym == key),
+        MemberKind::Method(f) => ast.function(*f).name.is_some_and(|n| n.sym == key),
+        MemberKind::Constructor(c) => c.name.is_some_and(|n| n.sym == key),
+    }) || ast.stmts.iter().any(|s| match &s.kind {
+        StmtKind::Variables(v) => v.variables.iter().any(|x| x.name.sym == key),
+        StmtKind::Function(f) => ast.function(*f).name.is_some_and(|n| n.sym == key),
+        StmtKind::For {
+            init: Some(ForInit::Variables(v)),
+            ..
+        } => v.variables.iter().any(|x| x.name.sym == key),
+        StmtKind::ForIn {
+            target: ForInTarget::Declared { name, .. },
+            ..
+        } => name.sym == key,
+        StmtKind::Try { catches, .. } => catches.iter().any(|c| {
+            c.exception.is_some_and(|n| n.sym == key) || c.stack_trace.is_some_and(|n| n.sym == key)
+        }),
+        _ => false,
+    })
 }
 
-pub(crate) fn primitive_type(ast: &dartforge_frontend::ast::Ast, names: &Interner, id: dartforge_frontend::ast::TypeId) -> Option<String> {
+pub(crate) fn primitive_type(
+    ast: &dartforge_frontend::ast::Ast,
+    names: &Interner,
+    id: dartforge_frontend::ast::TypeId,
+) -> Option<String> {
     let t = ast.ty(id);
-    let TypeKind::Named { name, args } = &t.kind else { return None };
-    if name.len() != 1 || !args.is_empty() { return None; }
+    let TypeKind::Named { name, args } = &t.kind else {
+        return None;
+    };
+    if name.len() != 1 || !args.is_empty() {
+        return None;
+    }
     let base = names.resolve(name[0].sym);
-    matches!(base, "int" | "double" | "num" | "bool" | "String" | "Object" | "dynamic")
-        .then(|| format!("{base}{}", if t.nullable { "?" } else { "" }))
+    matches!(
+        base,
+        "int" | "double" | "num" | "bool" | "String" | "Object" | "dynamic"
+    )
+    .then(|| format!("{base}{}", if t.nullable { "?" } else { "" }))
 }
 
 fn top_function(
@@ -211,12 +270,19 @@ fn top_function(
     names: &Interner,
     offset: usize,
 ) -> Option<LocalType> {
-    if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
+    if unit
+        .directives
+        .iter()
+        .any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
         || !ast.patterns.is_empty()
-    { return None; }
+    {
+        return None;
+    }
     let reference = reference_expr(ast, offset)?;
     let key = reference.sym;
-    if shadowed(ast, key) { return None; }
+    if shadowed(ast, key) {
+        return None;
+    }
     let mut found = Vec::new();
     for id in &unit.declarations {
         match &ast.decl(*id).kind {
@@ -236,7 +302,9 @@ fn top_function(
             _ => {}
         }
     }
-    if found.len() != 1 { return None; }
+    if found.len() != 1 {
+        return None;
+    }
     let (declaration, function) = found[0];
     let description = (|| {
         if !function.type_params.is_empty() {
@@ -250,26 +318,56 @@ fn top_function(
             }
         })?;
         if function.kind == FunctionKind::Getter {
-            return function.parameters.is_none().then(|| (format!("{return_} get {}", names.resolve(key)), Some(return_)));
+            return function.parameters.is_none().then(|| {
+                (
+                    format!("{return_} get {}", names.resolve(key)),
+                    Some(return_),
+                )
+            });
         }
-        if function.kind != FunctionKind::Function { return None; }
+        if function.kind != FunctionKind::Function {
+            return None;
+        }
         let parameters = function.parameters.as_ref()?;
         // With 3+ parameters, the analyzer switches to a multi-line layout.
-        if parameters.len() > 2 { return None; }
+        if parameters.len() > 2 {
+            return None;
+        }
         let mut descriptions = Vec::new();
         for p in parameters.iter() {
-            if p.kind != ParameterKind::Required || p.covariant || p.final_ || p.var_ || p.const_
-                || p.this_ || p.super_ || p.default_value.is_some()
-                || !p.function_type_params.is_empty() || p.function_parameters.is_some()
-            { return None; }
+            if p.kind != ParameterKind::Required
+                || p.covariant
+                || p.final_
+                || p.var_
+                || p.const_
+                || p.this_
+                || p.super_
+                || p.default_value.is_some()
+                || !p.function_type_params.is_empty()
+                || p.function_parameters.is_some()
+            {
+                return None;
+            }
             let ty = primitive_type(ast, names, p.ty?)?;
             let name = names.resolve(p.name?.sym);
             descriptions.push(format!("{ty} {name}"));
         }
-        Some((format!("{return_} {}({})", names.resolve(key), descriptions.join(", ")), None))
+        Some((
+            format!(
+                "{return_} {}({})",
+                names.resolve(key),
+                descriptions.join(", ")
+            ),
+            None,
+        ))
     })();
     let (description, static_type) = description.map_or((None, None), |(d, t)| (Some(d), t));
-    Some(LocalType { declaration, reference: reference.span, description, static_type })
+    Some(LocalType {
+        declaration,
+        reference: reference.span,
+        description,
+        static_type,
+    })
 }
 
 fn resolve(base: &Url, literal: &StringLit) -> Option<String> {
@@ -280,18 +378,25 @@ fn resolve(base: &Url, literal: &StringLit) -> Option<String> {
     }
     let target = if path.starts_with("package:") {
         let uri = Url::parse(path).ok()?;
-        if uri.query().is_some() || uri.fragment().is_some() { return None; }
+        if uri.query().is_some() || uri.fragment().is_some() {
+            return None;
+        }
         let origin = base.to_file_path().ok()?;
         let config = PackageConfig::discover(&origin)?;
         let config = PackageConfig::load(&config).ok()?;
         let name = path.strip_prefix("package:")?.split('/').next()?;
         // The compilation resolver falls back to `references/pub`; in the LSP,
         // navigation must follow only the mapping of the open project.
-        if !config.packages.contains_key(name) { return None; }
+        if !config.packages.contains_key(name) {
+            return None;
+        }
         config.resolve_package_uri(path).ok()?
     } else {
         let resolved = base.join(path).ok()?;
-        if resolved.scheme() != "file" || resolved.query().is_some() || resolved.fragment().is_some() {
+        if resolved.scheme() != "file"
+            || resolved.query().is_some()
+            || resolved.fragment().is_some()
+        {
             return None;
         }
         resolved.to_file_path().ok()?
@@ -324,7 +429,10 @@ pub(super) fn references(
     let ast = &parsed.ast;
     // Only the file itself, without names coming from outside; patterns bind
     // names that the AST of a single file cannot distinguish.
-    if unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
+    if unit
+        .directives
+        .iter()
+        .any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
         || !ast.patterns.is_empty()
     {
         return None;
@@ -345,7 +453,9 @@ pub(super) fn references(
         (Some(decl), None) => {
             let mut uses = vec![decl];
             for ty in &ast.types {
-                let TypeKind::Named { name, .. } = &ty.kind else { continue };
+                let TypeKind::Named { name, .. } = &ty.kind else {
+                    continue;
+                };
                 if name.len() != 1 || name[0].sym != key {
                     continue;
                 }
@@ -362,7 +472,9 @@ pub(super) fn references(
         (None, Some(decl)) => {
             let mut uses = vec![decl];
             for e in &ast.exprs {
-                let ExprKind::Identifier(n) = &e.kind else { continue };
+                let ExprKind::Identifier(n) = &e.kind else {
+                    continue;
+                };
                 if n.sym != key {
                     continue;
                 }
@@ -383,7 +495,9 @@ fn key_at_cursor(
     offset: usize,
 ) -> Option<dartforge_intern::SymbolId> {
     for ty in &ast.types {
-        let TypeKind::Named { name, .. } = &ty.kind else { continue };
+        let TypeKind::Named { name, .. } = &ty.kind else {
+            continue;
+        };
         if name.len() != 1 {
             continue;
         }
@@ -395,7 +509,9 @@ fn key_at_cursor(
         return Some(sym);
     }
     for e in &ast.exprs {
-        let ExprKind::Identifier(n) = &e.kind else { continue };
+        let ExprKind::Identifier(n) = &e.kind else {
+            continue;
+        };
         if n.span.start <= offset && offset < n.span.end {
             return Some(n.sym);
         }
@@ -463,12 +579,17 @@ fn has_homonymous_type_parameter(
     ast: &dartforge_frontend::ast::Ast,
     key: dartforge_intern::SymbolId,
 ) -> bool {
-    if ast.functions.iter().any(|f| f.type_params.iter().any(|p| p.name.sym == key)) {
+    if ast
+        .functions
+        .iter()
+        .any(|f| f.type_params.iter().any(|p| p.name.sym == key))
+    {
         return true;
     }
-    if ast.types.iter().any(|t| matches!(&t.kind, TypeKind::Function { type_params, .. }
-        if type_params.iter().any(|p| p.name.sym == key)))
-    {
+    if ast.types.iter().any(|t| {
+        matches!(&t.kind, TypeKind::Function { type_params, .. }
+        if type_params.iter().any(|p| p.name.sym == key))
+    }) {
         return true;
     }
     unit.declarations.iter().any(|id| {
@@ -568,7 +689,9 @@ fn key_and_span_at_cursor(
     offset: usize,
 ) -> Option<(dartforge_intern::SymbolId, Span)> {
     for ty in &ast.types {
-        let TypeKind::Named { name, .. } = &ty.kind else { continue };
+        let TypeKind::Named { name, .. } = &ty.kind else {
+            continue;
+        };
         if name.len() != 1 {
             continue;
         }
@@ -593,7 +716,9 @@ fn key_and_span_at_cursor(
         }
     }
     for e in &ast.exprs {
-        let ExprKind::Identifier(n) = &e.kind else { continue };
+        let ExprKind::Identifier(n) = &e.kind else {
+            continue;
+        };
         if n.span.start <= offset && offset < n.span.end {
             return Some((n.sym, n.span));
         }
@@ -635,7 +760,11 @@ struct File {
 fn analyze(text: &str, features: LibraryFeatures) -> File {
     let mut names = Interner::new();
     let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
-    File { names, unit: parsed.unit, ast: parsed.ast }
+    File {
+        names,
+        unit: parsed.unit,
+        ast: parsed.ast,
+    }
 }
 
 /// Class of a directive for resolution across open documents.
@@ -654,15 +783,25 @@ enum DirectiveClass {
 fn classify(directive: &Directive) -> DirectiveClass {
     match &directive.kind {
         DirectiveKind::Library { .. } => DirectiveClass::Library,
-        DirectiveKind::Import { uri, configurations, deferred, prefix, combinators } => {
-            if *deferred || prefix.is_some() || !combinators.is_empty() || !configurations.is_empty() {
+        DirectiveKind::Import {
+            uri,
+            configurations,
+            deferred,
+            prefix,
+            combinators,
+        } => {
+            if *deferred
+                || prefix.is_some()
+                || !combinators.is_empty()
+                || !configurations.is_empty()
+            {
                 return DirectiveClass::Complex;
             }
-            match uri.constant_value().and_then(|v| v.as_str().map(str::to_string)) {
-                Some(path)
-                    if !path.starts_with("dart:")
-                        && !path.starts_with("package:") =>
-                {
+            match uri
+                .constant_value()
+                .and_then(|v| v.as_str().map(str::to_string))
+            {
+                Some(path) if !path.starts_with("dart:") && !path.starts_with("package:") => {
                     DirectiveClass::SimpleImport(path)
                 }
                 _ => DirectiveClass::Complex,
@@ -714,9 +853,7 @@ fn resolve_symbol(
         return None;
     }
     let (key, reference) = key_and_span_at_cursor(&file.unit, &file.ast, offset)?;
-    if shadowed(&file.ast, key)
-        || has_homonymous_type_parameter(&file.unit, &file.ast, key)
-    {
+    if shadowed(&file.ast, key) || has_homonymous_type_parameter(&file.unit, &file.ast, key) {
         return None;
     }
     let name = file.names.resolve(key).to_string();
@@ -785,16 +922,18 @@ fn single_owner(
         };
         let file = analyze(&text, analyzer.features(candidate, &text));
         if !file.ast.patterns.is_empty()
-            || file.unit.directives.iter().any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
+            || file
+                .unit
+                .directives
+                .iter()
+                .any(|d| !matches!(&d.kind, DirectiveKind::Library { .. }))
         {
             continue;
         }
         let Some(key) = file.names.lookup(name) else {
             continue;
         };
-        if shadowed(&file.ast, key)
-            || has_homonymous_type_parameter(&file.unit, &file.ast, key)
-        {
+        if shadowed(&file.ast, key) || has_homonymous_type_parameter(&file.unit, &file.ast, key) {
             continue;
         }
         let owner = match (
@@ -878,7 +1017,8 @@ pub(super) fn references_in(
             uses
         };
         outputs.extend(uses.into_iter().map(|span| (uri.clone(), span)));
-    }    outputs[1..].sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.start.cmp(&b.1.start)));
+    }
+    outputs[1..].sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.start.cmp(&b.1.start)));
     Some(outputs)
 }
 
@@ -894,7 +1034,12 @@ fn owner_uses(
     let text = documents.get(&symbol.owner)?.to_string();
     let file = analyze(&text, analyzer.features(&symbol.owner, &text));
     let key = file.names.lookup(&symbol.name)?;
-    Some(uses_without_declaration(&file, key, symbol.space, symbol.declaration))
+    Some(uses_without_declaration(
+        &file,
+        key,
+        symbol.space,
+        symbol.declaration,
+    ))
 }
 
 /// Uses in a file that imports the owner through a simple import. `None`
@@ -942,9 +1087,7 @@ fn uses_if_imports(
     if shadowed(&file.ast, key) {
         return None;
     }
-    if symbol.space == Space::Type
-        && has_homonymous_type_parameter(&file.unit, &file.ast, key)
-    {
+    if symbol.space == Space::Type && has_homonymous_type_parameter(&file.unit, &file.ast, key) {
         return None;
     }
     if type_declaration(&file.unit, &file.ast, key).is_some()
@@ -953,7 +1096,12 @@ fn uses_if_imports(
         // Homonymous local declaration: the uses target it, not the owner.
         return None;
     }
-    Some(uses_without_declaration(&file, key, symbol.space, symbol.declaration))
+    Some(uses_without_declaration(
+        &file,
+        key,
+        symbol.space,
+        symbol.declaration,
+    ))
 }
 
 /// True when the open document declares `name` in any namespace (type or
@@ -986,7 +1134,9 @@ fn uses_without_declaration(
     match space {
         Space::Type => {
             for ty in &file.ast.types {
-                let TypeKind::Named { name, .. } = &ty.kind else { continue };
+                let TypeKind::Named { name, .. } = &ty.kind else {
+                    continue;
+                };
                 if name.len() != 1 || name[0].sym != key || name[0].span == declaration {
                     continue;
                 }
@@ -995,7 +1145,9 @@ fn uses_without_declaration(
         }
         Space::Value => {
             for e in &file.ast.exprs {
-                let ExprKind::Identifier(n) = &e.kind else { continue };
+                let ExprKind::Identifier(n) = &e.kind else {
+                    continue;
+                };
                 if n.sym != key {
                     continue;
                 }
@@ -1050,10 +1202,7 @@ fn description_in_owner(
 
 /// `class C` / `enum E` / `mixin M` / `extension type X`, when not generic;
 /// same rule as [`local_type`].
-fn type_description_in_file(
-    file: &File,
-    key: dartforge_intern::SymbolId,
-) -> Option<String> {
+fn type_description_in_file(file: &File, key: dartforge_intern::SymbolId) -> Option<String> {
     let mut found = file.unit.declarations.iter().filter_map(|id| {
         let (name, ty, generic) = match &file.ast.decl(*id).kind {
             DeclKind::Class(d) => (d.name, "class", !d.type_params.is_empty()),
@@ -1093,9 +1242,7 @@ fn value_description_in_file(
             DeclKind::Enum(d) if d.name.sym == key => return None,
             DeclKind::ExtensionType(d) if d.name.sym == key => return None,
             DeclKind::Typedef(d) if d.name.sym == key => return None,
-            DeclKind::Function(f)
-                if file.ast.function(*f).name.is_some_and(|n| n.sym == key) =>
-            {
+            DeclKind::Function(f) if file.ast.function(*f).name.is_some_and(|n| n.sym == key) => {
                 // Function/getter name: not a variable (as in [`top_variable`]); falls
                 // through to the signature formatting below (as in [`top_function`]).
                 has_function = true;
@@ -1124,9 +1271,7 @@ fn value_description_in_file(
                     functions.push((name.span, f));
                 }
             }
-            DeclKind::Variables(v)
-                if v.variables.iter().any(|x| x.name.sym == key) =>
-            {
+            DeclKind::Variables(v) if v.variables.iter().any(|x| x.name.sym == key) => {
                 return None;
             }
             DeclKind::Class(d) if d.name.sym == key => return None,
@@ -1154,10 +1299,12 @@ fn value_description_in_file(
             }
         })?;
         if function.kind == FunctionKind::Getter {
-            return function
-                .parameters
-                .is_none()
-                .then(|| (format!("{return_} get {}", file.names.resolve(key)), Some(return_)));
+            return function.parameters.is_none().then(|| {
+                (
+                    format!("{return_} get {}", file.names.resolve(key)),
+                    Some(return_),
+                )
+            });
         }
         if function.kind != FunctionKind::Function {
             return None;

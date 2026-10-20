@@ -50,22 +50,49 @@ fn typed_guards_preserve_public_accessor_effects() {
             String::from_utf8_lossy(&result.stdout),
             String::from_utf8_lossy(&result.stderr)
         );
-        for mode in ["buffer", "byteOffset", "byteLength", "baseBuffer", "resizable", "descriptor", "isView", "consoleByteLength"] {
+        for mode in [
+            "buffer",
+            "byteOffset",
+            "byteLength",
+            "baseBuffer",
+            "resizable",
+            "descriptor",
+            "isView",
+            "consoleByteLength",
+        ] {
             let host = directory.join("host.js");
             std::fs::write(&host, HOST).unwrap();
             let result = Command::new("node")
-                .arg(&host).arg(&artifact).arg(mode).output().unwrap();
-            assert!(result.status.success() && result.stderr.is_empty(),
-                "{profile}/{mode}: {}", String::from_utf8_lossy(&result.stderr));
-            assert_eq!(String::from_utf8(result.stdout).unwrap().replace("\r\n", "\n"),
-                expected, "{profile}/{mode}");
+                .arg(&host)
+                .arg(&artifact)
+                .arg(mode)
+                .output()
+                .unwrap();
+            assert!(
+                result.status.success() && result.stderr.is_empty(),
+                "{profile}/{mode}: {}",
+                String::from_utf8_lossy(&result.stderr)
+            );
+            assert_eq!(
+                String::from_utf8(result.stdout)
+                    .unwrap()
+                    .replace("\r\n", "\n"),
+                expected,
+                "{profile}/{mode}"
+            );
         }
         // dart2js hoists the native length read; compare this callback trace
         // with our checked fallback, rather than treating backend purity as equal.
-        let result = Command::new("node").arg(directory.join("host.js"))
-            .arg(&artifact).arg("length").output().unwrap();
+        let result = Command::new("node")
+            .arg(directory.join("host.js"))
+            .arg(&artifact)
+            .arg("length")
+            .output()
+            .unwrap();
         assert!(result.status.success() && result.stderr.is_empty());
-        let output = String::from_utf8(result.stdout).unwrap().replace("\r\n", "\n");
+        let output = String::from_utf8(result.stdout)
+            .unwrap()
+            .replace("\r\n", "\n");
         assert!(output.starts_with("6\n"));
         if profile == "off" {
             checked_length = Some(output);

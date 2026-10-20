@@ -37,7 +37,12 @@ struct AutomaticGcPolicy {
 }
 impl Default for AutomaticGcPolicy {
     fn default() -> Self {
-        Self { origin: std::time::Instant::now(), window: None, debt: false, idle_requested: false }
+        Self {
+            origin: std::time::Instant::now(),
+            window: None,
+            debt: false,
+            idle_requested: false,
+        }
     }
 }
 impl AutomaticGcPolicy {
@@ -46,11 +51,22 @@ impl AutomaticGcPolicy {
             self.window = None;
         }
     }
-    fn arm(&mut self, now: std::time::Instant, duration: std::time::Duration, budget: usize) -> i64 {
-        if duration.is_zero() || budget == 0 { return -1; }
-        let Some(deadline) = now.checked_add(duration) else { return -1 };
+    fn arm(
+        &mut self,
+        now: std::time::Instant,
+        duration: std::time::Duration,
+        budget: usize,
+    ) -> i64 {
+        if duration.is_zero() || budget == 0 {
+            return -1;
+        }
+        let Some(deadline) = now.checked_add(duration) else {
+            return -1;
+        };
         self.refresh(now);
-        if self.debt { return 0; }
+        if self.debt {
+            return 0;
+        }
         self.window = Some(match self.window {
             Some((old_deadline, remaining)) => (old_deadline.min(deadline), remaining.min(budget)),
             None => (deadline, budget),
@@ -67,17 +83,29 @@ impl AutomaticGcPolicy {
             }
         }
     }
-    fn collect_before(&mut self, now: std::time::Instant, bytes: usize, ordinary: bool, forced: bool) -> bool {
+    fn collect_before(
+        &mut self,
+        now: std::time::Instant,
+        bytes: usize,
+        ordinary: bool,
+        forced: bool,
+    ) -> bool {
         self.refresh(now);
-        if forced { return true; }
-        if self.debt && self.window.is_none() { return true; }
+        if forced {
+            return true;
+        }
+        if self.debt && self.window.is_none() {
+            return true;
+        }
         if let Some((_, remaining)) = self.window {
             if bytes >= remaining {
                 self.window = None;
                 self.debt = true;
                 return true;
             }
-            if ordinary { self.debt = true; }
+            if ordinary {
+                self.debt = true;
+            }
             return false;
         }
         ordinary
@@ -90,13 +118,17 @@ impl AutomaticGcPolicy {
         self.debt = false;
         self.idle_requested = false;
     }
-    fn is_active(&self) -> bool { self.window.is_some() || self.debt }
-    fn blocks_tlabs(&self) -> bool { self.debt }
+    fn is_active(&self) -> bool {
+        self.window.is_some() || self.debt
+    }
+    fn blocks_tlabs(&self) -> bool {
+        self.debt
+    }
 }
 
 // `Text`, `StringMut`, `UnitsIter` and `push_point` live in `text.rs` (P1,
 // docs/NATIVO-ESPACO-UNIFICADO.md §4.3).
-pub use crate::text::{UnitsIter, Text, StringMut, push_point};
+pub use crate::text::{StringMut, Text, UnitsIter, push_point};
 
 /// An object field: the bits and whether they are a reference (what the collector follows).
 pub type Field = (i64, bool);
@@ -104,8 +136,8 @@ pub type Field = (i64, bool);
 // The layout contract (docs/NATIVO-ESPACO-UNIFICADO.md §3.1) lives in
 // `crate::layout`; `heap` re-exports it for those who already used it from here.
 pub use crate::layout::{
-    PAGE_HEAD, INLINE_FIELDS, Header, HANDLE_OFFSET, LARGEST_CLASS, PAGE, Ref, TLAB_N,
-    capacity, is_object, map_words, smi,
+    HANDLE_OFFSET, Header, INLINE_FIELDS, LARGEST_CLASS, PAGE, PAGE_HEAD, Ref, TLAB_N, capacity,
+    is_object, map_words, smi,
 };
 
 // The header ([`Header`], `crate::layout`) of a user object in the
@@ -166,12 +198,12 @@ pub const OUT_OF_LINE: u8 = crate::layout::flags::OUT_OF_LINE;
 // bitmap, cards, attachments) lives in `crate::space`. [`LARGEST_CLASS`] and
 // [`TLAB_N`] count body words (docs/NATIVO-ESPACO-UNIFICADO.md §2.6): the
 // TLAB of `w` words is `Context::tlab[w]`, `w` in `1..=TLAB_N`.
+use crate::layout::{block_bytes, flags as block_flags};
 pub use crate::space::{ObjectSpace, block_size};
 use crate::space::{
-    TLAB_BLOCKS, allocation_bytes, fields_of, body, is_reference, shape, marked, mark_block, mark_reference,
-    new_out_of_line_body, body_refs, release_out_of_line_body,
+    TLAB_BLOCKS, allocation_bytes, body, body_refs, fields_of, is_reference, mark_block,
+    mark_reference, marked, new_out_of_line_body, release_out_of_line_body, shape,
 };
-use crate::layout::{block_bytes, flags as block_flags};
 
 /// The minor collection comes every `YOUNG_LIMIT` allocated bytes (the size of the
 /// *new space*; the VM's semispace starts smaller and grows up to 8 MiB on 64
@@ -213,7 +245,14 @@ pub struct EmptyObject {
     pub fields: [i64; INLINE_FIELDS],
 }
 pub static EMPTY_OBJECT: EmptyObject = EmptyObject {
-    header: Header { state: FREE, flags: 0, n: 0, class_id: 0, map: 0, metadata: 0 },
+    header: Header {
+        state: FREE,
+        flags: 0,
+        n: 0,
+        class_id: 0,
+        map: 0,
+        metadata: 0,
+    },
     fields: [0; INLINE_FIELDS],
 };
 
@@ -243,9 +282,18 @@ impl Obj<'_> {
     /// # Panics
     /// With `i` outside the object.
     pub fn field(&self, i: usize) -> Field {
-        assert!(i < self.len(), "field {i} outside the object of {} fields", self.len());
+        assert!(
+            i < self.len(),
+            "field {i} outside the object of {} fields",
+            self.len()
+        );
         // SAFETY: `i < n`; live body.
-        unsafe { (*fields_of(self.body.cast_mut()).add(i), is_reference(self.body, i)) }
+        unsafe {
+            (
+                *fields_of(self.body.cast_mut()).add(i),
+                is_reference(self.body, i),
+            )
+        }
     }
     /// Field `i`, if it exists.
     pub fn get(&self, i: usize) -> Option<Field> {
@@ -267,7 +315,10 @@ impl Obj<'_> {
 
 impl std::fmt::Debug for Obj<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Obj").field("class_id", &self.class_id).field("campos", &self.to_vec()).finish()
+        f.debug_struct("Obj")
+            .field("class_id", &self.class_id)
+            .field("campos", &self.to_vec())
+            .finish()
     }
 }
 
@@ -331,7 +382,8 @@ pub struct RootFrame {
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 #[allow(unsafe_code, non_upper_case_globals)]
 #[unsafe(no_mangle)]
-pub static dartforge_context_slot: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static dartforge_context_slot: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 /// The thread context that the generated code reads and writes directly, without
 /// a call (`llvm/mod.rs`): the pending exception (mirror of
@@ -449,7 +501,6 @@ thread_local! {
     };
 }
 
-
 /// Links `q` at the top of the shadow stack. `q.n` and the (zeroed) slots were
 /// already written by the generated code.
 ///
@@ -474,7 +525,10 @@ pub unsafe fn stack_frame(q: *mut RootFrame) {
 #[allow(unsafe_code)]
 pub unsafe fn unstack_frame(q: *const RootFrame) {
     CONTEXT.with(|c| {
-        assert!(std::ptr::eq(c.top.get(), q), "compiler bug: root frame closed out of order");
+        assert!(
+            std::ptr::eq(c.top.get(), q),
+            "compiler bug: root frame closed out of order"
+        );
         // SAFETY: `q` is the top, still on the caller's stack.
         c.top.set(unsafe { (*q).previous });
     });
@@ -616,7 +670,11 @@ unsafe impl Sync for StackMap {}
 
 impl StackMap {
     fn new(key: usize) -> Self {
-        StackMap { key, functions: Vec::new(), decoded: Vec::new() }
+        StackMap {
+            key,
+            functions: Vec::new(),
+            decoded: Vec::new(),
+        }
     }
 
     /// Sorts the index and prepares the lazy decodings. Two
@@ -625,12 +683,16 @@ impl StackMap {
     fn do_close(&mut self) {
         self.functions.sort_by_key(|f| f.start);
         self.functions.dedup_by_key(|f| f.start);
-        self.decoded = (0..self.functions.len()).map(|_| std::sync::OnceLock::new()).collect();
+        self.decoded = (0..self.functions.len())
+            .map(|_| std::sync::OnceLock::new())
+            .collect();
     }
 
     /// The function with the largest start that does not exceed `ret`.
     fn function_of(&self, ret: u64) -> Option<usize> {
-        self.functions.partition_point(|f| f.start <= ret).checked_sub(1)
+        self.functions
+            .partition_point(|f| f.start <= ret)
+            .checked_sub(1)
     }
 
     #[allow(unsafe_code)]
@@ -659,7 +721,9 @@ impl StackMap {
         find_one(offset).or_else(|| {
             // SAFETY: `ret` is a return address of this thread's
             // stack, a byte of mapped code.
-            let nop = cfg!(all(windows, target_arch = "x86_64")) && !sabotage("no_nop") && unsafe { *(ret as *const u8) } == 0x90;
+            let nop = cfg!(all(windows, target_arch = "x86_64"))
+                && !sabotage("no_nop")
+                && unsafe { *(ret as *const u8) } == 0x90;
             if nop { find_one(offset + 1) } else { None }
         })
     }
@@ -679,7 +743,11 @@ static ROOTS_CHECKED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 /// (frames walked, map roots visited, roots checked).
 pub fn walk_counts() -> (u64, u64, u64) {
     use std::sync::atomic::Ordering::Relaxed;
-    (FRAMES_WALKED.load(Relaxed), MAP_ROOTS.load(Relaxed), ROOTS_CHECKED.load(Relaxed))
+    (
+        FRAMES_WALKED.load(Relaxed),
+        MAP_ROOTS.load(Relaxed),
+        ROOTS_CHECKED.load(Relaxed),
+    )
 }
 
 /// Some image of the process registered stack maps.
@@ -696,7 +764,14 @@ pub fn has_stack_maps() -> bool {
 pub fn sabotage(name: &str) -> bool {
     static ENABLED: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
     ENABLED
-        .get_or_init(|| std::env::var("DARTFORGE_SABOTAGE").unwrap_or_default().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+        .get_or_init(|| {
+            std::env::var("DARTFORGE_SABOTAGE")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
         .iter()
         .any(|s| s == name)
 }
@@ -732,7 +807,9 @@ pub fn register_stack_map(base: usize) {
     // SAFETY: `base` is the start of a PE image loaded in this process.
     let map = unsafe { read_image_map(base) };
     if map.functions.is_empty() {
-        map_rejected("the image was compiled with map-based roots and has neither the `.dfgcm` section nor `.llvm_st` (the linker renames the section when there is debug information)");
+        map_rejected(
+            "the image was compiled with map-based roots and has neither the `.dfgcm` section nor `.llvm_st` (the linker renames the section when there is debug information)",
+        );
     }
     HAS_STACK_MAPS.store(true, std::sync::atomic::Ordering::Release);
     maps.push(map);
@@ -755,7 +832,9 @@ pub fn register_map_section(start: usize, end: usize) {
     unsafe { read_dfgm(start as *const u8, end - start, 0, &mut map) };
     map.do_close();
     if map.functions.is_empty() {
-        map_rejected("the compact stack map section is empty in an image compiled with map-based roots");
+        map_rejected(
+            "the compact stack map section is empty in an image compiled with map-based roots",
+        );
     }
     HAS_STACK_MAPS.store(true, std::sync::atomic::Ordering::Release);
     maps.push(map);
@@ -877,7 +956,12 @@ unsafe fn read_stackmaps(mut p: *const u8, size: usize, map: &mut StackMap) {
                 if n_records > u64::from(u32::MAX - 1) {
                     map_rejected("`.llvm_stackmaps` function with too many records");
                 }
-                map.functions.push(FunctionWithMap { start: address, data: r as usize, n_llvm: n_records as u32, constants: constants as usize });
+                map.functions.push(FunctionWithMap {
+                    start: address,
+                    data: r as usize,
+                    n_llvm: n_records as u32,
+                    constants: constants as usize,
+                });
                 for _ in 0..n_records {
                     r = llvm_record_end(r);
                 }
@@ -917,7 +1001,10 @@ unsafe fn read_dfgm(mut p: *const u8, size: usize, base: usize, map: &mut StackM
             let total = p.add(8).cast::<u32>().read_unaligned() as usize;
             let n_functions = p.add(12).cast::<u32>().read_unaligned() as usize;
             let input = if flag_bits & 2 != 0 { 16 } else { 8 };
-            if total < 16 + input * n_functions || (p as usize) + total > end as usize || (flag_bits & 3 == 0 && base == 0) {
+            if total < 16 + input * n_functions
+                || (p as usize) + total > end as usize
+                || (flag_bits & 3 == 0 && base == 0)
+            {
                 map_rejected("compact map with the wrong header");
             }
             let ix = p.add(16);
@@ -925,12 +1012,21 @@ unsafe fn read_dfgm(mut p: *const u8, size: usize, base: usize, map: &mut StackM
             for i in 0..n_functions {
                 let e = ix.add(input * i);
                 let (function_start, offset_in_stream) = if flag_bits & 2 != 0 {
-                    (e.cast::<u64>().read_unaligned(), e.add(8).cast::<u32>().read_unaligned())
+                    (
+                        e.cast::<u64>().read_unaligned(),
+                        e.add(8).cast::<u32>().read_unaligned(),
+                    )
                 } else if flag_bits & 1 != 0 {
                     let rel = i64::from(e.cast::<i32>().read_unaligned());
-                    ((e as i64).wrapping_add(rel) as u64, e.add(4).cast::<u32>().read_unaligned())
+                    (
+                        (e as i64).wrapping_add(rel) as u64,
+                        e.add(4).cast::<u32>().read_unaligned(),
+                    )
                 } else {
-                    (base as u64 + u64::from(e.cast::<u32>().read_unaligned()), e.add(4).cast::<u32>().read_unaligned())
+                    (
+                        base as u64 + u64::from(e.cast::<u32>().read_unaligned()),
+                        e.add(4).cast::<u32>().read_unaligned(),
+                    )
                 };
                 map.functions.push(FunctionWithMap {
                     start: function_start,
@@ -985,7 +1081,10 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                         let s = varint(&mut q);
                         let u = s >> 1;
                         slot += ((u >> 1) as i64) ^ -((u & 1) as i64);
-                        d.slots.push((if s & 1 == 1 { ROOT_AT_FP } else { ROOT_AT_SP }, (slot * 8) as i32));
+                        d.slots.push((
+                            if s & 1 == 1 { ROOT_AT_FP } else { ROOT_AT_SP },
+                            (slot * 8) as i32,
+                        ));
                     }
                     // v2: the mask of registers with a root.
                     if f.constants >= 2 {
@@ -1022,7 +1121,9 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                 }
                 // The roots: each `"deopt"` location (the §14.12 form) and the
                 // base of each (base, derived) pair of `"gc-live"`.
-                for j in (3..3 + n_deopt).chain((3 + n_deopt..n_locals.saturating_sub(1)).step_by(2)) {
+                for j in
+                    (3..3 + n_deopt).chain((3 + n_deopt..n_locals.saturating_sub(1)).step_by(2))
+                {
                     let l = locals.add(12 * j);
                     let ty = *l;
                     let width = l.add(2).cast::<u16>().read_unaligned();
@@ -1036,25 +1137,45 @@ unsafe fn decode_function(f: FunctionWithMap) -> FunctionRecords {
                         let c = if ty == 4 {
                             i64::from(value)
                         } else {
-                            (f.constants as *const u8).add(8 * value.max(0) as usize).cast::<i64>().read_unaligned()
+                            (f.constants as *const u8)
+                                .add(8 * value.max(0) as usize)
+                                .cast::<i64>()
+                                .read_unaligned()
                         };
                         if c != 0 && c & 1 == 0 && c != 0xFEFE_FEFE {
                             map_rejected("non-null even constant as a root in the stack map");
                         }
                         continue;
                     }
-                    let slot = if ty == 1 && width == 8 && register < 32 && PRESERVED & (1 << register) != 0 {
+                    let slot = if ty == 1
+                        && width == 8
+                        && register < 32
+                        && PRESERVED & (1 << register) != 0
+                    {
                         (ROOT_IN_REGISTER, i32::from(register))
-                    } else if ty == 3 && width == 8 && (register == DWARF_SP || register == DWARF_FP) {
-                        (if register == DWARF_FP { ROOT_AT_FP } else { ROOT_AT_SP }, value)
+                    } else if ty == 3
+                        && width == 8
+                        && (register == DWARF_SP || register == DWARF_FP)
+                    {
+                        (
+                            if register == DWARF_FP {
+                                ROOT_AT_FP
+                            } else {
+                                ROOT_AT_SP
+                            },
+                            value,
+                        )
                     } else {
-                        map_rejected("location that is neither `Indirect [SP|FP + d]` nor a preserved 8-byte `Register`")
+                        map_rejected(
+                            "location that is neither `Indirect [SP|FP + d]` nor a preserved 8-byte `Register`",
+                        )
                     };
                     if !d.slots[start..].contains(&slot) {
                         d.slots.push(slot);
                     }
                 }
-                d.records.push((offset, start as u32, (d.slots.len() - start) as u32));
+                d.records
+                    .push((offset, start as u32, (d.slots.len() - start) as u32));
                 r = llvm_record_end(r);
             }
             d.records.sort_unstable_by_key(|g| g.0);
@@ -1084,7 +1205,9 @@ fn visit_frame(
     f: &mut dyn FnMut(i64),
 ) -> bool {
     for m in maps {
-        let Some(i) = m.function_of(ret) else { continue };
+        let Some(i) = m.function_of(ret) else {
+            continue;
+        };
         match m.slots_of(i, ret) {
             Some(slots) => {
                 for &(ty, d) in slots {
@@ -1102,7 +1225,9 @@ fn visit_frame(
             }
             None => {
                 if exact_start == Some(m.functions[i].start) {
-                    map_rejected("function with a map without an exact record for the return address");
+                    map_rejected(
+                        "function with a map without an exact record for the return address",
+                    );
                 }
             }
         }
@@ -1151,10 +1276,15 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
     }
     let maps = STACK_MAPS.read().unwrap_or_else(|e| e.into_inner());
     let mut context = CpuContext([0; 1232]);
-    let field = |c: &CpuContext, d: usize| u64::from_le_bytes(c.0[d..d + 8].try_into().expect("eight bytes"));
+    let field = |c: &CpuContext, d: usize| {
+        u64::from_le_bytes(c.0[d..d + 8].try_into().expect("eight bytes"))
+    };
     /// The offset in `CONTEXT` of each DWARF register 0–15 (rax,
     /// rdx, rcx, rbx, rsi, rdi, rbp, rsp, r8–r15).
-    const IN_CONTEXT: [usize; 16] = [0x78, 0x88, 0x80, 0x90, 0xA8, 0xB0, 0xA0, 0x98, 0xB8, 0xC0, 0xC8, 0xD0, 0xD8, 0xE0, 0xE8, 0xF0];
+    const IN_CONTEXT: [usize; 16] = [
+        0x78, 0x88, 0x80, 0x90, 0xA8, 0xB0, 0xA0, 0x98, 0xB8, 0xC0, 0xC8, 0xD0, 0xD8, 0xE0, 0xE8,
+        0xF0,
+    ];
     let mut frames = 0u64;
     // SAFETY: the context is this thread's, captured here; each step
     // unwinds a frame with its function's unwind table, and
@@ -1172,10 +1302,23 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
             let sp_before = field(&context, 0x98);
             let mut data: *mut u8 = std::ptr::null_mut();
             let mut frame = 0u64;
-            RtlVirtualUnwind(0, base, pc, function, &mut context, &mut data, &mut frame, std::ptr::null_mut());
+            RtlVirtualUnwind(
+                0,
+                base,
+                pc,
+                function,
+                &mut context,
+                &mut data,
+                &mut frame,
+                std::ptr::null_mut(),
+            );
             // Now the context is the caller's: `Rip` is the return address
             // in it and `Rsp`, its SP at the call point.
-            let (ret, sp, fp) = (field(&context, 0xF8), field(&context, 0x98), field(&context, 0xA0));
+            let (ret, sp, fp) = (
+                field(&context, 0xF8),
+                field(&context, 0x98),
+                field(&context, 0xA0),
+            );
             if ret == 0 {
                 break;
             }
@@ -1188,10 +1331,15 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
             // `.pdata` entry) and the entry, for the next step.
             let mut next_base = 0u64;
             let next_one = RtlLookupFunctionEntry(ret, &mut next_base, std::ptr::null_mut());
-            let start = (!next_one.is_null()).then(|| next_base + u64::from(next_one.cast::<u32>().read_unaligned()));
+            let start = (!next_one.is_null())
+                .then(|| next_base + u64::from(next_one.cast::<u32>().read_unaligned()));
             // The preserved registers in the context are the caller's, at the call
             // point: unwinding the inner frames restored them.
-            let register = |r: u16| IN_CONTEXT.get(usize::from(r)).map_or(0, |&d| field(&context, d));
+            let register = |r: u16| {
+                IN_CONTEXT
+                    .get(usize::from(r))
+                    .map_or(0, |&d| field(&context, d))
+            };
             visit_frame(&maps, start, ret, sp, fp, &register, &mut f);
             pc = ret;
             base = next_base;
@@ -1212,7 +1360,11 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
 /// `ld64.lld` leaves roots in slots) and misaligned the symbolic stack trace.
 #[cfg(all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))]
 fn frame_top(cfa: usize, callee_cfa: usize) -> usize {
-    if cfg!(target_vendor = "apple") { cfa } else { callee_cfa }
+    if cfg!(target_vendor = "apple") {
+        cfa
+    } else {
+        callee_cfa
+    }
 }
 
 /// The same on the Itanium unwinder targets (Linux and macOS, x86-64 and
@@ -1230,7 +1382,10 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
         return;
     }
     unsafe extern "C" {
-        fn _Unwind_Backtrace(step: unsafe extern "C" fn(*mut u8, *mut u8) -> i32, argument: *mut u8) -> i32;
+        fn _Unwind_Backtrace(
+            step: unsafe extern "C" fn(*mut u8, *mut u8) -> i32,
+            argument: *mut u8,
+        ) -> i32;
         fn _Unwind_GetIP(context: *mut u8) -> usize;
         fn _Unwind_GetCFA(context: *mut u8) -> usize;
         fn _Unwind_GetGR(context: *mut u8, register: i32) -> usize;
@@ -1268,14 +1423,27 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
                 // The closure inherits the `unsafe` block above: the unwinder's
                 // context is valid during the step.
                 let register = |r: u16| _Unwind_GetGR(context, i32::from(r)) as u64;
-                visit_frame(e.maps, (start != 0).then_some(start), ip, sp as u64, fp, &register, e.f);
+                visit_frame(
+                    e.maps,
+                    (start != 0).then_some(start),
+                    ip,
+                    sp as u64,
+                    fp,
+                    &register,
+                    e.f,
+                );
             }
             e.previous_cfa = Some(cfa);
             CONTINUE
         }
     }
     let maps = STACK_MAPS.read().unwrap_or_else(|e| e.into_inner());
-    let mut state = State { maps: &maps, f: &mut f, previous_cfa: None, frames: 0 };
+    let mut state = State {
+        maps: &maps,
+        f: &mut f,
+        previous_cfa: None,
+        frames: 0,
+    };
     // SAFETY: the unwinder walks this thread's stack; `step` only reads.
     unsafe {
         _Unwind_Backtrace(step, std::ptr::addr_of_mut!(state).cast::<u8>());
@@ -1283,7 +1451,10 @@ fn visit_frames_by_maps(mut f: impl FnMut(i64)) {
     FRAMES_WALKED.fetch_add(state.frames, std::sync::atomic::Ordering::Relaxed);
 }
 
-#[cfg(not(any(all(windows, target_arch = "x86_64"), all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))))]
+#[cfg(not(any(
+    all(windows, target_arch = "x86_64"),
+    all(unix, any(target_arch = "x86_64", target_arch = "aarch64"))
+)))]
 fn visit_frames_by_maps(_f: impl FnMut(i64)) {}
 
 /// The return addresses of this thread's stack, from inside out, with the
@@ -1320,7 +1491,9 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
     }
     let mut out = Vec::new();
     let mut context = CpuContext([0; 1232]);
-    let field = |c: &CpuContext, d: usize| u64::from_le_bytes(c.0[d..d + 8].try_into().expect("eight bytes"));
+    let field = |c: &CpuContext, d: usize| {
+        u64::from_le_bytes(c.0[d..d + 8].try_into().expect("eight bytes"))
+    };
     // SAFETY: as in `visit_frames_by_maps`: the context is this
     // thread's, each step unwinds a frame with its function's table, and the
     // walk stops when the SP stops growing or leaves the stack.
@@ -1335,14 +1508,27 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
             let sp_before = field(&context, 0x98);
             let mut data: *mut u8 = std::ptr::null_mut();
             let mut frame = 0u64;
-            RtlVirtualUnwind(0, base, pc, function, &mut context, &mut data, &mut frame, std::ptr::null_mut());
+            RtlVirtualUnwind(
+                0,
+                base,
+                pc,
+                function,
+                &mut context,
+                &mut data,
+                &mut frame,
+                std::ptr::null_mut(),
+            );
             let (ret, sp) = (field(&context, 0xF8), field(&context, 0x98));
             if ret == 0 || sp <= sp_before || (sp as usize) < low || (sp as usize) >= high {
                 break;
             }
             let mut next_base = 0u64;
             let next_one = RtlLookupFunctionEntry(ret, &mut next_base, std::ptr::null_mut());
-            let start = if next_one.is_null() { 0 } else { next_base + u64::from(next_one.cast::<u32>().read_unaligned()) };
+            let start = if next_one.is_null() {
+                0
+            } else {
+                next_base + u64::from(next_one.cast::<u32>().read_unaligned())
+            };
             out.push((ret, start, sp));
             pc = ret;
             base = next_base;
@@ -1360,7 +1546,10 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
 #[inline(never)]
 pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
     unsafe extern "C" {
-        fn _Unwind_Backtrace(step: unsafe extern "C" fn(*mut u8, *mut u8) -> i32, argument: *mut u8) -> i32;
+        fn _Unwind_Backtrace(
+            step: unsafe extern "C" fn(*mut u8, *mut u8) -> i32,
+            argument: *mut u8,
+        ) -> i32;
         fn _Unwind_GetIP(context: *mut u8) -> usize;
         fn _Unwind_GetRegionStart(context: *mut u8) -> usize;
         fn _Unwind_GetCFA(context: *mut u8) -> usize;
@@ -1384,13 +1573,22 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
                 return TO;
             }
             let cfa = _Unwind_GetCFA(context) as u64;
-            let top = if e.out.is_empty() { e.previous_cfa } else { frame_top(cfa as usize, e.previous_cfa as usize) as u64 };
-            e.out.push((ip, _Unwind_GetRegionStart(context) as u64, top));
+            let top = if e.out.is_empty() {
+                e.previous_cfa
+            } else {
+                frame_top(cfa as usize, e.previous_cfa as usize) as u64
+            };
+            e.out
+                .push((ip, _Unwind_GetRegionStart(context) as u64, top));
             e.previous_cfa = cfa;
             CONTINUE
         }
     }
-    let mut state = State { out: Vec::new(), maximum, previous_cfa: 0 };
+    let mut state = State {
+        out: Vec::new(),
+        maximum,
+        previous_cfa: 0,
+    };
     // SAFETY: the unwinder walks this thread's stack; `step` only reads.
     unsafe {
         _Unwind_Backtrace(step, std::ptr::addr_of_mut!(state).cast::<u8>());
@@ -1398,7 +1596,10 @@ pub fn return_addresses(maximum: usize) -> Vec<(u64, u64, u64)> {
     state.out
 }
 
-#[cfg(not(any(all(windows, target_arch = "x86_64"), all(unix, any(target_arch = "x86_64", target_arch = "aarch64")))))]
+#[cfg(not(any(
+    all(windows, target_arch = "x86_64"),
+    all(unix, any(target_arch = "x86_64", target_arch = "aarch64"))
+)))]
 pub fn return_addresses(_max: usize) -> Vec<(u64, u64, u64)> {
     Vec::new()
 }
@@ -1446,7 +1647,9 @@ fn check_walk(from_maps: &[i64]) {
         }
         checked += 1;
         if !seen_set.contains(&h) {
-            map_rejected(&format!("walk check: root {h:#x} is alive on the check shadow stack and the map-based walk did not visit it"));
+            map_rejected(&format!(
+                "walk check: root {h:#x} is alive on the check shadow stack and the map-based walk did not visit it"
+            ));
         }
     });
     ROOTS_CHECKED.fetch_add(checked, std::sync::atomic::Ordering::Relaxed);
@@ -1477,7 +1680,11 @@ impl Schedule {
         let seed: u64 = seed.trim().parse().ok()?;
         let rate: u64 = rate.trim().parse().ok().filter(|&t| t > 0)?;
         let state = seed ^ 0x9E37_79B9_7F4A_7C15;
-        Some(Schedule { state: std::cell::Cell::new(if state == 0 { 1 } else { state }), rate, pending: std::cell::Cell::new(false) })
+        Some(Schedule {
+            state: std::cell::Cell::new(if state == 0 { 1 } else { state }),
+            rate,
+            pending: std::cell::Cell::new(false),
+        })
     }
 
     /// Does this allocation collect? (xorshift64*.)
@@ -1490,7 +1697,9 @@ impl Schedule {
         x ^= x << 25;
         x ^= x >> 27;
         self.state.set(x);
-        let yes = x.wrapping_mul(0x2545_F491_4F6C_DD1D).is_multiple_of(self.rate);
+        let yes = x
+            .wrapping_mul(0x2545_F491_4F6C_DD1D)
+            .is_multiple_of(self.rate);
         self.pending.set(yes);
         yes
     }
@@ -1745,7 +1954,10 @@ impl Heap {
             marking_work: 0,
             pending: Vec::new(),
             byte_threshold: 2 * YOUNG_LIMIT,
-            growth: std::env::var("DARTFORGE_GC_GROWTH").ok().and_then(|v| v.parse::<usize>().ok()).map_or(GROWTH, |c| c.max(110)),
+            growth: std::env::var("DARTFORGE_GC_GROWTH")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .map_or(GROWTH, |c| c.max(110)),
             young_limit: std::env::var("DARTFORGE_GC_YOUNG_KB")
                 .ok()
                 .and_then(|v| v.parse::<usize>().ok())
@@ -1770,7 +1982,9 @@ impl Heap {
             // rejected: there, as under `--gc-stress`, the dead are zeroed right away.
             external: 0,
             exact_estimated_bytes: 0,
-            objects: ObjectSpace::new(stress || cfg!(test) || std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1")),
+            objects: ObjectSpace::new(
+                stress || cfg!(test) || std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1"),
+            ),
             published: false,
             context: std::ptr::null(),
             runtime_tlab: std::env::var_os("DARTFORGE_NO_RUNTIME_TLAB").is_none_or(|v| v != "1"),
@@ -1795,7 +2009,10 @@ impl Heap {
                 || std::env::var("DARTFORGE_GC_VERIFY").as_deref() == Ok("1")
                 || std::env::var("DARTFORGE_VALIDATE_HANDLES").as_deref() == Ok("1"),
             trace: std::env::var("DARTFORGE_GC_TRACE").as_deref() == Ok("1"),
-            memory: std::env::var("DARTFORGE_GC_MEMORY").ok().and_then(|v| v.parse::<u8>().ok()).unwrap_or(0),
+            memory: std::env::var("DARTFORGE_GC_MEMORY")
+                .ok()
+                .and_then(|v| v.parse::<u8>().ok())
+                .unwrap_or(0),
             finalizable: crate::hash::HashMap::default(),
             weak_refs: crate::hash::HashMap::default(),
             ephemerons: crate::hash::HashMap::default(),
@@ -1819,9 +2036,13 @@ impl Heap {
             self.check_live(handle);
         }
         let old = self.runtime_roots[which];
-        if handle != old { self.arc_swap_owning_root(handle, 0); }
+        if handle != old {
+            self.arc_swap_owning_root(handle, 0);
+        }
         self.runtime_roots[which] = handle;
-        if handle != old { self.arc_swap_owning_root(0, old); }
+        if handle != old {
+            self.arc_swap_owning_root(0, old);
+        }
     }
     /// The interned string with the `units` (the `literals` table, a root), if it already
     /// exists: the JIT's and the runtime's literal (`text.rs`, P1).
@@ -1840,7 +2061,9 @@ impl Heap {
     /// assert_eq!(heap.literal(&[65]), Some(text));
     /// ```
     pub fn store_literal(&mut self, units: Vec<u16>, h: Ref) {
-        if smi::e_handle(h) { self.check_live(h); }
+        if smi::e_handle(h) {
+            self.check_live(h);
+        }
         let old = self.literals.get(&units).copied().unwrap_or(0);
         self.arc_swap_owning_root(h, old);
         self.literals.insert(units, h);
@@ -1854,16 +2077,22 @@ impl Heap {
     /// heap.set_global_root(10, 0);
     /// ```
     pub fn set_global_root(&mut self, id: i64, handle: i64) {
-        if smi::e_handle(handle) { self.check_live(handle); }
+        if smi::e_handle(handle) {
+            self.check_live(handle);
+        }
         let old = self.globals.get(&id).copied().unwrap_or(0);
-        if handle != old { self.arc_swap_owning_root(handle, 0); }
+        if handle != old {
+            self.arc_swap_owning_root(handle, 0);
+        }
         if !smi::e_handle(handle) {
             // null or `Smi`: nothing in the heap to keep alive.
             self.globals.remove(&id);
         } else {
             self.globals.insert(id, handle);
         }
-        if handle != old { self.arc_swap_owning_root(0, old); }
+        if handle != old {
+            self.arc_swap_owning_root(0, old);
+        }
     }
 
     /// Transfers an SSA token to the owning registry of a global slot.
@@ -1873,7 +2102,10 @@ impl Heap {
         let old = self.globals.get(&id).copied().unwrap_or(0);
         if smi::e_handle(value) {
             self.check_live(value);
-            let n = *self.code_owners.get(&value).expect("ARC global move without a code token");
+            let n = *self
+                .code_owners
+                .get(&value)
+                .expect("ARC global move without a code token");
             if n == 1 {
                 self.code_owners.remove(&value);
             } else {
@@ -1897,7 +2129,9 @@ impl Heap {
     /// heap.move_global_root(10, 20);
     /// ```
     pub fn move_global_root(&mut self, of: i64, to: i64) {
-        if of == to { return; }
+        if of == to {
+            return;
+        }
         if let Some(h) = self.globals.remove(&of) {
             let old = self.globals.get(&to).copied().unwrap_or(0);
             self.globals.insert(to, h);
@@ -2040,7 +2274,9 @@ impl Heap {
     /// assert_eq!(heap.registered_tearoff(123), Some(closure));
     /// ```
     pub fn register_tearoff(&mut self, code: i64, h: Ref) {
-        if smi::e_handle(h) { self.check_live(h); }
+        if smi::e_handle(h) {
+            self.check_live(h);
+        }
         let old = self.tearoffs.get(&code).copied().unwrap_or(0);
         self.arc_swap_owning_root(h, old);
         self.tearoffs.insert(code, h);
@@ -2086,22 +2322,32 @@ impl Heap {
     /// Requires an owner before an ABI operation; an observational frame cannot
     /// accept a copy the compiler believes is counted.
     pub(crate) fn check_owning_frame(&self, frame: i64) {
-        let (_, _, owning) = self.frames.iter().rfind(|(id, _, _)| *id == frame)
+        let (_, _, owning) = self
+            .frames
+            .iter()
+            .rfind(|(id, _, _)| *id == frame)
             .expect("nonexistent ARC frame");
         assert!(*owning, "ARC frame must be owning");
     }
 
     fn owning_roots(&self) -> Vec<Ref> {
-        self.frames.iter().filter(|(_, _, owner)| *owner)
+        self.frames
+            .iter()
+            .filter(|(_, _, owner)| *owner)
             .flat_map(|(_, slots, _)| slots.iter().copied())
             .chain(self.globals.values().copied())
             .chain(self.literals.values().copied())
             .chain(self.tearoffs.values().copied())
             .chain(self.enum_values.values().copied())
             .chain(self.message_owners.values().copied())
-            .chain(self.code_owners.iter().flat_map(|(&h, &n)| std::iter::repeat_n(h, n)))
+            .chain(
+                self.code_owners
+                    .iter()
+                    .flat_map(|(&h, &n)| std::iter::repeat_n(h, n)),
+            )
             .chain(self.ready_finalizations.iter().copied())
-            .chain(self.runtime_roots.iter().copied()).collect()
+            .chain(self.runtime_roots.iter().copied())
+            .collect()
     }
 
     /// Publishes an owning occurrence in the queue, without collection between retention and write.
@@ -2121,11 +2367,17 @@ impl Heap {
 
     /// Transfers the queue occurrence to the active callback, without additional retention.
     pub(crate) fn move_finalization_to_slot(&mut self, frame: i64, slot: usize) -> Ref {
-        let ix = self.frames.iter().rposition(|(id, _, _)| *id == frame)
+        let ix = self
+            .frames
+            .iter()
+            .rposition(|(id, _, _)| *id == frame)
             .expect("frame inexistente");
         assert!(self.frames[ix].2, "move requires an owning frame");
         let old = *self.frames[ix].1.get(slot).expect("invalid root slot");
-        let value = *self.ready_finalizations.front().expect("empty finalization queue");
+        let value = *self
+            .ready_finalizations
+            .front()
+            .expect("empty finalization queue");
         self.arc_swap_owning_root(0, old);
         self.ready_finalizations.pop_front();
         self.frames[ix].1[slot] = value;
@@ -2138,7 +2390,10 @@ impl Heap {
     /// Retains a message occurrence in this heap's domain.
     pub(crate) fn retain_message_owner(&mut self, value: Ref) -> u64 {
         self.check_live(value);
-        let id = self.next_message_owner.checked_add(1).expect("message owners exhausted");
+        let id = self
+            .next_message_owner
+            .checked_add(1)
+            .expect("message owners exhausted");
         self.arc_swap_owning_root(value, 0);
         self.message_owners.insert(id, value);
         self.next_message_owner = id;
@@ -2147,7 +2402,10 @@ impl Heap {
 
     /// Consumes a message occurrence in this heap, without collection.
     pub(crate) fn release_message_owner(&mut self, id: u64) {
-        let value = self.message_owners.remove(&id).expect("nonexistent message owner");
+        let value = self
+            .message_owners
+            .remove(&id)
+            .expect("nonexistent message owner");
         self.arc_swap_owning_root(0, value);
     }
 
@@ -2169,7 +2427,9 @@ impl Heap {
     /// Creates an occurrence for the generated code, without collection or Dart execution.
     /// The published observational location does not create another owner.
     pub(crate) fn retain_code_owner(&mut self, value: Ref) {
-        if !smi::e_handle(value) { return; }
+        if !smi::e_handle(value) {
+            return;
+        }
         self.check_live(value);
         self.arc_swap_owning_root(value, 0);
         // A lookup only in the inventory (the path of each code retain).
@@ -2179,7 +2439,9 @@ impl Heap {
 
     /// Consumes exactly one ABI occurrence, never a slot owner.
     pub(crate) fn release_code_owner(&mut self, value: Ref) {
-        if !smi::e_handle(value) { return; }
+        if !smi::e_handle(value) {
+            return;
+        }
         match self.code_owners.entry(value) {
             std::collections::hash_map::Entry::Occupied(mut e) => {
                 if *e.get() == 1 {
@@ -2188,7 +2450,9 @@ impl Heap {
                     *e.get_mut() -= 1;
                 }
             }
-            std::collections::hash_map::Entry::Vacant(_) => panic!("ARC release without a code token"),
+            std::collections::hash_map::Entry::Vacant(_) => {
+                panic!("ARC release without a code token")
+            }
         }
         self.arc_swap_owning_root(0, value);
     }
@@ -2238,8 +2502,12 @@ impl Heap {
 
     /// Retains before releasing, with no collection nor Dart call between the operations.
     fn arc_swap_owning_root(&mut self, new: Ref, old: Ref) {
-        if new == old { return; }
-        let Some(mut arc) = self.arc.take() else { return };
+        if new == old {
+            return;
+        }
+        let Some(mut arc) = self.arc.take() else {
+            return;
+        };
         self.arc_retain_registering(&mut arc, new);
         arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
         self.arc = Some(arc);
@@ -2252,17 +2520,24 @@ impl Heap {
         if smi::e_handle(handle) {
             self.check_live(handle);
         }
-        let ix = self.frames.iter().rposition(|(id, _, _)| *id == frame)
+        let ix = self
+            .frames
+            .iter()
+            .rposition(|(id, _, _)| *id == frame)
             .expect("frame inexistente");
         let old = *self.frames[ix].1.get(slot).expect("invalid root slot");
         let owning = self.frames[ix].2;
-        if owning && handle != old { self.arc_swap_owning_root(handle, 0); }
+        if owning && handle != old {
+            self.arc_swap_owning_root(handle, 0);
+        }
         let previous = &mut self.frames[ix].1[slot];
         self.stats.live_roots -= usize::from(*previous != 0);
         self.stats.live_roots += usize::from(handle != 0);
         *previous = handle;
         self.stats.peak_roots = self.stats.peak_roots.max(self.stats.live_roots);
-        if owning && handle != old { self.arc_swap_owning_root(0, old); }
+        if owning && handle != old {
+            self.arc_swap_owning_root(0, old);
+        }
     }
     /// Transfers an occurrence between owning slots, zeroing the source.
     /// Releases the previous content of the destination without retaining the transferred value.
@@ -2282,14 +2557,31 @@ impl Heap {
     /// heap.pop_frame(caller);
     /// ```
     pub fn move_root(&mut self, origin: i64, source_slot: usize, dest: i64, dest_slot: usize) {
-        let of = self.frames.iter().rposition(|(id, _, _)| *id == origin)
+        let of = self
+            .frames
+            .iter()
+            .rposition(|(id, _, _)| *id == origin)
             .expect("nonexistent source frame");
-        let to = self.frames.iter().rposition(|(id, _, _)| *id == dest)
+        let to = self
+            .frames
+            .iter()
+            .rposition(|(id, _, _)| *id == dest)
             .expect("nonexistent destination frame");
-        assert!(self.frames[of].2 && self.frames[to].2, "move requires owning frames");
-        let value = *self.frames[of].1.get(source_slot).expect("invalid source slot");
-        let old = *self.frames[to].1.get(dest_slot).expect("invalid destination slot");
-        if of == to && source_slot == dest_slot { return; }
+        assert!(
+            self.frames[of].2 && self.frames[to].2,
+            "move requires owning frames"
+        );
+        let value = *self.frames[of]
+            .1
+            .get(source_slot)
+            .expect("invalid source slot");
+        let old = *self.frames[to]
+            .1
+            .get(dest_slot)
+            .expect("invalid destination slot");
+        if of == to && source_slot == dest_slot {
+            return;
+        }
         self.frames[of].1[source_slot] = 0;
         self.frames[to].1[dest_slot] = value;
         self.stats.live_roots -= usize::from(old != 0);
@@ -2312,7 +2604,10 @@ impl Heap {
     /// heap.pop_frame(frame);
     /// ```
     pub fn move_global_to_slot(&mut self, global: i64, frame: i64, slot: usize) {
-        let ix = self.frames.iter().rposition(|(id, _, _)| *id == frame)
+        let ix = self
+            .frames
+            .iter()
+            .rposition(|(id, _, _)| *id == frame)
             .expect("frame inexistente");
         assert!(self.frames[ix].2, "move requires an owning frame");
         let old = *self.frames[ix].1.get(slot).expect("invalid root slot");
@@ -2331,9 +2626,14 @@ impl Heap {
             return;
         }
         self.check_live(handle);
-        let ix = self.frames.iter().rposition(|(id, _, _)| *id == frame)
+        let ix = self
+            .frames
+            .iter()
+            .rposition(|(id, _, _)| *id == frame)
             .expect("frame inexistente");
-        if self.frames[ix].2 { self.arc_swap_owning_root(handle, 0); }
+        if self.frames[ix].2 {
+            self.arc_swap_owning_root(handle, 0);
+        }
         self.frames[ix].1.push(handle);
         self.stats.live_roots += 1;
         self.stats.root_slots += 1;
@@ -2345,7 +2645,9 @@ impl Heap {
         assert_eq!(self.frames.last().map(|(id, _, _)| *id), Some(frame));
         let (_, roots, owning) = self.frames.pop().unwrap();
         if owning {
-            for &h in &roots { self.arc_swap_owning_root(0, h); }
+            for &h in &roots {
+                self.arc_swap_owning_root(0, h);
+            }
         }
         self.stats.root_slots -= roots.len();
         self.stats.live_roots -= roots.iter().filter(|handle| **handle != 0).count();
@@ -2396,10 +2698,14 @@ impl Heap {
     fn gc_policy_after_growth(&mut self, external_growth: bool) {
         // External growth can invalidate prepaid quotas even after cancellation
         // or expiry. Never let an old cached range conceal that pressure.
-        if !external_growth && !self.gc_policy.is_active() { return; }
+        if !external_growth && !self.gc_policy.is_active() {
+            return;
+        }
         // The clock only expires a window: without one, `refresh` does nothing
         // (and external growth comes with every socket read and buffer write).
-        if self.gc_policy.window.is_some() { self.gc_policy.refresh(std::time::Instant::now()); }
+        if self.gc_policy.window.is_some() {
+            self.gc_policy.refresh(std::time::Instant::now());
+        }
         let pressure = self.allocations >= YOUNG_COUNT
             || self.young_bytes >= self.young_limit
             || self.stats.estimated_bytes >= self.byte_threshold
@@ -2407,26 +2713,46 @@ impl Heap {
         if self.gc_policy.window.is_some() && pressure {
             self.gc_policy.debt = true;
         }
-        if self.gc_policy.debt || (external_growth && pressure) { self.return_tlabs(); }
+        if self.gc_policy.debt || (external_growth && pressure) {
+            self.return_tlabs();
+        }
     }
     /// Arms automatic-GC deferral after returning unspent inline reservations.
     pub(crate) fn gc_policy_defer(&mut self, duration: std::time::Duration, budget: usize) -> i64 {
-        let status = self.gc_policy.arm(std::time::Instant::now(), duration, budget);
-        if status == 1 { self.return_tlabs(); }
+        let status = self
+            .gc_policy
+            .arm(std::time::Instant::now(), duration, budget);
+        if status == 1 {
+            self.return_tlabs();
+        }
         status
     }
     pub(crate) fn gc_policy_elapsed_micros(&self) -> i64 {
-        self.gc_policy.origin.elapsed().as_micros().min(i64::MAX as u128) as i64
+        self.gc_policy
+            .origin
+            .elapsed()
+            .as_micros()
+            .min(i64::MAX as u128) as i64
     }
-    pub(crate) fn gc_policy_cancel(&mut self) { self.gc_policy.cancel(); }
-    pub(crate) fn gc_policy_request_idle(&mut self) { self.gc_policy.idle_requested = true; }
+    pub(crate) fn gc_policy_cancel(&mut self) {
+        self.gc_policy.cancel();
+    }
+    pub(crate) fn gc_policy_request_idle(&mut self) {
+        self.gc_policy.idle_requested = true;
+    }
     pub(crate) fn gc_policy_idle_deadline(&self) -> Option<std::time::Instant> {
-        if self.gc_policy.idle_requested { self.gc_policy.window.map(|(deadline, _)| deadline) } else { None }
+        if self.gc_policy.idle_requested {
+            self.gc_policy.window.map(|(deadline, _)| deadline)
+        } else {
+            None
+        }
     }
     /// Called only after the owner scheduler establishes genuine idleness.
     pub(crate) fn gc_policy_collect_if_idle(&mut self) -> bool {
         self.gc_policy.refresh(std::time::Instant::now());
-        if !self.gc_policy.idle_requested || self.gc_policy.window.is_some() { return false; }
+        if !self.gc_policy.idle_requested || self.gc_policy.window.is_some() {
+            return false;
+        }
         self.collect();
         true
     }
@@ -2488,7 +2814,12 @@ impl Heap {
     #[inline]
     pub fn allocate_object(&mut self, class_id: i64, n: usize) -> i64 {
         let cid = i32::try_from(class_id).expect("class id beyond 32 bits");
-        self.allocate_block(cid, crate::layout::instance_words(n), block_flags::INSTANCE, n)
+        self.allocate_block(
+            cid,
+            crate::layout::instance_words(n),
+            block_flags::INSTANCE,
+            n,
+        )
     }
     /// A block with a body of `words` zeroed words, class `cid`, `flags` and
     /// `n` in the header (in `INSTANCE`, the number of fields; in the others, the
@@ -2517,7 +2848,13 @@ impl Heap {
     /// Does not collect: a caller that holds unrooted references may use it
     /// before falling back to a rooted general allocation.
     #[inline(always)]
-    pub(crate) fn allocate_from_tlab(&mut self, cid: i32, words: usize, flags: u8, n: usize) -> Option<Ref> {
+    pub(crate) fn allocate_from_tlab(
+        &mut self,
+        cid: i32,
+        words: usize,
+        flags: u8,
+        n: usize,
+    ) -> Option<Ref> {
         if words.wrapping_sub(1) >= TLAB_N || !self.runtime_tlab {
             return None;
         }
@@ -2535,7 +2872,9 @@ impl Heap {
         // heap's space for the Context (word 0 is the header).
         #[allow(unsafe_code)]
         unsafe {
-            cursor.cast::<u64>().write(crate::layout::header_word(YOUNG, flags, n, cid));
+            cursor
+                .cast::<u64>()
+                .write(crate::layout::header_word(YOUNG, flags, n, cid));
         }
         Some(cursor as i64 + HANDLE_OFFSET)
     }
@@ -2567,9 +2906,15 @@ impl Heap {
         let ordinary = self.allocations >= YOUNG_COUNT
             || self.young_bytes.saturating_add(bytes) > self.young_limit
             || self.stats.estimated_bytes.saturating_add(bytes) > self.byte_threshold;
-        if !self.gc_policy.is_active() { return forced || ordinary; }
-        let collect = self.gc_policy.collect_before(std::time::Instant::now(), bytes, ordinary, forced);
-        if self.gc_policy.debt { self.return_tlabs(); }
+        if !self.gc_policy.is_active() {
+            return forced || ordinary;
+        }
+        let collect =
+            self.gc_policy
+                .collect_before(std::time::Instant::now(), bytes, ordinary, forced);
+        if self.gc_policy.debt {
+            self.return_tlabs();
+        }
         collect
     }
     /// The collection the triggers ask for before allocating `bytes`: the full one if
@@ -2580,7 +2925,8 @@ impl Heap {
             || (self.byte_limit != usize::MAX && self.total_bytes(bytes) > self.byte_limit)
             || (self.stress
                 && self.minors_since_full + 1
-                    >= MINORS_PER_FULL_UNDER_STRESS.max((self.work_in_full / WORK_PER_MINOR_UNDER_STRESS) as u64));
+                    >= MINORS_PER_FULL_UNDER_STRESS
+                        .max((self.work_in_full / WORK_PER_MINOR_UNDER_STRESS) as u64));
         self.run_collection(!full);
     }
     #[cold]
@@ -2609,7 +2955,9 @@ impl Heap {
         if (c.tlab[n][1].get() as usize).saturating_sub(c.tlab[n][0].get() as usize) >= size {
             return;
         }
-        if self.gc_policy.window.is_some() { self.gc_policy.refresh(std::time::Instant::now()); }
+        if self.gc_policy.window.is_some() {
+            self.gc_policy.refresh(std::time::Instant::now());
+        }
         if self.gc_policy.blocks_tlabs() {
             return;
         }
@@ -2617,7 +2965,11 @@ impl Heap {
             .tlab_blocks
             .min(YOUNG_COUNT.saturating_sub(self.allocations))
             .min(self.young_limit.saturating_sub(self.young_bytes) / size)
-            .min(self.byte_threshold.saturating_sub(self.stats.estimated_bytes) / size);
+            .min(
+                self.byte_threshold
+                    .saturating_sub(self.stats.estimated_bytes)
+                    / size,
+            );
         if self.byte_limit != usize::MAX {
             k = k.min(self.byte_limit.saturating_sub(self.total_bytes(0)) / size);
         }
@@ -2654,7 +3006,10 @@ impl Heap {
         #[allow(unsafe_code)]
         let c = unsafe { &*self.context };
         for n in 1..=TLAB_N {
-            let (cursor, end) = (c.tlab[n][0].replace(std::ptr::null_mut()), c.tlab[n][1].replace(std::ptr::null_mut()));
+            let (cursor, end) = (
+                c.tlab[n][0].replace(std::ptr::null_mut()),
+                c.tlab[n][1].replace(std::ptr::null_mut()),
+            );
             let size = block_bytes(n);
             let k = (end as usize).saturating_sub(cursor as usize) / size;
             if k > 0 {
@@ -2705,17 +3060,23 @@ impl Heap {
             // SAFETY: block of a page of the space.
             #[allow(unsafe_code)]
             Some(b) if unsafe { (*b).state } == crate::space::POISON_STATE => {
-                panic!("compiler bug: handle already collected (missing root; poisoned block, DARTFORGE_GC_POISON)\nhandle {handle}")
+                panic!(
+                    "compiler bug: handle already collected (missing root; poisoned block, DARTFORGE_GC_POISON)\nhandle {handle}"
+                )
             }
             // SAFETY: block of a page of the space.
             #[allow(unsafe_code)]
             Some(b) if unsafe { (*b).state } != 0 => b,
-            Some(_) => panic!("compiler bug: handle already collected (missing root)\nhandle {handle}"),
+            Some(_) => {
+                panic!("compiler bug: handle already collected (missing root)\nhandle {handle}")
+            }
             None if is_static(handle) => (handle - HANDLE_OFFSET) as *mut Header,
             None if self.objects.in_page(handle) => {
                 panic!("compiler bug: handle already collected (missing root)\nhandle {handle}")
             }
-            None => panic!("compiler bug: handle beyond the table (scalar used as a handle)\nhandle {handle}"),
+            None => panic!(
+                "compiler bug: handle beyond the table (scalar used as a handle)\nhandle {handle}"
+            ),
         }
     }
     /// The block of `h` if it is an object of the space (live or `FREE`; never a
@@ -2743,7 +3104,8 @@ impl Heap {
         }
         // SAFETY: block of the space.
         #[allow(unsafe_code)]
-        self.space_block(v).is_some_and(|b| crate::layout::state::is_young(unsafe { (*b).state }))
+        self.space_block(v)
+            .is_some_and(|b| crate::layout::state::is_young(unsafe { (*b).state }))
     }
     /// The N4 panic of a handle that is not an object's.
     #[cold]
@@ -2769,7 +3131,10 @@ impl Heap {
     #[allow(unsafe_code)]
     fn check_writable(b: *const Header) {
         // SAFETY: readable block (from `live_block`).
-        assert!(unsafe { (*b).state } != PERMANENT, "compiler bug: write to a static object");
+        assert!(
+            unsafe { (*b).state } != PERMANENT,
+            "compiler bug: write to a static object"
+        );
     }
     /// The identity `hashCode` of object `h` of the space: taken from the
     /// address, which does not change while the object lives (the collector does not move) and
@@ -2801,7 +3166,11 @@ impl Heap {
             if (*b).state == FREE || shape(b) != block_flags::INSTANCE {
                 return None;
             }
-            Some(Obj { body: body(b), class_id: i64::from((*b).class_id), _heap: std::marker::PhantomData })
+            Some(Obj {
+                body: body(b),
+                class_id: i64::from((*b).class_id),
+                _heap: std::marker::PhantomData,
+            })
         }
     }
     /// The read view of object `h`: of the space or static (the
@@ -2821,7 +3190,11 @@ impl Heap {
             if shape(b) != block_flags::INSTANCE {
                 return None;
             }
-            Some(Obj { body: body(b), class_id: i64::from((*b).class_id), _heap: std::marker::PhantomData })
+            Some(Obj {
+                body: body(b),
+                class_id: i64::from((*b).class_id),
+                _heap: std::marker::PhantomData,
+            })
         }
     }
     /// The class of object `h` of the space (`None` if it is not a live object).
@@ -2843,14 +3216,25 @@ impl Heap {
         // SAFETY: live block.
         #[allow(unsafe_code)]
         let instance = unsafe { shape(b) } == block_flags::INSTANCE;
-        assert!(instance, "runtime bug: set_field on an object that is not INSTANCIA");
+        assert!(
+            instance,
+            "runtime bug: set_field on an object that is not INSTANCIA"
+        );
         self.objects.remember(b);
         // SAFETY: live block; `i` checked against the number of fields.
         #[allow(unsafe_code)]
         let old = unsafe {
             let c = body(b);
-            assert!(i < usize::from((*c).n), "field {i} outside the object of {} fields", (*c).n);
-            let old = if is_reference(c, i) { *fields_of(c).add(i) } else { 0 };
+            assert!(
+                i < usize::from((*c).n),
+                "field {i} outside the object of {} fields",
+                (*c).n
+            );
+            let old = if is_reference(c, i) {
+                *fields_of(c).add(i)
+            } else {
+                0
+            };
             *fields_of(c).add(i) = bits;
             mark_reference(c, i, is_ref_kind);
             old
@@ -2897,19 +3281,35 @@ impl Heap {
             // SAFETY: live block of the space.
             #[allow(unsafe_code)]
             let class_id = i64::from(unsafe { (*b).class_id });
-            let Some(origin) = plan.get(&class_id) else { continue };
+            let Some(origin) = plan.get(&class_id) else {
+                continue;
+            };
             let h = b as i64 + HANDLE_OFFSET;
             let olds = self.object(h).expect("live object").to_vec();
             let value_list: Vec<Field> = origin
                 .iter()
-                .map(|&o| usize::try_from(o).ok().and_then(|o| olds.get(o).copied()).unwrap_or((0, false)))
+                .map(|&o| {
+                    usize::try_from(o)
+                        .ok()
+                        .and_then(|o| olds.get(o).copied())
+                        .unwrap_or((0, false))
+                })
                 .collect();
             self.swap_fields(b, &value_list);
         }
-        let marks: Vec<(i64, i64)> = self.late_fields_initialized.iter().copied().filter(|&(_, i)| i >= 0).collect();
+        let marks: Vec<(i64, i64)> = self
+            .late_fields_initialized
+            .iter()
+            .copied()
+            .filter(|&(_, i)| i >= 0)
+            .collect();
         for (h, i) in marks {
-            let Some(class_id) = self.object_class(h) else { continue };
-            let Some(origin) = plan.get(&class_id) else { continue };
+            let Some(class_id) = self.object_class(h) else {
+                continue;
+            };
+            let Some(origin) = plan.get(&class_id) else {
+                continue;
+            };
             let new_area = origin.iter().position(|&o| o == i);
             self.late_fields_initialized.remove(&(h, i));
             if let Some(j) = new_area {
@@ -2988,7 +3388,12 @@ impl Heap {
     }
     /// Updates a field with an explicit tag; scalar values are never roots.
     pub fn set(&mut self, handle: i64, index: i64, bits: i64, is_ref: bool) {
-        self.set_field(handle, usize::try_from(index).expect("invalid index"), bits, is_ref);
+        self.set_field(
+            handle,
+            usize::try_from(index).expect("invalid index"),
+            bits,
+            is_ref,
+        );
     }
     /// Marks roots and typed edges iteratively and frees even unreachable cycles.
     /// Marks everything reachable from `pending`; returns how many
@@ -3029,7 +3434,10 @@ impl Heap {
         // Marking adds no attachment: without any, the lookup per marked object
         // (a call through `dyn FnMut`, ~10% of a linked list's marking) is skipped.
         let attachments = !self.attachments_by_owner.is_empty();
-        let (s_old, s_new) = (self.survivor_state, other_survivor_state(self.survivor_state));
+        let (s_old, s_new) = (
+            self.survivor_state,
+            other_survivor_state(self.survivor_state),
+        );
         // Does this collection walk the object in state `e`? In the minor one, only the young
         // and the survivors of the previous one (an old one counts as live, and its
         // references to young objects are among the remembered); in the full one,
@@ -3103,7 +3511,10 @@ impl Heap {
                     let b = if validate {
                         self.live_block(current)
                     } else {
-                        debug_assert!(self.objects.block_of(current).is_some(), "invalid edge {current}");
+                        debug_assert!(
+                            self.objects.block_of(current).is_some(),
+                            "invalid edge {current}"
+                        );
                         (current - HANDLE_OFFSET) as *mut Header
                     };
                     let mut next_offset = 0;
@@ -3129,7 +3540,9 @@ impl Heap {
                         live += 1;
                         marked_objects += 1;
                         if attachments {
-                            self.visit_attachment_edges(current, &mut |action| visit_ref(action, &mut next_offset, &mut stack, &mut kid));
+                            self.visit_attachment_edges(current, &mut |action| {
+                                visit_ref(action, &mut next_offset, &mut stack, &mut kid)
+                            });
                         }
                         // The body by format (§2.8): `RAW` has no
                         // references; `REFS`, the words `1..=word 0`;
@@ -3262,10 +3675,14 @@ impl Heap {
 
     /// Visits only the owner's occurrences, preserving aliases of distinct attachments.
     fn visit_attachment_edges(&self, owner: Ref, f: &mut dyn FnMut(Ref)) {
-        if self.attachments_by_owner.is_empty() { return; }
+        if self.attachments_by_owner.is_empty() {
+            return;
+        }
         if let Some(indices) = self.attachments_by_owner.get(&owner) {
             for &ix in indices {
-                if let FinalizerAction::Dart(action) = self.attachments[ix].action { f(action); }
+                if let FinalizerAction::Dart(action) = self.attachments[ix].action {
+                    f(action);
+                }
             }
         }
     }
@@ -3275,7 +3692,10 @@ impl Heap {
         Self::reindex_attachment_list(&self.attachments, &mut self.attachments_by_owner);
     }
 
-    fn reindex_attachment_list(attachments: &[FinalizerAttachment], index_by_owner: &mut crate::hash::HashMap<Ref, Vec<usize>>) {
+    fn reindex_attachment_list(
+        attachments: &[FinalizerAttachment],
+        index_by_owner: &mut crate::hash::HashMap<Ref, Vec<usize>>,
+    ) {
         index_by_owner.clear();
         for (ix, a) in attachments.iter().enumerate() {
             if matches!(a.action, FinalizerAction::Dart(_)) {
@@ -3293,8 +3713,13 @@ impl Heap {
                 self.arc_swapped(b, attachment.owner, 0, action);
             }
             self.remember_object(attachment.owner);
-            if let Some(arc) = &mut self.arc { arc.state.mark_side_edges(attachment.owner); }
-            self.attachments_by_owner.entry(attachment.owner).or_default().push(self.attachments.len());
+            if let Some(arc) = &mut self.arc {
+                arc.state.mark_side_edges(attachment.owner);
+            }
+            self.attachments_by_owner
+                .entry(attachment.owner)
+                .or_default()
+                .push(self.attachments.len());
         }
         if let FinalizerAction::Native(_, _, bytes) = attachment.action {
             let delta = isize::try_from(bytes).expect("externalSize exceeds the address size");
@@ -3305,18 +3730,30 @@ impl Heap {
 
     /// Cancels the still registered attachments of the key and releases their Dart edges.
     pub(crate) fn detach_finalizer(&mut self, owner: Ref, detach: Ref) {
-        if owner == 0 { return; }
+        if owner == 0 {
+            return;
+        }
         let mut actions = Vec::new();
         let mut external = Vec::new();
         self.attachments.retain(|a| {
-            if a.owner != owner || a.detach != detach { return true; }
-            if let FinalizerAction::Dart(action) = a.action { actions.push(action); }
-            if let FinalizerAction::Native(_, _, bytes) = a.action { external.push(bytes); }
+            if a.owner != owner || a.detach != detach {
+                return true;
+            }
+            if let FinalizerAction::Dart(action) = a.action {
+                actions.push(action);
+            }
+            if let FinalizerAction::Native(_, _, bytes) = a.action {
+                external.push(bytes);
+            }
             false
         });
         self.reindex_attachments();
-        for action in actions { self.arc_raw_write(owner, action, 0); }
-        for bytes in external { self.count_external(-(bytes as isize)); }
+        for action in actions {
+            self.arc_raw_write(owner, action, 0);
+        }
+        for bytes in external {
+            self.count_external(-(bytes as isize));
+        }
     }
 
     /// The full collection (`dartforge_gc_collect` and the tests): marks
@@ -3337,7 +3774,11 @@ impl Heap {
         dest.extend(self.globals.values().copied());
         dest.extend(self.runtime_roots.iter().copied().filter(|&h| h != 0));
         dest.extend(self.ready_finalizations.iter().copied());
-        dest.extend(self.frames.iter().flat_map(|(_, roots, _)| roots.iter().copied()));
+        dest.extend(
+            self.frames
+                .iter()
+                .flat_map(|(_, roots, _)| roots.iter().copied()),
+        );
         visit_frames(|h| dest.push(h));
         let from_maps = dest.len();
         visit_frames_by_maps(|h| dest.push(h));
@@ -3379,7 +3820,10 @@ impl Heap {
                     let desc = |x: i64| {
                         let c = self.header(x);
                         let pos = self.words(x).iter().position(|&w| w == h);
-                        format!("cid {} state {} flags {:#x} n {} position {pos:?}", c.class_id, c.state, c.flags, c.n)
+                        format!(
+                            "cid {} state {} flags {:#x} n {} position {pos:?}",
+                            c.class_id, c.state, c.flags, c.n
+                        )
                     };
                     panic!(
                         "collector bug: reachable young object without a mark in the minor collection (missing write barrier)\nobject {h} (cid {}), reached from {parent_node:?} ({})",
@@ -3453,7 +3897,8 @@ impl Heap {
             for &b in &previous {
                 // SAFETY: remembered block, live.
                 #[allow(unsafe_code)]
-                let (work, mut keep) = unsafe { self.objects.scan_remembered(b, &mut pending_list) };
+                let (work, mut keep) =
+                    unsafe { self.objects.scan_remembered(b, &mut pending_list) };
                 self.marking_work += work;
                 let owner = b as i64 + HANDLE_OFFSET;
                 self.visit_attachment_edges(owner, &mut |action| {
@@ -3485,7 +3930,11 @@ impl Heap {
         self.pending = pending_list;
         // The survivor state the marking gives the young objects it keeps (with
         // aging; without it nothing stays young, and `OLD` repeats the old test).
-        let kept = if aging { other_survivor_state(self.survivor_state) } else { OLD };
+        let kept = if aging {
+            other_survivor_state(self.survivor_state)
+        } else {
+            OLD
+        };
         let mut live = self.mark_pending();
         // Ephemerons: the value of a live holder is reached when the
         // key is — which may make other keys live, up to the fixed point.
@@ -3495,7 +3944,11 @@ impl Heap {
                 let marked = |h: i64| marked_in_collection(objects, minor, kept, h);
                 let before = self.pending.len();
                 for (&holder, &(key, value)) in &self.ephemerons {
-                    if marked(holder) && (marked(key) || !smi::e_handle(key)) && smi::e_handle(value) && !marked(value) {
+                    if marked(holder)
+                        && (marked(key) || !smi::e_handle(key))
+                        && smi::e_handle(value)
+                        && !marked(value)
+                    {
                         self.pending.push(value);
                     }
                 }
@@ -3516,7 +3969,11 @@ impl Heap {
         {
             self.verify_minor_collection();
         }
-        let promotion = if self.arc.is_some() { Some(self.promotion_data()) } else { None };
+        let promotion = if self.arc.is_some() {
+            Some(self.promotion_data())
+        } else {
+            None
+        };
         let objects = &self.objects;
         let alive = |h: &i64| marked_in_collection(objects, minor, kept, *h);
         self.weak_refs.retain(|holder, target| {
@@ -3542,11 +3999,15 @@ impl Heap {
             for &key in &lates {
                 if !alive(&key.0) {
                     self.late_fields_initialized.remove(&key);
-                } else if aging && objects.block_of(key.0).is_some_and(|b| {
-                    // SAFETY: block of the space.
-                    #[allow(unsafe_code)]
-                    unsafe { (*b).state == kept }
-                }) {
+                } else if aging
+                    && objects.block_of(key.0).is_some_and(|b| {
+                        // SAFETY: block of the space.
+                        #[allow(unsafe_code)]
+                        unsafe {
+                            (*b).state == kept
+                        }
+                    })
+                {
                     self.new_lates.push(key);
                 }
             }
@@ -3558,8 +4019,13 @@ impl Heap {
         let mut attachment_edges = Vec::new();
         let mut natives = Vec::new();
         self.attachments.retain_mut(|a| {
-            if matches!(a.action, FinalizerAction::Dart(_)) && !alive(&a.owner) { return false; }
-            if matches!(a.action, FinalizerAction::Native(_, _, _)) && smi::e_handle(a.owner) && !alive(&a.owner) {
+            if matches!(a.action, FinalizerAction::Dart(_)) && !alive(&a.owner) {
+                return false;
+            }
+            if matches!(a.action, FinalizerAction::Native(_, _, _))
+                && smi::e_handle(a.owner)
+                && !alive(&a.owner)
+            {
                 a.owner = 0;
             }
             if smi::e_handle(a.detach) && !alive(&a.detach) {
@@ -3570,16 +4036,18 @@ impl Heap {
             }
             match a.action {
                 FinalizerAction::Dart(action) => {
-                        ready.push(action);
-                        attachment_edges.push((a.owner, action));
-                    },
+                    ready.push(action);
+                    attachment_edges.push((a.owner, action));
+                }
                 FinalizerAction::Native(f, token, bytes) => natives.push((f, token, bytes)),
             }
             false
         });
         if let Some(arc) = &mut self.arc {
             for &action in &ready {
-                arc.state.retain_ref(action).unwrap_or_else(|e| arc_failure(e));
+                arc.state
+                    .retain_ref(action)
+                    .unwrap_or_else(|e| arc_failure(e));
             }
         }
         self.ready_finalizations.extend(ready);
@@ -3599,7 +4067,10 @@ impl Heap {
         });
         self.reindex_attachments();
         for (owner, action) in attachment_edges {
-            if !promotion.as_ref().is_some_and(|(promoted, _)| promoted.contains(&owner)) {
+            if !promotion
+                .as_ref()
+                .is_some_and(|(promoted, _)| promoted.contains(&owner))
+            {
                 self.arc_raw_write(owner, action, 0);
             }
         }
@@ -3652,7 +4123,10 @@ impl Heap {
             self.recompute_triggers(live);
         }
         if self.memory > 1 || (self.memory == 1 && !minor) {
-            eprintln!("[memory] after the {} collection", if minor { "minor" } else { "full" });
+            eprintln!(
+                "[memory] after the {} collection",
+                if minor { "minor" } else { "full" }
+            );
             eprint!("{}", self.memory_report());
         }
         if self.trace {
@@ -3678,13 +4152,24 @@ impl Heap {
     pub fn memory_report(&self) -> String {
         use std::fmt::Write;
         fn table<K, V>(m: &crate::hash::HashMap<K, V>) -> (usize, usize) {
-            (m.len(), m.capacity() * (std::mem::size_of::<(K, V)>() + 1) / 1024)
+            (
+                m.len(),
+                m.capacity() * (std::mem::size_of::<(K, V)>() + 1) / 1024,
+            )
         }
         fn item_set<K>(m: &crate::hash::HashSet<K>) -> (usize, usize) {
-            (m.len(), m.capacity() * (std::mem::size_of::<K>() + 1) / 1024)
+            (
+                m.len(),
+                m.capacity() * (std::mem::size_of::<K>() + 1) / 1024,
+            )
         }
         let mut s = self.objects.memory_report();
-        let literals: usize = self.literals.keys().map(|k| k.capacity() * 2).sum::<usize>() / 1024;
+        let literals: usize = self
+            .literals
+            .keys()
+            .map(|k| k.capacity() * 2)
+            .sum::<usize>()
+            / 1024;
         let _ = writeln!(
             s,
             "[memory] tables (entries, KiB): globals {:?}, literals {:?} (+{literals} KiB of keys), constants {:?}, permanent {:?}, enum {:?}, tearoffs {:?}, tearoff code {:?}, late {:?}, weak {:?}, ephemerons {:?}, finalizable {:?}; estimated {} KiB, trigger {} KiB",
@@ -3732,19 +4217,23 @@ impl Heap {
         // little live data, its double came before the minor collection's
         // trigger, and every collection was a full one (the long tree of
         // `objetos_escapam/arvores` re-marked 250 times).
-        let growth = (self
-            .stats
-            .estimated_bytes
-            .saturating_mul(self.growth))
-            / 100;
+        let growth = (self.stats.estimated_bytes.saturating_mul(self.growth)) / 100;
         let growth = growth
-            .max(self.stats.estimated_bytes.saturating_add(2 * self.young_limit))
+            .max(
+                self.stats
+                    .estimated_bytes
+                    .saturating_add(2 * self.young_limit),
+            )
             .max(self.byte_threshold - self.byte_threshold / 4);
         self.byte_threshold = if self.byte_limit == usize::MAX {
             growth
         } else {
             let slack = self.byte_limit.saturating_sub(self.total_bytes(0));
-            growth.min(self.stats.estimated_bytes.saturating_add((slack / 2).max(MIN_STEP)))
+            growth.min(
+                self.stats
+                    .estimated_bytes
+                    .saturating_add((slack / 2).max(MIN_STEP)),
+            )
         };
         // There is no longer a count trigger for the full collection: it
         // existed because every collection swept the whole slot table, and with
@@ -3760,15 +4249,10 @@ impl Heap {
         HeapStats {
             live_objects: self.objects.live_set,
             reserved_slots: 0,
-            permanent_roots: self.enum_values.len()
-                + self.tearoffs.len()
-                + self.literals.len(),
+            permanent_roots: self.enum_values.len() + self.tearoffs.len() + self.literals.len(),
             ..self.stats
         }
     }
-
-
-
 }
 
 // ---------------------------------------------------------------------------
@@ -3795,14 +4279,24 @@ pub enum Value {
 #[allow(unsafe_code, non_upper_case_globals)]
 #[unsafe(no_mangle)]
 pub static dartforge_false: [u64; 3] = [
-    crate::layout::header_word(PERMANENT, crate::layout::flags::RAW, 1, crate::layout::cid::BOOL),
+    crate::layout::header_word(
+        PERMANENT,
+        crate::layout::flags::RAW,
+        1,
+        crate::layout::cid::BOOL,
+    ),
     0,
     0,
 ];
 #[allow(unsafe_code, non_upper_case_globals)]
 #[unsafe(no_mangle)]
 pub static dartforge_true: [u64; 3] = [
-    crate::layout::header_word(PERMANENT, crate::layout::flags::RAW, 1, crate::layout::cid::BOOL),
+    crate::layout::header_word(
+        PERMANENT,
+        crate::layout::flags::RAW,
+        1,
+        crate::layout::cid::BOOL,
+    ),
     0,
     1,
 ];
@@ -3821,7 +4315,9 @@ pub fn register_image(start: usize, end: usize) {
     if start >= end {
         return;
     }
-    let mut v = IMAGES.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut v = IMAGES
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if !v.contains(&(start, end)) {
         v.push((start, end));
     }
@@ -3830,7 +4326,10 @@ pub fn register_image(start: usize, end: usize) {
 /// The ranges of the registered images, in registration order (the index of the
 /// static literals, `text.rs`).
 pub fn images() -> Vec<(usize, usize)> {
-    IMAGES.read().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    IMAGES
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
 }
 
 /// Is `h` a static object (`PERMANENT`): one of the runtime's `bool` boxes
@@ -3842,16 +4341,19 @@ pub fn is_static(h: Ref) -> bool {
         return false;
     }
     let b = (h - HANDLE_OFFSET) as usize;
-    let from_runtime = b == std::ptr::addr_of!(dartforge_false) as usize || b == std::ptr::addr_of!(dartforge_true) as usize;
+    let from_runtime = b == std::ptr::addr_of!(dartforge_false) as usize
+        || b == std::ptr::addr_of!(dartforge_true) as usize;
     let in_image = from_runtime || {
-        let v = IMAGES.read().unwrap_or_else(std::sync::PoisonError::into_inner);
-        v.iter().any(|&(i, f)| i <= b && b + std::mem::size_of::<Header>() <= f)
+        let v = IMAGES
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        v.iter()
+            .any(|&(i, f)| i <= b && b + std::mem::size_of::<Header>() <= f)
     };
     // SAFETY: `b` is in a registered range (readable memory of the image) or is
     // one of the runtime's boxes.
     in_image && unsafe { (*(b as *const Header)).state } == PERMANENT
 }
-
 
 impl Heap {
     /// A zeroed block of `words` body words, class `cid` and `flags`
@@ -3900,7 +4402,8 @@ impl Heap {
     pub fn is_live_object(&self, h: Ref) -> bool {
         if !self.validate_handles {
             // SAFETY: `validate_handles` (an object handle is a block or a static).
-            return is_object(h) && unsafe { (*((h - HANDLE_OFFSET) as *const Header)).state } != FREE;
+            return is_object(h)
+                && unsafe { (*((h - HANDLE_OFFSET) as *const Header)).state } != FREE;
         }
         match self.objects.block_of(h) {
             // SAFETY: block of a page of the space.
@@ -3913,7 +4416,8 @@ impl Heap {
     pub fn is_static(&self, h: Ref) -> bool {
         if !self.validate_handles {
             // SAFETY: `validate_handles` (an object handle is a block or a static).
-            return is_object(h) && unsafe { (*((h - HANDLE_OFFSET) as *const Header)).state } == PERMANENT;
+            return is_object(h)
+                && unsafe { (*((h - HANDLE_OFFSET) as *const Header)).state } == PERMANENT;
         }
         self.objects.block_of(h).is_none() && is_static(h)
     }
@@ -3936,9 +4440,15 @@ impl Heap {
                 // A static literal with more than 65 534 words: the length
                 // tells (strings are the only large statics).
                 let c = (*b).class_id;
-                assert!(crate::layout::cid::is_string(c), "compiler bug: large static that is not a string");
+                assert!(
+                    crate::layout::cid::is_string(c),
+                    "compiler bug: large static that is not a string"
+                );
                 let len = usize::try_from(*fields_of(b)).unwrap_or(0);
-                return (b, crate::layout::string_words(len, c == crate::layout::cid::TWO_BYTE_STRING));
+                return (
+                    b,
+                    crate::layout::string_words(len, c == crate::layout::cid::TWO_BYTE_STRING),
+                );
             }
             (b, self.objects.body_words(b))
         }
@@ -3960,7 +4470,10 @@ impl Heap {
     /// is still inline). Under ARC, takes the snapshot `words_mut` would take.
     #[inline]
     pub(crate) fn fresh_body(&mut self, h: Ref) -> *mut i64 {
-        debug_assert!(is_object(h), "runtime bug: fresh_body of a value that is not an object");
+        debug_assert!(
+            is_object(h),
+            "runtime bug: fresh_body of a value that is not an object"
+        );
         let b = (h - HANDLE_OFFSET) as *mut Header;
         if self.arc.is_some() {
             self.arc_snapshot(b, h);
@@ -4014,7 +4527,10 @@ impl Heap {
         }
         // SAFETY: live and writable block.
         unsafe {
-            assert!(crate::layout::cid::is_fixed_list((*b).class_id), "runtime bug: set_flags outside _List/_ImmutableList");
+            assert!(
+                crate::layout::cid::is_fixed_list((*b).class_id),
+                "runtime bug: set_flags outside _List/_ImmutableList"
+            );
             (*b).flags = ((*b).flags & !mask) | (value & mask);
         }
     }
@@ -4046,7 +4562,10 @@ impl Heap {
         let b = self.live_block(h);
         Self::check_writable(b);
         // SAFETY: live block.
-        assert!(unsafe { shape(b) } == block_flags::REFS, "runtime bug: write_ref on an object that is not REFS");
+        assert!(
+            unsafe { shape(b) } == block_flags::REFS,
+            "runtime bug: write_ref on an object that is not REFS"
+        );
         b
     }
     /// Writes the `Ref` `v` into word `word ≥ 1` of the `REFS` body of `h`, with
@@ -4058,7 +4577,10 @@ impl Heap {
         }
         let b = self.refs_block(h);
         let (c, w) = self.body_and_words(b);
-        assert!(word >= 1 && word < w, "word {word} outside the REFS body of {w} words");
+        assert!(
+            word >= 1 && word < w,
+            "word {word} outside the REFS body of {w} words"
+        );
         // SAFETY: `word < w`.
         let old = unsafe { std::mem::replace(&mut *fields_of(c).add(word), v) };
         if self.arc.is_some() {
@@ -4074,7 +4596,11 @@ impl Heap {
     pub fn write_refs(&mut self, h: Ref, word: usize, v: &[Ref]) {
         let b = self.refs_block(h);
         let (c, w) = self.body_and_words(b);
-        assert!(word >= 1 && word + v.len() <= w, "words {word}..+{} outside the REFS body of {w} words", v.len());
+        assert!(
+            word >= 1 && word + v.len() <= w,
+            "words {word}..+{} outside the REFS body of {w} words",
+            v.len()
+        );
         // ARC counts each swap: the words from before, one by one.
         let olds: Vec<Ref> = if self.arc.is_some() {
             // SAFETY: the range is inside the body.
@@ -4103,7 +4629,8 @@ impl Heap {
                 let mut i = of;
                 while i < until {
                     crate::space::dirty_card(b, len, i);
-                    i = (i / crate::layout::ELEMENTS_PER_CARD + 1) * crate::layout::ELEMENTS_PER_CARD;
+                    i = (i / crate::layout::ELEMENTS_PER_CARD + 1)
+                        * crate::layout::ELEMENTS_PER_CARD;
                 }
             }
         }
@@ -4119,7 +4646,10 @@ impl Heap {
         // SAFETY: block of the space.
         unsafe {
             let e = (*b).state;
-            if (e == OLD || e == REMEMBERED) && shape(b) == block_flags::REFS && (*b).flags & block_flags::CARDS != 0 {
+            if (e == OLD || e == REMEMBERED)
+                && shape(b) == block_flags::REFS
+                && (*b).flags & block_flags::CARDS != 0
+            {
                 let len = body_refs(b, self.objects.body_words(b));
                 crate::space::dirty_all_cards(b, len);
             }
@@ -4154,7 +4684,13 @@ impl Heap {
     /// `release(ptr)` is the only release of `ptr`, and is valid; the body of `h` has
     /// at least one word and is `RAW`.
     #[allow(unsafe_code)]
-    pub unsafe fn attach(&mut self, h: Ref, release: unsafe fn(*mut u8), ptr: *mut u8, bytes: usize) {
+    pub unsafe fn attach(
+        &mut self,
+        h: Ref,
+        release: unsafe fn(*mut u8),
+        ptr: *mut u8,
+        bytes: usize,
+    ) {
         let b = self.live_block(h);
         Self::check_writable(b);
         // SAFETY: the function contract; live block with word 0.
@@ -4171,7 +4707,9 @@ impl Heap {
         self.objects.attach(b, release, ptr, bytes);
         self.add_estimated_bytes(bytes);
         self.young_bytes = self.young_bytes.saturating_add(bytes);
-        if bytes > 0 { self.gc_policy_after_growth(true); }
+        if bytes > 0 {
+            self.gc_policy_after_growth(true);
+        }
     }
     /// The bytes of the attachment of `h` become `bytes` (the `StringBuffer`
     /// accumulator grew): the difference enters the collection triggers, like
@@ -4182,7 +4720,9 @@ impl Heap {
         if delta >= 0 {
             self.add_estimated_bytes(delta.unsigned_abs());
             self.young_bytes = self.young_bytes.saturating_add(delta.unsigned_abs());
-            if delta > 0 { self.gc_policy_after_growth(true); }
+            if delta > 0 {
+                self.gc_policy_after_growth(true);
+            }
         } else {
             self.subtract_estimated_bytes(delta.unsigned_abs());
         }
@@ -4192,13 +4732,22 @@ impl Heap {
     pub fn attachment(&self, h: Ref) -> *mut u8 {
         let b = self.live_block(h);
         // SAFETY: live block.
-        unsafe { if (*b).flags & block_flags::ATTACHMENT != 0 { *fields_of(b) as *mut u8 } else { std::ptr::null_mut() } }
+        unsafe {
+            if (*b).flags & block_flags::ATTACHMENT != 0 {
+                *fields_of(b) as *mut u8
+            } else {
+                std::ptr::null_mut()
+            }
+        }
     }
     /// Projects the estimate without losing bytes that will be subtracted later.
     fn set_estimated_bytes(&mut self, bytes: u128) {
         self.exact_estimated_bytes = bytes;
         self.stats.estimated_bytes = usize::try_from(bytes).unwrap_or(usize::MAX);
-        self.stats.peak_estimated_bytes = self.stats.peak_estimated_bytes.max(self.stats.estimated_bytes);
+        self.stats.peak_estimated_bytes = self
+            .stats
+            .peak_estimated_bytes
+            .max(self.stats.estimated_bytes);
     }
 
     fn add_estimated_bytes(&mut self, bytes: usize) {
@@ -4220,7 +4769,9 @@ impl Heap {
             self.external = self.external.saturating_add(d as u128);
             self.add_estimated_bytes(d);
             self.young_bytes = self.young_bytes.saturating_add(d);
-            if d > 0 { self.gc_policy_after_growth(true); }
+            if d > 0 {
+                self.gc_policy_after_growth(true);
+            }
         } else {
             let d = delta.unsigned_abs();
             self.external = self.external.saturating_sub(d as u128);
@@ -4246,7 +4797,10 @@ mod tests {
         let fields = heap.object(first).expect("enum must be an object");
         assert_eq!(fields.class_id, 1);
         assert_eq!(fields.field(0), (0, false));
-        assert!(heap.text(fields.field(1).0).is_some_and(|name| name == "red"));
+        assert!(
+            heap.text(fields.field(1).0)
+                .is_some_and(|name| name == "red")
+        );
         assert_eq!(heap.stats().permanent_roots, 3);
         assert_eq!(heap.stats().live_objects, 6);
         assert_eq!(heap.stats().root_slots, 0);
@@ -4330,7 +4884,6 @@ mod object_space {
     //! 1, free lists rebuilt during the sweep and freed pages.
     use super::*;
 
-
     #[test]
     fn object_handles_and_scalars_are_distinct() {
         let mut heap = Heap::new(false);
@@ -4384,7 +4937,11 @@ mod object_space {
         for _ in 0..20 {
             heap.collect();
         }
-        assert!(heap.objects.pages.len() <= 2, "{} pages for {retained_list}", heap.objects.pages.len());
+        assert!(
+            heap.objects.pages.len() <= 2,
+            "{} pages for {retained_list}",
+            heap.objects.pages.len()
+        );
     }
 
     #[test]
@@ -4398,13 +4955,18 @@ mod object_space {
         heap.set(o, 4, 42, false);
         heap.collect();
         let fields = heap.object(o).expect("object");
-        assert_eq!((fields.len(), fields.field(0).0, fields.field(4).0), (5, 41, 42));
+        assert_eq!(
+            (fields.len(), fields.field(0).0, fields.field(4).0),
+            (5, 41, 42)
+        );
         heap.pop_frame(frame);
         heap.collect();
         // The block went back to the template: a new 1-field object reuses it zeroed.
         let new = heap.allocate_object(4, 1);
         assert_eq!(new, o);
-        assert!(matches!(heap.object(new), Some(f) if f.class_id == 4 && f.len() == 1 && f.field(0) == (0, false)));
+        assert!(
+            matches!(heap.object(new), Some(f) if f.class_id == 4 && f.len() == 1 && f.field(0) == (0, false))
+        );
     }
 
     #[test]
@@ -4470,28 +5032,57 @@ mod object_space {
             let cursor = CONTEXT.with(|c| c.tlab[w][0].get());
             let second = heap.allocate_str("second");
             assert_eq!(second - HANDLE_OFFSET, cursor as i64);
-            assert_eq!(CONTEXT.with(|c| c.tlab[w][0].get()), cursor.wrapping_add(block_bytes(w)));
+            assert_eq!(
+                CONTEXT.with(|c| c.tlab[w][0].get()),
+                cursor.wrapping_add(block_bytes(w))
+            );
             assert_eq!(heap.text(second).unwrap(), "second");
             let hd = *heap.header(second);
             assert_eq!(
-                (hd.state, hd.flags, usize::from(hd.n), hd.class_id, hd.map, hd.metadata),
-                (YOUNG, crate::layout::flags::RAW, w, crate::layout::cid::ONE_BYTE_STRING, 0, 0)
+                (
+                    hd.state,
+                    hd.flags,
+                    usize::from(hd.n),
+                    hd.class_id,
+                    hd.map,
+                    hd.metadata
+                ),
+                (
+                    YOUNG,
+                    crate::layout::flags::RAW,
+                    w,
+                    crate::layout::cid::ONE_BYTE_STRING,
+                    0,
+                    0
+                )
             );
             // An object of two fields comes from the same range (the size class
             // is by body words), with the field count in the header.
             let o = heap.allocate_object(5, 2);
-            assert_eq!(o - HANDLE_OFFSET, cursor.wrapping_add(block_bytes(w)) as i64);
+            assert_eq!(
+                o - HANDLE_OFFSET,
+                cursor.wrapping_add(block_bytes(w)) as i64
+            );
             let hd = *heap.header(o);
-            assert_eq!((hd.state, hd.flags, usize::from(hd.n), hd.class_id), (YOUNG, crate::layout::flags::INSTANCE, 2, 5));
+            assert_eq!(
+                (hd.state, hd.flags, usize::from(hd.n), hd.class_id),
+                (YOUNG, crate::layout::flags::INSTANCE, 2, 5)
+            );
             heap.set(o, 1, second, true);
             heap.set_root(frame, 0, o);
             let before = heap.stats().collections;
             heap.run_collection(true);
             assert_eq!(heap.stats().collections, before + 1);
             assert!(heap.is_live_object(o) && heap.is_live_object(second));
-            assert!(!heap.is_live_object(first), "unrooted string of the range survived");
+            assert!(
+                !heap.is_live_object(first),
+                "unrooted string of the range survived"
+            );
             assert_eq!(heap.text(second).unwrap(), "second");
-            assert_eq!(heap.object(o).expect("live object").field(1), (second, true));
+            assert_eq!(
+                heap.object(o).expect("live object").field(1),
+                (second, true)
+            );
             heap.set_root(frame, 0, 0);
             heap.run_collection(false);
             assert_eq!(heap.stats().live_objects, 0);
@@ -4558,7 +5149,10 @@ mod object_space {
                 assert_eq!(heap.text(t).unwrap(), &ascii[a..b]);
                 heap.set_root(frame, 1, t);
                 let j = heap.join_strings(&[s, t, s]);
-                assert_eq!(heap.text(j).unwrap().to_dart_string(), format!("{}{}{}", &ascii[..n], &ascii[a..b], &ascii[..n]));
+                assert_eq!(
+                    heap.text(j).unwrap().to_dart_string(),
+                    format!("{}{}{}", &ascii[..n], &ascii[a..b], &ascii[..n])
+                );
                 assert_eq!(heap.header(j).class_id, ONE_BYTE_STRING);
             }
             // Two-byte text: the form follows the units, and a piece that fits
@@ -4574,7 +5168,10 @@ mod object_space {
             heap.set_root(frame, 3, latin);
             let mixed = heap.join_strings(&[latin, s, latin]);
             assert_eq!(heap.header(mixed).class_id, TWO_BYTE_STRING);
-            assert_eq!(heap.text(mixed).unwrap().to_dart_string(), "héllohéllo wörld — ✓ okhéllo");
+            assert_eq!(
+                heap.text(mixed).unwrap().to_dart_string(),
+                "héllohéllo wörld — ✓ okhéllo"
+            );
             let tail = heap.string_slice(mixed, 5, 5 + units.len());
             assert_eq!(heap.header(tail).class_id, TWO_BYTE_STRING);
             assert_eq!(heap.text(tail).unwrap(), TextRef::TwoByte(&units));
@@ -4647,7 +5244,11 @@ mod object_space {
                     // (the first one included) and the reference map must come
                     // zeroed from the handout.
                     let o = heap.object(link).expect("freshly allocated");
-                    assert_eq!((o.field(0), o.field(1), o.field(2)), ((0, false), (0, false), (0, false)), "dirty block handed out");
+                    assert_eq!(
+                        (o.field(0), o.field(1), o.field(2)),
+                        ((0, false), (0, false), (0, false)),
+                        "dirty block handed out"
+                    );
                     heap.set(link, 0, smi::of(i).unwrap(), false);
                     heap.set(link, 1, head, true);
                     heap.set(link, 2, 77, false);
@@ -4740,7 +5341,10 @@ mod object_space {
         let action = heap.allocate_object(2, 0);
         // Sabotages the publication: does not call the barrier of add_attachment.
         heap.attachments.push(FinalizerAttachment {
-            owner, value: owner, detach: 0, action: FinalizerAction::Dart(action),
+            owner,
+            value: owner,
+            detach: 0,
+            action: FinalizerAction::Dart(action),
         });
         heap.reindex_attachments();
         heap.run_collection(true);
@@ -4756,7 +5360,10 @@ mod object_space {
         heap.run_collection(false);
         let action = heap.allocate_object(2, 0);
         heap.add_attachment(FinalizerAttachment {
-            owner, value: owner, detach: 0, action: FinalizerAction::Dart(action),
+            owner,
+            value: owner,
+            detach: 0,
+            action: FinalizerAction::Dart(action),
         });
         heap.run_collection(true);
         assert!(heap.is_live_object(action));
@@ -4785,7 +5392,11 @@ mod object_space {
                 cab = no;
                 heap.set_root(frame, 0, cab);
             }
-            eprintln!("round: {:?} collections={}", t.elapsed(), heap.stats().collections);
+            eprintln!(
+                "round: {:?} collections={}",
+                t.elapsed(),
+                heap.stats().collections
+            );
         }
     }
 
@@ -4942,15 +5553,20 @@ mod runtime_roots {
         heap.set_root(frame, 0, old_gen);
         heap.mark_late((old_gen, 0));
         heap.run_collection(true);
-        assert!(heap.late_initialized((old_gen, 0)), "the live old object stays marked");
+        assert!(
+            heap.late_initialized((old_gen, 0)),
+            "the live old object stays marked"
+        );
         let young = heap.allocate_object(200, 0);
         heap.mark_late((young, 3));
         heap.run_collection(true);
-        assert!(!heap.late_initialized((young, 3)), "the dead young object loses the mark");
+        assert!(
+            !heap.late_initialized((young, 3)),
+            "the dead young object loses the mark"
+        );
         assert!(heap.late_initialized((old_gen, 0)));
         heap.pop_frame(frame);
     }
-
 }
 
 #[cfg(test)]
@@ -5076,7 +5692,11 @@ mod fixed_root_tests {
         let mut heap = Heap::new(false);
         let frame = heap.push_frame_with_slots(1);
         for _ in 0..8 {
-            let handle = heap.allocate(crate::layout::cid::typed(1), 2 * 1024 * 1024 / 8, crate::layout::flags::RAW);
+            let handle = heap.allocate(
+                crate::layout::cid::typed(1),
+                2 * 1024 * 1024 / 8,
+                crate::layout::flags::RAW,
+            );
             heap.set_root(frame, 0, handle);
         }
         let stats = heap.stats();
@@ -5085,7 +5705,11 @@ mod fixed_root_tests {
         // The peak: the young data between minor collections and the old garbage (each
         // rooted payload becomes old and dies on the next round) until the full one,
         // which comes two young semispaces above what survived.
-        assert!(stats.peak_estimated_bytes < 2 * YOUNG_LIMIT + 3 * 2 * 1024 * 1024, "{}", stats.peak_estimated_bytes);
+        assert!(
+            stats.peak_estimated_bytes < 2 * YOUNG_LIMIT + 3 * 2 * 1024 * 1024,
+            "{}",
+            stats.peak_estimated_bytes
+        );
         heap.pop_frame(frame);
         heap.collect();
         assert_eq!(heap.stats().estimated_bytes, 0);
@@ -5146,7 +5770,9 @@ pub fn allow_collection() {
 fn check_collection_allowed() {
     let culprit = COLLECTION_FORBIDDEN.with(|p| p.borrow().last().cloned());
     if let Some(name) = culprit {
-        eprintln!("dartforge: the extern {name} is marked collects = 0 in effects.tsv and collected");
+        eprintln!(
+            "dartforge: the extern {name} is marked collects = 0 in effects.tsv and collected"
+        );
         std::process::abort();
     }
 }
@@ -5190,7 +5816,10 @@ mod unified_space {
         heap.words_mut(m)[0] = i64::MAX;
         heap.words_mut(m)[1] = target;
         heap.collect();
-        assert!(!heap.is_live_object(target), "BRUTO followed as a reference");
+        assert!(
+            !heap.is_live_object(target),
+            "BRUTO followed as a reference"
+        );
         assert_eq!(heap.words(m)[0], i64::MAX);
         assert_eq!(heap.class(m), cid::MINT);
         assert_eq!(heap.header(m).n, 2);
@@ -5214,7 +5843,10 @@ mod unified_space {
         heap.write_ref(l, 2, b);
         assert_eq!(heap.header(l).state, REMEMBERED);
         heap.run_collection(true);
-        assert!(heap.is_live_object(b), "young object of an old list collected");
+        assert!(
+            heap.is_live_object(b),
+            "young object of an old list collected"
+        );
         assert_eq!(heap.words(l)[1..], [a, b, smi::of(7).unwrap()]);
         // Without a reference, it goes away.
         heap.write_refs(l, 1, &[0, 0]);
@@ -5258,12 +5890,18 @@ mod unified_space {
         }
         heap.run_collection(true);
         for &(i, j) in &young_set {
-            assert!(heap.is_live_object(j), "young object in element {i} collected (card not walked)");
+            assert!(
+                heap.is_live_object(j),
+                "young object in element {i} collected (card not walked)"
+            );
             assert_eq!(heap.words(l)[1 + i], j);
         }
         // With aging, the young elements stay young (survivors): only their
         // cards stay dirty, and the list stays remembered.
-        let dirty: u32 = heap.words(l)[1 + len..].iter().map(|&c| c.count_ones()).sum();
+        let dirty: u32 = heap.words(l)[1 + len..]
+            .iter()
+            .map(|&c| c.count_ones())
+            .sum();
         assert_eq!(dirty, 4, "only the cards of the young elements stay dirty");
         assert_eq!(heap.header(l).state, REMEMBERED);
         // The next minor collection promotes them and clears the cards.
@@ -5298,11 +5936,18 @@ mod unified_space {
         let b = heap.allocate_object(202, 0);
         heap.set_field(a, 0, b, true);
         heap.run_collection(true);
-        assert_eq!(heap.header(a).state, REMEMBERED, "the survivor is promoted, remembered for its young child");
+        assert_eq!(
+            heap.header(a).state,
+            REMEMBERED,
+            "the survivor is promoted, remembered for its young child"
+        );
         assert!(layout::state::is_young(heap.header(b).state) && heap.header(b).state != YOUNG);
         heap.set_field(a, 0, 0, false);
         heap.run_collection(true);
-        assert!(!heap.is_live_object(b), "a dead survivor is freed by the minor collection");
+        assert!(
+            !heap.is_live_object(b),
+            "a dead survivor is freed by the minor collection"
+        );
         assert_eq!(heap.stats().live_objects, 1);
         heap.pop_frame(frame);
     }
@@ -5353,8 +5998,14 @@ mod unified_space {
         heap.set_field(old_gen, 0, young, true);
         heap.mark_late((young, 0));
         heap.run_collection(true);
-        assert!(layout::state::is_young(heap.header(young).state) && heap.header(young).state != YOUNG);
-        assert_eq!(heap.header(old_gen).state, REMEMBERED, "it still points to a young object");
+        assert!(
+            layout::state::is_young(heap.header(young).state) && heap.header(young).state != YOUNG
+        );
+        assert_eq!(
+            heap.header(old_gen).state,
+            REMEMBERED,
+            "it still points to a young object"
+        );
         heap.run_collection(true);
         assert_eq!(heap.header(young).state, OLD);
         assert_eq!(heap.header(old_gen).state, OLD);
@@ -5366,7 +6017,10 @@ mod unified_space {
         heap.run_collection(true);
         heap.set_field(old_gen, 0, 0, false);
         heap.run_collection(true);
-        assert!(!heap.late_initialized((other, 1)), "the dead survivor loses the mark");
+        assert!(
+            !heap.late_initialized((other, 1)),
+            "the dead survivor loses the mark"
+        );
         heap.pop_frame(frame);
     }
 
@@ -5411,10 +6065,18 @@ mod unified_space {
         heap.set_root(frame, 0, a);
         heap.run_collection(true);
         heap.collect();
-        assert_eq!(RELEASED.load(std::sync::atomic::Ordering::SeqCst), before, "attachment released with the owner alive");
+        assert_eq!(
+            RELEASED.load(std::sync::atomic::Ordering::SeqCst),
+            before,
+            "attachment released with the owner alive"
+        );
         heap.pop_frame(frame);
         heap.collect();
-        assert_eq!(RELEASED.load(std::sync::atomic::Ordering::SeqCst), before + 1, "attachment of the dead not released");
+        assert_eq!(
+            RELEASED.load(std::sync::atomic::Ordering::SeqCst),
+            before + 1,
+            "attachment of the dead not released"
+        );
         assert_eq!(heap.objects.attachment_bytes, 0);
     }
 
@@ -5424,11 +6086,22 @@ mod unified_space {
         let pages = heap.objects.n_pages();
         let t = heap.allocate(cid::typed(1), 5000, flags::RAW);
         assert!(heap.objects.block_of(t).is_some());
-        assert_eq!(heap.words(t).len(), 5000, "the saturated n read from the region");
+        assert_eq!(
+            heap.words(t).len(),
+            5000,
+            "the saturated n read from the region"
+        );
         assert_eq!(heap.objects.n_pages(), pages + 1);
         heap.collect();
-        assert_eq!(heap.objects.n_pages(), pages, "dead large region did not leave the space");
-        assert!(heap.objects.cached_bytes() > 0, "freed region without cache");
+        assert_eq!(
+            heap.objects.n_pages(),
+            pages,
+            "dead large region did not leave the space"
+        );
+        assert!(
+            heap.objects.cached_bytes() > 0,
+            "freed region without cache"
+        );
         // Reused from the cache by an allocation of the same size.
         let u = heap.allocate(cid::typed(1), 5000, flags::RAW);
         assert_eq!(heap.objects.cached_bytes(), 0);
@@ -5436,7 +6109,11 @@ mod unified_space {
         heap.collect();
         heap.collect();
         heap.collect();
-        assert_eq!(heap.objects.cached_bytes(), 0, "idle region did not go back to the system");
+        assert_eq!(
+            heap.objects.cached_bytes(),
+            0,
+            "idle region did not go back to the system"
+        );
         // A 16 KiB medium class is not a large region.
         let pages = heap.objects.n_pages();
         let m = heap.allocate(cid::typed(1), layout::LARGEST_MEDIUM, flags::RAW);
@@ -5446,7 +6123,12 @@ mod unified_space {
 
     /// A static in the form of §2.11 (in the test's read-only memory).
     static STATIC_STRING: [u64; 3] = [
-        layout::header_word(layout::state::PERMANENT, flags::RAW, 2, cid::ONE_BYTE_STRING),
+        layout::header_word(
+            layout::state::PERMANENT,
+            flags::RAW,
+            2,
+            cid::ONE_BYTE_STRING,
+        ),
         0,
         3,
     ];
@@ -5476,7 +6158,11 @@ mod unified_space {
         }
         assert_eq!(heap.header(s).state, layout::state::PERMANENT);
         assert_eq!(heap.words(s)[0], 3);
-        assert_eq!(heap.weak_refs.get(&o), Some(&s), "weak reference to a static zeroed");
+        assert_eq!(
+            heap.weak_refs.get(&o),
+            Some(&s),
+            "weak reference to a static zeroed"
+        );
         assert!(heap.is_permanent(s));
         assert_eq!(heap.identity_hash(s), heap.identity_hash(s));
         heap.pop_frame(frame);
@@ -5497,7 +6183,10 @@ mod unified_space {
         heap.mark_constant(o, 0x1234);
         assert!(heap.is_permanent(o));
         heap.collect();
-        assert!(heap.permanents.is_empty() && heap.constants.is_empty(), "dead handle in the identity tables");
+        assert!(
+            heap.permanents.is_empty() && heap.constants.is_empty(),
+            "dead handle in the identity tables"
+        );
         // Alive through a global, it stays.
         let g = heap.allocate_object(200, 0);
         heap.mark_constant(g, 0x5678);
@@ -5519,11 +6208,15 @@ mod unified_space {
             heap.set_root(frame, 0, object);
             let bytes_of_object = heap.stats.estimated_bytes;
             heap.count_external(17);
-            for _ in 0..3 { heap.count_external(isize::MAX); }
+            for _ in 0..3 {
+                heap.count_external(isize::MAX);
+            }
             assert_eq!(heap.stats.estimated_bytes, usize::MAX);
             heap.collect();
             assert_eq!(heap.stats.estimated_bytes, usize::MAX);
-            for _ in 0..3 { heap.count_external(-isize::MAX); }
+            for _ in 0..3 {
+                heap.count_external(-isize::MAX);
+            }
             assert_eq!(heap.external, 17);
             assert_eq!(heap.stats.estimated_bytes, bytes_of_object + 17);
             heap.count_external(-17);
@@ -5543,7 +6236,10 @@ mod unified_space {
         heap.count_external(isize::MAX);
         heap.count_external(isize::MAX);
         heap.count_external(1);
-        assert!(heap.needs_collection(16), "the debt cannot go back to zero through overflow");
+        assert!(
+            heap.needs_collection(16),
+            "the debt cannot go back to zero through overflow"
+        );
         heap.count_external(1);
         assert_eq!(heap.young_bytes, usize::MAX);
         assert!(heap.needs_collection(16));
@@ -5555,9 +6251,15 @@ mod unified_space {
         assert!(!heap.needs_collection(16));
         let too_many = heap.byte_threshold + 1;
         heap.count_external(too_many as isize);
-        assert!(heap.needs_collection(16), "external bytes outside the trigger");
+        assert!(
+            heap.needs_collection(16),
+            "external bytes outside the trigger"
+        );
         heap.collect();
-        assert!(heap.stats().estimated_bytes >= too_many, "the full collection lost the external bytes");
+        assert!(
+            heap.stats().estimated_bytes >= too_many,
+            "the full collection lost the external bytes"
+        );
         heap.count_external(-(too_many as isize));
         assert!(heap.stats().estimated_bytes < too_many);
     }
@@ -5686,9 +6388,13 @@ impl crate::arc::ArcGraph for HeapGraph<'_> {
         }
     }
     fn take_edges(&mut self, h: Ref, f: &mut dyn FnMut(Ref)) {
-        if !self.heap.attachments_by_owner.is_empty() && self.heap.attachments_by_owner.contains_key(&h) {
+        if !self.heap.attachments_by_owner.is_empty()
+            && self.heap.attachments_by_owner.contains_key(&h)
+        {
             self.heap.attachments.retain(|a| {
-                if a.owner == h && let FinalizerAction::Dart(action) = a.action {
+                if a.owner == h
+                    && let FinalizerAction::Dart(action) = a.action
+                {
                     f(action);
                     return false;
                 }
@@ -5731,8 +6437,12 @@ impl crate::arc::ArcGraph for HeapGraph<'_> {
         }
     }
     fn break_off(&mut self, h: Ref) {
-        if !self.heap.attachments_by_owner.is_empty() && self.heap.attachments_by_owner.contains_key(&h) {
-            self.heap.attachments.retain(|a| a.owner != h || !matches!(a.action, FinalizerAction::Dart(_)));
+        if !self.heap.attachments_by_owner.is_empty()
+            && self.heap.attachments_by_owner.contains_key(&h)
+        {
+            self.heap
+                .attachments
+                .retain(|a| a.owner != h || !matches!(a.action, FinalizerAction::Dart(_)));
             self.heap.reindex_attachments();
         }
         // SAFETY: the positions are body words of a live block.
@@ -5776,7 +6486,13 @@ fn arc_failure(e: crate::arc::ArcError) -> ! {
 /// The geometry of the page of block `h` for the ARC metadata table
 /// (`arc::Geometry`); `None` outside the space (the metadata goes to the reserve).
 fn arc_geometry(space: &ObjectSpace, h: Ref) -> Option<crate::arc::Geometry> {
-    space.geometry(h).map(|(first, size, blocks)| crate::arc::Geometry { first, size, blocks })
+    space
+        .geometry(h)
+        .map(|(first, size, blocks)| crate::arc::Geometry {
+            first,
+            size,
+            blocks,
+        })
 }
 
 /// Pure ARC, in the draining loop (after step 4, in which every young object that
@@ -5785,7 +6501,12 @@ fn arc_geometry(space: &ObjectSpace, h: Ref) -> Option<crate::arc::Geometry> {
 /// metadata `take_dead` already removed. The static (`PERMANENT`) is not in the
 /// space and never dies.
 #[allow(unsafe_code)]
-fn died_in_drain(space: &ObjectSpace, validate: bool, state: &crate::arc::ArcHeapState, h: Ref) -> bool {
+fn died_in_drain(
+    space: &ObjectSpace,
+    validate: bool,
+    state: &crate::arc::ArcHeapState,
+    h: Ref,
+) -> bool {
     if !is_object(h) {
         return false;
     }
@@ -5818,16 +6539,27 @@ impl Heap {
     /// old owner (the young object's edges enter at promotion).
     fn arc_swapped(&mut self, b: *mut Header, h: Ref, old: Ref, new: Ref) {
         let new_in_space = self.space_block(new).is_some();
-        let Some(arc) = self.arc.as_deref_mut() else { return };
+        let Some(arc) = self.arc.as_deref_mut() else {
+            return;
+        };
         // SAFETY: live block of the space.
         let e = unsafe { (*b).state };
-        if old == new || arc.snapshots.contains_key(&h) || (!arc.pure && e != OLD && e != REMEMBERED) {
+        if old == new
+            || arc.snapshots.contains_key(&h)
+            || (!arc.pure && e != OLD && e != REMEMBERED)
+        {
             return;
         }
         if !arc.pure {
             arc.state.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
-        } else if !arc.state.retain_if_registered(new).unwrap_or_else(|e| arc_failure(e)) && new_in_space {
-            arc.state.register_live_at(new, arc_geometry(&self.objects, new));
+        } else if !arc
+            .state
+            .retain_if_registered(new)
+            .unwrap_or_else(|e| arc_failure(e))
+            && new_in_space
+        {
+            arc.state
+                .register_live_at(new, arc_geometry(&self.objects, new));
             arc.state.retain_ref(new).unwrap_or_else(|e| arc_failure(e));
         }
         arc.state.release(old).unwrap_or_else(|e| arc_failure(e));
@@ -5844,11 +6576,16 @@ impl Heap {
     /// Retains `v` (registering the object of the space without metadata): a
     /// new occurrence, under pure ARC.
     fn arc_retain_registering(&self, arc: &mut HeapArc, v: Ref) {
-        if arc.state.retain_if_registered(v).unwrap_or_else(|e| arc_failure(e)) {
+        if arc
+            .state
+            .retain_if_registered(v)
+            .unwrap_or_else(|e| arc_failure(e))
+        {
             return;
         }
         if self.space_block(v).is_some() {
-            arc.state.register_live_at(v, arc_geometry(&self.objects, v));
+            arc.state
+                .register_live_at(v, arc_geometry(&self.objects, v));
             arc.state.retain_ref(v).unwrap_or_else(|e| arc_failure(e));
         }
     }
@@ -5861,7 +6598,9 @@ impl Heap {
         if !smi::e_handle(h) || self.space_block(h).is_none() {
             return;
         }
-        let Some(mut arc) = self.arc.take() else { return };
+        let Some(mut arc) = self.arc.take() else {
+            return;
+        };
         if arc.pure {
             // Retention only changes ARC metadata: it neither collects nor changes the
             // visited body. Counting directly avoids a vector per object
@@ -5889,7 +6628,11 @@ impl Heap {
         if e != OLD && e != REMEMBERED && !self.arc.as_ref().is_some_and(|a| a.pure) {
             return;
         }
-        if self.arc.as_ref().is_some_and(|a| a.snapshots.contains_key(&h)) {
+        if self
+            .arc
+            .as_ref()
+            .is_some_and(|a| a.snapshots.contains_key(&h))
+        {
             return;
         }
         let mut value_list = Vec::new();
@@ -5904,8 +6647,14 @@ impl Heap {
     /// old ones, as handles (before the sweep of the young).
     fn promotion_data(&self) -> (Vec<Ref>, Vec<Ref>) {
         let mut promoted = Vec::new();
-        self.objects.young_marked(&mut |b| promoted.push(b as i64 + HANDLE_OFFSET));
-        let remembered = self.objects.remembered.iter().map(|&b| b as i64 + HANDLE_OFFSET).collect();
+        self.objects
+            .young_marked(&mut |b| promoted.push(b as i64 + HANDLE_OFFSET));
+        let remembered = self
+            .objects
+            .remembered
+            .iter()
+            .map(|&b| b as i64 + HANDLE_OFFSET)
+            .collect();
         (promoted, remembered)
     }
 
@@ -5931,11 +6680,13 @@ impl Heap {
             pure: !std::env::var("DARTFORGE_ARC_NURSERY").is_ok_and(|v| v == "1"),
         });
         arc.state.trace_log = std::env::var("DARTFORGE_ARC_TRACE").is_ok_and(|v| v == "1");
-        arc.state.retain_dead_candidates = std::env::var("DARTFORGE_ARC_RETAIN_DEAD_CANDIDATES").is_ok_and(|v| v == "1");
+        arc.state.retain_dead_candidates =
+            std::env::var("DARTFORGE_ARC_RETAIN_DEAD_CANDIDATES").is_ok_and(|v| v == "1");
         arc.state.without_edges = Some(block_without_refs);
         let reached_set = self.reachable_by_tracing();
         for &x in &reached_set {
-            arc.state.register_live_at(x, arc_geometry(&self.objects, x));
+            arc.state
+                .register_live_at(x, arc_geometry(&self.objects, x));
         }
         let mut value_list = Vec::new();
         for &x in &reached_set {
@@ -5980,14 +6731,22 @@ impl Heap {
         let mut out = Vec::new();
         loop {
             while let Some(h) = stack.pop() {
-                if !smi::e_handle(h) || !is_object(h) || self.space_block(h).is_none() || !seen.insert(h) {
+                if !smi::e_handle(h)
+                    || !is_object(h)
+                    || self.space_block(h).is_none()
+                    || !seen.insert(h)
+                {
                     continue;
                 }
                 out.push(h);
                 // SAFETY: the positions are body words of a live block.
                 self.visit_strong_references(h, &mut |v| stack.push(v));
             }
-            let reached = |h: &Ref| !smi::e_handle(*h) || seen.contains(h) || (is_object(*h) && self.space_block(*h).is_none());
+            let reached = |h: &Ref| {
+                !smi::e_handle(*h)
+                    || seen.contains(h)
+                    || (is_object(*h) && self.space_block(*h).is_none())
+            };
             for (p, (k, v)) in &self.ephemerons {
                 if reached(p) && reached(k) && smi::e_handle(*v) && !seen.contains(v) {
                     stack.push(*v);
@@ -6018,10 +6777,20 @@ impl Heap {
         let d: Vec<Ref> = arc
             .state
             .live_set()
-            .filter(|h| !l.contains(h) && arc.state.meta(*h).is_some_and(|m| m.state == crate::arc::ArcState::Live && !m.immortal))
+            .filter(|h| {
+                !l.contains(h)
+                    && arc
+                        .state
+                        .meta(*h)
+                        .is_some_and(|m| m.state == crate::arc::ArcState::Live && !m.immortal)
+            })
             .collect();
         if arc.state.trace_log {
-            eprintln!("[arc-trace] fixed point: {} reached, {} dead", l.len(), d.len());
+            eprintln!(
+                "[arc-trace] fixed point: {} reached, {} dead",
+                l.len(),
+                d.len()
+            );
         }
         if d.is_empty() {
             return;
@@ -6042,9 +6811,16 @@ impl Heap {
             }
         }
         let n = d.len();
-        let HeapArc { state, ephemerons, .. } = arc;
-        let mut graph = HeapGraph { heap: self, ephemerons };
-        state.discard(&mut graph, &d).unwrap_or_else(|e| arc_failure(e));
+        let HeapArc {
+            state, ephemerons, ..
+        } = arc;
+        let mut graph = HeapGraph {
+            heap: self,
+            ephemerons,
+        };
+        state
+            .discard(&mut graph, &d)
+            .unwrap_or_else(|e| arc_failure(e));
         state.statistics.dead_by_cycle += n as u64;
     }
 
@@ -6066,16 +6842,22 @@ impl Heap {
     fn sync_arc(&mut self, full: bool, promoted: Vec<Ref>, remembered: Vec<Ref>) {
         let mut arc = self.arc.take().expect("ARC ligado");
         if arc.state.trace_log {
-            eprintln!("[arc-trace] synchronize full={full} promoted={promoted:?} remembered={remembered:?} snapshots={:?}", arc.snapshots.keys().collect::<Vec<_>>());
+            eprintln!(
+                "[arc-trace] synchronize full={full} promoted={promoted:?} remembered={remembered:?} snapshots={:?}",
+                arc.snapshots.keys().collect::<Vec<_>>()
+            );
         }
         let new_ones: crate::hash::HashSet<Ref> = promoted.iter().copied().collect();
         for &h in &promoted {
-            arc.state.register_live_at(h, arc_geometry(&self.objects, h));
+            arc.state
+                .register_live_at(h, arc_geometry(&self.objects, h));
         }
         // Promotion rebuilt RC; restores each owning occurrence,
         // without retaining again the owners of objects that were already old.
         for h in self.owning_roots() {
-            if new_ones.contains(&h) { self.arc_retain_registering(&mut arc, h); }
+            if new_ones.contains(&h) {
+                self.arc_retain_registering(&mut arc, h);
+            }
         }
         let mut value_list = Vec::new();
         let mut release: Vec<Ref> = Vec::new();
@@ -6128,7 +6910,13 @@ impl Heap {
                 }
             }
         }
-        let exited: Vec<Ref> = arc.ephemerons.counted.keys().copied().filter(|p| !currents.contains(p)).collect();
+        let exited: Vec<Ref> = arc
+            .ephemerons
+            .counted
+            .keys()
+            .copied()
+            .filter(|p| !currents.contains(p))
+            .collect();
         for p in exited {
             if let Some((_, v0)) = arc.ephemerons.remove_it(p) {
                 release.push(v0);
@@ -6145,7 +6933,10 @@ impl Heap {
         // already had their occurrences included in RC.
         let mut root_list = Vec::new();
         self.root_list(&mut root_list);
-        let root_list: crate::hash::HashSet<Ref> = root_list.into_iter().filter(|&h| smi::e_handle(h)).collect();
+        let root_list: crate::hash::HashSet<Ref> = root_list
+            .into_iter()
+            .filter(|&h| smi::e_handle(h))
+            .collect();
         let protected = |h: Ref| root_list.contains(&h);
         for &h in &root_list {
             arc.state.add_candidate(h);
@@ -6163,20 +6954,38 @@ impl Heap {
         arc.state.resume_deferred();
         loop {
             {
-                let HeapArc { state, ephemerons, .. } = &mut *arc;
-                let mut graph = HeapGraph { heap: self, ephemerons };
-                state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                let HeapArc {
+                    state, ephemerons, ..
+                } = &mut *arc;
+                let mut graph = HeapGraph {
+                    heap: self,
+                    ephemerons,
+                };
+                state
+                    .drain_zeros(&mut graph, usize::MAX, &protected)
+                    .unwrap_or_else(|e| arc_failure(e));
                 if cycles {
-                    state.collect_cycles(&mut graph, &protected).unwrap_or_else(|e| arc_failure(e));
-                    state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                    state
+                        .collect_cycles(&mut graph, &protected)
+                        .unwrap_or_else(|e| arc_failure(e));
+                    state
+                        .drain_zeros(&mut graph, usize::MAX, &protected)
+                        .unwrap_or_else(|e| arc_failure(e));
                 }
             }
             if fixpoint {
                 fixpoint = false;
                 self.arc_fixpoint(&mut arc);
-                let HeapArc { state, ephemerons, .. } = &mut *arc;
-                let mut graph = HeapGraph { heap: self, ephemerons };
-                state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                let HeapArc {
+                    state, ephemerons, ..
+                } = &mut *arc;
+                let mut graph = HeapGraph {
+                    heap: self,
+                    ephemerons,
+                };
+                state
+                    .drain_zeros(&mut graph, usize::MAX, &protected)
+                    .unwrap_or_else(|e| arc_failure(e));
             }
             let dead_set = arc.state.take_dead();
             if dead_set.is_empty() {
@@ -6189,7 +6998,12 @@ impl Heap {
                 }
                 !dead.contains(holder)
             });
-            let holders: Vec<Ref> = self.ephemerons.keys().copied().filter(|p| dead.contains(p)).collect();
+            let holders: Vec<Ref> = self
+                .ephemerons
+                .keys()
+                .copied()
+                .filter(|p| dead.contains(p))
+                .collect();
             for p in holders {
                 self.ephemerons.remove(&p);
                 if let Some((_, v)) = arc.ephemerons.remove_it(p) {
@@ -6210,13 +7024,14 @@ impl Heap {
                     FinalizerAction::Dart(action) => {
                         ready.push(action);
                         attachment_edges.push((a.owner, action));
-                    },
+                    }
                     FinalizerAction::Native(f, token, bytes) => natives.push((f, token, bytes)),
                 }
                 false
             });
             Self::reindex_attachment_list(&self.attachments, &mut self.attachments_by_owner);
-            self.late_fields_initialized.retain(|(h, _)| !dead.contains(h));
+            self.late_fields_initialized
+                .retain(|(h, _)| !dead.contains(h));
             self.new_lates.retain(|(h, _)| !dead.contains(h));
             self.permanents.retain(|h| !dead.contains(h));
             self.constants.retain(|h, _| !dead.contains(h));
@@ -6230,7 +7045,9 @@ impl Heap {
             });
         }
         self.reindex_attachments();
-        for &action in &ready { self.arc_retain_registering(&mut arc, action); }
+        for &action in &ready {
+            self.arc_retain_registering(&mut arc, action);
+        }
         for (_, action) in attachment_edges {
             arc.state.release(action).unwrap_or_else(|e| arc_failure(e));
         }
@@ -6303,7 +7120,11 @@ impl Heap {
         // roots, ephemerons, decision on the young, release of the dead young,
         // candidate roots, zeros/cycles, memory).
         // Without a trace, do not reserve metrics nor query the clock.
-        let mut phases: Vec<u128> = if trace { Vec::with_capacity(10) } else { Vec::new() };
+        let mut phases: Vec<u128> = if trace {
+            Vec::with_capacity(10)
+        } else {
+            Vec::new()
+        };
         if let Some(a) = &self.schedule {
             a.pending.set(false);
         }
@@ -6312,7 +7133,10 @@ impl Heap {
         let mut arc = self.arc.take().expect("ARC ligado");
         let mut root_list = Vec::new();
         self.root_list(&mut root_list);
-        let protected_set: crate::hash::HashSet<Ref> = root_list.into_iter().filter(|&h| smi::e_handle(h)).collect();
+        let protected_set: crate::hash::HashSet<Ref> = root_list
+            .into_iter()
+            .filter(|&h| smi::e_handle(h))
+            .collect();
         if let Some(start) = start {
             phases.push(start.elapsed().as_micros());
         }
@@ -6345,7 +7169,8 @@ impl Heap {
         // although the decision on each young object already happens in step 4.
         for &h in &protected_set {
             if self.young_child(h) && arc.state.meta(h).is_none() {
-                arc.state.register_live_at(h, arc_geometry(&self.objects, h));
+                arc.state
+                    .register_live_at(h, arc_geometry(&self.objects, h));
             }
         }
         if let Some(start) = start {
@@ -6354,7 +7179,11 @@ impl Heap {
         // 3. Ephemerons: the current live entries against the counted ones.
         let mut release: Vec<Ref> = Vec::new();
         let mut currents: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
-        let entries: Vec<(Ref, Ref, Ref)> = self.ephemerons.iter().map(|(&p, &(k, v))| (p, k, v)).collect();
+        let entries: Vec<(Ref, Ref, Ref)> = self
+            .ephemerons
+            .iter()
+            .map(|(&p, &(k, v))| (p, k, v))
+            .collect();
         for (p, k, v) in entries {
             if !(arc.state.alive(p) && smi::e_handle(k) && smi::e_handle(v)) {
                 continue;
@@ -6373,7 +7202,13 @@ impl Heap {
                 }
             }
         }
-        let exited: Vec<Ref> = arc.ephemerons.counted.keys().copied().filter(|p| !currents.contains(p)).collect();
+        let exited: Vec<Ref> = arc
+            .ephemerons
+            .counted
+            .keys()
+            .copied()
+            .filter(|p| !currents.contains(p))
+            .collect();
         for p in exited {
             if let Some((_, v0)) = arc.ephemerons.remove_it(p) {
                 release.push(v0);
@@ -6440,16 +7275,27 @@ impl Heap {
         loop {
             let t0 = trace.then(std::time::Instant::now);
             {
-                let HeapArc { state, ephemerons, .. } = &mut *arc;
-                let mut graph = HeapGraph { heap: self, ephemerons };
-                state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                let HeapArc {
+                    state, ephemerons, ..
+                } = &mut *arc;
+                let mut graph = HeapGraph {
+                    heap: self,
+                    ephemerons,
+                };
+                state
+                    .drain_zeros(&mut graph, usize::MAX, &protected)
+                    .unwrap_or_else(|e| arc_failure(e));
                 if let Some(t0) = t0 {
                     run_loop[0] += t0.elapsed().as_micros();
                 }
                 if cycles {
                     let t1 = trace.then(std::time::Instant::now);
-                    state.collect_cycles(&mut graph, &protected).unwrap_or_else(|e| arc_failure(e));
-                    state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                    state
+                        .collect_cycles(&mut graph, &protected)
+                        .unwrap_or_else(|e| arc_failure(e));
+                    state
+                        .drain_zeros(&mut graph, usize::MAX, &protected)
+                        .unwrap_or_else(|e| arc_failure(e));
                     if let Some(t1) = t1 {
                         run_loop[1] += t1.elapsed().as_micros();
                     }
@@ -6459,9 +7305,16 @@ impl Heap {
                 let t2 = trace.then(std::time::Instant::now);
                 fixpoint = false;
                 self.arc_fixpoint(&mut arc);
-                let HeapArc { state, ephemerons, .. } = &mut *arc;
-                let mut graph = HeapGraph { heap: self, ephemerons };
-                state.drain_zeros(&mut graph, usize::MAX, &protected).unwrap_or_else(|e| arc_failure(e));
+                let HeapArc {
+                    state, ephemerons, ..
+                } = &mut *arc;
+                let mut graph = HeapGraph {
+                    heap: self,
+                    ephemerons,
+                };
+                state
+                    .drain_zeros(&mut graph, usize::MAX, &protected)
+                    .unwrap_or_else(|e| arc_failure(e));
                 if let Some(t2) = t2 {
                     run_loop[2] += t2.elapsed().as_micros();
                 }
@@ -6490,7 +7343,12 @@ impl Heap {
                 }
                 !dead(holder)
             });
-            let holders: Vec<Ref> = self.ephemerons.keys().copied().filter(|p| dead(p)).collect();
+            let holders: Vec<Ref> = self
+                .ephemerons
+                .keys()
+                .copied()
+                .filter(|p| dead(p))
+                .collect();
             // A dead key zeroes the entry (breaking the registered key
             // already zeroed it; that of the dead young object, here).
             for e in self.ephemerons.values_mut() {
@@ -6512,7 +7370,7 @@ impl Heap {
                     FinalizerAction::Dart(action) => {
                         ready.push(action);
                         attachment_edges.push((a.owner, action));
-                    },
+                    }
                     FinalizerAction::Native(f, token, bytes) => natives.push((f, token, bytes)),
                 }
                 false
@@ -6541,7 +7399,9 @@ impl Heap {
             }
         }
         self.reindex_attachments();
-        for &action in &ready { self.arc_retain_registering(&mut arc, action); }
+        for &action in &ready {
+            self.arc_retain_registering(&mut arc, action);
+        }
         for (_, action) in attachment_edges {
             arc.state.release(action).unwrap_or_else(|e| arc_failure(e));
         }
@@ -6657,7 +7517,11 @@ impl Heap {
         let mut origin: crate::hash::HashMap<Ref, Ref> = crate::hash::HashMap::default();
         let mut seen: crate::hash::HashSet<Ref> = crate::hash::HashSet::default();
         while let Some(h) = stack.pop() {
-            if !smi::e_handle(h) || !is_object(h) || self.space_block(h).is_none() || !seen.insert(h) {
+            if !smi::e_handle(h)
+                || !is_object(h)
+                || self.space_block(h).is_none()
+                || !seen.insert(h)
+            {
                 continue;
             }
             if !arc.state.alive(h) {
@@ -6692,12 +7556,20 @@ impl Heap {
                 }
             });
         }
-        let HeapArc { state, ephemerons, .. } = arc;
+        let HeapArc {
+            state, ephemerons, ..
+        } = arc;
         let owning_set = self.owning_roots();
-        let graph = HeapGraph { heap: self, ephemerons };
+        let graph = HeapGraph {
+            heap: self,
+            ephemerons,
+        };
         if let Err(e) = state.audit(&graph, &owning_set) {
             if let crate::arc::ArcError::Audit { handle, .. } = e {
-                panic!("ARC bug: {e:?} (cid {})", graph.heap.header(handle).class_id);
+                panic!(
+                    "ARC bug: {e:?} (cid {})",
+                    graph.heap.header(handle).class_id
+                );
             }
             arc_failure(e);
         }
@@ -6727,27 +7599,46 @@ mod arc_no_heap {
     #[test]
     fn global_receives_token_without_retaining_and_keeps_owner_apart_from_scalar() {
         for mode in [None, Some(false), Some(true)] {
-            let mut heap = if mode.is_some() { heap_arc() } else { Heap::new(true) };
-            if let Some(pure) = mode { heap.arc.as_mut().unwrap().pure = pure; }
+            let mut heap = if mode.is_some() {
+                heap_arc()
+            } else {
+                Heap::new(true)
+            };
+            if let Some(pure) = mode {
+                heap.arc.as_mut().unwrap().pure = pure;
+            }
             let value = heap.allocate_str("global owned");
             heap.retain_code_owner(value);
             heap.move_code_to_global(10, value);
             assert!(heap.code_owners.is_empty());
             heap.collect();
             assert!(heap.is_live_object(value));
-            if let Some(arc) = &heap.arc { assert_eq!(arc.state.meta(value).unwrap().rc, 1); }
+            if let Some(arc) = &heap.arc {
+                assert_eq!(arc.state.meta(value).unwrap().rc, 1);
+            }
             heap.retain_code_owner(value);
             heap.move_code_to_global(10, value);
-            if let Some(arc) = &heap.arc { assert_eq!(arc.state.meta(value).unwrap().rc, 1); }
-            assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                heap.move_code_to_global(10, value);
-            })).is_err());
+            if let Some(arc) = &heap.arc {
+                assert_eq!(arc.state.meta(value).unwrap().rc, 1);
+            }
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    heap.move_code_to_global(10, value);
+                }))
+                .is_err()
+            );
             assert_eq!(heap.globals[&10], value);
             heap.retain_code_owner(value);
             heap.move_code_to_global(10, smi::of(42).unwrap());
-            assert!(!heap.globals.contains_key(&10), "an owner is not scalar storage");
+            assert!(
+                !heap.globals.contains_key(&10),
+                "an owner is not scalar storage"
+            );
             heap.collect();
-            assert!(heap.is_live_object(value), "token SSA independente protege carga");
+            assert!(
+                heap.is_live_object(value),
+                "token SSA independente protege carga"
+            );
             heap.release_code_owner(value);
             heap.collect();
             assert!(!heap.is_live_object(value));
@@ -6833,8 +7724,14 @@ mod arc_no_heap {
     #[test]
     fn code_tokens_count_aliases_without_duplicating_observational_roots() {
         for mode in [None, Some(false), Some(true)] {
-            let mut heap = if mode.is_some() { heap_arc() } else { Heap::new(true) };
-            if let Some(pure) = mode { heap.arc.as_mut().unwrap().pure = pure; }
+            let mut heap = if mode.is_some() {
+                heap_arc()
+            } else {
+                Heap::new(true)
+            };
+            if let Some(pure) = mode {
+                heap.arc.as_mut().unwrap().pure = pure;
+            }
             let frame = heap.push_frame_with_slots(1);
             let value = heap.allocate_str("code tokens");
             heap.set_root(frame, 0, value);
@@ -6931,7 +7828,10 @@ mod arc_no_heap {
             let value = heap.allocate_str("weak target");
             heap.set_root(frame, 2, value);
             heap.add_attachment(FinalizerAttachment {
-                owner, value, detach: 0, action: FinalizerAction::Dart(action),
+                owner,
+                value,
+                detach: 0,
+                action: FinalizerAction::Dart(action),
             });
             heap.set_root(frame, 2, 0);
             heap.run_collection(minor);
@@ -6951,8 +7851,14 @@ mod arc_no_heap {
     #[test]
     fn dart_attachment_does_not_root_cycle_between_owner_and_action() {
         for mode in [None, Some(false), Some(true)] {
-            let mut heap = if mode.is_some() { heap_arc() } else { Heap::new(true) };
-            if let Some(pure) = mode { heap.arc.as_mut().unwrap().pure = pure; }
+            let mut heap = if mode.is_some() {
+                heap_arc()
+            } else {
+                Heap::new(true)
+            };
+            if let Some(pure) = mode {
+                heap.arc.as_mut().unwrap().pure = pure;
+            }
             let frame = heap.push_owning_frame(3);
             let owner = list(&mut heap, 0);
             heap.set_root(frame, 0, owner);
@@ -6962,15 +7868,24 @@ mod arc_no_heap {
             let target = list(&mut heap, 0);
             heap.set_root(frame, 2, target);
             heap.add_attachment(FinalizerAttachment {
-                owner, value: target, detach: 0, action: FinalizerAction::Dart(action),
+                owner,
+                value: target,
+                detach: 0,
+                action: FinalizerAction::Dart(action),
             });
             heap.pop_frame(frame);
             heap.collect();
-            assert!(!heap.is_live_object(owner), "the attachment is not a root of the finalizer");
+            assert!(
+                !heap.is_live_object(owner),
+                "the attachment is not a root of the finalizer"
+            );
             assert!(!heap.is_live_object(action));
             assert!(!heap.is_live_object(target));
             assert!(heap.attachments.is_empty());
-            assert!(heap.ready_finalizations.is_empty(), "dead owner and target cancel the Dart action");
+            assert!(
+                heap.ready_finalizations.is_empty(),
+                "dead owner and target cancel the Dart action"
+            );
         }
     }
 
@@ -6988,7 +7903,10 @@ mod arc_no_heap {
             heap.set_root(frame, 2, action);
             for (owner, key) in [(a, 3), (b, 7), (a, 5)] {
                 heap.add_attachment(FinalizerAttachment {
-                    owner, value: owner, detach: key, action: FinalizerAction::Dart(action),
+                    owner,
+                    value: owner,
+                    detach: key,
+                    action: FinalizerAction::Dart(action),
                 });
             }
             heap.set_root(frame, 2, 0);
@@ -7019,8 +7937,14 @@ mod arc_no_heap {
             RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
         for mode in [None, Some(false), Some(true)] {
-            let mut heap = if mode.is_some() { heap_arc() } else { Heap::new(false) };
-            if let Some(pure) = mode { heap.arc.as_mut().unwrap().pure = pure; }
+            let mut heap = if mode.is_some() {
+                heap_arc()
+            } else {
+                Heap::new(false)
+            };
+            if let Some(pure) = mode {
+                heap.arc.as_mut().unwrap().pure = pure;
+            }
             heap.count_external(17);
             let frame = heap.push_owning_frame(2);
             let owner = list(&mut heap, 0);
@@ -7030,11 +7954,16 @@ mod arc_no_heap {
             let size = heap.byte_threshold + 1;
             let before = RUNS.load(std::sync::atomic::Ordering::Relaxed);
             let attachment = FinalizerAttachment {
-                owner, value: target, detach: target,
+                owner,
+                value: target,
+                detach: target,
                 action: FinalizerAction::Native(finalize as *const () as usize, 0, size),
             };
             heap.add_attachment(attachment);
-            assert!(heap.needs_collection(16), "externalSize must cause memory pressure");
+            assert!(
+                heap.needs_collection(16),
+                "externalSize must cause memory pressure"
+            );
             heap.collect();
             assert_eq!(heap.external, size as u128 + 17);
             heap.detach_finalizer(owner, target);
@@ -7051,7 +7980,10 @@ mod arc_no_heap {
 
             let target = list(&mut heap, 0);
             heap.set_root(frame, 1, target);
-            heap.add_attachment(FinalizerAttachment { value: target, ..attachment });
+            heap.add_attachment(FinalizerAttachment {
+                value: target,
+                ..attachment
+            });
             heap.shutdown_finalizers();
             heap.shutdown_finalizers();
             assert_eq!(heap.external, 17);
@@ -7068,15 +8000,23 @@ mod arc_no_heap {
             RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
         for mode in [None, Some(false), Some(true)] {
-            let mut heap = if mode.is_some() { heap_arc() } else { Heap::new(false) };
-            if let Some(pure) = mode { heap.arc.as_mut().unwrap().pure = pure; }
+            let mut heap = if mode.is_some() {
+                heap_arc()
+            } else {
+                Heap::new(false)
+            };
+            if let Some(pure) = mode {
+                heap.arc.as_mut().unwrap().pure = pure;
+            }
             let frame = heap.push_owning_frame(2);
             let owner = list(&mut heap, 0);
             heap.set_root(frame, 0, owner);
             let target = list(&mut heap, 0);
             heap.set_root(frame, 1, target);
             heap.add_attachment(FinalizerAttachment {
-                owner, value: target, detach: target,
+                owner,
+                value: target,
+                detach: target,
                 action: FinalizerAction::Native(finalize as *const () as usize, 17, 0),
             });
             let before = RUNS.load(std::sync::atomic::Ordering::Relaxed);
@@ -7085,11 +8025,13 @@ mod arc_no_heap {
             assert_eq!(heap.attachments.len(), 1);
             assert_eq!(heap.attachments[0].owner, 0);
             let retained = heap.push_owning_frame(4096);
-            let new = (0..4096).find_map(|slot| {
-                let new = list(&mut heap, 0);
-                heap.set_root(retained, slot, new);
-                (new == owner).then_some(new)
-            }).expect("reuse the block after consuming the page's free range");
+            let new = (0..4096)
+                .find_map(|slot| {
+                    let new = list(&mut heap, 0);
+                    heap.set_root(retained, slot, new);
+                    (new == owner).then_some(new)
+                })
+                .expect("reuse the block after consuming the page's free range");
             heap.set_root(frame, 0, new);
             heap.detach_finalizer(new, target);
             assert_eq!(heap.attachments.len(), 1);
@@ -7118,7 +8060,10 @@ mod arc_no_heap {
             heap.set_root(temp_value, 1, action);
             heap.write_refs(action, 1, &[target]);
             heap.add_attachment(FinalizerAttachment {
-                owner, value: target, detach: 3, action: FinalizerAction::Dart(action),
+                owner,
+                value: target,
+                detach: 3,
+                action: FinalizerAction::Dart(action),
             });
             heap.pop_frame(temp_value);
             heap.run_collection(true);
@@ -7161,7 +8106,10 @@ mod arc_no_heap {
             assert_eq!(heap.arc.as_ref().unwrap().state.meta(b).unwrap().rc, 1);
             heap.set_root(owner, 1, 0);
             heap.run_collection(true);
-            assert!(alive(&heap, a), "the observational root still protects the zero");
+            assert!(
+                alive(&heap, a),
+                "the observational root still protects the zero"
+            );
             heap.pop_frame(observer);
             heap.pop_frame(owner);
             heap.collect();
@@ -7257,7 +8205,10 @@ mod arc_no_heap {
             heap.set_root(frame, 0, closure);
             heap.collect();
             assert_eq!(heap.arc.as_ref().unwrap().state.meta(env).unwrap().rc, 1);
-            assert_eq!(heap.arc.as_ref().unwrap().state.meta(closure).unwrap().rc, 1);
+            assert_eq!(
+                heap.arc.as_ref().unwrap().state.meta(closure).unwrap().rc,
+                1
+            );
             assert_eq!(heap.closure(closure).unwrap().context.0, env);
             heap.pop_frame(frame);
             heap.collect();
@@ -7278,8 +8229,12 @@ mod arc_no_heap {
             heap.list_push(l, Value::Double(2.5));
             heap.collect();
             assert_eq!(heap.list_shape(l), crate::lists::Element::General);
-            assert!(matches!(heap.list_get(l, 0), Value::Ref(r) if matches!(heap.value(r), Value::Int(i64::MAX))));
-            assert!(matches!(heap.list_get(l, 1), Value::Ref(r) if matches!(heap.value(r), Value::Double(x) if x == 2.5)));
+            assert!(
+                matches!(heap.list_get(l, 0), Value::Ref(r) if matches!(heap.value(r), Value::Int(i64::MAX)))
+            );
+            assert!(
+                matches!(heap.list_get(l, 1), Value::Ref(r) if matches!(heap.value(r), Value::Double(x) if x == 2.5))
+            );
             assert_eq!(heap.frames.len(), 1, "no temporary frame may remain open");
             let data = heap.list_data(l);
             let boxes = heap.words(data)[1..3].to_vec();
@@ -7395,12 +8350,28 @@ mod arc_no_heap {
             assert_eq!(heap.registered_tearoff(123), Some(tearoff));
             let replacement = heap.new_closure(123, (0, false), 0, 0);
             heap.register_tearoff(123, replacement);
-            assert_eq!(heap.arc.as_ref().unwrap().state.meta(tearoff).unwrap().rc, 0);
-            assert_eq!(heap.arc.as_ref().unwrap().state.meta(replacement).unwrap().rc, 1);
+            assert_eq!(
+                heap.arc.as_ref().unwrap().state.meta(tearoff).unwrap().rc,
+                0
+            );
+            assert_eq!(
+                heap.arc
+                    .as_ref()
+                    .unwrap()
+                    .state
+                    .meta(replacement)
+                    .unwrap()
+                    .rc,
+                1
+            );
             heap.collect();
             assert_eq!(heap.registered_tearoff(123), Some(replacement));
             assert!(!alive(&heap, tearoff), "the identity index is not an owner");
-            assert!([text, replacement, enum_value_of].iter().all(|&h| alive(&heap, h)));
+            assert!(
+                [text, replacement, enum_value_of]
+                    .iter()
+                    .all(|&h| alive(&heap, h))
+            );
         }
     }
 
@@ -7467,14 +8438,30 @@ mod arc_no_heap {
         let old_gen = list(&mut heap, 0);
         heap.set_root(frame, 0, old_gen);
         heap.run_collection(true);
-        let generation = heap.arc.as_ref().unwrap().state.meta(old_gen).unwrap().generation;
+        let generation = heap
+            .arc
+            .as_ref()
+            .unwrap()
+            .state
+            .meta(old_gen)
+            .unwrap()
+            .generation;
         let young = list(&mut heap, 0);
         let garbage = list(&mut heap, 0);
         heap.set_root(frame, 1, young);
         heap.run_collection(true);
         assert!(alive(&heap, old_gen) && alive(&heap, young));
         assert!(!alive(&heap, garbage));
-        assert_eq!(heap.arc.as_ref().unwrap().state.meta(old_gen).unwrap().generation, generation);
+        assert_eq!(
+            heap.arc
+                .as_ref()
+                .unwrap()
+                .state
+                .meta(old_gen)
+                .unwrap()
+                .generation,
+            generation
+        );
         assert_eq!(heap.arc.as_ref().unwrap().state.meta(young).unwrap().rc, 0);
         heap.pop_frame(frame);
         heap.run_collection(true);
@@ -7491,10 +8478,16 @@ mod arc_no_heap {
         heap.write_ref(b, 1, a);
         heap.set_root(frame, 0, a);
         heap.collect();
-        assert!(alive(&heap, a) && alive(&heap, b), "the root holds the cycle");
+        assert!(
+            alive(&heap, a) && alive(&heap, b),
+            "the root holds the cycle"
+        );
         heap.pop_frame(frame);
         heap.run_collection(true);
-        assert!(alive(&heap, a), "the minor collection does not run the cycle round");
+        assert!(
+            alive(&heap, a),
+            "the minor collection does not run the cycle round"
+        );
         heap.collect();
         assert!(!alive(&heap, a) && !alive(&heap, b));
     }
@@ -7600,7 +8593,11 @@ mod arc_no_heap {
 
         fn draw(&self, r: &mut Rng) -> Option<Ref> {
             let v = self.usable();
-            if v.is_empty() { None } else { Some(v[r.until(v.len())]) }
+            if v.is_empty() {
+                None
+            } else {
+                Some(v[r.until(v.len())])
+            }
         }
     }
 
@@ -7612,7 +8609,10 @@ mod arc_no_heap {
         let live_set = m.reachable();
         for &h in &live_set {
             if arc {
-                assert!(alive(heap, h), "{context}: reachable {h:#x} without live RC");
+                assert!(
+                    alive(heap, h),
+                    "{context}: reachable {h:#x} without live RC"
+                );
             }
             let p = heap.words(h);
             for (i, &f) in m.fields[&h].iter().enumerate() {
@@ -7620,20 +8620,36 @@ mod arc_no_heap {
             }
         }
         if full && arc {
-            let current_time: Vec<Ref> = m.fields.keys().copied().filter(|h| !live_set.contains(h)).collect();
+            let current_time: Vec<Ref> = m
+                .fields
+                .keys()
+                .copied()
+                .filter(|h| !live_set.contains(h))
+                .collect();
             m.garbage.extend(current_time);
             for &h in &m.garbage {
                 assert!(
                     !alive(heap, h),
                     "{context}: unreachable {h:#x} survived the full collection ({:?}; ephemerons {:?}; weak {:?})",
                     heap.arc.as_ref().unwrap().state.meta(h),
-                    heap.ephemerons.iter().filter(|(p, (k, v))| **p == h || *k == h || *v == h).collect::<Vec<_>>(),
-                    heap.weak_refs.iter().filter(|(p, a)| **p == h || **a == h).collect::<Vec<_>>(),
+                    heap.ephemerons
+                        .iter()
+                        .filter(|(p, (k, v))| **p == h || *k == h || *v == h)
+                        .collect::<Vec<_>>(),
+                    heap.weak_refs
+                        .iter()
+                        .filter(|(p, a)| **p == h || **a == h)
+                        .collect::<Vec<_>>(),
                 );
             }
             m.garbage.clear();
         }
-        let dead_set: Vec<Ref> = m.fields.keys().copied().filter(|h| !live_set.contains(h)).collect();
+        let dead_set: Vec<Ref> = m
+            .fields
+            .keys()
+            .copied()
+            .filter(|h| !live_set.contains(h))
+            .collect();
         for h in dead_set {
             m.fields.remove(&h);
             if arc && alive(heap, h) {
@@ -7676,15 +8692,24 @@ mod arc_no_heap {
             }
             let current = heap.ephemerons.get(p).copied().unwrap_or((0, 0));
             match *e {
-                Weak::Holds((k, v)) if live_set.contains(&k) => assert_eq!(current, (k, v), "{context}: ephemeron {p:#x} with live key"),
+                Weak::Holds((k, v)) if live_set.contains(&k) => {
+                    assert_eq!(current, (k, v), "{context}: ephemeron {p:#x} with live key")
+                }
                 Weak::Holds((k, v)) => {
-                    assert!(current == (k, v) || current == (0, 0), "{context}: ephemeron {p:#x}");
+                    assert!(
+                        current == (k, v) || current == (0, 0),
+                        "{context}: ephemeron {p:#x}"
+                    );
                     *e = Weak::Pending;
                 }
                 Weak::Pending => {}
             }
             if full && *e == Weak::Pending {
-                assert_eq!(current, (0, 0), "{context}: ephemeron {p:#x} not zeroed in the full collection");
+                assert_eq!(
+                    current,
+                    (0, 0),
+                    "{context}: ephemeron {p:#x} not zeroed in the full collection"
+                );
             }
             true
         });
@@ -7703,7 +8728,10 @@ mod arc_no_heap {
         }
         heap.verify = true;
         let frame = heap.push_frame_with_slots(SLOTS);
-        let mut m = Model { root_list: vec![0; SLOTS], ..Model::default() };
+        let mut m = Model {
+            root_list: vec![0; SLOTS],
+            ..Model::default()
+        };
         for step in 0..steps {
             let context = format!("semente {seed}, passo {step}, arc {arc}");
             match r.until(20) {
@@ -7718,7 +8746,11 @@ mod arc_no_heap {
                 5..=8 => {
                     if let Some(a) = m.draw(&mut r) {
                         let i = r.until(m.fields[&a].len());
-                        let b = if r.until(5) == 0 { 0 } else { m.draw(&mut r).unwrap_or(0) };
+                        let b = if r.until(5) == 0 {
+                            0
+                        } else {
+                            m.draw(&mut r).unwrap_or(0)
+                        };
                         if r.until(3) == 0 {
                             heap.words_mut(a)[1 + i] = b;
                             heap.remember(a);
@@ -7749,7 +8781,8 @@ mod arc_no_heap {
                     }
                 }
                 13..=14 => {
-                    if let (Some(p), Some(k), Some(v)) = (m.draw(&mut r), m.draw(&mut r), m.draw(&mut r))
+                    if let (Some(p), Some(k), Some(v)) =
+                        (m.draw(&mut r), m.draw(&mut r), m.draw(&mut r))
                         && !m.weak_refs.contains_key(&p)
                     {
                         heap.ephemerons.insert(p, (k, v));
@@ -7771,16 +8804,29 @@ mod arc_no_heap {
             m.root_list[s] = 0;
         }
         heap.collect();
-        check_model(&heap, &mut m, true, arc, &format!("semente {seed}, fim, arc {arc}"));
+        check_model(
+            &heap,
+            &mut m,
+            true,
+            arc,
+            &format!("semente {seed}, fim, arc {arc}"),
+        );
         if arc {
-            assert_eq!(heap.arc.as_ref().unwrap().state.live_set().count(), 0, "seed {seed}: a live object without a root was left");
+            assert_eq!(
+                heap.arc.as_ref().unwrap().state.live_set().count(),
+                0,
+                "seed {seed}: a live object without a root was left"
+            );
         }
         heap.pop_frame(frame);
     }
 
     /// How many seeds: `DF_ARC_SEEDS` widens the search outside CI.
     fn seeds(pattern: u64) -> u64 {
-        std::env::var("DF_ARC_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(pattern)
+        std::env::var("DF_ARC_SEEDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(pattern)
     }
 
     #[test]
@@ -7816,7 +8862,9 @@ mod tests_observation_without_reset {
         for arc in [false, true] {
             let mut heap = Heap::new(false);
             heap.objects.clear_dead = false;
-            if arc { heap.enable_arc(); }
+            if arc {
+                heap.enable_arc();
+            }
             let first = heap.box_int(i64::MAX);
             heap.retain_code_owner(first);
             let neighbor = heap.box_int(i64::MAX - 1);
@@ -7842,12 +8890,18 @@ mod gc_policy_tests {
         let mut policy = AutomaticGcPolicy::default();
         assert_eq!(policy.arm(now, Duration::from_secs(2), 100), 1);
         policy.charge(30);
-        assert_eq!(policy.arm(now + Duration::from_secs(1), Duration::from_secs(9), 1000), 1);
+        assert_eq!(
+            policy.arm(now + Duration::from_secs(1), Duration::from_secs(9), 1000),
+            1
+        );
         assert_eq!(policy.window, Some((now + Duration::from_secs(2), 70)));
         assert!(!policy.collect_before(now + Duration::from_secs(1), 10, true, false));
         assert_eq!(policy.arm(now, Duration::from_secs(1), 100), 0);
         assert!(policy.collect_before(now + Duration::from_secs(2), 10, false, false));
-        assert_eq!(policy.arm(now + Duration::from_secs(2), Duration::from_secs(1), 100), 0);
+        assert_eq!(
+            policy.arm(now + Duration::from_secs(2), Duration::from_secs(1), 100),
+            0
+        );
         policy.serviced();
         assert_eq!(policy.arm(now, Duration::from_secs(1), 100), 1);
     }
@@ -7919,10 +8973,21 @@ mod gc_policy_tests {
         for forced in 0..3 {
             let mut heap = Heap::new(forced == 0);
             heap.schedule = if forced == 1 {
-                Some(Schedule { state: std::cell::Cell::new(1), rate: 1, pending: std::cell::Cell::new(false) })
-            } else { None };
-            assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024), 1);
-            if forced == 2 { heap.byte_limit = 1; }
+                Some(Schedule {
+                    state: std::cell::Cell::new(1),
+                    rate: 1,
+                    pending: std::cell::Cell::new(false),
+                })
+            } else {
+                None
+            };
+            assert_eq!(
+                heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024),
+                1
+            );
+            if forced == 2 {
+                heap.byte_limit = 1;
+            }
             assert!(heap.needs_collection(16));
             if forced < 2 {
                 let before = heap.stats().collections;
@@ -7958,7 +9023,9 @@ mod gc_policy_tests {
             heap.refill_tlab(2);
             assert!(CONTEXT.with(|c| c.tlab[2][0].get() != c.tlab[2][1].get()));
             heap.return_tlabs();
-        }).join().unwrap();
+        })
+        .join()
+        .unwrap();
     }
 
     fn has_reservation(words: usize) -> bool {
@@ -7972,7 +9039,10 @@ mod gc_policy_tests {
             heap.schedule = None;
             let size = block_bytes(2);
             let before = heap.stats.estimated_bytes;
-            assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 3 * size + 1), 1);
+            assert_eq!(
+                heap.gc_policy_defer(Duration::from_secs(10), 3 * size + 1),
+                1
+            );
             heap.refill_tlab(2);
             assert!(has_reservation(2));
             assert_eq!(heap.stats.estimated_bytes, before + 3 * size);
@@ -7992,7 +9062,9 @@ mod gc_policy_tests {
             heap.refill_tlab(2);
             assert!(!has_reservation(2));
             assert_eq!(heap.stats.collections, 0);
-        }).join().unwrap();
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
@@ -8000,7 +9072,10 @@ mod gc_policy_tests {
         std::thread::spawn(|| {
             let mut heap = Heap::for_isolate(false);
             heap.schedule = None;
-            assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024), 1);
+            assert_eq!(
+                heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024),
+                1
+            );
             heap.refill_tlab(2);
             heap.refill_tlab(3);
             assert!(has_reservation(2) && has_reservation(3));
@@ -8014,7 +9089,9 @@ mod gc_policy_tests {
             heap.gc_policy.window = Some((Instant::now() - Duration::from_secs(1), 1024));
             assert!(heap.needs_collection(16));
             assert_eq!(heap.stats.collections, 0);
-        }).join().unwrap();
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
@@ -8023,12 +9100,17 @@ mod gc_policy_tests {
             std::thread::spawn(move || {
                 let mut heap = Heap::for_isolate(false);
                 heap.schedule = None;
-                assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024), 1);
+                assert_eq!(
+                    heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024),
+                    1
+                );
                 heap.refill_tlab(2);
                 if expired {
                     heap.gc_policy.window = Some((Instant::now() - Duration::from_secs(1), 1024));
                     heap.refill_tlab(3);
-                } else { heap.gc_policy_cancel(); }
+                } else {
+                    heap.gc_policy_cancel();
+                }
                 assert!(!heap.gc_policy.is_active());
                 assert!(has_reservation(2));
                 let before = heap.stats.estimated_bytes;
@@ -8040,26 +9122,36 @@ mod gc_policy_tests {
                 assert!(!has_reservation(2) && !has_reservation(3));
                 assert!(!heap.gc_policy.debt);
                 assert_eq!(heap.stats.collections, 0);
-            }).join().unwrap();
+            })
+            .join()
+            .unwrap();
         }
     }
 
     #[test]
     #[allow(unsafe_code)]
-    fn external_attachment_growth_invalidates_budget_and_quotas_without_collecting_unrooted_headers() {
+    fn external_attachment_growth_invalidates_budget_and_quotas_without_collecting_unrooted_headers()
+     {
         unsafe fn release_nothing(_: *mut u8) {}
         for endpoint in 0..3 {
             for limit in 0..3 {
                 std::thread::spawn(move || {
                     let mut heap = Heap::for_isolate(false);
                     heap.schedule = None;
-                    let h = heap.allocate(crate::layout::cid::STRING_ACCUMULATOR, 1, crate::layout::flags::RAW);
+                    let h = heap.allocate(
+                        crate::layout::cid::STRING_ACCUMULATOR,
+                        1,
+                        crate::layout::flags::RAW,
+                    );
                     if endpoint == 1 {
                         // SAFETY: null is never dereferenced and release is a no-op.
                         unsafe { heap.attach(h, release_nothing, std::ptr::null_mut(), 0) };
                     }
                     let before_collections = heap.stats.collections;
-                    assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024), 1);
+                    assert_eq!(
+                        heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024),
+                        1
+                    );
                     heap.refill_tlab(2);
                     heap.refill_tlab(3);
                     assert!(has_reservation(2) && has_reservation(3));
@@ -8086,9 +9178,13 @@ mod gc_policy_tests {
                     heap.refill_tlab(2);
                     assert!(!has_reservation(2));
                     // A negative counter adjustment cannot forgive recorded debt.
-                    if endpoint == 2 { heap.count_external(-100); }
+                    if endpoint == 2 {
+                        heap.count_external(-100);
+                    }
                     assert!(heap.gc_policy.debt);
-                }).join().unwrap();
+                })
+                .join()
+                .unwrap();
             }
         }
     }
@@ -8101,19 +9197,31 @@ mod gc_policy_tests {
             std::thread::spawn(move || {
                 let mut heap = Heap::for_isolate(false);
                 heap.schedule = None;
-                let h = heap.allocate(crate::layout::cid::STRING_ACCUMULATOR, 1, crate::layout::flags::RAW);
+                let h = heap.allocate(
+                    crate::layout::cid::STRING_ACCUMULATOR,
+                    1,
+                    crate::layout::flags::RAW,
+                );
                 if endpoint == 1 {
                     // SAFETY: null is never dereferenced and release is a no-op.
                     unsafe { heap.attach(h, release_nothing, std::ptr::null_mut(), 7) };
                 }
-                assert_eq!(heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024), 1);
+                assert_eq!(
+                    heap.gc_policy_defer(Duration::from_secs(10), 1024 * 1024),
+                    1
+                );
                 heap.refill_tlab(2);
                 heap.refill_tlab(3);
                 assert!(has_reservation(2) && has_reservation(3));
                 heap.young_limit = heap.young_bytes;
                 heap.byte_threshold = heap.stats.estimated_bytes;
                 heap.byte_limit = heap.stats.estimated_bytes;
-                let before = (heap.stats.estimated_bytes, heap.allocations, heap.stats.collections, heap.gc_policy.window);
+                let before = (
+                    heap.stats.estimated_bytes,
+                    heap.allocations,
+                    heap.stats.collections,
+                    heap.gc_policy.window,
+                );
                 match endpoint {
                     0 => {
                         // SAFETY: null is never dereferenced and release is a no-op.
@@ -8122,12 +9230,22 @@ mod gc_policy_tests {
                     1 => heap.adjust_attachment(h, 7),
                     _ => heap.count_external(0),
                 }
-                assert_eq!((heap.stats.estimated_bytes, heap.allocations, heap.stats.collections, heap.gc_policy.window), before);
+                assert_eq!(
+                    (
+                        heap.stats.estimated_bytes,
+                        heap.allocations,
+                        heap.stats.collections,
+                        heap.gc_policy.window
+                    ),
+                    before
+                );
                 assert!(!heap.gc_policy.debt);
                 assert!(has_reservation(2) && has_reservation(3));
                 let _ = heap.live_block(h);
                 heap.return_tlabs();
-            }).join().unwrap();
+            })
+            .join()
+            .unwrap();
         }
     }
 
@@ -8153,13 +9271,20 @@ mod gc_policy_tests {
     fn idle_collection_keeps_ready_finalizers_and_arc_roots_alive() {
         for arc in [false, true] {
             let mut heap = Heap::new(false);
-            if arc { heap.enable_arc(); }
+            if arc {
+                heap.enable_arc();
+            }
             let frame = heap.push_frame_with_slots(1);
             let owner = heap.allocate_object(305, 0);
             heap.set_root(frame, 0, owner);
             let value = heap.allocate_object(306, 0);
             let action = heap.allocate_object(307, 0);
-            heap.add_attachment(FinalizerAttachment { owner, value, detach: 0, action: FinalizerAction::Dart(action) });
+            heap.add_attachment(FinalizerAttachment {
+                owner,
+                value,
+                detach: 0,
+                action: FinalizerAction::Dart(action),
+            });
             heap.gc_policy_request_idle();
             assert!(heap.gc_policy_collect_if_idle());
             assert!(heap.object(owner).is_some());

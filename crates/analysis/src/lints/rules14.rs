@@ -43,15 +43,15 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassKind, Element};
 use dartforge_frontend::ast::{
-    self, Annotation, Ast, DeclKind, DirectiveKind, ExprId, ExprKind, ForInit, MemberKind, Parameter, PatternKind, StmtId, StmtKind, TypeKind,
-    TypedefKind, UnaryOp,
+    self, Annotation, Ast, DeclKind, DirectiveKind, ExprId, ExprKind, ForInit, MemberKind,
+    Parameter, PatternKind, StmtId, StmtKind, TypeKind, TypedefKind, UnaryOp,
 };
 use dartforge_frontend::comments::Comments;
 use dartforge_frontend::source::skip_whitespace;
@@ -112,7 +112,11 @@ pub(super) fn doc_lines<'f>(source: &'f str, doc: &Doc) -> Vec<(usize, &'f str)>
     let first = doc.tokens[0];
     let lexeme = &source[first.start..first.end];
     if lexeme.starts_with("///") {
-        return doc.tokens.iter().map(|s| (s.start + 3, &source[s.start + 3..s.end])).collect();
+        return doc
+            .tokens
+            .iter()
+            .map(|s| (s.start + 3, &source[s.start + 3..s.end]))
+            .collect();
     }
     // `_CharacterSequenceFromMultiLineComment`.
     let b = lexeme.as_bytes();
@@ -152,7 +156,11 @@ pub(super) fn code_blocks(lines: &[(usize, &str)]) -> Vec<CodeBlock> {
     while i < lines.len() {
         let (pos, content) = lines[i];
         if previous_blank && leading_whitespace(content) >= 4 {
-            let mut b = CodeBlock { fenced: false, has_info: false, lines: vec![(pos, content.len())] };
+            let mut b = CodeBlock {
+                fenced: false,
+                has_info: false,
+                lines: vec![(pos, content.len())],
+            };
             i += 1;
             while i < lines.len() && leading_whitespace(lines[i].1) >= 4 {
                 b.lines.push((lines[i].0, lines[i].1.len()));
@@ -172,7 +180,11 @@ pub(super) fn code_blocks(lines: &[(usize, &str)]) -> Vec<CodeBlock> {
                 k += 1;
             }
             let has_info = k < bs.len() && !content[k..].trim().is_empty();
-            let mut b = CodeBlock { fenced: true, has_info, lines: vec![(pos, content.len())] };
+            let mut b = CodeBlock {
+                fenced: true,
+                has_info,
+                lines: vec![(pos, content.len())],
+            };
             i += 1;
             while i < lines.len() {
                 b.lines.push((lines[i].0, lines[i].1.len()));
@@ -192,15 +204,34 @@ pub(super) fn code_blocks(lines: &[(usize, &str)]) -> Vec<CodeBlock> {
 }
 
 /// `_findComment(metadata, tokenAfterMetadata)`.
-pub(super) fn doc_for(source: &str, comments: &Comments, metadata: &[Annotation], after: usize) -> Option<Doc> {
+pub(super) fn doc_for(
+    source: &str,
+    comments: &Comments,
+    metadata: &[Annotation],
+    after: usize,
+) -> Option<Doc> {
     let build = |anchor: usize| -> Option<Doc> {
         let start = comments.dart_doc(source, anchor)?;
-        let chain: Vec<Span> = comments.before(source, anchor).into_iter().filter(|s| s.start >= start.start).collect();
+        let chain: Vec<Span> = comments
+            .before(source, anchor)
+            .into_iter()
+            .filter(|s| s.start >= start.start)
+            .collect();
         let mut tokens = vec![start];
         if source[start.start..start.end].starts_with("///") {
-            tokens.extend(chain.iter().skip(1).filter(|s| source[s.start..s.end].starts_with("///")).copied());
+            tokens.extend(
+                chain
+                    .iter()
+                    .skip(1)
+                    .filter(|s| source[s.start..s.end].starts_with("///"))
+                    .copied(),
+            );
         }
-        Some(Doc { tokens, chain, anchor })
+        Some(Doc {
+            tokens,
+            chain,
+            anchor,
+        })
     };
     build(after).or_else(|| metadata.iter().rev().find_map(|m| build(m.span.start)))
 }
@@ -216,7 +247,12 @@ pub(super) fn after_annotations(source: &str, metadata: &[Annotation], start: us
 /// Skips the word `augment` (`_findComment` for `enum`, `extension`,
 /// `extension type`, `typedef` and `mixin` starts from the keyword).
 pub(super) fn skip_augment(source: &str, pos: usize) -> usize {
-    if source[pos..].starts_with("augment") && !source.as_bytes().get(pos + 7).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'$') {
+    if source[pos..].starts_with("augment")
+        && !source
+            .as_bytes()
+            .get(pos + 7)
+            .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'$')
+    {
         return skip_whitespace(source.as_bytes(), pos + 7);
     }
     pos
@@ -321,13 +357,25 @@ pub(super) fn unit_docs(u: Unit<'_>, comments: &Comments) -> Vec<Doc> {
     }
     for d in a.decls.iter() {
         let mut pos = after_annotations(source, &d.metadata, d.span.start);
-        if d.augment && matches!(d.kind, DeclKind::Enum(_) | DeclKind::Extension(_) | DeclKind::ExtensionType(_) | DeclKind::Typedef(_) | DeclKind::Mixin(_)) {
+        if d.augment
+            && matches!(
+                d.kind,
+                DeclKind::Enum(_)
+                    | DeclKind::Extension(_)
+                    | DeclKind::ExtensionType(_)
+                    | DeclKind::Typedef(_)
+                    | DeclKind::Mixin(_)
+            )
+        {
             pos = skip_augment(source, pos);
         }
         add(doc_for(source, comments, &d.metadata, pos), &mut docs);
         if let DeclKind::Enum(x) = &d.kind {
             for k in x.constants.iter() {
-                add(doc_for(source, comments, &k.metadata, k.name.span.start), &mut docs);
+                add(
+                    doc_for(source, comments, &k.metadata, k.name.span.start),
+                    &mut docs,
+                );
             }
         }
     }
@@ -336,7 +384,10 @@ pub(super) fn unit_docs(u: Unit<'_>, comments: &Comments) -> Vec<Doc> {
         add(doc_for(source, comments, &m.metadata, pos), &mut docs);
     }
     for tp in type_parameters(a) {
-        add(doc_for(source, comments, &tp.metadata, tp.name.span.start), &mut docs);
+        add(
+            doc_for(source, comments, &tp.metadata, tp.name.span.start),
+            &mut docs,
+        );
     }
     for ps in parameter_lists(a) {
         for p in ps {
@@ -345,16 +396,27 @@ pub(super) fn unit_docs(u: Unit<'_>, comments: &Comments) -> Vec<Doc> {
             }
         }
     }
-    let metadata_of = |s: StmtId| -> &[Annotation] { a.local_metadata.iter().find(|(x, _)| *x == s).map_or(&[], |(_, m)| &m[..]) };
+    let metadata_of = |s: StmtId| -> &[Annotation] {
+        a.local_metadata
+            .iter()
+            .find(|(x, _)| *x == s)
+            .map_or(&[], |(_, m)| &m[..])
+    };
     for (k, s) in a.stmts.iter().enumerate() {
         let id = StmtId(k as u32);
         match &s.kind {
             StmtKind::Variables(l) => {
                 if let Some(v) = l.variables.first() {
-                    add(doc_for(source, comments, metadata_of(id), v.name.span.start), &mut docs);
+                    add(
+                        doc_for(source, comments, metadata_of(id), v.name.span.start),
+                        &mut docs,
+                    );
                 }
             }
-            StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
+            StmtKind::For {
+                init: Some(ForInit::Variables(l)),
+                ..
+            } => {
                 if let Some(v) = l.variables.first() {
                     add(doc_for(source, comments, &[], v.name.span.start), &mut docs);
                 }
@@ -373,13 +435,104 @@ pub(super) fn unit_docs(u: Unit<'_>, comments: &Comments) -> Vec<Doc> {
 /// The HTML tags that `rule.reportLintForOffset` accepts (`_validHtmlTags`),
 /// in the order of the alternation.
 const HTML_TAGS: [&str; 98] = [
-    "a", "abbr", "address", "area", "article", "aside", "audio", "b", "bdi", "bdo", "blockquote", "br", "button", "canvas", "caption",
-    "cite", "code", "col", "colgroup", "data", "datalist", "dd", "del", "dfn", "div", "dl", "dt", "em", "fieldset", "figcaption",
-    "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "i", "iframe", "img", "input", "ins", "kbd", "keygen",
-    "label", "legend", "li", "link", "main", "map", "mark", "meta", "meter", "nav", "noscript", "object", "ol", "optgroup", "option",
-    "output", "p", "param", "pre", "progress", "q", "s", "samp", "script", "section", "select", "small", "source", "span", "strong",
-    "style", "sub", "sup", "table", "tbody", "td", "template", "textarea", "tfoot", "th", "thead", "time", "title", "tr", "track", "u",
-    "ul", "var", "video", "wbr",
+    "a",
+    "abbr",
+    "address",
+    "area",
+    "article",
+    "aside",
+    "audio",
+    "b",
+    "bdi",
+    "bdo",
+    "blockquote",
+    "br",
+    "button",
+    "canvas",
+    "caption",
+    "cite",
+    "code",
+    "col",
+    "colgroup",
+    "data",
+    "datalist",
+    "dd",
+    "del",
+    "dfn",
+    "div",
+    "dl",
+    "dt",
+    "em",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hr",
+    "i",
+    "iframe",
+    "img",
+    "input",
+    "ins",
+    "kbd",
+    "keygen",
+    "label",
+    "legend",
+    "li",
+    "link",
+    "main",
+    "map",
+    "mark",
+    "meta",
+    "meter",
+    "nav",
+    "noscript",
+    "object",
+    "ol",
+    "optgroup",
+    "option",
+    "output",
+    "p",
+    "param",
+    "pre",
+    "progress",
+    "q",
+    "s",
+    "samp",
+    "script",
+    "section",
+    "select",
+    "small",
+    "source",
+    "span",
+    "strong",
+    "style",
+    "sub",
+    "sup",
+    "table",
+    "tbody",
+    "td",
+    "template",
+    "textarea",
+    "tfoot",
+    "th",
+    "thead",
+    "time",
+    "title",
+    "tr",
+    "track",
+    "u",
+    "ul",
+    "var",
+    "video",
+    "wbr",
 ];
 
 fn eq_ignore_case(b: &[u8], i: usize, s: &[u8]) -> bool {
@@ -390,7 +543,10 @@ fn find(b: &[u8], from: usize, s: &[u8]) -> Option<usize> {
     if from > b.len() {
         return None;
     }
-    b[from..].windows(s.len()).position(|w| w == s).map(|k| from + k)
+    b[from..]
+        .windows(s.len())
+        .position(|w| w == s)
+        .map(|k| from + k)
 }
 
 /// `_markdownTokenPattern` matched at `i` (the alternation in order):
@@ -440,7 +596,8 @@ fn match_markdown(t: &str, i: usize) -> Option<(usize, bool)> {
             // Autolink: `<[a-z][a-z\d\-+.]+:[^\x00-\x20\x7f<>]*>`.
             if is_letter(i + 1) {
                 let mut j = i + 2;
-                while j < n && (b[j].is_ascii_alphanumeric() || matches!(b[j], b'-' | b'+' | b'.')) {
+                while j < n && (b[j].is_ascii_alphanumeric() || matches!(b[j], b'-' | b'+' | b'.'))
+                {
                     j += 1;
                 }
                 if j > i + 2 && b.get(j) == Some(&b':') {
@@ -544,7 +701,9 @@ fn unintended_tags(t: &str) -> Vec<(usize, usize)> {
 /// `_readWhitespace` with the parser's `isWhitespace` (space, `\n`, `\r`,
 /// `\t`).
 fn leading_whitespace(s: &str) -> usize {
-    s.bytes().take_while(|c| matches!(c, b' ' | b'\n' | b'\r' | b'\t')).count()
+    s.bytes()
+        .take_while(|c| matches!(c, b' ' | b'\n' | b'\r' | b'\t'))
+        .count()
 }
 
 /// `_fencedCodeBlockDelimiter`: the index of the backticks, or nothing.
@@ -556,7 +715,11 @@ fn fence_delimiter(s: &str, min_len: usize) -> Option<usize> {
     if i + 3 > s.len() {
         return None;
     }
-    if s.as_bytes()[i..i + 3] == *"`".repeat(min_len).as_bytes() { Some(i) } else { None }
+    if s.as_bytes()[i..i + 3] == *"`".repeat(min_len).as_bytes() {
+        Some(i)
+    } else {
+        None
+    }
 }
 
 /// The lines of a run of `///` (the contents after the slashes) that are in
@@ -636,15 +799,29 @@ fn only_underscores(s: &str) -> bool {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let source = u.source;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
-    let needs_comments = enabled("dangling_library_doc_comments") || enabled("unintended_html_in_doc_comment");
-    let comments = if needs_comments { Some(Comments::scan(source)) } else { None };
+    let needs_comments =
+        enabled("dangling_library_doc_comments") || enabled("unintended_html_in_doc_comment");
+    let comments = if needs_comments {
+        Some(Comments::scan(source))
+    } else {
+        None
+    };
 
     // `dangling_library_doc_comments`.
     if enabled("dangling_library_doc_comments")
@@ -654,7 +831,10 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let l = |pos: usize| line_of(&starts, pos);
         'rule: {
             if let Some(first_item) = u.unit.directives.first() {
-                if matches!(first_item.kind, DirectiveKind::Library { .. } | DirectiveKind::PartOf { .. }) {
+                if matches!(
+                    first_item.kind,
+                    DirectiveKind::Library { .. } | DirectiveKind::PartOf { .. }
+                ) {
                     break 'rule;
                 }
                 let pos = after_annotations(source, &first_item.metadata, first_item.span.start);
@@ -675,11 +855,25 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             };
             let d = a.decl(first_item);
             let mut pos = after_annotations(source, &d.metadata, d.span.start);
-            if d.augment && matches!(d.kind, DeclKind::Enum(_) | DeclKind::Extension(_) | DeclKind::ExtensionType(_) | DeclKind::Typedef(_) | DeclKind::Mixin(_)) {
+            if d.augment
+                && matches!(
+                    d.kind,
+                    DeclKind::Enum(_)
+                        | DeclKind::Extension(_)
+                        | DeclKind::ExtensionType(_)
+                        | DeclKind::Typedef(_)
+                        | DeclKind::Mixin(_)
+                )
+            {
                 pos = skip_augment(source, pos);
             }
-            let Some(doc) = doc_for(source, comments, &d.metadata, pos) else { break 'rule };
-            let node = Span { start: doc.tokens[0].start, end: doc.tokens[doc.tokens.len() - 1].end };
+            let Some(doc) = doc_for(source, comments, &d.metadata, pos) else {
+                break 'rule;
+            };
+            let node = Span {
+                start: doc.tokens[0].start,
+                end: doc.tokens[doc.tokens.len() - 1].end,
+            };
             for pair in doc.tokens.windows(2) {
                 if l(pair[1].start) > l(pair[0].end) + 1 {
                     report(&c::DANGLING_LIBRARY_DOC_COMMENTS, pair[0], &[]);
@@ -712,7 +906,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             // In a `/** … */` the first line (with the `/**`) is never part of
             // a code block; in a run of `///`, the lines are the tokens.
             let in_block = if is_line_doc {
-                let lines: Vec<&str> = doc.tokens.iter().map(|s| &source[s.start + 3..s.end]).collect();
+                let lines: Vec<&str> = doc
+                    .tokens
+                    .iter()
+                    .map(|s| &source[s.start + 3..s.end])
+                    .collect();
                 lines_in_code_block(&lines)
             } else {
                 vec![false]
@@ -722,7 +920,14 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     continue;
                 }
                 for (start_rel, len_rel) in unintended_tags(&source[s.start..s.end]) {
-                    report(&c::UNINTENDED_HTML_IN_DOC_COMMENT, Span { start: s.start + start_rel, end: s.start + start_rel + len_rel }, &[]);
+                    report(
+                        &c::UNINTENDED_HTML_IN_DOC_COMMENT,
+                        Span {
+                            start: s.start + start_rel,
+                            end: s.start + start_rel + len_rel,
+                        },
+                        &[],
+                    );
                 }
             }
         }
@@ -753,15 +958,23 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // `lib/`, `bin/` and the `hook/build.dart` and `hook/link.dart` hooks,
     // its dev dependencies.
     let imports_packages = u.unit.directives.iter().any(|d| match &d.kind {
-        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => {
-            uri.constant_value().is_some_and(|v| v.to_string_lossy().starts_with("package:"))
-        }
+        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => uri
+            .constant_value()
+            .is_some_and(|v| v.to_string_lossy().starts_with("package:")),
         _ => false,
     });
     if enabled("depend_on_referenced_packages") && imports_packages {
         let lib = program.library(program.unit(s.unit).library);
-        let lib_path = lib.units.first().and_then(|x| program.unit(*x).path.clone());
-        let root = lib_path.as_ref().and_then(|c| c.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()).map(std::path::Path::to_path_buf));
+        let lib_path = lib
+            .units
+            .first()
+            .and_then(|x| program.unit(*x).path.clone());
+        let root = lib_path.as_ref().and_then(|c| {
+            c.ancestors()
+                .skip(1)
+                .find(|d| d.join("pubspec.yaml").is_file())
+                .map(std::path::Path::to_path_buf)
+        });
         if let (Some(file), Some(root)) = (lib_path, root)
             && let Ok(text) = std::fs::read_to_string(root.join("pubspec.yaml"))
         {
@@ -773,14 +986,20 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             if let Some(available) = super::pubspec::available_dependencies(&text, !public) {
                 for d in &u.unit.directives {
                     let uri = match &d.kind {
-                        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => uri,
+                        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => {
+                            uri
+                        }
                         _ => continue,
                     };
-                    let Some(value) = uri.constant_value().map(|v| v.to_string_lossy()) else { continue };
+                    let Some(value) = uri.constant_value().map(|v| v.to_string_lossy()) else {
+                        continue;
+                    };
                     if !value.starts_with("package:") {
                         continue;
                     }
-                    let Some(slash) = value.find('/') else { continue };
+                    let Some(slash) = value.find('/') else {
+                        continue;
+                    };
                     let package = &value[8..slash.max(8)];
                     if package == "flutter_gen" || available.iter().any(|x| x == package) {
                         continue;
@@ -795,24 +1014,41 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     if enabled("valid_regexps") {
         for (k, e) in a.exprs.iter().enumerate() {
             let arguments = match &e.kind {
-                ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => arguments,
+                ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => {
+                    arguments
+                }
                 _ => continue,
             };
-            let Some(dartforge_types::resolved::Resolved::Constructor(f)) = s.body.get_resolved(ExprId(k as u32)) else { continue };
-            let Some(class_id) = program.function(*f).class else { continue };
+            let Some(dartforge_types::resolved::Resolved::Constructor(f)) =
+                s.body.get_resolved(ExprId(k as u32))
+            else {
+                continue;
+            };
+            let Some(class_id) = program.function(*f).class else {
+                continue;
+            };
             let cl = program.class(class_id);
-            if interner.resolve(cl.name) != "RegExp" || program.library(cl.library).uri != "dart:core" {
+            if interner.resolve(cl.name) != "RegExp"
+                || program.library(cl.library).uri != "dart:core"
+            {
                 continue;
             }
-            let Some(first) = arguments.args.first() else { continue };
+            let Some(first) = arguments.args.first() else {
+                continue;
+            };
             let unicode = arguments.args.iter().any(|x| {
-                x.name.is_some_and(|n| interner.resolve(n.sym) == "unicode") && matches!(a.expr(x.value).kind, ExprKind::Bool(true))
+                x.name.is_some_and(|n| interner.resolve(n.sym) == "unicode")
+                    && matches!(a.expr(x.value).kind, ExprKind::Bool(true))
             });
             if first.name.is_some() {
                 continue;
             }
-            let ExprKind::String(lit) = &a.expr(first.value).kind else { continue };
-            let Some(value) = lit.constant_value() else { continue };
+            let ExprKind::String(lit) = &a.expr(first.value).kind else {
+                continue;
+            };
+            let Some(value) = lit.constant_value() else {
+                continue;
+            };
             let units: Vec<u16> = value.code_units().collect();
             if !super::regexp_vm::is_valid(&units, unicode) {
                 report(&c::VALID_REGEXPS, a.expr(first.value).span, &[]);
@@ -826,19 +1062,33 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         // `@pragma('dart2js:late:trust')`: the `pragma` constructor of
         // `dart:core` with the constant name.
         let pragma_late_trust = |m: &Annotation| -> bool {
-            let simple = |n: ast::Name| program.lookup_in_unit(s.unit, n.sym).and_then(|b| b.getter);
+            let simple =
+                |n: ast::Name| program.lookup_in_unit(s.unit, n.sym).and_then(|b| b.getter);
             let element = match &m.name[..] {
                 [n] => simple(*n),
-                [p, n] => program.lookup_prefixed_in_unit(s.unit, p.sym, n.sym).and_then(|b| b.getter),
+                [p, n] => program
+                    .lookup_prefixed_in_unit(s.unit, p.sym, n.sym)
+                    .and_then(|b| b.getter),
                 _ => None,
             };
-            let Some(Element::Class(cl)) = element else { return false };
+            let Some(Element::Class(cl)) = element else {
+                return false;
+            };
             let class_id = program.class(cl);
-            if interner.resolve(class_id.name) != "pragma" || program.library(class_id.library).uri != "dart:core" {
+            if interner.resolve(class_id.name) != "pragma"
+                || program.library(class_id.library).uri != "dart:core"
+            {
                 return false;
             }
-            let Some(arg) = m.arguments.as_ref().and_then(|x| x.args.iter().find(|y| y.name.is_none())) else { return false };
-            constant_string_value(program, s.unit, a, arg.value).as_deref() == Some("dart2js:late:trust")
+            let Some(arg) = m
+                .arguments
+                .as_ref()
+                .and_then(|x| x.args.iter().find(|y| y.name.is_none()))
+            else {
+                return false;
+            };
+            constant_string_value(program, s.unit, a, arg.value).as_deref()
+                == Some("dart2js:late:trust")
         };
         let mut check = |metadata: &[Annotation], is_first: bool| {
             for m in metadata {
@@ -866,13 +1116,21 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
 
     // `no_wildcard_variable_uses`.
     if enabled("no_wildcard_variable_uses") {
-        let mut without_element: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
+        let mut without_element: std::collections::HashSet<ExprId> =
+            std::collections::HashSet::new();
         for e in a.exprs.iter() {
             match &e.kind {
                 ExprKind::Assign { target, .. } => {
                     without_element.insert(*target);
                 }
-                ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } => {
+                ExprKind::Unary {
+                    op:
+                        UnaryOp::PrefixInc
+                        | UnaryOp::PrefixDec
+                        | UnaryOp::PostfixInc
+                        | UnaryOp::PostfixDec,
+                    operand,
+                } => {
                     without_element.insert(*operand);
                 }
                 _ => {}
@@ -889,14 +1147,17 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             .collect();
         for (k, e) in a.exprs.iter().enumerate() {
             let id = ExprId(k as u32);
-            let ExprKind::Identifier(n) = &e.kind else { continue };
+            let ExprKind::Identifier(n) = &e.kind else {
+                continue;
+            };
             if without_element.contains(&id) || !only_underscores(interner.resolve(n.sym)) {
                 continue;
             }
             let local_or_param = match s.body.get_resolved(id) {
-                Some(dartforge_types::resolved::Resolved::Local(_)) => {
-                    !s.body.local_declaration(id).is_some_and(|d| local_functions.contains(&d))
-                }
+                Some(dartforge_types::resolved::Resolved::Local(_)) => !s
+                    .body
+                    .local_declaration(id)
+                    .is_some_and(|d| local_functions.contains(&d)),
                 Some(dartforge_types::resolved::Resolved::Parameter { .. }) => true,
                 _ => false,
             };
@@ -913,12 +1174,21 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             _ => None,
         };
         for p in a.patterns.iter() {
-            let PatternKind::Constant(e) = &p.kind else { continue };
+            let PatternKind::Constant(e) = &p.kind else {
+                continue;
+            };
             let text = &source[p.span.start..p.span.end];
-            if text.starts_with("const") && !text.as_bytes().get(5).is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'$') {
+            if text.starts_with("const")
+                && !text
+                    .as_bytes()
+                    .get(5)
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || *c == b'_' || *c == b'$')
+            {
                 continue;
             }
-            let Some(t) = s.body.get_type(*e) else { continue };
+            let Some(t) = s.body.get_type(*e) else {
+                continue;
+            };
             if let dartforge_types::table::Type::Interface { class, .. } = s.table.get(t)
                 && Some(*class) == type_class
             {
@@ -935,25 +1205,38 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             if !found.is_empty() {
                 // The scope's getter: a type parameter is a type; the rest
                 // (local, member, or setter only) is not.
-                return found.iter().any(|r| r.kind == super::scope::EntryKind::TypeParameter);
+                return found
+                    .iter()
+                    .any(|r| r.kind == super::scope::EntryKind::TypeParameter);
             }
-            let Some(b) = program.lookup_in_unit(s.unit, name) else { return false };
+            let Some(b) = program.lookup_in_unit(s.unit, name) else {
+                return false;
+            };
             if b.ambiguous {
                 return false;
             }
             match b.getter {
-                Some(Element::Class(cl)) => matches!(program.class(cl).kind, ClassKind::Class | ClassKind::MixinApplication | ClassKind::ExtensionType),
+                Some(Element::Class(cl)) => matches!(
+                    program.class(cl).kind,
+                    ClassKind::Class | ClassKind::MixinApplication | ClassKind::ExtensionType
+                ),
                 Some(Element::Typedef(_)) => true,
                 _ => false,
             }
         };
         for st in a.stmts.iter() {
-            let StmtKind::Try { catches, .. } = &st.kind else { continue };
+            let StmtKind::Try { catches, .. } = &st.kind else {
+                continue;
+            };
             for k in catches.iter() {
                 if let Some(n) = k.exception
                     && is_type(n.sym, k.span.start)
                 {
-                    report(&c::AVOID_TYPES_AS_PARAMETER_NAMES, n.span, &[interner.resolve(n.sym)]);
+                    report(
+                        &c::AVOID_TYPES_AS_PARAMETER_NAMES,
+                        n.span,
+                        &[interner.resolve(n.sym)],
+                    );
                 }
             }
         }
@@ -965,7 +1248,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     continue;
                 }
                 if is_type(n.sym, p.span.start) {
-                    report(&c::AVOID_TYPES_AS_PARAMETER_NAMES, n.span, &[interner.resolve(n.sym)]);
+                    report(
+                        &c::AVOID_TYPES_AS_PARAMETER_NAMES,
+                        n.span,
+                        &[interner.resolve(n.sym)],
+                    );
                 }
             }
         }
@@ -993,9 +1280,15 @@ fn constant_string_value(
                 Element::Function(f) => program.function(f).variable?,
                 _ => return None,
             };
-            let dartforge_elements::model::VariableRef::TopLevel { unit, decl, index } = program.variable(v).node else { return None };
+            let dartforge_elements::model::VariableRef::TopLevel { unit, decl, index } =
+                program.variable(v).node
+            else {
+                return None;
+            };
             let a2 = &program.unit(unit).ast;
-            let DeclKind::Variables(l) = &a2.decl(decl).kind else { return None };
+            let DeclKind::Variables(l) = &a2.decl(decl).kind else {
+                return None;
+            };
             if !l.const_ {
                 return None;
             }

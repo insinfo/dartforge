@@ -2,9 +2,9 @@
 //! produces the same `Program` as loading from the files and is faster. It
 //! needs SDK 3.6.2; without it the test is skipped.
 
+use dartforge_elements::SdkCache;
 use dartforge_elements::load::{load_lenient, load_lenient_with_cache};
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_elements::SdkCache;
 use dartforge_intern::Interner;
 use std::fs;
 use std::path::PathBuf;
@@ -33,7 +33,11 @@ fn sdk_cache_reproduces_the_program_and_is_faster() {
          part 'part.dart';\nclass C { int x = 1; }\nvoid main() { print(json.encode([C().x, max(1, 2)])); }\n",
     )
     .unwrap();
-    fs::write(tmp.path().join("part.dart"), "part of 'main.dart';\nint dobro(int a) => a * 2;\n").unwrap();
+    fs::write(
+        tmp.path().join("part.dart"),
+        "part of 'main.dart';\nint dobro(int a) => a * 2;\n",
+    )
+    .unwrap();
 
     // 1. From the files.
     let mut i1 = Interner::new();
@@ -74,7 +78,11 @@ fn sdk_cache_reproduces_the_program_and_is_faster() {
         "minimum of {N}: files {t_files:.1?}; open+load through the cache {t_cache:.1?} ({:.0}%); build cache {t_build:.1?}; \
          units {} / libraries {} / classes {} / functions {} / variables {}",
         100.0 * t_cache.as_secs_f64() / t_files.as_secs_f64(),
-        p2.units.len(), p2.libraries.len(), p2.classes.len(), p2.functions.len(), p2.variables.len()
+        p2.units.len(),
+        p2.libraries.len(),
+        p2.classes.len(),
+        p2.functions.len(),
+        p2.variables.len()
     );
 
     // Same program: counts, URIs and roles of the units in the same order, and
@@ -91,7 +99,12 @@ fn sdk_cache_reproduces_the_program_and_is_faster() {
         assert_eq!(u1.role, u2.role);
         assert_eq!(u1.source, u2.source);
         assert_eq!(u1.ast.exprs.len(), u2.ast.exprs.len(), "{}", u1.uri);
-        assert_eq!(u1.unit.declarations.len(), u2.unit.declarations.len(), "{}", u1.uri);
+        assert_eq!(
+            u1.unit.declarations.len(),
+            u2.unit.declarations.len(),
+            "{}",
+            u1.uri
+        );
     }
     for (c1, c2) in p1.classes.iter().zip(&p2.classes) {
         assert_eq!(i1.resolve(c1.name), i2.resolve(c2.name));
@@ -100,10 +113,21 @@ fn sdk_cache_reproduces_the_program_and_is_faster() {
     for (f1, f2) in p1.functions.iter().zip(&p2.functions) {
         assert_eq!(i1.resolve(f1.name), i2.resolve(f2.name));
     }
-    let sdk_units = p2.units.iter().filter(|u| p2.library(u.library).is_sdk).count();
-    assert!(sdk_units > 100, "the SDK has more than 100 units: {sdk_units}");
+    let sdk_units = p2
+        .units
+        .iter()
+        .filter(|u| p2.library(u.library).is_sdk)
+        .count();
+    assert!(
+        sdk_units > 100,
+        "the SDK has more than 100 units: {sdk_units}"
+    );
     // The user's unit and its part still come from the files.
-    assert!(p2.units.iter().any(|u| u.uri.ends_with("/part.dart") && !p2.library(u.library).is_sdk));
+    assert!(
+        p2.units
+            .iter()
+            .any(|u| u.uri.ends_with("/part.dart") && !p2.library(u.library).is_sdk)
+    );
 
     assert!(
         t_cache.as_secs_f64() < 0.75 * t_files.as_secs_f64(),
@@ -121,5 +145,8 @@ fn invalid_cache_is_ignored() {
     fs::write(&path, b"garbage").unwrap();
     assert!(SdkCache::open(&path).is_none());
     assert!(!SdkCache::hash(&sdk, "dartdevc").is_empty());
-    assert_ne!(SdkCache::hash(&sdk, "dartdevc"), SdkCache::hash(&sdk, "dart2js"));
+    assert_ne!(
+        SdkCache::hash(&sdk, "dartdevc"),
+        SdkCache::hash(&sdk, "dart2js")
+    );
 }

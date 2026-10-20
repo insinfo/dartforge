@@ -33,7 +33,9 @@ use super::members::Evaluated;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::UnitId;
-use dartforge_frontend::ast::{self, AsyncModifier, ExprId, FunctionBody, FunctionId, ParameterKind};
+use dartforge_frontend::ast::{
+    self, AsyncModifier, ExprId, FunctionBody, FunctionId, ParameterKind,
+};
 use dartforge_intern::SymbolId;
 use dartforge_types::table::TypeId;
 
@@ -84,7 +86,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .filter(|(_, l)| l.late.is_some())
             .map(|(s, _)| *s)
             .collect();
-        let c = capture::analyze_with(self.ctx, self.unit_id, ast, root, !self.without_directs, &outside_lates);
+        let c = capture::analyze_with(
+            self.ctx,
+            self.unit_id,
+            ast,
+            root,
+            !self.without_directs,
+            &outside_lates,
+        );
         self.cells = c.cells;
         self.assigned = c.assigned;
         self.allowed_directs = c.directs;
@@ -128,7 +137,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name: p.name.map(|n| self.ctx.symbol_name(n.sym).to_string()),
                 kind: p.kind,
                 required: p.kind == ParameterKind::Required || p.required,
-                pattern: p.default_value.map_or(DefaultValue::Absent, |e| DefaultValue::Expr(unit, e)),
+                pattern: p
+                    .default_value
+                    .map_or(DefaultValue::Absent, |e| DefaultValue::Expr(unit, e)),
             })
             .collect()
     }
@@ -138,12 +149,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// for types without type, optional or named parameters, up to 12
     /// positional ones.
     pub(super) fn type_abi(&self, t: TypeId) -> Option<(Vec<Type>, Type, i64)> {
-        let dartforge_types::table::Type::Function { type_params, ret, positional, optional, named, nullable: false } =
-            self.ctx.table.get(t)
+        let dartforge_types::table::Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            nullable: false,
+        } = self.ctx.table.get(t)
         else {
             return None;
         };
-        if !type_params.is_empty() || !optional.is_empty() || !named.is_empty() || positional.len() > 12 {
+        if !type_params.is_empty()
+            || !optional.is_empty()
+            || !named.is_empty()
+            || positional.len() > 12
+        {
             return None;
         }
         let repr = |t: TypeId| match self.ctx.to_hir_type(t) {
@@ -167,7 +188,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// The typed ABI of a synchronous closure with only required positional ones,
     /// by its static type (that of the context, already inferred).
-    fn closure_abi(&self, f: &ast::Function, typ: Option<TypeId>) -> Option<(Vec<Type>, Type, i64)> {
+    fn closure_abi(
+        &self,
+        f: &ast::Function,
+        typ: Option<TypeId>,
+    ) -> Option<(Vec<Type>, Type, i64)> {
         let params = f.parameters.as_deref().unwrap_or(&[]);
         if f.modifier != AsyncModifier::None
             || !f.type_params.is_empty()
@@ -182,7 +207,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `(params) => e`, `(params) { … }` or the value of a local function.
     /// `ty`: the static type of the closure expression (the context one), from
     /// which the value type of an `async`/generator body comes.
-    pub fn lower_closure(&mut self, ast: &ast::Ast, fid: FunctionId, span: Span, typ: Option<TypeId>) -> Operand {
+    pub fn lower_closure(
+        &mut self,
+        ast: &ast::Ast,
+        fid: FunctionId,
+        span: Span,
+        typ: Option<TypeId>,
+    ) -> Operand {
         let f = ast.function(fid);
         // Free variables that are locals visible here.
         let (free_set, _) = capture::free_set(self.ctx, self.unit_id, ast, fid);
@@ -200,23 +231,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // environment the same way. A new closure inserted before, or captures
         // that change, give another name, and the live closures stay in the body in
         // which they were created.
-        let mut shape = format!("{with_this}|{}|{}|", self.type_tuple.is_some(), f.type_params.len());
+        let mut shape = format!(
+            "{with_this}|{}|{}|",
+            self.type_tuple.is_some(),
+            f.type_params.len()
+        );
         // Generic closure (local `T f<T>()`, `<T>(x) => …`): its type
         // arguments come in the hidden slot of the call and join, in the tuple of the
         // body, after those of its creator (`M<n_outside + i>`).
         let n_outside = self.tuple_size();
-        let own_ids: Vec<dartforge_types::table::TypeParamId> = match typ.map(|t| self.ctx.table.get(t)) {
-            Some(dartforge_types::table::Type::Function { type_params, .. }) if type_params.len() == f.type_params.len() => {
-                type_params.to_vec()
-            }
-            _ => Vec::new(),
-        };
+        let own_ids: Vec<dartforge_types::table::TypeParamId> =
+            match typ.map(|t| self.ctx.table.get(t)) {
+                Some(dartforge_types::table::Type::Function { type_params, .. })
+                    if type_params.len() == f.type_params.len() =>
+                {
+                    type_params.to_vec()
+                }
+                _ => Vec::new(),
+            };
         let own_set: Vec<(SymbolId, dartforge_types::table::TypeParamId, usize)> = f
             .type_params
             .iter()
             .enumerate()
             .map(|(i, tp)| {
-                let id = own_ids.get(i).copied().unwrap_or(dartforge_types::table::TypeParamId(u32::MAX));
+                let id = own_ids
+                    .get(i)
+                    .copied()
+                    .unwrap_or(dartforge_types::table::TypeParamId(u32::MAX));
                 (tp.name.sym, id, n_outside + i)
             })
             .collect();
@@ -235,7 +276,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 (true, []) => true,
                 (false, [(_, l)]) => {
                     l.late.is_none()
-                        && (matches!(l.mode, Mode::Cell(_) | Mode::Environment { cell: true, .. }) || l.ty == Type::Ref)
+                        && (matches!(l.mode, Mode::Cell(_) | Mode::Environment { cell: true, .. })
+                            || l.ty == Type::Ref)
                 }
                 _ => false,
             };
@@ -244,7 +286,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         for (sym, l) in &captures {
             let cell = matches!(l.mode, Mode::Cell(_) | Mode::Environment { cell: true, .. });
-            shape.push_str(&format!("{}:{cell}:{:?};", self.ctx.symbol_name(*sym), l.ty));
+            shape.push_str(&format!(
+                "{}:{cell}:{:?};",
+                self.ctx.symbol_name(*sym),
+                l.ty
+            ));
         }
         for p in f.parameters.as_deref().unwrap_or(&[]) {
             let name = p.name.map_or("", |n| self.ctx.symbol_name(n.sym));
@@ -266,16 +312,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.closure_name(f.name.map(|n| n.sym)),
             (hash_name(&shape) as u64) as u32
         );
-        let readable = f
-            .name
-            .map_or_else(|| "<closure>".to_string(), |n| self.ctx.symbol_name(n.sym).to_string());
+        let readable = f.name.map_or_else(
+            || "<closure>".to_string(),
+            |n| self.ctx.symbol_name(n.sym).to_string(),
+        );
 
         // --- corpo ---------------------------------------------------------
-        let mut b = FnBuilder::new(self.ctx, self.unit_id, symbol.clone(), readable.clone(), ret_repr);
+        let mut b = FnBuilder::new(
+            self.ctx,
+            self.unit_id,
+            symbol.clone(),
+            readable.clone(),
+            ret_repr,
+        );
         // The symbolic stack trace (§13.14): the token of the closure, the entry through
         // which the runtime finds it, the link to the awaiter and the inherited hidden one.
         if self.ctx.stack_trace {
-            b.stack_trace.token = self.ctx.line_and_column(self.unit_id, f.name.map_or(f.span.start, |n| n.span.start));
+            b.stack_trace.token = self
+                .ctx
+                .line_and_column(self.unit_id, f.name.map_or(f.span.start, |n| n.span.start));
             b.stack_trace.marks |= self.stack_trace.marks & crate::hir::stack_trace_marks::HIDDEN;
             b.stack_trace.closure_entry = Some(format!("{symbol}$ent"));
             b.stack_trace.chain_link = captures
@@ -298,12 +353,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let cell = matches!(l.mode, Mode::Cell(_) | Mode::Environment { cell: true, .. });
             let mode = if cell {
                 let ptr = b.entry_alloca(Type::Ref);
-                b.emit(Instruction::Store { ptr: ptr.clone(), val: env_b.clone() }, Type::Void);
+                b.emit(
+                    Instruction::Store {
+                        ptr: ptr.clone(),
+                        val: env_b.clone(),
+                    },
+                    Type::Void,
+                );
                 Mode::Cell(ptr)
             } else {
                 Mode::Value(env_b.clone())
             };
-            b.bind_local_as(*sym, super::locals::Local { mode, ty: l.ty, static_type: l.static_type, finalizable: l.finalizable, scope: 0, offset: None, late: None });
+            b.bind_local_as(
+                *sym,
+                super::locals::Local {
+                    mode,
+                    ty: l.ty,
+                    static_type: l.static_type,
+                    finalizable: l.finalizable,
+                    scope: 0,
+                    offset: None,
+                    late: None,
+                },
+            );
         } else if with_this {
             let t = b.emit(
                 Instruction::EnvGet {
@@ -317,10 +389,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             b.enclosing_class = self.enclosing_class;
         }
         for (i, (sym, l)) in captures.iter().enumerate().filter(|_| !direct) {
-            let cell = matches!(
-                l.mode,
-                Mode::Cell(_) | Mode::Environment { cell: true, .. }
-            );
+            let cell = matches!(l.mode, Mode::Cell(_) | Mode::Environment { cell: true, .. });
             // A captured SIMD vector goes into the environment boxed (the position
             // has 64 bits).
             let ty = if l.ty.is_vector() { Type::Ref } else { l.ty };
@@ -360,9 +429,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         b.open_scope();
         for (i, p) in params.iter().enumerate() {
-            let name = p
-                .name
-                .map_or_else(|| "arg".to_string(), |n| self.ctx.symbol_name(n.sym).to_string());
+            let name = p.name.map_or_else(
+                || "arg".to_string(),
+                |n| self.ctx.symbol_name(n.sym).to_string(),
+            );
             let ty = reprs.as_ref().map_or(Type::Ref, |r| r[i]);
             let vid = b.add_param_dart(name, ty);
             if let Some(n) = p.name {
@@ -382,11 +452,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             use super::async_sm::AsyncReturn;
             let ret_val = f.return_type.map(AsyncReturn::Annotation).or_else(|| {
                 typ.and_then(|t| match self.ctx.table.get(t) {
-                    dartforge_types::table::Type::Function { ret, .. } => Some(AsyncReturn::Typed(*ret)),
+                    dartforge_types::table::Type::Function { ret, .. } => {
+                        Some(AsyncReturn::Typed(*ret))
+                    }
                     _ => None,
                 })
             });
-            b.lower_async_body(ast, params, &f.body, span, ret_val, super::async_sm::body_type(f.modifier));
+            b.lower_async_body(
+                ast,
+                params,
+                &f.body,
+                span,
+                ret_val,
+                super::async_sm::body_type(f.modifier),
+            );
         } else {
             match &f.body {
                 FunctionBody::Block(s) => b.lower_stmt(ast, *s),
@@ -411,7 +490,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // --- entrada uniforme ----------------------------------------------
         let infos = self.closure_params(f);
         let symbol_ent = format!("{symbol}$ent");
-        let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), readable, Type::Ref);
+        let mut e = FnBuilder::new(
+            self.ctx,
+            self.unit_id,
+            symbol_ent.clone(),
+            readable,
+            Type::Ref,
+        );
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
         let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
@@ -435,7 +520,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 text.push_str(limit.as_ref().map_or("D", |r| r.text.as_str()));
             }
             text.push('>');
-            super::rti::Recipe { text, variables: false }
+            super::rti::Recipe {
+                text,
+                variables: false,
+            }
         });
         if let Some(vals) = e.unpack(&infos, args.clone(), desc.clone()) {
             let mut all = vec![env_e.clone()];
@@ -450,7 +538,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // The tuple of the call is in the slot after the arguments.
                 let own = e.slot_tuple(&args, &desc);
                 let from_outside = if self.type_tuple.is_some() {
-                    e.emit(Instruction::EnvGet { env: env_e.clone(), index: base + captures.len() }, Type::I64)
+                    e.emit(
+                        Instruction::EnvGet {
+                            env: env_e.clone(),
+                            index: base + captures.len(),
+                        },
+                        Type::I64,
+                    )
                 } else {
                     Operand::Constant(Constant::Int(0))
                 };
@@ -460,7 +554,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         name: "dartforge_rti_tuple_join".to_string(),
                         args: vec![
                             (from_outside, Type::I64),
-                            (Operand::Constant(Constant::Int(n_outside as i64)), Type::I64),
+                            (
+                                Operand::Constant(Constant::Int(n_outside as i64)),
+                                Type::I64,
+                            ),
                             (own, Type::I64),
                             (pattern, Type::I64),
                         ],
@@ -498,7 +595,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 None => self.read_local(l),
             };
             // The unboxed SIMD vector goes boxed (`bind_env` with `Ref`).
-            let v = if self.operand_type(&v).is_vector() { self.coerce(v, Type::Ref) } else { v };
+            let v = if self.operand_type(&v).is_vector() {
+                self.coerce(v, Type::Ref)
+            } else {
+                v
+            };
             values.push(v);
         }
         if let Some(t) = self.type_tuple.clone() {
@@ -514,13 +615,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         match abi {
             Some((_, _, code)) => self.emit(
-                Instruction::AllocClosureTyped { code_symbol: symbol_ent, env, typed: symbol, abi: code, direct },
+                Instruction::AllocClosureTyped {
+                    code_symbol: symbol_ent,
+                    env,
+                    typed: symbol,
+                    abi: code,
+                    direct,
+                },
                 Type::Ref,
             ),
             // Without a typed ABI, the typed body is not called (`abi` 0 matches
             // no typed call): the entry in its place.
             None if direct => self.emit(
-                Instruction::AllocClosureTyped { code_symbol: symbol_ent.clone(), env, typed: symbol_ent, abi: 0, direct },
+                Instruction::AllocClosureTyped {
+                    code_symbol: symbol_ent.clone(),
+                    env,
+                    typed: symbol_ent,
+                    abi: 0,
+                    direct,
+                },
                 Type::Ref,
             ),
             None => self.emit(
@@ -540,7 +653,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         ast.functions.iter().any(|f| {
             f.parameters.iter().flatten().any(|p| {
                 p.name.is_some_and(|n| n.span.start == offset)
-                    && p.metadata.iter().any(|a| crate::source::pragma_with_string(self.ctx.interner, ast, a, "vm:awaiter-link"))
+                    && p.metadata.iter().any(|a| {
+                        crate::source::pragma_with_string(
+                            self.ctx.interner,
+                            ast,
+                            a,
+                            "vm:awaiter-link",
+                        )
+                    })
             })
         })
     }
@@ -548,21 +668,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Applies metadata on a local declaration to its body, preserving separately
     /// declared nested functions and the generated uniform entry.
     pub fn record_local_inline_policy(&mut self, ast: &ast::Ast, fid: FunctionId) {
-        let metadata = ast.local_metadata.iter().find_map(|(stmt, metadata)|
+        let metadata = ast.local_metadata.iter().find_map(|(stmt, metadata)| {
             matches!(ast.stmts[stmt.0 as usize].kind, ast::StmtKind::Function(id) if id == fid)
-                .then_some(metadata));
+                .then_some(metadata)
+        });
         let Some(metadata) = metadata else { return };
-        let has = |name| metadata.iter().any(|an|
-            crate::source::pragma_with_string(self.ctx.interner, ast, an, name));
-        let policy = if has("vm:never-inline") { Some(crate::hir::InlinePolicy::Never) }
-            else if has("vm:prefer-inline") { Some(crate::hir::InlinePolicy::Prefer) }
-            else { None };
+        let has = |name| {
+            metadata
+                .iter()
+                .any(|an| crate::source::pragma_with_string(self.ctx.interner, ast, an, name))
+        };
+        let policy = if has("vm:never-inline") {
+            Some(crate::hir::InlinePolicy::Never)
+        } else if has("vm:prefer-inline") {
+            Some(crate::hir::InlinePolicy::Prefer)
+        } else {
+            None
+        };
         if let Some(policy) = policy {
-            self.inline_policies.insert(self.func.symbol.clone(), policy);
+            self.inline_policies
+                .insert(self.func.symbol.clone(), policy);
             let prefix = format!("{}$async$q", self.func.symbol);
             for f in &self.extra_functions {
-                if f.symbol.strip_prefix(&prefix)
-                    .is_some_and(|suffix| suffix.len() == 8 && suffix.bytes().all(|b| b.is_ascii_hexdigit())) {
+                if f.symbol.strip_prefix(&prefix).is_some_and(|suffix| {
+                    suffix.len() == 8 && suffix.bytes().all(|b| b.is_ascii_hexdigit())
+                }) {
                     self.inline_policies.insert(f.symbol.clone(), policy);
                 }
             }
@@ -583,7 +713,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.dart_ref_returns.extend(b.dart_ref_returns);
         self.arc_rti_caches.extend(b.arc_rti_caches);
         self.arc_shared_functions.extend(b.arc_shared_functions);
-        self.arc_direct_local_functions.extend(b.arc_direct_local_functions);
+        self.arc_direct_local_functions
+            .extend(b.arc_direct_local_functions);
         self.async_frame_layouts.extend(b.async_frame_layouts);
         self.extra_functions.push(b.func);
         self.extra_functions.extend(b.extra_functions);
@@ -645,14 +776,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // `dartforge_args_match` is: no named one passed and
                 // `n_req <= positionals <= n_pos` — inline, without the call.
                 let int = |x: usize| Operand::Constant(Constant::Int(x as i64));
-                let npos = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: int(0) }, Type::I64);
-                let n_named = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: int(1) }, Type::I64);
+                let npos = self.emit(
+                    Instruction::LoadIndexed {
+                        base: desc.clone(),
+                        index: int(0),
+                    },
+                    Type::I64,
+                );
+                let n_named = self.emit(
+                    Instruction::LoadIndexed {
+                        base: desc.clone(),
+                        index: int(1),
+                    },
+                    Type::I64,
+                );
                 if n_req == n_pos {
                     let x = self.emit(Instruction::Xor(npos, int(n_req)), Type::I64);
                     let y = self.emit(Instruction::Or(x, n_named), Type::I64);
                     self.emit(Instruction::ICmp(ICmpOp::Eq, y, int(0)), Type::I1)
                 } else {
-                    let lo = self.emit(Instruction::ICmp(ICmpOp::Sge, npos.clone(), int(n_req)), Type::I1);
+                    let lo = self.emit(
+                        Instruction::ICmp(ICmpOp::Sge, npos.clone(), int(n_req)),
+                        Type::I1,
+                    );
                     let hi = self.emit(Instruction::ICmp(ICmpOp::Sle, npos, int(n_pos)), Type::I1);
                     let z = self.emit(Instruction::ICmp(ICmpOp::Eq, n_named, int(0)), Type::I1);
                     let a = self.emit(Instruction::And(lo, hi), Type::I64);
@@ -669,7 +815,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     },
                     Type::I8,
                 );
-                self.emit(Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))), Type::I1)
+                self.emit(
+                    Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                )
             };
             let b_ok = self.new_block();
             let b_error = self.new_block();
@@ -719,7 +868,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             let (present, index) = if p.kind == ParameterKind::Optional {
                 let c = self.emit(
-                    Instruction::ICmp(ICmpOp::Sgt, npos.clone(), Operand::Constant(Constant::Int(i_pos))),
+                    Instruction::ICmp(
+                        ICmpOp::Sgt,
+                        npos.clone(),
+                        Operand::Constant(Constant::Int(i_pos)),
+                    ),
                     Type::I1,
                 );
                 let idx = Operand::Constant(Constant::Int(i_pos));
@@ -730,7 +883,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let j = self.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_arg_index".to_string(),
-                        args: vec![(desc.clone(), Type::Ptr), (Operand::Constant(Constant::Int(h)), Type::I64)],
+                        args: vec![
+                            (desc.clone(), Type::Ptr),
+                            (Operand::Constant(Constant::Int(h)), Type::I64),
+                        ],
                         ret_ty: Type::I64,
                     },
                     Type::I64,
@@ -816,7 +972,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let zero = Operand::Constant(Constant::Int(0));
         let Some(expr) = call else { return zero };
         let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
-        let ast::ExprKind::Call { arguments, .. } = &unit_ast.expr(expr).kind else { return zero };
+        let ast::ExprKind::Call { arguments, .. } = &unit_ast.expr(expr).kind else {
+            return zero;
+        };
         if !arguments.type_args.is_empty() {
             let args = arguments.type_args.to_vec();
             let mut r = self.type_argument_recipes(&args);
@@ -824,7 +982,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.recipe_rti(&r);
         }
         let Some(t) = typ else { return zero };
-        let T::Function { type_params, ret, positional, optional, named, .. } = self.ctx.table.get(t).clone() else {
+        let T::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } = self.ctx.table.get(t).clone()
+        else {
             return zero;
         };
         if type_params.is_empty() {
@@ -837,14 +1003,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut positionals = positional.iter().chain(optional.iter());
         for a in arguments.args.iter() {
             let decl = match a.name {
-                Some(n) => named.iter().find(|(s, _, _)| *s == n.sym).map(|(_, t, _)| *t),
+                Some(n) => named
+                    .iter()
+                    .find(|(s, _, _)| *s == n.sym)
+                    .map(|(_, t, _)| *t),
                 None => positionals.next().copied(),
             };
             if let (Some(d), Some(real)) = (decl, self.ctx.get_type_raw(self.unit_id, a.value)) {
                 self.unify(d, real, &type_params, &mut found_items);
             }
         }
-        let mut r = super::rti::Recipe { text: "L<".to_string(), variables: false };
+        let mut r = super::rti::Recipe {
+            text: "L<".to_string(),
+            variables: false,
+        };
         for (i, found) in found_items.iter().enumerate() {
             if i > 0 {
                 r.text.push(',');
@@ -861,7 +1033,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// at runtime (another closure, a callable class or a subtype
     /// with another representation go through the uniform entry): without a vector of
     /// arguments, a descriptor, an arity check or boxes.
-    fn call_typed_closure(&mut self, callee: Operand, evaluated: &[Evaluated], reprs: &[Type], ret: Type, abi: i64) -> Operand {
+    fn call_typed_closure(
+        &mut self,
+        callee: Operand,
+        evaluated: &[Evaluated],
+        reprs: &[Type],
+        ret: Type,
+        abi: i64,
+    ) -> Operand {
         // Returns `Ref`, like the uniform call. The fields of `_Closure`
         // (code, context, typed body, ABI) are read from the block inline,
         // after checking the class (`@df.class` inline): only a `_Closure`
@@ -884,16 +1063,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Instruction::ICmp(
                 ICmpOp::Eq,
                 class,
-                Operand::Constant(Constant::Int(i64::from(dartforge_runtime::layout::cid::CLOSURE))),
+                Operand::Constant(Constant::Int(i64::from(
+                    dartforge_runtime::layout::cid::CLOSURE,
+                ))),
             ),
             Type::I1,
         );
-        self.terminate(Terminator::CondBranch { cond: is_closure, then_block: check_abi, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: is_closure,
+            then_block: check_abi,
+            else_block: slow,
+        });
 
         self.set_block(check_abi);
         let closure_abi = self.object_word(callee.clone(), super::boxes::CLOSURE_ABI, Type::I64);
-        let has = self.emit(Instruction::ICmp(ICmpOp::Eq, closure_abi, Operand::Constant(Constant::Int(abi))), Type::I1);
-        self.terminate(Terminator::CondBranch { cond: has, then_block: fast, else_block: slow });
+        let has = self.emit(
+            Instruction::ICmp(
+                ICmpOp::Eq,
+                closure_abi,
+                Operand::Constant(Constant::Int(abi)),
+            ),
+            Type::I1,
+        );
+        self.terminate(Terminator::CondBranch {
+            cond: has,
+            then_block: fast,
+            else_block: slow,
+        });
 
         self.set_block(fast);
         let target = self.object_word(callee.clone(), super::boxes::CLOSURE_TYPED, Type::I64);
@@ -924,7 +1120,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         self.set_block(join);
         match (fast_arrives, slow_arrives) {
-            (true, true) => self.emit(Instruction::Phi { incoming: vec![(fast_end, r), (slow_end, s)], ty: Type::Ref }, Type::Ref),
+            (true, true) => self.emit(
+                Instruction::Phi {
+                    incoming: vec![(fast_end, r), (slow_end, s)],
+                    ty: Type::Ref,
+                },
+                Type::Ref,
+            ),
             (true, false) => r,
             (false, true) => s,
             (false, false) => {
@@ -935,7 +1137,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// The call through the uniform convention (the `$ent` entry of the closure).
-    fn call_uniform_closure(&mut self, callee: Operand, evaluated: &[Evaluated], tuple_types: Operand) -> Operand {
+    fn call_uniform_closure(
+        &mut self,
+        callee: Operand,
+        evaluated: &[Evaluated],
+        tuple_types: Operand,
+    ) -> Operand {
         let mut args = Vec::with_capacity(evaluated.len());
         for (n, v) in evaluated {
             if n.is_none() {
@@ -969,10 +1176,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The type argument tuple that the call through the uniform convention
     /// passes in the slot after the arguments (`0`: none).
     pub(super) fn slot_tuple(&mut self, args: &Operand, desc: &Operand) -> Operand {
-        let npos = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::I64);
-        let n_named = self.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) }, Type::I64);
+        let npos = self.emit(
+            Instruction::LoadIndexed {
+                base: desc.clone(),
+                index: Operand::Constant(Constant::Int(0)),
+            },
+            Type::I64,
+        );
+        let n_named = self.emit(
+            Instruction::LoadIndexed {
+                base: desc.clone(),
+                index: Operand::Constant(Constant::Int(1)),
+            },
+            Type::I64,
+        );
         let index = self.emit(Instruction::Add(npos, n_named), Type::I64);
-        self.emit(Instruction::LoadIndexed { base: args.clone(), index }, Type::I64)
+        self.emit(
+            Instruction::LoadIndexed {
+                base: args.clone(),
+                index,
+            },
+            Type::I64,
+        )
     }
 
     /// The parameters of a program function, for the uniform entry.
@@ -980,8 +1205,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(data) = self.ctx.outline.functions.get(fid) else {
             return Vec::new();
         };
-        data
-            .parameters
+        data.parameters
             .iter()
             .enumerate()
             .map(|(i, p)| EntryParam {
@@ -997,12 +1221,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn function_tearoff(&mut self, fid: usize) -> Operand {
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$tear");
-        if self.ctx.arc_memory { self.arc_shared_functions.insert(symbol_ent.clone()); }
+        if self.ctx.arc_memory {
+            self.arc_shared_functions.insert(symbol_ent.clone());
+        }
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
             let unit = self.unit_id;
-            let name = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.functions[fid].name)
+                .to_string();
             let mut e = FnBuilder::new(self.ctx, unit, symbol_ent.clone(), name, Type::Ref);
             e.add_param("closure".to_string(), Type::Ref);
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
@@ -1048,11 +1277,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn method_tearoff(&mut self, recv: Operand, fid: usize, span: Span) -> Operand {
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$tearm");
-        if self.ctx.arc_memory { self.arc_shared_functions.insert(symbol_ent.clone()); }
+        if self.ctx.arc_memory {
+            self.arc_shared_functions.insert(symbol_ent.clone());
+        }
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
-            let name = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.functions[fid].name)
+                .to_string();
             let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), name, Type::Ref);
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
@@ -1105,7 +1339,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     .parameters
                     .iter()
                     .zip(vals)
-                    .map(|(p, v)| (if p.kind == ParameterKind::Named { p.name } else { None }, v))
+                    .map(|(p, v)| {
+                        (
+                            if p.kind == ParameterKind::Named {
+                                p.name
+                            } else {
+                                None
+                            },
+                            v,
+                        )
+                    })
                     .collect();
                 let r = e.call_member(receiver, fid, &evaluated, span);
                 let r = if matches!(e.operand_type(&r), Type::Void) {
@@ -1118,7 +1361,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.absorb(e);
         }
         let recv = self.coerce(recv, Type::Ref);
-        let env = self.emit(Instruction::AllocEnv { values: vec![recv.clone()] }, Type::Ref);
+        let env = self.emit(
+            Instruction::AllocEnv {
+                values: vec![recv.clone()],
+            },
+            Type::Ref,
+        );
         let c = self.emit(
             Instruction::AllocClosure {
                 code_symbol: symbol_ent,
@@ -1137,7 +1385,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// may widen the type of a parameter (`Object?` in place of the `E` of the
     /// interface). Every class has the selector table (source SDK).
     fn tearoff_by_selector(&self, fid: usize) -> bool {
-        use super::sdk_source::{Implementation, implementations, closed_member};
+        use super::sdk_source::{Implementation, closed_member, implementations};
         let f = &self.ctx.program.functions[fid];
         let Some(cid) = f.class else { return false };
         if f.static_ || self.single_implementation(fid).is_some() {
@@ -1158,8 +1406,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // `on` type (the lexical scope of the extension encloses the body).
         if let Some((e, _)) = self.this_extension {
             let x = &self.ctx.program.extensions[e.0 as usize];
-            if let Some(&f) = x.instance_members.get(&sym).or_else(|| x.static_members.get(&sym)) {
-                return Some(Resolved::ExtensionMember { extension: e, member: f });
+            if let Some(&f) = x
+                .instance_members
+                .get(&sym)
+                .or_else(|| x.static_members.get(&sym))
+            {
+                return Some(Resolved::ExtensionMember {
+                    extension: e,
+                    member: f,
+                });
             }
         }
         // In the body of an extension type, its members (and those of the extension
@@ -1167,12 +1422,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.member_te_by_name(sym) {
             return Some(r);
         }
-        for c in self.enclosing_class.map(|c| crate::lower::members::linearization(self.ctx, c)).unwrap_or_default() {
+        for c in self
+            .enclosing_class
+            .map(|c| crate::lower::members::linearization(self.ctx, c))
+            .unwrap_or_default()
+        {
             let class = &self.ctx.program.classes[c.0 as usize];
             if !self.ctx.compiled_library(class.library) {
                 break;
             }
-            if let Some(&f) = class.instance_members.get(&sym).or_else(|| class.static_members.get(&sym)) {
+            if let Some(&f) = class
+                .instance_members
+                .get(&sym)
+                .or_else(|| class.static_members.get(&sym))
+            {
                 return Some(Resolved::Member {
                     class: c,
                     member: MemberRef::Function(f),
@@ -1194,7 +1457,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // model keeps them separately (`enum_constants`): `case forward:` in the
             // body of the enum itself is the constant pattern `Direction.forward`.
             if let Some(v) = enum_constant(self.ctx, c, sym) {
-                return Some(Resolved::Member { class: c, member: MemberRef::Variable(v), via_super: false });
+                return Some(Resolved::Member {
+                    class: c,
+                    member: MemberRef::Variable(v),
+                    via_super: false,
+                });
             }
         }
         // In a static member, the statics of the class that declares it.
@@ -1203,16 +1470,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             let class = &self.ctx.program.classes[c.0 as usize];
             if let Some(&f) = class.static_members.get(&sym) {
-                return Some(Resolved::Member { class: c, member: MemberRef::Function(f), via_super: false });
+                return Some(Resolved::Member {
+                    class: c,
+                    member: MemberRef::Function(f),
+                    via_super: false,
+                });
             }
             if let Some(&v) = class.fields.iter().find(|&&v| {
                 let var = &self.ctx.program.variables[v.0 as usize];
                 var.static_ && var.name == sym
             }) {
-                return Some(Resolved::Member { class: c, member: MemberRef::Variable(v), via_super: false });
+                return Some(Resolved::Member {
+                    class: c,
+                    member: MemberRef::Variable(v),
+                    via_super: false,
+                });
             }
             if let Some(v) = enum_constant(self.ctx, c, sym) {
-                return Some(Resolved::Member { class: c, member: MemberRef::Variable(v), via_super: false });
+                return Some(Resolved::Member {
+                    class: c,
+                    member: MemberRef::Variable(v),
+                    via_super: false,
+                });
             }
         }
         let lib = self.ctx.program.unit(self.unit_id).library;
@@ -1226,14 +1505,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match self.resolve_by_name(sym)? {
             r @ Resolved::Member { .. } if self.resolved_member_te(Some(&r)).is_some() => {
                 let m = self.resolved_member_te(Some(&r))?;
-                let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
+                let this = self
+                    .this_param
+                    .clone()
+                    .unwrap_or(Operand::Constant(Constant::Null));
                 let receiver = self.implicit_receiver();
                 Some(self.read_member_te(this, m, receiver, span))
             }
             Resolved::Member { member, .. } => Some(self.read_implicit_member(member, span)),
             Resolved::Element(el) => Some(self.read_element(el, span)),
             Resolved::ExtensionMember { member, .. } => {
-                let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
+                let this = self
+                    .this_param
+                    .clone()
+                    .unwrap_or(Operand::Constant(Constant::Null));
                 let receiver = self.implicit_receiver();
                 Some(self.read_extension(this, member.0 as usize, receiver, span))
             }
@@ -1244,13 +1529,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `f<T…>`: the closure of a generic function with the type arguments
     /// fixed (`tuple`, in the environment). The entry builds the tuple and calls the
     /// function; the reified type is that of the instantiation (`ty`, static).
-    pub fn instantiated_tearoff(&mut self, fid: usize, tuple: Operand, typ: Option<TypeId>) -> Operand {
+    pub fn instantiated_tearoff(
+        &mut self,
+        fid: usize,
+        tuple: Operand,
+        typ: Option<TypeId>,
+    ) -> Operand {
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$teari");
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
-            let name = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.functions[fid].name)
+                .to_string();
             let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), name, Type::Ref);
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
@@ -1262,8 +1555,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // The arguments of a dynamic call, checked as in the
                 // VM (" of 'name'") before being converted.
                 e.check_entry_arguments(fid, &vals);
-                let reprs: Vec<Type> = self.ctx.outline.functions[fid].parameters.iter().map(|p| e.repr(p.ty)).collect();
-                let vals: Vec<Operand> = vals.into_iter().zip(reprs).map(|(v, r)| e.coerce(v, r)).collect();
+                let reprs: Vec<Type> = self.ctx.outline.functions[fid]
+                    .parameters
+                    .iter()
+                    .map(|p| e.repr(p.ty))
+                    .collect();
+                let vals: Vec<Operand> = vals
+                    .into_iter()
+                    .zip(reprs)
+                    .map(|(v, r)| e.coerce(v, r))
+                    .collect();
                 e.armed_tuple = Some(t);
                 let r = e.call_direct(fid, None, vals);
                 let r = if matches!(e.operand_type(&r), Type::Void) {
@@ -1277,8 +1578,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         // The tuple goes raw (`I64`), as the entry reads it (`EnvGet` in `I64`).
         let tuple = self.coerce(tuple, Type::I64);
-        let env = self.emit(Instruction::AllocEnv { values: vec![tuple] }, Type::Ref);
-        let c = self.emit(Instruction::AllocClosure { code_symbol: symbol_ent, env }, Type::Ref);
+        let env = self.emit(
+            Instruction::AllocEnv {
+                values: vec![tuple],
+            },
+            Type::Ref,
+        );
+        let c = self.emit(
+            Instruction::AllocClosure {
+                code_symbol: symbol_ent,
+                env,
+            },
+            Type::Ref,
+        );
         self.define_instantiation_rti(c.clone(), fid, typ);
         c
     }
@@ -1299,21 +1611,39 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
-            let name = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.functions[fid].name)
+                .to_string();
             let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), name, Type::Ref);
             let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
             let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
             e.declare_arc_uniform_return();
             let env = e.closure_context(clo);
-            let obj = e.emit(Instruction::EnvGet { env: env.clone(), index: 0 }, Type::I64);
+            let obj = e.emit(
+                Instruction::EnvGet {
+                    env: env.clone(),
+                    index: 0,
+                },
+                Type::I64,
+            );
             let t = e.emit(Instruction::EnvGet { env, index: 1 }, Type::I64);
             if let Some(vals) = e.unpack(&infos, args, desc) {
                 let evaluated: Vec<Evaluated> = self.ctx.outline.functions[fid]
                     .parameters
                     .iter()
                     .zip(vals)
-                    .map(|(p, v)| (if p.kind == ParameterKind::Named { p.name } else { None }, v))
+                    .map(|(p, v)| {
+                        (
+                            if p.kind == ParameterKind::Named {
+                                p.name
+                            } else {
+                                None
+                            },
+                            v,
+                        )
+                    })
                     .collect();
                 let r = e.instantiate_evaluated_with_rti(
                     dartforge_elements::model::FunctionElementId(fid as u32),
@@ -1330,8 +1660,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // The type of the object and the tuple go raw (`I64`), as the entry reads them.
         let object = self.coerce(object, Type::I64);
         let tuple = self.coerce(tuple, Type::I64);
-        let env = self.emit(Instruction::AllocEnv { values: vec![object, tuple] }, Type::Ref);
-        let c = self.emit(Instruction::AllocClosure { code_symbol: symbol_ent, env }, Type::Ref);
+        let env = self.emit(
+            Instruction::AllocEnv {
+                values: vec![object, tuple],
+            },
+            Type::Ref,
+        );
+        let c = self.emit(
+            Instruction::AllocClosure {
+                code_symbol: symbol_ent,
+                env,
+            },
+            Type::Ref,
+        );
         self.define_instantiation_rti(c.clone(), fid, typ);
         c
     }
@@ -1341,7 +1682,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// it, the declared signature.
     fn define_instantiation_rti(&mut self, clo: Operand, fid: usize, typ: Option<TypeId>) {
         match typ {
-            Some(t) if matches!(self.ctx.table.get(t), dartforge_types::table::Type::Function { type_params, .. } if type_params.is_empty()) => {
+            Some(t) if matches!(self.ctx.table.get(t), dartforge_types::table::Type::Function { type_params, .. } if type_params.is_empty()) =>
+            {
                 let r = self.type_rti(t);
                 self.define_rti(clo, r);
             }
@@ -1351,12 +1693,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// The resolution of an expression, or (an identifier without a resolution, as
     /// in a closure body) that of the name through the lexical scope.
-    pub fn resolution_or_name(&self, ast: &ast::Ast, e: ast::ExprId) -> Option<dartforge_types::resolved::Resolved> {
+    pub fn resolution_or_name(
+        &self,
+        ast: &ast::Ast,
+        e: ast::ExprId,
+    ) -> Option<dartforge_types::resolved::Resolved> {
         if let Some(r) = self.ctx.get_resolved(self.unit_id, e).cloned() {
             return Some(r);
         }
         match &ast.expr(e).kind {
-            ast::ExprKind::Identifier(n) if self.lookup_local(n.sym).is_none() => self.resolve_by_name(n.sym),
+            ast::ExprKind::Identifier(n) if self.lookup_local(n.sym).is_none() => {
+                self.resolve_by_name(n.sym)
+            }
             _ => None,
         }
     }
@@ -1367,20 +1715,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         use dartforge_types::resolved::{MemberRef, Resolved};
         let fid = match self.resolution_or_name(ast, target)? {
             Resolved::Element(dartforge_elements::model::Element::Function(f)) => f.0 as usize,
-            Resolved::Member { member: MemberRef::Function(f), .. } => f.0 as usize,
+            Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            } => f.0 as usize,
             _ => return None,
         };
         let f = &self.ctx.program.functions[fid];
         let free = f.class.is_none() || f.static_;
-        (free && f.variable.is_none() && f.kind == dartforge_elements::model::FunctionKind::Function && self.generic_function(fid))
-            .then_some(fid)
+        (free
+            && f.variable.is_none()
+            && f.kind == dartforge_elements::model::FunctionKind::Function
+            && self.generic_function(fid))
+        .then_some(fid)
     }
 
     /// The recipes of the written type arguments (`<int, T>`), joined by
     /// commas (`dynamic` for what does not resolve).
     pub fn type_argument_recipes(&self, args: &[ast::TypeId]) -> super::rti::Recipe {
         let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
-        let mut r = super::rti::Recipe { text: String::new(), variables: false };
+        let mut r = super::rti::Recipe {
+            text: String::new(),
+            variables: false,
+        };
         for (i, a) in args.iter().enumerate() {
             if i > 0 {
                 r.text.push(',');
@@ -1413,15 +1770,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         span: Span,
     ) -> Operand {
         let vars: Vec<String> = (0..params.len()).map(|i| format!("M{i}")).collect();
-        let strings: Vec<String> = args.iter().map(|a| self.type_recipe_with(*a, params, &vars).text).collect();
+        let strings: Vec<String> = args
+            .iter()
+            .map(|a| self.type_recipe_with(*a, params, &vars).text)
+            .collect();
         let string_object = format!("C{}<{}>", self.ctx.id_rti(c), strings.join(","));
         let tuple_text = format!("L<{}>", strings.join(","));
         let target = super::symbol_of(self.ctx, fid);
-        let symbol_ent = format!("{target}$teara{:08x}", (hash_name(&string_object) as u64) as u32);
+        let symbol_ent = format!(
+            "{target}$teara{:08x}",
+            (hash_name(&string_object) as u64) as u32
+        );
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
-            let name = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.functions[fid].name)
+                .to_string();
             let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), name, Type::Ref);
             e.add_param("closure".to_string(), Type::Ref);
             let a = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
@@ -1432,12 +1798,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     .parameters
                     .iter()
                     .zip(vals)
-                    .map(|(p, v)| (if p.kind == ParameterKind::Named { p.name } else { None }, v))
+                    .map(|(p, v)| {
+                        (
+                            if p.kind == ParameterKind::Named {
+                                p.name
+                            } else {
+                                None
+                            },
+                            v,
+                        )
+                    })
                     .collect();
                 let slot = e.slot_tuple(&a, &d);
                 e.type_tuple = Some(slot);
-                let object = e.recipe_rti(&super::rti::Recipe { text: string_object.clone(), variables: true });
-                let tuple = e.recipe_rti(&super::rti::Recipe { text: tuple_text.clone(), variables: true });
+                let object = e.recipe_rti(&super::rti::Recipe {
+                    text: string_object.clone(),
+                    variables: true,
+                });
+                let tuple = e.recipe_rti(&super::rti::Recipe {
+                    text: tuple_text.clone(),
+                    variables: true,
+                });
                 let r = e.instantiate_evaluated_with_rti(
                     dartforge_elements::model::FunctionElementId(fid as u32),
                     &evaluated,
@@ -1450,7 +1831,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.absorb(e);
         }
-        let t = self.emit(Instruction::TearOff { code_symbol: symbol_ent }, Type::Ref);
+        let t = self.emit(
+            Instruction::TearOff {
+                code_symbol: symbol_ent,
+            },
+            Type::Ref,
+        );
         // The signature is the static type (the generic function).
         let r = self.type_recipe(typ);
         let rti = self.recipe_rti(&r);
@@ -1474,11 +1860,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn constructor_tearoff(&mut self, fid: usize, span: Span) -> Operand {
         let target = super::symbol_of(self.ctx, fid);
         let symbol_ent = format!("{target}$tear");
-        if self.ctx.arc_memory { self.arc_shared_functions.insert(symbol_ent.clone()); }
+        if self.ctx.arc_memory {
+            self.arc_shared_functions.insert(symbol_ent.clone());
+        }
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
             let infos = self.function_params(fid);
-            let name = self.ctx.symbol_name(self.ctx.program.functions[fid].name).to_string();
+            let name = self
+                .ctx
+                .symbol_name(self.ctx.program.functions[fid].name)
+                .to_string();
             let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), name, Type::Ref);
             e.add_param("closure".to_string(), Type::Ref);
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
@@ -1489,14 +1880,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     .parameters
                     .iter()
                     .zip(vals)
-                    .map(|(p, v)| (if p.kind == ParameterKind::Named { p.name } else { None }, v))
+                    .map(|(p, v)| {
+                        (
+                            if p.kind == ParameterKind::Named {
+                                p.name
+                            } else {
+                                None
+                            },
+                            v,
+                        )
+                    })
                     .collect();
                 // Constructor of a generic class: the tear-off is a generic
                 // function in the class parameters (`C<T> Function<T>()`),
                 // and the type arguments of the call come in the hidden slot
                 // (none: `dynamic`).
                 let class = self.ctx.program.functions[fid].class;
-                let n = class.and_then(|c| self.ctx.outline.classes.get(c.0 as usize)).map_or(0, |d| d.type_params.len());
+                let n = class
+                    .and_then(|c| self.ctx.outline.classes.get(c.0 as usize))
+                    .map_or(0, |d| d.type_params.len());
                 let r = match class.filter(|_| n > 0) {
                     Some(c) => {
                         let tuple = e.slot_tuple(&args, &desc);
@@ -1514,7 +1916,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             Some(tuple),
                         )
                     }
-                    None => e.instantiate_evaluated(dartforge_elements::model::FunctionElementId(fid as u32), &evaluated, span),
+                    None => e.instantiate_evaluated(
+                        dartforge_elements::model::FunctionElementId(fid as u32),
+                        &evaluated,
+                        span,
+                    ),
                 };
                 let r = e.coerce(r, Type::Ref);
                 e.terminate(Terminator::Return(Some(r)));

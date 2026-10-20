@@ -205,8 +205,7 @@ pub(super) fn certify(ctx: &Context) -> bool {
         // every valid certificate after their migration to pure HIR operations.
         // Keep an exact implementation-state requirement: an unknown, pending
         // or newly redirected runtime binding needs a fresh review.
-        if crate::natives::native(&native)
-            .is_none_or(|n| n.state != crate::natives::State::Builtin)
+        if crate::natives::native(&native).is_none_or(|n| n.state != crate::natives::State::Builtin)
         {
             reject!("clamp native ABI lacks reviewed embedded implementation: {native}");
         }

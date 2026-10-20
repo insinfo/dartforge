@@ -36,7 +36,14 @@ pub(crate) enum Kind {
 }
 
 /// The kinds of `forType`.
-pub(crate) const OF_TYPE: &[Kind] = &[Kind::Class, Kind::Enum, Kind::ExtensionType, Kind::FunctionAlias, Kind::Mixin, Kind::TypeAlias];
+pub(crate) const OF_TYPE: &[Kind] = &[
+    Kind::Class,
+    Kind::Enum,
+    Kind::ExtensionType,
+    Kind::FunctionAlias,
+    Kind::Mixin,
+    Kind::TypeAlias,
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Fingerprint {
@@ -62,7 +69,10 @@ fn written_type(text: &str, a: &ast::Ast, t: Option<ast::TypeId>) -> String {
     match t {
         Some(t) => {
             let s = a.ty(t).span;
-            text.get(s.start..s.end).map_or_else(|| "dynamic".to_string(), |x| x.split_whitespace().collect::<Vec<_>>().join(" "))
+            text.get(s.start..s.end).map_or_else(
+                || "dynamic".to_string(),
+                |x| x.split_whitespace().collect::<Vec<_>>().join(" "),
+            )
         }
         None => "dynamic".to_string(),
     }
@@ -70,7 +80,11 @@ fn written_type(text: &str, a: &ast::Ast, t: Option<ast::TypeId>) -> String {
 
 /// `(int a, [int b], {required int c}) → R` of a function from the source.
 fn written_signature(text: &str, a: &ast::Ast, f: &ast::Function) -> String {
-    let name_of = |n: Option<ast::Name>| n.and_then(|n| text.get(n.span.start..n.span.end)).unwrap_or("").to_string();
+    let name_of = |n: Option<ast::Name>| {
+        n.and_then(|n| text.get(n.span.start..n.span.end))
+            .unwrap_or("")
+            .to_string()
+    };
     let mut required = Vec::new();
     let mut optional = Vec::new();
     let mut named = Vec::new();
@@ -86,7 +100,11 @@ fn written_signature(text: &str, a: &ast::Ast, f: &ast::Function) -> String {
         match p.kind {
             ast::ParameterKind::Required => required.push(item),
             ast::ParameterKind::Optional => optional.push(item),
-            ast::ParameterKind::Named => named.push(if p.required { format!("required {item}") } else { item }),
+            ast::ParameterKind::Named => named.push(if p.required {
+                format!("required {item}")
+            } else {
+                item
+            }),
         }
     }
     let mut parts = required;
@@ -96,7 +114,11 @@ fn written_signature(text: &str, a: &ast::Ast, f: &ast::Function) -> String {
     if !named.is_empty() {
         parts.push(format!("{{{}}}", named.join(", ")));
     }
-    format!("({}) → {}", parts.join(", "), written_type(text, a, f.return_type))
+    format!(
+        "({}) → {}",
+        parts.join(", "),
+        written_type(text, a, f.return_type)
+    )
 }
 
 /// Export URI and its ordered show/hide name filters.
@@ -120,12 +142,25 @@ fn summarize(text: &str) -> Summary {
     let mut names = dartforge_intern::Interner::new();
     let a = dartforge_frontend::parser::parse(text, &mut names);
     let mut r = Summary::default();
-    let by = |n: Option<ast::Name>, kind: Kind, start: usize, without_parameters: bool, signature: Option<String>, r: &mut Summary| {
+    let by = |n: Option<ast::Name>,
+              kind: Kind,
+              start: usize,
+              without_parameters: bool,
+              signature: Option<String>,
+              r: &mut Summary| {
         if let Some(n) = n {
             let s = names.resolve(n.sym).to_string();
             if !s.starts_with('_') && !r.declared.contains_key(&s) {
                 r.order.push(s.clone());
-                r.declared.insert(s, Declared { kind, start, without_parameters, signature: signature.map(std::sync::Arc::from) });
+                r.declared.insert(
+                    s,
+                    Declared {
+                        kind,
+                        start,
+                        without_parameters,
+                        signature: signature.map(std::sync::Arc::from),
+                    },
+                );
             }
         }
     };
@@ -136,17 +171,34 @@ fn summarize(text: &str) -> Summary {
             DeclKind::Class(c) => by(Some(c.name), Kind::Class, start, false, None, &mut r),
             DeclKind::Mixin(m) => by(Some(m.name), Kind::Mixin, start, false, None, &mut r),
             DeclKind::Enum(e) => by(Some(e.name), Kind::Enum, start, false, None, &mut r),
-            DeclKind::ExtensionType(e) => by(Some(e.name), Kind::ExtensionType, start, false, None, &mut r),
+            DeclKind::ExtensionType(e) => by(
+                Some(e.name),
+                Kind::ExtensionType,
+                start,
+                false,
+                None,
+                &mut r,
+            ),
             DeclKind::Typedef(t) => {
-                let e = if matches!(t.kind, ast::TypedefKind::Legacy { .. }) { Kind::FunctionAlias } else { Kind::TypeAlias };
+                let e = if matches!(t.kind, ast::TypedefKind::Legacy { .. }) {
+                    Kind::FunctionAlias
+                } else {
+                    Kind::TypeAlias
+                };
                 by(Some(t.name), e, start, false, None, &mut r)
             }
             DeclKind::Extension(x) => by(x.name, Kind::Extension, start, false, None, &mut r),
             DeclKind::Function(f) => {
                 let func = a.ast.function(*f);
                 let (e, without, signature) = match func.kind {
-                    ast::FunctionKind::Getter | ast::FunctionKind::Setter => (Kind::Variable, false, None),
-                    _ => (Kind::Function, func.parameters.as_ref().is_none_or(|p| p.is_empty()), Some(written_signature(text, &a.ast, func))),
+                    ast::FunctionKind::Getter | ast::FunctionKind::Setter => {
+                        (Kind::Variable, false, None)
+                    }
+                    _ => (
+                        Kind::Function,
+                        func.parameters.as_ref().is_none_or(|p| p.is_empty()),
+                        Some(written_signature(text, &a.ast, func)),
+                    ),
                 };
                 by(func.name, e, start, without, signature, &mut r)
             }
@@ -157,18 +209,31 @@ fn summarize(text: &str) -> Summary {
             }
         }
     }
-    let value = |s: &ast::StringLit| dartforge_elements::load::string_lit_value(s).map(|x| x.to_string());
+    let value =
+        |s: &ast::StringLit| dartforge_elements::load::string_lit_value(s).map(|x| x.to_string());
     for d in &a.unit.directives {
         match &d.kind {
             DirectiveKind::Part { uri } => r.parts.extend(value(uri)),
             DirectiveKind::PartOf { .. } => r.is_part = true,
-            DirectiveKind::Export { uri, combinators, .. } => {
+            DirectiveKind::Export {
+                uri, combinators, ..
+            } => {
                 if let Some(u) = value(uri) {
                     let cs = combinators
                         .iter()
                         .map(|c| match c {
-                            ast::Combinator::Show(ns) => (true, ns.iter().map(|n| names.resolve(n.sym).to_string()).collect()),
-                            ast::Combinator::Hide(ns) => (false, ns.iter().map(|n| names.resolve(n.sym).to_string()).collect()),
+                            ast::Combinator::Show(ns) => (
+                                true,
+                                ns.iter()
+                                    .map(|n| names.resolve(n.sym).to_string())
+                                    .collect(),
+                            ),
+                            ast::Combinator::Hide(ns) => (
+                                false,
+                                ns.iter()
+                                    .map(|n| names.resolve(n.sym).to_string())
+                                    .collect(),
+                            ),
                         })
                         .collect();
                     r.exports.push((u, cs));
@@ -212,25 +277,40 @@ impl Resolver<'_> {
         if uri.starts_with("file:") {
             return Url::parse(uri).ok()?.to_file_path().ok();
         }
-        Url::from_file_path(from).ok()?.join(uri).ok()?.to_file_path().ok()
+        Url::from_file_path(from)
+            .ok()?
+            .join(uri)
+            .ok()?
+            .to_file_path()
+            .ok()
     }
 }
 
 impl LibraryIndex {
     fn summary(&mut self, path: &Path, documents: &DocumentStore) -> Option<&Summary> {
         let uri = Url::from_file_path(path).ok();
-        let open = uri.as_ref().and_then(|u| Some((documents.version(u.as_str())?, documents.get(u.as_str())?)));
+        let open = uri
+            .as_ref()
+            .and_then(|u| Some((documents.version(u.as_str())?, documents.get(u.as_str())?)));
         let fingerprint = match open {
             Some((v, t)) => Fingerprint::Open(v, t.len()),
-            None => Fingerprint::Disk(std::fs::metadata(path).ok().and_then(|m| Some((m.modified().ok()?, m.len())))),
+            None => Fingerprint::Disk(
+                std::fs::metadata(path)
+                    .ok()
+                    .and_then(|m| Some((m.modified().ok()?, m.len()))),
+            ),
         };
-        let valid = self.summaries.get(path).is_some_and(|(i, _)| *i == fingerprint);
+        let valid = self
+            .summaries
+            .get(path)
+            .is_some_and(|(i, _)| *i == fingerprint);
         if !valid {
             let text = match open {
                 Some((_, t)) => t.to_string(),
                 None => std::fs::read_to_string(path).ok()?,
             };
-            self.summaries.insert(path.to_path_buf(), (fingerprint, summarize(&text)));
+            self.summaries
+                .insert(path.to_path_buf(), (fingerprint, summarize(&text)));
         }
         self.summaries.get(path).map(|(_, r)| r)
     }
@@ -242,12 +322,25 @@ impl LibraryIndex {
 
     /// `exportNamespace.get(name) ?? get('$name=')`, with the accessor as the
     /// variable: the library that declares the element, and the kind.
-    pub(crate) fn exported_entry(&mut self, library: &Path, name: &str, resolver: &Resolver<'_>, documents: &DocumentStore) -> Option<(PathBuf, Kind)> {
+    pub(crate) fn exported_entry(
+        &mut self,
+        library: &Path,
+        name: &str,
+        resolver: &Resolver<'_>,
+        documents: &DocumentStore,
+    ) -> Option<(PathBuf, Kind)> {
         let mut seen = BTreeSet::new();
         self.exported_entry_in(library, name, resolver, documents, &mut seen)
     }
 
-    fn exported_entry_in(&mut self, library: &Path, name: &str, resolver: &Resolver<'_>, documents: &DocumentStore, seen: &mut BTreeSet<PathBuf>) -> Option<(PathBuf, Kind)> {
+    fn exported_entry_in(
+        &mut self,
+        library: &Path,
+        name: &str,
+        resolver: &Resolver<'_>,
+        documents: &DocumentStore,
+        seen: &mut BTreeSet<PathBuf>,
+    ) -> Option<(PathBuf, Kind)> {
         if !seen.insert(library.to_path_buf()) {
             return None;
         }
@@ -266,11 +359,19 @@ impl LibraryIndex {
         }
         let mut found = None;
         for (u, combinators) in &r.exports {
-            let passes = combinators.iter().all(|(show, ns)| if *show { ns.iter().any(|n| n == name) } else { !ns.iter().any(|n| n == name) });
+            let passes = combinators.iter().all(|(show, ns)| {
+                if *show {
+                    ns.iter().any(|n| n == name)
+                } else {
+                    !ns.iter().any(|n| n == name)
+                }
+            });
             if !passes {
                 continue;
             }
-            let Some(target) = resolver.path(library, u) else { continue };
+            let Some(target) = resolver.path(library, u) else {
+                continue;
+            };
             if let Some(x) = self.exported_entry_in(&target, name, resolver, documents, seen) {
                 found = Some(x);
             }
@@ -282,11 +383,24 @@ impl LibraryIndex {
     /// of the library and of its parts, then those of the `export`s (with
     /// `show`/`hide`) whose name has not been added yet; each name with the
     /// file that declares it.
-    pub(crate) fn exported(&mut self, library: &Path, resolver: &Resolver<'_>, documents: &DocumentStore) -> Vec<(String, PathBuf, Declared)> {
+    pub(crate) fn exported(
+        &mut self,
+        library: &Path,
+        resolver: &Resolver<'_>,
+        documents: &DocumentStore,
+    ) -> Vec<(String, PathBuf, Declared)> {
         let mut output = Vec::new();
         let mut names = HashSet::new();
         let mut seen = BTreeSet::new();
-        self.exported_in(library, resolver, documents, &mut seen, &|_: &str| true, &mut output, &mut names);
+        self.exported_in(
+            library,
+            resolver,
+            documents,
+            &mut seen,
+            &|_: &str| true,
+            &mut output,
+            &mut names,
+        );
         output
     }
 
@@ -304,15 +418,21 @@ impl LibraryIndex {
         if !seen.insert(library.to_path_buf()) {
             return;
         }
-        let Some(r) = self.summary(library, documents).cloned() else { return };
+        let Some(r) = self.summary(library, documents).cloned() else {
+            return;
+        };
         for n in &r.order {
             if filter(n) && names.insert(n.clone()) {
                 output.push((n.clone(), library.to_path_buf(), r.declared[n].clone()));
             }
         }
         for p in &r.parts {
-            let Some(cp) = resolver.path(library, p) else { continue };
-            let Some(rp) = self.summary(&cp, documents).cloned() else { continue };
+            let Some(cp) = resolver.path(library, p) else {
+                continue;
+            };
+            let Some(rp) = self.summary(&cp, documents).cloned() else {
+                continue;
+            };
             for n in &rp.order {
                 if filter(n) && names.insert(n.clone()) {
                     output.push((n.clone(), cp.clone(), rp.declared[n].clone()));
@@ -320,27 +440,52 @@ impl LibraryIndex {
             }
         }
         for (u, combinators) in &r.exports {
-            let Some(target) = resolver.path(library, u) else { continue };
-            let passes = |n: &str| filter(n) && combinators.iter().all(|(show, ns)| if *show { ns.iter().any(|x| x == n) } else { !ns.iter().any(|x| x == n) });
+            let Some(target) = resolver.path(library, u) else {
+                continue;
+            };
+            let passes = |n: &str| {
+                filter(n)
+                    && combinators.iter().all(|(show, ns)| {
+                        if *show {
+                            ns.iter().any(|x| x == n)
+                        } else {
+                            !ns.iter().any(|x| x == n)
+                        }
+                    })
+            };
             self.exported_in(&target, resolver, documents, seen, &passes, output, names);
         }
     }
 }
 
 /// The SDK libraries that the `FileStateFilter` lets through.
-const SDK_OUTSIDE: &[&str] = &["html", "indexed_db", "js", "js_util", "svg", "web_audio", "web_gl"];
+const SDK_OUTSIDE: &[&str] = &[
+    "html",
+    "indexed_db",
+    "js",
+    "js_util",
+    "svg",
+    "web_audio",
+    "web_gl",
+];
 
 /// The file is outside the package's `lib/`, `bin/` and `web/`.
 fn outside_lib_bin_web(file: &Path, root: &Path) -> bool {
-    !["lib", "bin", "web"].iter().any(|d| file.starts_with(root.join(d)))
+    !["lib", "bin", "web"]
+        .iter()
+        .any(|d| file.starts_with(root.join(d)))
 }
 
 /// The dependencies (and, with `dev`, the development ones) of the
 /// `pubspec.yaml`.
 fn dependencies(root: &Path, dev: bool) -> BTreeSet<String> {
     let mut v = BTreeSet::new();
-    let Ok(text) = std::fs::read_to_string(root.join("pubspec.yaml")) else { return v };
-    let Ok(Some(r)) = dartforge_analysis::non_dart::yaml::parse(&text) else { return v };
+    let Ok(text) = std::fs::read_to_string(root.join("pubspec.yaml")) else {
+        return v;
+    };
+    let Ok(Some(r)) = dartforge_analysis::non_dart::yaml::parse(&text) else {
+        return v;
+    };
     let mut keys = vec!["dependencies"];
     if dev {
         keys.push("dev_dependencies");
@@ -362,7 +507,9 @@ fn dart_in(folder: &Path, without_src: bool) -> Vec<PathBuf> {
     let mut output = Vec::new();
     let mut stack = vec![folder.to_path_buf()];
     while let Some(dir) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         let mut entries: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
         entries.sort();
         for c in entries.into_iter().rev() {
@@ -382,13 +529,26 @@ fn dart_in(folder: &Path, without_src: bool) -> Vec<PathBuf> {
 
 /// The candidate libraries for file `target` (`knownFiles` with the
 /// `FileStateFilter`), without the parts.
-pub(crate) fn candidates(target: &Path, sdk: Option<&SdkLayout>, index: &mut LibraryIndex, documents: &DocumentStore) -> Vec<Candidate> {
+pub(crate) fn candidates(
+    target: &Path,
+    sdk: Option<&SdkLayout>,
+    index: &mut LibraryIndex,
+    documents: &DocumentStore,
+) -> Vec<Candidate> {
     let mut v = Vec::new();
     if let Some(sdk) = sdk {
-        let mut names: Vec<&String> = sdk.libraries.keys().filter(|n| !n.starts_with('_') && !SDK_OUTSIDE.contains(&n.as_str())).collect();
+        let mut names: Vec<&String> = sdk
+            .libraries
+            .keys()
+            .filter(|n| !n.starts_with('_') && !SDK_OUTSIDE.contains(&n.as_str()))
+            .collect();
         names.sort();
         for n in names {
-            v.push(Candidate { path: sdk.libraries[n].path.clone(), uri: format!("dart:{n}"), sdk: true });
+            v.push(Candidate {
+                path: sdk.libraries[n].path.clone(),
+                uri: format!("dart:{n}"),
+                sdk: true,
+            });
         }
     }
     let root = crate::project::project_root(target);
@@ -401,7 +561,9 @@ pub(crate) fn candidates(target: &Path, sdk: Option<&SdkLayout>, index: &mut Lib
             continue;
         }
         let uri = match (&package, file.strip_prefix(&lib)) {
-            (Some(p), Ok(rel)) => format!("package:{p}/{}", rel.to_string_lossy().replace('\\', "/")),
+            (Some(p), Ok(rel)) => {
+                format!("package:{p}/{}", rel.to_string_lossy().replace('\\', "/"))
+            }
             _ => {
                 // Without a `package:` URI: only for a target outside `lib`/`bin`/`web`.
                 if pubspec && !outside {
@@ -413,25 +575,46 @@ pub(crate) fn candidates(target: &Path, sdk: Option<&SdkLayout>, index: &mut Lib
                 }
             }
         };
-        v.push(Candidate { path: file, uri, sdk: false });
+        v.push(Candidate {
+            path: file,
+            uri,
+            sdk: false,
+        });
     }
     // The dependencies of the `pubspec.yaml` (only the declared ones; without
     // `lib/src`).
     if pubspec
-        && let Some(config) = PackageConfig::discover(target).and_then(|c| PackageConfig::load(&c).ok())
+        && let Some(config) =
+            PackageConfig::discover(target).and_then(|c| PackageConfig::load(&c).ok())
     {
         let deps = dependencies(&root, outside);
-        let mut packages: Vec<_> = config.packages.values().filter(|p| deps.contains(&p.name) && Some(&p.name) != package.as_ref()).collect();
+        let mut packages: Vec<_> = config
+            .packages
+            .values()
+            .filter(|p| deps.contains(&p.name) && Some(&p.name) != package.as_ref())
+            .collect();
         packages.sort_by(|a, b| a.name.cmp(&b.name));
         for p in packages {
-            let Ok(dir) = p.package_uri.to_file_path() else { continue };
+            let Ok(dir) = p.package_uri.to_file_path() else {
+                continue;
+            };
             for file in dart_in(&dir, true) {
                 if index.is_part(&file, documents) {
                     continue;
                 }
-                let Ok(rel) = file.strip_prefix(&dir) else { continue };
-                let uri = format!("package:{}/{}", p.name, rel.to_string_lossy().replace('\\', "/"));
-                v.push(Candidate { path: file, uri, sdk: false });
+                let Ok(rel) = file.strip_prefix(&dir) else {
+                    continue;
+                };
+                let uri = format!(
+                    "package:{}/{}",
+                    p.name,
+                    rel.to_string_lossy().replace('\\', "/")
+                );
+                v.push(Candidate {
+                    path: file,
+                    uri,
+                    sdk: false,
+                });
             }
         }
     }
@@ -440,6 +623,9 @@ pub(crate) fn candidates(target: &Path, sdk: Option<&SdkLayout>, index: &mut Lib
 
 /// `_isLibSrcPath`: consecutive components `lib`,`src` before the last two.
 pub(crate) fn path_lib_src(path: &Path) -> bool {
-    let parts: Vec<String> = path.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+    let parts: Vec<String> = path
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
     (0..parts.len().saturating_sub(2)).any(|i| parts[i] == "lib" && parts[i + 1] == "src")
 }

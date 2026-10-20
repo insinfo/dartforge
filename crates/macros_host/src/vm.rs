@@ -57,11 +57,23 @@ pub fn bootstrap(apps: &[Application]) -> String {
         let i = libraries.iter().position(|b| b == uri).unwrap_or(0);
         s.push_str(&format!("  '{m}': {{\n"));
         for c in constructors {
-            let tearoff = if c.is_empty() { format!("m{i}.{class}.new") } else { format!("m{i}.{class}.{c}") };
-            let no_arguments = apps.iter().filter(|a| a.macro_ == *m && a.constructor == *c)
+            let tearoff = if c.is_empty() {
+                format!("m{i}.{class}.new")
+            } else {
+                format!("m{i}.{class}.{c}")
+            };
+            let no_arguments = apps
+                .iter()
+                .filter(|a| a.macro_ == *m && a.constructor == *c)
                 .all(|a| {
-                    a.arguments.get("positional").and_then(Value::as_array).is_some_and(Vec::is_empty)
-                        && a.arguments.get("named").and_then(Value::as_object).is_some_and(|n| n.is_empty())
+                    a.arguments
+                        .get("positional")
+                        .and_then(Value::as_array)
+                        .is_some_and(Vec::is_empty)
+                        && a.arguments
+                            .get("named")
+                            .and_then(Value::as_object)
+                            .is_some_and(|n| n.is_empty())
                 });
             if no_arguments {
                 // The factory is only used as @Macro(): invoking the
@@ -86,24 +98,28 @@ pub fn package_config(project: Option<&Path>, api: &Path) -> Result<Value, Strin
     let mut cfg: Value = match project {
         Some(p) => {
             let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
-            let mut v: Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", p.display()))?;
+            let mut v: Value =
+                serde_json::from_str(&text).map_err(|e| format!("{}: {e}", p.display()))?;
             // The project's relative URIs become absolute: the new file lives
             // in another directory.
             let base = p.parent().unwrap_or(Path::new("."));
             if let Some(ps) = v.get_mut("packages").and_then(Value::as_array_mut) {
                 for pk in ps.iter_mut() {
                     if let Some(r) = pk.get("rootUri").and_then(Value::as_str)
-                        && !r.contains(':') {
-                            let abs = base.join(r);
-                            pk["rootUri"] = json!(file_uri(&abs, true));
-                        }
+                        && !r.contains(':')
+                    {
+                        let abs = base.join(r);
+                        pk["rootUri"] = json!(file_uri(&abs, true));
+                    }
                 }
             }
             v
         }
         None => json!({"configVersion": 2, "packages": []}),
     };
-    let ps = cfg["packages"].as_array_mut().ok_or("package_config without 'packages'")?;
+    let ps = cfg["packages"]
+        .as_array_mut()
+        .ok_or("package_config without 'packages'")?;
     ps.retain(|p| p["name"] != "macros" && p["name"] != "_macros");
     ps.push(json!({"name": "macros", "rootUri": file_uri(api, true), "packageUri": "lib/", "languageVersion": "3.6"}));
     Ok(cfg)
@@ -118,19 +134,31 @@ fn file_uri(p: &Path, directory: bool) -> String {
     if directory && !s.ends_with('/') {
         s.push('/');
     }
-    if s.starts_with('/') { format!("file://{s}") } else { format!("file:///{s}") }
+    if s.starts_with('/') {
+        format!("file://{s}")
+    } else {
+        format!("file:///{s}")
+    }
 }
 
 /// Writes the bootstrap and starts the VM with it. The channel is that of
 /// any process that speaks `dfexec/1`.
-pub fn start(cfg: &VmConfig, apps: &[Application], project_package_config: Option<&Path>) -> Result<DfexecExecutor<ProcessChannel>, String> {
-    std::fs::create_dir_all(&cfg.work_dir).map_err(|e| format!("{}: {e}", cfg.work_dir.display()))?;
+pub fn start(
+    cfg: &VmConfig,
+    apps: &[Application],
+    project_package_config: Option<&Path>,
+) -> Result<DfexecExecutor<ProcessChannel>, String> {
+    std::fs::create_dir_all(&cfg.work_dir)
+        .map_err(|e| format!("{}: {e}", cfg.work_dir.display()))?;
     let main = cfg.work_dir.join("bootstrap.dart");
     std::fs::write(&main, bootstrap(apps)).map_err(|e| format!("{}: {e}", main.display()))?;
     let pc = cfg.work_dir.join("package_config.json");
     let json = package_config(project_package_config, &cfg.api)?;
-    std::fs::write(&pc, serde_json::to_string_pretty(&json).unwrap_or_default()).map_err(|e| format!("{}: {e}", pc.display()))?;
+    std::fs::write(&pc, serde_json::to_string_pretty(&json).unwrap_or_default())
+        .map_err(|e| format!("{}: {e}", pc.display()))?;
     let mut cmd = std::process::Command::new(&cfg.dart);
-    cmd.arg("--enable-experiment=macros").arg(format!("--packages={}", pc.display())).arg(&main);
+    cmd.arg("--enable-experiment=macros")
+        .arg(format!("--packages={}", pc.display()))
+        .arg(&main);
     Ok(DfexecExecutor::new(ProcessChannel::start(cmd)?))
 }

@@ -17,14 +17,46 @@ use std::path::{Path, PathBuf};
 
 /// Analyzer class → Rust module, in table order.
 const CLASSES: &[(&str, &str, &str)] = &[
-    ("CompileTimeErrorCode", "compile_time_error", "analyzer-6.11.0/lib/src/error/codes.g.dart"),
-    ("StaticWarningCode", "static_warning", "analyzer-6.11.0/lib/src/error/codes.g.dart"),
-    ("WarningCode", "warning", "analyzer-6.11.0/lib/src/error/codes.g.dart"),
-    ("HintCode", "hint", "analyzer-6.11.0/lib/src/dart/error/hint_codes.g.dart"),
-    ("FfiCode", "ffi", "analyzer-6.11.0/lib/src/dart/error/ffi_code.g.dart"),
-    ("ParserErrorCode", "parser", "analyzer-6.11.0/lib/src/dart/error/syntactic_errors.g.dart"),
-    ("ScannerErrorCode", "scanner", "_fe_analyzer_shared-76.0.0/lib/src/scanner/errors.dart"),
-    ("TodoCode", "todo", "analyzer-6.11.0/lib/src/dart/error/todo_codes.dart"),
+    (
+        "CompileTimeErrorCode",
+        "compile_time_error",
+        "analyzer-6.11.0/lib/src/error/codes.g.dart",
+    ),
+    (
+        "StaticWarningCode",
+        "static_warning",
+        "analyzer-6.11.0/lib/src/error/codes.g.dart",
+    ),
+    (
+        "WarningCode",
+        "warning",
+        "analyzer-6.11.0/lib/src/error/codes.g.dart",
+    ),
+    (
+        "HintCode",
+        "hint",
+        "analyzer-6.11.0/lib/src/dart/error/hint_codes.g.dart",
+    ),
+    (
+        "FfiCode",
+        "ffi",
+        "analyzer-6.11.0/lib/src/dart/error/ffi_code.g.dart",
+    ),
+    (
+        "ParserErrorCode",
+        "parser",
+        "analyzer-6.11.0/lib/src/dart/error/syntactic_errors.g.dart",
+    ),
+    (
+        "ScannerErrorCode",
+        "scanner",
+        "_fe_analyzer_shared-76.0.0/lib/src/scanner/errors.dart",
+    ),
+    (
+        "TodoCode",
+        "todo",
+        "analyzer-6.11.0/lib/src/dart/error/todo_codes.dart",
+    ),
 ];
 
 /// Codes of the SDK 3.13.4 analyzer that the 6.11 table lacks (primary
@@ -36,7 +68,16 @@ const CLASSES: &[(&str, &str, &str)] = &[
 /// 6.11 codes do not change.
 ///
 /// (class, module, constant, name, unique, message, correction, type)
-type SupplementalCode = (&'static str, &'static str, &'static str, &'static str, &'static str, &'static str, &'static str, &'static str);
+type SupplementalCode = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+);
 const SUPPLEMENT_3_13: &[SupplementalCode] = &[
     (
         "CompileTimeErrorCode",
@@ -444,36 +485,136 @@ const SUPPLEMENT_3_13: &[SupplementalCode] = &[
 /// (from, to, arguments, minimum)
 const VARIANTS_3_13: &[(&str, &str, &[u8], u8)] = &[
     // `{1}` of the correction: `[feature, version 3.6.2, version 3.13.4]`.
-    ("ParserErrorCode.EXPERIMENT_NOT_ENABLED", "ParserErrorCode.EXPERIMENT_NOT_ENABLED", &[0, 2], 0),
-    ("ParserErrorCode.REPRESENTATION_FIELD_MODIFIER", "ParserErrorCode.REPRESENTATION_FIELD_MODIFIER_3_13", &[0], 0),
-    ("WarningCode.UNUSED_ELEMENT_PARAMETER", "WarningCode.UNUSED_ELEMENT_PARAMETER_3_13", &[0], 0),
-    ("CompileTimeErrorCode.ENUM_WITHOUT_CONSTANTS", "CompileTimeErrorCode.ENUM_WITHOUT_CONSTANTS_3_13", &[], 0),
-    ("CompileTimeErrorCode.ASSIGNMENT_TO_CONST", "CompileTimeErrorCode.ASSIGNMENT_TO_CONST_3_13", &[], 0),
-    ("CompileTimeErrorCode.NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE", "CompileTimeErrorCode.NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE_3_13", &[], 0),
-    ("CompileTimeErrorCode.SUPER_INVOCATION_NOT_LAST", "CompileTimeErrorCode.SUPER_INVOCATION_NOT_LAST_3_13", &[], 0),
+    (
+        "ParserErrorCode.EXPERIMENT_NOT_ENABLED",
+        "ParserErrorCode.EXPERIMENT_NOT_ENABLED",
+        &[0, 2],
+        0,
+    ),
+    (
+        "ParserErrorCode.REPRESENTATION_FIELD_MODIFIER",
+        "ParserErrorCode.REPRESENTATION_FIELD_MODIFIER_3_13",
+        &[0],
+        0,
+    ),
+    (
+        "WarningCode.UNUSED_ELEMENT_PARAMETER",
+        "WarningCode.UNUSED_ELEMENT_PARAMETER_3_13",
+        &[0],
+        0,
+    ),
+    (
+        "CompileTimeErrorCode.ENUM_WITHOUT_CONSTANTS",
+        "CompileTimeErrorCode.ENUM_WITHOUT_CONSTANTS_3_13",
+        &[],
+        0,
+    ),
+    (
+        "CompileTimeErrorCode.ASSIGNMENT_TO_CONST",
+        "CompileTimeErrorCode.ASSIGNMENT_TO_CONST_3_13",
+        &[],
+        0,
+    ),
+    (
+        "CompileTimeErrorCode.NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE",
+        "CompileTimeErrorCode.NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE_3_13",
+        &[],
+        0,
+    ),
+    (
+        "CompileTimeErrorCode.SUPER_INVOCATION_NOT_LAST",
+        "CompileTimeErrorCode.SUPER_INVOCATION_NOT_LAST_3_13",
+        &[],
+        0,
+    ),
     // `[constructor's class, superclass]`.
-    ("CompileTimeErrorCode.CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER", "CompileTimeErrorCode.CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER", &[1], 0),
+    (
+        "CompileTimeErrorCode.CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER",
+        "CompileTimeErrorCode.CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER",
+        &[1],
+        0,
+    ),
     // `[type, pattern, suggestion]` and, when the enum is from another library
     // and what is missing are private constants, any fourth argument.
-    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION", "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION_PRIVATE", &[0], 4),
-    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION", "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION_3_13", &[0, 1, 2], 0),
-    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT", "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT_PRIVATE", &[0], 4),
-    ("CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT", "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT_3_13", &[0, 1, 2], 0),
+    (
+        "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION",
+        "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION_PRIVATE",
+        &[0],
+        4,
+    ),
+    (
+        "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION",
+        "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_EXPRESSION_3_13",
+        &[0, 1, 2],
+        0,
+    ),
+    (
+        "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT",
+        "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT_PRIVATE",
+        &[0],
+        4,
+    ),
+    (
+        "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT",
+        "CompileTimeErrorCode.NON_EXHAUSTIVE_SWITCH_STATEMENT_3_13",
+        &[0, 1, 2],
+        0,
+    ),
     // `[target type, declared, given]` and, when the target is an element,
     // `kind` (`method`, `function`) and name.
-    ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD", "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ELEMENT", &[3, 4, 1, 2], 0),
-    ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD", "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13", &[0, 1, 2], 0),
+    (
+        "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD",
+        "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ELEMENT",
+        &[3, 4, 1, 2],
+        0,
+    ),
+    (
+        "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_METHOD",
+        "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13",
+        &[0, 1, 2],
+        0,
+    ),
     // The anonymous variant: `[declared, given, function type]` (the type only in 3.13.4).
-    ("CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION", "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13", &[2, 0, 1], 3),
+    (
+        "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_ANONYMOUS_FUNCTION",
+        "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_FUNCTION_3_13",
+        &[2, 0, 1],
+        3,
+    ),
     // `[member, 3.6 list]` and, only when there are exactly two, the two
     // extensions as 3.13 displays them (`extension E1 on int`).
-    ("CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS", "CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS_TWO", &[0, 2, 3], 0),
+    (
+        "CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS",
+        "CompileTimeErrorCode.AMBIGUOUS_EXTENSION_MEMBER_ACCESS_TWO",
+        &[0, 2, 3],
+        0,
+    ),
     // `[class, 3.6 path, 3.13 path]`.
-    ("CompileTimeErrorCode.RECURSIVE_INTERFACE_INHERITANCE", "CompileTimeErrorCode.RECURSIVE_INTERFACE_INHERITANCE", &[0, 2], 0),
+    (
+        "CompileTimeErrorCode.RECURSIVE_INTERFACE_INHERITANCE",
+        "CompileTimeErrorCode.RECURSIVE_INTERFACE_INHERITANCE",
+        &[0, 2],
+        0,
+    ),
     // The verifier's variant: in 3.13.4 only the parser's is reported.
-    ("CompileTimeErrorCode.FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR", "", &[], 0),
-    ("CompileTimeErrorCode.MIXIN_CLASS_DECLARES_CONSTRUCTOR", "CompileTimeErrorCode.MIXIN_CLASS_DECLARES_NON_TRIVIAL_GENERATIVE_CONSTRUCTOR", &[0], 0),
-    ("CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION", "CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION_3_13", &[], 0),
+    (
+        "CompileTimeErrorCode.FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR",
+        "",
+        &[],
+        0,
+    ),
+    (
+        "CompileTimeErrorCode.MIXIN_CLASS_DECLARES_CONSTRUCTOR",
+        "CompileTimeErrorCode.MIXIN_CLASS_DECLARES_NON_TRIVIAL_GENERATIVE_CONSTRUCTOR",
+        &[0],
+        0,
+    ),
+    (
+        "CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION",
+        "CompileTimeErrorCode.DEFERRED_IMPORT_OF_EXTENSION_3_13",
+        &[],
+        0,
+    ),
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -512,7 +653,10 @@ fn tokenize(src: &str) -> Vec<Tok> {
                     i += 1;
                 }
             }
-        } else if c == b'\'' || c == b'"' || (c == b'r' && matches!(b.get(i + 1), Some(b'\'') | Some(b'"'))) {
+        } else if c == b'\''
+            || c == b'"'
+            || (c == b'r' && matches!(b.get(i + 1), Some(b'\'') | Some(b'"')))
+        {
             let raw = c == b'r';
             if raw {
                 i += 1;
@@ -619,7 +763,8 @@ fn read_class(src: &str, class: &str) -> (Vec<Entry>, String, String) {
     let t = tokenize(src);
     let mut i = 0;
     // `class <class> extends ... {`
-    while i + 1 < t.len() && !(t[i] == Tok::Id("class".into()) && t[i + 1] == Tok::Id(class.into())) {
+    while i + 1 < t.len() && !(t[i] == Tok::Id("class".into()) && t[i + 1] == Tok::Id(class.into()))
+    {
         i += 1;
     }
     assert!(i + 1 < t.len(), "class {class} not found");
@@ -635,10 +780,18 @@ fn read_class(src: &str, class: &str) -> (Vec<Entry>, String, String) {
         match &t[i] {
             Tok::P('{') => depth += 1,
             Tok::P('}') => depth -= 1,
-            Tok::Id(s) if depth == 1 && s == "static" && t.get(i + 1) == Some(&Tok::Id("const".into())) => {
+            Tok::Id(s)
+                if depth == 1
+                    && s == "static"
+                    && t.get(i + 1) == Some(&Tok::Id("const".into())) =>
+            {
                 // static const <Class> <NAME> = [const] <Class>( ... ) ;
-                let Some(Tok::Id(decl_type)) = t.get(i + 2) else { panic!("static const without a type") };
-                let Some(Tok::Id(constant)) = t.get(i + 3) else { panic!("static const without a name") };
+                let Some(Tok::Id(decl_type)) = t.get(i + 2) else {
+                    panic!("static const without a type")
+                };
+                let Some(Tok::Id(constant)) = t.get(i + 3) else {
+                    panic!("static const without a name")
+                };
                 if decl_type != class {
                     i += 1;
                     continue;
@@ -664,11 +817,25 @@ fn read_class(src: &str, class: &str) -> (Vec<Entry>, String, String) {
                     j += 1;
                 }
                 let args = arguments(&t[start..j - 1]);
-                let pos: Vec<String> = args.iter().filter(|a| a.0.is_none()).map(|a| text(&a.1).expect("string")).collect();
-                let named = |n: &str| args.iter().find(|a| a.0.as_deref() == Some(n)).map(|a| &a.1);
+                let pos: Vec<String> = args
+                    .iter()
+                    .filter(|a| a.0.is_none())
+                    .map(|a| text(&a.1).expect("string"))
+                    .collect();
+                let named = |n: &str| {
+                    args.iter()
+                        .find(|a| a.0.as_deref() == Some(n))
+                        .map(|a| &a.1)
+                };
                 let name = pos[0].clone();
-                let message = if class == "TodoCode" { "{0}".to_string() } else { pos[1].clone() };
-                let short_unique = named("uniqueName").and_then(|v| text(v)).unwrap_or_else(|| name.clone());
+                let message = if class == "TodoCode" {
+                    "{0}".to_string()
+                } else {
+                    pos[1].clone()
+                };
+                let short_unique = named("uniqueName")
+                    .and_then(|v| text(v))
+                    .unwrap_or_else(|| name.clone());
                 entries.push(Entry {
                     class: class.to_string(),
                     constant: constant.clone(),
@@ -676,12 +843,17 @@ fn read_class(src: &str, class: &str) -> (Vec<Entry>, String, String) {
                     unique: format!("{class}.{short_unique}"),
                     message,
                     correction: named("correctionMessage").and_then(|v| text(v)),
-                    documented: named("hasPublishedDocs").is_some_and(|v| v.as_slice() == [Tok::Id("true".into())]),
+                    documented: named("hasPublishedDocs")
+                        .is_some_and(|v| v.as_slice() == [Tok::Id("true".into())]),
                 });
                 i = j;
                 continue;
             }
-            Tok::Id(s) if depth == 1 && (s == "ErrorSeverity" || s == "ErrorType") && t.get(i + 1) == Some(&Tok::Id("get".into())) => {
+            Tok::Id(s)
+                if depth == 1
+                    && (s == "ErrorSeverity" || s == "ErrorType")
+                    && t.get(i + 1) == Some(&Tok::Id("get".into())) =>
+            {
                 let getter = match &t[i + 2] {
                     Tok::Id(g) => g.clone(),
                     _ => String::new(),
@@ -713,7 +885,11 @@ fn read_class(src: &str, class: &str) -> (Vec<Entry>, String, String) {
         }
         i += 1;
     }
-    (entries, ty.expect("getter type"), severity.expect("getter errorSeverity"))
+    (
+        entries,
+        ty.expect("getter type"),
+        severity.expect("getter errorSeverity"),
+    )
 }
 
 fn rust_type(t: &str) -> &'static str {
@@ -732,9 +908,10 @@ fn rust_type(t: &str) -> &'static str {
 /// `ErrorType.X.severity` (`errors.dart:196-238` of `_fe_analyzer_shared`).
 fn rust_severity(s: &str) -> &'static str {
     match s {
-        "ERROR" | "type:COMPILE_TIME_ERROR" | "type:SYNTACTIC_ERROR" | "type:CHECKED_MODE_COMPILE_TIME_ERROR" => {
-            "Severity::Error"
-        }
+        "ERROR"
+        | "type:COMPILE_TIME_ERROR"
+        | "type:SYNTACTIC_ERROR"
+        | "type:CHECKED_MODE_COMPILE_TIME_ERROR" => "Severity::Error",
         "WARNING" | "type:STATIC_WARNING" => "Severity::Warning",
         "INFO" | "type:HINT" | "type:LINT" | "type:TODO" => "Severity::Info",
         _ => panic!("severity {s}"),
@@ -742,18 +919,25 @@ fn rust_severity(s: &str) -> &'static str {
 }
 
 fn main() {
-    let root = std::env::args().nth(1).map(PathBuf::from).unwrap_or_else(|| {
-        let base = std::env::var_os("PUB_CACHE")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("LOCALAPPDATA").map(|l| Path::new(&l).join("Pub").join("Cache")))
-            .expect("set PUB_CACHE");
-        base.join("hosted").join("pub.dev")
-    });
+    let root = std::env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let base = std::env::var_os("PUB_CACHE")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("LOCALAPPDATA")
+                        .map(|l| Path::new(&l).join("Pub").join("Cache"))
+                })
+                .expect("set PUB_CACHE");
+            base.join("hosted").join("pub.dev")
+        });
     let mut all: Vec<(Entry, &str, String, String)> = Vec::new();
     let mut summary = String::new();
     for (class, module, file) in CLASSES {
         let file_path = root.join(file);
-        let src = std::fs::read_to_string(&file_path).unwrap_or_else(|e| panic!("{}: {e}", file_path.display()));
+        let src = std::fs::read_to_string(&file_path)
+            .unwrap_or_else(|e| panic!("{}: {e}", file_path.display()));
         let (entries, ty, sev) = read_class(&src, class);
         let _ = writeln!(summary, "{class}: {}", entries.len());
         for e in entries {
@@ -772,15 +956,33 @@ fn main() {
         };
         all.push((e, module, ty.to_string(), format!("type:{ty}")));
     }
-    let _ = writeln!(summary, "3.13.4 supplement (new codes and new shapes of 6.11 codes): {}", SUPPLEMENT_3_13.len());
+    let _ = writeln!(
+        summary,
+        "3.13.4 supplement (new codes and new shapes of 6.11 codes): {}",
+        SUPPLEMENT_3_13.len()
+    );
     // The variants: unique names become indices; the sort is stable, and the
     // order of the rows of one code is the table's.
     let mut variants: Vec<(usize, Option<usize>, &'static [u8], u8)> = Vec::new();
     {
-        let index = |unique: &str| all.iter().position(|e| e.0.unique == unique).unwrap_or_else(|| panic!("variant: {unique} is not in the table"));
+        let index = |unique: &str| {
+            all.iter()
+                .position(|e| e.0.unique == unique)
+                .unwrap_or_else(|| panic!("variant: {unique} is not in the table"))
+        };
         for (from_code, to, args, requires) in VARIANTS_3_13 {
-            let minimum = args.iter().map(|a| *a + 1).max().unwrap_or(0).max(*requires);
-            variants.push((index(from_code), (!to.is_empty()).then(|| index(to)), *args, minimum));
+            let minimum = args
+                .iter()
+                .map(|a| *a + 1)
+                .max()
+                .unwrap_or(0)
+                .max(*requires);
+            variants.push((
+                index(from_code),
+                (!to.is_empty()).then(|| index(to)),
+                *args,
+                minimum,
+            ));
         }
     }
     // The new shape of a code with the same name inherits the published documentation.
@@ -796,8 +998,12 @@ fn main() {
     let _ = writeln!(summary, "3.13.4 variants: {}", variants.len());
     let n = all.len();
     let mut s = String::new();
-    s.push_str("// GENERATED by `cargo run -p dartforge-parity --example generate_codes`. DO NOT EDIT.\n");
-    s.push_str("// Source: analyzer-6.11.0 and _fe_analyzer_shared-76.0.0 (Dart SDK 3.6), pub cache.\n");
+    s.push_str(
+        "// GENERATED by `cargo run -p dartforge-parity --example generate_codes`. DO NOT EDIT.\n",
+    );
+    s.push_str(
+        "// Source: analyzer-6.11.0 and _fe_analyzer_shared-76.0.0 (Dart SDK 3.6), pub cache.\n",
+    );
     for l in summary.lines() {
         let _ = writeln!(s, "// {l}");
     }
@@ -820,7 +1026,11 @@ fn main() {
         );
     }
     s.push_str("];\n\n");
-    let mut by_unique: Vec<(&str, usize)> = all.iter().enumerate().map(|(i, e)| (e.0.unique.as_str(), i)).collect();
+    let mut by_unique: Vec<(&str, usize)> = all
+        .iter()
+        .enumerate()
+        .map(|(i, e)| (e.0.unique.as_str(), i))
+        .collect();
     by_unique.sort();
     for w in by_unique.windows(2) {
         assert_ne!(w[0].0, w[1].0, "repeated uniqueName");
@@ -831,20 +1041,34 @@ fn main() {
     }
     s.push_str("];\n\n");
     let _ = writeln!(s, "/// Sorted by `from`; see `Code::variants_3_13`.");
-    let _ = writeln!(s, "pub(crate) static VARIANTS_3_13: [Variant313; {}] = [", variants.len());
+    let _ = writeln!(
+        s,
+        "pub(crate) static VARIANTS_3_13: [Variant313; {}] = [",
+        variants.len()
+    );
     for (from_code, to, args, requires) in &variants {
         let to = match to {
             Some(p) => format!("Some(Code({p}))"),
             None => "None".to_string(),
         };
-        let _ = writeln!(s, "    Variant313 {{ from: Code({from_code}), to: {to}, args: &{args:?}, requires: {requires} }},");
+        let _ = writeln!(
+            s,
+            "    Variant313 {{ from: Code({from_code}), to: {to}, args: &{args:?}, requires: {requires} }},"
+        );
     }
     s.push_str("];\n\npub mod modules {\n");
     for (class, module, _) in CLASSES {
-        let _ = writeln!(s, "    /// `{class}`.\n    pub mod {module} {{\n        use crate::Code;");
+        let _ = writeln!(
+            s,
+            "    /// `{class}`.\n    pub mod {module} {{\n        use crate::Code;"
+        );
         for (i, (e, m, _, _)) in all.iter().enumerate() {
             if m == module {
-                let _ = writeln!(s, "        pub const {}: Code = Code({i});", e.constant.to_uppercase());
+                let _ = writeln!(
+                    s,
+                    "        pub const {}: Code = Code({i});",
+                    e.constant.to_uppercase()
+                );
             }
         }
         s.push_str("    }\n");

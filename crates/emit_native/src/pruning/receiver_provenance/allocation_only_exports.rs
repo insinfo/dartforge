@@ -39,7 +39,12 @@ pub(super) fn candidates<'a>(
         }
     }
     let rti = rti::Inventory::new(modules);
-    let graph = AuditGraph { proof, bodies: &bodies, duplicates: &duplicates, rti: &rti };
+    let graph = AuditGraph {
+        proof,
+        bodies: &bodies,
+        duplicates: &duplicates,
+        rti: &rti,
+    };
     let mut exports = Vec::new();
     for (&symbol, &body) in &bodies {
         let Some(classes) = proof.returns.get(symbol) else {
@@ -54,13 +59,7 @@ pub(super) fn candidates<'a>(
         let mut visiting = HashSet::new();
         let mut completed = HashSet::new();
         let mut closure = Vec::new();
-        if audit(
-            body,
-            &graph,
-            &mut visiting,
-            &mut completed,
-            &mut closure,
-        ) {
+        if audit(body, &graph, &mut visiting, &mut completed, &mut closure) {
             exports.push(AllocationExport {
                 symbol,
                 parameters: body.params.iter().map(|(_, _, ty)| *ty).collect(),
@@ -80,7 +79,12 @@ fn audit<'a>(
     completed: &mut HashSet<&'a str>,
     closure: &mut Vec<&'a Function>,
 ) -> bool {
-    let AuditGraph { proof, bodies, duplicates, rti } = *graph;
+    let AuditGraph {
+        proof,
+        bodies,
+        duplicates,
+        rti,
+    } = *graph;
     let symbol = body.symbol.as_str();
     if duplicates.contains(symbol) || symbol.starts_with("dfc.") || proof.values_for(body).is_none()
     {
@@ -123,9 +127,7 @@ fn audit<'a>(
                         .iter()
                         .zip(args)
                         .all(|((_, _, ty), arg)| shape.operand_type(arg) == Some(*ty))
-                    || !audit(
-                        callee, graph, visiting, completed, closure,
-                    )
+                    || !audit(callee, graph, visiting, completed, closure)
                 {
                     return false;
                 }

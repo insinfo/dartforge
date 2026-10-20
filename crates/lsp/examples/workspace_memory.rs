@@ -37,7 +37,10 @@ struct Share {
 
 fn arenas(ast: &dartforge_frontend::ast::Ast) -> (usize, usize) {
     fn v<T>(x: &Vec<T>) -> (usize, usize) {
-        (x.len() * std::mem::size_of::<T>(), x.capacity() * std::mem::size_of::<T>())
+        (
+            x.len() * std::mem::size_of::<T>(),
+            x.capacity() * std::mem::size_of::<T>(),
+        )
     }
     let parts = [
         v(&ast.exprs),
@@ -71,11 +74,15 @@ fn main() {
     dartforge_instrument::reset_peak();
     {
         let sdk = dartforge_elements::SdkLayout::load(&sdk_lib, "dartdevc").expect("SDK");
-        let cache = dartforge_elements::SdkCache::open_or_build(&sdk, "dartdevc").ok().map(|(c, _)| c);
+        let cache = dartforge_elements::SdkCache::open_or_build(&sdk, "dartdevc")
+            .ok()
+            .map(|(c, _)| c);
         let after_cache = dartforge_instrument::live_bytes();
         let libraries: Vec<&Path> = files
             .iter()
-            .filter(|f| std::fs::read_to_string(f).is_ok_and(|t| !dartforge_parity::analysis::is_part(&t)))
+            .filter(|f| {
+                std::fs::read_to_string(f).is_ok_and(|t| !dartforge_parity::analysis::is_part(&t))
+            })
             .map(PathBuf::as_path)
             .collect();
         let mut interner = dartforge_intern::Interner::new();
@@ -115,13 +122,34 @@ fn main() {
         }
         let mut by_package: HashMap<String, (usize, usize)> = HashMap::new();
         for u in &program.units {
-            let name = u.uri.strip_prefix("package:").and_then(|r| r.split('/').next()).unwrap_or(if u.uri.starts_with("dart:") { "dart:" } else { "file:" });
+            let name = u
+                .uri
+                .strip_prefix("package:")
+                .and_then(|r| r.split('/').next())
+                .unwrap_or(if u.uri.starts_with("dart:") {
+                    "dart:"
+                } else {
+                    "file:"
+                });
             let e = by_package.entry(name.to_string()).or_default();
             e.0 += 1;
             e.1 += u.source.len();
         }
         if let Ok(dump) = std::env::var("WORKSPACE_MEMORY_DUMP") {
-            let lines: Vec<String> = program.units.iter().map(|u| format!("{}\t{}", u.uri, u.path.as_deref().map(|p| p.display().to_string()).unwrap_or_default())).collect();
+            let lines: Vec<String> = program
+                .units
+                .iter()
+                .map(|u| {
+                    format!(
+                        "{}\t{}",
+                        u.uri,
+                        u.path
+                            .as_deref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default()
+                    )
+                })
+                .collect();
             let _ = std::fs::write(dump, lines.join("\n"));
         }
         let mut by_package: Vec<_> = by_package.into_iter().collect();
@@ -162,7 +190,10 @@ fn main() {
             for u in &mut program.units {
                 f(&mut u.ast);
             }
-            println!("  {label:9} {:7.1} MiB", mib(before - dartforge_instrument::live_bytes()));
+            println!(
+                "  {label:9} {:7.1} MiB",
+                mib(before - dartforge_instrument::live_bytes())
+            );
         };
         freed("exprs", &mut |a| a.exprs = Vec::new());
         freed("stmts", &mut |a| a.stmts = Vec::new());
@@ -184,22 +215,39 @@ fn main() {
         );
         let before = dartforge_instrument::live_bytes();
         drop(interner);
-        println!("  interner {:.1} MiB", mib(before - dartforge_instrument::live_bytes()));
+        println!(
+            "  interner {:.1} MiB",
+            mib(before - dartforge_instrument::live_bytes())
+        );
         let before = dartforge_instrument::live_bytes();
         for u in &mut program.units {
             u.unit = Default::default();
         }
-        println!("  compilation units (directives, declaration lists) {:.1} MiB", mib(before - dartforge_instrument::live_bytes()));
+        println!(
+            "  compilation units (directives, declaration lists) {:.1} MiB",
+            mib(before - dartforge_instrument::live_bytes())
+        );
         let before = dartforge_instrument::live_bytes();
         program.functions = Vec::new();
-        println!("  function elements {:.1} MiB", mib(before - dartforge_instrument::live_bytes()));
+        println!(
+            "  function elements {:.1} MiB",
+            mib(before - dartforge_instrument::live_bytes())
+        );
         let before = dartforge_instrument::live_bytes();
         program.variables = Vec::new();
-        println!("  variable elements {:.1} MiB", mib(before - dartforge_instrument::live_bytes()));
+        println!(
+            "  variable elements {:.1} MiB",
+            mib(before - dartforge_instrument::live_bytes())
+        );
         let before = dartforge_instrument::live_bytes();
         program.classes = Vec::new();
-        println!("  class elements {:.1} MiB", mib(before - dartforge_instrument::live_bytes()));
-        let entries = |f: &dyn Fn(&dartforge_elements::model::Library) -> usize| program.libraries.iter().map(f).sum::<usize>();
+        println!(
+            "  class elements {:.1} MiB",
+            mib(before - dartforge_instrument::live_bytes())
+        );
+        let entries = |f: &dyn Fn(&dartforge_elements::model::Library) -> usize| {
+            program.libraries.iter().map(f).sum::<usize>()
+        };
         println!(
             "  namespace entries: declared {} exported {} scope {} (capacity {}) prefixes {} unit scopes {} imports {}",
             entries(&|l| l.declared.len()),
@@ -212,35 +260,65 @@ fn main() {
         );
         let before = dartforge_instrument::live_bytes();
         program.libraries = Vec::new();
-        println!("  libraries (scopes, imports) {:.1} MiB", mib(before - dartforge_instrument::live_bytes()));
+        println!(
+            "  libraries (scopes, imports) {:.1} MiB",
+            mib(before - dartforge_instrument::live_bytes())
+        );
     }
-    println!("after dropping the load: {:.1} MiB live", mib(dartforge_instrument::live_bytes() - base));
+    println!(
+        "after dropping the load: {:.1} MiB live",
+        mib(dartforge_instrument::live_bytes() - base)
+    );
 
     // 2. The engine's first phases, one by one, over the same load.
     {
         let base = dartforge_instrument::live_bytes();
         let sdk = dartforge_elements::SdkLayout::load(&sdk_lib, "dartdevc").expect("SDK");
-        let cache = dartforge_elements::SdkCache::open_or_build(&sdk, "dartdevc").ok().map(|(c, _)| c);
+        let cache = dartforge_elements::SdkCache::open_or_build(&sdk, "dartdevc")
+            .ok()
+            .map(|(c, _)| c);
         let libraries: Vec<&Path> = files
             .iter()
-            .filter(|f| std::fs::read_to_string(f).is_ok_and(|t| !dartforge_parity::analysis::is_part(&t)))
+            .filter(|f| {
+                std::fs::read_to_string(f).is_ok_and(|t| !dartforge_parity::analysis::is_part(&t))
+            })
             .map(PathBuf::as_path)
             .collect();
         let mut interner = dartforge_intern::Interner::new();
-        let (program, _diags) = dartforge_elements::load::load_lenient_entries(&libraries, &sdk, package_config.as_deref(), &mut interner, cache, None, None);
+        let (program, _diags) = dartforge_elements::load::load_lenient_entries(
+            &libraries,
+            &sdk,
+            package_config.as_deref(),
+            &mut interner,
+            cache,
+            None,
+            None,
+        );
         let step = |label: &str, from: usize| {
             let now = dartforge_instrument::live_bytes();
-            println!("  {label:40} +{:7.1} MiB (live {:7.1} MiB)", mib(now.saturating_sub(from)), mib(now - base));
+            println!(
+                "  {label:40} +{:7.1} MiB (live {:7.1} MiB)",
+                mib(now.saturating_sub(from)),
+                mib(now - base)
+            );
             now
         };
         let mut at = step("load", base);
         let mut table = dartforge_types::TypeTable::new();
         table.preserve_decoration = true;
         let core = dartforge_types::CoreTypes::init(&mut table, &program, &interner);
-        let (mut outline, _, _) = dartforge_types::resolve_outline_with_units(&program, &interner, &mut table, &core);
+        let (mut outline, _, _) =
+            dartforge_types::resolve_outline_with_units(&program, &interner, &mut table, &core);
         at = step("outline", at);
         dartforge_instrument::reset_peak();
-        let (bodies, diags) = dartforge_types::infer_library_bodies(&program, &interner, &mut table, &core, &mut outline, &[]);
+        let (bodies, diags) = dartforge_types::infer_library_bodies(
+            &program,
+            &interner,
+            &mut table,
+            &core,
+            &mut outline,
+            &[],
+        );
         let peak = dartforge_instrument::peak_bytes();
         at = step("initializers (result kept)", at);
         println!("  {:40} peak {:7.1} MiB", "", mib(peak - base));
@@ -259,20 +337,26 @@ fn main() {
     let base = dartforge_instrument::live_bytes();
     let calls = std::cell::Cell::new(0usize);
     let result = engine
-        .analyze_with(&root, &files, package_config.as_deref(), &HashMap::new(), &|| {
-            // The cancellation points: after the load, after the declaration
-            // checks, then before each library's bodies.
-            let n = calls.get() + 1;
-            calls.set(n);
-            if n <= 3 || n.is_multiple_of(100) {
-                println!(
-                    "  cancellation point {n}: {:.1} MiB live, peak so far {:.1} MiB",
-                    mib(dartforge_instrument::live_bytes() - base),
-                    mib(dartforge_instrument::peak_bytes() - base)
-                );
-            }
-            false
-        })
+        .analyze_with(
+            &root,
+            &files,
+            package_config.as_deref(),
+            &HashMap::new(),
+            &|| {
+                // The cancellation points: after the load, after the declaration
+                // checks, then before each library's bodies.
+                let n = calls.get() + 1;
+                calls.set(n);
+                if n <= 3 || n.is_multiple_of(100) {
+                    println!(
+                        "  cancellation point {n}: {:.1} MiB live, peak so far {:.1} MiB",
+                        mib(dartforge_instrument::live_bytes() - base),
+                        mib(dartforge_instrument::peak_bytes() - base)
+                    );
+                }
+                false
+            },
+        )
         .expect("not cancelled");
     println!(
         "analysis: peak {:.1} MiB, {:.1} MiB live with the result ({} files), {:.1} s",
@@ -282,5 +366,8 @@ fn main() {
         start.elapsed().as_secs_f64()
     );
     drop(result);
-    println!("after dropping it: {:.1} MiB live", mib(dartforge_instrument::live_bytes() - base));
+    println!(
+        "after dropping it: {:.1} MiB live",
+        mib(dartforge_instrument::live_bytes() - base)
+    );
 }

@@ -8,9 +8,9 @@ use dartforge_elements::load::load_lenient;
 use dartforge_elements::model::*;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
-use dartforge_types::subtyping::{is_subtype, SubtypeEnv};
+use dartforge_types::subtyping::{SubtypeEnv, is_subtype};
 use dartforge_types::table::{CoreTypes, Type, TypeTable};
-use dartforge_types::{resolve_outline, OutlineTypes};
+use dartforge_types::{OutlineTypes, resolve_outline};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::tempdir;
@@ -89,19 +89,32 @@ fn sdk_outline_resolves() {
     total_elements += program.typedefs.len();
     total_elements += program.extensions.len();
 
-    let total_annotations = outline.functions.len() + outline.variables.len() + outline.classes.len();
+    let total_annotations =
+        outline.functions.len() + outline.variables.len() + outline.classes.len();
 
     println!("============================================================");
     println!(" Dart SDK 3.6.2 Resolution Statistics (dartforge-types)");
     println!("============================================================");
-    println!("Loaded libraries:               {}", program.libraries.len());
+    println!(
+        "Loaded libraries:               {}",
+        program.libraries.len()
+    );
     println!("Units (.dart files):            {}", program.units.len());
     println!("Total elements in the outline:  {}", total_elements);
     println!("  - Classes / Mixins / Enums:   {}", program.classes.len());
-    println!("  - Functions / Methods / Ctors: {}", program.functions.len());
-    println!("  - Variables / Fields:          {}", program.variables.len());
+    println!(
+        "  - Functions / Methods / Ctors: {}",
+        program.functions.len()
+    );
+    println!(
+        "  - Variables / Fields:          {}",
+        program.variables.len()
+    );
     println!("  - Typedefs:                   {}", program.typedefs.len());
-    println!("  - Extensions:                 {}", program.extensions.len());
+    println!(
+        "  - Extensions:                 {}",
+        program.extensions.len()
+    );
     println!("Resolved annotations:           {}", total_annotations);
     println!("Unique TypeIds (hash-consed):   {}", table.len());
     println!(
@@ -161,7 +174,10 @@ fn sdk_hierarchy_instantiates() {
         Type::Interface { class, args, .. } => {
             assert_eq!(*class, iter_cls);
             assert_eq!(args.len(), 1);
-            assert_eq!(args[0], core.int, "List<int> must have supertype Iterable<int>");
+            assert_eq!(
+                args[0], core.int,
+                "List<int> must have supertype Iterable<int>"
+            );
         }
         other => panic!("expected Interface Iterable<int>, got {:?}", other),
     }

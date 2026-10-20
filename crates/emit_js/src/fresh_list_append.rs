@@ -330,7 +330,11 @@ impl FnEmitter<'_, '_> {
             return out;
         }
         let element = self.resolve_type(type_args[0]);
-        if closed_enabled() && std::env::var("DARTFORGE_TRACE_FRESH_LIST_APPEND").is_ok_and(|v|v=="1") { eprintln!("closed-list element: {:?}",element); }
+        if closed_enabled()
+            && std::env::var("DARTFORGE_TRACE_FRESH_LIST_APPEND").is_ok_and(|v| v == "1")
+        {
+            eprintln!("closed-list element: {:?}", element);
+        }
 
         let Ty::Iface {
             class,
@@ -366,7 +370,11 @@ impl FnEmitter<'_, '_> {
         {
             return out;
         }
-        if closed_enabled() && std::env::var("DARTFORGE_TRACE_FRESH_LIST_APPEND").is_ok_and(|v|v=="1") { eprintln!("closed-list census passed: {} calls",calls.len()); }
+        if closed_enabled()
+            && std::env::var("DARTFORGE_TRACE_FRESH_LIST_APPEND").is_ok_and(|v| v == "1")
+        {
+            eprintln!("closed-list census passed: {} calls", calls.len());
+        }
         let closed_window = closed_enabled();
         if closed_window
             && !self.closed_list_window(

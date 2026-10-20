@@ -24,11 +24,11 @@
 //! ([`crate::executor_deps`]), and what the cache lacks is diagnosed
 //! by name.
 use crate::client::BuildClient;
-use crate::executor_deps::DEPENDENCIES;
 use crate::executor::{
-    Availability, ExecutorError, DartExecutor, RuntimeExtensions, ActionRequest, ExtensionsRequest,
-    ActionResult, BuilderScript, BuildStepService,
+    ActionRequest, ActionResult, Availability, BuildStepService, BuilderScript, DartExecutor,
+    ExecutorError, ExtensionsRequest, RuntimeExtensions,
 };
+use crate::executor_deps::DEPENDENCIES;
 use crate::vm::{WrittenBootstrap, depfile_deps, write_bootstrap};
 use dartforge_dfexec::ProcessChannel;
 use std::path::{Path, PathBuf};
@@ -156,21 +156,14 @@ fn depfile(output: &Path, deps: &[PathBuf]) -> String {
 
 /// The files outside the SDK that the bootstrap program loads (the same
 /// loading as `compile-native`).
-fn program_files(
-    main: &Path,
-    pc: &Path,
-    sdk_lib: Option<&Path>,
-) -> Result<Vec<PathBuf>, String> {
+fn program_files(main: &Path, pc: &Path, sdk_lib: Option<&Path>) -> Result<Vec<PathBuf>, String> {
     let dir = sdk_lib
         .map(Path::to_path_buf)
         .or_else(dartforge_elements::sdk::SdkLayout::discover)
-        .ok_or(
-            "Dart SDK not found: set DARTFORGE_SDK_LIB (the SDK's lib/) or DART_SDK",
-        )?;
+        .ok_or("Dart SDK not found: set DARTFORGE_SDK_LIB (the SDK's lib/) or DART_SDK")?;
     let sdk = dartforge_elements::sdk::SdkLayout::load(&dir, "vm")?;
     let mut names = dartforge_intern::Interner::new();
-    let (program, _) =
-        dartforge_elements::load::load_lenient(main, &sdk, Some(pc), &mut names);
+    let (program, _) = dartforge_elements::load::load_lenient(main, &sdk, Some(pc), &mut names);
     let mut v: Vec<PathBuf> = program
         .units
         .iter()
@@ -239,9 +232,8 @@ impl NativeExecutor {
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map_or(0, |d| d.as_nanos());
-        hasher.update(
-            format!("{}|{}|{date}\n", self.cfg.compiler.display(), meta.len()).as_bytes(),
-        );
+        hasher
+            .update(format!("{}|{}|{date}\n", self.cfg.compiler.display(), meta.len()).as_bytes());
         if let Some(s) = &self.cfg.sdk_lib {
             hasher.update(s.to_string_lossy().as_bytes());
         }
@@ -279,12 +271,9 @@ impl NativeExecutor {
         if let Some(s) = &self.cfg.sdk_lib {
             cmd.arg("--sdk").arg(s);
         }
-        let output = cmd.output().map_err(|e| {
-            format!(
-                "could not run {}: {e}",
-                self.cfg.compiler.display()
-            )
-        })?;
+        let output = cmd
+            .output()
+            .map_err(|e| format!("could not run {}: {e}", self.cfg.compiler.display()))?;
         if !output.status.success() || !temporary.is_file() {
             return Err(format!(
                 "the native compilation of the builder executor failed:\n{}{}",
@@ -307,8 +296,9 @@ impl NativeExecutor {
             for e in ls.flatten() {
                 let n = e.file_name().to_string_lossy().to_string();
                 let old_exe = n.starts_with("executor-") && !n.contains(&key);
-                let old_lib =
-                    n.starts_with("libdfsdk_") && !referenced.is_empty() && !referenced.contains(&n);
+                let old_lib = n.starts_with("libdfsdk_")
+                    && !referenced.is_empty()
+                    && !referenced.contains(&n);
                 if old_exe || old_lib {
                     let _ = std::fs::remove_file(e.path());
                 }

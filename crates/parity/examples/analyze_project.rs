@@ -40,7 +40,9 @@ fn main() {
                 let base = dartforge_instrument::live_bytes();
                 let t = Instant::now();
                 let r = engine
-                    .analyze_with(&root, &files, packages.as_deref(), &HashMap::new(), &|| false)
+                    .analyze_with(&root, &files, packages.as_deref(), &HashMap::new(), &|| {
+                        false
+                    })
                     .expect("not cancelled");
                 let diags: usize = r.files.values().map(|f| f.diags.len()).sum();
                 println!(
@@ -49,7 +51,8 @@ fn main() {
                     files.len(),
                     diags,
                     t.elapsed().as_secs_f64(),
-                    (dartforge_instrument::peak_bytes().saturating_sub(base)) as f64 / (1024.0 * 1024.0)
+                    (dartforge_instrument::peak_bytes().saturating_sub(base)) as f64
+                        / (1024.0 * 1024.0)
                 );
             }
         })

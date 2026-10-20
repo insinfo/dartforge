@@ -165,10 +165,7 @@ fn module(tables: bool, certify: bool) -> Result<Module, String> {
         );
         let mut plan = DartFunctionPlan::default();
         if tables {
-            plan
-                .tables
-                .exits
-                .insert(BlockId(1), ExceptionExit::Throws);
+            plan.tables.exits.insert(BlockId(1), ExceptionExit::Throws);
             m.tables.push(plan.tables.clone());
         }
         plans.insert("repasse_seletor".into(), plan.clone());
@@ -195,20 +192,25 @@ fn module(tables: bool, certify: bool) -> Result<Module, String> {
         local.symbol = "seletor_local".into();
         local.name = "seletor_local".into();
         local.blocks[0].instructions[0].1 = Instruction::CallSelector {
-            selector: "c:ausente".into(), recv: Operand::Val(ValueId(0)),
-            args: vec![], names: vec![], tuple_types: Operand::Constant(Constant::Int(0)),
+            selector: "c:ausente".into(),
+            recv: Operand::Val(ValueId(0)),
+            args: vec![],
+            names: vec![],
+            tuple_types: Operand::Constant(Constant::Int(0)),
         };
         m.functions.push(local);
         m.arc_uniform_returns.insert("seletor_local".into());
-        m.dart_vector_parameters.insert("seletor_local".into(), m.dart_vector_parameters["entrada_uniforme"].clone());
-        if tables { m.tables.push(plan.tables.clone()); }
+        m.dart_vector_parameters.insert(
+            "seletor_local".into(),
+            m.dart_vector_parameters["entrada_uniforme"].clone(),
+        );
+        if tables {
+            m.tables.push(plan.tables.clone());
+        }
         plans.insert("seletor_local".into(), plan);
     }
     prepare_arc_dart_module(&mut m, &mut plans)?;
-    if plans
-        .values()
-        .any(|p| p.tokens.ret != TokenReturn::Owned)
-    {
+    if plans.values().any(|p| p.tokens.ret != TokenReturn::Owned) {
         return Err("body does not have the Owned convention".into());
     }
     let before = format!("{m:?}/{plans:?}");

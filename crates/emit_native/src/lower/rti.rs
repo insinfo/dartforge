@@ -77,7 +77,9 @@ impl Context<'_> {
         if Some(c) == self.core.object_class {
             return 0;
         }
-        self.sdk_rti_ids.get(&c).map_or(0, |&k| 0x2000_0000 + i64::from(k))
+        self.sdk_rti_ids
+            .get(&c)
+            .map_or(0, |&k| 0x2000_0000 + i64::from(k))
     }
 
     /// The class of an RTI id (the inverse of `id_rti`).
@@ -87,9 +89,16 @@ impl Context<'_> {
         }
         if id >= 0x2000_0000 {
             let k = u32::try_from(id - 0x2000_0000).ok()?;
-            return self.sdk_rti_ids.iter().find(|(_, v)| **v == k).map(|(c, _)| *c);
+            return self
+                .sdk_rti_ids
+                .iter()
+                .find(|(_, v)| **v == k)
+                .map(|(c, _)| *c);
         }
-        self.class_ids.iter().position(|x| *x == Some(id as u32)).map(|i| ClassId(i as u32))
+        self.class_ids
+            .iter()
+            .position(|x| *x == Some(id as u32))
+            .map(|i| ClassId(i as u32))
     }
 }
 
@@ -104,20 +113,48 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         match self.ctx.table.param(p).owner {
             TypeParamOwner::Class(c) => {
-                let i = self.ctx.outline.classes.get(c.0 as usize)?.type_params.iter().position(|&x| x == p)?;
+                let i = self
+                    .ctx
+                    .outline
+                    .classes
+                    .get(c.0 as usize)?
+                    .type_params
+                    .iter()
+                    .position(|&x| x == p)?;
                 // Those of an extension type always come in the tuple (there is no
                 // object that keeps them).
-                Some((if self.class_by_tuple || self.ctx.is_extension_type(c) { 'M' } else { 'P' }, i))
+                Some((
+                    if self.class_by_tuple || self.ctx.is_extension_type(c) {
+                        'M'
+                    } else {
+                        'P'
+                    },
+                    i,
+                ))
             }
             // In the tuple of an extension member, the parameters of the extension
             // come before those of the member (`type_params_of`).
             TypeParamOwner::Function(f) => {
-                let i = self.ctx.outline.functions.get(f.0 as usize)?.type_params.iter().position(|&x| x == p)?;
+                let i = self
+                    .ctx
+                    .outline
+                    .functions
+                    .get(f.0 as usize)?
+                    .type_params
+                    .iter()
+                    .position(|&x| x == p)?;
                 let base = self.receiver_pattern(f.0 as usize).map_or(0, |(n, _)| n);
                 Some(('M', base + i))
             }
             TypeParamOwner::Extension(e) => {
-                let i = self.ctx.outline.extensions.get(e.0 as usize)?.type_params.iter().position(|&x| x == p)?;
+                let i = self
+                    .ctx
+                    .outline
+                    .extensions
+                    .get(e.0 as usize)?
+                    .type_params
+                    .iter()
+                    .position(|&x| x == p)?;
                 Some(('M', i))
             }
             _ => None,
@@ -126,7 +163,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Recipe of a type from `crates/types`.
     pub fn type_recipe(&self, t: TypeId) -> Recipe {
-        let mut r = Recipe { text: String::new(), variables: false };
+        let mut r = Recipe {
+            text: String::new(),
+            variables: false,
+        };
         self.write_type(t, &mut Vec::new(), &HashMap::new(), &mut r);
         r
     }
@@ -134,9 +174,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The recipe of `t` with the type parameters of `subst` replaced by the
     /// given types (the parameter of a generic class seen by the creation
     /// `C<int>(…)`, `typed_entry.rs`).
-    pub(super) fn substituted_type_recipe(&self, t: TypeId, subst: Option<&HashMap<TypeParamId, TypeId>>) -> Recipe {
+    pub(super) fn substituted_type_recipe(
+        &self,
+        t: TypeId,
+        subst: Option<&HashMap<TypeParamId, TypeId>>,
+    ) -> Recipe {
         let empty = HashMap::new();
-        let mut r = Recipe { text: String::new(), variables: false };
+        let mut r = Recipe {
+            text: String::new(),
+            variables: false,
+        };
         self.write_type(t, &mut Vec::new(), subst.unwrap_or(&empty), &mut r);
         r
     }
@@ -194,7 +241,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     r.text.push('D');
                 }
             }
-            T::Function { type_params, ret, positional, optional, named, .. } => {
+            T::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                ..
+            } => {
                 let n = linked_set.len();
                 linked_set.extend(type_params.iter().copied());
                 r.text.push_str(&format!("F<{};", type_params.len()));
@@ -221,7 +275,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 r.text.push('>');
                 linked_set.truncate(n);
             }
-            T::Record { positional, named, .. } => {
+            T::Record {
+                positional, named, ..
+            } => {
                 r.text.push_str("R<");
                 for (i, p) in positional.iter().enumerate() {
                     if i > 0 {
@@ -250,7 +306,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The position in the tuple (`M<i>`) of the type parameter `sym` of a
     /// generic closure in scope (the innermost with that name).
     pub(super) fn local_type_index(&self, sym: SymbolId) -> Option<usize> {
-        self.local_params.iter().rev().find(|(s, _, _)| *s == sym).map(|&(_, _, i)| i)
+        self.local_params
+            .iter()
+            .rev()
+            .find(|(s, _, _)| *s == sym)
+            .map(|&(_, _, i)| i)
     }
 
     /// How many type arguments the current tuple carries: those of the function
@@ -260,19 +320,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.type_tuple.is_none() {
             return 0;
         }
-        let class = if self.class_by_tuple { self.class_params().len() } else { 0 };
-        let locals = self.local_params.iter().map(|&(_, _, i)| i + 1).max().unwrap_or(0);
+        let class = if self.class_by_tuple {
+            self.class_params().len()
+        } else {
+            0
+        };
+        let locals = self
+            .local_params
+            .iter()
+            .map(|&(_, _, i)| i + 1)
+            .max()
+            .unwrap_or(0);
         self.function_type_params.len().max(class).max(locals)
     }
 
     /// The names of the type parameters of the enclosing class (in order).
     pub(super) fn class_params(&self) -> Vec<SymbolId> {
-        let Some(c) = self.enclosing_class else { return Vec::new() };
+        let Some(c) = self.enclosing_class else {
+            return Vec::new();
+        };
         self.ctx
             .outline
             .classes
             .get(c.0 as usize)
-            .map(|d| d.type_params.iter().map(|&p| self.ctx.table.param(p).name).collect())
+            .map(|d| {
+                d.type_params
+                    .iter()
+                    .map(|&p| self.ctx.table.param(p).name)
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -280,7 +356,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// through the scope: type variables of the function and of the class, the scope of the
     /// library (with a prefix). `None` when the name does not resolve.
     pub fn annotation_recipe(&self, a: &ast::TypeAnnotation) -> Option<Recipe> {
-        let mut r = Recipe { text: String::new(), variables: false };
+        let mut r = Recipe {
+            text: String::new(),
+            variables: false,
+        };
         self.write_annotation(a, &mut Vec::new(), &mut r)?;
         Some(r)
     }
@@ -289,12 +368,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// factory. The recipe uses the environment of the source factory:
     /// `Impl<T>` needs to read `T` from the tuple it received.
     pub fn annotation_tuple(&mut self, a: &ast::TypeAnnotation) -> Option<Operand> {
-        let TypeKind::Named { args, .. } = &a.kind else { return None };
-        if args.is_empty() { return None; }
+        let TypeKind::Named { args, .. } = &a.kind else {
+            return None;
+        };
+        if args.is_empty() {
+            return None;
+        }
         let args = args.clone();
-        let mut r = Recipe { text: "L<".to_string(), variables: false };
+        let mut r = Recipe {
+            text: "L<".to_string(),
+            variables: false,
+        };
         for (i, arg) in args.iter().enumerate() {
-            if i > 0 { r.text.push(','); }
+            if i > 0 {
+                r.text.push(',');
+            }
             let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
             let sub = self.annotation_recipe(unit_ast.ty(*arg))?;
             r.text.push_str(&sub.text);
@@ -315,10 +403,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let i = self.class_params().iter().position(|s| *s == sym)?;
             format!("{}{i}", if self.class_by_tuple { 'M' } else { 'P' })
         };
-        Some(Recipe { text, variables: true })
+        Some(Recipe {
+            text,
+            variables: true,
+        })
     }
 
-    fn write_annotation(&self, a: &ast::TypeAnnotation, linked_set: &mut Vec<SymbolId>, r: &mut Recipe) -> Option<()> {
+    fn write_annotation(
+        &self,
+        a: &ast::TypeAnnotation,
+        linked_set: &mut Vec<SymbolId>,
+        r: &mut Recipe,
+    ) -> Option<()> {
         let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
         match &a.kind {
             TypeKind::Void => r.text.push('V'),
@@ -331,11 +427,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 } else if simple && let Some(i) = self.local_type_index(last_one.sym) {
                     r.text.push_str(&format!("M{i}"));
                     r.variables = true;
-                } else if simple && let Some(i) = self.function_type_params.iter().position(|s| *s == last_one.sym) {
+                } else if simple
+                    && let Some(i) = self
+                        .function_type_params
+                        .iter()
+                        .position(|s| *s == last_one.sym)
+                {
                     r.text.push_str(&format!("M{i}"));
                     r.variables = true;
-                } else if simple && let Some(i) = self.class_params().iter().position(|s| *s == last_one.sym) {
-                    r.text.push_str(&format!("{}{i}", if self.class_by_tuple { 'M' } else { 'P' }));
+                } else if simple
+                    && let Some(i) = self.class_params().iter().position(|s| *s == last_one.sym)
+                {
+                    r.text.push_str(&format!(
+                        "{}{i}",
+                        if self.class_by_tuple { 'M' } else { 'P' }
+                    ));
                     r.variables = true;
                 } else if simple && name_str == "dynamic" {
                     r.text.push('D');
@@ -361,19 +467,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         // the written arguments (like a typedef).
                         Element::Class(c) if self.ctx.is_extension_type(c) => {
                             let this = *self.ctx.te.this.get(&c)?;
-                            let params = self.ctx.outline.classes.get(c.0 as usize)?.type_params.clone();
-                            let mut sub = Recipe { text: String::new(), variables: false };
+                            let params = self
+                                .ctx
+                                .outline
+                                .classes
+                                .get(c.0 as usize)?
+                                .type_params
+                                .clone();
+                            let mut sub = Recipe {
+                                text: String::new(),
+                                variables: false,
+                            };
                             let mut strings = Vec::new();
                             for i in 0..params.len() {
                                 sub.text.clear();
                                 match args.get(i) {
-                                    Some(x) => self.write_annotation(unit_ast.ty(*x), linked_set, &mut sub)?,
+                                    Some(x) => self.write_annotation(
+                                        unit_ast.ty(*x),
+                                        linked_set,
+                                        &mut sub,
+                                    )?,
                                     None => sub.text.push('D'),
                                 }
                                 r.variables |= sub.variables;
                                 strings.push(sub.text.clone());
                             }
-                            let mut target = self.type_recipe_with(self.ctx.erase(this), &params, &strings);
+                            let mut target =
+                                self.type_recipe_with(self.ctx.erase(this), &params, &strings);
                             r.variables |= target.variables;
                             if a.nullable && !target.text.ends_with('?') {
                                 target.text.push('?');
@@ -383,7 +503,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         }
                         Element::Class(c) => {
                             r.text.push_str(&format!("C{}", self.ctx.id_rti(c)));
-                            let n = self.ctx.outline.classes.get(c.0 as usize).map_or(0, |d| d.type_params.len());
+                            let n = self
+                                .ctx
+                                .outline
+                                .classes
+                                .get(c.0 as usize)
+                                .map_or(0, |d| d.type_params.len());
                             if n > 0 {
                                 r.text.push('<');
                                 for i in 0..n {
@@ -391,7 +516,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                         r.text.push(',');
                                     }
                                     match args.get(i) {
-                                        Some(x) => self.write_annotation(unit_ast.ty(*x), linked_set, r)?,
+                                        Some(x) => {
+                                            self.write_annotation(unit_ast.ty(*x), linked_set, r)?
+                                        }
                                         None => r.text.push('D'),
                                     }
                                 }
@@ -402,7 +529,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                             let data = self.ctx.outline.typedefs.get(td.0 as usize)?;
                             // The arguments of the typedef enter through the recipe of
                             // each one (sub-recipes written as text).
-                            let mut sub = Recipe { text: String::new(), variables: false };
+                            let mut sub = Recipe {
+                                text: String::new(),
+                                variables: false,
+                            };
                             let mut strings = Vec::new();
                             for x in args.iter() {
                                 sub.text.clear();
@@ -410,7 +540,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 strings.push(sub.text.clone());
                             }
                             r.variables |= sub.variables;
-                            let mut target = self.type_recipe_with(data.target_type, &data.type_params, &strings);
+                            let mut target = self.type_recipe_with(
+                                data.target_type,
+                                &data.type_params,
+                                &strings,
+                            );
                             r.variables |= target.variables;
                             if a.nullable {
                                 target.text.push('?');
@@ -422,7 +556,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
             }
-            TypeKind::Function { return_type, type_params, parameters } => {
+            TypeKind::Function {
+                return_type,
+                type_params,
+                parameters,
+            } => {
                 let n = linked_set.len();
                 linked_set.extend(type_params.iter().map(|p| p.name.sym));
                 r.text.push_str(&format!("F<{};", type_params.len()));
@@ -430,10 +568,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Some(x) => self.write_annotation(unit_ast.ty(*x), linked_set, r)?,
                     None => r.text.push('D'),
                 }
-                let oblig = parameters.iter().filter(|p| p.kind == ast::ParameterKind::Required).count();
+                let oblig = parameters
+                    .iter()
+                    .filter(|p| p.kind == ast::ParameterKind::Required)
+                    .count();
                 r.text.push_str(&format!(";{oblig};"));
                 let mut first_one = true;
-                for p in parameters.iter().filter(|p| p.kind != ast::ParameterKind::Named) {
+                for p in parameters
+                    .iter()
+                    .filter(|p| p.kind != ast::ParameterKind::Named)
+                {
                     if !first_one {
                         r.text.push(',');
                     }
@@ -445,7 +589,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 r.text.push(';');
                 let mut first_one = true;
-                for p in parameters.iter().filter(|p| p.kind == ast::ParameterKind::Named) {
+                for p in parameters
+                    .iter()
+                    .filter(|p| p.kind == ast::ParameterKind::Named)
+                {
                     if !first_one {
                         r.text.push(',');
                     }
@@ -494,10 +641,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Recipe of `t` with the parameters `params` replaced by the recipes
     /// `args` (those of a typedef).
-    pub(super) fn type_recipe_with(&self, t: TypeId, params: &[TypeParamId], args: &[String]) -> Recipe {
+    pub(super) fn type_recipe_with(
+        &self,
+        t: TypeId,
+        params: &[TypeParamId],
+        args: &[String],
+    ) -> Recipe {
         // Writes with markers and replaces: the typedef parameters are neither of a
         // class nor of a function, so `write_type` would write them as `D`.
-        let mut r = Recipe { text: String::new(), variables: false };
+        let mut r = Recipe {
+            text: String::new(),
+            variables: false,
+        };
         self.write_typedef_type(t, params, args, &mut Vec::new(), &mut r);
         r
     }
@@ -522,7 +677,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // The other cases: the normal recipe, descending through the arguments with the
         // same replacement (the compound types are rewritten piece by piece).
         match self.ctx.table.get(t) {
-            T::Interface { class, args: a, nullable } => {
+            T::Interface {
+                class,
+                args: a,
+                nullable,
+            } => {
                 r.text.push_str(&format!("C{}", self.ctx.id_rti(*class)));
                 if !a.is_empty() {
                     r.text.push('<');
@@ -538,7 +697,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     r.text.push('?');
                 }
             }
-            T::Function { type_params, ret, positional, optional, named, nullable } => {
+            T::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+            } => {
                 let n = linked_set.len();
                 linked_set.extend(type_params.iter().copied());
                 r.text.push_str(&format!("F<{};", type_params.len()));
@@ -576,7 +742,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     r.text.push('?');
                 }
             }
-            T::Record { positional, named, nullable } => {
+            T::Record {
+                positional,
+                named,
+                nullable,
+            } => {
                 r.text.push_str("R<");
                 for (i, p) in positional.iter().enumerate() {
                     if i > 0 {
@@ -614,7 +784,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let global = format!("dfr.{h}.{owner}");
         if !self.done_entries.contains(&getter) {
             self.done_entries.insert(getter.clone());
-            let mut g = FnBuilder::new(self.ctx, self.unit_id, getter.clone(), "rti".to_string(), Type::I64);
+            let mut g = FnBuilder::new(
+                self.ctx,
+                self.unit_id,
+                getter.clone(),
+                "rti".to_string(),
+                Type::I64,
+            );
             let ok = g.emit(
                 Instruction::LoadGlobal {
                     symbol: format!("{global}$ok"),
@@ -622,7 +798,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 },
                 Type::I8,
             );
-            let ready = g.emit(Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))), Type::I1);
+            let ready = g.emit(
+                Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
             let b_ready = g.new_block();
             let b_read = g.new_block();
             g.terminate(Terminator::CondBranch {
@@ -640,7 +819,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             g.terminate(Terminator::Return(Some(v)));
             g.set_block(b_read);
-            let s = g.emit(Instruction::Const(Constant::String(r.text.clone())), Type::Ref);
+            let s = g.emit(
+                Instruction::Const(Constant::String(r.text.clone())),
+                Type::Ref,
+            );
             let t = g.emit(
                 Instruction::CallRuntime {
                     name: "dartforge_rti_recipe".to_string(),
@@ -668,7 +850,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Void,
             );
             g.terminate(Terminator::Return(Some(t)));
-            if self.ctx.arc_memory { self.arc_rti_caches.insert(global.clone()); }
+            if self.ctx.arc_memory {
+                self.arc_rti_caches.insert(global.clone());
+            }
             self.extra_globals.push((0, Type::I64, global.clone()));
             self.absorb(g);
         }
@@ -692,7 +876,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 },
                 Type::I8,
             );
-            let ready = self.emit(Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))), Type::I1);
+            let ready = self.emit(
+                Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
             let b_ready = self.new_block();
             let b_first = self.new_block();
             let b_end = self.new_block();
@@ -735,10 +922,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let this = if self.class_by_tuple {
             Operand::Constant(Constant::Null)
         } else {
-            self.this_param.clone().map_or(Operand::Constant(Constant::Null), |t| self.coerce(t, Type::Ref))
+            self.this_param
+                .clone()
+                .map_or(Operand::Constant(Constant::Null), |t| {
+                    self.coerce(t, Type::Ref)
+                })
         };
         let class = self.enclosing_class.map_or(0, |c| self.ctx.id_rti(c));
-        let tuple = self.type_tuple.clone().unwrap_or(Operand::Constant(Constant::Int(0)));
+        let tuple = self
+            .type_tuple
+            .clone()
+            .unwrap_or(Operand::Constant(Constant::Int(0)));
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_rti_eval".to_string(),
@@ -809,7 +1003,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::I8,
         );
-        self.emit(Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))), Type::I1)
+        self.emit(
+            Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        )
     }
 
     /// `op as <ty>` through the RTI: a pending `TypeError` if it fails.
@@ -845,12 +1042,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (code, name_str) = match context {
             CastContext::How => (0, Operand::Constant(Constant::Null)),
             CastContext::Implicit => (1, Operand::Constant(Constant::Null)),
-            CastContext::Parameter(n) => (2, self.emit(Instruction::Const(Constant::String(n)), Type::Ref)),
+            CastContext::Parameter(n) => (
+                2,
+                self.emit(Instruction::Const(Constant::String(n)), Type::Ref),
+            ),
         };
         self.emit_call_with_check(
             Instruction::CallRuntime {
                 name: "dartforge_rti_as_with_context".to_string(),
-                args: vec![(v, Type::Ref), (ty, Type::I64), (Operand::Constant(Constant::Int(code)), Type::I64), (name_str, Type::Ref)],
+                args: vec![
+                    (v, Type::Ref),
+                    (ty, Type::I64),
+                    (Operand::Constant(Constant::Int(code)), Type::I64),
+                    (name_str, Type::Ref),
+                ],
                 ret_ty: Type::Void,
             },
             Type::Void,
@@ -874,15 +1079,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// [`Self::check_entry_arguments`]; at the typed entry
     /// (`only_covariants`, `typed_entry.rs`), only the covariant
     /// parameters: the static caller already guaranteed the others.
-    pub fn check_entry_arguments_with(&mut self, fid: usize, vals: &[Operand], only_covariants: bool) {
-        for (i, (p, v)) in self.ctx.outline.functions[fid].parameters.clone().iter().zip(vals).enumerate() {
+    pub fn check_entry_arguments_with(
+        &mut self,
+        fid: usize,
+        vals: &[Operand],
+        only_covariants: bool,
+    ) {
+        for (i, (p, v)) in self.ctx.outline.functions[fid]
+            .parameters
+            .clone()
+            .iter()
+            .zip(vals)
+            .enumerate()
+        {
             if !super::typed_entry::checked_at_entry(self.ctx, fid, p.ty) {
                 continue;
             }
             if only_covariants && !super::typed_entry::covariant_parameter(self.ctx, fid, i) {
                 continue;
             }
-            let name_str = p.name.map(|n| self.ctx.symbol_name(n).to_string()).unwrap_or_default();
+            let name_str = p
+                .name
+                .map(|n| self.ctx.symbol_name(n).to_string())
+                .unwrap_or_default();
             let ty = self.type_rti(p.ty);
             self.cast_rti_in(v.clone(), ty, CastContext::Parameter(name_str));
         }
@@ -923,7 +1142,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if !arguments.type_args.is_empty() {
                 for a in &arguments.type_args {
                     let x = self.annotation_recipe(unit_ast.ty(*a));
-                    written_set.push(x.unwrap_or(Recipe { text: "D".to_string(), variables: false }));
+                    written_set.push(x.unwrap_or(Recipe {
+                        text: "D".to_string(),
+                        variables: false,
+                    }));
                 }
             } else {
                 if let Some(real) = self.ctx.get_type_raw(self.unit_id, expr) {
@@ -932,7 +1154,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let mut positionals = arguments.args.iter().filter(|a| a.name.is_none());
                 for p in data.parameters.iter() {
                     let arg = if p.kind == ast::ParameterKind::Named {
-                        arguments.args.iter().find(|a| a.name.map(|n| n.sym) == p.name)
+                        arguments
+                            .args
+                            .iter()
+                            .find(|a| a.name.map(|n| n.sym) == p.name)
                     } else {
                         positionals.next()
                     };
@@ -944,12 +1169,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
         }
-        let mut r = Recipe { text: "L<".to_string(), variables: false };
+        let mut r = Recipe {
+            text: "L<".to_string(),
+            variables: false,
+        };
         for (i, found) in found_items.iter().enumerate() {
             if i > 0 {
                 r.text.push(',');
             }
-            let x = match written_set.get(i.wrapping_sub(n_ext)).filter(|_| i >= n_ext) {
+            let x = match written_set
+                .get(i.wrapping_sub(n_ext))
+                .filter(|_| i >= n_ext)
+            {
                 Some(e) => e.clone(),
                 None => self.type_recipe(found.unwrap_or(self.ctx.core.dynamic_)),
             };
@@ -966,17 +1197,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// If `C<args>` is a `Future`, the argument of the supertype `Future<X>`
     /// (`Some(None)` when `X` cannot be written with the `args` alone); `None`
     /// when it is not a `Future`.
-    fn future_argument(&self, class: dartforge_elements::model::ClassId, args: &[TypeId]) -> Option<Option<TypeId>> {
+    fn future_argument(
+        &self,
+        class: dartforge_elements::model::ClassId,
+        args: &[TypeId],
+    ) -> Option<Option<TypeId>> {
         let future = self.ctx.core.future_class?;
         if class == future {
             return Some(args.first().copied());
         }
         let data = self.ctx.outline.hierarchy.get(class)?;
         let model = *data.supertypes.get(&future)?;
-        let T::Interface { args: margs, .. } = self.ctx.table.get(model) else { return Some(None) };
-        let Some(&x) = margs.first() else { return Some(None) };
+        let T::Interface { args: margs, .. } = self.ctx.table.get(model) else {
+            return Some(None);
+        };
+        let Some(&x) = margs.first() else {
+            return Some(None);
+        };
         Some(match self.ctx.table.get(x) {
-            T::TypeParameter { param, .. } => data.type_params.iter().position(|p| p == param).and_then(|i| args.get(i).copied()),
+            T::TypeParameter { param, .. } => data
+                .type_params
+                .iter()
+                .position(|p| p == param)
+                .and_then(|i| args.get(i).copied()),
             _ if !self.contains_variable(x) => Some(x),
             _ => None,
         })
@@ -993,14 +1236,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    pub(super) fn unify(&self, decl: TypeId, real: TypeId, params: &[TypeParamId], found_items: &mut [Option<TypeId>]) {
+    pub(super) fn unify(
+        &self,
+        decl: TypeId,
+        real: TypeId,
+        params: &[TypeParamId],
+        found_items: &mut [Option<TypeId>],
+    ) {
         if real == self.ctx.core.dynamic_ {
             return;
         }
         // Extension types: by the arguments when both are of the same one
         // (or the real one implements that of the pattern); otherwise by the erased ones.
         match (self.ctx.table.get(decl), self.ctx.table.get(real)) {
-            (T::ExtensionType { decl: d1, args: a1, .. }, T::ExtensionType { decl: d2, args: a2, .. }) => {
+            (
+                T::ExtensionType {
+                    decl: d1, args: a1, ..
+                },
+                T::ExtensionType {
+                    decl: d2, args: a2, ..
+                },
+            ) => {
                 if d1 == d2 {
                     for (x, y) in a1.iter().zip(a2.iter()) {
                         self.unify(*x, *y, params, found_items);
@@ -1025,14 +1281,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // that the pattern already has): the `nonNulls` of a `List<T?>` is
                 // `Iterable<T>`. Without the non-nullable form in the table (read
                 // only here), `T?` stays.
-                let real = if *nullable { self.without_question_mark(real).unwrap_or(real) } else { real };
+                let real = if *nullable {
+                    self.without_question_mark(real).unwrap_or(real)
+                } else {
+                    real
+                };
                 if let Some(i) = params.iter().position(|p| p == param)
                     && found_items[i].is_none()
                 {
                     found_items[i] = Some(real);
                 }
             }
-            (T::Interface { class: c1, args: a1, .. }, T::Interface { class: c2, args: a2, .. }) if c1 == c2 => {
+            (
+                T::Interface {
+                    class: c1,
+                    args: a1,
+                    ..
+                },
+                T::Interface {
+                    class: c2,
+                    args: a2,
+                    ..
+                },
+            ) if c1 == c2 => {
                 for (x, y) in a1.iter().zip(a2.iter()) {
                     self.unify(*x, *y, params, found_items);
                 }
@@ -1040,15 +1311,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // Different classes: the pattern matches the supertype of the real one
             // (`Iterable<X>` against `List<int>` is `Iterable<int>`), as
             // inference does through the interface of the real type.
-            (T::Interface { class: c1, args: a1, .. }, T::Interface { class: c2, args: a2, .. }) => {
-                let Some(data) = self.ctx.outline.hierarchy.get(*c2) else { return };
-                let Some(&model) = data.supertypes.get(c1) else { return };
-                let T::Interface { args: margs, .. } = self.ctx.table.get(model) else { return };
+            (
+                T::Interface {
+                    class: c1,
+                    args: a1,
+                    ..
+                },
+                T::Interface {
+                    class: c2,
+                    args: a2,
+                    ..
+                },
+            ) => {
+                let Some(data) = self.ctx.outline.hierarchy.get(*c2) else {
+                    return;
+                };
+                let Some(&model) = data.supertypes.get(c1) else {
+                    return;
+                };
+                let T::Interface { args: margs, .. } = self.ctx.table.get(model) else {
+                    return;
+                };
                 for (x, m) in a1.iter().zip(margs.iter()) {
                     self.unify_by_model(*x, *m, &data.type_params, a2, params, found_items);
                 }
             }
-            (T::FutureOr { arg, .. }, T::FutureOr { arg: b, .. }) => self.unify(*arg, *b, params, found_items),
+            (T::FutureOr { arg, .. }, T::FutureOr { arg: b, .. }) => {
+                self.unify(*arg, *b, params, found_items)
+            }
             // `FutureOr<X>` against a `Future` matches `X` with the argument of the
             // `Future` (inference tries `Future<X>` first): also
             // for a subtype (`_Future<T>` implements `Future<T>`).
@@ -1061,8 +1351,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
             (
-                T::Function { ret: r1, positional: p1, .. },
-                T::Function { ret: r2, positional: p2, .. },
+                T::Function {
+                    ret: r1,
+                    positional: p1,
+                    ..
+                },
+                T::Function {
+                    ret: r2,
+                    positional: p2,
+                    ..
+                },
             ) => {
                 self.unify(*r1, *r2, params, found_items);
                 for (x, y) in p1.iter().zip(p2.iter()) {
@@ -1073,8 +1371,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // against `(P<String>, P<int>)`; petitparser's
             // `toSequenceParser`), positional by position and named by name.
             (
-                T::Record { positional: p1, named: n1, .. },
-                T::Record { positional: p2, named: n2, .. },
+                T::Record {
+                    positional: p1,
+                    named: n1,
+                    ..
+                },
+                T::Record {
+                    positional: p2,
+                    named: n2,
+                    ..
+                },
             ) if p1.len() == p2.len() && n1.len() == n2.len() => {
                 for (x, y) in p1.iter().zip(p2.iter()) {
                     self.unify(*x, *y, params, found_items);
@@ -1103,12 +1409,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         found_items: &mut [Option<TypeId>],
     ) {
         match (self.ctx.table.get(decl), self.ctx.table.get(model)) {
-            (_, T::TypeParameter { param, nullable: false }) => {
-                if let Some(&r) = formals.iter().position(|f| f == param).and_then(|k| real_set.get(k)) {
+            (
+                _,
+                T::TypeParameter {
+                    param,
+                    nullable: false,
+                },
+            ) => {
+                if let Some(&r) = formals
+                    .iter()
+                    .position(|f| f == param)
+                    .and_then(|k| real_set.get(k))
+                {
                     self.unify(decl, r, params, found_items);
                 }
             }
-            (T::Interface { class: c1, args: a1, .. }, T::Interface { class: c2, args: m2, .. }) if c1 == c2 => {
+            (
+                T::Interface {
+                    class: c1,
+                    args: a1,
+                    ..
+                },
+                T::Interface {
+                    class: c2,
+                    args: m2,
+                    ..
+                },
+            ) if c1 == c2 => {
                 for (x, m) in a1.iter().zip(m2.iter()) {
                     self.unify_by_model(*x, *m, formals, real_set, params, found_items);
                 }
@@ -1123,15 +1450,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// inference (`C<int> Function()`, without type parameters of its own);
     /// `None` for a non-generic class or a generic tear-off.
     pub fn tearoff_instantiation(&mut self, c: ClassId, ty: TypeId) -> Option<(Operand, Operand)> {
-        let n = self.ctx.outline.classes.get(c.0 as usize)?.type_params.len();
+        let n = self
+            .ctx
+            .outline
+            .classes
+            .get(c.0 as usize)?
+            .type_params
+            .len();
         if n == 0 {
             return None;
         }
-        let T::Function { type_params, ret, .. } = self.ctx.table.get(ty) else { return None };
+        let T::Function {
+            type_params, ret, ..
+        } = self.ctx.table.get(ty)
+        else {
+            return None;
+        };
         if !type_params.is_empty() {
             return None;
         }
-        let T::Interface { class, args, .. } = self.ctx.table.get(*ret) else { return None };
+        let T::Interface { class, args, .. } = self.ctx.table.get(*ret) else {
+            return None;
+        };
         if *class != c || args.len() != n {
             return None;
         }
@@ -1143,8 +1483,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             variables |= r.variables;
             strings.push(r.text);
         }
-        let object = self.recipe_rti(&Recipe { text: format!("C{}<{}>", self.ctx.id_rti(c), strings.join(",")), variables });
-        let tuple = self.recipe_rti(&Recipe { text: format!("L<{}>", strings.join(",")), variables });
+        let object = self.recipe_rti(&Recipe {
+            text: format!("C{}<{}>", self.ctx.id_rti(c), strings.join(",")),
+            variables,
+        });
+        let tuple = self.recipe_rti(&Recipe {
+            text: format!("L<{}>", strings.join(",")),
+            variables,
+        });
         Some((object, tuple))
     }
 
@@ -1152,14 +1498,62 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// table has it.
     fn without_question_mark(&self, t: TypeId) -> Option<TypeId> {
         let ty = match self.ctx.table.get(t).clone() {
-            T::TypeParameter { param, nullable: true } => T::TypeParameter { param, nullable: false },
-            T::Interface { class, args, nullable: true } => T::Interface { class, args, nullable: false },
-            T::FutureOr { arg, nullable: true } => T::FutureOr { arg, nullable: false },
-            T::Record { positional, named, nullable: true } => T::Record { positional, named, nullable: false },
-            T::ExtensionType { decl, args, nullable: true } => T::ExtensionType { decl, args, nullable: false },
-            T::Function { type_params, ret, positional, optional, named, nullable: true } => {
-                T::Function { type_params, ret, positional, optional, named, nullable: false }
-            }
+            T::TypeParameter {
+                param,
+                nullable: true,
+            } => T::TypeParameter {
+                param,
+                nullable: false,
+            },
+            T::Interface {
+                class,
+                args,
+                nullable: true,
+            } => T::Interface {
+                class,
+                args,
+                nullable: false,
+            },
+            T::FutureOr {
+                arg,
+                nullable: true,
+            } => T::FutureOr {
+                arg,
+                nullable: false,
+            },
+            T::Record {
+                positional,
+                named,
+                nullable: true,
+            } => T::Record {
+                positional,
+                named,
+                nullable: false,
+            },
+            T::ExtensionType {
+                decl,
+                args,
+                nullable: true,
+            } => T::ExtensionType {
+                decl,
+                args,
+                nullable: false,
+            },
+            T::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                nullable: true,
+            } => T::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                nullable: false,
+            },
             _ => return None,
         };
         self.ctx.table.intern_lookup(ty)
@@ -1174,15 +1568,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `tipos_de_execucao_de_funcoes`), otherwise the inferred one — that of the expression, or
     /// that of the local, whose return without a written type comes from the body (`g() { return
     /// 1; }` is `() => int`, not `() => dynamic`).
-    pub fn literal_function_type(&self, ast: &ast::Ast, fid: ast::FunctionId, expr: Option<ast::ExprId>) -> Option<dartforge_types::table::TypeId> {
-        let execution = self.ctx.bodies.units.get(self.unit_id.0 as usize).and_then(|u| u.function_runtime_type(fid));
+    pub fn literal_function_type(
+        &self,
+        ast: &ast::Ast,
+        fid: ast::FunctionId,
+        expr: Option<ast::ExprId>,
+    ) -> Option<dartforge_types::table::TypeId> {
+        let execution = self
+            .ctx
+            .bodies
+            .units
+            .get(self.unit_id.0 as usize)
+            .and_then(|u| u.function_runtime_type(fid));
         execution.or_else(|| match expr {
             Some(e) => self.ctx.get_type(self.unit_id, e),
-            None => ast.function(fid).name.and_then(|n| self.ctx.local_type(self.unit_id, n.span.start)),
+            None => ast
+                .function(fid)
+                .name
+                .and_then(|n| self.ctx.local_type(self.unit_id, n.span.start)),
         })
     }
 
-    pub fn define_closure_rti(&mut self, clo: Operand, ast: &ast::Ast, fid: ast::FunctionId, expr: Option<ast::ExprId>) {
+    pub fn define_closure_rti(
+        &mut self,
+        clo: Operand,
+        ast: &ast::Ast,
+        fid: ast::FunctionId,
+        expr: Option<ast::ExprId>,
+    ) {
         // The inferred type: that of the expression (function literal) or that of the local
         // (named local function, whose return without a written type is inferred from the
         // body — `g() { return 1; }` is `() => int`, not `() => dynamic`).
@@ -1196,12 +1609,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let f = ast.function(fid);
         let params = f.parameters.as_deref().unwrap_or(&[]);
-        let mut r = Recipe { text: format!("F<{};", f.type_params.len()), variables: false };
+        let mut r = Recipe {
+            text: format!("F<{};", f.type_params.len()),
+            variables: false,
+        };
         let mut linked_set: Vec<SymbolId> = f.type_params.iter().map(|p| p.name.sym).collect();
-        let type_of = |s: &Self, t: Option<ast::TypeId>, r: &mut Recipe, linked_set: &mut Vec<SymbolId>| match t {
+        let type_of = |s: &Self,
+                       t: Option<ast::TypeId>,
+                       r: &mut Recipe,
+                       linked_set: &mut Vec<SymbolId>| match t {
             Some(x) => {
-                let mut sub = Recipe { text: String::new(), variables: false };
-                if s.write_annotation(ast.ty(x), linked_set, &mut sub).is_some() {
+                let mut sub = Recipe {
+                    text: String::new(),
+                    variables: false,
+                };
+                if s.write_annotation(ast.ty(x), linked_set, &mut sub)
+                    .is_some()
+                {
                     r.text.push_str(&sub.text);
                     r.variables |= sub.variables;
                 } else {
@@ -1211,10 +1635,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             None => r.text.push('D'),
         };
         type_of(self, f.return_type, &mut r, &mut linked_set);
-        let oblig = params.iter().filter(|p| p.kind == ast::ParameterKind::Required).count();
+        let oblig = params
+            .iter()
+            .filter(|p| p.kind == ast::ParameterKind::Required)
+            .count();
         r.text.push_str(&format!(";{oblig};"));
         let mut first_one = true;
-        for p in params.iter().filter(|p| p.kind != ast::ParameterKind::Named) {
+        for p in params
+            .iter()
+            .filter(|p| p.kind != ast::ParameterKind::Named)
+        {
             if !first_one {
                 r.text.push(',');
             }
@@ -1223,7 +1653,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         r.text.push(';');
         let mut first_one = true;
-        for p in params.iter().filter(|p| p.kind == ast::ParameterKind::Named) {
+        for p in params
+            .iter()
+            .filter(|p| p.kind == ast::ParameterKind::Named)
+        {
             let Some(n) = p.name else { continue };
             if !first_one {
                 r.text.push(',');
@@ -1250,22 +1683,42 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// [`Self::define_tearoff_rti`] of a generic extension member or extension
     /// type member: the type parameters of the owner come from `tuple`
     /// (that of `arm_tuple_with_receiver`, computed here), not from an object.
-    pub fn define_tearoff_rti_with_tuple(&mut self, clo: Operand, fid: usize, recv: Option<Operand>, tuple: Option<Operand>) {
+    pub fn define_tearoff_rti_with_tuple(
+        &mut self,
+        clo: Operand,
+        fid: usize,
+        recv: Option<Operand>,
+        tuple: Option<Operand>,
+    ) {
         let Some(sig) = self.ctx.outline.functions.get(fid).map(|d| d.signature) else {
             return;
         };
-        let saved = (self.this_param.clone(), self.finalizable_this, self.enclosing_class, self.class_by_tuple, self.type_tuple.clone());
+        let saved = (
+            self.this_param.clone(),
+            self.finalizable_this,
+            self.enclosing_class,
+            self.class_by_tuple,
+            self.type_tuple.clone(),
+        );
         if let Some(r) = recv {
             self.this_param = Some(r);
             self.finalizable_this = self.ctx.classify_this(fid);
             // An extension type has no object with the type arguments.
-            self.enclosing_class = self.ctx.program.functions[fid].class.filter(|&c| !self.ctx.is_extension_type(c));
+            self.enclosing_class = self.ctx.program.functions[fid]
+                .class
+                .filter(|&c| !self.ctx.is_extension_type(c));
             self.class_by_tuple = false;
         }
         self.type_tuple = tuple;
         let r = self.type_recipe(sig);
         let ty = self.recipe_rti(&r);
-        (self.this_param, self.finalizable_this, self.enclosing_class, self.class_by_tuple, self.type_tuple) = saved;
+        (
+            self.this_param,
+            self.finalizable_this,
+            self.enclosing_class,
+            self.class_by_tuple,
+            self.type_tuple,
+        ) = saved;
         self.define_rti(clo, ty);
     }
 
@@ -1278,7 +1731,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             TypeKind::Void => false,
             TypeKind::Function { .. } | TypeKind::Record { .. } => true,
             TypeKind::Named { name, args } => {
-                let Some(last_one) = name.last() else { return false };
+                let Some(last_one) = name.last() else {
+                    return false;
+                };
                 let name_str = self.ctx.symbol_name(last_one.sym);
                 if name.len() == 1
                     && (self.function_type_params.contains(&last_one.sym)
@@ -1304,10 +1759,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return true;
                 }
                 let trivial = |t: &ast::TypeAnnotation| match &t.kind {
-                    TypeKind::Named { name, args } if args.is_empty() => name.last().is_some_and(|n| {
-                        let s = self.ctx.symbol_name(n.sym);
-                        s == "dynamic" || (s == "Object" && t.nullable)
-                    }),
+                    TypeKind::Named { name, args } if args.is_empty() => {
+                        name.last().is_some_and(|n| {
+                            let s = self.ctx.symbol_name(n.sym);
+                            s == "dynamic" || (s == "Object" && t.nullable)
+                        })
+                    }
                     _ => false,
                 };
                 !args.iter().all(|x| trivial(unit_ast.ty(*x)))
@@ -1334,7 +1791,9 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
             for (_, inst, _) in &b.instructions {
                 match inst {
                     Instruction::Const(Constant::String(s)) if is_recipe => recipes.push(s.clone()),
-                    Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_rti_") => uses_rti = true,
+                    Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_rti_") => {
+                        uses_rti = true
+                    }
                     _ => {}
                 }
             }
@@ -1346,7 +1805,10 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     // The `Type` object (`dartforge_rti_object_type`): the class and the selectors
     // used by the source SDK. Each type has a single canonical object.
     {
-        let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
+        let Some(u) = ctx
+            .entry_lib
+            .and_then(|l| ctx.program.library(l).units.first().copied())
+        else {
             return;
         };
         let symbol = "df.$type.toString".to_string();
@@ -1355,11 +1817,18 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         // Field 0 of `_Type` is the RTI ID, a scalar (`dartforge_rti_object_type`).
         // Under ARC, the read checks the real map of the field; the text gets an owner
         // in the ARC preparation (`optimize/arc/natives.rs`), not here.
-        let read = if ctx.arc_memory { "dartforge_arc_read_field_scalar_v1" } else { "dartforge_object_get" };
+        let read = if ctx.arc_memory {
+            "dartforge_arc_read_field_scalar_v1"
+        } else {
+            "dartforge_object_get"
+        };
         let id = t.emit(
             Instruction::CallRuntime {
                 name: read.to_string(),
-                args: vec![(obj, Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
+                args: vec![
+                    (obj, Type::Ref),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                ],
                 ret_ty: Type::I64,
             },
             Type::I64,
@@ -1379,26 +1848,45 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         if ctx.arc_memory {
             module.dart_ref_returns.insert(symbol.clone());
         }
-        let mut equality = FnBuilder::new(ctx, u, "df.$type.$3d$3d$c".to_string(), "==".to_string(), Type::Ref);
+        let mut equality = FnBuilder::new(
+            ctx,
+            u,
+            "df.$type.$3d$3d$c".to_string(),
+            "==".to_string(),
+            Type::Ref,
+        );
         let recv = Operand::Val(equality.add_param("this".to_string(), Type::Ref));
         let args = Operand::Val(equality.add_param_vector(DartEntryVector::Arguments));
         equality.add_param_vector(DartEntryVector::Descriptor);
         equality.declare_arc_uniform_return();
         let other = equality.emit(
-            Instruction::LoadIndexed { base: args, index: Operand::Constant(Constant::Int(0)) },
+            Instruction::LoadIndexed {
+                base: args,
+                index: Operand::Constant(Constant::Int(0)),
+            },
             Type::Ref,
         );
         let equal = equality.emit(Instruction::ICmp(ICmpOp::Eq, recv, other), Type::I1);
         let equal = equality.coerce(equal, Type::Ref);
         equality.terminate(Terminator::Return(Some(equal)));
         equality.finish(module);
-        let mut text = FnBuilder::new(ctx, u, "df.$type.toString$c".to_string(), "toString".to_string(), Type::Ref);
+        let mut text = FnBuilder::new(
+            ctx,
+            u,
+            "df.$type.toString$c".to_string(),
+            "toString".to_string(),
+            Type::Ref,
+        );
         let recv = Operand::Val(text.add_param("this".to_string(), Type::Ref));
         text.add_param_vector(DartEntryVector::Arguments);
         text.add_param_vector(DartEntryVector::Descriptor);
         text.declare_arc_uniform_return();
         let value = text.emit_call_with_check(
-            Instruction::CallStatic { symbol: symbol.clone(), args: vec![recv], ret_ty: Type::Ref },
+            Instruction::CallStatic {
+                symbol: symbol.clone(),
+                args: vec![recv],
+                ret_ty: Type::Ref,
+            },
             Type::Ref,
         );
         text.terminate(Terminator::Return(Some(value)));
@@ -1417,8 +1905,12 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
                 }
             }
         }
-        module.method_tables.push((TYPE_CLASS as u32, "df.mt.$type".to_string(), methods));
-        module.table_functions.insert(TYPE_CLASS as u32, "df.mt.$type".to_string());
+        module
+            .method_tables
+            .push((TYPE_CLASS as u32, "df.mt.$type".to_string(), methods));
+        module
+            .table_functions
+            .insert(TYPE_CLASS as u32, "df.mt.$type".to_string());
         module.classes.push(ClassDef {
             id: TYPE_CLASS as u32,
             name: "_Type".to_string(),
@@ -1499,7 +1991,10 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         }
     }
     classes.sort_by_key(|c| ctx.id_rti(*c));
-    let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else {
+    let Some(u) = ctx
+        .entry_lib
+        .and_then(|l| ctx.program.library(l).units.first().copied())
+    else {
         return;
     };
     // The registrations go into a constant TABLE that the runtime reads at once
@@ -1513,15 +2008,25 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     for &c in &classes {
         let id = ctx.id_rti(c);
         let name_str = visible_name(ctx, c);
-        let n = ctx.outline.classes.get(c.0 as usize).map_or(0, |d| d.type_params.len());
+        let n = ctx
+            .outline
+            .classes
+            .get(c.0 as usize)
+            .map_or(0, |d| d.type_params.len());
         table.push_str(&format!("C{id} {n} {name_str}\n"));
         // The library that declares the class and the declared name, for the
         // `reflectClass` of `dart:mirrors` (`runtime/src/mirrors.rs`).
         let class = &ctx.program.classes[c.0 as usize];
         let uri = ctx.program.library(class.library).uri.replace(' ', "%20");
         table.push_str(&format!("B{id} {uri} {}\n", ctx.symbol_name(class.name)));
-        let Some(d) = ctx.outline.hierarchy.get(c) else { continue };
-        let mut sups: Vec<(i64, TypeId)> = d.supertypes.iter().map(|(k, t)| (ctx.id_rti(*k), *t)).collect();
+        let Some(d) = ctx.outline.hierarchy.get(c) else {
+            continue;
+        };
+        let mut sups: Vec<(i64, TypeId)> = d
+            .supertypes
+            .iter()
+            .map(|(k, t)| (ctx.id_rti(*k), *t))
+            .collect();
         sups.sort_by_key(|x| x.0);
         for (_, t) in sups {
             // The rule is written in the parameters of the class itself (`P<i>`).
@@ -1556,15 +2061,26 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
         (1012, "NoSuchMethodError"),
         (TYPE_CLASS, "Type"),
     ] {
-        let Some(core_lib) = ctx.program.core else { continue };
-        let Some(sym) = ctx.interner.lookup(name_str) else { continue };
-        let Some(Element::Class(c)) = ctx.program.lookup(core_lib, sym).and_then(|b| b.getter) else { continue };
+        let Some(core_lib) = ctx.program.core else {
+            continue;
+        };
+        let Some(sym) = ctx.interner.lookup(name_str) else {
+            continue;
+        };
+        let Some(Element::Class(c)) = ctx.program.lookup(core_lib, sym).and_then(|b| b.getter)
+        else {
+            continue;
+        };
         table.push_str(&format!("F{heap_id} {}\n", ctx.id_rti(c)));
     }
     // The large table goes compressed (`dartforge_runtime::rti_table`): 1.37
     // MB of text in new_sali/backend, ~260 KB compressed.
     let bytes = table.into_bytes();
-    let bytes = if bytes.len() >= dartforge_runtime::rti_table::THRESHOLD { dartforge_runtime::rti_table::compress(&bytes) } else { bytes };
+    let bytes = if bytes.len() >= dartforge_runtime::rti_table::THRESHOLD {
+        dartforge_runtime::rti_table::compress(&bytes)
+    } else {
+        bytes
+    };
     // The bytes packed into words (little-endian, like all the targets).
     let words: Vec<i64> = bytes
         .chunks(8)
@@ -1578,7 +2094,13 @@ pub fn register_universe(ctx: &Context, module: &mut Module) {
     b.emit(
         Instruction::CallRuntime {
             name: "dartforge_rti_init_table".to_string(),
-            args: vec![(data, Type::Ptr), (Operand::Constant(Constant::Int(bytes.len() as i64)), Type::I64)],
+            args: vec![
+                (data, Type::Ptr),
+                (
+                    Operand::Constant(Constant::Int(bytes.len() as i64)),
+                    Type::I64,
+                ),
+            ],
             ret_ty: Type::Void,
         },
         Type::Void,
@@ -1605,9 +2127,13 @@ pub fn visible_name(ctx: &Context, c: ClassId) -> String {
     let visible = match (lib, name_str) {
         ("dart:core", "_Smi" | "_Mint") => Some("int"),
         ("dart:core", "_Double") => Some("double"),
-        ("dart:core", "_OneByteString" | "_TwoByteString" | "_ExternalOneByteString" | "_ExternalTwoByteString") => {
-            Some("String")
-        }
+        (
+            "dart:core",
+            "_OneByteString"
+            | "_TwoByteString"
+            | "_ExternalOneByteString"
+            | "_ExternalTwoByteString",
+        ) => Some("String"),
         ("dart:core", "_List" | "_ImmutableList" | "_GrowableList") => Some("List"),
         ("dart:async", "_Future") => Some("Future"),
         ("dart:typed_data", n) => match n {

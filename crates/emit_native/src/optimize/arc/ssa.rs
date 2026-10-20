@@ -123,15 +123,18 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
             if let Instruction::ArcLoadStrong { slot } | Instruction::ArcStoreStrong { slot, .. } =
                 inst
                 && let StrongSlot::Frame { frame, .. } = slot
-                    && !matches!(frame, Operand::Val(q) if types.get(q) == Some(&Type::I64))
-                {
-                    return Err(error(format!("v{}: ARC frame requires SSA I64", v.0)));
-                }
+                && !matches!(frame, Operand::Val(q) if types.get(q) == Some(&Type::I64))
+            {
+                return Err(error(format!("v{}: ARC frame requires SSA I64", v.0)));
+            }
             if let Instruction::Phi { incoming, ty, .. } = inst {
                 let mut entries = HashSet::new();
                 for (p, op) in incoming {
                     if *ty == Type::Ref && !reference(op) {
-                        return Err(error(format!("Phi v{} requires an SSA Ref or null entry", v.0)));
+                        return Err(error(format!(
+                            "Phi v{} requires an SSA Ref or null entry",
+                            v.0
+                        )));
                     }
                     let Some(&pi) = blocks.get(p) else {
                         return Err(error(format!("missing predecessor b{}", p.0)));
@@ -145,7 +148,10 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
                     check(op, pi, f.blocks[pi].instructions.len())?;
                 }
                 if entries.len() != cfg.predecessors[bi].len() {
-                    return Err(error(format!("Phi in b{} does not cover the predecessors", b.id.0)));
+                    return Err(error(format!(
+                        "Phi in b{} does not cover the predecessors",
+                        b.id.0
+                    )));
                 }
             } else {
                 let mut result = Ok(());
@@ -263,11 +269,7 @@ mod tests {
     fn arc_operations_do_not_create_references_by_annotation() {
         let mut f = function();
         f.params[0].2 = Type::I64;
-        assert!(
-            verify(&f)
-                .unwrap_err()
-                .contains("SSA reference or null")
-        );
+        assert!(verify(&f).unwrap_err().contains("SSA reference or null"));
         f.blocks[0].instructions[0].1 = Instruction::ArcCopy {
             value: Operand::Constant(Constant::Int(0)),
         };

@@ -28,8 +28,13 @@ pub fn broken_bounds(program: &Program) -> HashSet<(DeclRef, usize)> {
         let u = UnitId(ui as u32);
         let lib = unit.library;
         for (di, d) in unit.ast.decls.iter().enumerate() {
-            let Some(tps) = parameters_of(&d.kind) else { continue };
-            let target = DeclRef { unit: u, decl: ast::DeclId(di as u32) };
+            let Some(tps) = parameters_of(&d.kind) else {
+                continue;
+            };
+            let target = DeclRef {
+                unit: u,
+                decl: ast::DeclId(di as u32),
+            };
             let mut cycles: Vec<Vec<(DeclRef, usize)>> = Vec::new();
             for (i, tp) in tps.iter().enumerate() {
                 let Some(b) = tp.bound else { continue };
@@ -37,7 +42,13 @@ pub fn broken_bounds(program: &Program) -> HashSet<(DeclRef, usize)> {
                     continue;
                 }
                 let scope: Vec<SymbolId> = tps.iter().map(|p| p.name.sym).collect();
-                let mut search = Search { program, lib, target, broken: &broken, visited: Vec::new() };
+                let mut search = Search {
+                    program,
+                    lib,
+                    target,
+                    broken: &broken,
+                    visited: Vec::new(),
+                };
                 cycles.extend(search.paths((target, i), u, &unit.ast, b, &mut scope.clone()));
             }
             for cycle in cycles {
@@ -71,7 +82,12 @@ struct Search<'a> {
 }
 
 impl Search<'_> {
-    fn declaration(&self, u: UnitId, the_name: &[ast::Name], scope: &[SymbolId]) -> Option<DeclRef> {
+    fn declaration(
+        &self,
+        u: UnitId,
+        the_name: &[ast::Name],
+        scope: &[SymbolId],
+    ) -> Option<DeclRef> {
         let b = match the_name {
             [n] if scope.contains(&n.sym) => return None,
             [n] => self.program.lookup_in_unit(u, n.sym),
@@ -80,7 +96,10 @@ impl Search<'_> {
         }?;
         let (lib, decl) = match b.getter? {
             Element::Class(id) => (self.program.class(id).library, self.program.class(id).decl?),
-            Element::Typedef(id) => (self.program.typedef(id).library, self.program.typedef(id).decl),
+            Element::Typedef(id) => (
+                self.program.typedef(id).library,
+                self.program.typedef(id).decl,
+            ),
             _ => return None,
         };
         (lib == self.lib).then_some(decl)
@@ -98,7 +117,9 @@ impl Search<'_> {
         let mut output = Vec::new();
         match &a.ty(t).kind {
             TypeKind::Named { name, args } if args.is_empty() => {
-                let Some(d) = self.declaration(u, name, scope) else { return output };
+                let Some(d) = self.declaration(u, name, scope) else {
+                    return output;
+                };
                 if d == self.target {
                     output.push(vec![start]);
                 } else if !self.visited.contains(&d) {
@@ -126,7 +147,11 @@ impl Search<'_> {
                     output.extend(self.paths(start, u, a, x, scope));
                 }
             }
-            TypeKind::Function { return_type, type_params, parameters } => {
+            TypeKind::Function {
+                return_type,
+                type_params,
+                parameters,
+            } => {
                 let n = scope.len();
                 scope.extend(type_params.iter().map(|p| p.name.sym));
                 if let Some(r) = return_type {

@@ -107,7 +107,9 @@ impl Type {
     /// Tells whether the type was explicitly annotated as nullable with `?`.
     pub fn is_declared_nullable(&self) -> bool {
         match self {
-            Type::Dynamic | Type::Void | Type::Null | Type::Never | Type::Intersection { .. } => false,
+            Type::Dynamic | Type::Void | Type::Null | Type::Never | Type::Intersection { .. } => {
+                false
+            }
             Type::Interface { nullable, .. }
             | Type::Function { nullable, .. }
             | Type::Record { nullable, .. }
@@ -163,7 +165,10 @@ pub struct TypeTable {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DisplayDecoration {
     /// Written as the `typedef` alias with these arguments.
-    Alias { typedef: dartforge_elements::model::TypedefId, args: Box<[TypeId]> },
+    Alias {
+        typedef: dartforge_elements::model::TypedefId,
+        args: Box<[TypeId]>,
+    },
     /// `Never?` (estrutura `Null`).
     NeverNullable,
     /// The analyzer's `InvalidType` (`dynamic` structure): the recovery type of
@@ -243,17 +248,34 @@ impl TypeTable {
             return false;
         }
         match self.get(t) {
-            Type::Interface { args, .. } | Type::ExtensionType { args, .. } => {
-                args.iter().any(|&a| self.contains_invalid_up_to(a, prof + 1))
-            }
-            Type::Function { ret, positional, optional, named, .. } => {
+            Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args
+                .iter()
+                .any(|&a| self.contains_invalid_up_to(a, prof + 1)),
+            Type::Function {
+                ret,
+                positional,
+                optional,
+                named,
+                ..
+            } => {
                 self.contains_invalid_up_to(*ret, prof + 1)
-                    || positional.iter().chain(optional.iter()).any(|&a| self.contains_invalid_up_to(a, prof + 1))
-                    || named.iter().any(|&(_, a, _)| self.contains_invalid_up_to(a, prof + 1))
+                    || positional
+                        .iter()
+                        .chain(optional.iter())
+                        .any(|&a| self.contains_invalid_up_to(a, prof + 1))
+                    || named
+                        .iter()
+                        .any(|&(_, a, _)| self.contains_invalid_up_to(a, prof + 1))
             }
-            Type::Record { positional, named, .. } => {
-                positional.iter().any(|&a| self.contains_invalid_up_to(a, prof + 1))
-                    || named.iter().any(|&(_, a)| self.contains_invalid_up_to(a, prof + 1))
+            Type::Record {
+                positional, named, ..
+            } => {
+                positional
+                    .iter()
+                    .any(|&a| self.contains_invalid_up_to(a, prof + 1))
+                    || named
+                        .iter()
+                        .any(|&(_, a)| self.contains_invalid_up_to(a, prof + 1))
             }
             Type::FutureOr { arg, .. } => self.contains_invalid_up_to(*arg, prof + 1),
             _ => false,
@@ -395,25 +417,43 @@ impl TypeTable {
 
     /// The display names of the formal parameters of function `ty`, besides
     /// those already renamed in `ren` (see `display_string`).
-    fn rename_formals(&self, ty: TypeId, interner: &Interner, ren: &[(TypeParamId, String)]) -> Vec<(TypeParamId, String)> {
+    fn rename_formals(
+        &self,
+        ty: TypeId,
+        interner: &Interner,
+        ren: &[(TypeParamId, String)],
+    ) -> Vec<(TypeParamId, String)> {
         let mut output = ren.to_vec();
-        let Type::Function { type_params, .. } = self.get(ty) else { return output };
+        let Type::Function { type_params, .. } = self.get(ty) else {
+            return output;
+        };
         if type_params.is_empty() {
             return output;
         }
         let mut referenced: Vec<TypeParamId> = Vec::new();
         self.referenced_parameters(ty, &mut referenced, 0);
         let name_of = |p: TypeParamId| -> String {
-            ren.iter().rev().find(|(q, _)| *q == p).map(|(_, n)| n.clone()).unwrap_or_else(|| interner.resolve(self.param(p).name).to_string())
+            ren.iter()
+                .rev()
+                .find(|(q, _)| *q == p)
+                .map(|(_, n)| n.clone())
+                .unwrap_or_else(|| interner.resolve(self.param(p).name).to_string())
         };
-        let mut avoid: std::collections::HashSet<String> =
-            referenced.iter().filter(|p| !type_params.contains(p)).map(|&p| name_of(p)).collect();
+        let mut avoid: std::collections::HashSet<String> = referenced
+            .iter()
+            .filter(|p| !type_params.contains(p))
+            .map(|&p| name_of(p))
+            .collect();
         for &p in type_params.iter() {
             let base = interner.resolve(self.param(p).name).to_string();
             let mut the_name = base.clone();
             let mut counter = 0u32;
             while !avoid.insert(the_name.clone()) {
-                let sub: String = counter.to_string().chars().map(|c| char::from_u32(0x2080 + (c as u32 - '0' as u32)).unwrap_or(c)).collect();
+                let sub: String = counter
+                    .to_string()
+                    .chars()
+                    .map(|c| char::from_u32(0x2080 + (c as u32 - '0' as u32)).unwrap_or(c))
+                    .collect();
                 the_name = format!("{base}{sub}");
                 counter += 1;
             }
@@ -434,7 +474,14 @@ impl TypeTable {
                     out.push(*param);
                 }
             }
-            Type::Function { type_params, ret, positional, optional, named, .. } => {
+            Type::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                ..
+            } => {
                 for &p in type_params.iter() {
                     self.referenced_parameters(self.param(p).bound, out, prof + 1);
                 }
@@ -464,21 +511,40 @@ impl TypeTable {
     }
 
     /// `getDisplayString()` without the alias (`DartType.toString`).
-    pub fn format_without_alias(&self, ty: TypeId, interner: &Interner, program: &Program) -> String {
+    pub fn format_without_alias(
+        &self,
+        ty: TypeId,
+        interner: &Interner,
+        program: &Program,
+    ) -> String {
         self.format_with(ty, interner, program, false, &[])
     }
 
-    fn format_with(&self, ty: TypeId, interner: &Interner, program: &Program, alias: bool, ren: &[(TypeParamId, String)]) -> String {
+    fn format_with(
+        &self,
+        ty: TypeId,
+        interner: &Interner,
+        program: &Program,
+        alias: bool,
+        ren: &[(TypeParamId, String)],
+    ) -> String {
         match self.decoration(ty) {
             Some(DisplayDecoration::NeverNullable) => return "Never?".to_string(),
             Some(DisplayDecoration::Invalid) => return "InvalidType".to_string(),
             Some(DisplayDecoration::Alias { typedef, args }) if alias => {
                 let the_name = interner.resolve(program.typedefs[typedef.0 as usize].name);
-                let q = if self.get(ty).is_declared_nullable() { "?" } else { "" };
+                let q = if self.get(ty).is_declared_nullable() {
+                    "?"
+                } else {
+                    ""
+                };
                 if args.is_empty() {
                     return format!("{the_name}{q}");
                 }
-                let a: Vec<String> = args.iter().map(|&x| self.format_with(x, interner, program, alias, ren)).collect();
+                let a: Vec<String> = args
+                    .iter()
+                    .map(|&x| self.format_with(x, interner, program, alias, ren))
+                    .collect();
                 return format!("{the_name}<{}>{q}", a.join(", "));
             }
             _ => {}
@@ -541,7 +607,11 @@ impl TypeTable {
                         .into_iter()
                         .map(|(n, t, req)| {
                             let r = if *req { "required " } else { "" };
-                            format!("{r}{} {}", self.format_with(*t, interner, program, alias, ren), interner.resolve(*n))
+                            format!(
+                                "{r}{} {}",
+                                self.format_with(*t, interner, program, alias, ren),
+                                interner.resolve(*n)
+                            )
                         })
                         .collect();
                     p_strs.push(format!("{{{}}}", named_strs.join(", ")));
@@ -554,15 +624,29 @@ impl TypeTable {
                             .iter()
                             .map(|&p| {
                                 let d = self.param(p);
-                                let the_name = ren.iter().rev().find(|(q, _)| *q == p).map(|(_, n)| n.as_str()).unwrap_or(interner.resolve(d.name));
+                                let the_name = ren
+                                    .iter()
+                                    .rev()
+                                    .find(|(q, _)| *q == p)
+                                    .map(|(_, n)| n.as_str())
+                                    .unwrap_or(interner.resolve(d.name));
                                 match self.get(d.bound) {
-                                    Type::Interface { nullable: true, class, .. }
-                                        if !d.explicit && interner.resolve(program.classes[class.0 as usize].name) == "Object" =>
+                                    Type::Interface {
+                                        nullable: true,
+                                        class,
+                                        ..
+                                    } if !d.explicit
+                                        && interner
+                                            .resolve(program.classes[class.0 as usize].name)
+                                            == "Object" =>
                                     {
                                         the_name.to_string()
                                     }
                                     Type::Dynamic => the_name.to_string(),
-                                    _ => format!("{the_name} extends {}", self.format_with(d.bound, interner, program, alias, ren)),
+                                    _ => format!(
+                                        "{the_name} extends {}",
+                                        self.format_with(d.bound, interner, program, alias, ren)
+                                    ),
                                 }
                             })
                             .collect();
@@ -590,7 +674,13 @@ impl TypeTable {
                     order.sort_by(|a, b| interner.resolve(a.0).cmp(interner.resolve(b.0)));
                     let named_args: Vec<String> = order
                         .into_iter()
-                        .map(|(n, t)| format!("{} {}", self.format_with(*t, interner, program, alias, ren), interner.resolve(*n)))
+                        .map(|(n, t)| {
+                            format!(
+                                "{} {}",
+                                self.format_with(*t, interner, program, alias, ren),
+                                interner.resolve(*n)
+                            )
+                        })
                         .collect();
                     parts.push(format!("{{{}}}", named_args.join(", ")));
                 } else if positional.len() == 1 {
@@ -600,7 +690,10 @@ impl TypeTable {
             }
             Type::FutureOr { arg, nullable } => {
                 let q = if *nullable { "?" } else { "" };
-                format!("FutureOr<{}>{q}", self.format_with(*arg, interner, program, alias, ren))
+                format!(
+                    "FutureOr<{}>{q}",
+                    self.format_with(*arg, interner, program, alias, ren)
+                )
             }
             Type::TypeParameter { param, nullable } => {
                 let q = if *nullable { "?" } else { "" };
@@ -615,8 +708,16 @@ impl TypeTable {
             }
             Type::Intersection { param, bound } => {
                 // The promoted parameter uses the renamed name, when there is one.
-                let the_name = ren.iter().rev().find(|(p, _)| p == param).map(|(_, n)| n.as_str()).unwrap_or(interner.resolve(self.param(*param).name));
-                format!("{the_name} & {}", self.format_with(*bound, interner, program, alias, ren))
+                let the_name = ren
+                    .iter()
+                    .rev()
+                    .find(|(p, _)| p == param)
+                    .map(|(_, n)| n.as_str())
+                    .unwrap_or(interner.resolve(self.param(*param).name));
+                format!(
+                    "{the_name} & {}",
+                    self.format_with(*bound, interner, program, alias, ren)
+                )
             }
             Type::ExtensionType {
                 decl,
@@ -768,7 +869,13 @@ impl CoreTypes {
             .or_else(|| object_class.map(|c| program.classes[c.0 as usize].name))
             .or_else(|| program.classes.first().map(|c| c.name))
             .or_else(|| interner.lookup("dynamic"))
-            .unwrap_or_else(|| interner.texts().next().and_then(|t| interner.lookup(t)).expect("empty interner"));
+            .unwrap_or_else(|| {
+                interner
+                    .texts()
+                    .next()
+                    .and_then(|t| interner.lookup(t))
+                    .expect("empty interner")
+            });
         let unknown_param = table.alloc_type_param(
             name_unknown,
             TypeParamOwner::GenericFunctionType,
@@ -776,7 +883,10 @@ impl CoreTypes {
             Variance::Unspecified,
         );
         table.the_unknown_param = Some(unknown_param);
-        let unknown = table.intern(Type::TypeParameter { param: unknown_param, nullable: false });
+        let unknown = table.intern(Type::TypeParameter {
+            param: unknown_param,
+            nullable: false,
+        });
 
         Self {
             dynamic_,

@@ -9,8 +9,8 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::Edit;
-use crate::project::{Target, Concrete, Project};
-use crate::refactorings::{Context, Elem, RefactoringRequest, RefactoringResult, LocalSelection};
+use crate::project::{Concrete, Project, Target};
+use crate::refactorings::{Context, Elem, LocalSelection, RefactoringRequest, RefactoringResult};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{FunctionElementId, FunctionKind, FunctionRef, UnitId};
 use dartforge_frontend::ast::{self, ExprId, ExprKind};
@@ -38,11 +38,15 @@ pub(crate) struct State {
 
 impl State {
     pub(crate) fn fatal(m: impl Into<String>) -> State {
-        State { problems: vec![(Severity::Fatal, m.into())] }
+        State {
+            problems: vec![(Severity::Fatal, m.into())],
+        }
     }
 
     pub(crate) fn warning(m: impl Into<String>) -> State {
-        State { problems: vec![(Severity::Warning, m.into())] }
+        State {
+            problems: vec![(Severity::Warning, m.into())],
+        }
     }
 
     pub(crate) fn add(&mut self, s: Severity, m: impl Into<String>) {
@@ -74,7 +78,10 @@ impl State {
     /// `message`: that of the first problem with maximum severity.
     pub(crate) fn message(&self) -> Option<String> {
         let max = self.max()?;
-        self.problems.iter().find(|(s, _)| *s == max).map(|(_, m)| m.clone())
+        self.problems
+            .iter()
+            .find(|(s, _)| *s == max)
+            .map(|(_, m)| m.clone())
     }
 }
 
@@ -119,7 +126,11 @@ pub(crate) struct Change {
 impl Change {
     /// `addEdit` / `addEditForSource`.
     pub(crate) fn add(&mut self, uri: &str, span: Span, text: impl Into<String>) {
-        let e = Edit { uri: uri.to_string(), span, text: text.into() };
+        let e = Edit {
+            uri: uri.to_string(),
+            span,
+            text: text.into(),
+        };
         let list = match self.files.iter().position(|(u, _)| u == uri) {
             Some(i) => &mut self.files[i].1,
             None => {
@@ -135,12 +146,18 @@ impl Change {
         let conflicts = (i > 0 && e.span.end > list[i - 1].span.start)
             || (i < list.len() && {
                 let next = &list[i];
-                (e.span.start == next.span.start && e.span.end > e.span.start && next.span.end > next.span.start)
+                (e.span.start == next.span.start
+                    && e.span.end > e.span.start
+                    && next.span.end > next.span.start)
                     || next.span.end > e.span.start
             });
         if conflicts {
             if self.conflict.is_none() {
-                self.conflict = Some(format!("ConflictingEditException: {}:{} conflicts with an existing edit", e.span.start, e.span.end - e.span.start));
+                self.conflict = Some(format!(
+                    "ConflictingEditException: {}:{} conflicts with an existing edit",
+                    e.span.start,
+                    e.span.end - e.span.start
+                ));
             }
             return;
         }
@@ -154,7 +171,14 @@ impl Change {
         if let Some(c) = self.conflict {
             return R::InternalError(c);
         }
-        R::Change { edits: self.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(), create: self.create }
+        R::Change {
+            edits: self
+                .files
+                .into_iter()
+                .flat_map(|(_, l)| l.into_iter().rev())
+                .collect(),
+            create: self.create,
+        }
     }
 }
 
@@ -280,13 +304,25 @@ impl<'a> Text<'a> {
     }
 
     /// `replaceSourceIndent`.
-    pub(crate) fn swap_indent(&self, source: &str, old: &str, new: &str, include_start: bool, ensure_eol: bool) -> String {
+    pub(crate) fn swap_indent(
+        &self,
+        source: &str,
+        old: &str,
+        new: &str,
+        include_start: bool,
+        ensure_eol: bool,
+    ) -> String {
         // The ranges of string tokens (a line that starts inside a multi-line
         // string does not change).
         let strings: Vec<Span> = dartforge_frontend::lexer::lex(source)
             .map(|v| {
                 v.iter()
-                    .filter(|t| matches!(t.kind, Kind::Str(_) | Kind::StrBegin(..) | Kind::StrMid(..) | Kind::StrEnd(_)))
+                    .filter(|t| {
+                        matches!(
+                            t.kind,
+                            Kind::Str(_) | Kind::StrBegin(..) | Kind::StrMid(..) | Kind::StrEnd(_)
+                        )
+                    })
                     .map(|t| t.span)
                     .collect()
             })
@@ -330,7 +366,11 @@ impl Context<'_> {
     pub(crate) fn node_prefix(&self, n: usize) -> String {
         let tx = Text::new(self.source);
         let o = self.tree.nodes[n].start;
-        if self.kind(n) == "FunctionExpression" { tx.line_prefix(o).to_string() } else { tx.prefix(o).to_string() }
+        if self.kind(n) == "FunctionExpression" {
+            tx.line_prefix(o).to_string()
+        } else {
+            tx.prefix(o).to_string()
+        }
     }
 
     /// The text of a node.
@@ -368,26 +408,40 @@ impl Context<'_> {
 /// The lint rule `name` is enabled for the unit's file (the
 /// `analysis_options.yaml` of the subfolder or of the root).
 pub(crate) fn enabled_rule(p: &Project, unit: UnitId, name: &str) -> bool {
-    let Some(path) = p.program().unit(unit).path.as_deref() else { return false };
+    let Some(path) = p.program().unit(unit).path.as_deref() else {
+        return false;
+    };
     rule_enabled_in(path, name)
 }
 
 /// Like [`enabled_rule`], by file path.
 pub(crate) fn rule_enabled_in(path: &std::path::Path, name: &str) -> bool {
     let root = crate::project::project_root(path);
-    let file = dartforge_parity::filters::AnalysisOptions::from_subfolder(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
-    dartforge_parity::filters::AnalysisOptions::read_file(&file).rules.get(name).copied().unwrap_or(false)
+    let file = dartforge_parity::filters::AnalysisOptions::from_subfolder(path, &root)
+        .unwrap_or_else(|| root.join("analysis_options.yaml"));
+    dartforge_parity::filters::AnalysisOptions::read_file(&file)
+        .rules
+        .get(name)
+        .copied()
+        .unwrap_or(false)
 }
 
 /// `options['name'] as String` with `options != null`: the name, or the
 /// `as` error that becomes `UnhandledError`.
-pub(crate) fn options_name(request: &RefactoringRequest) -> Result<Option<String>, RefactoringResult> {
+pub(crate) fn options_name(
+    request: &RefactoringRequest,
+) -> Result<Option<String>, RefactoringResult> {
     match &request.options {
         None => Ok(None),
         Some(m) => match m.get("name") {
             Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
-            Some(v) => Err(R::InternalError(format!("type '{}' is not a subtype of type 'String' in type cast", json_type(v)))),
-            None => Err(R::InternalError("type 'Null' is not a subtype of type 'String' in type cast".to_string())),
+            Some(v) => Err(R::InternalError(format!(
+                "type '{}' is not a subtype of type 'String' in type cast",
+                json_type(v)
+            ))),
+            None => Err(R::InternalError(
+                "type 'Null' is not a subtype of type 'String' in type cast".to_string(),
+            )),
         },
     }
 }
@@ -409,15 +463,54 @@ fn json_type(v: &serde_json::Value) -> &'static str {
 /// The reserved words (`KeywordStyle.reserved`); the other keywords are
 /// built-in or pseudo.
 const RESERVED: &[&str] = &[
-    "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else", "enum", "extends", "false", "final", "finally", "for", "if",
-    "in", "is", "new", "null", "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while", "with",
+    "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else",
+    "enum", "extends", "false", "final", "finally", "for", "if", "in", "is", "new", "null",
+    "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while",
+    "with",
 ];
 
 /// The built-in and the pseudo ones (`isBuiltInOrPseudo`).
 const INLINE: &[&str] = &[
-    "abstract", "as", "async", "augment", "await", "base", "covariant", "deferred", "dynamic", "export", "extension", "external", "factory", "Function",
-    "get", "hide", "implements", "import", "inout", "interface", "late", "library", "mixin", "native", "of", "on", "operator", "out", "part", "patch",
-    "required", "sealed", "set", "show", "source", "static", "sync", "typedef", "when", "yield",
+    "abstract",
+    "as",
+    "async",
+    "augment",
+    "await",
+    "base",
+    "covariant",
+    "deferred",
+    "dynamic",
+    "export",
+    "extension",
+    "external",
+    "factory",
+    "Function",
+    "get",
+    "hide",
+    "implements",
+    "import",
+    "inout",
+    "interface",
+    "late",
+    "library",
+    "mixin",
+    "native",
+    "of",
+    "on",
+    "operator",
+    "out",
+    "part",
+    "patch",
+    "required",
+    "sealed",
+    "set",
+    "show",
+    "source",
+    "static",
+    "sync",
+    "typedef",
+    "when",
+    "yield",
 ];
 
 /// `_validateLowerCamelCase(name, desc, allowBuiltIn: true)`
@@ -443,7 +536,9 @@ pub(crate) fn validate_name(name: &str, desc: &str) -> State {
     }
     let first = name.as_bytes()[0];
     if !(first.is_ascii_alphabetic() || first == b'_' || first == b'$') {
-        return State::fatal(format!("{desc} must begin with a lowercase letter or underscore."));
+        return State::fatal(format!(
+            "{desc} must begin with a lowercase letter or underscore."
+        ));
     }
     if first == b'_' || first == b'$' {
         return State::default();
@@ -485,7 +580,9 @@ pub(crate) fn camel_words(s: &str) -> Vec<String> {
 /// `getCamelWordCombinations`.
 pub(crate) fn camel_combinations(name: &str) -> Vec<String> {
     let parts = camel_words(name);
-    (0..parts.len()).map(|i| format!("{}{}", parts[i].to_lowercase(), parts[i + 1..].concat())).collect()
+    (0..parts.len())
+        .map(|i| format!("{}{}", parts[i].to_lowercase(), parts[i + 1..].concat()))
+        .collect()
 }
 
 /// `capitalize`.
@@ -498,11 +595,20 @@ fn capitalize(s: &str) -> String {
 }
 
 /// `_addAll`: the first of `item`, `item2`, `item3`… not excluded.
-pub(crate) fn add_all(excluded: &HashSet<String>, output: &mut Vec<String>, items: Vec<String>, prefix: Option<&str>) {
+pub(crate) fn add_all(
+    excluded: &HashSet<String>,
+    output: &mut Vec<String>,
+    items: Vec<String>,
+    prefix: Option<&str>,
+) {
     for item in items {
         let mut suffix = 1;
         loop {
-            let name = if suffix > 1 { format!("{item}{suffix}") } else { item.clone() };
+            let name = if suffix > 1 {
+                format!("{item}{suffix}")
+            } else {
+                item.clone()
+            };
             if !excluded.contains(&name) {
                 let final_ = match prefix {
                     Some(p) => format!("{p}{}", capitalize(&name)),
@@ -534,7 +640,10 @@ pub(crate) fn add_letter(excluded: &HashSet<String>, output: &mut Vec<String>, m
 
 /// `getVariableNameSuggestionsForText`.
 pub(crate) fn names_to_text(text: &str, excluded: &HashSet<String>) -> Vec<String> {
-    let filtered: String = text.chars().filter(|c| c.is_alphabetic() || matches!(c, ' ' | '\t' | '\r' | '\n')).collect();
+    let filtered: String = text
+        .chars()
+        .filter(|c| c.is_alphabetic() || matches!(c, ' ' | '\t' | '\r' | '\n'))
+        .collect();
     let mut camel = String::new();
     for (i, word) in filtered.split(' ').enumerate() {
         if i > 0 {
@@ -551,10 +660,18 @@ pub(crate) fn names_to_text(text: &str, excluded: &HashSet<String>) -> Vec<Strin
 impl Context<'_> {
     /// `getVariableNameSuggestionsForExpression(type, n, excluded, isMethod)`
     /// (`name_suggestion.dart:29-76`).
-    pub(crate) fn names_to_expression(&self, ty: Option<TypeId>, n: usize, excluded: &HashSet<String>, method: bool) -> Vec<String> {
+    pub(crate) fn names_to_expression(
+        &self,
+        ty: Option<TypeId>,
+        n: usize,
+        excluded: &HashSet<String>,
+        method: bool,
+    ) -> Vec<String> {
         let mut prefix: Option<&str> = None;
         if method
-            && let Some(m) = self.with_parents(n).find(|&k| self.kind(k) == "MethodDeclaration")
+            && let Some(m) = self
+                .with_parents(n)
+                .find(|&k| self.kind(k) == "MethodDeclaration")
             && let crate::analyzer_tree::Mark::Function(fid) = self.tree.nodes[m].mark
             && let Some(name) = self.ast.function(fid).name
             && self.source[name.span.start..name.span.end].starts_with("build")
@@ -576,9 +693,15 @@ impl Context<'_> {
             let core = &self.p.query.core;
             match table.get(t) {
                 Type::Dynamic => {}
-                _ if table.canonical(t) == table.canonical(core.int) => add_letter(excluded, &mut output, b'i'),
-                _ if table.canonical(t) == table.canonical(core.double) => add_letter(excluded, &mut output, b'd'),
-                _ if table.canonical(t) == table.canonical(core.string) => add_letter(excluded, &mut output, b's'),
+                _ if table.canonical(t) == table.canonical(core.int) => {
+                    add_letter(excluded, &mut output, b'i')
+                }
+                _ if table.canonical(t) == table.canonical(core.double) => {
+                    add_letter(excluded, &mut output, b'd')
+                }
+                _ if table.canonical(t) == table.canonical(core.string) => {
+                    add_letter(excluded, &mut output, b's')
+                }
                 Type::Interface { class, .. } => {
                     let name = self.p.name(self.p.program().class(*class).name).to_string();
                     add_all(excluded, &mut output, camel_combinations(&name), None);
@@ -601,13 +724,22 @@ impl Context<'_> {
             "PropertyAccess" => return self.children(n).last().map(|&k| text(k)),
             "MethodInvocation" => text(self.method_name(n)?),
             "InstanceCreationExpression" => {
-                let cn = *self.children(n).iter().find(|&&k| self.kind(k) == "ConstructorName")?;
+                let cn = *self
+                    .children(n)
+                    .iter()
+                    .find(|&&k| self.kind(k) == "ConstructorName")?;
                 let ty = *self.children(cn).first()?;
                 // The name of the `NamedType` (after the import prefix).
                 let node = &self.tree.nodes[ty];
-                let start = self.children(ty).iter().find(|&&k| self.kind(k) == "ImportPrefixReference").map_or(node.start, |&k| self.tree.nodes[k].end);
+                let start = self
+                    .children(ty)
+                    .iter()
+                    .find(|&&k| self.kind(k) == "ImportPrefixReference")
+                    .map_or(node.start, |&k| self.tree.nodes[k].end);
                 let rest = &self.source[start..node.end];
-                let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+                let end = rest
+                    .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+                    .unwrap_or(rest.len());
                 return Some(rest[..end].trim().to_string());
             }
             "IndexExpression" => {
@@ -663,7 +795,12 @@ impl Context<'_> {
             return None;
         }
         // The index among the positionals.
-        let positional: Vec<usize> = self.children(p).iter().copied().filter(|&k| self.kind(k) != "NamedExpression").collect();
+        let positional: Vec<usize> = self
+            .children(p)
+            .iter()
+            .copied()
+            .filter(|&k| self.kind(k) != "NamedExpression")
+            .collect();
         let index = positional.iter().position(|&k| k == n)?;
         let owner = self.parent(p)?;
         let f = match self.kind(owner) {
@@ -676,11 +813,15 @@ impl Context<'_> {
                 match self.bodies.get_resolved(x) {
                     Some(Resolved::Constructor(f)) => *f,
                     _ => {
-                        let cn = *self.children(owner).iter().find(|&&k| self.kind(k) == "ConstructorName")?;
+                        let cn = *self
+                            .children(owner)
+                            .iter()
+                            .find(|&&k| self.kind(k) == "ConstructorName")?;
                         let _ = cn;
                         let target = self.constructors_by_target.iter().find(|(a, _)| {
                             let s = self.ast.expr(**a).span;
-                            s.start >= self.tree.nodes[owner].start && s.end <= self.tree.nodes[owner].end
+                            s.start >= self.tree.nodes[owner].start
+                                && s.end <= self.tree.nodes[owner].end
                         })?;
                         *target.1
                     }
@@ -689,7 +830,11 @@ impl Context<'_> {
             _ => return None,
         };
         let data = self.p.query.outline.functions.get(f.0 as usize)?;
-        let parameter = data.parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).nth(index)?;
+        let parameter = data
+            .parameters
+            .iter()
+            .filter(|q| q.kind != ast::ParameterKind::Named)
+            .nth(index)?;
         Some(self.p.name(parameter.name?).to_string())
     }
 }
@@ -698,9 +843,15 @@ impl Context<'_> {
 
 /// `refactor.perform`/`refactor.validate` of a legacy refactoring.
 pub(crate) fn run(p: &Project, uri: &str, request: &RefactoringRequest) -> RefactoringResult {
-    let Some(unit) = p.uri_unit(uri) else { return R::NotAnalyzed };
+    let Some(unit) = p.uri_unit(uri) else {
+        return R::NotAnalyzed;
+    };
     let cx = Context::new(p, unit);
-    let command = if request.only_validate { "Validate Refactor" } else { "Perform Refactor" };
+    let command = if request.only_validate {
+        "Validate Refactor"
+    } else {
+        "Perform Refactor"
+    };
     match request.kind.as_str() {
         "EXTRACT_METHOD" => crate::refactorings_method::run(&cx, uri, request),
         "EXTRACT_LOCAL_VARIABLE" => extract_local(&cx, uri, request),
@@ -709,13 +860,23 @@ pub(crate) fn run(p: &Project, uri: &str, request: &RefactoringRequest) -> Refac
         "INLINE_METHOD" => crate::refactorings_inline::run(&cx, uri, request),
         "CONVERT_GETTER_TO_METHOD" => getter_to_method(&cx, request, command),
         "CONVERT_METHOD_TO_GETTER" => method_to_getter(&cx, request, command),
-        k => R::InvalidArguments(format!("Unknown RefactoringKind RefactoringKind.{k} was supplied to {command}")),
+        k => R::InvalidArguments(format!(
+            "Unknown RefactoringKind RefactoringKind.{k} was supplied to {command}"
+        )),
     }
 }
 
 /// `dart.refactor.move_top_level_to_file`.
-pub(crate) fn move_(p: &Project, uri: &str, offset: usize, length: usize, target: &str) -> RefactoringResult {
-    let Some(unit) = p.uri_unit(uri) else { return R::NotAnalyzed };
+pub(crate) fn move_(
+    p: &Project,
+    uri: &str,
+    offset: usize,
+    length: usize,
+    target: &str,
+) -> RefactoringResult {
+    let Some(unit) = p.uri_unit(uri) else {
+        return R::NotAnalyzed;
+    };
     let cx = Context::new(p, unit);
     crate::refactorings_move::run(&cx, uri, offset, length, target)
 }
@@ -759,11 +920,16 @@ fn extract_local(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> R
         },
         None => Vec::new(),
     };
-    let name = preferred.or_else(|| names.first().cloned()).unwrap_or_else(|| "newVariable".to_string());
+    let name = preferred
+        .or_else(|| names.first().cloned())
+        .unwrap_or_else(|| "newVariable".to_string());
     let finals = || {
         let mut e = validate_name(&name, "Variable");
         if excluded.contains(&name) {
-            e.add(Severity::Error, format!("The name '{name}' is already used in the scope."));
+            e.add(
+                Severity::Error,
+                format!("The name '{name}' is already used in the scope."),
+            );
         }
         e
     };
@@ -780,29 +946,42 @@ impl Context<'_> {
     /// declared by a `VariableDeclaration`.
     pub(crate) fn local_conflicts(&self, offset: usize) -> HashSet<String> {
         let mut names = HashSet::new();
-        let Some(n) = self.tree.locate(offset, offset) else { return names };
-        let Some(block) = self.with_parents(n).find(|&k| self.kind(k) == "Block") else { return names };
+        let Some(n) = self.tree.locate(offset, offset) else {
+            return names;
+        };
+        let Some(block) = self.with_parents(n).find(|&k| self.kind(k) == "Block") else {
+            return names;
+        };
         let mut stack = vec![block];
         while let Some(k) = stack.pop() {
             match self.kind(k) {
                 "NamedType" => {
-                    let has_prefix = self.children(k).iter().any(|&f| self.kind(f) == "ImportPrefixReference");
+                    let has_prefix = self
+                        .children(k)
+                        .iter()
+                        .any(|&f| self.kind(f) == "ImportPrefixReference");
                     if !has_prefix {
                         let node = &self.tree.nodes[k];
                         let rest = &self.source[node.start..node.end];
-                        let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+                        let end = rest
+                            .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+                            .unwrap_or(rest.len());
                         names.insert(rest[..end].to_string());
                     }
                 }
                 "SimpleIdentifier" => {
-                    if !self.prefixed_identifier(k) && !self.parent(k).is_some_and(|p| self.kind(p) == "Label") {
+                    if !self.prefixed_identifier(k)
+                        && !self.parent(k).is_some_and(|p| self.kind(p) == "Label")
+                    {
                         names.insert(self.node_text(k).to_string());
                     }
                 }
                 "VariableDeclaration" => {
                     let node = &self.tree.nodes[k];
                     let rest = &self.source[node.start..node.end];
-                    let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+                    let end = rest
+                        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+                        .unwrap_or(rest.len());
                     names.insert(rest[..end].to_string());
                 }
                 _ => {}
@@ -814,12 +993,18 @@ impl Context<'_> {
 
     /// `_ReferencedUnprefixedNamesCollector._isPrefixed`.
     fn prefixed_identifier(&self, n: usize) -> bool {
-        let Some(p) = self.parent(n) else { return false };
+        let Some(p) = self.parent(n) else {
+            return false;
+        };
         match self.kind(p) {
             "ConstructorName" => self.children(p).get(1) == Some(&n),
             "MethodInvocation" => {
                 self.method_name(p) == Some(n)
-                    && (self.children(p).first() != Some(&n) || self.parent(p).is_some_and(|c| self.kind(c) == "CascadeExpression" && self.children(c).first() != Some(&p)))
+                    && (self.children(p).first() != Some(&n)
+                        || self.parent(p).is_some_and(|c| {
+                            self.kind(c) == "CascadeExpression"
+                                && self.children(c).first() != Some(&p)
+                        }))
             }
             "PrefixedIdentifier" => self.children(p).get(1) == Some(&n),
             "PropertyAccess" => self.children(p).len() > 1 && self.children(p).first() == Some(&n),
@@ -832,9 +1017,21 @@ impl Context<'_> {
         let Some(n) = n else { return false };
         match self.kind(n) {
             "ListLiteral" | "SetOrMapLiteral" | "InstanceCreationExpression" => self.constant(n),
-            "ArgumentList" | "ConditionalExpression" | "BinaryExpression" | "ParenthesizedExpression" | "PrefixExpression" | "MapLiteralEntry"
-            | "IntegerLiteral" | "DoubleLiteral" | "BooleanLiteral" | "NullLiteral" | "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings"
-            | "SymbolLiteral" | "RecordLiteral" => self.constant_part(self.parent(n)),
+            "ArgumentList"
+            | "ConditionalExpression"
+            | "BinaryExpression"
+            | "ParenthesizedExpression"
+            | "PrefixExpression"
+            | "MapLiteralEntry"
+            | "IntegerLiteral"
+            | "DoubleLiteral"
+            | "BooleanLiteral"
+            | "NullLiteral"
+            | "SimpleStringLiteral"
+            | "StringInterpolation"
+            | "AdjacentStrings"
+            | "SymbolLiteral"
+            | "RecordLiteral" => self.constant_part(self.parent(n)),
             _ => false,
         }
     }
@@ -843,16 +1040,23 @@ impl Context<'_> {
     /// `const`, or (without a keyword) the constant context.
     fn constant(&self, n: usize) -> bool {
         let node = &self.tree.nodes[n];
-        if self.source[node.start..node.end].starts_with("const") && !self.source[node.start + 5..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+        if self.source[node.start..node.end].starts_with("const")
+            && !self.source[node.start + 5..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+        {
             return true;
         }
-        if self.source[node.start..node.end].starts_with("new") && !self.source[node.start + 3..].starts_with(|c: char| c.is_alphanumeric() || c == '_') {
+        if self.source[node.start..node.end].starts_with("new")
+            && !self.source[node.start + 3..].starts_with(|c: char| c.is_alphanumeric() || c == '_')
+        {
             return false;
         }
-        let Some(x) = self.node_expr(n) else { return false };
+        let Some(x) = self.node_expr(n) else {
+            return false;
+        };
         let u = self.p.program().unit(self.unit);
         let before_3 = self.p.program().library(u.library).features.version().major < 3;
-        let parents = dartforge_frontend::parents::Parents::new(self.ast, &u.unit, self.source, before_3);
+        let parents =
+            dartforge_frontend::parents::Parents::new(self.ast, &u.unit, self.source, before_3);
         parents.in_constant_context(self.ast, x)
     }
 
@@ -887,7 +1091,9 @@ impl Context<'_> {
         let word = self.word_and_type(s);
         // Shortcut: the whole expression of an `ExpressionStatement`.
         if let Some(e) = s.expression
-            && self.parent(e).is_some_and(|p| self.kind(p) == "ExpressionStatement")
+            && self
+                .parent(e)
+                .is_some_and(|p| self.kind(p) == "ExpressionStatement")
         {
             let o = self.tree.nodes[e].start;
             m.add(uri, Span { start: o, end: o }, format!("{word} {name} = "));
@@ -903,20 +1109,37 @@ impl Context<'_> {
             Some(Target2::Command(target)) => {
                 let prefix = self.node_prefix(target);
                 let o = self.tree.nodes[target].start;
-                m.add(uri, Span { start: o, end: o }, format!("{declaration}{eol}{prefix}"));
+                m.add(
+                    uri,
+                    Span { start: o, end: o },
+                    format!("{declaration}{eol}{prefix}"),
+                );
             }
             Some(Target2::ExpressionBody(body)) => {
-                let prefix = self.parent(body).map(|p| self.node_prefix(p)).unwrap_or_default();
+                let prefix = self
+                    .parent(body)
+                    .map(|p| self.node_prefix(p))
+                    .unwrap_or_default();
                 let expr = *self.children(body).first().unwrap_or(&body);
                 let (ci, cf) = (self.tree.nodes[body].start, self.tree.nodes[body].end);
                 let (ei, ef) = (self.tree.nodes[expr].start, self.tree.nodes[expr].end);
-                let code = format!("{{{eol}{prefix}{ONE_INDENT}{declaration}{eol}{prefix}{ONE_INDENT}return ");
+                let code = format!(
+                    "{{{eol}{prefix}{ONE_INDENT}{declaration}{eol}{prefix}{ONE_INDENT}return "
+                );
                 m.add(uri, Span { start: ci, end: ei }, code);
-                m.add(uri, Span { start: ef, end: cf }, format!(";{eol}{prefix}}}"));
+                m.add(
+                    uri,
+                    Span { start: ef, end: cf },
+                    format!(";{eol}{prefix}}}"),
+                );
             }
             None => {}
         }
-        let swap = if s.string_part.is_some() { format!("${{{name}}}") } else { name.to_string() };
+        let swap = if s.string_part.is_some() {
+            format!("${{{name}}}")
+        } else {
+            name.to_string()
+        };
         m.add(uri, Span { start, end }, swap);
         m
     }
@@ -929,7 +1152,10 @@ impl Context<'_> {
         // `Block`, `SwitchCase`, `SwitchPatternCase`: the child on the path (with a
         // single occurrence, the common node is the node itself, which in practice
         // is none of them; the rule applies all the same).
-        if matches!(self.kind(common), "Block" | "SwitchCase" | "SwitchPatternCase") {
+        if matches!(
+            self.kind(common),
+            "Block" | "SwitchCase" | "SwitchPatternCase"
+        ) {
             return None;
         }
         // `ExpressionFunctionBody` before any statement.
@@ -942,10 +1168,15 @@ impl Context<'_> {
             }
         }
         // The block-level statement.
-        let mut target = self.with_parents(common).find(|&k| crate::refactorings::is_command_kind(self.kind(k)))?;
+        let mut target = self
+            .with_parents(common)
+            .find(|&k| crate::refactorings::is_command_kind(self.kind(k)))?;
         loop {
             let parent = self.parent(target)?;
-            if matches!(self.kind(parent), "Block" | "SwitchCase" | "SwitchPatternCase") {
+            if matches!(
+                self.kind(parent),
+                "Block" | "SwitchCase" | "SwitchPatternCase"
+            ) {
                 return Some(Target2::Command(target));
             }
             target = parent;
@@ -973,7 +1204,8 @@ enum ReferenceKind {
 /// `InlineLocalRefactoringImpl` (§13.11.5).
 fn inline_local(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> RefactoringResult {
     let o = request.offset;
-    let message = "Local variable declaration or reference must be selected to activate this refactoring.";
+    let message =
+        "Local variable declaration or reference must be selected to activate this refactoring.";
     let prepare = || -> Result<(usize, usize, usize, usize), State> {
         // The element and its declaration.
         let n = cx.tree.locate(o, o).ok_or_else(|| State::fatal(message))?;
@@ -982,10 +1214,18 @@ fn inline_local(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> Re
                 if cx.identifier_element(n, true) != Elem::LocalVariable {
                     return Err(State::fatal(message));
                 }
-                let crate::analyzer_tree::Mark::Expr(x) = cx.tree.nodes[n].mark else { return Err(State::fatal(message)) };
-                cx.bodies.local_declaration(x).ok_or_else(|| State::fatal(message))?
+                let crate::analyzer_tree::Mark::Expr(x) = cx.tree.nodes[n].mark else {
+                    return Err(State::fatal(message));
+                };
+                cx.bodies
+                    .local_declaration(x)
+                    .ok_or_else(|| State::fatal(message))?
             }
-            "VariableDeclaration" if cx.tree.nodes[n].mark == crate::analyzer_tree::Mark::LocalVariable => cx.tree.nodes[n].start,
+            "VariableDeclaration"
+                if cx.tree.nodes[n].mark == crate::analyzer_tree::Mark::LocalVariable =>
+            {
+                cx.tree.nodes[n].start
+            }
             _ => return Err(State::fatal(message)),
         };
         // `getElementDeclaration`: the declaration node is a `VariableDeclaration`.
@@ -996,29 +1236,52 @@ fn inline_local(cx: &Context<'_>, uri: &str, request: &RefactoringRequest) -> Re
             .position(|k| k.kind == "VariableDeclaration" && k.start == decl)
             .ok_or_else(|| State::fatal(message))?;
         // `_declarationStatement`.
-        let list = cx.parent(vd).filter(|&l| cx.kind(l) == "VariableDeclarationList").ok_or_else(|| State::fatal(message))?;
-        let command = cx.parent(list).filter(|&s| cx.kind(s) == "VariableDeclarationStatement").ok_or_else(|| State::fatal(message))?;
-        if !cx.parent(command).is_some_and(|b| matches!(cx.kind(b), "Block" | "SwitchCase" | "SwitchPatternCase")) {
+        let list = cx
+            .parent(vd)
+            .filter(|&l| cx.kind(l) == "VariableDeclarationList")
+            .ok_or_else(|| State::fatal(message))?;
+        let command = cx
+            .parent(list)
+            .filter(|&s| cx.kind(s) == "VariableDeclarationStatement")
+            .ok_or_else(|| State::fatal(message))?;
+        if !cx
+            .parent(command)
+            .is_some_and(|b| matches!(cx.kind(b), "Block" | "SwitchCase" | "SwitchPatternCase"))
+        {
             return Err(State::fatal(message));
         }
         let name = {
             let node = &cx.tree.nodes[vd];
             let rest = &cx.source[node.start..node.end];
-            let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+            let end = rest
+                .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+                .unwrap_or(rest.len());
             rest[..end].to_string()
         };
         let Some(&initializer) = cx.children(vd).first() else {
-            return Err(State::fatal(format!("Local variable '{name}' is not initialized at declaration.")));
+            return Err(State::fatal(format!(
+                "Local variable '{name}' is not initialized at declaration."
+            )));
         };
         // Every reference is a read.
-        if cx.local_references(decl).iter().any(|(_, e)| *e != ReferenceKind::Read) {
-            return Err(State::fatal(format!("Local variable '[{name}]' is assigned more than once.")));
+        if cx
+            .local_references(decl)
+            .iter()
+            .any(|(_, e)| *e != ReferenceKind::Read)
+        {
+            return Err(State::fatal(format!(
+                "Local variable '[{name}]' is assigned more than once."
+            )));
         }
         Ok((vd, command, initializer, decl))
     };
     match prepare() {
         Err(e) => finish(request, e, State::default, Change::default),
-        Ok((_vd, command, initializer, decl)) => finish(request, State::default(), State::default, || cx.inline_local_change(uri, command, initializer, decl)),
+        Ok((_vd, command, initializer, decl)) => {
+            finish(request, State::default(), State::default, || {
+                cx.inline_local_change(uri, command, initializer, decl)
+            })
+        }
     }
 }
 
@@ -1041,9 +1304,17 @@ impl Context<'_> {
             .exprs
             .iter()
             .filter_map(|e| match &e.kind {
-                ExprKind::Assign { op: ast::AssignOp::Compound(_), target, .. } => Some(*target),
+                ExprKind::Assign {
+                    op: ast::AssignOp::Compound(_),
+                    target,
+                    ..
+                } => Some(*target),
                 ExprKind::Unary {
-                    op: ast::UnaryOp::PrefixInc | ast::UnaryOp::PrefixDec | ast::UnaryOp::PostfixInc | ast::UnaryOp::PostfixDec,
+                    op:
+                        ast::UnaryOp::PrefixInc
+                        | ast::UnaryOp::PrefixDec
+                        | ast::UnaryOp::PostfixInc
+                        | ast::UnaryOp::PostfixDec,
                     operand,
                 } => Some(*operand),
                 _ => None,
@@ -1051,7 +1322,9 @@ impl Context<'_> {
             .collect();
         for (i, e) in self.ast.exprs.iter().enumerate() {
             let x = ExprId(i as u32);
-            let ExprKind::Identifier(n) = &e.kind else { continue };
+            let ExprKind::Identifier(n) = &e.kind else {
+                continue;
+            };
             if self.bodies.local_declaration(x) != Some(decl) {
                 continue;
             }
@@ -1077,7 +1350,13 @@ impl Context<'_> {
     }
 
     /// `InlineLocalRefactoringImpl.createChange`.
-    fn inline_local_change(&self, uri: &str, command: usize, initializer: usize, decl: usize) -> Change {
+    fn inline_local_change(
+        &self,
+        uri: &str,
+        command: usize,
+        initializer: usize,
+        decl: usize,
+    ) -> Change {
         let mut m = Change::default();
         let tx = Text::new(self.source);
         let (ci, cf) = (self.tree.nodes[command].start, self.tree.nodes[command].end);
@@ -1085,21 +1364,35 @@ impl Context<'_> {
         let code = self.node_text(initializer).to_string();
         let init_node = &self.tree.nodes[initializer];
         for (s, _) in self.local_references(decl) {
-            let Some(n) = self.tree.locate(s.start, s.start) else { continue };
+            let Some(n) = self.tree.locate(s.start, s.start) else {
+                continue;
+            };
             let parent = self.parent(n);
             let interpolation = parent.filter(|&p| self.kind(p) == "InterpolationExpression");
             let (range, text) = if let Some(ip) = interpolation {
                 let target = self.parent(ip);
-                let simple_or_interp = matches!(init_node.kind, "SimpleStringLiteral" | "StringInterpolation");
+                let simple_or_interp = matches!(
+                    init_node.kind,
+                    "SimpleStringLiteral" | "StringInterpolation"
+                );
                 let merge = target.is_some_and(|a| self.kind(a) == "StringInterpolation")
                     && simple_or_interp
                     && !raw_string(&code)
                     && single_quotes(&code) == single_quotes(self.node_text(target.unwrap()))
-                    && (!multiline_string(&code) || multiline_string(self.node_text(target.unwrap())));
+                    && (!multiline_string(&code)
+                        || multiline_string(self.node_text(target.unwrap())));
                 let ipn = &self.tree.nodes[ip];
                 if merge {
-                    (Span { start: ipn.start, end: ipn.end }, string_content(&code).to_string())
-                } else if !self.source[ipn.start..].starts_with("${") && init_node.kind != "SimpleIdentifier" {
+                    (
+                        Span {
+                            start: ipn.start,
+                            end: ipn.end,
+                        },
+                        string_content(&code).to_string(),
+                    )
+                } else if !self.source[ipn.start..].starts_with("${")
+                    && init_node.kind != "SimpleIdentifier"
+                {
                     (s, format!("{{{code}}}"))
                 } else {
                     (s, code.clone())
@@ -1141,17 +1434,41 @@ impl Context<'_> {
     /// numbers from `none` (0) to `primary` (17).
     pub(crate) fn precedence(&self, n: usize) -> u8 {
         match self.kind(n) {
-            "IntegerLiteral" | "DoubleLiteral" | "BooleanLiteral" | "NullLiteral" | "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings"
-            | "SymbolLiteral" | "ListLiteral" | "SetOrMapLiteral" | "RecordLiteral" | "SimpleIdentifier" | "ParenthesizedExpression"
-            | "InstanceCreationExpression" | "FunctionExpression" | "ThisExpression" | "SuperExpression" | "SwitchExpression" => 17,
-            "MethodInvocation" | "PropertyAccess" | "PrefixedIdentifier" | "IndexExpression" | "PostfixExpression" | "FunctionExpressionInvocation"
-            | "FunctionReference" | "DotShorthand" => 16,
+            "IntegerLiteral"
+            | "DoubleLiteral"
+            | "BooleanLiteral"
+            | "NullLiteral"
+            | "SimpleStringLiteral"
+            | "StringInterpolation"
+            | "AdjacentStrings"
+            | "SymbolLiteral"
+            | "ListLiteral"
+            | "SetOrMapLiteral"
+            | "RecordLiteral"
+            | "SimpleIdentifier"
+            | "ParenthesizedExpression"
+            | "InstanceCreationExpression"
+            | "FunctionExpression"
+            | "ThisExpression"
+            | "SuperExpression"
+            | "SwitchExpression" => 17,
+            "MethodInvocation"
+            | "PropertyAccess"
+            | "PrefixedIdentifier"
+            | "IndexExpression"
+            | "PostfixExpression"
+            | "FunctionExpressionInvocation"
+            | "FunctionReference"
+            | "DotShorthand" => 16,
             "PrefixExpression" | "AwaitExpression" => 15,
             "BinaryExpression" => self.binary_precedence(n),
             "AsExpression" | "IsExpression" => 8,
             "ConditionalExpression" => 3,
             "CascadeExpression" => 2,
-            "AssignmentExpression" | "ThrowExpression" | "RethrowExpression" | "PatternAssignment" => 1,
+            "AssignmentExpression"
+            | "ThrowExpression"
+            | "RethrowExpression"
+            | "PatternAssignment" => 1,
             _ => 0,
         }
     }
@@ -1159,12 +1476,18 @@ impl Context<'_> {
     /// `Precedence.forTokenType` of the `BinaryExpression`'s operator.
     fn binary_precedence(&self, n: usize) -> u8 {
         let children = self.children(n);
-        let (Some(&a), Some(&b)) = (children.first(), children.get(1)) else { return 0 };
+        let (Some(&a), Some(&b)) = (children.first(), children.get(1)) else {
+            return 0;
+        };
         let between = &self.source[self.tree.nodes[a].end..self.tree.nodes[b].start];
         let operator = dartforge_frontend::lexer::lex(between)
             .ok()
             .map(|v| {
-                let ops: Vec<String> = v.iter().filter(|t| t.kind != Kind::Eof).map(|t| between[t.span.start..t.span.end].to_string()).collect();
+                let ops: Vec<String> = v
+                    .iter()
+                    .filter(|t| t.kind != Kind::Eof)
+                    .map(|t| between[t.span.start..t.span.end].to_string())
+                    .collect();
                 ops.concat()
             })
             .unwrap_or_default();
@@ -1190,7 +1513,14 @@ impl Context<'_> {
         match self.kind(p) {
             "ParenthesizedExpression" => 1,
             "IndexExpression" if self.children(p).get(1) == Some(&n) => 1,
-            "AssignmentExpression" if self.children(p).get(1) == Some(&n) && self.parent(p).is_some_and(|g| self.kind(g) == "CascadeExpression") => 3,
+            "AssignmentExpression"
+                if self.children(p).get(1) == Some(&n)
+                    && self
+                        .parent(p)
+                        .is_some_and(|g| self.kind(g) == "CascadeExpression") =>
+            {
+                3
+            }
             _ if self.is_expression(p) => self.precedence(p),
             _ => 0,
         }
@@ -1199,7 +1529,9 @@ impl Context<'_> {
 
 /// The name at the start of the text of a `VariableDeclaration`.
 pub(crate) fn name_at_start_pub(t: &str) -> String {
-    let end = t.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(t.len());
+    let end = t
+        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+        .unwrap_or(t.len());
     t[..end].to_string()
 }
 
@@ -1233,17 +1565,25 @@ fn string_content(code: &str) -> &str {
 
 /// The references of `f` in the project (without the declarations),
 /// deduplicated.
-pub(crate) fn function_references(p: &Project, f: FunctionElementId, getter: bool) -> Vec<(UnitId, Span)> {
+pub(crate) fn function_references(
+    p: &Project,
+    f: FunctionElementId,
+    getter: bool,
+) -> Vec<(UnitId, Span)> {
     let target_ = p.function_member(f);
     let declarations = p.declarations(&target_);
-    let Ok(occurrences) = p.occurrences(&target_, false) else { return Vec::new() };
+    let Ok(occurrences) = p.occurrences(&target_, false) else {
+        return Vec::new();
+    };
     let mut v = Vec::new();
     let mut seen: BTreeSet<(UnitId, usize, usize)> = BTreeSet::new();
     for (u, start, end) in occurrences {
         if declarations.contains(&(u, start, end)) || !seen.insert((u, start, end)) {
             continue;
         }
-        let Ok(Some(d)) = p.identify(u, start) else { continue };
+        let Ok(Some(d)) = p.identify(u, start) else {
+            continue;
+        };
         if d.concrete != Some(Concrete::Function(f)) {
             continue;
         }
@@ -1274,37 +1614,56 @@ fn element_to_convert(cx: &Context<'_>, o: usize) -> Elem {
 }
 
 /// `ConvertGetterToMethodRefactoringImpl`.
-fn getter_to_method(cx: &Context<'_>, request: &RefactoringRequest, command: &str) -> RefactoringResult {
+fn getter_to_method(
+    cx: &Context<'_>,
+    request: &RefactoringRequest,
+    command: &str,
+) -> RefactoringResult {
     let p = cx.p;
     let e = element_to_convert(cx, request.offset);
     // `element is PropertyAccessorElement`: getter, setter or implicit accessor.
     let accessor = match e {
-        Elem::Function(f) => matches!(p.program().function(f).kind, FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor),
+        Elem::Function(f) => matches!(
+            p.program().function(f).kind,
+            FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor
+        ),
         Elem::Variable => true,
         _ => false,
     };
     if !accessor {
-        return R::InvalidArguments(format!("Location supplied to {command} RefactoringKind.CONVERT_GETTER_TO_METHOD is not longer valid"));
+        return R::InvalidArguments(format!(
+            "Location supplied to {command} RefactoringKind.CONVERT_GETTER_TO_METHOD is not longer valid"
+        ));
     }
     let initial = if !cx.in_workspace(e) {
         State::fatal("Only getters in your workspace can be converted.")
-    } else if !matches!(e, Elem::Function(f) if p.program().function(f).kind == FunctionKind::Getter) {
+    } else if !matches!(e, Elem::Function(f) if p.program().function(f).kind == FunctionKind::Getter)
+    {
         State::fatal("Only explicit getters can be converted to methods.")
     } else {
         State::default()
     };
     finish(request, initial, State::default, || {
-        let Elem::Function(g) = e else { return Change::default() };
+        let Elem::Function(g) = e else {
+            return Change::default();
+        };
         let mut m = Change::default();
         let fe = p.program().function(g);
         let members: Vec<FunctionElementId> = if fe.class.is_none() && fe.extension.is_none() {
             vec![g]
         } else {
             match p.function_member(g) {
-                Target::Member { owner, name, is_static } => match p.family(owner, &name, is_static, false) {
+                Target::Member {
+                    owner,
+                    name,
+                    is_static,
+                } => match p.family(owner, &name, is_static, false) {
                     Ok(family) => {
-                        let mut v: Vec<FunctionElementId> =
-                            family.functions.into_iter().filter(|&x| p.program().function(x).kind == FunctionKind::Getter).collect();
+                        let mut v: Vec<FunctionElementId> = family
+                            .functions
+                            .into_iter()
+                            .filter(|&x| p.program().function(x).kind == FunctionKind::Getter)
+                            .collect();
                         v.sort_by_key(|x| x.0);
                         v
                     }
@@ -1324,14 +1683,35 @@ fn getter_to_method(cx: &Context<'_>, request: &RefactoringRequest, command: &st
                     let before = unit.source[..name.span.start].trim_end();
                     if before.ends_with("get") {
                         let get = before.len() - 3;
-                        m.add(&uri, Span { start: get, end: name.span.start }, "");
+                        m.add(
+                            &uri,
+                            Span {
+                                start: get,
+                                end: name.span.start,
+                            },
+                            "",
+                        );
                     }
-                    m.add(&uri, Span { start: name.span.end, end: name.span.end }, "()");
+                    m.add(
+                        &uri,
+                        Span {
+                            start: name.span.end,
+                            end: name.span.end,
+                        },
+                        "()",
+                    );
                 }
             }
             for (u, s) in function_references(p, f, true) {
                 if let Some(uri) = p.unit_uri(u) {
-                    m.add(&uri, Span { start: s.end, end: s.end }, "()");
+                    m.add(
+                        &uri,
+                        Span {
+                            start: s.end,
+                            end: s.end,
+                        },
+                        "()",
+                    );
                 }
             }
         }
@@ -1340,11 +1720,17 @@ fn getter_to_method(cx: &Context<'_>, request: &RefactoringRequest, command: &st
 }
 
 /// `ConvertMethodToGetterRefactoringImpl`.
-fn method_to_getter(cx: &Context<'_>, request: &RefactoringRequest, command: &str) -> RefactoringResult {
+fn method_to_getter(
+    cx: &Context<'_>,
+    request: &RefactoringRequest,
+    command: &str,
+) -> RefactoringResult {
     let p = cx.p;
     let e = element_to_convert(cx, request.offset);
     if !cx.executable(e) {
-        return R::InvalidArguments(format!("Location supplied to {command} RefactoringKind.CONVERT_METHOD_TO_GETTER is not longer valid"));
+        return R::InvalidArguments(format!(
+            "Location supplied to {command} RefactoringKind.CONVERT_METHOD_TO_GETTER is not longer valid"
+        ));
     }
     let initial = match cx.convert_method_error(e) {
         Some(m) => State::fatal(m),
@@ -1355,12 +1741,21 @@ fn method_to_getter(cx: &Context<'_>, request: &RefactoringRequest, command: &st
         let members: Vec<FunctionElementId> = match e {
             Elem::Function(f) if cx.is_function(e) => vec![f],
             Elem::Function(f) => match p.function_member(f) {
-                Target::Member { owner, name, is_static } => match p.family(owner, &name, is_static, false) {
+                Target::Member {
+                    owner,
+                    name,
+                    is_static,
+                } => match p.family(owner, &name, is_static, false) {
                     Ok(family) => {
                         let mut v: Vec<FunctionElementId> = family
                             .functions
                             .into_iter()
-                            .filter(|&x| matches!(p.program().function(x).kind, FunctionKind::Function | FunctionKind::Operator))
+                            .filter(|&x| {
+                                matches!(
+                                    p.program().function(x).kind,
+                                    FunctionKind::Function | FunctionKind::Operator
+                                )
+                            })
                             .collect();
                         v.sort_by_key(|x| x.0);
                         v
@@ -1386,17 +1781,34 @@ fn method_to_getter(cx: &Context<'_>, request: &RefactoringRequest, command: &st
                         .nodes
                         .iter()
                         .enumerate()
-                        .find(|(_, k)| k.mark == crate::analyzer_tree::Mark::Function(fid) && matches!(k.kind, "MethodDeclaration" | "FunctionDeclaration"))
+                        .find(|(_, k)| {
+                            k.mark == crate::analyzer_tree::Mark::Function(fid)
+                                && matches!(k.kind, "MethodDeclaration" | "FunctionDeclaration")
+                        })
                         .and_then(|(i, k)| {
                             let target = if k.kind == "FunctionDeclaration" {
-                                cxu.children(i).iter().copied().find(|&c| cxu.kind(c) == "FunctionExpression").unwrap_or(i)
+                                cxu.children(i)
+                                    .iter()
+                                    .copied()
+                                    .find(|&c| cxu.kind(c) == "FunctionExpression")
+                                    .unwrap_or(i)
                             } else {
                                 i
                             };
-                            cxu.children(target).iter().copied().find(|&c| cxu.kind(c) == "FormalParameterList")
+                            cxu.children(target)
+                                .iter()
+                                .copied()
+                                .find(|&c| cxu.kind(c) == "FormalParameterList")
                         })
                         .map(|l| (cxu.tree.nodes[l].start, cxu.tree.nodes[l].end));
-                    m.add(&uri, Span { start: name.span.start, end: name.span.start }, "get ");
+                    m.add(
+                        &uri,
+                        Span {
+                            start: name.span.start,
+                            end: name.span.start,
+                        },
+                        "get ",
+                    );
                     if let Some((li, lf)) = list {
                         m.add(&uri, Span { start: li, end: lf }, "");
                     }
@@ -1406,8 +1818,13 @@ fn method_to_getter(cx: &Context<'_>, request: &RefactoringRequest, command: &st
             for (u, s) in function_references(p, f, false) {
                 let Some(uri) = p.unit_uri(u) else { continue };
                 let cxu = contexts.entry(u).or_insert_with(|| Context::new(p, u));
-                let Some(n) = cxu.tree.locate(s.start, s.start) else { continue };
-                if let Some(inv) = cxu.with_parents(n).find(|&k| cxu.kind(k) == "MethodInvocation") {
+                let Some(n) = cxu.tree.locate(s.start, s.start) else {
+                    continue;
+                };
+                if let Some(inv) = cxu
+                    .with_parents(n)
+                    .find(|&k| cxu.kind(k) == "MethodInvocation")
+                {
                     let end = cxu.tree.nodes[inv].end;
                     m.add(&uri, Span { start: s.end, end }, "");
                 }
@@ -1416,4 +1833,3 @@ fn method_to_getter(cx: &Context<'_>, request: &RefactoringRequest, command: &st
         m
     })
 }
-

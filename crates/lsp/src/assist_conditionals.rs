@@ -9,17 +9,22 @@
 //! | `Convert to 'if-case' statement` | `refactor.convert.ifCaseStatement` | `ConvertToIfCaseStatement` |
 //! | `Convert to 'if-case' statement chain` | `refactor.convert.ifCaseStatementChain` | `ConvertToIfCaseStatementChain` |
 
-use crate::actions::CodeAction;
 use crate::Edit;
+use crate::actions::CodeAction;
 use crate::refactorings::Context;
-use crate::refactorings_exec::{Change, Text, ONE_INDENT};
+use crate::refactorings_exec::{Change, ONE_INDENT, Text};
 use dartforge_diagnostics::Span;
 
 impl Context<'_> {
     /// `ReplaceConditionalWithIfElse` (replace_conditional_with_if_else.dart):
     /// in the statement enclosing the selection node, `T v = c ? a : b;`,
     /// `v = c ? a : b;` or `return c ? a : b;` becomes an `if`/`else`.
-    pub(crate) fn conditional_to_if_else(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn conditional_to_if_else(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
         let command = self.with_parents(node).find(|&k| self.is_command(k))?;
         let tx = Text::new(self.source);
@@ -28,22 +33,36 @@ impl Context<'_> {
         let mut m = Change::default();
         let parts = |cx: &Self, conditional: usize| -> Option<(String, String, String)> {
             let f = cx.children(conditional);
-            Some((cx.node_text(*f.first()?).to_string(), cx.node_text(*f.get(1)?).to_string(), cx.node_text(*f.get(2)?).to_string()))
+            Some((
+                cx.node_text(*f.first()?).to_string(),
+                cx.node_text(*f.get(1)?).to_string(),
+                cx.node_text(*f.get(2)?).to_string(),
+            ))
         };
         match self.kind(command) {
             "VariableDeclarationStatement" => {
                 let list = *self.children(command).first()?;
-                let has_type = self.children(list).iter().any(|&k| self.kind(k) != "VariableDeclaration" && self.kind(k) != "Annotation");
+                let has_type = self.children(list).iter().any(|&k| {
+                    self.kind(k) != "VariableDeclaration" && self.kind(k) != "Annotation"
+                });
                 let mut import = std::collections::BTreeSet::new();
-                for &variable in self.children(list).iter().filter(|&&k| self.kind(k) == "VariableDeclaration") {
-                    let Some(&conditional) = self.children(variable).first() else { continue };
+                for &variable in self
+                    .children(list)
+                    .iter()
+                    .filter(|&&k| self.kind(k) == "VariableDeclaration")
+                {
+                    let Some(&conditional) = self.children(variable).first() else {
+                        continue;
+                    };
                     if self.kind(conditional) != "ConditionalExpression" {
                         continue;
                     }
                     let name = self.next_token(self.tree.nodes[variable].start)?;
                     if !has_type {
                         let mut writer = crate::write_type::Writer::new(self, name.start);
-                        let ty = self.node_expr(conditional).and_then(|x| self.bodies.get_type(x));
+                        let ty = self
+                            .node_expr(conditional)
+                            .and_then(|x| self.bodies.get_type(x));
                         let written = writer.write_type(ty, false).unwrap_or_default();
                         import.extend(writer.import.iter().copied());
                         // The list's keyword (`late` apart).
@@ -54,18 +73,39 @@ impl Context<'_> {
                         if &self.source[k.start..k.end] == "var" {
                             m.add(uri, k, written);
                         } else {
-                            m.add(uri, Span { start: name.start, end: name.start }, format!("{written} "));
+                            m.add(
+                                uri,
+                                Span {
+                                    start: name.start,
+                                    end: name.start,
+                                },
+                                format!("{written} "),
+                            );
                         }
                     }
                     // `range.endEnd(variable.name, conditional)`.
-                    m.add(uri, Span { start: name.end, end: self.tree.nodes[conditional].end }, String::new());
+                    m.add(
+                        uri,
+                        Span {
+                            start: name.end,
+                            end: self.tree.nodes[conditional].end,
+                        },
+                        String::new(),
+                    );
                     let (c, a, b) = parts(self, conditional)?;
                     let n = &self.source[name.start..name.end];
                     let src = format!(
                         "{eol}{prefix}if ({c}) {{{eol}{prefix}{ONE_INDENT}{n} = {a};{eol}{prefix}}} else {{{eol}{prefix}{ONE_INDENT}{n} = {b};{eol}{prefix}}}"
                     );
                     let command_end = self.tree.nodes[command].end;
-                    m.add(uri, Span { start: command_end, end: command_end }, src);
+                    m.add(
+                        uri,
+                        Span {
+                            start: command_end,
+                            end: command_end,
+                        },
+                        src,
+                    );
                 }
                 crate::refactorings_move::builder_imports(self, &mut m, &import);
             }
@@ -76,7 +116,9 @@ impl Context<'_> {
                 }
                 let f = self.children(assignment);
                 let (&left, &conditional) = (f.first()?, f.get(1)?);
-                let operator = self.source[self.tree.nodes[left].end..self.tree.nodes[conditional].start].trim();
+                let operator = self.source
+                    [self.tree.nodes[left].end..self.tree.nodes[conditional].start]
+                    .trim();
                 if operator != "=" || self.kind(conditional) != "ConditionalExpression" {
                     return None;
                 }
@@ -106,9 +148,14 @@ impl Context<'_> {
         Some(CodeAction {
             title: "Replace conditional with 'if-else'".into(),
             kind: "refactor.convert.conditionalToIfElse".into(),
-            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            edits: m
+                .files
+                .into_iter()
+                .flat_map(|(_, l)| l.into_iter().rev())
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 
@@ -116,7 +163,9 @@ impl Context<'_> {
     /// the operands, or is exactly the expression when no operand is binary.
     pub(crate) fn selected_operator(&self, binary: usize, start: usize, end: usize) -> bool {
         let f = self.children(binary);
-        let (Some(&left), Some(&right)) = (f.first(), f.get(1)) else { return false };
+        let (Some(&left), Some(&right)) = (f.first(), f.get(1)) else {
+            return false;
+        };
         let (e, d) = (&self.tree.nodes[left], &self.tree.nodes[right]);
         if start >= e.end && end <= d.start {
             return true;
@@ -138,16 +187,29 @@ impl Context<'_> {
     /// of the condition of an `if` without `else` selected, the right part
     /// becomes an `if` nested around the `then`, which gets one more level of
     /// indentation.
-    pub(crate) fn split_and_condition(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn split_and_condition(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let binary = self.tree.locate(start, end)?;
-        if self.kind(binary) != "BinaryExpression" || !self.selected_operator(binary, start, end) || self.binary_operator(binary)? != "&&" {
+        if self.kind(binary) != "BinaryExpression"
+            || !self.selected_operator(binary, start, end)
+            || self.binary_operator(binary)? != "&&"
+        {
             return None;
         }
         let command = self.with_parents(binary).find(|&k| self.is_command(k))?;
         if self.kind(command) != "IfStatement" {
             return None;
         }
-        let if_commands: Vec<usize> = self.children(command).iter().copied().filter(|&k| self.is_command(k)).collect();
+        let if_commands: Vec<usize> = self
+            .children(command)
+            .iter()
+            .copied()
+            .filter(|&k| self.is_command(k))
+            .collect();
         if if_commands.len() != 1 {
             // No `else` support.
             return None;
@@ -170,18 +232,47 @@ impl Context<'_> {
         let prefix = self.node_prefix(command);
         let f = self.children(binary);
         let (left, right) = (f[0], f[1]);
-        let right_source = &self.source[self.tree.nodes[right].start..self.tree.nodes[condition].end];
+        let right_source =
+            &self.source[self.tree.nodes[right].start..self.tree.nodes[condition].end];
         let mut m = Change::default();
         // Removes "&& right".
-        m.add(uri, Span { start: self.tree.nodes[left].end, end: self.tree.nodes[condition].end }, String::new());
+        m.add(
+            uri,
+            Span {
+                start: self.tree.nodes[left].end,
+                end: self.tree.nodes[condition].end,
+            },
+            String::new(),
+        );
         let commands: Vec<usize> = if self.kind(then) == "Block" {
             let block = self.tree.span(then);
-            m.add(uri, Span { start: block.start + 1, end: block.start + 1 }, format!("{eol}{prefix}{ONE_INDENT}if ({right_source}) {{"));
-            m.add(uri, Span { start: block.end - 1, end: block.end - 1 }, format!("{ONE_INDENT}}}{eol}{prefix}"));
+            m.add(
+                uri,
+                Span {
+                    start: block.start + 1,
+                    end: block.start + 1,
+                },
+                format!("{eol}{prefix}{ONE_INDENT}if ({right_source}) {{"),
+            );
+            m.add(
+                uri,
+                Span {
+                    start: block.end - 1,
+                    end: block.end - 1,
+                },
+                format!("{ONE_INDENT}}}{eol}{prefix}"),
+            );
             self.children(then).to_vec()
         } else {
             let closes = self.previous_token(self.tree.nodes[then].start)?;
-            m.add(uri, Span { start: closes.start + 1, end: closes.start + 1 }, format!("{eol}{prefix}{ONE_INDENT}if ({right_source})"));
+            m.add(
+                uri,
+                Span {
+                    start: closes.start + 1,
+                    end: closes.start + 1,
+                },
+                format!("{eol}{prefix}{ONE_INDENT}if ({right_source})"),
+            );
             vec![then]
         };
         // The indentation of the `then` statements (`getLinesRangeStatements`,
@@ -190,16 +281,25 @@ impl Context<'_> {
         let lines = tx.line_range(self.tree.nodes[first].start, self.tree.nodes[last].end);
         let old = format!("{prefix}{ONE_INDENT}");
         let new = format!("{old}{ONE_INDENT}");
-        m.add(uri, lines, tx.swap_indent(&self.source[lines.start..lines.end], &old, &new, true, true));
+        m.add(
+            uri,
+            lines,
+            tx.swap_indent(&self.source[lines.start..lines.end], &old, &new, true, true),
+        );
         if m.conflict.is_some() {
             return None;
         }
         Some(CodeAction {
             title: "Split && condition".into(),
             kind: "refactor.splitIfConjunction".into(),
-            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            edits: m
+                .files
+                .into_iter()
+                .flat_map(|(_, l)| l.into_iter().rev())
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 
@@ -228,7 +328,12 @@ impl Context<'_> {
 
     /// `ConvertToNullAware` (convert_to_null_aware.dart): `x == null ? null :
     /// x.y` (or with `!=`) becomes `x?.y`.
-    pub(crate) fn convert_to_null_aware(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_to_null_aware(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
         let mut target = node;
         if let Some(p) = self.parent(node)
@@ -280,13 +385,18 @@ impl Context<'_> {
                     if op.start < self.tree.nodes[first].end {
                         return None;
                     }
-                    if self.kind(result) == "MethodInvocation" && self.method_name(result) == Some(first) {
+                    if self.kind(result) == "MethodInvocation"
+                        && self.method_name(result) == Some(first)
+                    {
                         return None;
                     }
                     operator = Some(op);
                     result = first;
                 }
-                "PostfixExpression" if self.source[self.tree.nodes[result].start..self.tree.nodes[result].end].ends_with('!') => {
+                "PostfixExpression"
+                    if self.source[self.tree.nodes[result].start..self.tree.nodes[result].end]
+                        .ends_with('!') =>
+                {
                     result = *self.children(result).first()?;
                 }
                 _ => return None,
@@ -297,34 +407,75 @@ impl Context<'_> {
         }
         let (range, question) = match operator {
             Some(op) => {
-                let q = if &self.source[op.start..op.end] == "." { "?" } else { "" };
-                (Span { start: self.tree.nodes[result].end, end: op.start }, q)
+                let q = if &self.source[op.start..op.end] == "." {
+                    "?"
+                } else {
+                    ""
+                };
+                (
+                    Span {
+                        start: self.tree.nodes[result].end,
+                        end: op.start,
+                    },
+                    q,
+                )
             }
-            None if self.parent(result).is_some_and(|p| self.kind(p) == "PostfixExpression") => {
-                (Span { start: self.tree.nodes[result].end, end: self.tree.nodes[self.parent(result)?].end }, "")
+            None if self
+                .parent(result)
+                .is_some_and(|p| self.kind(p) == "PostfixExpression") =>
+            {
+                (
+                    Span {
+                        start: self.tree.nodes[result].end,
+                        end: self.tree.nodes[self.parent(result)?].end,
+                    },
+                    "",
+                )
             }
             None => return None,
         };
         let mut m = Change::default();
-        m.add(uri, Span { start: self.tree.nodes[target].start, end: self.tree.nodes[non_null].start }, String::new());
+        m.add(
+            uri,
+            Span {
+                start: self.tree.nodes[target].start,
+                end: self.tree.nodes[non_null].start,
+            },
+            String::new(),
+        );
         m.add(uri, range, question.to_string());
-        m.add(uri, Span { start: self.tree.nodes[non_null].end, end: self.tree.nodes[target].end }, String::new());
+        m.add(
+            uri,
+            Span {
+                start: self.tree.nodes[non_null].end,
+                end: self.tree.nodes[target].end,
+            },
+            String::new(),
+        );
         if m.conflict.is_some() {
             return None;
         }
         Some(CodeAction {
             title: "Convert to use '?.'".into(),
             kind: "refactor.convert.toNullAware".into(),
-            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            edits: m
+                .files
+                .into_iter()
+                .flat_map(|(_, l)| l.into_iter().rev())
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 
     /// The library has patterns (Dart 3.0).
     pub(crate) fn with_patterns(&self) -> bool {
         let prog = self.p.program();
-        prog.library(prog.unit(self.unit).library).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0)
+        prog.library(prog.unit(self.unit).library)
+            .features
+            .version()
+            >= dartforge_frontend::features::LanguageVersion::new(3, 0)
     }
 
     /// Some identifier of `n` reads the local declared at `name`.
@@ -333,7 +484,10 @@ impl Context<'_> {
         while let Some(k) = stack.pop() {
             if self.kind(k) == "SimpleIdentifier"
                 && let crate::analyzer_tree::Mark::Expr(x) = self.tree.nodes[k].mark
-                && matches!(self.bodies.get_resolved(x), Some(dartforge_types::Resolved::Local(_)))
+                && matches!(
+                    self.bodies.get_resolved(x),
+                    Some(dartforge_types::Resolved::Local(_))
+                )
                 && self.bodies.local_declaration(x) == Some(name)
             {
                 return true;
@@ -350,13 +504,22 @@ impl Context<'_> {
             return None;
         }
         let list = *self.children(command).first()?;
-        let variables: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
-        let [variable] = variables[..] else { return None };
+        let variables: Vec<usize> = self
+            .children(list)
+            .iter()
+            .copied()
+            .filter(|&k| self.kind(k) == "VariableDeclaration")
+            .collect();
+        let [variable] = variables[..] else {
+            return None;
+        };
         let name = self.next_token(self.tree.nodes[variable].start)?;
         self.bodies.local_types.get(&name.start)?;
         let initializer = *self.children(variable).first()?;
         let final_ = self.tokens.iter().any(|t| {
-            t.span.start >= self.tree.nodes[list].start && t.span.end <= name.start && matches!(&self.source[t.span.start..t.span.end], "final" | "const")
+            t.span.start >= self.tree.nodes[list].start
+                && t.span.end <= name.start
+                && matches!(&self.source[t.span.start..t.span.end], "final" | "const")
         });
         Some((name, initializer, final_))
     }
@@ -364,7 +527,12 @@ impl Context<'_> {
     /// `ConvertToIfCaseStatement` (convert_to_if_case_statement.dart): the local
     /// declared in the statement before the `if` and tested with `is T` or
     /// `!= null`, with no read after the `then`, moves into the `if-case`.
-    pub(crate) fn convert_to_if_case(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_to_if_case(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         if !self.with_patterns() {
             return None;
         }
@@ -383,16 +551,34 @@ impl Context<'_> {
         let name_text = &self.source[name.start..name.end];
         let if_children = self.children(command);
         let condition = *if_children.first()?;
-        let branches: Vec<usize> = if_children.iter().copied().filter(|&k| self.is_command(k)).collect();
-        let references_after = || branches.get(1).is_some_and(|&e| self.cites_local(e, name.start)) || commands[index + 1..].iter().any(|&c| self.cites_local(c, name.start));
+        let branches: Vec<usize> = if_children
+            .iter()
+            .copied()
+            .filter(|&k| self.is_command(k))
+            .collect();
+        let references_after = || {
+            branches
+                .get(1)
+                .is_some_and(|&e| self.cites_local(e, name.start))
+                || commands[index + 1..]
+                    .iter()
+                    .any(|&c| self.cites_local(c, name.start))
+        };
         let pattern = match self.kind(condition) {
             "IsExpression" => {
                 let f = self.children(condition);
                 let (left, ty) = (*f.first()?, *f.get(1)?);
-                if self.kind(left) != "SimpleIdentifier" || self.node_text(left) != name_text || references_after() {
+                if self.kind(left) != "SimpleIdentifier"
+                    || self.node_text(left) != name_text
+                    || references_after()
+                {
                     return None;
                 }
-                format!("{}{} {name_text}", if final_ { "final " } else { "" }, self.node_text(ty))
+                format!(
+                    "{}{} {name_text}",
+                    if final_ { "final " } else { "" },
+                    self.node_text(ty)
+                )
             }
             "BinaryExpression" => {
                 let f = self.children(condition);
@@ -410,15 +596,27 @@ impl Context<'_> {
             _ => return None,
         };
         let edits = vec![
-            Edit { uri: uri.to_string(), span: self.tree.span(condition), text: format!("{} case {pattern}", self.node_text(initializer)) },
-            Edit { uri: uri.to_string(), span: Span { start: self.tree.nodes[previous].start, end: self.tree.nodes[command].start }, text: String::new() },
+            Edit {
+                uri: uri.to_string(),
+                span: self.tree.span(condition),
+                text: format!("{} case {pattern}", self.node_text(initializer)),
+            },
+            Edit {
+                uri: uri.to_string(),
+                span: Span {
+                    start: self.tree.nodes[previous].start,
+                    end: self.tree.nodes[command].start,
+                },
+                text: String::new(),
+            },
         ];
         Some(CodeAction {
             title: "Convert to 'if-case' statement".into(),
             kind: "refactor.convert.ifCaseStatement".into(),
             edits,
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 
@@ -427,9 +625,19 @@ impl Context<'_> {
     pub(crate) fn member_groups(&self, switch: usize) -> Vec<(Vec<usize>, Vec<usize>)> {
         let mut groups = Vec::new();
         let mut members = Vec::new();
-        for &m in self.children(switch).iter().filter(|&&k| matches!(self.kind(k), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")) {
+        for &m in self.children(switch).iter().filter(|&&k| {
+            matches!(
+                self.kind(k),
+                "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"
+            )
+        }) {
             members.push(m);
-            let commands: Vec<usize> = self.children(m).iter().copied().filter(|&k| self.is_command(k)).collect();
+            let commands: Vec<usize> = self
+                .children(m)
+                .iter()
+                .copied()
+                .filter(|&k| self.is_command(k))
+                .collect();
             if !commands.is_empty() {
                 groups.push((std::mem::take(&mut members), commands));
             }
@@ -444,19 +652,35 @@ impl Context<'_> {
     /// one level inside `indent`.
     pub(crate) fn indented_commands(&self, commands: &[usize], indent: &str) -> String {
         let mut commands = commands;
-        if commands.last().is_some_and(|&c| self.kind(c) == "BreakStatement") {
+        if commands
+            .last()
+            .is_some_and(|&c| self.kind(c) == "BreakStatement")
+        {
             commands = &commands[..commands.len() - 1];
         }
-        let (Some(&first), Some(&last)) = (commands.first(), commands.last()) else { return String::new() };
+        let (Some(&first), Some(&last)) = (commands.first(), commands.last()) else {
+            return String::new();
+        };
         let tx = Text::new(self.source);
         let range = tx.line_range(self.tree.nodes[first].start, self.tree.nodes[last].end);
         let first_indent = tx.line_prefix(self.tree.nodes[first].start);
-        tx.swap_indent(&self.source[range.start..range.end], first_indent, &format!("{indent}{ONE_INDENT}"), true, true)
+        tx.swap_indent(
+            &self.source[range.start..range.end],
+            first_indent,
+            &format!("{indent}{ONE_INDENT}"),
+            true,
+            true,
+        )
     }
 
     /// `ConvertToIfCaseStatementChain`: a `switch` of pattern cases becomes an
     /// `if-case` chain, with the `default` as the `else`.
-    pub(crate) fn switch_to_if_case_chain(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn switch_to_if_case_chain(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let switch = self.tree.locate(start, end)?;
         if self.kind(switch) != "SwitchStatement" {
             return None;
@@ -483,7 +707,12 @@ impl Context<'_> {
                 let saved: Vec<usize> = members
                     .iter()
                     .filter(|&&m| self.kind(m) == "SwitchPatternCase")
-                    .filter_map(|&m| self.children(m).iter().copied().find(|&k| self.kind(k) == "GuardedPattern"))
+                    .filter_map(|&m| {
+                        self.children(m)
+                            .iter()
+                            .copied()
+                            .find(|&k| self.kind(k) == "GuardedPattern")
+                    })
                     .collect();
                 if saved.len() != members.len() {
                     return None;
@@ -491,10 +720,22 @@ impl Context<'_> {
                 let pattern = if let [g] = saved[..] {
                     self.node_text(g).to_string()
                 } else {
-                    if saved.iter().any(|&g| self.children(g).iter().any(|&k| self.kind(k) == "WhenClause")) {
+                    if saved.iter().any(|&g| {
+                        self.children(g)
+                            .iter()
+                            .any(|&k| self.kind(k) == "WhenClause")
+                    }) {
                         return None;
                     }
-                    saved.iter().filter_map(|&g| self.children(g).first().map(|&p| self.node_text(p).to_string())).collect::<Vec<_>>().join(" || ")
+                    saved
+                        .iter()
+                        .filter_map(|&g| {
+                            self.children(g)
+                                .first()
+                                .map(|&p| self.node_text(p).to_string())
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" || ")
                 };
                 s.push_str(&format!("if ({expression} case {pattern}) {{{eol}"));
             }
@@ -504,9 +745,14 @@ impl Context<'_> {
         Some(CodeAction {
             title: "Convert to 'if-case' statement chain".into(),
             kind: "refactor.convert.ifCaseStatementChain".into(),
-            edits: vec![Edit { uri: uri.to_string(), span: self.tree.span(switch), text: s }],
+            edits: vec![Edit {
+                uri: uri.to_string(),
+                span: self.tree.span(switch),
+                text: s,
+            }],
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 }

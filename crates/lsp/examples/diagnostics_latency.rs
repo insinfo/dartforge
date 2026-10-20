@@ -176,11 +176,7 @@ fn main() {
             .map(|m| m["params"]["version"].clone())
             .unwrap_or(Value::Null);
 
-        println!(
-            "{} ({} bytes, {lines} linhas)",
-            file.display(),
-            text.len()
-        );
+        println!("{} ({} bytes, {lines} linhas)", file.display(), text.len());
         println!(
             "  open: immediate {:.1} ms; typed {:.1} ms ({} diagnostics published)",
             ms(open_immediate),

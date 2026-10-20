@@ -17,7 +17,9 @@ pub(crate) fn heap_in_use() -> Option<usize> {
 /// The memory log is on (`DARTFORGE_LSP_MEMORY=1`).
 pub(crate) fn logging() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("DARTFORGE_LSP_MEMORY").is_ok_and(|v| v != "0" && !v.is_empty()))
+    *ON.get_or_init(|| {
+        std::env::var("DARTFORGE_LSP_MEMORY").is_ok_and(|v| v != "0" && !v.is_empty())
+    })
 }
 
 /// With the memory log on, prints the live heap at `label` to `stderr`.
@@ -26,7 +28,10 @@ pub(crate) fn log(label: &str) {
         return;
     }
     match heap_in_use() {
-        Some(bytes) => eprintln!("[dartforge-lsp] memory {label}: {:.1} MiB in use", bytes as f64 / (1024.0 * 1024.0)),
+        Some(bytes) => eprintln!(
+            "[dartforge-lsp] memory {label}: {:.1} MiB in use",
+            bytes as f64 / (1024.0 * 1024.0)
+        ),
         None => eprintln!("[dartforge-lsp] memory {label}: (not reported on this platform)"),
     }
 }

@@ -21,13 +21,15 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
-use crate::analyzer_tree::{AnalyzerTree, Binding, Mark};
 use crate::Unit;
+use crate::analyzer_tree::{AnalyzerTree, Binding, Mark};
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionKind, FunctionRef, VariableId, VariableRef};
+use dartforge_elements::model::{
+    ClassId, Element, FunctionElementId, FunctionKind, FunctionRef, VariableId, VariableRef,
+};
 use dartforge_frontend::ast::{DeclKind, ExprId, ExprKind, MemberKind};
 use dartforge_intern::Interner;
 use dartforge_types::resolved::{MemberRef, Resolved};
@@ -46,7 +48,12 @@ fn only_async(e: Option<AsyncState>) -> Option<AsyncState> {
     e.filter(|x| *x == AsyncState::Async)
 }
 
-const BODIES: &[&str] = &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyFunctionBody", "NativeFunctionBody"];
+const BODIES: &[&str] = &[
+    "BlockFunctionBody",
+    "ExpressionFunctionBody",
+    "EmptyFunctionBody",
+    "NativeFunctionBody",
+];
 
 /// The tree, the text and the semantics.
 struct Cx<'a> {
@@ -75,7 +82,10 @@ impl<'a> Cx<'a> {
     }
 
     fn span(&self, n: usize) -> Span {
-        Span { start: self.tree.nodes[n].start, end: self.tree.nodes[n].end }
+        Span {
+            start: self.tree.nodes[n].start,
+            end: self.tree.nodes[n].end,
+        }
     }
 
     /// The operator between two children (`BinaryExpression`,
@@ -110,18 +120,29 @@ impl<'a> Cx<'a> {
 
     /// The `methodName` of a `MethodInvocation`: the last `SimpleIdentifier`.
     fn method_name(&self, n: usize) -> Option<usize> {
-        self.children(n).iter().rev().copied().find(|&f| self.kind(f) == "SimpleIdentifier")
+        self.children(n)
+            .iter()
+            .rev()
+            .copied()
+            .find(|&f| self.kind(f) == "SimpleIdentifier")
     }
 
     /// The `target` of a `MethodInvocation` (without the cascade's).
     fn method_target(&self, n: usize) -> Option<usize> {
         let name = self.method_name(n);
-        self.children(n).first().copied().filter(|&a| Some(a) != name && self.kind(a) != "ArgumentList" && self.kind(a) != "TypeArgumentList")
+        self.children(n).first().copied().filter(|&a| {
+            Some(a) != name && self.kind(a) != "ArgumentList" && self.kind(a) != "TypeArgumentList"
+        })
     }
 
     /// The arguments (children of the child `ArgumentList`).
     fn arguments(&self, n: usize) -> Vec<usize> {
-        self.children(n).iter().copied().find(|&k| self.kind(k) == "ArgumentList").map(|l| self.children(l).to_vec()).unwrap_or_default()
+        self.children(n)
+            .iter()
+            .copied()
+            .find(|&k| self.kind(k) == "ArgumentList")
+            .map(|l| self.children(l).to_vec())
+            .unwrap_or_default()
     }
 
     /// `realTarget` of a cascade section without a written target.
@@ -131,7 +152,10 @@ impl<'a> Cx<'a> {
             if self.kind(p) == "CascadeExpression" {
                 return self.children(p).first().copied().filter(|&a| a != k);
             }
-            if !matches!(self.kind(p), "MethodInvocation" | "PropertyAccess" | "IndexExpression" | "AssignmentExpression") {
+            if !matches!(
+                self.kind(p),
+                "MethodInvocation" | "PropertyAccess" | "IndexExpression" | "AssignmentExpression"
+            ) {
                 return None;
             }
             k = p;
@@ -143,13 +167,32 @@ impl<'a> Cx<'a> {
     fn constant_bool(&self, n: usize) -> Option<bool> {
         match self.kind(n) {
             "BooleanLiteral" => Some(self.text(n) == "true"),
-            "ParenthesizedExpression" => self.children(n).first().and_then(|&f| self.constant_bool(f)),
-            "PrefixExpression" if self.text(n).trim_start().starts_with('!') => self.children(n).first().and_then(|&f| self.constant_bool(f)).map(|b| !b),
+            "ParenthesizedExpression" => self
+                .children(n)
+                .first()
+                .and_then(|&f| self.constant_bool(f)),
+            "PrefixExpression" if self.text(n).trim_start().starts_with('!') => self
+                .children(n)
+                .first()
+                .and_then(|&f| self.constant_bool(f))
+                .map(|b| !b),
             "SimpleIdentifier" | "PrefixedIdentifier" => {
-                let target = if self.kind(n) == "PrefixedIdentifier" { *self.children(n).last()? } else { n };
+                let target = if self.kind(n) == "PrefixedIdentifier" {
+                    *self.children(n).last()?
+                } else {
+                    n
+                };
                 let v = match self.resolved(target)? {
-                    Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => *v,
-                    Resolved::Element(Element::Function(f)) | Resolved::Member { member: MemberRef::Function(f), .. } => self.s.program.function(*f).variable?,
+                    Resolved::Element(Element::Variable(v))
+                    | Resolved::Member {
+                        member: MemberRef::Variable(v),
+                        ..
+                    } => *v,
+                    Resolved::Element(Element::Function(f))
+                    | Resolved::Member {
+                        member: MemberRef::Function(f),
+                        ..
+                    } => self.s.program.function(*f).variable?,
                     _ => return None,
                 };
                 constant_bool_value(self.s, v, 0)
@@ -165,7 +208,9 @@ impl<'a> Cx<'a> {
             "ReturnStatement" | "BreakStatement" | "ContinueStatement" => true,
             _ => {
                 let element = |m: usize| element_exits(self, m);
-                crate::exit_detector::ExitDetector::new(self.tree, self.source, &element).exits(n).unwrap_or(false)
+                crate::exit_detector::ExitDetector::new(self.tree, self.source, &element)
+                    .exits(n)
+                    .unwrap_or(false)
             }
         }
     }
@@ -182,11 +227,17 @@ fn constant_bool_value(s: &super::Semantics<'_>, v: VariableId, depth: u32) -> O
         return None;
     }
     let (unit, init) = match x.node {
-        VariableRef::TopLevel { unit, decl, index } => match &s.program.unit(unit).ast.decl(decl).kind {
-            DeclKind::Variables(l) => (unit, l.variables.get(index)?.initializer?),
-            _ => return None,
-        },
-        VariableRef::Field { unit, member, index } => match &s.program.unit(unit).ast.member(member).kind {
+        VariableRef::TopLevel { unit, decl, index } => {
+            match &s.program.unit(unit).ast.decl(decl).kind {
+                DeclKind::Variables(l) => (unit, l.variables.get(index)?.initializer?),
+                _ => return None,
+            }
+        }
+        VariableRef::Field {
+            unit,
+            member,
+            index,
+        } => match &s.program.unit(unit).ast.member(member).kind {
             MemberKind::Field(l) => (unit, l.variables.get(index)?.initializer?),
             _ => return None,
         },
@@ -207,13 +258,38 @@ fn constant_bool_value(s: &super::Semantics<'_>, v: VariableId, depth: u32) -> O
 fn element_exits(cx: &Cx<'_>, m: usize) -> bool {
     let s = cx.s;
     match cx.resolved(m) {
-        Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) | Some(Resolved::ExtensionMember { member: f, .. }) => {
-            let never = s.outline.functions.get(f.0 as usize).is_some_and(|d| matches!(s.table.get(d.return_type), Type::Never));
-            never || function_annotations(s, *f).is_some_and(|(meta, u)| meta.iter().any(|a| dartforge_types::annotations::is_getter_of(s.program, cx.interner, u, a, "meta", "alwaysThrows")))
+        Some(Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        })
+        | Some(Resolved::Element(Element::Function(f)))
+        | Some(Resolved::ExtensionMember { member: f, .. }) => {
+            let never = s
+                .outline
+                .functions
+                .get(f.0 as usize)
+                .is_some_and(|d| matches!(s.table.get(d.return_type), Type::Never));
+            never
+                || function_annotations(s, *f).is_some_and(|(meta, u)| {
+                    meta.iter().any(|a| {
+                        dartforge_types::annotations::is_getter_of(
+                            s.program,
+                            cx.interner,
+                            u,
+                            a,
+                            "meta",
+                            "alwaysThrows",
+                        )
+                    })
+                })
         }
         Some(Resolved::Local(_)) => {
-            let Mark::Expr(e) = cx.tree.nodes[m].mark else { return false };
-            let Some(d) = s.body.local_declaration(e) else { return false };
+            let Mark::Expr(e) = cx.tree.nodes[m].mark else {
+                return false;
+            };
+            let Some(d) = s.body.local_declaration(e) else {
+                return false;
+            };
             matches!(s.body.local_type(d).map(|t| s.table.get(t)), Some(Type::Function { ret, .. }) if matches!(s.table.get(*ret), Type::Never))
         }
         _ => false,
@@ -221,16 +297,31 @@ fn element_exits(cx: &Cx<'_>, m: usize) -> bool {
 }
 
 /// The annotations of the declaration of a function, method or constructor.
-fn function_annotations<'p>(s: &super::Semantics<'p>, f: FunctionElementId) -> Option<(&'p [dartforge_frontend::ast::Annotation], dartforge_elements::model::UnitId)> {
+fn function_annotations<'p>(
+    s: &super::Semantics<'p>,
+    f: FunctionElementId,
+) -> Option<(
+    &'p [dartforge_frontend::ast::Annotation],
+    dartforge_elements::model::UnitId,
+)> {
     let program: &'p dartforge_elements::model::Program = s.program;
     match program.function(f).node {
-        FunctionRef::Constructor { unit, member } => Some((&program.unit(unit).ast.member(member).metadata[..], unit)),
+        FunctionRef::Constructor { unit, member } => {
+            Some((&program.unit(unit).ast.member(member).metadata[..], unit))
+        }
         FunctionRef::Function { unit, function } => {
             let a = &program.unit(unit).ast;
-            if let Some(m) = a.members.iter().find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function)) {
+            if let Some(m) = a
+                .members
+                .iter()
+                .find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function))
+            {
                 return Some((&m.metadata[..], unit));
             }
-            a.decls.iter().find(|d| matches!(&d.kind, DeclKind::Function(g) if *g == function)).map(|d| (&d.metadata[..], unit))
+            a.decls
+                .iter()
+                .find(|d| matches!(&d.kind, DeclKind::Function(g) if *g == function))
+                .map(|d| (&d.metadata[..], unit))
         }
         FunctionRef::None => None,
     }
@@ -248,7 +339,10 @@ struct AsyncStateVisitor<'c, 'a> {
 impl AsyncStateVisitor<'_, '_> {
     /// `_asynchronousIfAnyIsAsync`.
     fn any_async(&mut self, nodes: &[usize]) -> Option<AsyncState> {
-        let until = nodes.iter().position(|&n| n == self.reference).unwrap_or(nodes.len());
+        let until = nodes
+            .iter()
+            .position(|&n| n == self.reference)
+            .unwrap_or(nodes.len());
         for &n in &nodes[..until] {
             if self.visit(n) == Some(AsyncState::Async) {
                 return Some(AsyncState::Async);
@@ -299,7 +393,12 @@ impl AsyncStateVisitor<'_, '_> {
             if previous.is_some() {
                 return previous;
             }
-            if parent.is_some_and(|p| matches!(self.cx.kind(p), "DoStatement" | "ForStatement" | "WhileStatement")) {
+            if parent.is_some_and(|p| {
+                matches!(
+                    self.cx.kind(p),
+                    "DoStatement" | "ForStatement" | "WhileStatement"
+                )
+            }) {
                 return only_async(self.in_order_guardable(&stmts[i + 1..]));
             }
             return None;
@@ -319,7 +418,12 @@ impl AsyncStateVisitor<'_, '_> {
             return None;
         }
         let f = match self.cx.resolved(n) {
-            Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+            Some(Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            })
+            | Some(Resolved::Element(Element::Function(f)))
+            | Some(Resolved::ExtensionMember { member: f, .. }) => {
                 Some(self.cx.s.program.public(*f))
             }
             _ => None,
@@ -334,14 +438,24 @@ impl AsyncStateVisitor<'_, '_> {
     /// `_constantEquality`.
     fn constant_equality(state: Option<AsyncState>, constant: bool) -> Option<AsyncState> {
         match (state, constant) {
-            (Some(AsyncState::Mounted), true) | (Some(AsyncState::NotMounted), false) => Some(AsyncState::Mounted),
-            (Some(AsyncState::NotMounted), true) | (Some(AsyncState::Mounted), false) => Some(AsyncState::NotMounted),
+            (Some(AsyncState::Mounted), true) | (Some(AsyncState::NotMounted), false) => {
+                Some(AsyncState::Mounted)
+            }
+            (Some(AsyncState::NotMounted), true) | (Some(AsyncState::Mounted), false) => {
+                Some(AsyncState::NotMounted)
+            }
             _ => None,
         }
     }
 
     /// `_visitIfLike`.
-    fn as_if(&mut self, expr: usize, case: Option<usize>, then_branch: usize, else_branch: Option<usize>) -> Option<AsyncState> {
+    fn as_if(
+        &mut self,
+        expr: usize,
+        case: Option<usize>,
+        then_branch: usize,
+        else_branch: Option<usize>,
+    ) -> Option<AsyncState> {
         if self.reference == expr {
             return None;
         }
@@ -380,7 +494,9 @@ impl AsyncStateVisitor<'_, '_> {
         let else_state = else_branch.and_then(|k| self.visit(k));
         let then_terminates = self.cx.terminates(then_branch);
         let else_terminates = else_branch.is_some_and(|k| self.cx.terminates(k));
-        if then_state == Some(AsyncState::NotMounted) && (else_state == Some(AsyncState::NotMounted) || else_terminates) {
+        if then_state == Some(AsyncState::NotMounted)
+            && (else_state == Some(AsyncState::NotMounted) || else_terminates)
+        {
             return Some(AsyncState::NotMounted);
         }
         if else_state == Some(AsyncState::NotMounted) && then_terminates {
@@ -408,7 +524,9 @@ impl AsyncStateVisitor<'_, '_> {
     fn for_parts(&mut self, n: usize) -> Option<AsyncState> {
         let cx = self.cx;
         let f = cx.children(n);
-        let (Some(&parts), body) = (f.first(), f.get(1).copied()) else { return None };
+        let (Some(&parts), body) = (f.first(), f.get(1).copied()) else {
+            return None;
+        };
         let body_and_reference = body == Some(self.reference);
         match cx.kind(parts) {
             "ForPartsWithDeclarations" | "ForPartsWithExpression" => {
@@ -416,7 +534,11 @@ impl AsyncStateVisitor<'_, '_> {
                 let mut nodes: Vec<(Option<usize>, bool)> = Vec::new();
                 if cx.kind(parts) == "ForPartsWithDeclarations" {
                     if let Some(list) = p.initialization {
-                        for &v in cx.children(list).iter().filter(|&&v| cx.kind(v) == "VariableDeclaration") {
+                        for &v in cx
+                            .children(list)
+                            .iter()
+                            .filter(|&&v| cx.kind(v) == "VariableDeclaration")
+                        {
                             nodes.push((Some(v), false));
                         }
                     }
@@ -430,7 +552,9 @@ impl AsyncStateVisitor<'_, '_> {
                 nodes.push((body, false));
                 self.in_order(&nodes)
             }
-            "ForEachPartsWithDeclaration" | "ForEachPartsWithIdentifier" | "ForEachPartsWithPattern" => {
+            "ForEachPartsWithDeclaration"
+            | "ForEachPartsWithIdentifier"
+            | "ForEachPartsWithPattern" => {
                 let iterable = cx.children(parts).last().copied();
                 self.in_order(&[(iterable, false), (body, false)])
             }
@@ -445,23 +569,38 @@ impl AsyncStateVisitor<'_, '_> {
         let r = self.reference;
         let first = f.first().copied();
         match cx.kind(n) {
-            "AdjacentStrings" | "CascadeExpression" | "RecordLiteral" | "StringInterpolation" => self.any_async(f),
-            "AsExpression" | "IsExpression" | "SpreadElement" | "InterpolationExpression" | "PostfixExpression" | "YieldStatement" => {
+            "AdjacentStrings" | "CascadeExpression" | "RecordLiteral" | "StringInterpolation" => {
+                self.any_async(f)
+            }
+            "AsExpression"
+            | "IsExpression"
+            | "SpreadElement"
+            | "InterpolationExpression"
+            | "PostfixExpression"
+            | "YieldStatement" => {
                 let e = first.and_then(|k| self.visit(k));
                 only_async(e)
             }
             "AssignmentExpression" => {
-                let (Some(&l), Some(&d)) = (f.first(), f.get(1)) else { return None };
+                let (Some(&l), Some(&d)) = (f.first(), f.get(1)) else {
+                    return None;
+                };
                 self.in_order(&[(Some(l), false), (Some(d), true)])
             }
             "AwaitExpression" => {
                 if let Some(e) = self.cache.get(&n) {
                     return *e;
                 }
-                if first == Some(r) { None } else { Some(AsyncState::Async) }
+                if first == Some(r) {
+                    None
+                } else {
+                    Some(AsyncState::Async)
+                }
             }
             "BinaryExpression" => {
-                let (Some(&l), Some(&d)) = (f.first(), f.get(1)) else { return None };
+                let (Some(&l), Some(&d)) = (f.first(), f.get(1)) else {
+                    return None;
+                };
                 let op = cx.operator_between(l, d);
                 if l == r {
                     return None;
@@ -495,7 +634,9 @@ impl AsyncStateVisitor<'_, '_> {
                             (_, Some(AsyncState::Async)) => Some(AsyncState::Async),
                             (_, Some(AsyncState::NotMounted)) => Some(AsyncState::NotMounted),
                             (Some(AsyncState::Async), _) => Some(AsyncState::Async),
-                            (Some(AsyncState::Mounted), Some(AsyncState::Mounted)) => Some(AsyncState::Mounted),
+                            (Some(AsyncState::Mounted), Some(AsyncState::Mounted)) => {
+                                Some(AsyncState::Mounted)
+                            }
                             (Some(AsyncState::NotMounted), _) => Some(AsyncState::NotMounted),
                             _ => None,
                         }
@@ -531,17 +672,25 @@ impl AsyncStateVisitor<'_, '_> {
                 self.as_block(f, parent)
             }
             "BlockFunctionBody" | "ExpressionFunctionBody" => None,
-            "CaseClause" => f.iter().copied().find(|&k| cx.kind(k) == "GuardedPattern").and_then(|k| self.visit(k)),
+            "CaseClause" => f
+                .iter()
+                .copied()
+                .find(|&k| cx.kind(k) == "GuardedPattern")
+                .and_then(|k| self.visit(k)),
             "CatchClause" => {
                 let e = f.last().copied().and_then(|k| self.visit(k));
                 only_async(e)
             }
             "ConditionalExpression" => {
-                let (Some(&c), Some(&t), Some(&e)) = (f.first(), f.get(1), f.get(2)) else { return None };
+                let (Some(&c), Some(&t), Some(&e)) = (f.first(), f.get(1), f.get(2)) else {
+                    return None;
+                };
                 self.as_if(c, None, t, Some(e))
             }
             "DoStatement" => {
-                let (Some(&body), Some(&cond)) = (f.first(), f.get(1)) else { return None };
+                let (Some(&body), Some(&cond)) = (f.first(), f.get(1)) else {
+                    return None;
+                };
                 if body == r {
                     only_async(self.visit(cond))
                 } else if cond == r {
@@ -556,7 +705,11 @@ impl AsyncStateVisitor<'_, '_> {
             }
             "ExpressionStatement" => {
                 let e = first?;
-                if e == r { None } else { only_async(self.visit(e)) }
+                if e == r {
+                    None
+                } else {
+                    only_async(self.visit(e))
+                }
             }
             "ExtensionOverride" => {
                 let args = cx.arguments(n);
@@ -564,16 +717,27 @@ impl AsyncStateVisitor<'_, '_> {
             }
             "ForElement" | "ForStatement" => self.for_parts(n),
             "FunctionExpressionInvocation" => {
-                let mut nodes: Vec<usize> = first.into_iter().filter(|&k| cx.kind(k) != "ArgumentList").collect();
+                let mut nodes: Vec<usize> = first
+                    .into_iter()
+                    .filter(|&k| cx.kind(k) != "ArgumentList")
+                    .collect();
                 nodes.extend(cx.arguments(n));
                 self.any_async(&nodes)
             }
-            "GuardedPattern" => f.iter().copied().find(|&k| cx.kind(k) == "WhenClause").and_then(|k| self.visit(k)),
+            "GuardedPattern" => f
+                .iter()
+                .copied()
+                .find(|&k| cx.kind(k) == "WhenClause")
+                .and_then(|k| self.visit(k)),
             "IfElement" | "IfStatement" => {
                 let mut it = f.iter().copied();
                 let expr = it.next()?;
                 let mut rest: Vec<usize> = it.collect();
-                let case = if rest.first().is_some_and(|&k| cx.kind(k) == "CaseClause") { Some(rest.remove(0)) } else { None };
+                let case = if rest.first().is_some_and(|&k| cx.kind(k) == "CaseClause") {
+                    Some(rest.remove(0))
+                } else {
+                    None
+                };
                 let then_branch = *rest.first()?;
                 let else_branch = rest.get(1).copied();
                 self.as_if(expr, case, then_branch, else_branch)
@@ -588,7 +752,11 @@ impl AsyncStateVisitor<'_, '_> {
             }
             "LabeledStatement" => f.last().copied().and_then(|k| self.visit(k)),
             "ListLiteral" | "SetOrMapLiteral" => {
-                let nodes: Vec<usize> = f.iter().copied().filter(|&k| cx.kind(k) != "TypeArgumentList").collect();
+                let nodes: Vec<usize> = f
+                    .iter()
+                    .copied()
+                    .filter(|&k| cx.kind(k) != "TypeArgumentList")
+                    .collect();
                 self.any_async(&nodes)
             }
             "MapLiteralEntry" => self.any_async(f),
@@ -631,20 +799,35 @@ impl AsyncStateVisitor<'_, '_> {
             }
             "SimpleIdentifier" => self.identifier(n),
             "SwitchCase" => {
-                let nodes: Vec<usize> = f.iter().copied().filter(|&k| cx.kind(k) != "Label").collect();
+                let nodes: Vec<usize> = f
+                    .iter()
+                    .copied()
+                    .filter(|&k| cx.kind(k) != "Label")
+                    .collect();
                 self.in_order_guardable(&nodes)
             }
             "SwitchDefault" => {
-                let nodes: Vec<usize> = f.iter().copied().filter(|&k| cx.kind(k) != "Label").collect();
+                let nodes: Vec<usize> = f
+                    .iter()
+                    .copied()
+                    .filter(|&k| cx.kind(k) != "Label")
+                    .collect();
                 self.in_order_guardable(&nodes)
             }
             "SwitchExpression" => self.any_async(f),
             "SwitchExpressionCase" => {
-                let (Some(&gp), Some(&expr)) = (f.first(), f.get(1)) else { return None };
+                let (Some(&gp), Some(&expr)) = (f.first(), f.get(1)) else {
+                    return None;
+                };
                 if gp == r {
                     return None;
                 }
-                let when = cx.children(gp).iter().copied().find(|&k| cx.kind(k) == "WhenClause").and_then(|k| self.visit(k));
+                let when = cx
+                    .children(gp)
+                    .iter()
+                    .copied()
+                    .find(|&k| cx.kind(k) == "WhenClause")
+                    .and_then(|k| self.visit(k));
                 if expr == r {
                     if matches!(when, Some(AsyncState::Async | AsyncState::Mounted)) {
                         return when;
@@ -658,11 +841,18 @@ impl AsyncStateVisitor<'_, '_> {
                 only_async(self.visit(expr))
             }
             "SwitchPatternCase" => {
-                let gp = f.iter().copied().find(|&k| cx.kind(k) == "GuardedPattern")?;
+                let gp = f
+                    .iter()
+                    .copied()
+                    .find(|&k| cx.kind(k) == "GuardedPattern")?;
                 if gp == r {
                     return None;
                 }
-                let stmts: Vec<usize> = f.iter().copied().filter(|&k| crate::analyzer_tree::is_statement(cx.kind(k))).collect();
+                let stmts: Vec<usize> = f
+                    .iter()
+                    .copied()
+                    .filter(|&k| crate::analyzer_tree::is_statement(cx.kind(k)))
+                    .collect();
                 let parent = cx.parent(n);
                 let e = self.as_block(&stmts, parent);
                 if e.is_some() {
@@ -671,12 +861,27 @@ impl AsyncStateVisitor<'_, '_> {
                 if stmts.contains(&r) {
                     return None;
                 }
-                let when = cx.children(gp).iter().copied().find(|&k| cx.kind(k) == "WhenClause").and_then(|k| self.visit(k));
+                let when = cx
+                    .children(gp)
+                    .iter()
+                    .copied()
+                    .find(|&k| cx.kind(k) == "WhenClause")
+                    .and_then(|k| self.visit(k));
                 only_async(when)
             }
             "SwitchStatement" => {
                 let expr = first?;
-                let members: Vec<usize> = f.iter().copied().skip(1).filter(|&k| matches!(cx.kind(k), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")).collect();
+                let members: Vec<usize> = f
+                    .iter()
+                    .copied()
+                    .skip(1)
+                    .filter(|&k| {
+                        matches!(
+                            cx.kind(k),
+                            "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"
+                        )
+                    })
+                    .collect();
                 // The emitter's first computation is discarded, but it visits
                 // (and may mark the unrelated `mounted`).
                 if only_async(self.visit(expr)).is_none() {
@@ -690,13 +895,27 @@ impl AsyncStateVisitor<'_, '_> {
                         if cx.kind(case) != "SwitchPatternCase" {
                             continue;
                         }
-                        let gp = cx.children(case).iter().copied().find(|&k| cx.kind(k) == "GuardedPattern");
-                        let when = gp.and_then(|g| cx.children(g).iter().copied().find(|&k| cx.kind(k) == "WhenClause")).and_then(|k| self.visit(k));
+                        let gp = cx
+                            .children(case)
+                            .iter()
+                            .copied()
+                            .find(|&k| cx.kind(k) == "GuardedPattern");
+                        let when = gp
+                            .and_then(|g| {
+                                cx.children(g)
+                                    .iter()
+                                    .copied()
+                                    .find(|&k| cx.kind(k) == "WhenClause")
+                            })
+                            .and_then(|k| self.visit(k));
                         if when == Some(AsyncState::Async) {
                             return Some(AsyncState::Async);
                         }
                         if fall {
-                            let empty = !cx.children(case).iter().any(|&k| crate::analyzer_tree::is_statement(cx.kind(k)));
+                            let empty = !cx
+                                .children(case)
+                                .iter()
+                                .any(|&k| crate::analyzer_tree::is_statement(cx.kind(k)));
                             let falls = i == index || empty;
                             if falls {
                                 all_mounted &= when == Some(AsyncState::Mounted);
@@ -719,8 +938,15 @@ impl AsyncStateVisitor<'_, '_> {
             }
             "TryStatement" => {
                 let body = first?;
-                let captures: Vec<usize> = f.iter().copied().filter(|&k| cx.kind(k) == "CatchClause").collect();
-                let finally_block = f.last().copied().filter(|&k| f.len() > 1 && cx.kind(k) == "Block");
+                let captures: Vec<usize> = f
+                    .iter()
+                    .copied()
+                    .filter(|&k| cx.kind(k) == "CatchClause")
+                    .collect();
+                let finally_block = f
+                    .last()
+                    .copied()
+                    .filter(|&k| f.len() > 1 && cx.kind(k) == "Block");
                 if body == r {
                     return None;
                 }
@@ -741,23 +967,36 @@ impl AsyncStateVisitor<'_, '_> {
                 self.any_async(&body_and_captures)
             }
             "VariableDeclaration" => {
-                let init = f.iter().copied().find(|&k| crate::analyzer_tree::is_expression(cx.kind(k)));
+                let init = f
+                    .iter()
+                    .copied()
+                    .find(|&k| crate::analyzer_tree::is_expression(cx.kind(k)));
                 only_async(init.and_then(|k| self.visit(k)))
             }
             "VariableDeclarationStatement" => {
-                let list = f.iter().copied().find(|&k| cx.kind(k) == "VariableDeclarationList")?;
+                let list = f
+                    .iter()
+                    .copied()
+                    .find(|&k| cx.kind(k) == "VariableDeclarationList")?;
                 let inits: Vec<usize> = cx
                     .children(list)
                     .iter()
                     .copied()
                     .filter(|&v| cx.kind(v) == "VariableDeclaration")
-                    .filter_map(|v| cx.children(v).iter().copied().find(|&k| crate::analyzer_tree::is_expression(cx.kind(k))))
+                    .filter_map(|v| {
+                        cx.children(v)
+                            .iter()
+                            .copied()
+                            .find(|&k| crate::analyzer_tree::is_expression(cx.kind(k)))
+                    })
                     .collect();
                 self.any_async(&inits)
             }
             "WhenClause" => first.and_then(|k| self.visit(k)),
             "WhileStatement" => {
-                let (Some(&cond), Some(&body)) = (f.first(), f.get(1)) else { return None };
+                let (Some(&cond), Some(&body)) = (f.first(), f.get(1)) else {
+                    return None;
+                };
                 let a = only_async(self.visit(cond));
                 if a.is_some() {
                     return a;
@@ -777,8 +1016,18 @@ struct Protected {
     named: &'static [&'static str],
 }
 
-const fn p(type_name: &'static str, name: Option<&'static str>, positional: &'static [usize], named: &'static [&'static str]) -> Protected {
-    Protected { type_name, name, positional, named }
+const fn p(
+    type_name: &'static str,
+    name: Option<&'static str>,
+    positional: &'static [usize],
+    named: &'static [&'static str],
+) -> Protected {
+    Protected {
+        type_name,
+        name,
+        positional,
+        named,
+    }
 }
 
 const CONSTRUCTORS: &[Protected] = &[
@@ -789,9 +1038,24 @@ const CONSTRUCTORS: &[Protected] = &[
     p("Stream", Some("eventTransformed"), &[1], &[]),
     p("Stream", Some("multi"), &[0], &[]),
     p("Stream", Some("periodic"), &[1], &[]),
-    p("StreamController", None, &[], &["onListen", "onPause", "onResume", "onCancel"]),
-    p("StreamController", Some("new"), &[], &["onListen", "onPause", "onResume", "onCancel"]),
-    p("StreamController", Some("broadcast"), &[], &["onListen", "onCancel"]),
+    p(
+        "StreamController",
+        None,
+        &[],
+        &["onListen", "onPause", "onResume", "onCancel"],
+    ),
+    p(
+        "StreamController",
+        Some("new"),
+        &[],
+        &["onListen", "onPause", "onResume", "onCancel"],
+    ),
+    p(
+        "StreamController",
+        Some("broadcast"),
+        &[],
+        &["onListen", "onCancel"],
+    ),
 ];
 
 const INSTANCE_METHODS: &[Protected] = &[
@@ -801,7 +1065,12 @@ const INSTANCE_METHODS: &[Protected] = &[
     p("Future", Some("timeout"), &[], &["onTimeout"]),
     p("Future", Some("whenComplete"), &[0], &[]),
     p("Stream", Some("any"), &[0], &[]),
-    p("Stream", Some("asBroadcastStream"), &[], &["onListen", "onCancel"]),
+    p(
+        "Stream",
+        Some("asBroadcastStream"),
+        &[],
+        &["onListen", "onCancel"],
+    ),
     p("Stream", Some("asyncExpand"), &[0], &[]),
     p("Stream", Some("asyncMap"), &[0], &[]),
     p("Stream", Some("distinct"), &[0], &[]),
@@ -836,7 +1105,10 @@ const STATIC_METHODS: &[Protected] = &[
 #[derive(Clone, Copy)]
 enum ContextElement {
     /// An accessor (of a field or written) of a class.
-    Accessor { class_id: Option<ClassId>, ty: TypeId },
+    Accessor {
+        class_id: Option<ClassId>,
+        ty: TypeId,
+    },
     /// Variable, parameter or function.
     Other { ty: TypeId },
 }
@@ -851,47 +1123,93 @@ fn context_element(cx: &Cx<'_>, interner: &Interner, mut n: usize) -> Option<Con
     }
     match cx.kind(n) {
         "SimpleIdentifier" | "PrefixedIdentifier" => {
-            let id = if cx.kind(n) == "PrefixedIdentifier" { *cx.children(n).last()? } else { n };
-            let Mark::Expr(e) = cx.tree.nodes[id].mark else { return None };
+            let id = if cx.kind(n) == "PrefixedIdentifier" {
+                *cx.children(n).last()?
+            } else {
+                n
+            };
+            let Mark::Expr(e) = cx.tree.nodes[id].mark else {
+                return None;
+            };
             let r = s.body.get_resolved(e)?;
             let function = match r {
-                Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) | Resolved::ExtensionMember { member: f, .. } => Some(*f),
+                Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                }
+                | Resolved::Element(Element::Function(f))
+                | Resolved::ExtensionMember { member: f, .. } => Some(*f),
                 _ => None,
             };
             let (ty, accessor, class_id) = match r {
-                _ if function.is_some_and(|f| s.program.function(f).kind == FunctionKind::Getter) => {
+                _ if function
+                    .is_some_and(|f| s.program.function(f).kind == FunctionKind::Getter) =>
+                {
                     let f = function?;
                     let class_id = match r {
                         Resolved::Member { class, .. } => Some(*class),
                         _ => None,
                     };
-                    (s.outline.functions.get(f.0 as usize)?.return_type, true, s.program.function(f).class.or(class_id))
+                    (
+                        s.outline.functions.get(f.0 as usize)?.return_type,
+                        true,
+                        s.program.function(f).class.or(class_id),
+                    )
                 }
-                _ if function.is_some() => (s.outline.functions.get(function?.0 as usize)?.return_type, false, None),
-                Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => {
+                _ if function.is_some() => (
+                    s.outline.functions.get(function?.0 as usize)?.return_type,
+                    false,
+                    None,
+                ),
+                Resolved::Member {
+                    member: MemberRef::Variable(v),
+                    ..
+                }
+                | Resolved::Element(Element::Variable(v)) => {
                     let i = v.0 as usize;
                     let d = s.outline.variables.get(i)?;
                     // The identifier read resolves to the synthetic getter.
-                    (d.declared_type.or(d.inferred)?, true, s.program.variable(*v).class)
+                    (
+                        d.declared_type.or(d.inferred)?,
+                        true,
+                        s.program.variable(*v).class,
+                    )
                 }
-                Resolved::Local(_) => (s.body.local_declaration(e).and_then(|d| s.body.local_type(d)).or_else(|| s.body.get_type(e))?, false, None),
+                Resolved::Local(_) => (
+                    s.body
+                        .local_declaration(e)
+                        .and_then(|d| s.body.local_type(d))
+                        .or_else(|| s.body.get_type(e))?,
+                    false,
+                    None,
+                ),
                 Resolved::Parameter { .. } => (s.body.get_type(e)?, false, None),
                 _ => return None,
             };
             if !super::flutter::is_build_context(s, interner, ty, accessor) {
                 return None;
             }
-            Some(if accessor { ContextElement::Accessor { class_id, ty } } else { ContextElement::Other { ty } })
+            Some(if accessor {
+                ContextElement::Accessor { class_id, ty }
+            } else {
+                ContextElement::Other { ty }
+            })
         }
         "ParenthesizedExpression" => context_element(cx, interner, *cx.children(n).first()?),
-        "PostfixExpression" if cx.text(n).trim_end().ends_with('!') => context_element(cx, interner, *cx.children(n).first()?),
+        "PostfixExpression" if cx.text(n).trim_end().ends_with('!') => {
+            context_element(cx, interner, *cx.children(n).first()?)
+        }
         _ => None,
     }
 }
 
 /// `lookUpGetter('mounted')`: in the class, in the mixins and along the
 /// superclass chain.
-fn mounted_getter(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> Option<FunctionElementId> {
+fn mounted_getter(
+    s: &super::Semantics<'_>,
+    interner: &Interner,
+    c: ClassId,
+) -> Option<FunctionElementId> {
     let name = interner.lookup("mounted")?;
     let mut seen: Vec<ClassId> = Vec::new();
     let mut current = Some(c);
@@ -919,8 +1237,14 @@ fn mounted_getter(s: &super::Semantics<'_>, interner: &Interner, c: ClassId) -> 
 }
 
 /// `associatedMountedGetter`.
-fn associated_getter(s: &super::Semantics<'_>, interner: &Interner, c: ContextElement) -> Option<FunctionElementId> {
-    if let ContextElement::Accessor { class_id: Some(k), .. } = c
+fn associated_getter(
+    s: &super::Semantics<'_>,
+    interner: &Interner,
+    c: ContextElement,
+) -> Option<FunctionElementId> {
+    if let ContextElement::Accessor {
+        class_id: Some(k), ..
+    } = c
         && super::flutter::is_state(s, interner, k)
     {
         return mounted_getter(s, interner, k);
@@ -935,7 +1259,12 @@ fn associated_getter(s: &super::Semantics<'_>, interner: &Interner, c: ContextEl
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !enabled("use_build_context_synchronously") {
@@ -944,10 +1273,17 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     let program = s.program;
     // `inTestDir`, through the unit that defines the library.
     let lib = program.library(program.unit(s.unit).library);
-    if let Some(path) = lib.units.first().and_then(|x| program.unit(*x).path.as_ref()) {
+    if let Some(path) = lib
+        .units
+        .first()
+        .and_then(|x| program.unit(*x).path.as_ref())
+    {
         let text = path.to_string_lossy();
         let sep = std::path::MAIN_SEPARATOR;
-        if ["test", "integration_test", "test_driver", "testing"].iter().any(|d| text.contains(&format!("{sep}{d}{sep}"))) {
+        if ["test", "integration_test", "test_driver", "testing"]
+            .iter()
+            .any(|d| text.contains(&format!("{sep}{d}{sep}")))
+        {
             return out;
         }
     }
@@ -959,32 +1295,66 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     for (i, e) in a.exprs.iter().enumerate() {
         let id = ExprId(i as u32);
         match &e.kind {
-            ExprKind::Call { .. } if matches!(body.get_resolved(id), Some(Resolved::Constructor(_))) => {
+            ExprKind::Call { .. }
+                if matches!(body.get_resolved(id), Some(Resolved::Constructor(_))) =>
+            {
                 constructors.insert(id);
             }
-            ExprKind::InstanceCreation { keyword: None, constructor: None, .. } if !matches!(body.get_resolved(id), Some(r) if !matches!(r, Resolved::Constructor(_))) => {
+            ExprKind::InstanceCreation {
+                keyword: None,
+                constructor: None,
+                ..
+            } if !matches!(body.get_resolved(id), Some(r) if !matches!(r, Resolved::Constructor(_))) =>
+            {
                 constructors.insert(id);
             }
-            ExprKind::Identifier(_) if matches!(body.get_resolved(id), Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))) => {
+            ExprKind::Identifier(_)
+                if matches!(
+                    body.get_resolved(id),
+                    Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))
+                ) =>
+            {
                 prefixes.insert(id);
             }
             _ => {}
         }
     }
     let before_3_0 = lib.features.version().major < 3;
-    let tree = crate::analyzer_tree::build_resolved(u.source, a, u.unit, before_3_0, &constructors, &prefixes);
-    let cx = Cx { tree: &tree, source: u.source, s, interner };
+    let tree = crate::analyzer_tree::build_resolved(
+        u.source,
+        a,
+        u.unit,
+        before_3_0,
+        &constructors,
+        &prefixes,
+    );
+    let cx = Cx {
+        tree: &tree,
+        source: u.source,
+        s,
+        interner,
+    };
     let mut findings: Vec<(Span, &'static LintCode)> = Vec::new();
 
     // `check`.
-    let check = |node: usize, mounted: FunctionElementId, findings: &mut Vec<(Span, &'static LintCode)>| {
-        let mut v = AsyncStateVisitor { cx: &cx, reference: node, mounted, cache: HashMap::new(), unrelated: false };
+    let check = |node: usize,
+                 mounted: FunctionElementId,
+                 findings: &mut Vec<(Span, &'static LintCode)>| {
+        let mut v = AsyncStateVisitor {
+            cx: &cx,
+            reference: node,
+            mounted,
+            cache: HashMap::new(),
+            unrelated: false,
+        };
         let mut child = node;
         loop {
             if BODIES.contains(&cx.kind(child)) {
                 break;
             }
-            let Some(parent) = cx.parent(child) else { break };
+            let Some(parent) = cx.parent(child) else {
+                break;
+            };
             v.reference = child;
             let state = v.visit(parent);
             v.cache.insert(parent, state);
@@ -992,7 +1362,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 return;
             }
             if state == Some(AsyncState::Async) {
-                let code = if v.unrelated { &c::USE_BUILD_CONTEXT_SYNCHRONOUSLY_WRONG_MOUNTED } else { &c::USE_BUILD_CONTEXT_SYNCHRONOUSLY_ASYNC_USE };
+                let code = if v.unrelated {
+                    &c::USE_BUILD_CONTEXT_SYNCHRONOUSLY_WRONG_MOUNTED
+                } else {
+                    &c::USE_BUILD_CONTEXT_SYNCHRONOUSLY_ASYNC_USE
+                };
                 findings.push((cx.span(node), code));
                 return;
             }
@@ -1002,22 +1376,38 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             return;
         }
         // The body of a closure passed to a protected function.
-        let Some(function) = cx.parent(child) else { return };
+        let Some(function) = cx.parent(child) else {
+            return;
+        };
         if cx.kind(function) != "FunctionExpression" {
             return;
         }
-        let Some(mut grandparent) = cx.parent(function) else { return };
+        let Some(mut grandparent) = cx.parent(function) else {
+            return;
+        };
         if cx.kind(grandparent) == "NamedExpression" {
-            let Some(x) = cx.parent(grandparent) else { return };
+            let Some(x) = cx.parent(grandparent) else {
+                return;
+            };
             grandparent = x;
         }
         if cx.kind(grandparent) != "ArgumentList" {
             return;
         }
-        let Some(invocation) = cx.parent(grandparent) else { return };
+        let Some(invocation) = cx.parent(grandparent) else {
+            return;
+        };
         let arguments = cx.children(grandparent);
-        let positional: Vec<usize> = arguments.iter().copied().filter(|&k| cx.kind(k) != "NamedExpression").collect();
-        let named: Vec<usize> = arguments.iter().copied().filter(|&k| cx.kind(k) == "NamedExpression").collect();
+        let positional: Vec<usize> = arguments
+            .iter()
+            .copied()
+            .filter(|&k| cx.kind(k) != "NamedExpression")
+            .collect();
+        let named: Vec<usize> = arguments
+            .iter()
+            .copied()
+            .filter(|&k| cx.kind(k) == "NamedExpression")
+            .collect();
         let protected = |p: &Protected, findings: &mut Vec<(Span, &'static LintCode)>| {
             for &i in p.positional {
                 if positional.get(i) == Some(&function) {
@@ -1025,7 +1415,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 }
             }
             for name in p.named {
-                let arg = named.iter().copied().find(|&k| cx.children(k).first().is_some_and(|&l| cx.text(l).trim_end_matches(':').trim() == *name));
+                let arg = named.iter().copied().find(|&k| {
+                    cx.children(k)
+                        .first()
+                        .is_some_and(|&l| cx.text(l).trim_end_matches(':').trim() == *name)
+                });
                 if arg.is_some_and(|k| cx.children(k).get(1) == Some(&function)) {
                     findings.push((cx.span(node), &c::USE_BUILD_CONTEXT_SYNCHRONOUSLY_ASYNC_USE));
                 }
@@ -1038,13 +1432,20 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         };
         match cx.kind(invocation) {
             "InstanceCreationExpression" => {
-                let Some(ty) = cx.static_type(invocation) else { return };
+                let Some(ty) = cx.static_type(invocation) else {
+                    return;
+                };
                 let constructor_name = cx
                     .children(invocation)
                     .iter()
                     .copied()
                     .find(|&k| cx.kind(k) == "ConstructorName")
-                    .and_then(|k| cx.children(k).iter().copied().find(|&i| cx.kind(i) == "SimpleIdentifier"))
+                    .and_then(|k| {
+                        cx.children(k)
+                            .iter()
+                            .copied()
+                            .find(|&i| cx.kind(i) == "SimpleIdentifier")
+                    })
                     .map(|k| cx.text(k));
                 for k in CONSTRUCTORS {
                     if constructor_name == k.name && is_async_class(ty, k.type_name) {
@@ -1053,26 +1454,49 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 }
             }
             "MethodInvocation" => {
-                let Some(name) = cx.method_name(invocation).map(|k| cx.text(k)) else { return };
-                let target = cx.method_target(invocation).or_else(|| cx.cascade_target(invocation));
-                let target_class = target.filter(|&k| matches!(cx.kind(k), "SimpleIdentifier" | "PrefixedIdentifier")).and_then(|k| {
-                    let id = if cx.kind(k) == "PrefixedIdentifier" { *cx.children(k).last()? } else { k };
-                    match cx.resolved(id) {
-                        Some(Resolved::Element(Element::Class(c))) if program.class(*c).kind == dartforge_elements::model::ClassKind::Class => Some(*c),
-                        _ => None,
-                    }
-                });
+                let Some(name) = cx.method_name(invocation).map(|k| cx.text(k)) else {
+                    return;
+                };
+                let target = cx
+                    .method_target(invocation)
+                    .or_else(|| cx.cascade_target(invocation));
+                let target_class = target
+                    .filter(|&k| matches!(cx.kind(k), "SimpleIdentifier" | "PrefixedIdentifier"))
+                    .and_then(|k| {
+                        let id = if cx.kind(k) == "PrefixedIdentifier" {
+                            *cx.children(k).last()?
+                        } else {
+                            k
+                        };
+                        match cx.resolved(id) {
+                            Some(Resolved::Element(Element::Class(c)))
+                                if program.class(*c).kind
+                                    == dartforge_elements::model::ClassKind::Class =>
+                            {
+                                Some(*c)
+                            }
+                            _ => None,
+                        }
+                    });
                 if let Some(c) = target_class {
                     for m in STATIC_METHODS {
-                        if Some(name) == m.name && interner.resolve(program.class(c).name) == m.type_name {
+                        if Some(name) == m.name
+                            && interner.resolve(program.class(c).name) == m.type_name
+                        {
                             protected(m, findings);
                         }
                     }
                 } else {
-                    let Some(ty) = target.and_then(|k| cx.static_type(k)) else { return };
+                    let Some(ty) = target.and_then(|k| cx.static_type(k)) else {
+                        return;
+                    };
                     let type_name = match s.table.get(ty) {
-                        Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => Some(interner.resolve(program.class(*class).name)),
-                        Type::TypeParameter { param, .. } => Some(interner.resolve(s.table.param(*param).name)),
+                        Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
+                            Some(interner.resolve(program.class(*class).name))
+                        }
+                        Type::TypeParameter { param, .. } => {
+                            Some(interner.resolve(s.table.param(*param).name))
+                        }
                         _ => None,
                     };
                     for m in INSTANCE_METHODS {
@@ -1092,7 +1516,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         match cx.kind(n) {
             "MethodInvocation" => {
                 if let Some(target) = cx.method_target(n)
-                    && cx.static_type(target).is_some_and(|t| super::flutter::is_build_context(s, interner, t, true))
+                    && cx
+                        .static_type(target)
+                        .is_some_and(|t| super::flutter::is_build_context(s, interner, t, true))
                     && let Some(el) = context_element(&cx, interner, target)
                     && let Some(m) = associated_getter(s, interner, el)
                 {
@@ -1116,11 +1542,16 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 }
             }
             "PrefixedIdentifier" => {
-                let (Some(&prefix), Some(&id)) = (cx.children(n).first(), cx.children(n).last()) else { continue };
+                let (Some(&prefix), Some(&id)) = (cx.children(n).first(), cx.children(n).last())
+                else {
+                    continue;
+                };
                 if cx.text(id) == "mounted" {
                     continue;
                 }
-                if cx.static_type(prefix).is_some_and(|t| super::flutter::is_build_context(s, interner, t, true))
+                if cx
+                    .static_type(prefix)
+                    .is_some_and(|t| super::flutter::is_build_context(s, interner, t, true))
                     && let Some(el) = context_element(&cx, interner, prefix)
                     && let Some(m) = associated_getter(s, interner, el)
                 {
@@ -1133,7 +1564,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     findings.sort_by_key(|(sp, c)| (sp.start, sp.end, c.unique));
     findings.dedup_by(|x, y| x.0 == y.0 && x.1.unique == y.1.unique);
     for (span, code) in findings {
-        out.push(LintReport { code, span, args: Vec::new() });
+        out.push(LintReport {
+            code,
+            span,
+            args: Vec::new(),
+        });
     }
     out
 }

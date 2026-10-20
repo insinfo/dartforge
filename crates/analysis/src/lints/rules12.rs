@@ -19,12 +19,15 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{self, Ast, CollectionElement, DeclKind, ExprId, ExprKind, ForInTarget, FunctionBody, MemberKind, Parameter, StmtKind};
+use dartforge_frontend::ast::{
+    self, Ast, CollectionElement, DeclKind, ExprId, ExprKind, ForInTarget, FunctionBody,
+    MemberKind, Parameter, StmtKind,
+};
 use dartforge_intern::Interner;
 
 fn within(a: Span, b: Span) -> bool {
@@ -43,7 +46,9 @@ fn is_single_expression_body(a: &Ast, b: &FunctionBody) -> bool {
     match b {
         FunctionBody::Expression(_) => true,
         FunctionBody::Block(s) => match &a.stmt(*s).kind {
-            StmtKind::Block(l) => matches!(&l[..], [x] if matches!(a.stmt(*x).kind, StmtKind::Return(_))),
+            StmtKind::Block(l) => {
+                matches!(&l[..], [x] if matches!(a.stmt(*x).kind, StmtKind::Return(_)))
+            }
             _ => false,
         },
         _ => false,
@@ -51,12 +56,21 @@ fn is_single_expression_body(a: &Ast, b: &FunctionBody) -> bool {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let source = u.source;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
 
     // `prefer_if_elements_to_conditional_expressions`: `c ? a : b` (maybe in
@@ -65,10 +79,17 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         for e in a.exprs.iter() {
             let (elems, is_set) = match &e.kind {
                 ExprKind::List { elements, .. } => (elements, true),
-                ExprKind::SetOrMap { elements, type_args, .. } => {
+                ExprKind::SetOrMap {
+                    elements,
+                    type_args,
+                    ..
+                } => {
                     let is_map = type_args.len() == 2
                         || (type_args.is_empty()
-                            && (elements.is_empty() || elements.iter().any(|x| matches!(x, CollectionElement::MapEntry { .. }))));
+                            && (elements.is_empty()
+                                || elements
+                                    .iter()
+                                    .any(|x| matches!(x, CollectionElement::MapEntry { .. }))));
                     (elements, !is_map)
                 }
                 _ => continue,
@@ -78,9 +99,16 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
             for el in elements_iter(elems) {
                 if let CollectionElement::Expression(x) = el
-                    && matches!(a.expr(unparenthesized(a, *x)).kind, ExprKind::Conditional { .. })
+                    && matches!(
+                        a.expr(unparenthesized(a, *x)).kind,
+                        ExprKind::Conditional { .. }
+                    )
                 {
-                    report(&c::PREFER_IF_ELEMENTS_TO_CONDITIONAL_EXPRESSIONS, a.expr(*x).span, &[]);
+                    report(
+                        &c::PREFER_IF_ELEMENTS_TO_CONDITIONAL_EXPRESSIONS,
+                        a.expr(*x).span,
+                        &[],
+                    );
                 }
             }
         }
@@ -97,25 +125,37 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             if arg.name.is_none_or(|n| interner.resolve(n.sym) != name) {
                 return false;
             }
-            let ExprKind::FunctionExpression(f) = a.expr(unparenthesized(a, arg.value)).kind else { return false };
+            let ExprKind::FunctionExpression(f) = a.expr(unparenthesized(a, arg.value)).kind else {
+                return false;
+            };
             let f = a.function(f);
             // `isRequired`: a required positional or a `required` named one.
             let one_required = f.parameters.as_ref().is_some_and(|ps| {
-                ps.len() == 1 && (ps[0].kind == ast::ParameterKind::Required || (ps[0].kind == ast::ParameterKind::Named && ps[0].required))
+                ps.len() == 1
+                    && (ps[0].kind == ast::ParameterKind::Required
+                        || (ps[0].kind == ast::ParameterKind::Named && ps[0].required))
             });
             one_required && is_single_expression_body(a, &f.body)
         };
         for (k, e) in a.exprs.iter().enumerate() {
             let arguments = match &e.kind {
-                ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => arguments,
+                ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => {
+                    arguments
+                }
                 _ => continue,
             };
-            let Some(dartforge_types::resolved::Resolved::Constructor(f)) = s.body.get_resolved(ExprId(k as u32)) else { continue };
+            let Some(dartforge_types::resolved::Resolved::Constructor(f)) =
+                s.body.get_resolved(ExprId(k as u32))
+            else {
+                continue;
+            };
             let g = s.program.function(*f);
             if interner.resolve(g.name) != "fromIterable" || g.class != s.core.map_class {
                 continue;
             }
-            let [_, second, third] = &arguments.args[..] else { continue };
+            let [_, second, third] = &arguments.args[..] else {
+                continue;
+            };
             let key = is_closure("key", second) || is_closure("key", third);
             let value = is_closure("value", third) || is_closure("value", second);
             if key && value {
@@ -143,10 +183,18 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 // The parameter's node without the default value.
                 let end = match p.default_value {
                     None => p.span.end,
-                    Some(_) if p.function_parameters.is_some() => dartforge_frontend::source::function_parameter_end(source, n.span.end),
+                    Some(_) if p.function_parameters.is_some() => {
+                        dartforge_frontend::source::function_parameter_end(source, n.span.end)
+                    }
                     Some(_) => n.span.end,
                 };
-                findings.push((Span { start: p.span.start, end }, interner.resolve(n.sym).to_string()));
+                findings.push((
+                    Span {
+                        start: p.span.start,
+                        end,
+                    },
+                    interner.resolve(n.sym).to_string(),
+                ));
             }
         };
         // Top-level and local functions, function expressions and methods.
@@ -177,16 +225,30 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         && let Some(s) = sem
     {
         for st in a.stmts.iter() {
-            let StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, body, .. } = &st.kind else { continue };
+            let StmtKind::ForIn {
+                target: ForInTarget::Declared { name, .. },
+                body,
+                ..
+            } = &st.kind
+            else {
+                continue;
+            };
             let variable = name.span.start;
-            let is_the_variable = |e: ExprId| matches!(a.expr(e).kind, ExprKind::Identifier(_)) && s.body.local_declaration(e) == Some(variable);
+            let is_the_variable = |e: ExprId| {
+                matches!(a.expr(e).kind, ExprKind::Identifier(_))
+                    && s.body.local_declaration(e) == Some(variable)
+            };
             let mut body = *body;
             while let StmtKind::Block(l) = &a.stmt(body).kind {
                 let [single] = &l[..] else { break };
                 body = *single;
             }
-            let StmtKind::Expression(x) = &a.stmt(body).kind else { continue };
-            let ExprKind::Call { target, arguments } = &a.expr(unparenthesized(a, *x)).kind else { continue };
+            let StmtKind::Expression(x) = &a.stmt(body).kind else {
+                continue;
+            };
+            let ExprKind::Call { target, arguments } = &a.expr(unparenthesized(a, *x)).kind else {
+                continue;
+            };
             let [arg] = &arguments.args[..] else { continue };
             if arg.name.is_some() || !is_the_variable(arg.value) {
                 continue;
@@ -196,7 +258,10 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             let target_mentions = match &a.expr(*target).kind {
                 ExprKind::Property { target: recv, .. } => {
                     let r = a.expr(*recv).span;
-                    a.exprs.iter().enumerate().any(|(j, e)| within(e.span, r) && is_the_variable(ExprId(j as u32)))
+                    a.exprs
+                        .iter()
+                        .enumerate()
+                        .any(|(j, e)| within(e.span, r) && is_the_variable(ExprId(j as u32)))
                 }
                 _ => false,
             };
@@ -220,7 +285,10 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         use dartforge_types::resolved::{MemberRef, Resolved};
         let p = s.program;
         let class_of_decl = |d: ast::DeclId| {
-            p.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == s.unit && r.decl == d)).map(|i| ClassId(i as u32))
+            p.classes
+                .iter()
+                .position(|c| c.decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
+                .map(|i| ClassId(i as u32))
         };
         let class_set_of = |c: ClassId| {
             let mut v: std::collections::HashSet<ClassId> = std::collections::HashSet::new();
@@ -246,14 +314,22 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 DeclKind::Mixin(x) => &x.members,
                 _ => continue,
             };
-            let in_set = |c: Option<ClassId>| c.is_some_and(|c| last_set.as_ref().is_some_and(|v| v.contains(&c)));
+            let in_set = |c: Option<ClassId>| {
+                c.is_some_and(|c| last_set.as_ref().is_some_and(|v| v.contains(&c)))
+            };
             for &m in members {
-                let MemberKind::Constructor(k) = &a.member(m).kind else { continue };
+                let MemberKind::Constructor(k) = &a.member(m).kind else {
+                    continue;
+                };
                 if k.factory {
                     continue;
                 }
-                let FunctionBody::Block(b) = &k.body else { continue };
-                let StmtKind::Block(stmts) = &a.stmt(*b).kind else { continue };
+                let FunctionBody::Block(b) = &k.body else {
+                    continue;
+                };
+                let StmtKind::Block(stmts) = &a.stmt(*b).kind else {
+                    continue;
+                };
                 // The fields of the `this.x`s (and of the superclass's `this.x`s
                 // through `super.x`).
                 let mut fields: Vec<dartforge_elements::model::VariableId> = Vec::new();
@@ -263,29 +339,46 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                         fields.extend(super::class_field(s, m, n.sym));
                     } else if q.super_
                         && let Some((f, j)) = super::super_parameter(s, interner, m, i)
-                        && let dartforge_elements::model::FunctionRef::Constructor { unit, member } = p.function(f).node
+                        && let dartforge_elements::model::FunctionRef::Constructor { unit, member } =
+                            p.function(f).node
                         && let MemberKind::Constructor(kk) = &p.unit(unit).ast.member(member).kind
                         && let Some(qq) = kk.parameters.get(j)
                         && qq.this_
                         && let Some(nn) = qq.name
                         && let Some(super_class) = p.function(f).class
                     {
-                        fields.extend(p.class(super_class).fields.iter().copied().find(|v| p.variable(*v).name == nn.sym));
+                        fields.extend(
+                            p.class(super_class)
+                                .fields
+                                .iter()
+                                .copied()
+                                .find(|v| p.variable(*v).name == nn.sym),
+                        );
                     }
                 }
                 let needs_instance = |e: ExprId| -> bool {
                     match s.body.get_resolved(e) {
-                        Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
+                        Some(Resolved::Member {
+                            member: MemberRef::Function(f),
+                            ..
+                        }) => {
                             let g = p.function(*f);
                             match g.kind {
-                                FnKind::Function | FnKind::Operator => !g.static_ && in_set(g.class),
+                                FnKind::Function | FnKind::Operator => {
+                                    !g.static_ && in_set(g.class)
+                                }
                                 FnKind::Getter | FnKind::Setter | FnKind::ImplicitAccessor => {
-                                    !g.static_ && in_set(g.class) && !g.variable.is_some_and(|v| fields.contains(&v))
+                                    !g.static_
+                                        && in_set(g.class)
+                                        && !g.variable.is_some_and(|v| fields.contains(&v))
                                 }
                                 _ => false,
                             }
                         }
-                        Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
+                        Some(Resolved::Member {
+                            member: MemberRef::Variable(v),
+                            ..
+                        }) => {
                             let x = p.variable(*v);
                             !x.static_ && in_set(x.class) && !fields.contains(v)
                         }
@@ -297,13 +390,27 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                         break;
                     }
                     let r = a.stmt(st).span;
-                    let uses = a.exprs.iter().enumerate().filter(|(_, e)| within(e.span, r)).any(|(j, e)| match &e.kind {
-                        ExprKind::This => true,
-                        ExprKind::Identifier(_) | ExprKind::Property { .. } => needs_instance(ExprId(j as u32)),
-                        _ => false,
-                    });
+                    let uses = a
+                        .exprs
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, e)| within(e.span, r))
+                        .any(|(j, e)| match &e.kind {
+                            ExprKind::This => true,
+                            ExprKind::Identifier(_) | ExprKind::Property { .. } => {
+                                needs_instance(ExprId(j as u32))
+                            }
+                            _ => false,
+                        });
                     if !uses {
-                        report(&c::PREFER_ASSERTS_IN_INITIALIZER_LISTS, Span { start: r.start, end: r.start + "assert".len() }, &[]);
+                        report(
+                            &c::PREFER_ASSERTS_IN_INITIALIZER_LISTS,
+                            Span {
+                                start: r.start,
+                                end: r.start + "assert".len(),
+                            },
+                            &[],
+                        );
                     }
                 }
             }

@@ -45,7 +45,10 @@ use crate::resolved::UnitBodyTypes;
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{ClassId, Program, UnitId};
-use dartforge_frontend::ast::{self, DeclKind, ExprId, ExprKind, FunctionBody, Initializer, MemberKind, Parameter, TypeKind, TypedefKind};
+use dartforge_frontend::ast::{
+    self, DeclKind, ExprId, ExprKind, FunctionBody, Initializer, MemberKind, Parameter, TypeKind,
+    TypedefKind,
+};
 use dartforge_frontend::source::function_parameter_end;
 use dartforge_intern::{Interner, SymbolId};
 
@@ -56,7 +59,11 @@ fn inside(a: Span, b: Span) -> bool {
 /// The regions the `_UsedParameterVisitor` walks, or `None` when
 /// `isParameterReferenced` considers every parameter referenced: without a
 /// body (or with the `;` body) and without an initializer list.
-fn regions_of(a: &ast::Ast, body: &FunctionBody, initializers: Option<&[Initializer]>) -> Option<Vec<Span>> {
+fn regions_of(
+    a: &ast::Ast,
+    body: &FunctionBody,
+    initializers: Option<&[Initializer]>,
+) -> Option<Vec<Span>> {
     if matches!(body, FunctionBody::Empty) && initializers.is_none() {
         return None;
     }
@@ -69,7 +76,9 @@ fn regions_of(a: &ast::Ast, body: &FunctionBody, initializers: Option<&[Initiali
     }
     for i in initializers.unwrap_or(&[]) {
         let sp = match i {
-            Initializer::Assert { span, .. } | Initializer::Redirect { span, .. } | Initializer::Super { span, .. } => *span,
+            Initializer::Assert { span, .. }
+            | Initializer::Redirect { span, .. }
+            | Initializer::Super { span, .. } => *span,
             Initializer::Field { value, .. } => a.expr(*value).span,
         };
         v.push(sp);
@@ -118,32 +127,56 @@ pub fn inference_failures(
             if referenced {
                 // The node of the `SimpleFormalParameter`, without the default value: the
                 // name is its last token.
-                let end = if p.default_value.is_some() { n.span.end } else { p.span.end };
-                out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_UNTYPED_PARAMETER, Span { start: p.span.start, end }, [name(n.sym)]));
+                let end = if p.default_value.is_some() {
+                    n.span.end
+                } else {
+                    p.span.end
+                };
+                out.push(Diagnostic::with_code(
+                    w::INFERENCE_FAILURE_ON_UNTYPED_PARAMETER,
+                    Span {
+                        start: p.span.start,
+                        end,
+                    },
+                    [name(n.sym)],
+                ));
             }
         }
     };
     // The class of the declaration (the `InterfaceElement` that contains it).
-    let decl_class = |d: ast::DeclId| -> Option<ClassId> {
-        program.class_of_decl(u, d)
-    };
+    let decl_class = |d: ast::DeclId| -> Option<ClassId> { program.class_of_decl(u, d) };
     // `getOverridden2` (the same as in `phase_override`), by the member key.
     let lib = unit.library;
     let mut inheritance = crate::inheritance::InheritanceManager::default();
-    let mut provider = crate::inheritance::OutlineProvider { program, interner, core, outline, table };
-    let mut overrides =
-        |c: ClassId, key: Option<SymbolId>| crate::phase_override::the_overrides(&mut inheritance, &mut provider, c, lib, key);
+    let mut provider = crate::inheritance::OutlineProvider {
+        program,
+        interner,
+        core,
+        outline,
+        table,
+    };
+    let mut overrides = |c: ClassId, key: Option<SymbolId>| {
+        crate::phase_override::the_overrides(&mut inheritance, &mut provider, c, lib, key)
+    };
 
     // `visitFunctionDeclaration`: the top-level and the local functions.
-    let mut the_declared: std::collections::HashSet<ast::FunctionId> = std::collections::HashSet::new();
+    let mut the_declared: std::collections::HashSet<ast::FunctionId> =
+        std::collections::HashSet::new();
     for d in a.decls.iter() {
         match &d.kind {
             DeclKind::Function(f) => {
                 the_declared.insert(*f);
                 let g = a.function(*f);
                 // Only the top-level one has its return type checked.
-                if g.return_type.is_none() && g.kind != ast::FunctionKind::Setter && let Some(n) = g.name {
-                    out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [name(n.sym)]));
+                if g.return_type.is_none()
+                    && g.kind != ast::FunctionKind::Setter
+                    && let Some(n) = g.name
+                {
+                    out.push(Diagnostic::with_code(
+                        w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE,
+                        n.span,
+                        [name(n.sym)],
+                    ));
                 }
                 if let Some(ps) = &g.parameters {
                     params_list(ps, regions_of(a, &g.body, None).as_deref(), &mut out);
@@ -151,16 +184,30 @@ pub fn inference_failures(
             }
             // `visitFunctionTypeAlias`: the return type and the parameters, no body.
             DeclKind::Typedef(t) => match &t.kind {
-                TypedefKind::Legacy { return_type, parameters } => {
+                TypedefKind::Legacy {
+                    return_type,
+                    parameters,
+                } => {
                     if return_type.is_none() {
-                        out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, d.span, [name(t.name.sym)]));
+                        out.push(Diagnostic::with_code(
+                            w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE,
+                            d.span,
+                            [name(t.name.sym)],
+                        ));
                     }
                     params_list(parameters, None, &mut out);
                 }
                 // `visitGenericTypeAlias`.
                 TypedefKind::Alias(ty) => {
-                    if let TypeKind::Function { return_type: None, .. } = &a.ty(*ty).kind {
-                        out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, d.span, [name(t.name.sym)]));
+                    if let TypeKind::Function {
+                        return_type: None, ..
+                    } = &a.ty(*ty).kind
+                    {
+                        out.push(Diagnostic::with_code(
+                            w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE,
+                            d.span,
+                            [name(t.name.sym)],
+                        ));
                     }
                 }
             },
@@ -193,19 +240,31 @@ pub fn inference_failures(
                     let g = a.function(*f);
                     let Some(n) = g.name else { continue };
                     // The element's `Name`: that of a setter is `name=`.
-                    let key = if g.kind == ast::FunctionKind::Setter { interner.lookup(&format!("{}_=", name(n.sym))) } else { Some(n.sym) };
+                    let key = if g.kind == ast::FunctionKind::Setter {
+                        interner.lookup(&format!("{}_=", name(n.sym)))
+                    } else {
+                        Some(n.sym)
+                    };
                     if class.is_some_and(|c| overrides(c, key)) {
                         continue;
                     }
                     if g.return_type.is_none() && g.kind != ast::FunctionKind::Setter {
-                        out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, n.span, [name(n.sym)]));
+                        out.push(Diagnostic::with_code(
+                            w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE,
+                            n.span,
+                            [name(n.sym)],
+                        ));
                     }
                     if let Some(ps) = &g.parameters {
                         params_list(ps, regions_of(a, &g.body, None).as_deref(), &mut out);
                     }
                 }
                 MemberKind::Constructor(k) => {
-                    params_list(&k.parameters, regions_of(a, &k.body, Some(&k.initializers[..])).as_deref(), &mut out);
+                    params_list(
+                        &k.parameters,
+                        regions_of(a, &k.body, Some(&k.initializers[..])).as_deref(),
+                        &mut out,
+                    );
                 }
                 MemberKind::Field(_) => {}
             }
@@ -213,7 +272,9 @@ pub fn inference_failures(
     }
     // `visitFunctionExpression`: only without a function type from the context.
     for e in a.exprs.iter() {
-        let ExprKind::FunctionExpression(f) = &e.kind else { continue };
+        let ExprKind::FunctionExpression(f) = &e.kind else {
+            continue;
+        };
         if the_declared.contains(f) || body.with_function_type.contains(f) {
             continue;
         }
@@ -244,9 +305,15 @@ pub fn inference_failures(
             lists.push(&parameters[..]);
         }
     }
-    let mut stack: Vec<&Parameter> = lists.into_iter().flatten().filter(|p| p.function_parameters.is_some()).collect();
+    let mut stack: Vec<&Parameter> = lists
+        .into_iter()
+        .flatten()
+        .filter(|p| p.function_parameters.is_some())
+        .collect();
     while let Some(q) = stack.pop() {
-        let Some(fs) = &q.function_parameters else { continue };
+        let Some(fs) = &q.function_parameters else {
+            continue;
+        };
         // `this.f(…)` and `super.f(…)` are not `FunctionTypedFormalParameter`,
         // but their list is walked.
         if !q.this_
@@ -254,8 +321,19 @@ pub fn inference_failures(
             && let Some(n) = q.name
         {
             if q.ty.is_none() {
-                let end = if q.default_value.is_some() { function_parameter_end(source, n.span.end) } else { q.span.end };
-                out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, Span { start: q.span.start, end }, [name(n.sym)]));
+                let end = if q.default_value.is_some() {
+                    function_parameter_end(source, n.span.end)
+                } else {
+                    q.span.end
+                };
+                out.push(Diagnostic::with_code(
+                    w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE,
+                    Span {
+                        start: q.span.start,
+                        end,
+                    },
+                    [name(n.sym)],
+                ));
             }
             params_list(fs, None, &mut out);
         }
@@ -276,11 +354,17 @@ pub fn inference_failures(
         .collect();
     for (k, t) in a.types.iter().enumerate() {
         let id = ast::TypeId(k as u32);
-        if let TypeKind::Function { return_type: None, .. } = &t.kind
+        if let TypeKind::Function {
+            return_type: None, ..
+        } = &t.kind
             && !from_typedefs.contains(&id)
         {
             let text = dartforge_frontend::source::from_type(a, source, interner, id);
-            out.push(Diagnostic::with_code(w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE, t.span, [text]));
+            out.push(Diagnostic::with_code(
+                w::INFERENCE_FAILURE_ON_FUNCTION_RETURN_TYPE,
+                t.span,
+                [text],
+            ));
         }
     }
     // The analyzer's error set: the same report is output once.

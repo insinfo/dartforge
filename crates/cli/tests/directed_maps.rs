@@ -40,7 +40,8 @@ const CASES: &[Case] = &[
     Case {
         file: "gc_d01_argumento_vivo.dart",
         expected: "18335 1999000 2000\n",
-        tables: false, shadow: false,
+        tables: false,
+        shadow: false,
         emitter_sabotage: Some("no_fake_use"),
         runtime_sabotage: None,
     },
@@ -48,7 +49,8 @@ const CASES: &[Case] = &[
     Case {
         file: "gc_d01_argumento_vivo.dart",
         expected: "18335 1999000 2000\n",
-        tables: false, shadow: false,
+        tables: false,
+        shadow: false,
         emitter_sabotage: Some("leaf:dartforge_string_concat"),
         runtime_sabotage: None,
     },
@@ -57,14 +59,16 @@ const CASES: &[Case] = &[
     Case {
         file: "gc_d15_retorno_no_nop.dart",
         expected: "double\nString\n",
-        tables: false, shadow: false,
+        tables: false,
+        shadow: false,
         emitter_sabotage: None,
         runtime_sabotage: if cfg!(windows) { Some("no_nop") } else { None },
     },
     Case {
         file: "gc_d02_muitos_vivos.dart",
         expected: "4320 h-49 2.0\n",
-        tables: false, shadow: false,
+        tables: false,
+        shadow: false,
         emitter_sabotage: Some("no_fake_use"),
         runtime_sabotage: None,
     },
@@ -74,40 +78,59 @@ const CASES: &[Case] = &[
     Case {
         file: "gc_d03_excecao_profunda.dart",
         expected: "32255\n",
-        tables: true, shadow: true,
+        tables: true,
+        shadow: true,
         emitter_sabotage: Some("pad_without_top"),
         runtime_sabotage: None,
     },
     Case {
         file: "gc_d04_finally.dart",
         expected: "336 10 1566\n",
-        tables: true, shadow: false,
+        tables: true,
+        shadow: false,
         emitter_sabotage: Some("no_fake_use"),
         runtime_sabotage: None,
     },
     Case {
         file: "gc_d06_valores_brutos.dart",
         expected: "249750.0 999000 3890 1248750.0\n",
-        tables: false, shadow: false,
+        tables: false,
+        shadow: false,
         emitter_sabotage: Some("raw_in_map"),
         runtime_sabotage: None,
     },
-    Case { file: "gc_d10_closures_async.dart", expected: "4050\n", tables: false, shadow: false, emitter_sabotage: None, runtime_sabotage: None },
+    Case {
+        file: "gc_d10_closures_async.dart",
+        expected: "4050\n",
+        tables: false,
+        shadow: false,
+        emitter_sabotage: None,
+        runtime_sabotage: None,
+    },
     Case {
         file: "gc_d11_campos_de_objeto_morto.dart",
         expected: "26800\n",
-        tables: false, shadow: false,
+        tables: false,
+        shadow: false,
         emitter_sabotage: Some("no_fake_use"),
         runtime_sabotage: None,
     },
     Case {
         file: "gc_d13_estaticos_e_constantes.dart",
         expected: "13890\n",
-        tables: false, shadow: false,
+        tables: false,
+        shadow: false,
         emitter_sabotage: None,
         runtime_sabotage: None,
     },
-    Case { file: "gc_d14_quadro_residual.dart", expected: "499500\n", tables: false, shadow: false, emitter_sabotage: None, runtime_sabotage: None },
+    Case {
+        file: "gc_d14_quadro_residual.dart",
+        expected: "499500\n",
+        tables: false,
+        shadow: false,
+        emitter_sabotage: None,
+        runtime_sabotage: None,
+    },
     // D5: the slot read before being written, on the shadow stack; with the
     // dirty frame (4098 instead of zero), the not-yet-written slot becomes an
     // invalid root.
@@ -190,7 +213,8 @@ const CASES: &[Case] = &[
 
 fn enabled() -> bool {
     let target = (cfg!(windows) && cfg!(target_arch = "x86_64"))
-        || ((cfg!(target_os = "linux") || cfg!(target_os = "macos")) && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
+        || ((cfg!(target_os = "linux") || cfg!(target_os = "macos"))
+            && (cfg!(target_arch = "x86_64") || cfg!(target_arch = "aarch64")));
     let requested = std::env::var("DARTFORGE_MAPS_TESTS").is_ok_and(|v| v == "1");
     if !requested {
         eprintln!("DARTFORGE_MAPS_TESTS=1 not set: stack map root tests skipped");
@@ -199,7 +223,9 @@ fn enabled() -> bool {
 }
 
 fn source(file: &str) -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/native").join(file)
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../corpus/native")
+        .join(file)
 }
 
 /// The test executables and SDKs are removed even when an assertion fails.
@@ -229,14 +255,28 @@ fn work_dir(name: &str) -> WorkDir {
 /// error carries the compiler's message. In maps mode, the root checker after
 /// RS4GC (§7.4) runs on each module; on the shadow stack, the slot dominance
 /// checker.
-fn compile(file: &str, tables: bool, shadow: bool, env: &[(&str, &str)], output: &Path) -> Result<(), String> {
+fn compile(
+    file: &str,
+    tables: bool,
+    shadow: bool,
+    env: &[(&str, &str)],
+    output: &Path,
+) -> Result<(), String> {
     let mut c = Command::new(env!("CARGO_BIN_EXE_dartforge"));
-    c.arg("compile-native").arg(source(file)).arg("-o").arg(output);
-    c.arg(if shadow { "--roots=shadow" } else { "--roots=maps" });
+    c.arg("compile-native")
+        .arg(source(file))
+        .arg("-o")
+        .arg(output);
+    c.arg(if shadow {
+        "--roots=shadow"
+    } else {
+        "--roots=maps"
+    });
     if tables {
         c.arg("--exceptions=tables");
     }
-    c.env_remove("DARTFORGE_SABOTAGE").env_remove("DARTFORGE_ROOTS_CHECK");
+    c.env_remove("DARTFORGE_SABOTAGE")
+        .env_remove("DARTFORGE_ROOTS_CHECK");
     if shadow {
         // The dominance checker of the shadow mode (§7.4).
         c.env("DARTFORGE_CHECK_SHADOW", "1");
@@ -247,7 +287,11 @@ fn compile(file: &str, tables: bool, shadow: bool, env: &[(&str, &str)], output:
         c.env(k, v);
     }
     let r = c.output().expect("run dartforge");
-    if r.status.success() { Ok(()) } else { Err(String::from_utf8_lossy(&r.stderr).into_owned()) }
+    if r.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&r.stderr).into_owned())
+    }
 }
 
 /// Runs with stress (one collection before each allocation) or without it
@@ -258,8 +302,11 @@ fn run_with(exe: &Path, stress: bool, env: &[(&str, &str)]) -> Output {
     if stress {
         c.env("DARTFORGE_GC_STRESS", "1");
     }
-    c.env("DARTFORGE_GC_STATS", "require").env("DARTFORGE_GC_POISON", "1");
-    c.env_remove("DARTFORGE_SABOTAGE").env_remove("DARTFORGE_GC_WALK").env_remove("DARTFORGE_GC_SCHEDULE");
+    c.env("DARTFORGE_GC_STATS", "require")
+        .env("DARTFORGE_GC_POISON", "1");
+    c.env_remove("DARTFORGE_SABOTAGE")
+        .env_remove("DARTFORGE_GC_WALK")
+        .env_remove("DARTFORGE_GC_SCHEDULE");
     for (k, v) in env {
         c.env(k, v);
     }
@@ -274,7 +321,12 @@ fn run(exe: &Path, env: &[(&str, &str)]) -> Output {
 fn statistic(stderr: &str, field: &str) -> Option<u64> {
     let key = format!("\"{field}\":");
     let i = stderr.find(&key)? + key.len();
-    stderr[i..].chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
+    stderr[i..]
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect::<String>()
+        .parse()
+        .ok()
 }
 
 fn right_output(r: &Output, expected: &str) -> bool {
@@ -289,13 +341,24 @@ fn targeted_cases_pass_and_fail_with_the_sabotage() {
     let dir = work_dir("dirigidos");
     for (k, case) in CASES.iter().enumerate() {
         let exe = dir.join(format!("case{k}{}", std::env::consts::EXE_SUFFIX));
-        compile(case.file, case.tables, case.shadow, &[], &exe).unwrap_or_else(|e| panic!("{}: did not compile:\n{e}", case.file));
+        compile(case.file, case.tables, case.shadow, &[], &exe)
+            .unwrap_or_else(|e| panic!("{}: did not compile:\n{e}", case.file));
         let r = run(&exe, &[]);
         let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
-        assert!(right_output(&r, case.expected), "{}: wrong output ({}):\n{}\n{stderr}", case.file, r.status, String::from_utf8_lossy(&r.stdout));
+        assert!(
+            right_output(&r, case.expected),
+            "{}: wrong output ({}):\n{}\n{stderr}",
+            case.file,
+            r.status,
+            String::from_utf8_lossy(&r.stdout)
+        );
         // The proof that it collected and read roots from maps (`require`
         // already exits with 70 without it; here the check is explicit).
-        assert!(statistic(&stderr, "collections").is_some_and(|n| n > 0), "{}: no collection:\n{stderr}", case.file);
+        assert!(
+            statistic(&stderr, "collections").is_some_and(|n| n > 0),
+            "{}: no collection:\n{stderr}",
+            case.file
+        );
         assert!(
             case.shadow || statistic(&stderr, "map_roots").is_some_and(|n| n > 0),
             "{}: no root read from a map:\n{stderr}",
@@ -304,15 +367,29 @@ fn targeted_cases_pass_and_fail_with_the_sabotage() {
 
         if let Some(s) = case.emitter_sabotage {
             let sab = dir.join(format!("case{k}-sab{}", std::env::consts::EXE_SUFFIX));
-            let failed = match compile(case.file, case.tables, case.shadow, &[("DARTFORGE_SABOTAGE", s)], &sab) {
+            let failed = match compile(
+                case.file,
+                case.tables,
+                case.shadow,
+                &[("DARTFORGE_SABOTAGE", s)],
+                &sab,
+            ) {
                 Err(_) => true,
                 Ok(()) => !right_output(&run(&sab, &[]), case.expected),
             };
-            assert!(failed, "{}: passed with the sabotage `{s}` — the case does not prove what it claims", case.file);
+            assert!(
+                failed,
+                "{}: passed with the sabotage `{s}` — the case does not prove what it claims",
+                case.file
+            );
         }
         if let Some(s) = case.runtime_sabotage {
             let r = run(&exe, &[("DARTFORGE_SABOTAGE", s)]);
-            assert!(!right_output(&r, case.expected), "{}: passed with the runtime sabotage `{s}`", case.file);
+            assert!(
+                !right_output(&r, case.expected),
+                "{}: passed with the runtime sabotage `{s}`",
+                case.file
+            );
         }
     }
 }
@@ -326,14 +403,32 @@ fn walk_checked_against_the_shadow_stack() {
         return;
     }
     let dir = work_dir("conferencia");
-    for case in CASES.iter().filter(|c| !c.shadow && c.runtime_sabotage.is_none() && c.emitter_sabotage.is_some()) {
+    for case in CASES
+        .iter()
+        .filter(|c| !c.shadow && c.runtime_sabotage.is_none() && c.emitter_sabotage.is_some())
+    {
         let exe = dir.join(format!("conf{}", std::env::consts::EXE_SUFFIX));
-        compile(case.file, case.tables, false, &[("DARTFORGE_ROOTS_CHECK", "1")], &exe)
-            .unwrap_or_else(|e| panic!("{}: did not compile:\n{e}", case.file));
+        compile(
+            case.file,
+            case.tables,
+            false,
+            &[("DARTFORGE_ROOTS_CHECK", "1")],
+            &exe,
+        )
+        .unwrap_or_else(|e| panic!("{}: did not compile:\n{e}", case.file));
         let r = run(&exe, &[("DARTFORGE_GC_WALK", "check")]);
         let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
-        assert!(right_output(&r, case.expected), "{}: the check failed ({}):\n{stderr}", case.file, r.status);
-        assert!(statistic(&stderr, "checked_roots").is_some_and(|n| n > 0), "{}: no root checked:\n{stderr}", case.file);
+        assert!(
+            right_output(&r, case.expected),
+            "{}: the check failed ({}):\n{stderr}",
+            case.file,
+            r.status
+        );
+        assert!(
+            statistic(&stderr, "checked_roots").is_some_and(|n| n > 0),
+            "{}: no root checked:\n{stderr}",
+            case.file
+        );
     }
 }
 
@@ -350,15 +445,39 @@ fn leaf_that_collects_is_found_by_name() {
     let dir = work_dir("efeitos");
     let case = &CASES[0];
     let exe = dir.join(format!("efeitos{}", std::env::consts::EXE_SUFFIX));
-    compile(case.file, false, false, &[("DARTFORGE_EFFECTS", "check")], &exe).unwrap_or_else(|e| panic!("did not compile:\n{e}"));
+    compile(
+        case.file,
+        false,
+        false,
+        &[("DARTFORGE_EFFECTS", "check")],
+        &exe,
+    )
+    .unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     let r = run(&exe, &[]);
-    assert!(right_output(&r, case.expected), "with the check: {}", String::from_utf8_lossy(&r.stderr));
+    assert!(
+        right_output(&r, case.expected),
+        "with the check: {}",
+        String::from_utf8_lossy(&r.stderr)
+    );
     let sab = dir.join(format!("efeitos-sab{}", std::env::consts::EXE_SUFFIX));
-    compile(case.file, false, false, &[("DARTFORGE_EFFECTS", "check"), ("DARTFORGE_SABOTAGE", "leaf:dartforge_string_concat")], &sab)
-        .unwrap_or_else(|e| panic!("did not compile with the sabotage:\n{e}"));
+    compile(
+        case.file,
+        false,
+        false,
+        &[
+            ("DARTFORGE_EFFECTS", "check"),
+            ("DARTFORGE_SABOTAGE", "leaf:dartforge_string_concat"),
+        ],
+        &sab,
+    )
+    .unwrap_or_else(|e| panic!("did not compile with the sabotage:\n{e}"));
     let r = run(&sab, &[]);
     let stderr = String::from_utf8_lossy(&r.stderr).into_owned();
-    assert!(!r.status.success() && stderr.contains("dartforge_string_concat"), "the fake leaf was not found ({}):\n{stderr}", r.status);
+    assert!(
+        !r.status.success() && stderr.contains("dartforge_string_concat"),
+        "the fake leaf was not found ({}):\n{stderr}",
+        r.status
+    );
 }
 
 /// §7.5: the seed-scheduled collection, instead of full stress.
@@ -373,6 +492,10 @@ fn seed_scheduled_collection() {
     compile(case.file, false, false, &[], &exe).unwrap_or_else(|e| panic!("did not compile:\n{e}"));
     for seed in ["1,7", "42,13", "9,3"] {
         let r = run_with(&exe, false, &[("DARTFORGE_GC_SCHEDULE", seed)]);
-        assert!(right_output(&r, case.expected), "schedule {seed}: {}", String::from_utf8_lossy(&r.stderr));
+        assert!(
+            right_output(&r, case.expected),
+            "schedule {seed}: {}",
+            String::from_utf8_lossy(&r.stderr)
+        );
     }
 }

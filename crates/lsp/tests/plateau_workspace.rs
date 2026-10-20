@@ -37,9 +37,21 @@ const FILES: usize = 40;
 /// The text of file `i`: a class, a function that uses the previous file and,
 /// in every fifth file, a typed error (`non_bool_condition`).
 fn source(i: usize, revision: usize) -> String {
-    let import = if i > 0 { format!("import 'f{}.dart';\n", i - 1) } else { String::new() };
-    let previous = if i > 0 { format!("  var p = C{}(); p.m(); // {revision:03}\n", i - 1) } else { format!("  // {revision:03}\n") };
-    let error = if i.is_multiple_of(5) { "  if (1) {}\n" } else { "" };
+    let import = if i > 0 {
+        format!("import 'f{}.dart';\n", i - 1)
+    } else {
+        String::new()
+    };
+    let previous = if i > 0 {
+        format!("  var p = C{}(); p.m(); // {revision:03}\n", i - 1)
+    } else {
+        format!("  // {revision:03}\n")
+    };
+    let error = if i.is_multiple_of(5) {
+        "  if (1) {}\n"
+    } else {
+        ""
+    };
     format!(
         "{import}class C{i} {{\n  int field = {i};\n  int m() => field + 1;\n  String get name => 'c{i}';\n}}\n\nvoid f{i}() {{\n{previous}{error}  final list = <int>[1, 2, 3];\n  for (final x in list) {{\n    print(x);\n  }}\n}}\n"
     )
@@ -61,10 +73,14 @@ fn workspace(name: &str) -> Project {
 /// `initialized` (the workspace folder is analyzed and published), then waits
 /// for the analysis; returns the number of files published.
 fn analyze_workspace(p: &mut Project) -> usize {
-    p.server.receive(json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
+    p.server
+        .receive(json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
     let mut outputs = p.server.pump();
     outputs.extend(p.server.await_diagnostics(LIMIT));
-    outputs.iter().filter(|m| m["method"] == "textDocument/publishDiagnostics").count()
+    outputs
+        .iter()
+        .filter(|m| m["method"] == "textDocument/publishDiagnostics")
+        .count()
 }
 
 /// One round: opens ten files, edits each four times waiting for the typed
@@ -101,17 +117,24 @@ fn workspace_analysis_stays_out_of_the_server() {
     dartforge_instrument::reset_peak();
     let published = analyze_workspace(&mut in_thread);
     let thread_peak = dartforge_instrument::peak_bytes() - base;
-    assert!(published >= FILES / 5, "the workspace errors were not published ({published})");
+    assert!(
+        published >= FILES / 5,
+        "the workspace errors were not published ({published})"
+    );
     drop(in_thread);
 
     // The same package with each analysis in a child process.
     let mut p = workspace("plateau-workspace-child");
-    p.server.analyze_in_child_processes(PathBuf::from(env!("CARGO_BIN_EXE_dartforge-lsp")));
+    p.server
+        .analyze_in_child_processes(PathBuf::from(env!("CARGO_BIN_EXE_dartforge-lsp")));
     let base = dartforge_instrument::live_bytes();
     dartforge_instrument::reset_peak();
     let published = analyze_workspace(&mut p);
     let child_peak = dartforge_instrument::peak_bytes() - base;
-    assert!(published >= FILES / 5, "the workspace errors were not published ({published})");
+    assert!(
+        published >= FILES / 5,
+        "the workspace errors were not published ({published})"
+    );
     eprintln!(
         "workspace analysis: server peak {:.2} MiB in the thread, {:.2} MiB with child processes",
         mib(thread_peak),

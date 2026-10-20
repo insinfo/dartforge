@@ -9,7 +9,7 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::{WordStyle, Parser, word_style};
+use super::{Parser, WordStyle, word_style};
 
 /// Shape of the type found (fasta's `TypeInfo`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,7 +61,12 @@ impl TypeInfo {
         }
     }
 
-    fn simple(shape: Shape, end_index: usize, nullable: bool, could_be_expression: bool) -> TypeInfo {
+    fn simple(
+        shape: Shape,
+        end_index: usize,
+        nullable: bool,
+        could_be_expression: bool,
+    ) -> TypeInfo {
         TypeInfo {
             shape,
             end_index,
@@ -459,8 +464,8 @@ impl Parser<'_> {
                         || self.word(after, "async")
                         || self.word(after, "sync")
                         || self.eof(after);
-                    let operator_ =
-                        self.word(next, "operator") && self.user_definable_operator(after).is_some();
+                    let operator_ = self.word(next, "operator")
+                        && self.user_definable_operator(after).is_some();
                     if !(get_set && body_) && !operator_ {
                         return TypeInfo::none_(n);
                     }
@@ -553,10 +558,7 @@ impl Parser<'_> {
             }
         } else if self.op(next, Op::LParen) {
             let t = self.type_at(next, false, false, false);
-            if !(t.shape == Shape::Complex
-                && (t.record || t.record_in_return)
-                && !t.recovered)
-            {
+            if !(t.shape == Shape::Complex && (t.record || t.record_in_return) && !t.recovered) {
                 return None;
             }
         }
@@ -706,7 +708,9 @@ impl Parser<'_> {
     /// `computeVariablePatternType`.
     pub(super) fn variable_pattern_type_at(&self, i: usize, required_: bool) -> TypeInfo {
         let t = self.type_at(i, required_, false, false);
-        if !t.is_none() && self.ident(t.end_index) && (self.word(t.end_index, "as") || self.word(t.end_index, "when"))
+        if !t.is_none()
+            && self.ident(t.end_index)
+            && (self.word(t.end_index, "as") || self.word(t.end_index, "when"))
         {
             return TypeInfo::none_(i);
         }

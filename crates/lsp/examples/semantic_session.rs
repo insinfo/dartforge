@@ -67,23 +67,21 @@ fn measure(sdk: SdkLayout, uri: &str, text: &str, n: usize, budget: Option<usize
     };
     let mut server = Server::with_analyzer(analyzer);
     let mut id = 0;
-    let mut request = |server: &mut Server<SemanticAnalyzer>,
-                     method: &str,
-                     (l, c): (u32, u32),
-                     extra: Value| {
-        id += 1;
-        let mut params =
-            json!({"textDocument": {"uri": uri}, "position": {"line": l, "character": c}});
-        if let Value::Object(m) = extra {
-            for (k, v) in m {
-                params[k] = v;
+    let mut request =
+        |server: &mut Server<SemanticAnalyzer>, method: &str, (l, c): (u32, u32), extra: Value| {
+            id += 1;
+            let mut params =
+                json!({"textDocument": {"uri": uri}, "position": {"line": l, "character": c}});
+            if let Value::Object(m) = extra {
+                for (k, v) in m {
+                    params[k] = v;
+                }
             }
-        }
-        server.receive(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
-        let start = Instant::now();
-        server.pump();
-        start.elapsed()
-    };
+            server.receive(json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}));
+            let start = Instant::now();
+            server.pump();
+            start.elapsed()
+        };
     server.receive(
         json!({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"capabilities": {}}}),
     );

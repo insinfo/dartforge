@@ -182,8 +182,11 @@ impl Feature {
     /// The features the 3.6.2 analyzer does not know: a file that uses the
     /// syntax of one of them, in a library where it is disabled, has 3.13.4 as
     /// its reference (docs/ANALYZER-ESPECIFICACAO.md, T2 §1.1).
-    pub const UNKNOWN_IN_3_6: [Feature; 3] =
-        [Feature::DotShorthands, Feature::PrivateNamedParameters, Feature::PrimaryConstructors];
+    pub const UNKNOWN_IN_3_6: [Feature; 3] = [
+        Feature::DotShorthands,
+        Feature::PrivateNamedParameters,
+        Feature::PrimaryConstructors,
+    ];
 
     /// The version the 3.6.2 analyzer writes in the `experiment_not_enabled`
     /// fix, when it is not that of [`Feature::enabled_in`]:
@@ -191,9 +194,9 @@ impl Feature {
     /// features had no release version yet (T2 §1.2).
     pub const fn version_reported_in_3_6(self) -> Option<LanguageVersion> {
         match self {
-            Feature::NullAwareElements | Feature::WildcardVariables | Feature::InferenceUsingBounds => {
-                Some(LanguageVersion::FLOOR)
-            }
+            Feature::NullAwareElements
+            | Feature::WildcardVariables
+            | Feature::InferenceUsingBounds => Some(LanguageVersion::FLOOR),
             _ => None,
         }
     }
@@ -252,7 +255,9 @@ impl LibraryFeatures {
     ) -> Self {
         match marker {
             Some(v) => LibraryFeatures::new(v, &[]),
-            None if default_version == current_ => LibraryFeatures::new(default_version, experiments),
+            None if default_version == current_ => {
+                LibraryFeatures::new(default_version, experiments)
+            }
             None => LibraryFeatures::new(default_version, &[]),
         }
     }
@@ -474,13 +479,27 @@ mod tests {
         let f36 = LibraryFeatures::new(v(3, 6), &[]);
         // Those after the floor are disabled in 3.6; the earlier ones (2.13, 2.14,
         // 3.0) are enabled.
-        let old_ones = [Feature::NonfunctionTypeAliases, Feature::GenericMetadata, Feature::ClassModifiers, Feature::SealedClass];
-        assert!(Feature::ALL.iter().filter(|f| !old_ones.contains(f)).all(|f| !f36.has(*f)));
+        let old_ones = [
+            Feature::NonfunctionTypeAliases,
+            Feature::GenericMetadata,
+            Feature::ClassModifiers,
+            Feature::SealedClass,
+        ];
+        assert!(
+            Feature::ALL
+                .iter()
+                .filter(|f| !old_ones.contains(f))
+                .all(|f| !f36.has(*f))
+        );
         assert!(old_ones.iter().all(|f| f36.has(*f)));
         let f212 = LibraryFeatures::new(v(2, 12), &[]);
         assert!(old_ones.iter().all(|f| !f212.has(*f)));
         let f214 = LibraryFeatures::new(v(2, 14), &[]);
-        assert!(f214.has(Feature::GenericMetadata) && f214.has(Feature::NonfunctionTypeAliases) && !f214.has(Feature::ClassModifiers));
+        assert!(
+            f214.has(Feature::GenericMetadata)
+                && f214.has(Feature::NonfunctionTypeAliases)
+                && !f214.has(Feature::ClassModifiers)
+        );
         let f310 = LibraryFeatures::new(v(3, 10), &[]);
         assert!(
             f310.has(Feature::WildcardVariables)
@@ -508,7 +527,8 @@ mod tests {
         let exp = [Feature::Macros];
         assert!(LibraryFeatures::for_library(None, current, current, &exp).has(Feature::Macros));
         assert!(
-            !LibraryFeatures::for_library(Some(current), current, current, &exp).has(Feature::Macros)
+            !LibraryFeatures::for_library(Some(current), current, current, &exp)
+                .has(Feature::Macros)
         );
         assert!(!LibraryFeatures::for_library(None, v(3, 6), current, &exp).has(Feature::Macros));
     }

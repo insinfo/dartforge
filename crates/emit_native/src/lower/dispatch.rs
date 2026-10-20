@@ -42,7 +42,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `NoSuchMethodError` at run time (the receiver does not have the
     /// member).
     pub fn throw_nsm(&mut self, name: &str) -> Operand {
-        let n = self.emit(Instruction::Const(Constant::String(name.to_string())), Type::Ref);
+        let n = self.emit(
+            Instruction::Const(Constant::String(name.to_string())),
+            Type::Ref,
+        );
         let e = self.new_runtime_error("dartforge_no_such_method_error_new", vec![(n, Type::Ref)]);
         self.emit_throw_op(e);
         Operand::Constant(Constant::Null)
@@ -56,9 +59,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.unsupported("operator on num/dynamic/object", span);
         };
         let typed = self.all_checked(&[(None, a.clone())]);
-        let r = self.call_by_name_with_typed_receiver(a, typed, super::sdk_source::AccessKind::Call, name, &[(None, b)]);
+        let r = self.call_by_name_with_typed_receiver(
+            a,
+            typed,
+            super::sdk_source::AccessKind::Call,
+            name,
+            &[(None, b)],
+        );
         // Comparison: the context wants the `bool`.
-        if matches!(op, BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq) {
+        if matches!(
+            op,
+            BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
+        ) {
             return self.coerce(r, Type::I1);
         }
         r
@@ -76,6 +88,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(t) = self.ctx.get_type(self.unit_id, e) else {
             return true;
         };
-        t == self.ctx.core.dynamic_ || t == self.ctx.core.object || t == self.ctx.core.object_nullable
+        t == self.ctx.core.dynamic_
+            || t == self.ctx.core.object
+            || t == self.ctx.core.object_nullable
     }
 }

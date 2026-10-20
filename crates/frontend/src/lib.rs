@@ -13,15 +13,15 @@
 //! Memory design, following the goal of an in-house toolchain: nodes live in
 //! arenas indexed by `u32` ([`ast::Ast`]), identifiers are
 //! [`dartforge_intern::SymbolId`], and no node borrows from the source.
-pub mod grouping;
 pub mod ast;
 pub mod comments;
 pub mod doc_references;
 pub mod features;
-pub mod source;
+pub mod grouping;
 pub mod lexer;
 pub mod parents;
 pub mod parser;
+pub mod source;
 pub mod text;
 pub mod token;
 

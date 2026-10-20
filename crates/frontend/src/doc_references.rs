@@ -20,15 +20,34 @@ pub struct DocReference {
 }
 
 /// The user-definable operators (`TokenType.isUserDefinableOperator`).
-const OPERATORS: &[&str] = &["==", "~", "[]", "[]=", "*", "/", "%", "~/", "+", "-", "<<", ">>", ">>>", ">=", ">", "<=", "<", "&", "^", "|"];
+const OPERATORS: &[&str] = &[
+    "==", "~", "[]", "[]=", "*", "/", "%", "~/", "+", "-", "<<", ">>", ">>>", ">=", ">", "<=", "<",
+    "&", "^", "|",
+];
 
 /// The reserved words (`KeywordStyle.reserved`): they are not identifiers.
 const RESERVED_WORDS: &[&str] = &[
-    "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else", "enum", "extends", "false", "final", "finally", "for", "if", "in", "is", "new", "null", "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while", "with",
+    "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else",
+    "enum", "extends", "false", "final", "finally", "for", "if", "in", "is", "new", "null",
+    "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while",
+    "with",
 ];
 
 /// The `{@…}` directives the builder knows (`_parseDocDirectiveTag`).
-const DIRECTIVES: &[&str] = &["animation", "canonicalFor", "category", "end-inject-html", "end-tool", "endtemplate", "inject-html", "macro", "subCategory", "template", "tool", "youtube"];
+const DIRECTIVES: &[&str] = &[
+    "animation",
+    "canonicalFor",
+    "category",
+    "end-inject-html",
+    "end-tool",
+    "endtemplate",
+    "inject-html",
+    "macro",
+    "subCategory",
+    "template",
+    "tool",
+    "youtube",
+];
 
 /// The scanner's `isWhitespace`: space, tab, LF and CR.
 fn whitespace(c: u8) -> bool {
@@ -48,7 +67,9 @@ fn read_whitespace(content: &[u8], mut i: usize) -> usize {
 /// token.
 fn lines_<'a>(source: &'a str, tokens: &[Span]) -> Vec<(usize, &'a str)> {
     let mut v = Vec::new();
-    let Some(first) = tokens.first() else { return v };
+    let Some(first) = tokens.first() else {
+        return v;
+    };
     let lexeme_of = |s: &Span| {
         // The `//` token ends before the CR or the LF.
         let t = &source[s.start..s.end];
@@ -183,8 +204,11 @@ fn known_directive(b: &[u8], i: usize) -> bool {
 /// `_parseDocImport`: `@docImport ` followed by an import (the URI in
 /// quotes).
 fn doc_import(content: &str, i: usize) -> bool {
-    let Some(rest) = content[i..].strip_prefix("@docImport ") else { return false };
-    rest.trim_start_matches([' ', '\t', '\n', '\r']).starts_with(['\'', '"'])
+    let Some(rest) = content[i..].strip_prefix("@docImport ") else {
+        return false;
+    };
+    rest.trim_start_matches([' ', '\t', '\n', '\r'])
+        .starts_with(['\'', '"'])
 }
 
 /// `_parseNodoc`.
@@ -270,7 +294,8 @@ fn line_references(content: &str, shift: usize, output: &mut Vec<DocReference>) 
                 };
                 i = right;
                 if !link_text(b, right, only_whitespace)
-                    && let Some(r) = one_reference(&content[start_offset..right], shift + start_offset)
+                    && let Some(r) =
+                        one_reference(&content[start_offset..right], shift + start_offset)
                 {
                     output.push(r);
                 }
@@ -306,8 +331,10 @@ fn scan(text: &str, shift: usize) -> Option<Vec<Tk>> {
     let mut i = 0;
     // The operators, longest first (the scanner consumes the longest one).
     const SIGNS: &[&str] = &[
-        ">>>=", "...?", "<<=", ">>=", ">>>", "~/=", "??=", "...", "&&=", "||=", "==", "!=", "<=", ">=", "<<", ">>", "~/", "[]=", "[]", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "&&", "||", "++", "--", "??", "?.", "=>", "+", "-", "*",
-        "/", "%", "~", "<", ">", "&", "|", "^", "!", "?", "=", ":", ";", ",", "(", ")", "[", "]", "{", "}", "@", "#",
+        ">>>=", "...?", "<<=", ">>=", ">>>", "~/=", "??=", "...", "&&=", "||=", "==", "!=", "<=",
+        ">=", "<<", ">>", "~/", "[]=", "[]", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "&&",
+        "||", "++", "--", "??", "?.", "=>", "+", "-", "*", "/", "%", "~", "<", ">", "&", "|", "^",
+        "!", "?", "=", ":", ";", ",", "(", ")", "[", "]", "{", "}", "@", "#",
     ];
     while i < b.len() {
         let c = b[i];
@@ -347,7 +374,13 @@ fn scan(text: &str, shift: usize) -> Option<Vec<Tk>> {
             while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] == b'$') {
                 i += 1;
             }
-            v.push(Tk::Word(Span { start: shift + start_, end: shift + i }, text[start_..i].to_string()));
+            v.push(Tk::Word(
+                Span {
+                    start: shift + start_,
+                    end: shift + i,
+                },
+                text[start_..i].to_string(),
+            ));
             continue;
         }
         if c.is_ascii_digit() || (c == b'.' && b.get(i + 1).is_some_and(|d| d.is_ascii_digit())) {
@@ -369,7 +402,13 @@ fn scan(text: &str, shift: usize) -> Option<Vec<Tk>> {
             continue;
         }
         let sign = SIGNS.iter().find(|s| b[i..].starts_with(s.as_bytes()))?;
-        v.push(Tk::Operator(Span { start: shift + i, end: shift + i + sign.len() }, sign.to_string()));
+        v.push(Tk::Operator(
+            Span {
+                start: shift + i,
+                end: shift + i + sign.len(),
+            },
+            sign.to_string(),
+        ));
         i += sign.len();
     }
     Some(v)
@@ -411,7 +450,13 @@ fn one_reference(text: &str, shift: usize) -> Option<DocReference> {
     // resolve); the prefixes before it are references.
     if t(i).is_none() {
         let end_offset = parts.last()?.0.end;
-        parts.push((Span { start: end_offset + 1, end: end_offset + 1 }, String::new()));
+        parts.push((
+            Span {
+                start: end_offset + 1,
+                end: end_offset + 1,
+            },
+            String::new(),
+        ));
         return Some(DocReference { has_new, parts });
     }
     let mut operator_word = None;
@@ -450,24 +495,54 @@ mod tests {
         let c = crate::comments::Comments::scan(source);
         let pos = source.find("class").unwrap();
         let start_offset = c.dart_doc(source, pos).unwrap();
-        let tokens: Vec<Span> = c.before(source, pos).into_iter().filter(|s| s.start >= start_offset.start).collect();
-        references(source, &tokens).into_iter().map(|r| r.parts.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join(".")).collect()
+        let tokens: Vec<Span> = c
+            .before(source, pos)
+            .into_iter()
+            .filter(|s| s.start >= start_offset.start)
+            .collect();
+        references(source, &tokens)
+            .into_iter()
+            .map(|r| {
+                r.parts
+                    .iter()
+                    .map(|(_, t)| t.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".")
+            })
+            .collect()
     }
 
     #[test]
     fn like_the_doc_comment_builder() {
-        assert_eq!(refs("/// [a], [b.c], [new D], [E.new], [int.+], [operator ==].\nclass X {}\n"), vec!["a", "b.c", "D", "E.new", "int.+", "=="]);
+        assert_eq!(
+            refs("/// [a], [b.c], [new D], [E.new], [int.+], [operator ==].\nclass X {}\n"),
+            vec!["a", "b.c", "D", "E.new", "int.+", "=="]
+        );
         // Links: `[t](u)`, `[t] [r]` (the `[r]` is a reference), `[r]:` at the
         // start. `[r] [q]`: the `[r]` followed by `[` (after whitespace) is link
         // text.
-        assert_eq!(refs("/// [t](u) [x][r] [q]: y\n/// [z]: link\n/// [x][s]\nclass X {}\n"), vec!["q", "s"]);
+        assert_eq!(
+            refs("/// [t](u) [x][r] [q]: y\n/// [z]: link\n/// [x][s]\nclass X {}\n"),
+            vec!["q", "s"]
+        );
         // Backtick code, fenced block and indented block.
-        assert_eq!(refs("/// `[a]` [b]\n/// ```\n/// [c]\n/// ```\n///\n///     [d]\n/// [e]\nclass X {}\n"), vec!["b", "e"]);
+        assert_eq!(
+            refs(
+                "/// `[a]` [b]\n/// ```\n/// [c]\n/// ```\n///\n///     [d]\n/// [e]\nclass X {}\n"
+            ),
+            vec!["b", "e"]
+        );
         // `[a [b]`: the content runs up to the first `]`.
         assert_eq!(refs("/// [a [b] [c d] [ f ]\nclass X {}\n"), vec!["f"]);
         // `//` in the middle of the run is skipped; `{@template}` has no reference.
-        assert_eq!(refs("/// [a]\n// [b]\n/// {@template t} [c]\n/// [d\nclass X {}\n"), vec!["a", "d"]);
+        assert_eq!(
+            refs("/// [a]\n// [b]\n/// {@template t} [c]\n/// [d\nclass X {}\n"),
+            vec!["a", "d"]
+        );
         // `/** */` block.
-        assert_eq!(refs("/**\n * [a] e\n *\n * [b]\n */\nclass X {}\n"), vec!["a", "b"]);
+        assert_eq!(
+            refs("/**\n * [a] e\n *\n * [b]\n */\nclass X {}\n"),
+            vec!["a", "b"]
+        );
     }
 }

@@ -31,7 +31,10 @@ pub mod queries;
 pub mod session;
 pub mod vm;
 
-pub use session::{Expansion, GeneratedText, Measurement, Output, pending_applications, apply, apply_incremental, sessions};
+pub use session::{
+    Expansion, GeneratedText, Measurement, Output, apply, apply_incremental, pending_applications,
+    sessions,
+};
 
 /// Does the program apply any macro? A look at
 /// [`Program::classes_macro`](dartforge_elements::model::Program), which the

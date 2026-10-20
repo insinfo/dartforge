@@ -117,9 +117,9 @@ impl ErrorType {
         match self {
             ErrorType::Todo | ErrorType::Hint | ErrorType::Lint => Severity::Info,
             ErrorType::StaticWarning => Severity::Warning,
-            ErrorType::CompileTimeError | ErrorType::CheckedModeCompileTimeError | ErrorType::SyntacticError => {
-                Severity::Error
-            }
+            ErrorType::CompileTimeError
+            | ErrorType::CheckedModeCompileTimeError
+            | ErrorType::SyntacticError => Severity::Error,
         }
     }
 
@@ -127,7 +127,9 @@ impl ErrorType {
     pub const fn is_compile_error(self) -> bool {
         matches!(
             self,
-            ErrorType::CompileTimeError | ErrorType::CheckedModeCompileTimeError | ErrorType::SyntacticError
+            ErrorType::CompileTimeError
+                | ErrorType::CheckedModeCompileTimeError
+                | ErrorType::SyntacticError
         )
     }
 }
@@ -155,7 +157,8 @@ pub struct CodeInfo {
 impl CodeInfo {
     /// `ErrorCode.url`: the address of the published documentation.
     pub fn url(&self) -> Option<String> {
-        self.documented.then(|| format!("https://dart.dev/diagnostics/{}", self.name))
+        self.documented
+            .then(|| format!("https://dart.dev/diagnostics/{}", self.name))
     }
 }
 
@@ -189,7 +192,11 @@ impl Code {
         for c in Code::all() {
             let info = c.info();
             if info.name == name {
-                let own = info.unique.rsplit('.').next().is_some_and(|u| u.eq_ignore_ascii_case(name));
+                let own = info
+                    .unique
+                    .rsplit('.')
+                    .next()
+                    .is_some_and(|u| u.eq_ignore_ascii_case(name));
                 if own {
                     return Some(c);
                 }
@@ -204,7 +211,19 @@ impl Code {
 /// (docs/ANALYZER-ESPECIFICACAO.md, T2): 3.6.2, or 3.13.4 for files whose
 /// language version is above 3.6 and for those using syntax that 3.6.2
 /// does not know.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+    serde::Serialize,
+    serde::Deserialize,
+)]
 pub enum AnalyzerReference {
     /// Analyzer 6.11.0, from SDK 3.6.2.
     #[default]
@@ -242,7 +261,9 @@ impl Code {
     /// the first one that fits. An emitter that does not pass the arguments
     /// only 3.13 uses gets no variant, and the diagnostic is reported as in 3.6.
     pub fn variant_3_13(self, arg_count: usize) -> Option<&'static Variant313> {
-        self.variants_3_13().iter().find(|v| arg_count >= v.requires as usize)
+        self.variants_3_13()
+            .iter()
+            .find(|v| arg_count >= v.requires as usize)
     }
 }
 
@@ -268,7 +289,8 @@ impl serde::Serialize for Severity {
 impl<'de> serde::Deserialize<'de> for Severity {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let s = String::deserialize(d)?;
-        Severity::by_name(&s).ok_or_else(|| serde::de::Error::custom(format!("unknown severity: {s}")))
+        Severity::by_name(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown severity: {s}")))
     }
 }
 
@@ -363,7 +385,11 @@ impl Diagnostic {
 
     /// Adds a context message in the same file as the diagnostic.
     pub fn with_context(mut self, span: Span, message: impl Into<Box<str>>) -> Self {
-        self.context.push(ContextMessage { file: None, span, message: message.into() });
+        self.context.push(ContextMessage {
+            file: None,
+            span,
+            message: message.into(),
+        });
         self
     }
 
@@ -401,10 +427,18 @@ impl Diagnostic {
         if r == AnalyzerReference::V3_6 {
             return Some(self);
         }
-        let Some(from) = self.code else { return Some(self) };
-        let Some(v) = from.variant_3_13(self.args.len()) else { return Some(self) };
+        let Some(from) = self.code else {
+            return Some(self);
+        };
+        let Some(v) = from.variant_3_13(self.args.len()) else {
+            return Some(self);
+        };
         let to = v.to?;
-        let args: Box<[Box<str>]> = v.args.iter().map(|&i| self.args[i as usize].clone()).collect();
+        let args: Box<[Box<str>]> = v
+            .args
+            .iter()
+            .map(|&i| self.args[i as usize].clone())
+            .collect();
         let info = to.info();
         if self.severity == from.info().severity {
             self.severity = info.severity;
@@ -428,7 +462,11 @@ impl std::fmt::Display for Diagnostic {
         if let Some(c) = self.code {
             write!(f, "{}: ", c.info().name)?;
         }
-        write!(f, "{} at bytes {}..{}", self.message, self.span.start, self.span.end)
+        write!(
+            f,
+            "{} at bytes {}..{}",
+            self.message, self.span.start, self.span.end
+        )
     }
 }
 impl std::error::Error for Diagnostic {}
@@ -441,7 +479,10 @@ mod tests {
     fn formats_like_format_list() {
         let a: Vec<Box<str>> = vec!["String".into(), "int".into(), "".into()];
         assert_eq!(
-            format_list("The argument type '{0}' can't be assigned to the parameter type '{1}'. {2}", &a),
+            format_list(
+                "The argument type '{0}' can't be assigned to the parameter type '{1}'. {2}",
+                &a
+            ),
             "The argument type 'String' can't be assigned to the parameter type 'int'. "
         );
         assert_eq!(format_list("no {0} args", &[]), "no {0} args");
@@ -457,7 +498,11 @@ mod tests {
     /// 6.11 codes (12, 1 and 1).
     #[test]
     fn table_has_the_counts_of_analyzer_6_11_and_the_supplement() {
-        let count = |prefix: &str| Code::all().filter(|c| c.info().unique.starts_with(prefix)).count();
+        let count = |prefix: &str| {
+            Code::all()
+                .filter(|c| c.info().unique.starts_with(prefix))
+                .count()
+        };
         assert_eq!(count("CompileTimeErrorCode."), 542 + 4 + 4 + 5 + 12);
         assert_eq!(count("StaticWarningCode."), 7);
         assert_eq!(count("WarningCode."), 144 + 2 + 1);
@@ -476,7 +521,11 @@ mod tests {
             assert!(v.args.iter().all(|&i| i < v.requires));
             assert_eq!(v.from.variants_3_13().first().map(|p| p.from), Some(v.from));
         }
-        assert!(codes::compile_time_error::UNDEFINED_FUNCTION.variants_3_13().is_empty());
+        assert!(
+            codes::compile_time_error::UNDEFINED_FUNCTION
+                .variants_3_13()
+                .is_empty()
+        );
     }
 
     /// Cases c02, c03, c04, c05, c13 and c16 of `corpus/specification/t2/v`.
@@ -485,58 +534,123 @@ mod tests {
         use codes::{compile_time_error as c, parser as p, warning as w};
         let s = Span { start: 0, end: 1 };
         let same = Diagnostic::with_code(c::ENUM_WITHOUT_CONSTANTS, s, Vec::<String>::new());
-        assert_eq!(same.clone().for_reference(AnalyzerReference::V3_6), Some(same.clone()));
+        assert_eq!(
+            same.clone().for_reference(AnalyzerReference::V3_6),
+            Some(same.clone())
+        );
         let new = same.for_reference(AnalyzerReference::V3_13).unwrap();
-        assert_eq!(new.message, "The enum must have at least one enum constant.");
-        assert_eq!(new.correction().as_deref(), Some("Try declaring an enum constant."));
+        assert_eq!(
+            new.message,
+            "The enum must have at least one enum constant."
+        );
+        assert_eq!(
+            new.correction().as_deref(),
+            Some("Try declaring an enum constant.")
+        );
         assert_eq!(new.code.unwrap().info().name, "enum_without_constants");
 
         let field = Diagnostic::with_code(p::REPRESENTATION_FIELD_MODIFIER, s, ["var"]);
         assert_eq!(field.message, "Representation fields can't have modifiers.");
-        assert_eq!(field.for_reference(AnalyzerReference::V3_13).unwrap().message, "Representation fields can't have the modifier 'var'.");
+        assert_eq!(
+            field
+                .for_reference(AnalyzerReference::V3_13)
+                .unwrap()
+                .message,
+            "Representation fields can't have the modifier 'var'."
+        );
 
         let param = Diagnostic::with_code(w::UNUSED_ELEMENT_PARAMETER, s, ["p"]);
         assert_eq!(param.code.unwrap().info().name, "unused_element");
         let param = param.for_reference(AnalyzerReference::V3_13).unwrap();
         assert_eq!(param.code.unwrap().info().name, "unused_element_parameter");
-        assert_eq!(param.message, "A value for optional parameter 'p' isn't ever given.");
+        assert_eq!(
+            param.message,
+            "A value for optional parameter 'p' isn't ever given."
+        );
         assert_eq!(param.severity, Severity::Warning);
 
-        let superclass = Diagnostic::with_code(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, s, ["B", "A"]);
+        let superclass =
+            Diagnostic::with_code(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, s, ["B", "A"]);
         assert!(superclass.message.ends_with("of 'B'."));
-        assert!(superclass.for_reference(AnalyzerReference::V3_13).unwrap().message.ends_with("of 'A'."));
+        assert!(
+            superclass
+                .for_reference(AnalyzerReference::V3_13)
+                .unwrap()
+                .message
+                .ends_with("of 'A'.")
+        );
         // Without the argument only 3.13 uses, the diagnostic does not change.
         let old = Diagnostic::with_code(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, s, ["B"]);
-        assert_eq!(old.clone().for_reference(AnalyzerReference::V3_13), Some(old));
+        assert_eq!(
+            old.clone().for_reference(AnalyzerReference::V3_13),
+            Some(old)
+        );
 
         let two = Diagnostic::with_code(
             c::AMBIGUOUS_EXTENSION_MEMBER_ACCESS,
             s,
-            ["m", "extension 'E1' and extension 'E2'", "extension E1 on int", "extension E2 on int"],
+            [
+                "m",
+                "extension 'E1' and extension 'E2'",
+                "extension E1 on int",
+                "extension E2 on int",
+            ],
         );
         assert_eq!(
             two.for_reference(AnalyzerReference::V3_13).unwrap().message,
             "A member named 'm' is defined in 'extension E1 on int' and 'extension E2 on int', and neither is more specific."
         );
         // Three or more: the 3.13.4 text is the 3.6.2 one (case c25).
-        let three = Diagnostic::with_code(c::AMBIGUOUS_EXTENSION_MEMBER_ACCESS, s, ["m", "extension 'E1', extension 'E2', and extension 'E3'"]);
-        assert_eq!(three.clone().for_reference(AnalyzerReference::V3_13), Some(three));
+        let three = Diagnostic::with_code(
+            c::AMBIGUOUS_EXTENSION_MEMBER_ACCESS,
+            s,
+            ["m", "extension 'E1', extension 'E2', and extension 'E3'"],
+        );
+        assert_eq!(
+            three.clone().for_reference(AnalyzerReference::V3_13),
+            Some(three)
+        );
 
-        let private = Diagnostic::with_code(c::NON_EXHAUSTIVE_SWITCH_EXPRESSION, s, ["P", "P._b", "P._b", ""]);
+        let private = Diagnostic::with_code(
+            c::NON_EXHAUSTIVE_SWITCH_EXPRESSION,
+            s,
+            ["P", "P._b", "P._b", ""],
+        );
         let private = private.for_reference(AnalyzerReference::V3_13).unwrap();
-        assert_eq!(private.message, "The enum 'P' isn't exhaustively matched by the switch cases because some of the enum constants are private.");
-        assert_eq!(private.correction().as_deref(), Some("Try adding a wildcard pattern."));
+        assert_eq!(
+            private.message,
+            "The enum 'P' isn't exhaustively matched by the switch cases because some of the enum constants are private."
+        );
+        assert_eq!(
+            private.correction().as_deref(),
+            Some("Try adding a wildcard pattern.")
+        );
 
-        let outside = Diagnostic::with_code(c::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, Vec::<String>::new());
+        let outside = Diagnostic::with_code(
+            c::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR,
+            s,
+            Vec::<String>::new(),
+        );
         assert_eq!(outside.for_reference(AnalyzerReference::V3_13), None);
-        let from_parser = Diagnostic::with_code(p::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, Vec::<String>::new());
-        assert!(from_parser.for_reference(AnalyzerReference::V3_13).is_some());
+        let from_parser = Diagnostic::with_code(
+            p::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR,
+            s,
+            Vec::<String>::new(),
+        );
+        assert!(
+            from_parser
+                .for_reference(AnalyzerReference::V3_13)
+                .is_some()
+        );
     }
 
     #[test]
     fn by_name_prefers_own_name() {
         let c = Code::by_name("abstract_field_initializer").unwrap();
-        assert_eq!(c.info().unique, "CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER");
+        assert_eq!(
+            c.info().unique,
+            "CompileTimeErrorCode.ABSTRACT_FIELD_INITIALIZER"
+        );
         assert_eq!(c.info().severity, Severity::Error);
         let w = Code::by_name("unused_local_variable").unwrap();
         assert_eq!(w.info().error_type, ErrorType::StaticWarning);
@@ -545,12 +659,17 @@ mod tests {
 
     #[test]
     fn code_serde_by_unique_name() {
-        let d = Diagnostic::with_code(codes::compile_time_error::NON_BOOL_CONDITION, Span { start: 1, end: 2 }, Vec::<String>::new());
+        let d = Diagnostic::with_code(
+            codes::compile_time_error::NON_BOOL_CONDITION,
+            Span { start: 1, end: 2 },
+            Vec::<String>::new(),
+        );
         let j = serde_json::to_string(&d).unwrap();
         assert!(j.contains("CompileTimeErrorCode.NON_BOOL_CONDITION"), "{j}");
         let back: Diagnostic = serde_json::from_str(&j).unwrap();
         assert_eq!(back, d);
-        let old: Diagnostic = serde_json::from_str(r#"{"message":"x","span":{"start":0,"end":1}}"#).unwrap();
+        let old: Diagnostic =
+            serde_json::from_str(r#"{"message":"x","span":{"start":0,"end":1}}"#).unwrap();
         assert_eq!(old, Diagnostic::new("x", Span { start: 0, end: 1 }));
     }
 }

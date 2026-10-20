@@ -18,7 +18,9 @@
 //! branch is not emitted) use the same answer, so the text verifier agrees.
 
 use crate::WorldInput;
-use dartforge_elements::model::{Element, FunctionElementId, FunctionKind, FunctionRef, UnitId, VariableId, VariableRef};
+use dartforge_elements::model::{
+    Element, FunctionElementId, FunctionKind, FunctionRef, UnitId, VariableId, VariableRef,
+};
 use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, FunctionBody, StmtKind, UnaryOp};
 use dartforge_intern::SymbolId;
 use dartforge_types::resolved::Resolved;
@@ -41,7 +43,12 @@ pub struct Constants<'a> {
 
 impl<'a> Constants<'a> {
     pub fn new(e: WorldInput<'a>, no_asserts: bool) -> Constants<'a> {
-        Constants { e, no_asserts, memo_fn: RefCell::new(HashMap::new()), memo_var: RefCell::new(HashMap::new()) }
+        Constants {
+            e,
+            no_asserts,
+            memo_fn: RefCell::new(HashMap::new()),
+            memo_var: RefCell::new(HashMap::new()),
+        }
     }
 
     /// `assert`s are disabled (the emitter does not write them).
@@ -61,7 +68,13 @@ impl<'a> Constants<'a> {
         self.e.bodies.units.get(u.0 as usize)?.get_resolved(x)
     }
 
-    fn expr(&self, u: UnitId, x: ExprId, locals: &HashMap<SymbolId, Value>, depth: u32) -> Option<Value> {
+    fn expr(
+        &self,
+        u: UnitId,
+        x: ExprId,
+        locals: &HashMap<SymbolId, Value>,
+        depth: u32,
+    ) -> Option<Value> {
         if depth > 24 {
             return None;
         }
@@ -70,11 +83,18 @@ impl<'a> Constants<'a> {
             ExprKind::Bool(b) => Some(Value::Bool(*b)),
             ExprKind::Null => Some(Value::Null),
             ExprKind::Parenthesized(i) => self.expr(u, *i, locals, depth + 1),
-            ExprKind::Unary { op: UnaryOp::Not, operand } => match self.expr(u, *operand, locals, depth + 1)? {
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                operand,
+            } => match self.expr(u, *operand, locals, depth + 1)? {
                 Value::Bool(b) => Some(Value::Bool(!b)),
                 Value::Null => None,
             },
-            ExprKind::Binary { op: BinaryOp::And, left, right } => match self.expr(u, *left, locals, depth + 1)? {
+            ExprKind::Binary {
+                op: BinaryOp::And,
+                left,
+                right,
+            } => match self.expr(u, *left, locals, depth + 1)? {
                 Value::Bool(false) => Some(Value::Bool(false)),
                 Value::Bool(true) => match self.expr(u, *right, locals, depth + 1)? {
                     Value::Bool(b) => Some(Value::Bool(b)),
@@ -82,7 +102,11 @@ impl<'a> Constants<'a> {
                 },
                 Value::Null => None,
             },
-            ExprKind::Binary { op: BinaryOp::Or, left, right } => match self.expr(u, *left, locals, depth + 1)? {
+            ExprKind::Binary {
+                op: BinaryOp::Or,
+                left,
+                right,
+            } => match self.expr(u, *left, locals, depth + 1)? {
                 Value::Bool(true) => Some(Value::Bool(true)),
                 Value::Bool(false) => match self.expr(u, *right, locals, depth + 1)? {
                     Value::Bool(b) => Some(Value::Bool(b)),
@@ -90,7 +114,11 @@ impl<'a> Constants<'a> {
                 },
                 Value::Null => None,
             },
-            ExprKind::Binary { op: op @ (BinaryOp::Eq | BinaryOp::NotEq), left, right } => {
+            ExprKind::Binary {
+                op: op @ (BinaryOp::Eq | BinaryOp::NotEq),
+                left,
+                right,
+            } => {
                 let a = self.expr(u, *left, locals, depth + 1)?;
                 let b = self.expr(u, *right, locals, depth + 1)?;
                 Some(Value::Bool((a == b) == (*op == BinaryOp::Eq)))
@@ -128,11 +156,17 @@ impl<'a> Constants<'a> {
                 return None;
             }
             let (u, list) = match var.node {
-                VariableRef::TopLevel { unit, decl, index } => match &p.unit(unit).ast.decl(decl).kind {
-                    ast::DeclKind::Variables(l) => (unit, (l, index)),
-                    _ => return None,
-                },
-                VariableRef::Field { unit, member, index } => match &p.unit(unit).ast.member(member).kind {
+                VariableRef::TopLevel { unit, decl, index } => {
+                    match &p.unit(unit).ast.decl(decl).kind {
+                        ast::DeclKind::Variables(l) => (unit, (l, index)),
+                        _ => return None,
+                    }
+                }
+                VariableRef::Field {
+                    unit,
+                    member,
+                    index,
+                } => match &p.unit(unit).ast.member(member).kind {
                     ast::MemberKind::Field(l) => (unit, (l, index)),
                     _ => return None,
                 },
@@ -160,13 +194,20 @@ impl<'a> Constants<'a> {
         let func = p.function(f);
         let r = (|| {
             if let Some(v) = func.variable
-                && func.kind == FunctionKind::ImplicitAccessor {
-                    return self.variable(v, depth);
-                }
-            if func.kind != FunctionKind::Getter || func.external || (func.class.is_some() && !func.static_) || func.extension.is_some() {
+                && func.kind == FunctionKind::ImplicitAccessor
+            {
+                return self.variable(v, depth);
+            }
+            if func.kind != FunctionKind::Getter
+                || func.external
+                || (func.class.is_some() && !func.static_)
+                || func.extension.is_some()
+            {
                 return None;
             }
-            let FunctionRef::Function { unit, function } = func.node else { return None };
+            let FunctionRef::Function { unit, function } = func.node else {
+                return None;
+            };
             let ast = &p.unit(unit).ast;
             let fun = ast.function(function);
             if fun.modifier != ast::AsyncModifier::None {
@@ -187,7 +228,9 @@ impl<'a> Constants<'a> {
     /// body unknown (it may write to a local).
     fn block(&self, u: UnitId, b: ast::StmtId, depth: u32) -> Option<Value> {
         let ast = &self.e.program.unit(u).ast;
-        let StmtKind::Block(ss) = &ast.stmt(b).kind else { return None };
+        let StmtKind::Block(ss) = &ast.stmt(b).kind else {
+            return None;
+        };
         let mut locals: HashMap<SymbolId, Value> = HashMap::new();
         for (i, s) in ss.iter().enumerate() {
             match &ast.stmt(*s).kind {
@@ -199,7 +242,9 @@ impl<'a> Constants<'a> {
                     }
                 }
                 StmtKind::Assert { .. } if self.no_asserts => {}
-                StmtKind::Return(Some(x)) if i + 1 == ss.len() => return self.expr(u, *x, &locals, depth + 1),
+                StmtKind::Return(Some(x)) if i + 1 == ss.len() => {
+                    return self.expr(u, *x, &locals, depth + 1);
+                }
                 _ => return None,
             }
         }

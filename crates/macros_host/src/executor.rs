@@ -54,10 +54,16 @@ pub struct QueryError {
 
 impl QueryError {
     pub fn implementation(m: impl Into<String>) -> Self {
-        QueryError { kind: "implementation", message: m.into() }
+        QueryError {
+            kind: "implementation",
+            message: m.into(),
+        }
     }
     pub fn unexpected(m: impl Into<String>) -> Self {
-        QueryError { kind: "unexpected", message: m.into() }
+        QueryError {
+            kind: "unexpected",
+            message: m.into(),
+        }
     }
 }
 
@@ -87,8 +93,17 @@ pub trait MacroExecutor: Send {
     /// `macro_` is `uri#Class`; `arguments` is `{positional, named}`.
     /// Returns the instance and the names of the macro interfaces it
     /// implements (`ClassDeclarationsMacro`…), which decide the phases.
-    fn instantiate(&mut self, macro_: &str, constructor: &str, arguments: &Value) -> Result<(u64, Vec<String>), String>;
-    fn execute(&mut self, request: &ExecutionRequest, queries: &mut dyn QueryService) -> Result<ExecutionResult, String>;
+    fn instantiate(
+        &mut self,
+        macro_: &str,
+        constructor: &str,
+        arguments: &Value,
+    ) -> Result<(u64, Vec<String>), String>;
+    fn execute(
+        &mut self,
+        request: &ExecutionRequest,
+        queries: &mut dyn QueryService,
+    ) -> Result<ExecutionResult, String>;
     fn shut_down(&mut self);
 }
 
@@ -116,7 +131,11 @@ impl MacroExecutor for Unavailable {
     fn instantiate(&mut self, _: &str, _: &str, _: &Value) -> Result<(u64, Vec<String>), String> {
         Err(self.0.clone())
     }
-    fn execute(&mut self, _: &ExecutionRequest, _: &mut dyn QueryService) -> Result<ExecutionResult, String> {
+    fn execute(
+        &mut self,
+        _: &ExecutionRequest,
+        _: &mut dyn QueryService,
+    ) -> Result<ExecutionResult, String> {
         Err(self.0.clone())
     }
     fn shut_down(&mut self) {}
@@ -132,7 +151,11 @@ pub struct DfexecExecutor<C: Channel> {
 
 impl<C: Channel> DfexecExecutor<C> {
     pub fn new(channel: C) -> Self {
-        DfexecExecutor { channel, next: 1, started: false }
+        DfexecExecutor {
+            channel,
+            next: 1,
+            started: false,
+        }
     }
 
     /// The channel (so tests can read the recording).
@@ -153,7 +176,12 @@ impl<C: Channel> DfexecExecutor<C> {
 
     /// Waits for the reply `t` to request `id`, answering the queries along
     /// the way.
-    fn await_reply(&mut self, id: u64, t: &str, queries: &mut dyn QueryService) -> Result<Value, String> {
+    fn await_reply(
+        &mut self,
+        id: u64,
+        t: &str,
+        queries: &mut dyn QueryService,
+    ) -> Result<Value, String> {
         loop {
             let m = self.channel.receive()?;
             match m.get("t").and_then(Value::as_str) {
@@ -163,7 +191,9 @@ impl<C: Channel> DfexecExecutor<C> {
                     let args = m.get("args").cloned().unwrap_or(Value::Null);
                     let reply = match queries.query(kind, &args) {
                         Ok(value) => json!({"t": "macro.response", "id": qid, "value": value}),
-                        Err(e) => json!({"t": "macro.response", "id": qid, "error": {"kind": e.kind, "message": e.message}}),
+                        Err(e) => {
+                            json!({"t": "macro.response", "id": qid, "error": {"kind": e.kind, "message": e.message}})
+                        }
                     };
                     self.channel.send(&reply)?;
                 }
@@ -171,8 +201,14 @@ impl<C: Channel> DfexecExecutor<C> {
                     let msg = m.get("message").and_then(Value::as_str).unwrap_or("");
                     return Err(format!("executor: {msg}"));
                 }
-                Some(x) if x == t && m.get("id").and_then(Value::as_u64) == Some(id) => return Ok(m),
-                _ => return Err(format!("unexpected message from the executor (expected {t} {id}): {m}")),
+                Some(x) if x == t && m.get("id").and_then(Value::as_u64) == Some(id) => {
+                    return Ok(m);
+                }
+                _ => {
+                    return Err(format!(
+                        "unexpected message from the executor (expected {t} {id}): {m}"
+                    ));
+                }
             }
         }
     }
@@ -181,7 +217,9 @@ impl<C: Channel> DfexecExecutor<C> {
 struct NoQueries;
 impl QueryService for NoQueries {
     fn query(&mut self, kind: &str, _: &Value) -> Result<Value, QueryError> {
-        Err(QueryError::implementation(format!("query {kind} outside an execution")))
+        Err(QueryError::implementation(format!(
+            "query {kind} outside an execution"
+        )))
     }
 }
 
@@ -197,23 +235,42 @@ impl<C: Channel> MacroExecutor for DfexecExecutor<C> {
         Ok(r)
     }
 
-    fn instantiate(&mut self, macro_: &str, constructor: &str, arguments: &Value) -> Result<(u64, Vec<String>), String> {
+    fn instantiate(
+        &mut self,
+        macro_: &str,
+        constructor: &str,
+        arguments: &Value,
+    ) -> Result<(u64, Vec<String>), String> {
         let id = self.id();
         self.channel.send(&json!({"t": "macro.instantiate", "id": id, "macro": macro_, "constructor": constructor, "arguments": arguments}))?;
         let r = self.await_reply(id, "macro.instance", &mut NoQueries)?;
-        let instance = r.get("instance").and_then(Value::as_u64).ok_or_else(|| format!("reply without an instance: {r}"))?;
+        let instance = r
+            .get("instance")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| format!("reply without an instance: {r}"))?;
         let interfaces = r
             .get("interfaces")
             .and_then(Value::as_array)
-            .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .map(|l| {
+                l.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
             .unwrap_or_default();
         Ok((instance, interfaces))
     }
 
-    fn execute(&mut self, p: &ExecutionRequest, queries: &mut dyn QueryService) -> Result<ExecutionResult, String> {
+    fn execute(
+        &mut self,
+        p: &ExecutionRequest,
+        queries: &mut dyn QueryService,
+    ) -> Result<ExecutionResult, String> {
         let id = self.id();
-        self.channel.send(&json!({"t": "macro.execute", "id": id, "instance": p.instance, "phase": p.phase.name(),
-            "target": p.target, "model": p.model}))?;
+        self.channel.send(
+            &json!({"t": "macro.execute", "id": id, "instance": p.instance, "phase": p.phase.name(),
+            "target": p.target, "model": p.model}),
+        )?;
         let r = self.await_reply(id, "macro.result", queries)?;
         result_from_json(r.get("result").ok_or("missing result")?)
     }
@@ -259,19 +316,28 @@ pub struct RecordedChannel {
 
 impl RecordedChannel {
     pub fn new(session: Vec<(char, Value)>) -> Self {
-        RecordedChannel { session: session.into() }
+        RecordedChannel {
+            session: session.into(),
+        }
     }
 
     /// One line per message: `> {json}` or `< {json}`.
     pub fn from_text(text: &str) -> Result<Self, String> {
         let mut v = Vec::new();
-        for (n, l) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+        for (n, l) in text
+            .lines()
+            .enumerate()
+            .filter(|(_, l)| !l.trim().is_empty())
+        {
             let (dir, rest) = l.split_at(1);
             let dir = dir.chars().next().unwrap_or(' ');
             if dir != '>' && dir != '<' {
                 return Err(format!("line {}: invalid direction", n + 1));
             }
-            v.push((dir, serde_json::from_str(rest.trim()).map_err(|e| format!("line {}: {e}", n + 1))?));
+            v.push((
+                dir,
+                serde_json::from_str(rest.trim()).map_err(|e| format!("line {}: {e}", n + 1))?,
+            ));
         }
         Ok(RecordedChannel::new(v))
     }
@@ -298,15 +364,23 @@ impl Channel for RecordedChannel {
     fn send(&mut self, m: &Value) -> Result<(), String> {
         match self.session.pop_front() {
             Some(('>', expected)) if &expected == m => Ok(()),
-            Some(('>', expected)) => Err(format!("the host sent\n  {m}\nbut the recorded session has\n  {expected}")),
-            Some(('<', r)) => Err(format!("the host sent {m} where the recorded session expects to receive {r}")),
-            _ => Err(format!("the host sent {m} after the end of the recorded session")),
+            Some(('>', expected)) => Err(format!(
+                "the host sent\n  {m}\nbut the recorded session has\n  {expected}"
+            )),
+            Some(('<', r)) => Err(format!(
+                "the host sent {m} where the recorded session expects to receive {r}"
+            )),
+            _ => Err(format!(
+                "the host sent {m} after the end of the recorded session"
+            )),
         }
     }
     fn receive(&mut self) -> Result<Value, String> {
         match self.session.pop_front() {
             Some(('<', m)) => Ok(m),
-            Some((_, m)) => Err(format!("the host expected to receive, but the recorded session sends {m}")),
+            Some((_, m)) => Err(format!(
+                "the host expected to receive, but the recorded session sends {m}"
+            )),
             None => Err("end of the recorded session".into()),
         }
     }

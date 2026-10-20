@@ -16,7 +16,9 @@ pub(super) fn verify_with_plan(f: &Function, p: &super::TokenPlan) -> Result<(),
     if let Some(c) = &p.shared_frames {
         c.check(f)?;
         analyze_shared(f, c.pairs(), &c.targets()).map(|_| ())
-    } else { verify(f) }
+    } else {
+        verify(f)
+    }
 }
 
 fn analyze(f: &Function) -> Result<HashMap<BlockId, Vec<ValueId>>, String> {
@@ -69,9 +71,7 @@ pub(super) fn analyze_shared(
             };
             let index = |q: ValueId, i: i64| -> Result<(), String> {
                 if borrowed_set.contains_key(&q) {
-                    return Err(error(
-                        "borrowed frame requires its index parameter".into(),
-                    ));
+                    return Err(error("borrowed frame requires its index parameter".into()));
                 }
                 if i < 0 || capacities.get(&q).is_some_and(|n| i >= *n) {
                     return Err(error(format!("index {i} outside frame v{}", q.0)));
@@ -130,8 +130,7 @@ pub(super) fn analyze_shared(
                         if borrowed_set.contains_key(&q) {
                             if !matches!(
                                 name.as_str(),
-                                "dartforge_arc_frame_load_v1"
-                                    | "dartforge_arc_frame_copy_v1"
+                                "dartforge_arc_frame_load_v1" | "dartforge_arc_frame_copy_v1"
                             ) {
                                 return Err(error(
                                     "function cannot close or transfer a borrowed frame".into(),
@@ -143,12 +142,16 @@ pub(super) fn analyze_shared(
                             par(q, &i.0)?;
                         }
                         if name != "dartforge_arc_frame_close_v1"
-                            && let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) {
-                                index(q, *i)?;
-                            }
+                            && let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1)
+                        {
+                            index(q, *i)?;
+                        }
                         if name == "dartforge_arc_frame_close_v1" {
                             if active_set.last() != Some(&q) {
-                                return Err(error(format!("closing out of LIFO order of v{}", q.0)));
+                                return Err(error(format!(
+                                    "closing out of LIFO order of v{}",
+                                    q.0
+                                )));
                             }
                             active_set.pop();
                         } else if name == "dartforge_arc_frame_move_v1" {
@@ -183,7 +186,9 @@ pub(super) fn analyze_shared(
             }
         }
         if cfg.successors[bi].is_empty() && !active_set.is_empty() {
-            return Err(error(format!("frames still open at the exit: {active_set:?}")));
+            return Err(error(format!(
+                "frames still open at the exit: {active_set:?}"
+            )));
         }
         for &s in &cfg.successors[bi] {
             match &entries[s] {
@@ -215,7 +220,9 @@ pub(super) fn at_landing_pad_entry(
     let entries = if let Some(c) = &t.shared_frames {
         c.check(f)?;
         analyze_shared(f, c.pairs(), &c.targets())?
-    } else { analyze(f)? };
+    } else {
+        analyze(f)?
+    };
     let mut result = HashMap::new();
     let mut landing_pads: Vec<_> = t.landing_pads.iter().copied().collect();
     landing_pads.sort_by_key(|b| b.0);

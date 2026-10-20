@@ -22,16 +22,17 @@
 //! Elements of libraries whose bodies were not inferred count as already
 //! evaluated: they do not become nodes.
 
-use super::evaluation::{constant_locals, Engine};
-use super::graph::{Walker, Graph};
+use super::evaluation::{Engine, constant_locals};
+use super::graph::{Graph, Walker};
 use crate::resolved::{MemberRef, Resolved};
 use crate::table::Type;
 use dartforge_elements::model::{
-    ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, UnitId, UnitRole,
-    VariableId, VariableRef,
+    ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program,
+    UnitId, UnitRole, VariableId, VariableRef,
 };
 use dartforge_frontend::ast::{
-    self, CollectionElement, DeclKind, ExprId, ExprKind, MemberKind, PatternId, PatternKind, StmtId, StmtKind,
+    self, CollectionElement, DeclKind, ExprId, ExprKind, MemberKind, PatternId, PatternKind,
+    StmtId, StmtKind,
 };
 use dartforge_frontend::features::LanguageVersion;
 use dartforge_intern::SymbolId;
@@ -75,7 +76,11 @@ impl Indices {
                 VariableRef::TopLevel { unit, decl, index } => {
                     x.top.insert((unit, decl, index), VariableId(i as u32));
                 }
-                VariableRef::Field { unit, member, index } => {
+                VariableRef::Field {
+                    unit,
+                    member,
+                    index,
+                } => {
                     x.fields.insert((unit, member, index), VariableId(i as u32));
                 }
                 _ => {}
@@ -83,7 +88,8 @@ impl Indices {
         }
         for (i, f) in program.functions.iter().enumerate() {
             if let FunctionRef::Constructor { unit, member } = f.node {
-                x.constructors.insert((unit, member), FunctionElementId(i as u32));
+                x.constructors
+                    .insert((unit, member), FunctionElementId(i as u32));
             }
         }
         for (i, k) in program.classes.iter().enumerate() {
@@ -124,13 +130,21 @@ impl State {
     }
 
     /// The initializer of the local constant declared at `offset`.
-    fn local_initializer(&mut self, m: &Engine<'_>, u: UnitId, offset: usize) -> Option<Option<ExprId>> {
+    fn local_initializer(
+        &mut self,
+        m: &Engine<'_>,
+        u: UnitId,
+        offset: usize,
+    ) -> Option<Option<ExprId>> {
         let a = m.ast(u);
         let map = self.locals.entry(u).or_insert_with(|| constant_locals(a));
         let &(stmt, i) = map.get(&offset)?;
         let list = match &a.stmt(stmt).kind {
             StmtKind::Variables(l) => l,
-            StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => l,
+            StmtKind::For {
+                init: Some(ast::ForInit::Variables(l)),
+                ..
+            } => l,
             _ => return None,
         };
         Some(list.variables.get(i).and_then(|x| x.initializer))
@@ -164,7 +178,10 @@ pub fn compute(m: &mut Engine<'_>, lib: LibraryId) {
             order.extend(targets);
             order.extend(loose);
         }
-        let mut g = G { m: engine, st: &mut st };
+        let mut g = G {
+            m: engine,
+            st: &mut st,
+        };
         for tgt in order {
             if let Some(no) = g.no(tgt) {
                 walker.traverse(&mut g, no);
@@ -179,11 +196,23 @@ pub fn compute(m: &mut Engine<'_>, lib: LibraryId) {
 fn the_initializer(m: &Engine<'_>, v: VariableId) -> Option<(UnitId, ExprId)> {
     match m.program.variable(v).node {
         VariableRef::TopLevel { unit, decl, index } => match &m.ast(unit).decl(decl).kind {
-            DeclKind::Variables(l) => l.variables.get(index).and_then(|x| x.initializer).map(|x| (unit, x)),
+            DeclKind::Variables(l) => l
+                .variables
+                .get(index)
+                .and_then(|x| x.initializer)
+                .map(|x| (unit, x)),
             _ => None,
         },
-        VariableRef::Field { unit, member, index } => match &m.ast(unit).member(member).kind {
-            MemberKind::Field(l) => l.variables.get(index).and_then(|x| x.initializer).map(|x| (unit, x)),
+        VariableRef::Field {
+            unit,
+            member,
+            index,
+        } => match &m.ast(unit).member(member).kind {
+            MemberKind::Field(l) => l
+                .variables
+                .get(index)
+                .and_then(|x| x.initializer)
+                .map(|x| (unit, x)),
             _ => None,
         },
         _ => None,
@@ -206,7 +235,10 @@ fn constant_element(m: &Engine<'_>, v: VariableId) -> bool {
     let cls = program.class(k);
     match cls.kind {
         ClassKind::Enum => true,
-        ClassKind::Class => cls.constructors.values().any(|f| program.function(program.public(*f)).const_),
+        ClassKind::Class => cls
+            .constructors
+            .values()
+            .any(|f| program.function(program.public(*f)).const_),
         _ => false,
     }
 }
@@ -216,7 +248,10 @@ fn constant_element(m: &Engine<'_>, v: VariableId) -> bool {
 pub(super) fn declared_superclass(program: &Program, k: ClassId) -> Option<ClassId> {
     let mut sup = program.class(k).supertype_class?;
     let mut steps = 0;
-    while program.class(sup).kind == ClassKind::MixinApplication && program.class(sup).decl.is_none() && steps < 64 {
+    while program.class(sup).kind == ClassKind::MixinApplication
+        && program.class(sup).decl.is_none()
+        && steps < 64
+    {
         sup = program.class(sup).supertype_class?;
         steps += 1;
     }
@@ -236,8 +271,12 @@ impl<'a> G<'_, 'a> {
     fn no(&mut self, tgt: Target) -> Option<usize> {
         let program = self.m.program;
         match tgt {
-            Target::Var(v) if !self.m.the_inferred.contains(&program.variable(v).library) => return None,
-            Target::Ctor(f) if !self.m.the_inferred.contains(&program.function(f).library) => return None,
+            Target::Var(v) if !self.m.the_inferred.contains(&program.variable(v).library) => {
+                return None;
+            }
+            Target::Ctor(f) if !self.m.the_inferred.contains(&program.function(f).library) => {
+                return None;
+            }
             _ => {}
         }
         if let Some(&i) = self.st.by_target.get(&tgt) {
@@ -266,8 +305,12 @@ impl<'a> G<'_, 'a> {
         let program = m.program;
         let var = program.variable(v);
         if let VariableRef::EnumConstant { unit, decl, index } = var.node {
-            let DeclKind::Enum(en) = &m.ast(unit).decl(decl).kind else { return Vec::new() };
-            let Some(cst) = en.constants.get(index) else { return Vec::new() };
+            let DeclKind::Enum(en) = &m.ast(unit).decl(decl).kind else {
+                return Vec::new();
+            };
+            let Some(cst) = en.constants.get(index) else {
+                return Vec::new();
+            };
             // An enum called `values`, or a constant with the enum's name: the
             // error was already reported elsewhere.
             if m.interner.resolve(en.name.sym) == "values" || cst.name.sym == en.name.sym {
@@ -275,11 +318,16 @@ impl<'a> G<'_, 'a> {
             }
             let mut deps = Vec::new();
             if let Some(k) = var.class {
-                let the_key = cst.constructor.map(|n| n.sym).or_else(|| m.interner.lookup(""));
-                if let Some(g) = the_key.and_then(|c| program.class(k).constructors.get(&c).copied())
-                    && program.function(program.public(g)).const_ {
-                        deps.push(Target::Ctor(g));
-                    }
+                let the_key = cst
+                    .constructor
+                    .map(|n| n.sym)
+                    .or_else(|| m.interner.lookup(""));
+                if let Some(g) =
+                    the_key.and_then(|c| program.class(k).constructors.get(&c).copied())
+                    && program.function(program.public(g)).const_
+                {
+                    deps.push(Target::Ctor(g));
+                }
             }
             if let Some(args) = &cst.arguments {
                 deps.extend(self.references(unit, |p| {
@@ -304,7 +352,9 @@ impl<'a> G<'_, 'a> {
             return Vec::new();
         }
         let fe = program.function(f);
-        let Some(cls) = fe.class else { return Vec::new() };
+        let Some(cls) = fe.class else {
+            return Vec::new();
+        };
         let empty = m.interner.lookup("");
         let no = match fe.node {
             FunctionRef::Constructor { unit, member } => match &m.ast(unit).member(member).kind {
@@ -316,7 +366,8 @@ impl<'a> G<'_, 'a> {
         if public.factory || no.is_some_and(|(_, k)| k.factory) {
             // `getConstRedirectedConstructor`: only the `const` target of the
             // redirection; `dart:core`'s `Symbol` is an exception.
-            let is_symbol = m.interner.resolve(program.class(cls).name) == "Symbol" && Some(fe.library) == m.core.core_library;
+            let is_symbol = m.interner.resolve(program.class(cls).name) == "Symbol"
+                && Some(fe.library) == m.core.core_library;
             if is_symbol {
                 return Vec::new();
             }
@@ -335,7 +386,9 @@ impl<'a> G<'_, 'a> {
                         let value = *value;
                         deps.extend(self.references(unit, |p| p.expr(value, false)));
                     }
-                    ast::Initializer::Assert { condition, message, .. } => {
+                    ast::Initializer::Assert {
+                        condition, message, ..
+                    } => {
                         let (condition, message) = (*condition, *message);
                         deps.extend(self.references(unit, |p| {
                             p.expr(condition, false);
@@ -344,12 +397,18 @@ impl<'a> G<'_, 'a> {
                             }
                         }));
                     }
-                    ast::Initializer::Super { constructor, arguments, .. } => {
+                    ast::Initializer::Super {
+                        constructor,
+                        arguments,
+                        ..
+                    } => {
                         implicit_super = false;
                         // The target, `const` or not.
                         let the_key = constructor.map(|n| n.sym).or(empty);
                         let sup = program.class(cls).supertype_class;
-                        if let Some(g) = the_key.and_then(|c| sup.and_then(|s| program.class(s).constructors.get(&c).copied())) {
+                        if let Some(g) = the_key.and_then(|c| {
+                            sup.and_then(|s| program.class(s).constructors.get(&c).copied())
+                        }) {
                             deps.push(Target::Ctor(g));
                         }
                         deps.extend(self.references(unit, |p| {
@@ -358,10 +417,16 @@ impl<'a> G<'_, 'a> {
                             }
                         }));
                     }
-                    ast::Initializer::Redirect { constructor, arguments, .. } => {
+                    ast::Initializer::Redirect {
+                        constructor,
+                        arguments,
+                        ..
+                    } => {
                         implicit_super = false;
                         let the_key = constructor.map(|n| n.sym).or(empty);
-                        if let Some(g) = the_key.and_then(|c| program.class(cls).constructors.get(&c).copied()) {
+                        if let Some(g) =
+                            the_key.and_then(|c| program.class(cls).constructors.get(&c).copied())
+                        {
                             deps.push(Target::Ctor(g));
                         }
                         deps.extend(self.references(unit, |p| {
@@ -378,10 +443,12 @@ impl<'a> G<'_, 'a> {
             // constructor, if it is `const` and the superclass is not `Object`.
             if let Some(sup) = declared_superclass(program, cls)
                 && Some(sup) != m.core.object_class
-                    && let Some(g) = empty.and_then(|c| program.class(sup).constructors.get(&c).copied())
-                        && program.function(program.public(g)).const_ {
-                            deps.push(Target::Ctor(g));
-                        }
+                && let Some(g) =
+                    empty.and_then(|c| program.class(sup).constructors.get(&c).copied())
+                && program.function(program.public(g)).const_
+            {
+                deps.push(Target::Ctor(g));
+            }
         }
         // Every `final`/`const` instance field with an initializer.
         for &v in program.class(cls).fields.iter() {
@@ -403,7 +470,11 @@ impl<'a> G<'_, 'a> {
 }
 
 /// The constructor that factory `k` redirects to (`= C.the_name`).
-fn redirection_target(m: &Engine<'_>, unit: UnitId, k: &ast::Constructor) -> Option<FunctionElementId> {
+fn redirection_target(
+    m: &Engine<'_>,
+    unit: UnitId,
+    k: &ast::Constructor,
+) -> Option<FunctionElementId> {
     let program = m.program;
     let r = k.redirect.as_ref()?;
     let (tgt, ctor) = crate::redirection::class_and_constructor(program, unit, r)?;
@@ -427,7 +498,14 @@ impl Graph for G<'_, '_> {
                 _ => Vec::new(),
             },
             Target::Annot(i) => self.st.annotations[i as usize].clone(),
-            Target::Values(k) => self.m.program.class(k).enum_constants.iter().map(|&v| Target::Var(v)).collect(),
+            Target::Values(k) => self
+                .m
+                .program
+                .class(k)
+                .enum_constants
+                .iter()
+                .map(|&v| Target::Var(v))
+                .collect(),
         };
         deps.into_iter().filter_map(|d| self.no(d)).collect()
     }
@@ -443,12 +521,15 @@ impl Graph for G<'_, '_> {
             // Without an initializer there is no result to store: the node stays
             // unevaluated, as in the analyzer.
             Target::Var(v) => {
-                matches!(m.program.variable(v).node, VariableRef::EnumConstant { .. }) || the_initializer(m, v).is_some()
+                matches!(m.program.variable(v).node, VariableRef::EnumConstant { .. })
+                    || the_initializer(m, v).is_some()
             }
             // Only a `const` constructor becomes computed.
             Target::Ctor(f) => m.program.function(m.program.public(f)).const_,
             Target::Param(..) | Target::Annot(_) | Target::Values(_) => true,
-            Target::Local(u, offset) => matches!(self.st.local_initializer(m, u, offset), Some(Some(_))),
+            Target::Local(u, offset) => {
+                matches!(self.st.local_initializer(m, u, offset), Some(Some(_)))
+            }
         };
         if ready {
             self.st.evaluated[no] = true;
@@ -474,7 +555,9 @@ impl Graph for G<'_, '_> {
                 // A parameter is a variable for `generateCycleError`: it keeps the
                 // stored invalid value.
                 // The synthetic `values` has no name to report.
-                Target::Param(..) | Target::Annot(_) | Target::Values(_) => self.st.evaluated[no] = true,
+                Target::Param(..) | Target::Annot(_) | Target::Values(_) => {
+                    self.st.evaluated[no] = true
+                }
             }
         }
     }
@@ -510,7 +593,8 @@ impl<'p, 'a> Walk<'p, 'a> {
     fn new(m: &'p Engine<'a>, st: &'p mut State, u: UnitId, references: bool) -> Self {
         let program = m.program;
         let lib = program.unit(u).library;
-        let patterns_enabled = program.library(lib).features.version() >= LanguageVersion::new(3, 0);
+        let patterns_enabled =
+            program.library(lib).features.version() >= LanguageVersion::new(3, 0);
         Walk {
             m,
             est: st,
@@ -548,7 +632,10 @@ impl<'p, 'a> Walk<'p, 'a> {
         let cu = &program.unit(self.u).unit;
         for d in cu.directives.iter() {
             // The annotations of `part` and `part of` have no element.
-            if matches!(d.kind, ast::DirectiveKind::Part { .. } | ast::DirectiveKind::PartOf { .. }) {
+            if matches!(
+                d.kind,
+                ast::DirectiveKind::Part { .. } | ast::DirectiveKind::PartOf { .. }
+            ) {
                 continue;
             }
             self.annotations(&d.metadata);
@@ -563,14 +650,24 @@ impl<'p, 'a> Walk<'p, 'a> {
         let program = self.m.program;
         let decl = a.decl(d);
         self.annotations(&decl.metadata);
-        let cls = self.est.indices.as_ref().and_then(|x| x.classes.get(&(self.u, d)).copied());
+        let cls = self
+            .est
+            .indices
+            .as_ref()
+            .and_then(|x| x.classes.get(&(self.u, d)).copied());
         match &decl.kind {
             DeclKind::Variables(l) => {
                 for (i, var) in l.variables.iter().enumerate() {
-                    let Some(init) = var.initializer else { continue };
+                    let Some(init) = var.initializer else {
+                        continue;
+                    };
                     self.expr(init, l.const_);
                     if l.const_ {
-                        let v = self.est.indices.as_ref().and_then(|x| x.top.get(&(self.u, d, i)).copied());
+                        let v = self
+                            .est
+                            .indices
+                            .as_ref()
+                            .and_then(|x| x.top.get(&(self.u, d, i)).copied());
                         if let Some(v) = v {
                             self.targets.push(Target::Var(v));
                         }
@@ -580,8 +677,9 @@ impl<'p, 'a> Walk<'p, 'a> {
             DeclKind::Function(f) => self.function(*f),
             DeclKind::Class(k) => {
                 self.class = cls;
-                self.finals_as_const =
-                    k.members.iter().any(|mid| matches!(&a.member(*mid).kind, MemberKind::Constructor(c) if c.const_));
+                self.finals_as_const = k.members.iter().any(
+                    |mid| matches!(&a.member(*mid).kind, MemberKind::Constructor(c) if c.const_),
+                );
                 self.members(&k.members);
                 self.finals_as_const = false;
                 self.class = None;
@@ -599,7 +697,9 @@ impl<'p, 'a> Walk<'p, 'a> {
                             self.expr(x.value, true);
                         }
                     }
-                    if let Some(v) = cls.and_then(|c| program.class(c).enum_constants.get(i).copied()) {
+                    if let Some(v) =
+                        cls.and_then(|c| program.class(c).enum_constants.get(i).copied())
+                    {
                         self.targets.push(Target::Var(v));
                     }
                 }
@@ -624,10 +724,16 @@ impl<'p, 'a> Walk<'p, 'a> {
             match &mem.kind {
                 MemberKind::Field(l) => {
                     for (i, var) in l.variables.iter().enumerate() {
-                        let Some(init) = var.initializer else { continue };
+                        let Some(init) = var.initializer else {
+                            continue;
+                        };
                         self.expr(init, l.const_);
                         if l.const_ || self.finals_as_const && l.final_ && !l.static_ {
-                            let v = self.est.indices.as_ref().and_then(|x| x.fields.get(&(self.u, mid, i)).copied());
+                            let v = self
+                                .est
+                                .indices
+                                .as_ref()
+                                .and_then(|x| x.fields.get(&(self.u, mid, i)).copied());
                             if let Some(v) = v {
                                 self.targets.push(Target::Var(v));
                             }
@@ -640,13 +746,16 @@ impl<'p, 'a> Walk<'p, 'a> {
                     for init in k.initializers.iter() {
                         match init {
                             ast::Initializer::Field { value, .. } => self.expr(*value, false),
-                            ast::Initializer::Assert { condition, message, .. } => {
+                            ast::Initializer::Assert {
+                                condition, message, ..
+                            } => {
                                 self.expr(*condition, false);
                                 if let Some(x) = message {
                                     self.expr(*x, false);
                                 }
                             }
-                            ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
+                            ast::Initializer::Super { arguments, .. }
+                            | ast::Initializer::Redirect { arguments, .. } => {
                                 for x in arguments.args.iter() {
                                     self.expr(x.value, false);
                                 }
@@ -657,12 +766,20 @@ impl<'p, 'a> Walk<'p, 'a> {
                     // The `const` constructor and all its parameters, after the
                     // children.
                     if k.const_ {
-                        let f = self.est.indices.as_ref().and_then(|x| x.constructors.get(&(self.u, mid)).copied());
+                        let f = self
+                            .est
+                            .indices
+                            .as_ref()
+                            .and_then(|x| x.constructors.get(&(self.u, mid)).copied());
                         if let Some(f) = f {
                             self.targets.push(Target::Ctor(f));
                             for p in k.parameters.iter() {
                                 if p.kind != ast::ParameterKind::Required {
-                                    self.targets.push(Target::Param(self.u, p.span.start, p.default_value));
+                                    self.targets.push(Target::Param(
+                                        self.u,
+                                        p.span.start,
+                                        p.default_value,
+                                    ));
                                 }
                             }
                         }
@@ -690,7 +807,8 @@ impl<'p, 'a> Walk<'p, 'a> {
             if let Some(d) = p.default_value {
                 self.expr(d, false);
                 if !self.references {
-                    self.targets.push(Target::Param(self.u, p.span.start, Some(d)));
+                    self.targets
+                        .push(Target::Param(self.u, p.span.start, Some(d)));
                 }
             }
         }
@@ -737,22 +855,32 @@ impl<'p, 'a> Walk<'p, 'a> {
         let empty = self.m.interner.lookup("");
         let static_ = |k: ClassId, the_name: SymbolId| -> Option<VariableId> {
             let cls = program.class(k);
-            cls.enum_constants.iter().chain(cls.fields.iter()).copied().find(|v| {
-                let x = program.variable(*v);
-                x.name == the_name && x.static_
-            })
+            cls.enum_constants
+                .iter()
+                .chain(cls.fields.iter())
+                .copied()
+                .find(|v| {
+                    let x = program.variable(*v);
+                    x.name == the_name && x.static_
+                })
         };
         let of_class = |k: ClassId, the_name: Option<SymbolId>| -> Option<Target> {
             if let Some(v) = the_name.and_then(|n| static_(k, n)) {
                 return Some(Target::Var(v));
             }
             let the_key = the_name.or(empty)?;
-            program.class(k).constructors.get(&the_key).map(|f| Target::Ctor(*f))
+            program
+                .class(k)
+                .constructors
+                .get(&the_key)
+                .map(|f| Target::Ctor(*f))
         };
         let of_element = |el: Option<Element>, the_name: Option<SymbolId>| -> Option<Target> {
             match el? {
                 Element::Variable(v) if the_name.is_none() => Some(Target::Var(v)),
-                Element::Function(f) if the_name.is_none() => program.function(f).variable.map(Target::Var),
+                Element::Function(f) if the_name.is_none() => {
+                    program.function(f).variable.map(Target::Var)
+                }
                 Element::Class(k) => of_class(k, the_name),
                 _ => None,
             }
@@ -762,13 +890,24 @@ impl<'p, 'a> Walk<'p, 'a> {
                 if let Some(v) = self.class.and_then(|k| static_(k, n.sym)) {
                     return Some(Target::Var(v));
                 }
-                of_element(program.lookup_in_unit(u, n.sym).and_then(|b| b.getter), None)
+                of_element(
+                    program.lookup_in_unit(u, n.sym).and_then(|b| b.getter),
+                    None,
+                )
             }
             [x, y] => match program.lookup_prefixed_in_unit(u, x.sym, y.sym) {
                 Some(b) => of_element(b.getter, None),
-                None => of_element(program.lookup_in_unit(u, x.sym).and_then(|b| b.getter), Some(y.sym)),
+                None => of_element(
+                    program.lookup_in_unit(u, x.sym).and_then(|b| b.getter),
+                    Some(y.sym),
+                ),
             },
-            [p, k, n] => of_element(program.lookup_prefixed_in_unit(u, p.sym, k.sym).and_then(|b| b.getter), Some(n.sym)),
+            [p, k, n] => of_element(
+                program
+                    .lookup_prefixed_in_unit(u, p.sym, k.sym)
+                    .and_then(|b| b.getter),
+                Some(n.sym),
+            ),
             _ => None,
         }
     }
@@ -777,10 +916,13 @@ impl<'p, 'a> Walk<'p, 'a> {
 
     fn local_list(&mut self, l: &'a ast::VariableList) {
         for var in l.variables.iter() {
-            let Some(init) = var.initializer else { continue };
+            let Some(init) = var.initializer else {
+                continue;
+            };
             self.expr(init, l.const_);
             if l.const_ && !self.references {
-                self.targets.push(Target::Local(self.u, var.name.span.start));
+                self.targets
+                    .push(Target::Local(self.u, var.name.span.start));
             }
         }
     }
@@ -820,7 +962,13 @@ impl<'p, 'a> Walk<'p, 'a> {
             }
             StmtKind::Function(f) => self.function(*f),
             StmtKind::Expression(e) => self.expr(*e, false),
-            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+            StmtKind::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition, false);
                 if let Some(p) = case_pattern {
                     self.pattern(*p);
@@ -833,7 +981,13 @@ impl<'p, 'a> Walk<'p, 'a> {
                     self.stmt(*e);
                 }
             }
-            StmtKind::For { init, condition, updates, body, .. } => {
+            StmtKind::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 self.for_start(init);
                 if let Some(c) = condition {
                     self.expr(*c, false);
@@ -843,7 +997,12 @@ impl<'p, 'a> Walk<'p, 'a> {
                 }
                 self.stmt(*body);
             }
-            StmtKind::ForIn { target, iterable, body, .. } => {
+            StmtKind::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 self.for_in_target(target);
                 self.expr(*iterable, false);
                 self.stmt(*body);
@@ -872,7 +1031,11 @@ impl<'p, 'a> Walk<'p, 'a> {
             }
             StmtKind::Return(Some(e)) => self.expr(*e, false),
             StmtKind::Yield { value, .. } => self.expr(*value, false),
-            StmtKind::Try { body, catches, finally_ } => {
+            StmtKind::Try {
+                body,
+                catches,
+                finally_,
+            } => {
                 self.stmt(*body);
                 for c in catches.iter() {
                     self.stmt(c.body);
@@ -908,16 +1071,24 @@ impl<'p, 'a> Walk<'p, 'a> {
             }
             // `case the_name:` (the parser stores it as a variable): the top-level
             // constant with that name, as the verifier reads it.
-            PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.patterns_enabled => {
+            PatternKind::Variable {
+                final_: false,
+                var_: false,
+                ty: None,
+                name,
+            } if self.patterns_enabled => {
                 let program = self.m.program;
-                if let Some(Element::Variable(v)) = program.lookup_in_unit(self.u, name.sym).and_then(|b| b.getter)
-                    && program.variable(v).const_ {
-                        if self.references {
-                            self.output.push(Target::Var(v));
-                        } else if self.the_seen.insert(Target::Var(v)) {
-                            self.loose.push(Target::Var(v));
-                        }
+                if let Some(Element::Variable(v)) = program
+                    .lookup_in_unit(self.u, name.sym)
+                    .and_then(|b| b.getter)
+                    && program.variable(v).const_
+                {
+                    if self.references {
+                        self.output.push(Target::Var(v));
+                    } else if self.the_seen.insert(Target::Var(v)) {
+                        self.loose.push(Target::Var(v));
                     }
+                }
             }
             PatternKind::Relational { value, .. } => {
                 let e = *value;
@@ -931,12 +1102,15 @@ impl<'p, 'a> Walk<'p, 'a> {
                 self.pattern(*x);
                 self.pattern(*y);
             }
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.pattern(*x),
+            PatternKind::NullCheck(x)
+            | PatternKind::NullAssert(x)
+            | PatternKind::Parenthesized(x) => self.pattern(*x),
             PatternKind::Cast { pattern, .. } => self.pattern(*pattern),
             PatternKind::List { elements, .. } => {
                 for el in elements.iter() {
                     match el {
-                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.pattern(*x),
+                        ast::ListPatternElement::Pattern(x)
+                        | ast::ListPatternElement::Rest(Some(x)) => self.pattern(*x),
                         _ => {}
                     }
                 }
@@ -972,10 +1146,16 @@ impl<'p, 'a> Walk<'p, 'a> {
         let m = self.m;
         let program = m.program;
         let v = match m.resolved(self.u, e) {
-            Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
-                Some(*v)
-            }
-            Some(Resolved::Element(Element::Function(f))) | Some(Resolved::Member { member: MemberRef::Function(f), .. }) => {
+            Some(Resolved::Element(Element::Variable(v)))
+            | Some(Resolved::Member {
+                member: MemberRef::Variable(v),
+                ..
+            }) => Some(*v),
+            Some(Resolved::Element(Element::Function(f)))
+            | Some(Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            }) => {
                 let fe = program.function(*f);
                 if fe.kind == FunctionKind::ImplicitAccessor {
                     fe.variable
@@ -996,32 +1176,37 @@ impl<'p, 'a> Walk<'p, 'a> {
             // The local (or the local declared ahead, without resolution in
             // inference, but with the declaration recorded).
             Some(Resolved::Local(_)) | None => {
-                let offset = m.body.units.get(self.u.0 as usize).and_then(|b| b.local_declaration(e));
+                let offset = m
+                    .body
+                    .units
+                    .get(self.u.0 as usize)
+                    .and_then(|b| b.local_declaration(e));
                 if let Some(offset) = offset
-                    && self.est.local_initializer(m, self.u, offset).is_some() {
-                        self.output.push(Target::Local(self.u, offset));
-                    }
+                    && self.est.local_initializer(m, self.u, offset).is_some()
+                {
+                    self.output.push(Target::Local(self.u, offset));
+                }
                 None
             }
             _ => None,
         };
         if let Some(v) = v
-            && program.variable(v).const_ {
-                self.output.push(Target::Var(v));
-            }
+            && program.variable(v).const_
+        {
+            self.output.push(Target::Var(v));
+        }
     }
 
     /// An instance creation: `is_const` is the node's `isConst` (the written
     /// `const`, or the implicit creation in a constant context).
     fn creation(&mut self, e: ExprId, is_const: bool, in_const: bool, args: &'a ast::Arguments) {
         if self.references {
-            if is_const
-                && let Some(Resolved::Constructor(f)) = self.m.resolved(self.u, e) {
-                    let program = self.m.program;
-                    if program.function(program.public(*f)).const_ {
-                        self.output.push(Target::Ctor(*f));
-                    }
+            if is_const && let Some(Resolved::Constructor(f)) = self.m.resolved(self.u, e) {
+                let program = self.m.program;
+                if program.function(program.public(*f)).const_ {
+                    self.output.push(Target::Ctor(*f));
                 }
+            }
             for x in args.args.iter() {
                 self.expr(x.value, in_const || is_const);
             }
@@ -1036,13 +1221,21 @@ impl<'p, 'a> Walk<'p, 'a> {
 
     fn element(&mut self, el: &'a CollectionElement, c: bool) {
         match el {
-            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => self.expr(*x, c),
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
+                self.expr(*x, c)
+            }
             CollectionElement::MapEntry { key, value, .. } => {
                 self.expr(*key, c);
                 self.expr(*value, c);
             }
             CollectionElement::Spread { value, .. } => self.expr(*value, c),
-            CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+            CollectionElement::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition, c);
                 if let Some(p) = case_pattern {
                     self.pattern(*p);
@@ -1055,7 +1248,13 @@ impl<'p, 'a> Walk<'p, 'a> {
                     self.element(x, c);
                 }
             }
-            CollectionElement::For { init, condition, updates, body, .. } => {
+            CollectionElement::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 self.for_start(init);
                 if let Some(x) = condition {
                     self.expr(*x, c);
@@ -1065,7 +1264,12 @@ impl<'p, 'a> Walk<'p, 'a> {
                 }
                 self.element(body, c);
             }
-            CollectionElement::ForIn { target, iterable, body, .. } => {
+            CollectionElement::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 self.for_in_target(target);
                 self.expr(*iterable, c);
                 self.element(body, c);
@@ -1078,7 +1282,9 @@ impl<'p, 'a> Walk<'p, 'a> {
         let u = self.u;
         match &a.expr(e).kind {
             ExprKind::Identifier(_) | ExprKind::DotShorthand { .. } => self.reference(e),
-            ExprKind::InstanceCreation { keyword, arguments, .. } => {
+            ExprKind::InstanceCreation {
+                keyword, arguments, ..
+            } => {
                 let is_const = match keyword {
                     Some(ast::CreationKeyword::Const) => true,
                     Some(ast::CreationKeyword::New) => false,
@@ -1090,7 +1296,10 @@ impl<'p, 'a> Walk<'p, 'a> {
                 if matches!(self.m.resolved(u, e), Some(Resolved::Constructor(_))) {
                     // Implicit creation: constant in a constant context
                     // (or with the dot shorthand's `const`).
-                    let const_shorthand = matches!(a.expr(*target).kind, ExprKind::DotShorthand { const_: true, .. });
+                    let const_shorthand = matches!(
+                        a.expr(*target).kind,
+                        ExprKind::DotShorthand { const_: true, .. }
+                    );
                     self.creation(e, in_const || const_shorthand, in_const, arguments);
                     return;
                 }
@@ -1099,7 +1308,9 @@ impl<'p, 'a> Walk<'p, 'a> {
                     self.expr(x.value, in_const);
                 }
             }
-            ExprKind::List { const_, elements, .. } => {
+            ExprKind::List {
+                const_, elements, ..
+            } => {
                 let c = *const_ || in_const;
                 if c && !self.references {
                     self.release(|s| s.expr(e, in_const));
@@ -1109,7 +1320,9 @@ impl<'p, 'a> Walk<'p, 'a> {
                     self.element(el, c);
                 }
             }
-            ExprKind::SetOrMap { const_, elements, .. } => {
+            ExprKind::SetOrMap {
+                const_, elements, ..
+            } => {
                 let c = *const_ || in_const;
                 if !self.references {
                     if c {
@@ -1139,7 +1352,11 @@ impl<'p, 'a> Walk<'p, 'a> {
                     self.element(el, c);
                 }
             }
-            ExprKind::Record { const_, positional, named } => {
+            ExprKind::Record {
+                const_,
+                positional,
+                named,
+            } => {
                 let c = *const_ || in_const;
                 if c && !self.references {
                     self.release(|s| s.expr(e, in_const));
@@ -1157,7 +1374,9 @@ impl<'p, 'a> Walk<'p, 'a> {
                     }
                 }
             }
-            ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(*x, in_const),
+            ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => {
+                self.expr(*x, in_const)
+            }
             ExprKind::Property { target, .. } => {
                 self.expr(*target, in_const);
                 self.reference(e);
@@ -1172,7 +1391,11 @@ impl<'p, 'a> Walk<'p, 'a> {
                 self.expr(*left, in_const);
                 self.expr(*right, in_const);
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 self.expr(*condition, in_const);
                 self.expr(*then, in_const);
                 self.expr(*else_, in_const);
@@ -1186,7 +1409,9 @@ impl<'p, 'a> Walk<'p, 'a> {
                 self.pattern(*pattern);
                 self.expr(*value, in_const);
             }
-            ExprKind::Cascade { target, sections, .. } => {
+            ExprKind::Cascade {
+                target, sections, ..
+            } => {
                 self.expr(*target, in_const);
                 for s in sections.iter() {
                     self.expr(*s, in_const);

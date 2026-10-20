@@ -14,100 +14,99 @@
 //! `dartforge analyze` (`typed`), published only if the version is still
 //! the current one (`docs/LSP.md`, "Diagnósticos tipados").
 
+mod actions;
 pub mod formatting;
 pub mod server;
-mod actions;
 pub(crate) use dartforge_analysis::analyzer_tree;
-mod signature;
+mod action_kinds_g;
 mod assist_conditionals;
 mod assist_destructure;
 mod assist_enum;
-mod assist_surround;
 mod assist_expressions;
 mod assist_flutter;
 mod assist_flutter_widget;
 mod assist_functions;
 mod assist_imports;
 mod assist_loops;
-mod assist_super;
-mod assist_switch;
-mod assist_switch_expression;
 mod assist_members;
 mod assist_strings;
+mod assist_super;
+mod assist_surround;
+mod assist_switch;
+mod assist_switch_expression;
 mod assist_type;
 mod assists;
 mod assists2;
 mod assists3;
-mod fuzzy_matcher;
-mod call_hierarchy;
-mod inlay_hints;
-mod write_type;
-mod action_kinds_g;
-mod structure;
-mod fix_all;
-mod organize_imports;
-mod sort_members;
-mod hierarchy;
-mod workspace_symbols;
-mod referenced_names;
-mod ignore_diagnostic;
-mod completion;
-mod known_libraries;
-mod query;
-mod outline;
-mod fixes;
-mod dart_fixes;
-mod create;
-mod dartdoc;
-mod document_highlight;
-mod description;
-mod index;
-mod memory;
-mod links;
-mod colors;
 mod augmentations;
-mod move_file;
-mod insert;
+mod call_hierarchy;
+mod closing_labels;
+mod colors;
+mod completion;
 mod completion_item;
+mod create;
+mod dart_fixes;
+mod dartdoc;
+mod description;
+mod document_highlight;
+mod fix_all;
+mod fixes;
+mod fuzzy_matcher;
+mod hierarchy;
+mod ignore_diagnostic;
+mod index;
+mod inlay_hints;
+mod insert;
+mod known_libraries;
+mod links;
+mod memory;
+mod move_file;
 mod navigation;
+mod organize_imports;
+mod outline;
 mod project;
-mod semantic_tokens;
+mod query;
 mod refactorings;
-mod refactorings_inline;
 mod refactorings_exec;
+mod refactorings_inline;
 mod refactorings_method;
 mod refactorings_move;
+mod referenced_names;
 mod registration;
 mod relevance;
 mod relevance_tables;
 mod rename;
-mod closing_labels;
 mod semantic;
+mod semantic_tokens;
 mod session;
-mod symbols;
+mod signature;
 mod snippets;
-mod typed;
+mod sort_members;
+mod structure;
+mod symbols;
 pub mod transport;
+mod typed;
 pub mod utf16;
+mod workspace_symbols;
+mod write_type;
 
 use dartforge_diagnostics::Diagnostic;
 use std::collections::HashMap;
 use utf16::LineTable;
 
+pub use completion::{AutoImport, Call, Completion, CompletionItem};
+pub use rename::{Edit, Rename, RenameFile};
+pub use semantic::SemanticAnalyzer;
 pub use server::Server;
 pub use typed::{CHILD_ARGUMENT as TYPED_ANALYSIS_ARGUMENT, typed_analysis_child};
-pub use semantic::SemanticAnalyzer;
-pub use completion::{Call, Completion, AutoImport, CompletionItem};
-pub use rename::{Edit, RenameFile, Rename};
 
-pub use actions::{CodeAction, LinkedGroup, Linked};
-pub use refactorings::{RefactoringCommand, RefactoringRequest, Refactoring, RefactoringResult};
-pub use signature::Signature;
-pub use call_hierarchy::{CallKind, CallItem};
+pub use actions::{CodeAction, Linked, LinkedGroup};
+pub use call_hierarchy::{CallItem, CallKind};
 pub use inlay_hints::Hint;
-pub use structure::Fold;
+pub use refactorings::{Refactoring, RefactoringCommand, RefactoringRequest, RefactoringResult};
 pub use session::SessionStats;
-
+pub use signature::Signature;
+pub use structure::Fold;
 
 /// LSP position: line and column in **UTF-16 units** (both 0-based).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,7 +166,10 @@ impl References {
     fn from_list(uri: &str, spans: Vec<dartforge_diagnostics::Span>) -> Self {
         let mut spans = spans.into_iter().map(|s| (uri.to_string(), s));
         let declaration = spans.next();
-        Self { declaration, uses: spans.collect() }
+        Self {
+            declaration,
+            uses: spans.collect(),
+        }
     }
 }
 
@@ -204,13 +206,15 @@ impl OpenDocument {
                     self.lines = LineTable::build(&self.text);
                 }
                 Some((start, end)) => {
-                    let from =
-                        self.lines
-                            .position_offset(&self.text, start.line, start.column);
-                    let until = self
+                    let from = self
                         .lines
-                        .position_offset(&self.text, end.line, end.column);
-                    let (from, until) = if from <= until { (from, until) } else { (until, from) };
+                        .position_offset(&self.text, start.line, start.column);
+                    let until = self.lines.position_offset(&self.text, end.line, end.column);
+                    let (from, until) = if from <= until {
+                        (from, until)
+                    } else {
+                        (until, from)
+                    };
                     self.text.replace_range(from..until, &change.text);
                     let line = self.lines.line_of(&self.text, from);
                     self.lines.recompute_from(&self.text, line);
@@ -250,8 +254,7 @@ impl DocumentStore {
     /// Registers an open document; reopening replaces it, without retaining the
     /// previous one.
     pub fn open(&mut self, uri: String, version: i32, text: String) {
-        self.documents
-            .insert(uri, OpenDocument::new(version, text));
+        self.documents.insert(uri, OpenDocument::new(version, text));
     }
 
     /// Applies version N and discards N−1 in place; false when it does not exist.
@@ -365,13 +368,24 @@ pub trait Analyzer {
 
     /// Conservative definition of the position in the text: URI and selection
     /// at the target.
-    fn definition(&mut self, _uri: &str, _text: &str, _offset: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+    fn definition(
+        &mut self,
+        _uri: &str,
+        _text: &str,
+        _offset: usize,
+    ) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
         None
     }
 
     /// Variant with the open buffers, to resolve imports not saved yet without
     /// duplicating documents in the resident analyzer.
-    fn definition_in_workspace(&mut self, uri: &str, text: &str, offset: usize, _documents: &DocumentStore) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+    fn definition_in_workspace(
+        &mut self,
+        uri: &str,
+        text: &str,
+        offset: usize,
+        _documents: &DocumentStore,
+    ) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
         self.definition(uri, text, offset)
     }
 
@@ -381,7 +395,13 @@ pub trait Analyzer {
     }
 
     /// Variant with the open buffers (texts not saved yet).
-    fn hover_in_workspace(&mut self, uri: &str, text: &str, offset: usize, _documents: &DocumentStore) -> Option<Hover> {
+    fn hover_in_workspace(
+        &mut self,
+        uri: &str,
+        text: &str,
+        offset: usize,
+        _documents: &DocumentStore,
+    ) -> Option<Hover> {
         self.hover(uri, text, offset)
     }
 
@@ -397,7 +417,12 @@ pub trait Analyzer {
     /// assert!(SyntacticAnalyzer::new().completion(&docs, "file:///a.dart", 18).is_none());
     /// assert!(SemanticAnalyzer::new(None).completion(&docs, "file:///a.dart", 18).is_none());
     /// ```
-    fn completion(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<Completion> {
+    fn completion(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+    ) -> Option<Completion> {
         None
     }
 
@@ -441,7 +466,13 @@ pub trait Analyzer {
     ///
     /// Invalid name, element that cannot be renamed, or a conflict, with the
     /// message for the user.
-    fn rename(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _new: &str) -> Result<Rename, String> {
+    fn rename(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+        _new: &str,
+    ) -> Result<Rename, String> {
         Err("Rename requires the semantic analysis (Dart SDK).".into())
     }
 
@@ -459,8 +490,17 @@ pub trait Analyzer {
     /// assert_eq!(actions[0].title, "Insert ';'");
     /// assert_eq!(actions[0].edits[0].text, ";");
     /// ```
-    fn actions(&mut self, documents: &DocumentStore, uri: &str, start: usize, end: usize, _published: &[Diagnostic]) -> Vec<CodeAction> {
-        let Some(text) = documents.get(uri) else { return Vec::new() };
+    fn actions(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        start: usize,
+        end: usize,
+        _published: &[Diagnostic],
+    ) -> Vec<CodeAction> {
+        let Some(text) = documents.get(uri) else {
+            return Vec::new();
+        };
         let diagnostics = self.diagnose(uri, text);
         let mut output = actions::fix_syntax(uri, text, &diagnostics, start, end);
         output.push(actions::organize_imports(uri, text));
@@ -470,17 +510,36 @@ pub trait Analyzer {
     /// The refactorings listed in `offset..offset + length`
     /// (docs/LSP-ESPECIFICACAO.md §13.11.1); `create_files` is the client's
     /// `supportsFileCreation`.
-    fn refactorings(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _length: usize, _create_files: bool) -> Vec<Refactoring> {
+    fn refactorings(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+        _length: usize,
+        _create_files: bool,
+    ) -> Vec<Refactoring> {
         Vec::new()
     }
 
     /// `refactor.perform`/`refactor.validate` of a legacy refactoring (§13.11.2).
-    fn run_refactoring(&mut self, _documents: &DocumentStore, _uri: &str, _request: &RefactoringRequest) -> RefactoringResult {
+    fn run_refactoring(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _request: &RefactoringRequest,
+    ) -> RefactoringResult {
         RefactoringResult::NotAnalyzed
     }
 
     /// `dart.refactor.move_top_level_to_file` to file `target` (§13.11.9 e).
-    fn move_to_file(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _length: usize, _target: &str) -> RefactoringResult {
+    fn move_to_file(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+        _length: usize,
+        _target: &str,
+    ) -> RefactoringResult {
         RefactoringResult::NotAnalyzed
     }
 
@@ -527,7 +586,12 @@ pub trait Analyzer {
     /// top-level type, variable, function or getter, without imports or
     /// shadows): `None` means "I don't know", never "there are none". The
     /// result is transient to the caller, as in the other methods.
-    fn references(&mut self, _uri: &str, _text: &str, _offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
+    fn references(
+        &mut self,
+        _uri: &str,
+        _text: &str,
+        _offset: usize,
+    ) -> Option<Vec<dartforge_diagnostics::Span>> {
         None
     }
 
@@ -535,7 +599,12 @@ pub trait Analyzer {
     /// file's URI. The default delegates to the document itself. Nothing is
     /// retained between requests beyond what the analyzer's session policy
     /// allows.
-    fn references_in(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<References> {
+    fn references_in(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<References> {
         let text = documents.get(uri)?;
         let spans = self.references(uri, text, offset)?;
         Some(References::from_list(uri, spans))
@@ -544,57 +613,109 @@ pub trait Analyzer {
     /// Signature help in the argument list containing `offset`
     /// (`textDocument/signatureHelp`). `auto`: the editor asked on typing `(`;
     /// it only answers if that `(` opens the list. The default: none.
-    fn signature(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _auto: bool) -> Option<Signature> {
+    fn signature(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+        _auto: bool,
+    ) -> Option<Signature> {
         None
     }
 
     /// The occurrences, in the document itself, of what `offset` denotes
     /// (`textDocument/documentHighlight`). The default uses the document's
     /// conservative references.
-    fn document_highlights(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
+    fn document_highlights(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<Vec<dartforge_diagnostics::Span>> {
         let text = documents.get(uri)?.to_string();
         self.references(uri, &text, offset)
     }
 
     /// Implementations (`textDocument/implementation`): subtypes of a class or
     /// the overrides of a member, with each one's URI.
-    fn implementations(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Vec<(String, dartforge_diagnostics::Span)> {
+    fn implementations(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+    ) -> Vec<(String, dartforge_diagnostics::Span)> {
         Vec::new()
     }
 
     /// The colors of `uri` (`textDocument/documentColor`): the range and the
     /// ARGB from 0 to 255.
-    fn colors(&mut self, _documents: &DocumentStore, _uri: &str) -> Vec<(dartforge_diagnostics::Span, [u8; 4])> {
+    fn colors(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+    ) -> Vec<(dartforge_diagnostics::Span, [u8; 4])> {
         Vec::new()
     }
 
     /// `textDocument/colorPresentation`: Flutter's `Color` exists and the
     /// expression at `offset` requires `const` (`None`: without the `Color`).
-    fn color_presentation(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<bool> {
+    fn color_presentation(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+    ) -> Option<bool> {
         None
     }
 
     /// The augmentation lenses of `uri` (`AugmentationCodeLensProvider`): the
     /// name, the title and the target (URI and span).
-    fn augmentation_lenses(&mut self, _documents: &DocumentStore, _uri: &str, _augmented: bool, _augmentations: bool) -> Vec<(dartforge_diagnostics::Span, &'static str, String, dartforge_diagnostics::Span)> {
+    fn augmentation_lenses(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _augmented: bool,
+        _augmentations: bool,
+    ) -> Vec<(
+        dartforge_diagnostics::Span,
+        &'static str,
+        String,
+        dartforge_diagnostics::Span,
+    )> {
         Vec::new()
     }
 
     /// `dart/textDocument/augmented` (`next` false) and
     /// `dart/textDocument/augmentation`: the neighbor in the augmentation chain.
-    fn augmentation_neighbor(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _next: bool) -> Option<(String, dartforge_diagnostics::Span)> {
+    fn augmentation_neighbor(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+        _next: bool,
+    ) -> Option<(String, dartforge_diagnostics::Span)> {
         None
     }
 
     /// `dart/textDocument/super`: the constructor, class or member that what
     /// `offset` denotes overrides or extends.
-    fn upper(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<(String, dartforge_diagnostics::Span)> {
+    fn upper(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+    ) -> Option<(String, dartforge_diagnostics::Span)> {
         None
     }
 
     /// The declaration of the static type of what `offset` denotes
     /// (`textDocument/typeDefinition`).
-    fn type_definition(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<(String, dartforge_diagnostics::Span)> {
+    fn type_definition(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+    ) -> Option<(String, dartforge_diagnostics::Span)> {
         None
     }
 
@@ -606,13 +727,22 @@ pub trait Analyzer {
 
     /// Selection ranges at `offset`, from the innermost to the outermost
     /// (`textDocument/selectionRange`).
-    fn selections(&mut self, _uri: &str, _text: &str, _offset: usize) -> Vec<dartforge_diagnostics::Span> {
+    fn selections(
+        &mut self,
+        _uri: &str,
+        _text: &str,
+        _offset: usize,
+    ) -> Vec<dartforge_diagnostics::Span> {
         Vec::new()
     }
 
     /// The document's closing labels (`dart/textDocument/publishClosingLabels`):
     /// the node's range (bytes) and the text. The default has none.
-    fn closing_labels(&mut self, _documents: &DocumentStore, _uri: &str) -> Vec<(dartforge_diagnostics::Span, String)> {
+    fn closing_labels(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+    ) -> Vec<(dartforge_diagnostics::Span, String)> {
         Vec::new()
     }
 
@@ -624,13 +754,24 @@ pub trait Analyzer {
     /// Semantic tokens of the document already encoded for the protocol (groups
     /// of 5 numbers); `multiline`: the client accepts multi-line tokens; `range`
     /// (bytes): only those that touch it.
-    fn semantic_tokens(&mut self, _documents: &DocumentStore, _uri: &str, _multiline: bool, _range: Option<(usize, usize)>) -> Option<Vec<u32>> {
+    fn semantic_tokens(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _multiline: bool,
+        _range: Option<(usize, usize)>,
+    ) -> Option<Vec<u32>> {
         None
     }
 
     /// The executable at `offset` as a call hierarchy item
     /// (`textDocument/prepareCallHierarchy`).
-    fn prepare_calls(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<CallItem> {
+    fn prepare_calls(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+    ) -> Option<CallItem> {
         None
     }
 
@@ -638,12 +779,25 @@ pub trait Analyzer {
     /// `offset` of `uri`, the displayed name (`_isMatchingElement`) and whether
     /// the kind is constructor (the class's implicit unnamed constructor); the
     /// ranges of each one (in the caller's file, for incoming calls).
-    fn calls(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize, _name: &str, _constructor: bool, _received: bool) -> Vec<(CallItem, Vec<dartforge_diagnostics::Span>)> {
+    fn calls(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+        _name: &str,
+        _constructor: bool,
+        _received: bool,
+    ) -> Vec<(CallItem, Vec<dartforge_diagnostics::Span>)> {
         Vec::new()
     }
 
     /// The type hierarchy item at `offset` (`textDocument/prepareTypeHierarchy`).
-    fn prepare_hierarchy(&mut self, _documents: &DocumentStore, _uri: &str, _offset: usize) -> Option<TypeItem> {
+    fn prepare_hierarchy(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _offset: usize,
+    ) -> Option<TypeItem> {
         None
     }
 
@@ -651,7 +805,14 @@ pub trait Analyzer {
     /// `ElementLocation` is `reference` (the item's `data.ref`), in the project
     /// of `uri`; `anchor` is the `data.anchor` (the reference and the path).
     /// `None` when the reference does not locate a class (`null` response).
-    fn hierarchy(&mut self, _documents: &DocumentStore, _uri: &str, _reference: &str, _anchor: Option<(&str, &[usize])>, _supertypes: bool) -> Option<Vec<TypeItem>> {
+    fn hierarchy(
+        &mut self,
+        _documents: &DocumentStore,
+        _uri: &str,
+        _reference: &str,
+        _anchor: Option<(&str, &[usize])>,
+        _supertypes: bool,
+    ) -> Option<Vec<TypeItem>> {
         None
     }
 }
@@ -689,7 +850,8 @@ pub struct TypeItem {
 pub struct SyntacticAnalyzer {
     /// `package_config.json` files already read, by path (one per open
     /// project): each file's default language version comes from it.
-    configs: std::collections::HashMap<std::path::PathBuf, dartforge_elements::config::PackageConfig>,
+    configs:
+        std::collections::HashMap<std::path::PathBuf, dartforge_elements::config::PackageConfig>,
     /// Default version (the package's) of each document already seen.
     patterns: std::collections::HashMap<String, dartforge_frontend::LanguageVersion>,
 }
@@ -705,7 +867,11 @@ impl SyntacticAnalyzer {
     /// `package_config.json` that contains it, else the current version. Without
     /// this, a 3.6 project would see an error on a `final` parameter (forbidden
     /// in 3.13) and a 3.13 one would see an error on a primary constructor.
-    pub(crate) fn features(&mut self, uri: &str, text: &str) -> dartforge_frontend::LibraryFeatures {
+    pub(crate) fn features(
+        &mut self,
+        uri: &str,
+        text: &str,
+    ) -> dartforge_frontend::LibraryFeatures {
         use dartforge_frontend::{LanguageVersion, LibraryFeatures};
         if let Some((v, _)) = dartforge_frontend::features::version_marker(text) {
             return LibraryFeatures::new(v, &[]);
@@ -719,7 +885,9 @@ impl SyntacticAnalyzer {
             .ok()
             .filter(|u| u.scheme() == "file")
             .and_then(|u| u.to_file_path().ok())
-            .map(|p| dartforge_elements::config::without_verbatim(std::fs::canonicalize(&p).unwrap_or(p)));
+            .map(|p| {
+                dartforge_elements::config::without_verbatim(std::fs::canonicalize(&p).unwrap_or(p))
+            });
         let pattern = path
             .as_deref()
             .and_then(|p| {
@@ -728,7 +896,10 @@ impl SyntacticAnalyzer {
                     let read = dartforge_elements::config::PackageConfig::load(&cfg).ok()?;
                     self.configs.insert(cfg.clone(), read);
                 }
-                self.configs.get(&cfg)?.library_package(uri, Some(p))?.language_version
+                self.configs
+                    .get(&cfg)?
+                    .library_package(uri, Some(p))?
+                    .language_version
             })
             .unwrap_or(LanguageVersion::CURRENT);
         self.patterns.insert(uri.to_string(), pattern);
@@ -743,7 +914,11 @@ impl SyntacticAnalyzer {
         let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
         // Name and text of the analyzer that is the file's reference (T2).
         let reference = parsed.reference;
-        parsed.diagnostics.into_iter().filter_map(|d| d.for_reference(reference)).collect()
+        parsed
+            .diagnostics
+            .into_iter()
+            .filter_map(|d| d.for_reference(reference))
+            .collect()
     }
 }
 
@@ -761,19 +936,36 @@ impl Analyzer for SyntacticAnalyzer {
         let mut names = dartforge_intern::Interner::new();
         let parsed = dartforge_frontend::parser::parse_with(text, &mut names, features);
         let mut output = parsed.diagnostics;
-        let unit = dartforge_analysis::Unit { ast: &parsed.ast, unit: &parsed.unit, source: text };
+        let unit = dartforge_analysis::Unit {
+            ast: &parsed.ast,
+            unit: &parsed.unit,
+            source: text,
+        };
         // The unused locals by the skipped-spans rule (T5), as in `dartforge
         // analyze`: no gate on syntax errors.
-        let skipped = dartforge_analysis::Skipped { source: text, spans: &parsed.skipped };
+        let skipped = dartforge_analysis::Skipped {
+            source: text,
+            spans: &parsed.skipped,
+        };
         let wildcard = features.has(dartforge_frontend::features::Feature::WildcardVariables);
         let reference = parsed.reference;
         let join = reference == dartforge_diagnostics::AnalyzerReference::V3_6;
         let semantic = dartforge_analysis::duplicates::duplicates(&[unit], &names, wildcard, join)
             .into_iter()
             .map(|(_, d)| d)
-            .chain(dartforge_analysis::enums::without_constants(&[unit]).into_iter().map(|(_, d)| d))
-            .chain(dartforge_analysis::initialization::uninitialized_finals(&[unit], &names).into_iter().map(|(_, d)| d))
-            .chain(dartforge_analysis::locals::unused_with_skipped(unit, &names, wildcard, skipped))
+            .chain(
+                dartforge_analysis::enums::without_constants(&[unit])
+                    .into_iter()
+                    .map(|(_, d)| d),
+            )
+            .chain(
+                dartforge_analysis::initialization::uninitialized_finals(&[unit], &names)
+                    .into_iter()
+                    .map(|(_, d)| d),
+            )
+            .chain(dartforge_analysis::locals::unused_with_skipped(
+                unit, &names, wildcard, skipped,
+            ))
             .chain(dartforge_analysis::externals::initializers(unit))
             .chain(dartforge_analysis::operators::arity(unit, &names));
         // `// ignore:` as in `dartforge analyze` (the same filter).
@@ -786,7 +978,10 @@ impl Analyzer for SyntacticAnalyzer {
         );
         // Last, the name and text of the reference analyzer (T2): the filters above
         // know the codes by their 3.6 names.
-        output.into_iter().filter_map(|d| d.for_reference(reference)).collect()
+        output
+            .into_iter()
+            .filter_map(|d| d.for_reference(reference))
+            .collect()
     }
 
     fn symbols(&mut self, uri: &str, text: &str) -> Vec<serde_json::Value> {
@@ -794,7 +989,12 @@ impl Analyzer for SyntacticAnalyzer {
         symbols::for_document(text, features)
     }
 
-    fn definition(&mut self, uri: &str, text: &str, offset: usize) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+    fn definition(
+        &mut self,
+        uri: &str,
+        text: &str,
+        offset: usize,
+    ) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
         let features = self.features(uri, text);
         match navigation::target(uri, text, features, offset)? {
             navigation::Target::File(target) => Some((target, None)),
@@ -824,18 +1024,41 @@ impl Analyzer for SyntacticAnalyzer {
         self.configs.clear();
     }
 
-    fn references(&mut self, uri: &str, text: &str, offset: usize) -> Option<Vec<dartforge_diagnostics::Span>> {
+    fn references(
+        &mut self,
+        uri: &str,
+        text: &str,
+        offset: usize,
+    ) -> Option<Vec<dartforge_diagnostics::Span>> {
         let features = self.features(uri, text);
         navigation::references(uri, text, features, offset)
     }
 
-    fn definition_in_workspace(&mut self, uri: &str, _text: &str, offset: usize, documents: &DocumentStore) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
+    fn definition_in_workspace(
+        &mut self,
+        uri: &str,
+        _text: &str,
+        offset: usize,
+        documents: &DocumentStore,
+    ) -> Option<(String, Option<dartforge_diagnostics::Span>)> {
         navigation::definition_in(documents, uri, offset, self)
     }
 
-    fn hover_in_workspace(&mut self, uri: &str, _text: &str, offset: usize, documents: &DocumentStore) -> Option<Hover> {
+    fn hover_in_workspace(
+        &mut self,
+        uri: &str,
+        _text: &str,
+        offset: usize,
+        documents: &DocumentStore,
+    ) -> Option<Hover> {
         let (range, description, ty) = navigation::hover_in(documents, uri, offset, self)?;
-        Some(Hover { range, description, ty, documentation: None, library: None })
+        Some(Hover {
+            range,
+            description,
+            ty,
+            documentation: None,
+            library: None,
+        })
     }
 
     fn folds(&mut self, uri: &str, text: &str, lines_only: bool) -> Vec<Fold> {
@@ -843,14 +1066,27 @@ impl Analyzer for SyntacticAnalyzer {
         structure::folds(text, features, lines_only)
     }
 
-    fn selections(&mut self, uri: &str, text: &str, offset: usize) -> Vec<dartforge_diagnostics::Span> {
+    fn selections(
+        &mut self,
+        uri: &str,
+        text: &str,
+        offset: usize,
+    ) -> Vec<dartforge_diagnostics::Span> {
         let features = self.features(uri, text);
         structure::selections(text, features, offset)
     }
 
-    fn references_in(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<References> {
+    fn references_in(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<References> {
         let mut found = navigation::references_in(documents, uri, offset, self)?.into_iter();
         let declaration = found.next();
-        Some(References { declaration, uses: found.collect() })
+        Some(References {
+            declaration,
+            uses: found.collect(),
+        })
     }
 }

@@ -1,13 +1,13 @@
 //! Client of the `build.*` service of `dfexec/1`. The channel and the framing
 //! are the same ones used by macros; the real executor can serve both.
 use crate::executor::{
-    Availability, ExecutorError, DartExecutor, RuntimeExtensions, Level, ActionRequest,
-    ExtensionsRequest, ActionResult, BuilderScript, BuildStepService,
+    ActionRequest, ActionResult, Availability, BuildStepService, BuilderScript, DartExecutor,
+    ExecutorError, ExtensionsRequest, Level, RuntimeExtensions,
 };
 use crate::graph::AssetId;
 use crate::value::{Map, Value};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use dartforge_dfexec::{Channel, ProcessChannel, PROTOCOL};
+use dartforge_dfexec::{Channel, PROTOCOL, ProcessChannel};
 use serde_json::{Value as JsonValue, json};
 use std::sync::Arc;
 
@@ -39,7 +39,12 @@ impl BuildClient<ProcessChannel> {
 /// queries in the middle of an action restart the count.
 pub fn executor_timeout() -> Option<std::time::Duration> {
     let s = match std::env::var("DARTFORGE_BUILD_TIMEOUT") {
-        Ok(v) => v.trim().parse::<f64>().ok().filter(|s| s.is_finite() && *s >= 0.0).unwrap_or(600.0),
+        Ok(v) => v
+            .trim()
+            .parse::<f64>()
+            .ok()
+            .filter(|s| s.is_finite() && *s >= 0.0)
+            .unwrap_or(600.0),
         Err(_) => 600.0,
     };
     (s > 0.0).then(|| std::time::Duration::from_secs_f64(s))
@@ -90,9 +95,12 @@ impl<C: Channel> BuildClient<C> {
                     Ok(response) => response,
                     Err(error) => {
                         let request =
-                            message.get("id").and_then(JsonValue::as_u64).ok_or_else(|| {
-                                ExecutorError(format!("build query without id: {message}"))
-                            })?;
+                            message
+                                .get("id")
+                                .and_then(JsonValue::as_u64)
+                                .ok_or_else(|| {
+                                    ExecutorError(format!("build query without id: {message}"))
+                                })?;
                         json!({"t":"build.response","id":request,"error":error.0})
                     }
                 };
@@ -114,15 +122,17 @@ impl<C: Channel> BuildClient<C> {
                 ));
             }
             if kind != expected {
-                return Err(ExecutorError(format!(
-                    "expected {expected}, got {message}"
-                )));
+                return Err(ExecutorError(format!("expected {expected}, got {message}")));
             }
             return Ok(message);
         }
     }
 
-    fn serve(&self, m: &JsonValue, s: &mut dyn BuildStepService) -> Result<JsonValue, ExecutorError> {
+    fn serve(
+        &self,
+        m: &JsonValue,
+        s: &mut dyn BuildStepService,
+    ) -> Result<JsonValue, ExecutorError> {
         let kind = m.get("t").and_then(JsonValue::as_str).unwrap_or("");
         let id = m
             .get("id")
@@ -266,9 +276,9 @@ impl<C: Channel> BuildClient<C> {
             .flatten()
         {
             deleted.push(
-                a.as_str()
-                    .and_then(AssetId::from_text)
-                    .ok_or_else(|| ExecutorError("result with an invalid deleted AssetId".into()))?,
+                a.as_str().and_then(AssetId::from_text).ok_or_else(|| {
+                    ExecutorError("result with an invalid deleted AssetId".into())
+                })?,
             );
         }
         Ok(ActionResult {
@@ -371,9 +381,7 @@ impl<C: Channel> DartExecutor for BuildClient<C> {
         p: &ExtensionsRequest,
     ) -> Result<Option<RuntimeExtensions>, ExecutorError> {
         if !self.loaded {
-            return Err(ExecutorError(
-                "build.extensions before build.load".into(),
-            ));
+            return Err(ExecutorError("build.extensions before build.load".into()));
         }
         let id = self.id();
         self.channel
@@ -390,7 +398,10 @@ impl<C: Channel> DartExecutor for BuildClient<C> {
             .ok_or_else(invalid)?;
         let mut v = Vec::with_capacity(pairs.len());
         for pair in pairs {
-            let input = pair.get(0).and_then(JsonValue::as_str).ok_or_else(invalid)?;
+            let input = pair
+                .get(0)
+                .and_then(JsonValue::as_str)
+                .ok_or_else(invalid)?;
             let outputs = pair
                 .get(1)
                 .and_then(JsonValue::as_array)
@@ -414,9 +425,7 @@ impl<C: Channel> DartExecutor for BuildClient<C> {
 
     fn post_inputs(&mut self, p: &ExtensionsRequest) -> Result<Option<Vec<String>>, ExecutorError> {
         if !self.loaded {
-            return Err(ExecutorError(
-                "build.post_inputs before build.load".into(),
-            ));
+            return Err(ExecutorError("build.post_inputs before build.load".into()));
         }
         let id = self.id();
         self.channel
@@ -554,9 +563,7 @@ mod tests {
                 cache_key: "digest".into(),
             })
             .unwrap();
-        let mut service = FakeService {
-            writes: Vec::new(),
-        };
+        let mut service = FakeService { writes: Vec::new() };
         let request = ActionRequest {
             phase: 0,
             key: "p:b".into(),
@@ -660,9 +667,7 @@ mod tests {
             input: AssetId::new("p", "lib/a.dart"),
             allowed_outputs: Vec::new(),
         };
-        let mut service = FakeService {
-            writes: Vec::new(),
-        };
+        let mut service = FakeService { writes: Vec::new() };
         let r = client.post_process_step(&request, &mut service).unwrap();
         assert_eq!(r.deleted_outputs, vec![AssetId::new("p", "lib/a.dart")]);
         assert_eq!(service.writes.len(), 1);
@@ -725,9 +730,7 @@ mod tests {
             input: AssetId::new("p", "lib/a.dart"),
             allowed_outputs: Vec::new(),
         };
-        let mut service = FakeService {
-            writes: Vec::new(),
-        };
+        let mut service = FakeService { writes: Vec::new() };
         assert!(client.execute(&request, &mut service).is_err());
     }
 
@@ -762,19 +765,14 @@ mod tests {
             input: AssetId::new("p", "lib/a.dart"),
             allowed_outputs: Vec::new(),
         };
-        let mut service = FakeService {
-            writes: Vec::new(),
-        };
+        let mut service = FakeService { writes: Vec::new() };
         assert!(!client.execute(&request, &mut service).unwrap().failed);
         let sent = sent.lock().unwrap();
         assert_eq!(sent[3]["id"], 9);
         assert!(sent[3]["error"].as_str().unwrap().contains("AssetId"));
         assert_eq!(sent[4]["id"], 10);
         assert!(sent[4]["error"].as_str().unwrap().contains("base64"));
-        assert_eq!(
-            sent[5],
-            json!({"t":"build.response","id":11,"exists":true})
-        );
+        assert_eq!(sent[5], json!({"t":"build.response","id":11,"exists":true}));
         assert!(service.writes.is_empty());
     }
 
@@ -801,7 +799,10 @@ mod tests {
             .with_deadline(Some(std::time::Duration::from_millis(500)));
         let mut client = BuildClient::new(channel);
         client
-            .prepare(&BuilderScript { applications: vec![], cache_key: "x".into() })
+            .prepare(&BuilderScript {
+                applications: vec![],
+                cache_key: "x".into(),
+            })
             .unwrap();
         let request = ActionRequest {
             phase: 0,

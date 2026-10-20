@@ -1,7 +1,7 @@
 //! Common rules for constants and scalar operations covered by ARC.
 //! They do not certify domain/overflow, field layout or uncovered operations.
 
-use super::{TokenEffect, Ownership, TokenPlan};
+use super::{Ownership, TokenEffect, TokenPlan};
 use crate::hir::*;
 use std::collections::HashMap;
 
@@ -29,7 +29,9 @@ pub(super) fn check(
         Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(_) => Some(Type::I1),
         // Bitwise logic is emitted in i64 with the operands extended
         // (`llvm/mod.rs`); the lowering declares it I1 when it uses it as a `bool`.
-        Instruction::And(..) | Instruction::Or(..) | Instruction::Xor(..) if *ty == Type::I1 => Some(Type::I1),
+        Instruction::And(..) | Instruction::Or(..) | Instruction::Xor(..) if *ty == Type::I1 => {
+            Some(Type::I1)
+        }
         Instruction::Add(..)
         | Instruction::Sub(..)
         | Instruction::Mul(..)
@@ -53,9 +55,16 @@ pub(super) fn check(
         Instruction::Bitcast { to, .. } => Some(*to),
         // A 1- or 8-bit global, or a `double` one, holds no handle; I64 may
         // hold one and requires its own proof (`rti_caches`).
-        Instruction::LoadGlobal { ty: t @ (Type::I1 | Type::I8 | Type::F64), .. } => Some(*t),
+        Instruction::LoadGlobal {
+            ty: t @ (Type::I1 | Type::I8 | Type::F64),
+            ..
+        } => Some(*t),
         // Storing a proven scalar (`check_origins`) in a non-Ref global.
-        Instruction::StoreGlobal { ty: Type::I1 | Type::I8 | Type::I64 | Type::F64, root: None, .. } => Some(Type::Void),
+        Instruction::StoreGlobal {
+            ty: Type::I1 | Type::I8 | Type::I64 | Type::F64,
+            root: None,
+            ..
+        } => Some(Type::Void),
         Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } => Some(*to),
         // Reading the lanes of a live SIMD box (final SDK classes,
         // only the runtime box implements them): the borrow of the box is used
@@ -148,23 +157,41 @@ pub(super) fn check(
             | Instruction::FMul(a, b)
             | Instruction::FDiv(a, b) => !numeric(a) || !numeric(b),
             Instruction::FNeg(op) | Instruction::DoubleToInt(op) => !numeric(op),
-            Instruction::Unbox { op, .. } => !matches!(op, Operand::Val(v) if types.get(v) == Some(&Type::Ref)),
-            Instruction::NativeLoad { address, index, ty: typ } => {
-                !integer(address) || !integer(index) || *ty != typ.hir_type()
+            Instruction::Unbox { op, .. } => {
+                !matches!(op, Operand::Val(v) if types.get(v) == Some(&Type::Ref))
             }
-            Instruction::NativeWrite { address, index, ty: typ, value } => {
-                !integer(address) || !integer(index) || match value {
-                    Operand::Val(v) => types.get(v) != Some(&typ.hir_type()),
-                    Operand::Constant(Constant::Int(_)) => typ.hir_type() != Type::I64,
-                    Operand::Constant(Constant::Double(_)) => typ.hir_type() != Type::F64,
-                    _ => true,
-                }
+            Instruction::NativeLoad {
+                address,
+                index,
+                ty: typ,
+            } => !integer(address) || !integer(index) || *ty != typ.hir_type(),
+            Instruction::NativeWrite {
+                address,
+                index,
+                ty: typ,
+                value,
+            } => {
+                !integer(address)
+                    || !integer(index)
+                    || match value {
+                        Operand::Val(v) => types.get(v) != Some(&typ.hir_type()),
+                        Operand::Constant(Constant::Int(_)) => typ.hir_type() != Type::I64,
+                        Operand::Constant(Constant::Double(_)) => typ.hir_type() != Type::F64,
+                        _ => true,
+                    }
             }
             Instruction::Simd { args, .. } => args.iter().any(|op| match op {
-                Operand::Val(v) => !types.get(v).is_some_and(|t| matches!(t, Type::I1 | Type::I8 | Type::I64 | Type::F64) || t.is_vector()),
-                Operand::Constant(c) => !matches!(c, Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)),
+                Operand::Val(v) => !types.get(v).is_some_and(|t| {
+                    matches!(t, Type::I1 | Type::I8 | Type::I64 | Type::F64) || t.is_vector()
+                }),
+                Operand::Constant(c) => !matches!(
+                    c,
+                    Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)
+                ),
             }),
-            Instruction::StoreGlobal { val, ty: stored, .. } => match val {
+            Instruction::StoreGlobal {
+                val, ty: stored, ..
+            } => match val {
                 Operand::Val(v) => types.get(v) != Some(stored),
                 Operand::Constant(Constant::Int(_)) => !matches!(stored, Type::I64 | Type::I8),
                 Operand::Constant(Constant::Bool(_)) => !matches!(stored, Type::I1 | Type::I8),
@@ -198,22 +225,46 @@ pub(super) fn check_origins(
     // Checks after resolving every producer and Phi, regardless of the
     // physical block order. A managed i64 does not become a scalar by a cast.
     for (v, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
-        if let Instruction::Box { op: Operand::Val(origin), from } = inst
-            && from.is_vector() && classes.get(origin) != Some(&Ownership::Trivial) {
-            return Err(format!("v{}: SIMD box requires a Trivial origin in {}", v.0, f.symbol));
+        if let Instruction::Box {
+            op: Operand::Val(origin),
+            from,
+        } = inst
+            && from.is_vector()
+            && classes.get(origin) != Some(&Ownership::Trivial)
+        {
+            return Err(format!(
+                "v{}: SIMD box requires a Trivial origin in {}",
+                v.0, f.symbol
+            ));
         }
         if let Instruction::Simd { args, .. } = inst
-            && args.iter().any(|op| matches!(op, Operand::Val(o) if classes.get(o) != Some(&Ownership::Trivial)))
+            && args.iter().any(
+                |op| matches!(op, Operand::Val(o) if classes.get(o) != Some(&Ownership::Trivial)),
+            )
         {
-            return Err(format!("v{}: SIMD operation requires Trivial origins in {}", v.0, f.symbol));
+            return Err(format!(
+                "v{}: SIMD operation requires Trivial origins in {}",
+                v.0, f.symbol
+            ));
         }
         let natives: &[&Operand] = match inst {
             Instruction::NativeLoad { address, index, .. } => &[address, index],
-            Instruction::NativeWrite { address, index, value, .. } => &[address, index, value],
+            Instruction::NativeWrite {
+                address,
+                index,
+                value,
+                ..
+            } => &[address, index, value],
             _ => &[],
         };
-        if natives.iter().any(|op| matches!(op, Operand::Val(o) if classes.get(o) != Some(&Ownership::Trivial))) {
-            return Err(format!("v{}: native access requires Trivial origins in {}", v.0, f.symbol));
+        if natives
+            .iter()
+            .any(|op| matches!(op, Operand::Val(o) if classes.get(o) != Some(&Ownership::Trivial)))
+        {
+            return Err(format!(
+                "v{}: native access requires Trivial origins in {}",
+                v.0, f.symbol
+            ));
         }
         let operands = match inst {
             Instruction::Bitcast {
@@ -255,7 +306,10 @@ pub(super) fn check_origins(
             if let Operand::Val(origin) = op
                 && classes.get(origin) != Some(&Ownership::Trivial)
             {
-                return Err(format!("v{}: scalar operation requires a Trivial origin in {} (origin v{})", v.0, f.symbol, origin.0));
+                return Err(format!(
+                    "v{}: scalar operation requires a Trivial origin in {} (origin v{})",
+                    v.0, f.symbol, origin.0
+                ));
             }
         }
     }
@@ -285,7 +339,10 @@ pub(super) fn verify(
                 .get(v)
                 .ok_or_else(|| format!("v{} without a pure operation contract", v.0))?;
             if classes.get(v) != Some(&Ownership::Trivial) || *effect != TokenEffect::default() {
-                return Err(format!("v{}: contract incompatible with pure operation", v.0));
+                return Err(format!(
+                    "v{}: contract incompatible with pure operation",
+                    v.0
+                ));
             }
         }
     }
@@ -299,28 +356,98 @@ mod tests {
 
     #[test]
     fn bitwise_logic_accepts_integral_operands_in_i1_or_i64() {
-        let types = HashMap::from([(ValueId(1), Type::I1), (ValueId(2), Type::I1), (ValueId(3), Type::I64), (ValueId(4), Type::Ref), (ValueId(5), Type::F64)]);
+        let types = HashMap::from([
+            (ValueId(1), Type::I1),
+            (ValueId(2), Type::I1),
+            (ValueId(3), Type::I64),
+            (ValueId(4), Type::Ref),
+            (ValueId(5), Type::F64),
+        ]);
         let v = |n| Operand::Val(ValueId(n));
         let or = |a, b| Instruction::Or(a, b);
         assert!(check(ValueId(9), &or(v(1), v(2)), &Type::I1, &types).unwrap());
-        assert!(check(ValueId(9), &Instruction::And(v(1), v(2)), &Type::I64, &types).unwrap());
-        assert!(check(ValueId(9), &Instruction::And(v(1), Operand::Constant(Constant::Bool(true))), &Type::I1, &types).unwrap());
-        assert!(check(ValueId(9), &or(v(3), Operand::Constant(Constant::Int(1))), &Type::I64, &types).unwrap());
+        assert!(
+            check(
+                ValueId(9),
+                &Instruction::And(v(1), v(2)),
+                &Type::I64,
+                &types
+            )
+            .unwrap()
+        );
+        assert!(
+            check(
+                ValueId(9),
+                &Instruction::And(v(1), Operand::Constant(Constant::Bool(true))),
+                &Type::I1,
+                &types
+            )
+            .unwrap()
+        );
+        assert!(
+            check(
+                ValueId(9),
+                &or(v(3), Operand::Constant(Constant::Int(1))),
+                &Type::I64,
+                &types
+            )
+            .unwrap()
+        );
         assert!(check(ValueId(9), &or(v(1), v(3)), &Type::I64, &types).unwrap());
         // A reference, a double or a result of another representation.
-        assert!(check(ValueId(9), &Instruction::Xor(v(4), v(3)), &Type::I64, &types).is_err());
-        assert!(check(ValueId(9), &Instruction::And(v(5), v(3)), &Type::I64, &types).is_err());
+        assert!(
+            check(
+                ValueId(9),
+                &Instruction::Xor(v(4), v(3)),
+                &Type::I64,
+                &types
+            )
+            .is_err()
+        );
+        assert!(
+            check(
+                ValueId(9),
+                &Instruction::And(v(5), v(3)),
+                &Type::I64,
+                &types
+            )
+            .is_err()
+        );
         assert!(check(ValueId(9), &or(v(1), v(2)), &Type::F64, &types).is_err());
         // Shifts still require integers.
-        assert!(check(ValueId(9), &Instruction::Shl(v(1), v(3)), &Type::I64, &types).is_err());
+        assert!(
+            check(
+                ValueId(9),
+                &Instruction::Shl(v(1), v(3)),
+                &Type::I64,
+                &types
+            )
+            .is_err()
+        );
         // Narrow or `double` globals are scalars; I64 is not, by width alone.
-        let global = |ty| Instruction::LoadGlobal { symbol: "g".into(), ty };
+        let global = |ty| Instruction::LoadGlobal {
+            symbol: "g".into(),
+            ty,
+        };
         assert!(check(ValueId(9), &global(Type::I8), &Type::I8, &types).unwrap());
         assert!(check(ValueId(9), &global(Type::F64), &Type::F64, &types).unwrap());
         assert!(!check(ValueId(9), &global(Type::I64), &Type::I64, &types).unwrap());
         assert!(check(ValueId(9), &global(Type::I8), &Type::I64, &types).is_err());
-        let store = |ty, val| Instruction::StoreGlobal { symbol: "g".into(), val, ty, root: None };
-        assert!(check(ValueId(9), &store(Type::I8, Operand::Constant(Constant::Int(1))), &Type::Void, &types).unwrap());
+        let store = |ty, val| Instruction::StoreGlobal {
+            symbol: "g".into(),
+            val,
+            ty,
+            root: None,
+        };
+        assert!(
+            check(
+                ValueId(9),
+                &store(Type::I8, Operand::Constant(Constant::Int(1))),
+                &Type::Void,
+                &types
+            )
+            .unwrap()
+        );
         assert!(check(ValueId(9), &store(Type::I64, v(3)), &Type::Void, &types).unwrap());
         assert!(check(ValueId(9), &store(Type::I64, v(4)), &Type::Void, &types).is_err());
         assert!(!check(ValueId(9), &store(Type::Ref, v(4)), &Type::Void, &types).unwrap());

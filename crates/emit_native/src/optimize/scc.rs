@@ -165,11 +165,7 @@ mod tests {
     fn components_match_independent_reach_in_all_three_node_graphs() {
         for mask in 0..(1 << 9) {
             let graph: Vec<Vec<_>> = (0..3)
-                .map(|v| {
-                    (0..3)
-                        .filter(|&w| mask & (1 << (3 * v + w)) != 0)
-                        .collect()
-                })
+                .map(|v| (0..3).filter(|&w| mask & (1 << (3 * v + w)) != 0).collect())
                 .collect();
             let mut reachability = [[false; 3]; 3];
             for v in 0..3 {
@@ -203,8 +199,9 @@ mod tests {
                 }
                 let expected = candidate.iter().all(|c| !c.is_empty())
                     && (0..3).all(|v| {
-                        (0..3).all(|w| (owners[v] == owners[w]) == (reachability[v][w] && reachability[w][v]))
-                            && graph[v].iter().all(|&w| owners[v] >= owners[w])
+                        (0..3).all(|w| {
+                            (owners[v] == owners[w]) == (reachability[v][w] && reachability[w][v])
+                        }) && graph[v].iter().all(|&w| owners[v] >= owners[w])
                     });
                 assert_eq!(
                     check(&graph, &candidate).is_ok(),

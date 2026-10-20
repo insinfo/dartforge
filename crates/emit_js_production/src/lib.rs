@@ -126,7 +126,16 @@ impl Default for Options {
         // pruned `dart_sdk.js`. The verifier's *stub* mode only exists on the
         // old path.
         let own_sdk = !stub && !std::env::var("DARTFORGE_JSPROD_SDK").is_ok_and(|v| v == "ddc");
-        Options { prune_sdk: true, per_member: true, prune_user: true, stub, minify: true, own_sdk, asserts: false, omit_checks: false }
+        Options {
+            prune_sdk: true,
+            per_member: true,
+            prune_user: true,
+            stub,
+            minify: true,
+            own_sdk,
+            asserts: false,
+            omit_checks: false,
+        }
     }
 }
 
@@ -144,12 +153,27 @@ pub fn compile_own_sdk(
     op: Options,
     language: &dartforge_elements::sdk::LanguageOptions,
 ) -> Result<Production, String> {
-    let ((e, report, names, rti), _) = dartforge_emit_js::compile_with_options(input, sdk_lib, packages, language, None, true, |a| {
-        let (e, report) = own_sdk::emit(a, op)?;
-        let empty = std::collections::HashSet::new();
-        let names = properties::compute(a, report.as_ref().map_or(&empty, |r| &r.js_names), report.as_ref().and_then(|r| r.named_args.as_ref()).map(|n| &n.map));
-        Ok((e, report, names, own_sdk::recipe_names(a)))
-    })?;
+    let ((e, report, names, rti), _) = dartforge_emit_js::compile_with_options(
+        input,
+        sdk_lib,
+        packages,
+        language,
+        None,
+        true,
+        |a| {
+            let (e, report) = own_sdk::emit(a, op)?;
+            let empty = std::collections::HashSet::new();
+            let names = properties::compute(
+                a,
+                report.as_ref().map_or(&empty, |r| &r.js_names),
+                report
+                    .as_ref()
+                    .and_then(|r| r.named_args.as_ref())
+                    .map(|n| &n.map),
+            );
+            Ok((e, report, names, own_sdk::recipe_names(a)))
+        },
+    )?;
     let mut p = own_sdk::assemble(&e, op, Some(&names), Some(&rti));
     p.world = report;
     Ok(p)
@@ -172,13 +196,17 @@ pub fn compile(
     op: Options,
     language: &dartforge_elements::sdk::LanguageOptions,
 ) -> Result<Production, String> {
-    let sdk_text = std::fs::read_to_string(dart_sdk_js).map_err(|e| format!("{}: {e}", dart_sdk_js.display()))?;
+    let sdk_text = std::fs::read_to_string(dart_sdk_js)
+        .map_err(|e| format!("{}: {e}", dart_sdk_js.display()))?;
     // The runtime index depends only on the text and on the granularity: it
     // comes from the on-disk cache when there is a valid one (`cache.rs`).
     let t = Instant::now();
     let (index, origin) = cache::load(&sdk_text, op.per_member);
     let index_time = t.elapsed();
-    let ((emitted, report), _) = dartforge_emit_js::compile_with(input, sdk_lib, packages, language, |a| emit_with_world(a, &index, op))?;
+    let ((emitted, report), _) =
+        dartforge_emit_js::compile_with(input, sdk_lib, packages, language, |a| {
+            emit_with_world(a, &index, op)
+        })?;
     let mut p = assemble_with_index(&emitted, &sdk_text, op, &index);
     p.world = report;
     p.index = Some((origin, index_time));
@@ -192,9 +220,15 @@ fn roots(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkIndex) -> dartforg
     use dartforge_elements::model::Element;
     let mut r = dartforge_world::Roots::default();
     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main"))
-        && let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
-            r.functions.push(f);
-        }
+        && let Some(Element::Function(f)) = a
+            .program
+            .library(lib)
+            .declared
+            .get(&sym)
+            .and_then(|b| b.getter)
+    {
+        r.functions.push(f);
+    }
     r.selectors = index.dynamic_selectors();
     r
 }
@@ -205,23 +239,45 @@ fn roots(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkIndex) -> dartforg
 /// # Errors
 ///
 /// Those of the emission.
-pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkIndex, op: Options) -> Result<(dartforge_emit_js::Emitted, Option<WorldReport>), String> {
+pub fn emit_with_world(
+    a: &dartforge_emit_js::Analysis<'_>,
+    index: &sdk::SdkIndex,
+    op: Options,
+) -> Result<(dartforge_emit_js::Emitted, Option<WorldReport>), String> {
     if !op.prune_user {
         return Ok((a.emit(None)?, None));
     }
-    let input = dartforge_world::WorldInput { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
+    let input = dartforge_world::WorldInput {
+        program: a.program,
+        interner: a.interner,
+        table: a.table,
+        outline: a.outline,
+        bodies: a.bodies,
+    };
     let mut report = WorldReport::default();
     let t = Instant::now();
     let mut roots = roots(a, index);
     report.world_time += t.elapsed();
     // `DARTFORGE_JSPROD_ROUNDS=1` shows the gaps in the analysis without
     // fixing them.
-    let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_ROUNDS").ok().and_then(|v| v.parse().ok()).unwrap_or(8).max(1);
+    let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8)
+        .max(1);
     for round in 1..=max_rounds {
         let t = Instant::now();
         let world = dartforge_world::compute(input, &roots);
         report.world_time += t.elapsed();
-        let ad = filter::Adapter { world: &world, program: a.program, stub: op.stub, signatures: None, constants: None, named_args: None, omit_checks: false };
+        let ad = filter::Adapter {
+            world: &world,
+            program: a.program,
+            stub: op.stub,
+            signatures: None,
+            constants: None,
+            named_args: None,
+            omit_checks: false,
+        };
         let t = Instant::now();
         let emitted = a.emit(Some(&ad))?;
         report.emit_time += t.elapsed();
@@ -236,7 +292,9 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
             let mut emitted = emitted;
             if !missing.is_empty() {
                 report.fixes.extend(missing.description.iter().cloned());
-                report.fixes.push(format!("fixed point not reached in {max_rounds} round(s)"));
+                report
+                    .fixes
+                    .push(format!("fixed point not reached in {max_rounds} round(s)"));
                 // Without the fixed point, the pruning was not validated: the
                 // file goes out with the whole user code (the safe superset),
                 // never with the pruned version that still references what it
@@ -245,7 +303,9 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
                 emitted = a.emit(None)?;
                 report.emit_time += t.elapsed();
                 report.pruning_disabled = true;
-                report.fixes.push("user code pruning disabled: the analysis did not converge".to_string());
+                report
+                    .fixes
+                    .push("user code pruning disabled: the analysis did not converge".to_string());
             }
             report.stats = world.stats.clone();
             if std::env::var("DARTFORGE_JSPROD_CHECK").is_ok_and(|v| v != "0") {
@@ -264,7 +324,9 @@ pub fn emit_with_world(a: &dartforge_emit_js::Analysis<'_>, index: &sdk::SdkInde
         roots.functions.extend(missing.functions);
         roots.variables.extend(missing.variables);
         roots.type_classes.extend(missing.classes);
-        roots.instantiated_classes.extend(missing.instantiated_classes);
+        roots
+            .instantiated_classes
+            .extend(missing.instantiated_classes);
         roots.tearoffs.extend(missing.tearoffs);
         roots.selectors.extend(missing.selectors);
     }
@@ -279,8 +341,15 @@ fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, 
     let p = a.program;
     let fn_name = |f: FunctionElementId| {
         let func = p.function(f);
-        let c = func.class.map(|c| format!("{}.", a.interner.resolve(p.class(c).name))).unwrap_or_default();
-        format!("{}::{c}{}", p.library(func.library).uri, a.interner.resolve(func.name))
+        let c = func
+            .class
+            .map(|c| format!("{}.", a.interner.resolve(p.class(c).name)))
+            .unwrap_or_default();
+        format!(
+            "{}::{c}{}",
+            p.library(func.library).uri,
+            a.interner.resolve(func.name)
+        )
     };
     let mut start: Vec<Cause> = Vec::new();
     for (i, c) in p.classes.iter().enumerate() {
@@ -289,7 +358,10 @@ fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, 
         }
     }
     for (i, f) in p.functions.iter().enumerate() {
-        if a.interner.resolve(f.name) == target && !p.library(f.library).is_sdk && world.is_live_function(FunctionElementId(i as u32)) {
+        if a.interner.resolve(f.name) == target
+            && !p.library(f.library).is_sdk
+            && world.is_live_function(FunctionElementId(i as u32))
+        {
             start.push(Cause::Function(FunctionElementId(i as u32)));
         }
     }
@@ -303,8 +375,18 @@ fn explain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, 
             let (txt, next) = match x {
                 Cause::Root => ("(root)".to_string(), None),
                 Cause::Function(f) => (fn_name(f), world.function_cause(f)),
-                Cause::Class(k) => (format!("class {} [{:?}]", a.interner.resolve(p.class(k).name), world.class_level(k)), world.class_cause(k)),
-                Cause::Variable(v) => (format!("variable {}", a.interner.resolve(p.variable(v).name)), world.variable_cause(v)),
+                Cause::Class(k) => (
+                    format!(
+                        "class {} [{:?}]",
+                        a.interner.resolve(p.class(k).name),
+                        world.class_level(k)
+                    ),
+                    world.class_cause(k),
+                ),
+                Cause::Variable(v) => (
+                    format!("variable {}", a.interner.resolve(p.variable(v).name)),
+                    world.variable_cause(v),
+                ),
             };
             chain.push(txt);
             cur = next;
@@ -322,7 +404,12 @@ pub fn assemble(emitted: &dartforge_emit_js::Emitted, sdk_text: &str, op: Option
 
 /// Like [`assemble`], with the index of `sdk_text` already obtained (from
 /// the cache).
-pub fn assemble_with_index(emitted: &dartforge_emit_js::Emitted, sdk_text: &str, op: Options, index: &sdk::SdkIndex) -> Production {
+pub fn assemble_with_index(
+    emitted: &dartforge_emit_js::Emitted,
+    sdk_text: &str,
+    op: Options,
+    index: &sdk::SdkIndex,
+) -> Production {
     let modules: Vec<bundle::Module> = emitted
         .modules
         .iter()
@@ -333,8 +420,8 @@ pub fn assemble_with_index(emitted: &dartforge_emit_js::Emitted, sdk_text: &str,
         .map(|(p, t)| bundle::split(p, t))
         .collect();
     let (modules, cycles) = bundle::order(modules);
-    let entry = bundle::entry_from_mjs(&emitted.entry, &modules)
-        .unwrap_or_else(|| "L$main".to_string());
+    let entry =
+        bundle::entry_from_mjs(&emitted.entry, &modules).unwrap_or_else(|| "L$main".to_string());
 
     let sdk_before = sdk_text.len();
     let t = Instant::now();
@@ -346,7 +433,10 @@ pub fn assemble_with_index(emitted: &dartforge_emit_js::Emitted, sdk_text: &str,
     };
     let prune_time = t.elapsed();
     let sdk_after = sdk_pruned.len();
-    let user = modules.iter().map(|m| m.body.len() + m.namespaces.iter().map(|n| n.len() + 1).sum::<usize>()).sum();
+    let user = modules
+        .iter()
+        .map(|m| m.body.len() + m.namespaces.iter().map(|n| n.len() + 1).sum::<usize>())
+        .sum();
 
     let preamble = if op.stub { bundle::STUB_PREAMBLE } else { "" };
     let js = bundle::assemble(&sdk_pruned, &modules, &entry, preamble);
@@ -405,7 +495,10 @@ mod tests {
                     )
                     .into(),
                 ),
-                ("preambulo.js".into(), "if (typeof self === 'undefined') globalThis.self = globalThis;\n".into()),
+                (
+                    "preambulo.js".into(),
+                    "if (typeof self === 'undefined') globalThis.self = globalThis;\n".into(),
+                ),
             ],
             entry: "import { main as m } from './main.js';\nm.main();\n".into(),
         }
@@ -420,7 +513,20 @@ mod tests {
 
     #[test]
     fn assembles_one_file_in_topological_order() {
-        let p = assemble(&emitted(), SDK, Options { prune_sdk: false, per_member: false, prune_user: false, stub: false, minify: false, own_sdk: false, asserts: true, omit_checks: false });
+        let p = assemble(
+            &emitted(),
+            SDK,
+            Options {
+                prune_sdk: false,
+                per_member: false,
+                prune_user: false,
+                stub: false,
+                minify: false,
+                own_sdk: false,
+                asserts: true,
+                omit_checks: false,
+            },
+        );
         assert!(p.cycles.is_empty());
         assert_eq!(p.modules, 2);
         // `util.js` imports nothing, so it comes before `main.js`.
@@ -441,8 +547,25 @@ mod tests {
     /// library identity, no).
     #[test]
     fn bundling_does_not_merge_libraries() {
-        let p = assemble(&emitted(), SDK, Options { prune_sdk: false, per_member: false, prune_user: false, stub: false, minify: false, own_sdk: false, asserts: true, omit_checks: false });
-        assert_eq!(p.js.matches("Object.create(dart.library)").count(), 3, "core + the user's two");
+        let p = assemble(
+            &emitted(),
+            SDK,
+            Options {
+                prune_sdk: false,
+                per_member: false,
+                prune_user: false,
+                stub: false,
+                minify: false,
+                own_sdk: false,
+                asserts: true,
+                omit_checks: false,
+            },
+        );
+        assert_eq!(
+            p.js.matches("Object.create(dart.library)").count(),
+            3,
+            "core + the user's two"
+        );
     }
 
     /// Determinism (`docs/PESQUISA-OTIMIZACAO.md` §11): two assemblies of the
@@ -461,9 +584,38 @@ mod tests {
     /// next to it.
     #[test]
     fn prunes_the_embedded_runtime() {
-        let with = assemble(&emitted(), SDK, Options { prune_sdk: true, per_member: false, prune_user: false, stub: false, minify: false, own_sdk: false, asserts: true, omit_checks: false });
-        let without = assemble(&emitted(), SDK, Options { prune_sdk: false, per_member: false, prune_user: false, stub: false, minify: false, own_sdk: false, asserts: true, omit_checks: false });
-        assert!(with.js.contains("core.print = function"), "what the program uses stays");
+        let with = assemble(
+            &emitted(),
+            SDK,
+            Options {
+                prune_sdk: true,
+                per_member: false,
+                prune_user: false,
+                stub: false,
+                minify: false,
+                own_sdk: false,
+                asserts: true,
+                omit_checks: false,
+            },
+        );
+        let without = assemble(
+            &emitted(),
+            SDK,
+            Options {
+                prune_sdk: false,
+                per_member: false,
+                prune_user: false,
+                stub: false,
+                minify: false,
+                own_sdk: false,
+                asserts: true,
+                omit_checks: false,
+            },
+        );
+        assert!(
+            with.js.contains("core.print = function"),
+            "what the program uses stays"
+        );
         assert!(!with.js.contains("core.Morta"), "what it does not use goes");
         assert!(with.sdk_after < without.sdk_after);
     }

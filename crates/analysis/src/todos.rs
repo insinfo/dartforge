@@ -11,7 +11,12 @@ use dartforge_diagnostics::codes::todo as t;
 use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::token::Kind;
 
-const WORDS: [(&str, Code); 4] = [("TODO", t::TODO), ("FIXME", t::FIXME), ("HACK", t::HACK), ("UNDONE", t::UNDONE)];
+const WORDS: [(&str, Code); 4] = [
+    ("TODO", t::TODO),
+    ("FIXME", t::FIXME),
+    ("HACK", t::HACK),
+    ("UNDONE", t::UNDONE),
+];
 
 /// A comment of the source.
 struct Comment {
@@ -55,7 +60,9 @@ fn find_match(lexeme: &str, from: usize) -> Option<(usize, usize, Code)> {
                     let mut end = line_rest_end(lexeme, after + x.len_utf8());
                     while let Some(after_break) = lexeme[end..].strip_prefix('\n') {
                         let trimmed = after_break.trim_start();
-                        let Some(after_mark) = trimmed.strip_prefix("*  ") else { break };
+                        let Some(after_mark) = trimmed.strip_prefix("*  ") else {
+                            break;
+                        };
                         end = line_rest_end(lexeme, lexeme.len() - after_mark.len());
                     }
                     return Some((q, end, code));
@@ -70,13 +77,26 @@ fn find_match(lexeme: &str, from: usize) -> Option<(usize, usize, Code)> {
 }
 
 /// The comments of `source[from..until]`, a gap between two tokens.
-fn gap_comments(source: &str, from: usize, until: usize, line_starts: &[usize], out: &mut Vec<Comment>) {
+fn gap_comments(
+    source: &str,
+    from: usize,
+    until: usize,
+    line_starts: &[usize],
+    out: &mut Vec<Comment>,
+) {
     let b = source.as_bytes();
     let mut i = from;
     while i + 1 < until {
         let (end, is_block) = if b[i] == b'/' && b[i + 1] == b'/' {
             let end = source[i..until].find('\n').map_or(until, |k| i + k);
-            (if end > i && b[end - 1] == b'\r' { end - 1 } else { end }, false)
+            (
+                if end > i && b[end - 1] == b'\r' {
+                    end - 1
+                } else {
+                    end
+                },
+                false,
+            )
         } else if b[i] == b'/' && b[i + 1] == b'*' {
             let mut level = 1;
             let mut j = i + 2;
@@ -100,7 +120,13 @@ fn gap_comments(source: &str, from: usize, until: usize, line_starts: &[usize], 
             return;
         };
         let line = line_starts.partition_point(|&x| x <= i) - 1;
-        out.push(Comment { start: i, end, is_block, line, column: i - line_starts[line] });
+        out.push(Comment {
+            start: i,
+            end,
+            is_block,
+            line,
+            column: i - line_starts[line],
+        });
         i = end.max(i + 2);
     }
 }
@@ -134,9 +160,17 @@ pub fn check(source: &str) -> Vec<Diagnostic> {
     if !WORDS.iter().any(|(p, _)| source.contains(p)) {
         return out;
     }
-    let Ok(tokens) = dartforge_frontend::lexer::lex(source) else { return out };
+    let Ok(tokens) = dartforge_frontend::lexer::lex(source) else {
+        return out;
+    };
     let mut line_starts = vec![0usize];
-    line_starts.extend(source.bytes().enumerate().filter(|(_, c)| *c == b'\n').map(|(i, _)| i + 1));
+    line_starts.extend(
+        source
+            .bytes()
+            .enumerate()
+            .filter(|(_, c)| *c == b'\n')
+            .map(|(i, _)| i + 1),
+    );
     let mut previous = 0usize;
     for token in &tokens {
         // The comments dangling on the end-of-file token are left out.
@@ -144,7 +178,13 @@ pub fn check(source: &str) -> Vec<Diagnostic> {
             break;
         }
         let mut cs = Vec::new();
-        gap_comments(source, previous.min(token.span.start), token.span.start, &line_starts, &mut cs);
+        gap_comments(
+            source,
+            previous.min(token.span.start),
+            token.span.start,
+            &line_starts,
+            &mut cs,
+        );
         previous = token.span.end;
         let mut k = 0;
         while k < cs.len() {
@@ -191,7 +231,11 @@ pub fn check(source: &str) -> Vec<Diagnostic> {
                     }
                     consumed = n;
                 }
-                out.push(Diagnostic::with_code(code, Span { start: offset, end }, [text.as_str()]));
+                out.push(Diagnostic::with_code(
+                    code,
+                    Span { start: offset, end },
+                    [text.as_str()],
+                ));
             }
             k += 1 + consumed;
         }
@@ -207,19 +251,38 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, usize, usize, String)> {
         check(source)
             .into_iter()
-            .map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end - d.span.start, d.message))
+            .map(|d| {
+                (
+                    d.code.map_or("", |c| c.info().name),
+                    d.span.start,
+                    d.span.end - d.span.start,
+                    d.message,
+                )
+            })
             .collect()
     }
 
     /// The table checked on the 3.6.2 binary (§7.1).
     #[test]
     fn oracle_table() {
-        assert_eq!(findings("/// TODO: doc\nvoid a() {}\n"), vec![("todo", 4, 9, "TODO: doc".to_string())]);
+        assert_eq!(
+            findings("/// TODO: doc\nvoid a() {}\n"),
+            vec![("todo", 4, 9, "TODO: doc".to_string())]
+        );
         let block = "/** HACK block\n *  and more here\n */\nvoid b() {}\n";
-        assert_eq!(findings(block), vec![("hack", 4, 28, "HACK block and more here".to_string())]);
+        assert_eq!(
+            findings(block),
+            vec![("hack", 4, 28, "HACK block and more here".to_string())]
+        );
         let lines = "// FIXME(x): line one\n//  and more\n// no more here\nvoid c() {}\n";
-        assert_eq!(findings(lines), vec![("fixme", 3, 31, "FIXME(x): line one and more".to_string())]);
-        assert_eq!(findings("void c() {} // UNDONE\nvoid d() {}\n"), vec![("undone", 15, 6, "UNDONE".to_string())]);
+        assert_eq!(
+            findings(lines),
+            vec![("fixme", 3, 31, "FIXME(x): line one and more".to_string())]
+        );
+        assert_eq!(
+            findings("void c() {} // UNDONE\nvoid d() {}\n"),
+            vec![("undone", 15, 6, "UNDONE".to_string())]
+        );
     }
 
     #[test]
@@ -231,6 +294,9 @@ mod tests {
 
     #[test]
     fn unfolds_the_block() {
-        assert_eq!(unfold("HACK block\n *  and more here"), "HACK block and more here");
+        assert_eq!(
+            unfold("HACK block\n *  and more here"),
+            "HACK block and more here"
+        );
     }
 }

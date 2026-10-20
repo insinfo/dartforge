@@ -13,7 +13,8 @@ fn get_sdk() -> Option<(PathBuf, SdkLayout)> {
 }
 
 fn is_parser_diagnostic(d: &dartforge_diagnostics::Diagnostic) -> bool {
-    d.code.is_some_and(|c| c.info().error_type == dartforge_diagnostics::ErrorType::SyntacticError)
+    d.code
+        .is_some_and(|c| c.info().error_type == dartforge_diagnostics::ErrorType::SyntacticError)
 }
 
 #[test]
@@ -92,7 +93,10 @@ fn test_sdk_core_load_and_patch() {
         !parse_fn.external,
         "int.parse coming from the patch must have external == false"
     );
-    println!("int.parse checked successfully (patched_by={:?}, external={})", parse_fn.patched_by, parse_fn.external);
+    println!(
+        "int.parse checked successfully (patched_by={:?}, external={})",
+        parse_fn.patched_by, parse_fn.external
+    );
 }
 
 #[test]
@@ -176,13 +180,24 @@ fn sdk_supertypes_resolve() {
 
     let tmp = tempdir().unwrap();
     let entry = tmp.path().join("main.dart");
-    fs::write(&entry, "import 'dart:core'; import 'dart:async'; import 'dart:collection'; void main() {}\n").unwrap();
+    fs::write(
+        &entry,
+        "import 'dart:core'; import 'dart:async'; import 'dart:collection'; void main() {}\n",
+    )
+    .unwrap();
 
     let mut interner = Interner::new();
     let (program, diags) = load_lenient(&entry, &sdk, None, &mut interner);
 
-    let elements_diags: Vec<_> = diags.into_iter().filter(|d| !is_parser_diagnostic(d)).collect();
-    assert!(elements_diags.is_empty(), "elements diagnostics: {:?}", elements_diags);
+    let elements_diags: Vec<_> = diags
+        .into_iter()
+        .filter(|d| !is_parser_diagnostic(d))
+        .collect();
+    assert!(
+        elements_diags.is_empty(),
+        "elements diagnostics: {:?}",
+        elements_diags
+    );
 
     // Ensures every class that declared extends has a resolved supertype_class
     // (except Object)
@@ -206,8 +221,14 @@ fn sdk_supertypes_resolve() {
         "[sdk_supertypes_resolve] Supertypes with extends: {}, resolved to ClassId: {}",
         total_with_super, resolved_count
     );
-    assert!(total_with_super > 0, "There must be classes with a supertype in the SDK");
-    assert_eq!(total_with_super, resolved_count, "Every declared supertype must resolve to a ClassId");
+    assert!(
+        total_with_super > 0,
+        "There must be classes with a supertype in the SDK"
+    );
+    assert_eq!(
+        total_with_super, resolved_count,
+        "Every declared supertype must resolve to a ClassId"
+    );
 }
 
 #[test]
@@ -236,4 +257,3 @@ fn sdk_namespaces_without_ambiguity_in_use() {
         );
     }
 }
-

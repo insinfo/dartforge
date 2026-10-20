@@ -50,7 +50,10 @@ fn dart() -> PathBuf {
     std::env::var_os("DARTFORGE_DART_SDK")
         .map(PathBuf::from)
         .or_else(|| SdkLayout::discover().and_then(|l| l.parent().map(Path::to_path_buf)))
-        .map(|s| s.join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" }))
+        .map(|s| {
+            s.join("bin")
+                .join(if cfg!(windows) { "dart.exe" } else { "dart" })
+        })
         .expect("DARTFORGE_DART_SDK")
 }
 
@@ -58,7 +61,10 @@ fn dart() -> PathBuf {
 fn vm(input: &Path, config: &Path, sdk: &SdkLayout, work: &Path) -> DfexecExecutor<ProcessChannel> {
     let mut names = Interner::new();
     let (p, _) = load_lenient_generated(input, sdk, Some(config), &mut names, None, None, None);
-    let apps = dartforge_macros_host::applications::detect(&View { program: &p, interner: &names });
+    let apps = dartforge_macros_host::applications::detect(&View {
+        program: &p,
+        interner: &names,
+    });
     let cfg = dartforge_macros_host::vm::VmConfig {
         dart: dart(),
         api: root().join("packages/macros"),
@@ -68,7 +74,13 @@ fn vm(input: &Path, config: &Path, sdk: &SdkLayout, work: &Path) -> DfexecExecut
 }
 
 fn failed(ds: Vec<dartforge_diagnostics::Diagnostic>) -> ! {
-    panic!("{}", ds.iter().map(|d| d.message.clone()).collect::<Vec<_>>().join("\n"))
+    panic!(
+        "{}",
+        ds.iter()
+            .map(|d| d.message.clone())
+            .collect::<Vec<_>>()
+            .join("\n")
+    )
 }
 
 /// One compilation; `cache: None` uses [`apply`] (full reload).
@@ -84,11 +96,15 @@ fn compile(
     let (p, d) = load_lenient_generated(input, sdk, Some(config), &mut names, None, None, None);
     assert!(d.is_empty(), "{d:?}");
     if by_diff {
-        let mut load =
-            |i: &mut Interner, g, u: &mut AnalyzedUnitCache| load_lenient_generated(input, sdk, Some(config), i, None, Some(u), g);
-        apply_incremental(p, &mut names, None, &mut load, executor, cache).unwrap_or_else(|d| failed(d))
+        let mut load = |i: &mut Interner, g, u: &mut AnalyzedUnitCache| {
+            load_lenient_generated(input, sdk, Some(config), i, None, Some(u), g)
+        };
+        apply_incremental(p, &mut names, None, &mut load, executor, cache)
+            .unwrap_or_else(|d| failed(d))
     } else {
-        let mut load = |i: &mut Interner, g| load_lenient_generated(input, sdk, Some(config), i, None, None, g);
+        let mut load = |i: &mut Interner, g| {
+            load_lenient_generated(input, sdk, Some(config), i, None, None, g)
+        };
         apply(p, &mut names, None, &mut load, executor).unwrap_or_else(|d| failed(d))
     }
 }
@@ -122,7 +138,12 @@ fn measure(case: &str, input: &Path, config: &Path, sdk: &SdkLayout, edit: impl 
     let t = Instant::now();
     let mut unavailable = dartforge_macros_host::executor::Unavailable::default();
     let unchanged = compile(input, config, sdk, &mut unavailable, Some(&mut cache), true);
-    report(case, "3 recompilation without change", t.elapsed(), &unchanged);
+    report(
+        case,
+        "3 recompilation without change",
+        t.elapsed(),
+        &unchanged,
+    );
     assert_eq!(unchanged.executed_macros, 0);
     assert_eq!(texts(&clean), texts(&unchanged));
 
@@ -130,19 +151,30 @@ fn measure(case: &str, input: &Path, config: &Path, sdk: &SdkLayout, edit: impl 
     let t = Instant::now();
     let mut executor = vm(input, config, sdk, work.path());
     let edited = compile(input, config, sdk, &mut executor, Some(&mut cache), true);
-    report(case, "4 recompilation with a new field", t.elapsed(), &edited);
+    report(
+        case,
+        "4 recompilation with a new field",
+        t.elapsed(),
+        &edited,
+    );
 }
 
 /// `n` `@JsonCodable` classes with three fields each, in one library.
 fn synthetic(n: usize, extra: bool) -> String {
     let mut s = String::from("import 'package:json/json.dart';\n\n");
     for i in 0..n {
-        let field = if extra && i == 0 { "  final bool? added;\n" } else { "" };
+        let field = if extra && i == 0 {
+            "  final bool? added;\n"
+        } else {
+            ""
+        };
         s.push_str(&format!(
             "@JsonCodable()\nclass C{i} {{\n  final String name;\n  final int? value;\n  final List<int> scores;\n{field}}}\n\n"
         ));
     }
-    s.push_str("void main() {\n  print(C0.fromJson({'name': 'a', 'scores': <int>[]}).toJson());\n}\n");
+    s.push_str(
+        "void main() {\n  print(C0.fromJson({'name': 'a', 'scores': <int>[]}).toJson());\n}\n",
+    );
     s
 }
 
@@ -152,7 +184,11 @@ fn host_measurement() {
     let sdk = sdk();
     let case = root().join("corpus/macros/410_json_codable");
     let config = case.join(".dart_tool/package_config.json");
-    assert!(config.is_file(), "missing the pub get of {}", case.display());
+    assert!(
+        config.is_file(),
+        "missing the pub get of {}",
+        case.display()
+    );
     // 410 in a copy (stage 4 edits the library).
     let copy = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(copy.path().join("lib")).unwrap();
@@ -161,7 +197,8 @@ fn host_measurement() {
     std::fs::copy(case.join("lib/modelos.dart"), &models).unwrap();
     let input = copy.path().join("main.dart");
     // `package:caso_json/` points at the copy.
-    let mut pc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
+    let mut pc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&config).unwrap()).unwrap();
     for p in pc["packages"].as_array_mut().unwrap() {
         if p["name"] == "caso_json" {
             p["rootUri"] = serde_json::json!(format!("file://{}/", copy.path().display()));
@@ -174,7 +211,15 @@ fn host_measurement() {
     std::fs::write(&copy_config, pc.to_string()).unwrap();
     measure("410_json_codable", &input, &copy_config, &sdk, || {
         let text = std::fs::read_to_string(&models).unwrap();
-        std::fs::write(&models, text.replacen("  final int? numero;\n", "  final int? numero;\n  final bool? novo;\n", 1)).unwrap();
+        std::fs::write(
+            &models,
+            text.replacen(
+                "  final int? numero;\n",
+                "  final int? numero;\n  final bool? novo;\n",
+                1,
+            ),
+        )
+        .unwrap();
     });
 
     let n: Vec<usize> = std::env::var("DARTFORGE_MEASUREMENT_N")
@@ -185,6 +230,8 @@ fn host_measurement() {
         let dir = tempfile::tempdir().unwrap();
         let input = dir.path().join("main.dart");
         std::fs::write(&input, synthetic(n, false)).unwrap();
-        measure(&format!("synthetic N={n}"), &input, &config, &sdk, || std::fs::write(&input, synthetic(n, true)).unwrap());
+        measure(&format!("synthetic N={n}"), &input, &config, &sdk, || {
+            std::fs::write(&input, synthetic(n, true)).unwrap()
+        });
     }
 }

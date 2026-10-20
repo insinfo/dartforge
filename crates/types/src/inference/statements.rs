@@ -2,12 +2,12 @@
 //! `flow-analysis.md` models for `if`, loops, `switch`, `try`, jumps),
 //! `return` and `yield` (collected for the inference of closures' returns).
 
-use super::body::{JumpTarget, Body, Local, MemberName};
+use super::BodyInferrer;
+use super::body::{Body, JumpTarget, Local, MemberName};
 use super::expr::{self, declare_local, infer, infer_free};
 use super::flow::Flow;
 use super::functions;
 use super::patterns;
-use super::BodyInferrer;
 use crate::codes::*;
 use crate::resolved::{LocalId, MemberRef, Resolved};
 use crate::table::{Type, TypeId};
@@ -29,13 +29,22 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             declare_forwards(inf, cx, stmts);
             // Without a basic block in progress, the fragment goes to the last
             // statement of this block.
-            let block_end = stmts.last().map(|&x| inf.program.unit(cx.unit).ast.stmt(x).span.end).unwrap_or(span.end);
+            let block_end = stmts
+                .last()
+                .map(|&x| inf.program.unit(cx.unit).ast.stmt(x).span.end)
+                .unwrap_or(span.end);
             cx.block_ends.push(block_end);
             for &x in stmts.iter() {
                 if !cx.flow.reachable && cx.dead_code.is_none() {
                     let sx = inf.program.unit(cx.unit).ast.stmt(x).span;
                     let end = cx.flow_ends.last().copied().unwrap_or(block_end);
-                    inf.warning(DEAD_CODE.template.to_string(), Span { start: sx.start, end: end.max(sx.end) });
+                    inf.warning(
+                        DEAD_CODE.template.to_string(),
+                        Span {
+                            start: sx.start,
+                            end: end.max(sx.end),
+                        },
+                    );
                     cx.dead_code = Some(cx.flow_ends.len());
                     cx.dead_origin = Some(s);
                 }
@@ -45,12 +54,22 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             cx.pop_scope();
         }
         StmtKind::Variables(vl) => variable_declaration(inf, cx, vl),
-        StmtKind::PatternVariables { final_, pattern, value } => patterns::declaration(inf, cx, *final_, *pattern, *value),
+        StmtKind::PatternVariables {
+            final_,
+            pattern,
+            value,
+        } => patterns::declaration(inf, cx, *final_, *pattern, *value),
         StmtKind::Function(f) => functions::the_local_function(inf, cx, *f),
         StmtKind::Expression(e) => {
             infer_free(inf, cx, *e);
         }
-        StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+        StmtKind::If {
+            condition,
+            case_pattern,
+            guard,
+            then,
+            else_,
+        } => {
             let before = cx.flow.clone();
             let (vf, ff) = match case_pattern {
                 Some(p) => {
@@ -78,10 +97,17 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
         }
         StmtKind::While { condition, body } => {
             let the_labels = pending_labels(cx);
-            let (writes, captured) = writes_in(inf, cx, &[Part::Expr(*condition), Part::Stmt(*body)]);
+            let (writes, captured) =
+                writes_in(inf, cx, &[Part::Expr(*condition), Part::Stmt(*body)]);
             cx.flow.conservative_join(&writes, &captured);
             let (vf, ff) = expr::checked_condition(inf, cx, *condition);
-            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, is_switch: false, breaks: Vec::new(), continues: Vec::new() });
+            cx.jumps.push(JumpTarget {
+                labels: the_labels,
+                the_loop: true,
+                is_switch: false,
+                breaks: Vec::new(),
+                continues: Vec::new(),
+            });
             cx.flow = vf;
             flow_branch(inf, cx, *body);
             let tgt = cx.jumps.pop().unwrap();
@@ -92,9 +118,16 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
         }
         StmtKind::DoWhile { body, condition } => {
             let the_labels = pending_labels(cx);
-            let (writes, captured) = writes_in(inf, cx, &[Part::Expr(*condition), Part::Stmt(*body)]);
+            let (writes, captured) =
+                writes_in(inf, cx, &[Part::Expr(*condition), Part::Stmt(*body)]);
             cx.flow.conservative_join(&writes, &captured);
-            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, is_switch: false, breaks: Vec::new(), continues: Vec::new() });
+            cx.jumps.push(JumpTarget {
+                labels: the_labels,
+                the_loop: true,
+                is_switch: false,
+                breaks: Vec::new(),
+                continues: Vec::new(),
+            });
             branch(inf, cx, *body);
             let tgt = cx.jumps.pop().unwrap();
             let mut the_conts = vec![cx.flow.clone()];
@@ -113,13 +146,38 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 let block = matches!(the_body.kind, StmtKind::Block(_));
                 let body_span = the_body.span;
                 let source = inf.program.unit(cx.unit).source.as_bytes();
-                let of_end = if block { body_span.start + 1 } else { span.start + 2 };
-                let while_start = if block { body_span.end.saturating_sub(1) } else { next_token(source, body_span.end) };
-                inf.warning(DEAD_CODE.template.to_string(), Span { start: span.start, end: of_end });
-                inf.warning(DEAD_CODE.template.to_string(), Span { start: while_start, end: span.end });
+                let of_end = if block {
+                    body_span.start + 1
+                } else {
+                    span.start + 2
+                };
+                let while_start = if block {
+                    body_span.end.saturating_sub(1)
+                } else {
+                    next_token(source, body_span.end)
+                };
+                inf.warning(
+                    DEAD_CODE.template.to_string(),
+                    Span {
+                        start: span.start,
+                        end: of_end,
+                    },
+                );
+                inf.warning(
+                    DEAD_CODE.template.to_string(),
+                    Span {
+                        start: while_start,
+                        end: span.end,
+                    },
+                );
                 if tgt.breaks.is_empty() {
                     let begin = next_token(source, span.end);
-                    let end = cx.flow_ends.last().copied().or(cx.block_ends.last().copied()).unwrap_or(span.end);
+                    let end = cx
+                        .flow_ends
+                        .last()
+                        .copied()
+                        .or(cx.block_ends.last().copied())
+                        .unwrap_or(span.end);
                     if end > begin {
                         inf.warning(DEAD_CODE.template.to_string(), Span { start: begin, end });
                     }
@@ -131,7 +189,13 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             exits.extend(tgt.breaks);
             cx.flow = inf.join_all(&base, &exits);
         }
-        StmtKind::For { init, condition, updates, body, .. } => {
+        StmtKind::For {
+            init,
+            condition,
+            updates,
+            body,
+            ..
+        } => {
             let the_labels = pending_labels(cx);
             cx.push_scope();
             if let Some(i) = init {
@@ -147,7 +211,10 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             if dead_at_start {
                 let a = &inf.program.unit(cx.unit).ast;
                 if let (Some(c), Some(u)) = (condition, updates.last()) {
-                    let sp = Span { start: a.expr(*c).span.start, end: a.expr(*u).span.end };
+                    let sp = Span {
+                        start: a.expr(*c).span.start,
+                        end: a.expr(*u).span.end,
+                    };
                     inf.warning(DEAD_CODE.template.to_string(), sp);
                 }
                 cx.dead_code = Some(usize::MAX);
@@ -169,7 +236,13 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     (f, i)
                 }
             };
-            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, is_switch: false, breaks: Vec::new(), continues: Vec::new() });
+            cx.jumps.push(JumpTarget {
+                labels: the_labels,
+                the_loop: true,
+                is_switch: false,
+                breaks: Vec::new(),
+                continues: Vec::new(),
+            });
             cx.flow = vf;
             let dead_before = cx.dead_code.is_some();
             cx.dead_origin = None;
@@ -180,7 +253,10 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             if !dead_before && cx.dead_code.is_none() && cx.dead_origin == Some(*body) {
                 let a = &inf.program.unit(cx.unit).ast;
                 if let (Some(p), Some(u)) = (updates.first(), updates.last()) {
-                    let sp = Span { start: a.expr(*p).span.start, end: a.expr(*u).span.end };
+                    let sp = Span {
+                        start: a.expr(*p).span.start,
+                        end: a.expr(*u).span.end,
+                    };
                     inf.warning(DEAD_CODE.template.to_string(), sp);
                 }
             }
@@ -213,11 +289,20 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             // end.
             if dead_at_start {
                 // Depth 0: no `exit_flow` closes it.
-                cx.dead_code = if condition.is_some() && updates.is_empty() { Some(0) } else { None };
+                cx.dead_code = if condition.is_some() && updates.is_empty() {
+                    Some(0)
+                } else {
+                    None
+                };
             }
             cx.pop_scope();
         }
-        StmtKind::ForIn { await_, target, iterable, body } => {
+        StmtKind::ForIn {
+            await_,
+            target,
+            iterable,
+            body,
+        } => {
             let the_labels = pending_labels(cx);
             cx.push_scope();
             let before_body = {
@@ -237,7 +322,13 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     while i < span.end && source[i].is_ascii_whitespace() {
                         i += 1;
                     }
-                    let end = cx.flow_ends.last().copied().or(cx.block_ends.last().copied()).unwrap_or(span.end).max(span.end);
+                    let end = cx
+                        .flow_ends
+                        .last()
+                        .copied()
+                        .or(cx.block_ends.last().copied())
+                        .unwrap_or(span.end)
+                        .max(span.end);
                     inf.warning(DEAD_CODE.template.to_string(), Span { start: i, end });
                     cx.dead_code = Some(cx.flow_ends.len());
                 }
@@ -249,7 +340,13 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 }
                 before
             };
-            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: true, is_switch: false, breaks: Vec::new(), continues: Vec::new() });
+            cx.jumps.push(JumpTarget {
+                labels: the_labels,
+                the_loop: true,
+                is_switch: false,
+                breaks: Vec::new(),
+                continues: Vec::new(),
+            });
             flow_branch(inf, cx, *body);
             let tgt = cx.jumps.pop().unwrap();
             let after = cx.flow.clone();
@@ -267,7 +364,13 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             let mut not_matched = after_value.clone();
             // All cases match the same reference to the value (T6).
             let outer_scrutinee = cx.switch_scrutinee.replace(None);
-            cx.jumps.push(JumpTarget { labels: the_labels, the_loop: false, is_switch: true, breaks: Vec::new(), continues: Vec::new() });
+            cx.jumps.push(JumpTarget {
+                labels: the_labels,
+                the_loop: false,
+                is_switch: true,
+                breaks: Vec::new(),
+                continues: Vec::new(),
+            });
             let mut has_default_value = false;
             let mut i = 0;
             // The index of the case group (those that share the body count as one).
@@ -339,26 +442,31 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 // join of the flows keeps the promotion common to all of them
                 // (`switchStatement_endAlternatives` joins the join variables,
                 // `case int? x?: case int? x?:` → `int`).
-                if j > i && members.len() == the_entries.len()
-                    && let Some(first) = members.first() {
-                        for &(n, _) in first {
-                            let ids: Option<Vec<LocalId>> = members.iter().map(|m| m.iter().find(|(x, _)| *x == n).map(|(_, id)| *id)).collect();
-                            let Some(ids) = ids else { continue };
-                            let Some(&rep) = ids.last() else { continue };
-                            for (k, &idk) in ids.iter().enumerate() {
-                                if idk == rep {
-                                    continue;
+                if j > i
+                    && members.len() == the_entries.len()
+                    && let Some(first) = members.first()
+                {
+                    for &(n, _) in first {
+                        let ids: Option<Vec<LocalId>> = members
+                            .iter()
+                            .map(|m| m.iter().find(|(x, _)| *x == n).map(|(_, id)| *id))
+                            .collect();
+                        let Some(ids) = ids else { continue };
+                        let Some(&rep) = ids.last() else { continue };
+                        for (k, &idk) in ids.iter().enumerate() {
+                            if idk == rep {
+                                continue;
+                            }
+                            if let Some(m) = the_entries[k].model(idk).cloned() {
+                                let r = rep.0 as usize;
+                                if the_entries[k].vars.len() <= r {
+                                    the_entries[k].vars.resize(r + 1, None);
                                 }
-                                if let Some(m) = the_entries[k].model(idk).cloned() {
-                                    let r = rep.0 as usize;
-                                    if the_entries[k].vars.len() <= r {
-                                        the_entries[k].vars.resize(r + 1, None);
-                                    }
-                                    the_entries[k].vars[r] = Some(m);
-                                }
+                                the_entries[k].vars[r] = Some(m);
                             }
                         }
                     }
+                }
                 let base = after_value.clone();
                 cx.flow = inf.join_all(&base, &the_entries);
                 // A group with a label (`switchStatement_endAlternatives` with
@@ -394,22 +502,26 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 // fragment goes from the first unreachable statement to the end of the
                 // body's last statement.
                 let pattern_flow = patterns::pattern_flow_enabled(inf);
-                let body_end = the_body.last().map(|&x| inf.program.unit(cx.unit).ast.stmt(x).span.end);
-                if pattern_flow
-                    && let Some(end) = body_end {
-                        enter_flow(cx, end);
-                    }
+                let body_end = the_body
+                    .last()
+                    .map(|&x| inf.program.unit(cx.unit).ast.stmt(x).span.end);
+                if pattern_flow && let Some(end) = body_end {
+                    enter_flow(cx, end);
+                }
                 // The member's statements form a local scope with their declarations
                 // (the `LocalScope` of the `SwitchMember`'s `statements`): using before
                 // declaring is `REFERENCED_BEFORE_DECLARATION`.
                 declare_forwards(inf, cx, &the_body);
                 for s in the_body {
-                    if pattern_flow && !cx.flow.reachable && cx.dead_code.is_none()
-                        && let Some(end) = body_end {
-                            let start = inf.program.unit(cx.unit).ast.stmt(s).span.start;
-                            inf.warning(DEAD_CODE.template.to_string(), Span { start, end });
-                            cx.dead_code = Some(cx.flow_ends.len());
-                        }
+                    if pattern_flow
+                        && !cx.flow.reachable
+                        && cx.dead_code.is_none()
+                        && let Some(end) = body_end
+                    {
+                        let start = inf.program.unit(cx.unit).ast.stmt(s).span.start;
+                        inf.warning(DEAD_CODE.template.to_string(), Span { start, end });
+                        cx.dead_code = Some(cx.flow_ends.len());
+                    }
                     infer_statement(inf, cx, s);
                 }
                 if pattern_flow && body_end.is_some() {
@@ -424,7 +536,10 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 // `shared_type_analyzer.dart:232-239`): with cases sharing the body
                 // earlier, the report lands on an earlier member.
                 let version = inf.program.library(cx.lib).features.version();
-                if cx.flow.reachable && j + 1 < n && version < dartforge_frontend::features::LanguageVersion::new(3, 0) {
+                if cx.flow.reachable
+                    && j + 1 < n
+                    && version < dartforge_frontend::features::LanguageVersion::new(3, 0)
+                {
                     let keyword = case_keyword(inf, cx, &cases[group]);
                     inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::SWITCH_CASE_COMPLETES_NORMALLY, keyword, &[]);
                 }
@@ -467,9 +582,17 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 None => (AsyncModifier::None, inf.core.unknown),
             };
             // The generator's declared return type (`imposedType`).
-            let declared = cx.functions.last().and_then(|f| f.the_return.filter(|_| f.executable.is_some()).or(f.closure_imposed));
+            let declared = cx.functions.last().and_then(|f| {
+                f.the_return
+                    .filter(|_| f.executable.is_some())
+                    .or(f.closure_imposed)
+            });
             if *star {
-                let ctx = if m == AsyncModifier::AsyncStar { inf.flow_of(k) } else { inf.iterable(k) };
+                let ctx = if m == AsyncModifier::AsyncStar {
+                    inf.flow_of(k)
+                } else {
+                    inf.iterable(k)
+                };
                 let t = infer(inf, cx, *value, ctx);
                 expr::void_use(inf, cx, *value, t);
                 // `YieldStatementResolver._resolve_generator` (`:171-175`).
@@ -477,8 +600,18 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     expr::nullable_dereference(inf, cx, *value, t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_USE_OF_NULLABLE_VALUE_IN_YIELD_EACH);
                 }
                 invalid_yield(inf, cx, *value, t, declared, true, m);
-                let cls = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
-                let el = if inf.is_dynamic(t) { inf.core.dynamic_ } else { inf.as_instance_of(t, cls).map(|a| a[0]).unwrap_or(inf.core.dynamic_) };
+                let cls = if m == AsyncModifier::AsyncStar {
+                    inf.core.stream_class
+                } else {
+                    inf.core.iterable_class
+                };
+                let el = if inf.is_dynamic(t) {
+                    inf.core.dynamic_
+                } else {
+                    inf.as_instance_of(t, cls)
+                        .map(|a| a[0])
+                        .unwrap_or(inf.core.dynamic_)
+                };
                 if let Some(f) = cx.functions.last_mut() {
                     f.returned.push(el);
                 }
@@ -491,7 +624,11 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                 }
             }
         }
-        StmtKind::Try { body, catches, finally_ } => {
+        StmtKind::Try {
+            body,
+            catches,
+            finally_,
+        } => {
             let before = cx.flow.clone();
             let (writes, captured) = writes_in(inf, cx, &[Part::Stmt(*body)]);
             flow_branch(inf, cx, *body);
@@ -515,10 +652,12 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     // `on T` with `T` potentially nullable (and not invalid): a nullable
                     // value is not thrown.
                     if let Some(t) = c.on_type
-                        && !inf.table.is_invalid(ex_type) && !inf.is_non_nullable(ex_type) {
-                            let sp = inf.program.unit(cx.unit).ast.ty(t).span;
-                            inf.warning_with_code(w::NULLABLE_TYPE_IN_CATCH_CLAUSE, sp, &[]);
-                        }
+                        && !inf.table.is_invalid(ex_type)
+                        && !inf.is_non_nullable(ex_type)
+                    {
+                        let sp = inf.program.unit(cx.unit).ast.ty(t).span;
+                        inf.warning_with_code(w::NULLABLE_TYPE_IN_CATCH_CLAUSE, sp, &[]);
+                    }
                     if !dead_catch {
                         let last = catches.len() - 1;
                         let end = catches[last].span.end;
@@ -526,17 +665,28 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                             // A `catch` that catches everything: the following ones are dead.
                             if catch_index != last {
                                 let start = catches[catch_index + 1].span.start;
-                                inf.warning_with_code(w::DEAD_CODE_CATCH_FOLLOWING_CATCH, Span { start, end }, &[]);
+                                inf.warning_with_code(
+                                    w::DEAD_CODE_CATCH_FOLLOWING_CATCH,
+                                    Span { start, end },
+                                    &[],
+                                );
                                 dead_catch = true;
                             }
                         } else {
-                            let previous = catch_types.iter().copied().find(|&s| inf.sub(ex_type, s));
+                            let previous =
+                                catch_types.iter().copied().find(|&s| inf.sub(ex_type, s));
                             match previous {
                                 Some(s) => {
                                     inf.warning_with_args(
                                         w::DEAD_CODE_ON_CATCH_SUBTYPE,
-                                        Span { start: c.span.start, end },
-                                        &[crate::display::Arg::Type_(ex_type), crate::display::Arg::Type_(s)],
+                                        Span {
+                                            start: c.span.start,
+                                            end,
+                                        },
+                                        &[
+                                            crate::display::Arg::Type_(ex_type),
+                                            crate::display::Arg::Type_(s),
+                                        ],
                                     );
                                     dead_catch = true;
                                 }
@@ -546,11 +696,37 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     }
                 }
                 if let Some(n) = &c.exception {
-                    declare_local(inf, cx, Local { name: n.sym, ty: ex_type, final_: true, late: false, const_: false, offset: n.span.start, local_function: false }, true);
+                    declare_local(
+                        inf,
+                        cx,
+                        Local {
+                            name: n.sym,
+                            ty: ex_type,
+                            final_: true,
+                            late: false,
+                            const_: false,
+                            offset: n.span.start,
+                            local_function: false,
+                        },
+                        true,
+                    );
                 }
                 if let Some(n) = &c.stack_trace {
                     let st = stack_trace(inf);
-                    declare_local(inf, cx, Local { name: n.sym, ty: st, final_: true, late: false, const_: false, offset: n.span.start, local_function: false }, true);
+                    declare_local(
+                        inf,
+                        cx,
+                        Local {
+                            name: n.sym,
+                            ty: st,
+                            final_: true,
+                            late: false,
+                            const_: false,
+                            offset: n.span.start,
+                            local_function: false,
+                        },
+                        true,
+                    );
                 }
                 let end = flow_end(inf, cx, c.body);
                 enter_flow(cx, end);
@@ -575,7 +751,11 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
                     let reaches = after_catches.reachable;
                     let mut r = inf.reapply(&after_catches, &end);
                     for (i, m) in end.vars.iter().enumerate() {
-                        let v0 = finally_start.vars.get(i).and_then(|m| m.as_ref()).map(|m| m.version);
+                        let v0 = finally_start
+                            .vars
+                            .get(i)
+                            .and_then(|m| m.as_ref())
+                            .map(|m| m.version);
                         if m.is_some() && m.as_ref().map(|m| m.version) != v0 {
                             if r.vars.len() <= i {
                                 r.vars.resize(i + 1, None);
@@ -594,13 +774,23 @@ pub(crate) fn infer_statement(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: Stmt
             let ls: Vec<SymbolId> = labels.iter().map(|l| l.sym).collect();
             let body_and_loop = matches!(
                 inf.program.unit(cx.unit).ast.stmt(*body).kind,
-                StmtKind::For { .. } | StmtKind::ForIn { .. } | StmtKind::While { .. } | StmtKind::DoWhile { .. } | StmtKind::Switch { .. }
+                StmtKind::For { .. }
+                    | StmtKind::ForIn { .. }
+                    | StmtKind::While { .. }
+                    | StmtKind::DoWhile { .. }
+                    | StmtKind::Switch { .. }
             );
             if body_and_loop {
                 cx.pending_labels.extend(ls);
                 infer_statement(inf, cx, *body);
             } else {
-                cx.jumps.push(JumpTarget { labels: ls, the_loop: false, is_switch: false, breaks: Vec::new(), continues: Vec::new() });
+                cx.jumps.push(JumpTarget {
+                    labels: ls,
+                    the_loop: false,
+                    is_switch: false,
+                    breaks: Vec::new(),
+                    continues: Vec::new(),
+                });
                 infer_statement(inf, cx, *body);
                 let tgt = cx.jumps.pop().unwrap();
                 let mut exits = vec![cx.flow.clone()];
@@ -713,10 +903,16 @@ pub(crate) fn exit_flow(cx: &mut Body) {
 /// label or `default`, otherwise `…_NOT_ALL_CASES`; present in all, but with
 /// different types or `final`, `…_DIFFERENT_FINALITY_OR_TYPE`.
 /// The code applies to each reference in the body.
-fn group_joins(inf: &mut BodyInferrer<'_>, cx: &mut Body, members: &[Vec<(SymbolId, LocalId)>], with_label: bool) {
+fn group_joins(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    members: &[Vec<(SymbolId, LocalId)>],
+    with_label: bool,
+) {
     use dartforge_diagnostics::codes::compile_time_error as c;
     let mut names: Vec<SymbolId> = Vec::new();
-    let mut components: std::collections::HashMap<SymbolId, (Vec<LocalId>, bool)> = std::collections::HashMap::new();
+    let mut components: std::collections::HashMap<SymbolId, (Vec<LocalId>, bool)> =
+        std::collections::HashMap::new();
     for (k, m) in members.iter().enumerate() {
         if k == 0 {
             for &(n, id) in m {
@@ -747,7 +943,11 @@ fn group_joins(inf: &mut BodyInferrer<'_>, cx: &mut Body, members: &[Vec<(Symbol
             continue;
         }
         let code = if !all {
-            Some(if with_label { c::PATTERN_VARIABLE_SHARED_CASE_SCOPE_HAS_LABEL } else { c::PATTERN_VARIABLE_SHARED_CASE_SCOPE_NOT_ALL_CASES })
+            Some(if with_label {
+                c::PATTERN_VARIABLE_SHARED_CASE_SCOPE_HAS_LABEL
+            } else {
+                c::PATTERN_VARIABLE_SHARED_CASE_SCOPE_NOT_ALL_CASES
+            })
         } else {
             let first = cx.local(ids[0]).clone();
             let typ = inf.table.canonical(first.ty);
@@ -800,7 +1000,11 @@ fn next_token(source: &[u8], of: usize) -> usize {
 }
 
 fn case_keyword(inf: &BodyInferrer<'_>, cx: &Body, c: &ast::SwitchCase) -> Span {
-    let keyword: &[u8] = if c.pattern.is_some() { b"case" } else { b"default" };
+    let keyword: &[u8] = if c.pattern.is_some() {
+        b"case"
+    } else {
+        b"default"
+    };
     let source = inf.program.unit(cx.unit).source.as_bytes();
     let of = c.labels.last().map_or(c.span.start, |l| l.span.end);
     let until = c.span.end.min(source.len());
@@ -808,11 +1012,17 @@ fn case_keyword(inf: &BodyInferrer<'_>, cx: &Body, c: &ast::SwitchCase) -> Span 
     while i + keyword.len() <= until {
         let before_ok = i == 0 || !(source[i - 1].is_ascii_alphanumeric() || source[i - 1] == b'_');
         if before_ok && &source[i..i + keyword.len()] == keyword {
-            return Span { start: i, end: i + keyword.len() };
+            return Span {
+                start: i,
+                end: i + keyword.len(),
+            };
         }
         i += 1;
     }
-    Span { start: c.span.start, end: (c.span.start + keyword.len()).min(c.span.end) }
+    Span {
+        start: c.span.start,
+        end: (c.span.start + keyword.len()).min(c.span.end),
+    }
 }
 
 fn pending_labels(cx: &mut Body) -> Vec<SymbolId> {
@@ -842,7 +1052,9 @@ fn stack_trace(inf: &mut BodyInferrer<'_>) -> TypeId {
     let sym = inf.interner.lookup("StackTrace");
     match (core, sym) {
         (Some(l), Some(s)) => match inf.program.lookup(l, s).and_then(|b| b.getter) {
-            Some(dartforge_elements::model::Element::Class(c)) => inf.class_type_with_args(c, Vec::new()),
+            Some(dartforge_elements::model::Element::Class(c)) => {
+                inf.class_type_with_args(c, Vec::new())
+            }
             _ => inf.core.dynamic_,
         },
         _ => inf.core.dynamic_,
@@ -856,11 +1068,21 @@ fn stack_trace(inf: &mut BodyInferrer<'_>) -> TypeId {
 /// `SwitchExhaustiveness` (`resolver.dart:5469-5557`): an enum whose constants
 /// all appear in `case`s without a guard (a constant, parenthesized or not),
 /// with `null` covered by the non-nullable type or by a `case null`.
-fn exhaustive_switch(inf: &mut BodyInferrer<'_>, cx: &Body, t: TypeId, the_cases: &[ast::SwitchCase]) -> bool {
+fn exhaustive_switch(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    t: TypeId,
+    the_cases: &[ast::SwitchCase],
+) -> bool {
     if inf.program.library(cx.lib).features.version().major >= 3 {
         return always_exhaustive(inf, t, 0);
     }
-    let Type::Interface { class, nullable, .. } = inf.table.get(t).clone() else { return false };
+    let Type::Interface {
+        class, nullable, ..
+    } = inf.table.get(t).clone()
+    else {
+        return false;
+    };
     let k = inf.program.class(class);
     if k.kind != dartforge_elements::model::ClassKind::Enum {
         return false;
@@ -875,14 +1097,22 @@ fn exhaustive_switch(inf: &mut BodyInferrer<'_>, cx: &Body, t: TypeId, the_cases
         if c.guard.is_some() {
             continue;
         }
-        let ast::PatternKind::Constant(mut e) = a.pattern(p).kind else { continue };
+        let ast::PatternKind::Constant(mut e) = a.pattern(p).kind else {
+            continue;
+        };
         while let ast::ExprKind::Parenthesized(i) = a.expr(e).kind {
             e = i;
         }
         // `_referencedElement`: the constant's getter (its variable).
         let variable = match the_body.get_resolved(e) {
-            Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => Some(*v),
-            Some(Resolved::Member { member: MemberRef::Function(f), .. }) => inf.program.function(*f).variable,
+            Some(Resolved::Member {
+                member: MemberRef::Variable(v),
+                ..
+            }) => Some(*v),
+            Some(Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            }) => inf.program.function(*f).variable,
             Some(Resolved::Element(dartforge_elements::model::Element::Variable(v))) => Some(*v),
             _ => None,
         };
@@ -938,7 +1168,9 @@ fn always_exhaustive(inf: &mut BodyInferrer<'_>, t: TypeId, prof: u32) -> bool {
             let b = inf.table.param(param).bound;
             always_exhaustive(inf, b, prof + 1)
         }
-        Type::Record { positional, named, .. } => positional
+        Type::Record {
+            positional, named, ..
+        } => positional
             .iter()
             .copied()
             .chain(named.iter().map(|(_, c)| *c))
@@ -953,27 +1185,58 @@ fn always_exhaustive(inf: &mut BodyInferrer<'_>, t: TypeId, prof: u32) -> bool {
 /// 72-140`): the value of a `yield` does not fit the element of the declared return
 /// (`YIELD_OF_INVALID_TYPE`), or that of a `yield*` does not fit the return
 /// (`YIELD_EACH_OF_INVALID_TYPE`), at the expression.
-fn invalid_yield(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, r: Option<TypeId>, the_star: bool, m: AsyncModifier) {
+fn invalid_yield(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    e: ExprId,
+    t: TypeId,
+    r: Option<TypeId>,
+    the_star: bool,
+    m: AsyncModifier,
+) {
     use dartforge_diagnostics::codes::compile_time_error as c;
     if !matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
         return;
     }
     let sp = inf.span_expr(cx.unit, e);
-    let cls = if m == AsyncModifier::AsyncStar { inf.core.stream_class } else { inf.core.iterable_class };
+    let cls = if m == AsyncModifier::AsyncStar {
+        inf.core.stream_class
+    } else {
+        inf.core.iterable_class
+    };
     if the_star {
         if let Some(r) = r.filter(|&r| !inf.assignable(t, r)) {
-            inf.warning_with_args(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[crate::display::Arg::Type_(t), crate::display::Arg::Type_(r)]);
+            inf.warning_with_args(
+                c::YIELD_EACH_OF_INVALID_TYPE,
+                sp,
+                &[crate::display::Arg::Type_(t), crate::display::Arg::Type_(r)],
+            );
             return;
         }
         let d = inf.core.dynamic_;
-        let req = if m == AsyncModifier::AsyncStar { inf.flow_of(d) } else { inf.iterable(d) };
+        let req = if m == AsyncModifier::AsyncStar {
+            inf.flow_of(d)
+        } else {
+            inf.iterable(d)
+        };
         if !inf.assignable(t, req) {
-            inf.warning_with_args(c::YIELD_EACH_OF_INVALID_TYPE, sp, &[crate::display::Arg::Type_(t), crate::display::Arg::Type_(req)]);
+            inf.warning_with_args(
+                c::YIELD_EACH_OF_INVALID_TYPE,
+                sp,
+                &[
+                    crate::display::Arg::Type_(t),
+                    crate::display::Arg::Type_(req),
+                ],
+            );
         }
     } else if let Some(args) = r.and_then(|r| inf.as_instance_of(r, cls)) {
         let v = args[0];
         if !inf.assignable(t, v) {
-            inf.warning_with_args(c::YIELD_OF_INVALID_TYPE, sp, &[crate::display::Arg::Type_(t), crate::display::Arg::Type_(v)]);
+            inf.warning_with_args(
+                c::YIELD_OF_INVALID_TYPE,
+                sp,
+                &[crate::display::Arg::Type_(t), crate::display::Arg::Type_(v)],
+            );
         }
     }
 }
@@ -983,13 +1246,20 @@ fn invalid_yield(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, t: TypeId, r:
 /// `functionExpression`): inside it, the variables written anywhere in the
 /// member are not definitely unassigned; after it, the flow is the one from
 /// before, and what it writes counts as a captured write.
-fn late_initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, init: ExprId, ctx: TypeId) -> TypeId {
+fn late_initializer(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    init: ExprId,
+    ctx: TypeId,
+) -> TypeId {
     let before = cx.flow.clone();
     let mut inside = before.clone();
     if cx.written_in_body.is_none() {
         let a = &inf.program.unit(cx.unit).ast;
         cx.written_in_body = Some(match cx.root {
-            super::body::Root::Function(f) => separately_written_names(inf, cx.unit, &a.function(f).body),
+            super::body::Root::Function(f) => {
+                separately_written_names(inf, cx.unit, &a.function(f).body)
+            }
             super::body::Root::Constructor(m) => match &a.member(m).kind {
                 ast::MemberKind::Constructor(c) => separately_written_names(inf, cx.unit, &c.body),
                 _ => Default::default(),
@@ -1024,7 +1294,11 @@ fn late_initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, init: ExprId, ctx
 }
 
 /// Local variable declaration (`var`, `final`, typed, `late`, `const`).
-pub(crate) fn variable_declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, vl: &ast::VariableList) {
+pub(crate) fn variable_declaration(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    vl: &ast::VariableList,
+) {
     let declared = vl.ty.map(|t| inf.type_from_annotation(cx, t));
     let u = inf.core.unknown;
     for v in vl.variables.iter() {
@@ -1040,7 +1314,9 @@ pub(crate) fn variable_declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, vl
                 let (yes, not_) = expr::the_condition(inf, cx, init);
                 cx.flow = inf.join(&yes, &not_);
                 saved_condition = Some((yes, not_));
-                inf.body_types.units[cx.unit.0 as usize].get_type(init).unwrap_or(inf.core.bool_)
+                inf.body_types.units[cx.unit.0 as usize]
+                    .get_type(init)
+                    .unwrap_or(inf.core.bool_)
             } else {
                 infer(inf, cx, init, declared.unwrap_or(u))
             };
@@ -1048,7 +1324,11 @@ pub(crate) fn variable_declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, vl
             if let Some(d) = declared {
                 expr::verify_assignable_expr(inf, cx, init, t, d, INVALID_ASSIGNMENT.template);
             } else {
-                typ = Some(if matches!(inf.table.get(t), Type::Null) { inf.core.dynamic_ } else { t });
+                typ = Some(if matches!(inf.table.get(t), Type::Null) {
+                    inf.core.dynamic_
+                } else {
+                    t
+                });
             }
             if vl.const_ {
                 const_collections(inf, cx, init);
@@ -1065,7 +1345,15 @@ pub(crate) fn variable_declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, vl
         let id = declare_local(
             inf,
             cx,
-            Local { name: v.name.sym, ty: typ, final_: vl.final_ || vl.const_, late: vl.late, const_: vl.const_, offset: v.name.span.start, local_function: false },
+            Local {
+                name: v.name.sym,
+                ty: typ,
+                final_: vl.final_ || vl.const_,
+                late: vl.late,
+                const_: vl.const_,
+                offset: v.name.span.start,
+                local_function: false,
+            },
             false,
         );
         match written {
@@ -1083,7 +1371,8 @@ pub(crate) fn variable_declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, vl
         // variable without a written type ignores the initializer's information
         // (the behaviour of dart-lang/language#1785).
         let library_version = inf.program.library(cx.lib).features.version();
-        let respects_initializer = declared.is_some() || (library_version.major, library_version.minor) >= (2, 15);
+        let respects_initializer =
+            declared.is_some() || (library_version.major, library_version.minor) >= (2, 15);
         if respects_initializer
             && let (Some((yes, not_)), Some(version)) = (saved_condition, cx.flow.version(id))
         {
@@ -1095,15 +1384,24 @@ pub(crate) fn variable_declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, vl
 fn const_collections(inf: &mut BodyInferrer<'_>, cx: &Body, init: ExprId) {
     let unit = cx.unit;
     super::collections::validate_const_collection(inf, cx, init);
-    let mut av = crate::constant::ConstantEvaluator::new(inf.program, inf.interner, inf.table, inf.core);
+    let mut av =
+        crate::constant::ConstantEvaluator::new(inf.program, inf.interner, inf.table, inf.core);
     let r = av.evaluate_expr(unit, init);
     let error = av.error_thrown.clone();
     drop(av);
     if r.is_none() {
         let sp = inf.span_expr(unit, init);
         match error {
-            Some(e) => inf.warning(format!("{}: {}", CONST_EVAL_THROWS_EXCEPTION.template, e), sp),
-            None if !inf.is_constant(cx, init) => inf.warning(CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template.to_string(), sp),
+            Some(e) => inf.warning(
+                format!("{}: {}", CONST_EVAL_THROWS_EXCEPTION.template, e),
+                sp,
+            ),
+            None if !inf.is_constant(cx, init) => inf.warning(
+                CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE
+                    .template
+                    .to_string(),
+                sp,
+            ),
             None => {}
         }
     }
@@ -1116,7 +1414,11 @@ pub(crate) fn for_initialization(inf: &mut BodyInferrer<'_>, cx: &mut Body, init
         ast::ForInit::Expression(e) => {
             infer_free(inf, cx, *e);
         }
-        ast::ForInit::Pattern { final_, pattern, value } => patterns::declaration(inf, cx, *final_, *pattern, *value),
+        ast::ForInit::Pattern {
+            final_,
+            pattern,
+            value,
+        } => patterns::declaration(inf, cx, *final_, *pattern, *value),
     }
 }
 
@@ -1134,7 +1436,13 @@ impl LoopWrite {
     /// The identifier's `flow.write` (`for_resolver.dart:187-191`).
     pub(crate) fn apply(self, inf: &mut BodyInferrer<'_>, cx: &mut Body) {
         let mut f = std::mem::replace(&mut cx.flow, Flow::reachable());
-        inf.assign_flow(&mut f, self.local, self.declared, self.written, Some(self.reason));
+        inf.assign_flow(
+            &mut f,
+            self.local,
+            self.declared,
+            self.written,
+            Some(self.reason),
+        );
         cx.flow = f;
     }
 }
@@ -1143,8 +1451,18 @@ impl LoopWrite {
 /// iterable and declares the loop variable. An assignment to an existing
 /// variable goes back to the caller, which applies it after the
 /// conservative join (`forEach_bodyBegin`).
-pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &ast::ForInTarget, iterable: ExprId, await_: bool) -> Option<LoopWrite> {
-    let cls = if await_ { inf.core.stream_class } else { inf.core.iterable_class };
+pub(crate) fn for_in_header(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    target: &ast::ForInTarget,
+    iterable: ExprId,
+    await_: bool,
+) -> Option<LoopWrite> {
+    let cls = if await_ {
+        inf.core.stream_class
+    } else {
+        inf.core.iterable_class
+    };
     // Context of the iterable: `Iterable<T>` with the variable's written type.
     let written = match target {
         ast::ForInTarget::Declared { ty: Some(t), .. } => Some(inf.type_from_annotation(cx, *t)),
@@ -1166,9 +1484,16 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
     // `visitForEachPartsWithDeclaration` (`error_verifier.dart:912-921`): with
     // `_checkForEachParts` without error, the variable's `const`.
     if valid_parts
-        && let ast::ForInTarget::Declared { const_: Some(keyword), .. } = target
+        && let ast::ForInTarget::Declared {
+            const_: Some(keyword),
+            ..
+        } = target
     {
-        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::FOR_IN_WITH_CONST_VARIABLE, *keyword, &[]);
+        inf.warning_with_code(
+            dartforge_diagnostics::codes::compile_time_error::FOR_IN_WITH_CONST_VARIABLE,
+            *keyword,
+            &[],
+        );
     }
     // `_computeForEachElementType` (`for_resolver.dart:92-116`): a `dynamic`
     // iterable gives `dynamic`; what is not an `Iterable`/`Stream` (including
@@ -1187,7 +1512,20 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
     match target {
         ast::ForInTarget::Declared { final_, name, .. } => {
             let typ = written.unwrap_or(el);
-            declare_local(inf, cx, Local { name: name.sym, ty: typ, final_: *final_, late: false, const_: false, offset: name.span.start, local_function: false }, true);
+            declare_local(
+                inf,
+                cx,
+                Local {
+                    name: name.sym,
+                    ty: typ,
+                    final_: *final_,
+                    late: false,
+                    const_: false,
+                    offset: name.span.start,
+                    local_function: false,
+                },
+                true,
+            );
         }
         ast::ForInTarget::Pattern { final_, pattern } => {
             patterns::declare_by_type(inf, cx, *final_, *pattern, el);
@@ -1196,34 +1534,51 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
             // `for (x in e)`: assignment to an existing variable.
             let a = &inf.program.unit(cx.unit).ast;
             if let ExprKind::Identifier(n) = &a.expr(*e).kind
-                && let Some(MemberName::Local(id)) = cx.lookup(n.sym) {
-                    expr::resolver(inf, cx, *e, crate::resolved::Resolved::Local(id));
-                    // `checkFinalAlreadyAssigned(identifier, isForEachIdentifier: true)`
-                    // (3.6.2 `for_resolver.dart:131-136`,
-                    // `assignment_expression_resolver.dart:354-388`): a `final` local always
-                    // reports, without looking at definite assignment.
-                    let l = cx.local(id);
-                    // `visitForEachPartsWithIdentifier` → `_checkForAssignmentToFinal`
-                    // (3.6.2 `error_verifier.dart:926-930`, `:2155-2161`): the local constant,
-                    // with the loop's parts valid.
-                    if l.const_ && valid_parts {
-                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::ASSIGNMENT_TO_CONST, n.span, &[]);
-                    }
-                    if l.final_ && !l.const_ && !cx.local_functions.contains(&id) {
-                        if l.late {
-                            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::LATE_FINAL_LOCAL_ALREADY_ASSIGNED, n.span, &[]);
-                        } else {
-                            let msg = format!("{}: '{}'", crate::codes::ASSIGNMENT_TO_FINAL_LOCAL.template, inf.interner.resolve(l.name));
-                            inf.warning(msg, n.span);
-                        }
-                    }
-                    let decl = cx.local(id).ty;
-                    expr::record_type(inf, cx, *e, decl);
-                    // `DemoteViaExplicitWrite` at the identifier
-                    // (`ForEachPartsWithIdentifier.identifier`).
-                    let reason = super::flow::NonPromotionReason::Write { name: n.sym, span: n.span };
-                    return Some(LoopWrite { local: id, declared: decl, written: el, reason });
+                && let Some(MemberName::Local(id)) = cx.lookup(n.sym)
+            {
+                expr::resolver(inf, cx, *e, crate::resolved::Resolved::Local(id));
+                // `checkFinalAlreadyAssigned(identifier, isForEachIdentifier: true)`
+                // (3.6.2 `for_resolver.dart:131-136`,
+                // `assignment_expression_resolver.dart:354-388`): a `final` local always
+                // reports, without looking at definite assignment.
+                let l = cx.local(id);
+                // `visitForEachPartsWithIdentifier` → `_checkForAssignmentToFinal`
+                // (3.6.2 `error_verifier.dart:926-930`, `:2155-2161`): the local constant,
+                // with the loop's parts valid.
+                if l.const_ && valid_parts {
+                    inf.warning_with_code(
+                        dartforge_diagnostics::codes::compile_time_error::ASSIGNMENT_TO_CONST,
+                        n.span,
+                        &[],
+                    );
                 }
+                if l.final_ && !l.const_ && !cx.local_functions.contains(&id) {
+                    if l.late {
+                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::LATE_FINAL_LOCAL_ALREADY_ASSIGNED, n.span, &[]);
+                    } else {
+                        let msg = format!(
+                            "{}: '{}'",
+                            crate::codes::ASSIGNMENT_TO_FINAL_LOCAL.template,
+                            inf.interner.resolve(l.name)
+                        );
+                        inf.warning(msg, n.span);
+                    }
+                }
+                let decl = cx.local(id).ty;
+                expr::record_type(inf, cx, *e, decl);
+                // `DemoteViaExplicitWrite` at the identifier
+                // (`ForEachPartsWithIdentifier.identifier`).
+                let reason = super::flow::NonPromotionReason::Write {
+                    name: n.sym,
+                    span: n.span,
+                };
+                return Some(LoopWrite {
+                    local: id,
+                    declared: decl,
+                    written: el,
+                    reason,
+                });
+            }
             infer_free(inf, cx, *e);
         }
     }
@@ -1238,23 +1593,39 @@ pub(crate) fn for_in_header(inf: &mut BodyInferrer<'_>, cx: &mut Body, target: &
 /// through the library's scope, like declaration annotations.
 fn validate_local_annotations(inf: &mut BodyInferrer<'_>, cx: &mut Body, s: StmtId) {
     let a = &inf.program.unit(cx.unit).ast;
-    let Some((_, ms)) = a.local_metadata.iter().find(|(x, _)| *x == s) else { return };
+    let Some((_, ms)) = a.local_metadata.iter().find(|(x, _)| *x == s) else {
+        return;
+    };
     for m in ms.iter() {
         validate_local_annotation(inf, cx, m);
     }
 }
 
 /// An annotation in the local scope (see [`validate_local_annotations`]).
-pub(crate) fn validate_local_annotation(inf: &mut BodyInferrer<'_>, cx: &Body, m: &ast::Annotation) {
+pub(crate) fn validate_local_annotation(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    m: &ast::Annotation,
+) {
     let Some(n1) = m.name.first() else { return };
     match cx.lookup(n1.sym) {
         Some(MemberName::Local(id)) => {
             let l = cx.local(id);
             if inf.record_locals {
-                inf.body_types.units[cx.unit.0 as usize].metadata_local_declarations.insert(m.span.start, l.offset);
+                inf.body_types.units[cx.unit.0 as usize]
+                    .metadata_local_declarations
+                    .insert(m.span.start, l.offset);
             }
-            if cx.local_functions.contains(&id) || !l.const_ || m.arguments.is_some() || m.name.len() > 1 {
-                inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVALID_ANNOTATION, m.span, &[]);
+            if cx.local_functions.contains(&id)
+                || !l.const_
+                || m.arguments.is_some()
+                || m.name.len() > 1
+            {
+                inf.warning_with_code(
+                    dartforge_diagnostics::codes::compile_time_error::INVALID_ANNOTATION,
+                    m.span,
+                    &[],
+                );
             }
         }
         Some(_) => {}
@@ -1280,7 +1651,13 @@ fn for_in_invalid_type(
     await_: bool,
 ) -> bool {
     use dartforge_diagnostics::codes::compile_time_error as ce;
-    let Some(cls) = (if await_ { inf.core.stream_class } else { inf.core.iterable_class }) else { return false };
+    let Some(cls) = (if await_ {
+        inf.core.stream_class
+    } else {
+        inf.core.iterable_class
+    }) else {
+        return false;
+    };
     // `for (var (p) in e)`: `_checkForEachParts` does not run (only the parts
     // with a declaration and with an identifier); the shared
     // `analyzePatternForIn` (3.6.2 `type_analyzer.dart:1445-1463`) reports if
@@ -1320,7 +1697,9 @@ fn for_in_invalid_type(
         }
         return false;
     }
-    if matches!(inf.table.get(t), Type::Void | Type::Null) || inf.table.get(t).is_declared_nullable() {
+    if matches!(inf.table.get(t), Type::Void | Type::Null)
+        || inf.table.get(t).is_declared_nullable()
+    {
         return false;
     }
     if inf.is_dynamic(t) || inf.the_is_unknown(t) {
@@ -1330,7 +1709,10 @@ fn for_in_invalid_type(
     let mut base = t;
     for _ in 0..16 {
         match inf.table.get(base) {
-            Type::TypeParameter { param, nullable: false } => {
+            Type::TypeParameter {
+                param,
+                nullable: false,
+            } => {
                 let b = inf.table.param(*param).bound;
                 if b == base {
                     break;
@@ -1344,7 +1726,10 @@ fn for_in_invalid_type(
     let d = inf.core.dynamic_;
     let the_required = inf.iface(Some(cls), vec![d]);
     let the_name = if await_ { "Stream" } else { "Iterable" };
-    if inf.is_dynamic(base) || matches!(inf.table.get(base), Type::Void) || base == inf.core.object_nullable {
+    if inf.is_dynamic(base)
+        || matches!(inf.table.get(base), Type::Void)
+        || base == inf.core.object_nullable
+    {
         return !matches!(target, ast::ForInTarget::Pattern { .. });
     }
     let sp = inf.span_expr(cx.unit, iterable);
@@ -1368,35 +1753,70 @@ fn for_in_invalid_type(
     };
     // A variable declared without a written type has the element's type: it
     // fits.
-    let Some(var) = var else { return matches!(target, ast::ForInTarget::Declared { .. }) };
-    let Some(el) = inf.as_instance_of(base, Some(cls)).map(|a| a[0]) else { return true };
-    let tearoff = matches!(inf.table.get(var), Type::Function { .. } | Type::FutureOr { .. })
-        && matches!(inf.table.get(el), Type::Interface { .. } | Type::ExtensionType { .. } | Type::TypeParameter { .. } | Type::Intersection { .. });
+    let Some(var) = var else {
+        return matches!(target, ast::ForInTarget::Declared { .. });
+    };
+    let Some(el) = inf.as_instance_of(base, Some(cls)).map(|a| a[0]) else {
+        return true;
+    };
+    let tearoff = matches!(
+        inf.table.get(var),
+        Type::Function { .. } | Type::FutureOr { .. }
+    ) && matches!(
+        inf.table.get(el),
+        Type::Interface { .. }
+            | Type::ExtensionType { .. }
+            | Type::TypeParameter { .. }
+            | Type::Intersection { .. }
+    );
     // `_checkForInIterable` (6.11 `error_verifier.dart:3182-3233`): an element
     // that is not assignable may still pass by the implicit tear-off of its
     // `call`, whose type must then be assignable (a generic `call` is
     // instantiated by inference there; it is left alone here).
-    let call_tearoff_fails = tearoff && !inf.assignable(el, var) && {
-        let call = inf.sym.call;
-        match (inf.table.get(el).clone(), call) {
-            (Type::Interface { nullable: false, .. }, Some(call)) => match inf.interface_member(el, call, false).filter(|m| m.method) {
-                Some(m) => !matches!(inf.table.get(m.ty), Type::Function { type_params, .. } if !type_params.is_empty()) && !inf.assignable(m.ty, var),
-                None => true,
-            },
-            // `getImplicitCallMethod` needs a non-nullable interface type.
-            (Type::Interface { nullable: true, .. }, _) => true,
-            _ => false,
-        }
-    };
+    let call_tearoff_fails = tearoff
+        && !inf.assignable(el, var)
+        && {
+            let call = inf.sym.call;
+            match (inf.table.get(el).clone(), call) {
+                (
+                    Type::Interface {
+                        nullable: false, ..
+                    },
+                    Some(call),
+                ) => match inf.interface_member(el, call, false).filter(|m| m.method) {
+                    Some(m) => {
+                        !matches!(inf.table.get(m.ty), Type::Function { type_params, .. } if !type_params.is_empty())
+                            && !inf.assignable(m.ty, var)
+                    }
+                    None => true,
+                },
+                // `getImplicitCallMethod` needs a non-nullable interface type.
+                (Type::Interface { nullable: true, .. }, _) => true,
+                _ => false,
+            }
+        };
     if (!tearoff && !inf.assignable(el, var)) || call_tearoff_fails {
-        inf.warning_with_args(ce::FOR_IN_OF_INVALID_ELEMENT_TYPE, sp, &[crate::display::Arg::Type_(base), crate::display::Arg::from(the_name), crate::display::Arg::Type_(var)]);
+        inf.warning_with_args(
+            ce::FOR_IN_OF_INVALID_ELEMENT_TYPE,
+            sp,
+            &[
+                crate::display::Arg::Type_(base),
+                crate::display::Arg::from(the_name),
+                crate::display::Arg::Type_(var),
+            ],
+        );
         return false;
     }
     true
 }
 
 /// `return e;` / `return;`.
-fn return_(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: Option<ExprId>, span: dartforge_diagnostics::Span) {
+fn return_(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    e: Option<ExprId>,
+    span: dartforge_diagnostics::Span,
+) {
     let Some(fc) = cx.functions.last().cloned() else {
         if let Some(e) = e {
             infer_free(inf, cx, e);
@@ -1415,7 +1835,11 @@ fn return_(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: Option<ExprId>, span: d
                     if let Some(f) = cx.functions.last_mut() {
                         f.returned_expressions.push((e, t));
                     }
-                    let t = if fc.modifier == AsyncModifier::Async { inf.flatten(t) } else { t };
+                    let t = if fc.modifier == AsyncModifier::Async {
+                        inf.flatten(t)
+                    } else {
+                        t
+                    };
                     if let Some(f) = cx.functions.last_mut() {
                         f.returned.push(t);
                     }
@@ -1428,19 +1852,36 @@ fn return_(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: Option<ExprId>, span: d
             // non-generator executable, with a return (the future value, in `async`)
             // that is not `void`, `dynamic` or `Null`.
             if let (Some(t), Some(_)) = (fc.the_return, fc.executable.as_ref()) {
-                let generator = matches!(fc.modifier, AsyncModifier::SyncStar | AsyncModifier::AsyncStar);
+                let generator = matches!(
+                    fc.modifier,
+                    AsyncModifier::SyncStar | AsyncModifier::AsyncStar
+                );
                 if !generator {
-                    let tv = if fc.modifier == AsyncModifier::Async { inf.future_value_type(t) } else { t };
+                    let tv = if fc.modifier == AsyncModifier::Async {
+                        inf.future_value_type(t)
+                    } else {
+                        t
+                    };
                     if !matches!(inf.table.get(tv), Type::Void | Type::Dynamic | Type::Null) {
-                        let sp = dartforge_diagnostics::Span { start: span.start, end: span.start + "return".len() };
-                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::RETURN_WITHOUT_VALUE, sp, &[]);
+                        let sp = dartforge_diagnostics::Span {
+                            start: span.start,
+                            end: span.start + "return".len(),
+                        };
+                        inf.warning_with_code(
+                            dartforge_diagnostics::codes::compile_time_error::RETURN_WITHOUT_VALUE,
+                            sp,
+                            &[],
+                        );
                     }
                 }
             }
             if let Some(f) = cx.functions.last_mut() {
                 f.empty_return = true;
                 if f.executable.is_none() {
-                    f.valueless_returns.push(dartforge_diagnostics::Span { start: span.start, end: span.start + "return".len() });
+                    f.valueless_returns.push(dartforge_diagnostics::Span {
+                        start: span.start,
+                        end: span.start + "return".len(),
+                    });
                 }
             }
         }
@@ -1469,7 +1910,9 @@ pub(crate) type Write = (SymbolId, Option<usize>);
 /// The local of `cx` that the write refers to, as seen from the current
 /// point.
 pub(crate) fn write_local(cx: &Body, e: Write) -> Option<LocalId> {
-    let Some(MemberName::Local(id)) = cx.lookup(e.0) else { return None };
+    let Some(MemberName::Local(id)) = cx.lookup(e.0) else {
+        return None;
+    };
     match e.1 {
         Some(o) if cx.local(id).offset != o => None,
         _ => Some(id),
@@ -1477,7 +1920,11 @@ pub(crate) fn write_local(cx: &Body, e: Write) -> Option<LocalId> {
 }
 
 /// Locals written in the parts (and those written inside closures in them).
-pub(crate) fn writes_in(inf: &BodyInferrer<'_>, cx: &Body, parts: &[Part<'_>]) -> (Vec<LocalId>, Vec<LocalId>) {
+pub(crate) fn writes_in(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    parts: &[Part<'_>],
+) -> (Vec<LocalId>, Vec<LocalId>) {
     let mut v = Sweep::new(&inf.program.unit(cx.unit).ast);
     for p in parts {
         match p {
@@ -1490,9 +1937,10 @@ pub(crate) fn writes_in(inf: &BodyInferrer<'_>, cx: &Body, parts: &[Part<'_>]) -
         let mut out = Vec::new();
         for e in es {
             if let Some(id) = write_local(cx, *e)
-                && !out.contains(&id) {
-                    out.push(id);
-                }
+                && !out.contains(&id)
+            {
+                out.push(id);
+            }
         }
         out
     };
@@ -1501,7 +1949,11 @@ pub(crate) fn writes_in(inf: &BodyInferrer<'_>, cx: &Body, parts: &[Part<'_>]) -
 
 /// Writes inside a function (for write capture): its parameters shadow the
 /// outer ones in the whole body (they resolve to themselves).
-pub(crate) fn names_written_in_function(inf: &BodyInferrer<'_>, unit: UnitId, f: &ast::Function) -> Vec<Write> {
+pub(crate) fn names_written_in_function(
+    inf: &BodyInferrer<'_>,
+    unit: UnitId,
+    f: &ast::Function,
+) -> Vec<Write> {
     let mut v = Sweep::new(&inf.program.unit(unit).ast);
     v.scopes.push(Vec::new());
     v.declare_parameters(f);
@@ -1518,7 +1970,11 @@ pub(crate) fn names_written_in_function(inf: &BodyInferrer<'_>, unit: UnitId, f:
 /// Writes in a body, separated: `(outside function literals, inside
 /// literals)`, the analyzer's `assignedVariables.anywhere.written` and
 /// `.captured`.
-pub(crate) fn separately_written_names(inf: &BodyInferrer<'_>, unit: UnitId, body: &ast::FunctionBody) -> (Vec<Write>, Vec<Write>) {
+pub(crate) fn separately_written_names(
+    inf: &BodyInferrer<'_>,
+    unit: UnitId,
+    body: &ast::FunctionBody,
+) -> (Vec<Write>, Vec<Write>) {
     let mut v = Sweep::new(&inf.program.unit(unit).ast);
     v.body(body, false);
     (v.outside, v.inside)
@@ -1538,7 +1994,13 @@ struct Sweep<'a> {
 
 impl<'a> Sweep<'a> {
     fn new(a: &'a ast::Ast) -> Self {
-        Sweep { a, scopes: vec![Vec::new()], outside: Vec::new(), inside: Vec::new(), closures: Vec::new() }
+        Sweep {
+            a,
+            scopes: vec![Vec::new()],
+            outside: Vec::new(),
+            inside: Vec::new(),
+            closures: Vec::new(),
+        }
     }
 
     fn declare(&mut self, n: ast::Name) {
@@ -1556,19 +2018,24 @@ impl<'a> Sweep<'a> {
     }
 
     fn write(&mut self, n: ast::Name, inside: bool) {
-        let finding = self
-            .scopes
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(i, e)| e.iter().rev().find(|(s, _)| *s == n.sym).map(|(_, o)| (i, *o)));
+        let finding = self.scopes.iter().enumerate().rev().find_map(|(i, e)| {
+            e.iter()
+                .rev()
+                .find(|(s, _)| *s == n.sym)
+                .map(|(_, o)| (i, *o))
+        });
         let decl = finding.map(|(_, o)| o);
         // `AssignedVariables.captured`: only a write in a closure to a variable
         // declared outside it (a local function's parameter written in that same
         // function is an ordinary write).
-        let inside = inside && !finding.is_some_and(|(i, _)| self.closures.last().is_some_and(|&c| i >= c));
+        let inside =
+            inside && !finding.is_some_and(|(i, _)| self.closures.last().is_some_and(|&c| i >= c));
         let e = (n.sym, decl);
-        let v = if inside { &mut self.inside } else { &mut self.outside };
+        let v = if inside {
+            &mut self.inside
+        } else {
+            &mut self.outside
+        };
         if !v.contains(&e) {
             v.push(e);
         }
@@ -1619,7 +2086,12 @@ impl<'a> Sweep<'a> {
         use ast::PatternKind as P;
         let a = self.a;
         match &a.pattern(p).kind {
-            P::Variable { name, var_, final_, ty } => {
+            P::Variable {
+                name,
+                var_,
+                final_,
+                ty,
+            } => {
                 // `var`/`final`/a type in an assignment also declares
                 // (`DeclaredVariablePattern`).
                 if declares || *var_ || *final_ || ty.is_some() {
@@ -1632,12 +2104,15 @@ impl<'a> Sweep<'a> {
                 self.pattern(*x, inside, declares);
                 self.pattern(*y, inside, declares);
             }
-            P::NullCheck(x) | P::NullAssert(x) | P::Parenthesized(x) => self.pattern(*x, inside, declares),
+            P::NullCheck(x) | P::NullAssert(x) | P::Parenthesized(x) => {
+                self.pattern(*x, inside, declares)
+            }
             P::Cast { pattern, .. } => self.pattern(*pattern, inside, declares),
             P::List { elements, .. } => {
                 for el in elements.iter() {
                     match el {
-                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => {
+                        ast::ListPatternElement::Pattern(x)
+                        | ast::ListPatternElement::Rest(Some(x)) => {
                             self.pattern(*x, inside, declares)
                         }
                         _ => {}
@@ -1667,7 +2142,13 @@ impl<'a> Sweep<'a> {
                 self.expr(*value, inside);
             }
             ExprKind::Unary { op, operand } => {
-                if matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec) {
+                if matches!(
+                    op,
+                    UnaryOp::PrefixInc
+                        | UnaryOp::PrefixDec
+                        | UnaryOp::PostfixInc
+                        | UnaryOp::PostfixDec
+                ) {
                     self.write_target(*operand, inside);
                 }
                 self.expr(*operand, inside);
@@ -1677,7 +2158,9 @@ impl<'a> Sweep<'a> {
                 self.expr(*value, inside);
             }
             ExprKind::FunctionExpression(f) => self.function(a.function(*f)),
-            ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(*x, inside),
+            ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => {
+                self.expr(*x, inside)
+            }
             ExprKind::Property { target, .. } => self.expr(*target, inside),
             ExprKind::Index { target, index, .. } => {
                 self.expr(*target, inside);
@@ -1699,13 +2182,19 @@ impl<'a> Sweep<'a> {
                 self.expr(*left, inside);
                 self.expr(*right, inside);
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 self.expr(*condition, inside);
                 self.expr(*then, inside);
                 self.expr(*else_, inside);
             }
             ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.expr(*value, inside),
-            ExprKind::Cascade { target, sections, .. } => {
+            ExprKind::Cascade {
+                target, sections, ..
+            } => {
                 self.expr(*target, inside);
                 for s in sections.iter() {
                     self.expr(*s, inside);
@@ -1723,7 +2212,9 @@ impl<'a> Sweep<'a> {
                     self.element(el, inside);
                 }
             }
-            ExprKind::Record { positional, named, .. } => {
+            ExprKind::Record {
+                positional, named, ..
+            } => {
                 for x in positional.iter() {
                     self.expr(*x, inside);
                 }
@@ -1756,7 +2247,13 @@ impl<'a> Sweep<'a> {
                 self.expr(*value, inside);
             }
             C::Spread { value, .. } => self.expr(*value, inside),
-            C::If { condition, case_pattern, guard, then, else_ } => {
+            C::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition, inside);
                 self.with_scope(|v| {
                     if let Some(p) = case_pattern {
@@ -1771,7 +2268,13 @@ impl<'a> Sweep<'a> {
                     self.element(e, inside);
                 }
             }
-            C::For { init, condition, updates, body, .. } => self.with_scope(|v| {
+            C::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => self.with_scope(|v| {
                 match init {
                     Some(ast::ForInit::Expression(x)) => v.expr(*x, inside),
                     Some(ast::ForInit::Variables(vl)) => v.variables(vl, inside),
@@ -1789,7 +2292,12 @@ impl<'a> Sweep<'a> {
                 }
                 v.element(body, inside);
             }),
-            C::ForIn { target, iterable, body, .. } => {
+            C::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 self.expr(*iterable, inside);
                 self.with_scope(|v| {
                     v.for_in_target(target, inside);
@@ -1838,7 +2346,13 @@ impl<'a> Sweep<'a> {
                 self.function(f);
             }
             StmtKind::Expression(e) => self.expr(*e, inside),
-            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+            StmtKind::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition, inside);
                 self.with_scope(|v| {
                     if let Some(p) = case_pattern {
@@ -1853,7 +2367,13 @@ impl<'a> Sweep<'a> {
                     self.stmt(*e, inside);
                 }
             }
-            StmtKind::For { init, condition, updates, body, .. } => self.with_scope(|v| {
+            StmtKind::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => self.with_scope(|v| {
                 match init {
                     Some(ast::ForInit::Expression(x)) => v.expr(*x, inside),
                     Some(ast::ForInit::Variables(vl)) => v.variables(vl, inside),
@@ -1871,7 +2391,12 @@ impl<'a> Sweep<'a> {
                 }
                 v.stmt(*body, inside);
             }),
-            StmtKind::ForIn { target, iterable, body, .. } => {
+            StmtKind::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 self.expr(*iterable, inside);
                 self.with_scope(|v| {
                     v.for_in_target(target, inside);
@@ -1897,7 +2422,11 @@ impl<'a> Sweep<'a> {
             }
             StmtKind::Return(Some(e)) => self.expr(*e, inside),
             StmtKind::Yield { value, .. } => self.expr(*value, inside),
-            StmtKind::Try { body, catches, finally_ } => {
+            StmtKind::Try {
+                body,
+                catches,
+                finally_,
+            } => {
                 self.stmt(*body, inside);
                 for c in catches.iter() {
                     self.with_scope(|v| {

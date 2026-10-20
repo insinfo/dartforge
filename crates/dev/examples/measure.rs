@@ -49,14 +49,17 @@ fn row(name: &str, r: &Report) {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let input = PathBuf::from(
-        args.first().cloned().unwrap_or_else(|| "C:/MyDartProjects/new_sali/core/test/arvore_processo_item_test.dart".into()),
-    );
+    let input = PathBuf::from(args.first().cloned().unwrap_or_else(|| {
+        "C:/MyDartProjects/new_sali/core/test/arvore_processo_item_test.dart".into()
+    }));
     let packages = args.get(1).map(PathBuf::from).or_else(|| {
         let p = PathBuf::from("C:/MyDartProjects/new_sali/core/.dart_tool/package_config.json");
         p.exists().then_some(p)
     });
-    let target = args.get(2).map(PathBuf::from).unwrap_or_else(|| input.clone());
+    let target = args
+        .get(2)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| input.clone());
     let edits: usize = args.get(3).and_then(|v| v.parse().ok()).unwrap_or(20);
     // `DARTFORGE_DEV_OUTPUT` lets the checker point the session at the same
     // directory that the full `compile-js` wrote.
@@ -79,7 +82,17 @@ fn main() {
     println!("== resident session — {}", input.display());
     println!(
         "{:<22}{:>9}{:>9}{:>9}{:>9}{:>9}{:>9}{:>10}{:>8}{:>9}{:>8}",
-        "compilation", "load", "outline", "bodies", "emission", "hashes", "write", "total ms", "reanal", "written", "body≠"
+        "compilation",
+        "load",
+        "outline",
+        "bodies",
+        "emission",
+        "hashes",
+        "write",
+        "total ms",
+        "reanal",
+        "written",
+        "body≠"
     );
 
     let r = session.compile().expect("first compilation");
@@ -89,8 +102,14 @@ fn main() {
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
         println!(
             "   {n}: read+lex {:.1} par / {:.1} serial, parse {:.1}, directives {:.1}, outline {:.1}+{:.1}+{:.1}+{:.1} ms ({} files read)",
-            ms(c.parallel_read_lex), ms(c.read), ms(c.parse), ms(c.directives),
-            ms(c.outline_declarations), ms(c.outline_reexports), ms(c.outline_scopes), ms(c.outline_supertypes),
+            ms(c.parallel_read_lex),
+            ms(c.read),
+            ms(c.parse),
+            ms(c.directives),
+            ms(c.outline_declarations),
+            ms(c.outline_reexports),
+            ms(c.outline_scopes),
+            ms(c.outline_supertypes),
             c.files_read
         );
     };
@@ -101,7 +120,11 @@ fn main() {
     // inserted **into the body of the first one**: it is the real edit (a
     // keystroke inside a method) and shifts everything that comes after,
     // which is where the API hash by text range used to slip.
-    let base = append(&target, "\nvoid _forgeA() { print('a'); }\nvoid _forgeB() { print('b'); }\n").expect("edit");
+    let base = append(
+        &target,
+        "\nvoid _forgeA() { print('a'); }\nvoid _forgeB() { print('b'); }\n",
+    )
+    .expect("edit");
     session.file_changed(&target);
     session.compile().expect("preparation of the body edit");
     restore(&target, base);
@@ -148,7 +171,11 @@ fn main() {
     let mut live = Vec::with_capacity(edits);
     let mut sum_ms = 0.0;
     for i in 0..edits {
-        let size = append(&target, &format!("\nvoid _forgePlateau{i}() {{ print('p{i}'); }}\n")).expect("edit");
+        let size = append(
+            &target,
+            &format!("\nvoid _forgePlateau{i}() {{ print('p{i}'); }}\n"),
+        )
+        .expect("edit");
         session.file_changed(&target);
         let r = session.compile().expect("plateau compilation");
         sum_ms += r.total().as_secs_f64() * 1000.0;
@@ -178,6 +205,8 @@ fn main() {
         live_after_first as f64 / MB
     );
     if api_changed_in_body != 0 {
-        println!("warning: the body edit touched the API — the API hash is not separating body from signature");
+        println!(
+            "warning: the body edit touched the API — the API hash is not separating body from signature"
+        );
     }
 }

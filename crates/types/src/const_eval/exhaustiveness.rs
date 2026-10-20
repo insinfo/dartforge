@@ -11,7 +11,7 @@
 //! class does not define `==`), and that is why they are `Rc`.
 
 use super::evaluation::Engine;
-use super::value::{double_as_dart, InstanceState, Value};
+use super::value::{InstanceState, Value, double_as_dart};
 use crate::table::{Type, TypeId, TypeParamId};
 use dartforge_elements::model::{ClassId, ClassKind, FunctionKind, LibraryId, VariableId};
 use dartforge_frontend::ast::{self, ExprId, ListPatternElement, PatternId, PatternKind};
@@ -44,9 +44,17 @@ enum Restr {
     Id(Ident),
     /// `ListTypeRestriction` (the arguments' text does not take part in
     /// equality).
-    List { el: TypeId, size: usize, rest: bool },
+    List {
+        el: TypeId,
+        size: usize,
+        rest: bool,
+    },
     /// `MapTypeRestriction`: the keys by their values (sorted indices).
-    Map { k: TypeId, v: TypeId, keys: Vec<usize> },
+    Map {
+        k: TypeId,
+        v: TypeId,
+        keys: Vec<usize>,
+    },
 }
 
 impl Restr {
@@ -66,13 +74,18 @@ enum Kind {
     Bool,
     Enum(ClassId),
     Sealed(ClassId),
-    FutureOr { arg: St, fut: St },
+    FutureOr {
+        arg: St,
+        fut: St,
+    },
     Record,
     ListType,
     /// `ListPatternStaticType` (the name already has the arguments' text).
     ListPattern,
     /// `MapPatternStaticType`: the keys in written order, with the text.
-    MapPattern { keys: Vec<(usize, String)> },
+    MapPattern {
+        keys: Vec<(usize, String)>,
+    },
     BoolValue,
     EnumElement,
     /// `GeneralValueStaticType` (an ordinary constant or the unknown `?`).
@@ -85,7 +98,13 @@ enum Type_ {
     Nullable(St),
     Object,
     Never,
-    Base { ty: TypeId, kind: Kind, the_restr: Restr, name: String, implicitly_nullable: bool },
+    Base {
+        ty: TypeId,
+        kind: Kind,
+        the_restr: Restr,
+        name: String,
+        implicitly_nullable: bool,
+    },
     Wrapped(St, St),
 }
 
@@ -100,15 +119,25 @@ enum TypeKey {
 
 #[derive(Clone, Debug)]
 enum Key {
-    Map { id: usize, text: String },
+    Map {
+        id: usize,
+        text: String,
+    },
     Head(usize),
     Tail(usize),
     RestPart(usize, usize),
     /// `NameKey`; `is_record_field` is `RecordNameKey`.
-    Name { name: Rc<str>, is_record_field: bool },
+    Name {
+        name: Rc<str>,
+        is_record_field: bool,
+    },
     /// `RecordIndexKey` (name `$i+1`).
     Index(usize),
-    Extension { recv: St, name: Rc<str>, ty: St },
+    Extension {
+        recv: St,
+        name: Rc<str>,
+        ty: St,
+    },
 }
 
 impl Key {
@@ -118,13 +147,22 @@ impl Key {
             Key::Head(i) => format!("[{i}]"),
             Key::Tail(i) => format!("[{}]", -(*i as i64 + 1)),
             Key::RestPart(h, t) => format!("[{h}:{}]", -(*t as i64)),
-            Key::Name { name: the_name, .. } | Key::Extension { name: the_name, .. } => the_name.to_string(),
+            Key::Name { name: the_name, .. } | Key::Extension { name: the_name, .. } => {
+                the_name.to_string()
+            }
             Key::Index(i) => format!("${}", i + 1),
         }
     }
 
     fn of_record(&self) -> bool {
-        matches!(self, Key::Index(_) | Key::Name { is_record_field: true, .. })
+        matches!(
+            self,
+            Key::Index(_)
+                | Key::Name {
+                    is_record_field: true,
+                    ..
+                }
+        )
     }
 
     fn of_list(&self) -> bool {
@@ -152,8 +190,17 @@ impl PartialEq for Key {
             (Key::Head(a), Key::Head(b)) | (Key::Tail(a), Key::Tail(b)) => a == b,
             (Key::RestPart(a, b), Key::RestPart(c, d)) => a == c && b == d,
             // `NameKey ==` only looks at the name: `RecordIndexKey(0)` is `NameKey('$1')`.
-            (Key::Name { .. } | Key::Index(_), Key::Name { .. } | Key::Index(_)) => self.name() == o.name(),
-            (Key::Extension { recv: a, name: n, .. }, Key::Extension { recv: b, name: m, .. }) => a == b && n == m,
+            (Key::Name { .. } | Key::Index(_), Key::Name { .. } | Key::Index(_)) => {
+                self.name() == o.name()
+            }
+            (
+                Key::Extension {
+                    recv: a, name: n, ..
+                },
+                Key::Extension {
+                    recv: b, name: m, ..
+                },
+            ) => a == b && n == m,
             _ => false,
         }
     }
@@ -173,9 +220,14 @@ fn compare_keys(ex: &Exhaustiveness, a: &Key, b: &Key) -> std::cmp::Ordering {
         (Key::Map { text: x, .. }, Key::Map { text: y, .. }) => x.cmp(y),
         (Key::Index(x), Key::Index(y)) => x.cmp(y),
         (Key::Name { name: x, .. }, Key::Name { name: y, .. }) => x.cmp(y),
-        (Key::Extension { recv: r1, name: n1, .. }, Key::Extension { recv: r2, name: n2, .. }) => {
-            ex.name(*r1).cmp(&ex.name(*r2)).then(n1.cmp(n2))
-        }
+        (
+            Key::Extension {
+                recv: r1, name: n1, ..
+            },
+            Key::Extension {
+                recv: r2, name: n2, ..
+            },
+        ) => ex.name(*r1).cmp(&ex.name(*r2)).then(n1.cmp(n2)),
         _ => Ordering::Equal,
     }
 }
@@ -213,7 +265,11 @@ struct Simple(Rc<SimpleD>);
 
 impl Simple {
     fn new(typ: St) -> Simple {
-        Simple(Rc::new(SimpleD { ty: typ, props: Vec::new(), additional: Vec::new() }))
+        Simple(Rc::new(SimpleD {
+            ty: typ,
+            props: Vec::new(),
+            additional: Vec::new(),
+        }))
     }
 
     /// `SingleSpace ==`: the type and the properties (spaces by identity).
@@ -224,7 +280,11 @@ impl Simple {
         if self.0.ty != o.0.ty || self.0.props.len() != o.0.props.len() {
             return false;
         }
-        self.0.props.iter().all(|(k, v)| o.0.props.iter().any(|(k2, v2)| k == k2 && Rc::ptr_eq(&v.0, &v2.0)))
+        self.0.props.iter().all(|(k, v)| {
+            o.0.props
+                .iter()
+                .any(|(k2, v2)| k == k2 && Rc::ptr_eq(&v.0, &v2.0))
+        })
     }
 
     fn prop(&self, k: &Key) -> Option<&Space> {
@@ -232,7 +292,11 @@ impl Simple {
     }
 
     fn the_additional(&self, k: &Key) -> Option<&Space> {
-        self.0.additional.iter().find(|(c, _)| c == k).map(|(_, e)| e)
+        self.0
+            .additional
+            .iter()
+            .find(|(c, _)| c == k)
+            .map(|(_, e)| e)
     }
 }
 
@@ -246,11 +310,26 @@ struct Space(Rc<SpaceD>);
 
 impl Space {
     fn new(path: Path, typ: St) -> Space {
-        Space(Rc::new(SpaceD { path, simple: vec![Simple::new(typ)] }))
+        Space(Rc::new(SpaceD {
+            path,
+            simple: vec![Simple::new(typ)],
+        }))
     }
 
-    fn the_with(path: Path, typ: St, props: Vec<(Key, Space)>, additional: Vec<(Key, Space)>) -> Space {
-        Space(Rc::new(SpaceD { path, simple: vec![Simple(Rc::new(SimpleD { ty: typ, props, additional }))] }))
+    fn the_with(
+        path: Path,
+        typ: St,
+        props: Vec<(Key, Space)>,
+        additional: Vec<(Key, Space)>,
+    ) -> Space {
+        Space(Rc::new(SpaceD {
+            path,
+            simple: vec![Simple(Rc::new(SimpleD {
+                ty: typ,
+                props,
+                additional,
+            }))],
+        }))
     }
 }
 
@@ -296,7 +375,10 @@ pub(crate) struct Case {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WitnessPart {
     Text(String),
-    EnumValue { enumeration: ClassId, value: VariableId },
+    EnumValue {
+        enumeration: ClassId,
+        value: VariableId,
+    },
     Type(TypeId),
 }
 
@@ -366,11 +448,27 @@ pub(crate) struct Exhaustiveness<'m, 'a> {
 
 impl<'m, 'a> Exhaustiveness<'m, 'a> {
     pub(crate) fn new(m: &'m mut Engine<'a>, lib: LibraryId) -> Self {
-        let types = vec![Type_::Nullable(OBJ), Type_::Object, Type_::Nullable(NEVER), Type_::Never];
+        let types = vec![
+            Type_::Nullable(OBJ),
+            Type_::Object,
+            Type_::Nullable(NEVER),
+            Type_::Never,
+        ];
         let mut internal = HashMap::new();
         internal.insert(TypeKey::Nullable(OBJ), OBJ_NULLABLE);
         internal.insert(TypeKey::Nullable(NEVER), NULL);
-        Exhaustiveness { m, types, internal, the_unique: 0, values: Vec::new(), subtypes: HashMap::new(), lib, invalid: false, mark: false, collect_parts: false }
+        Exhaustiveness {
+            m,
+            types,
+            internal,
+            the_unique: 0,
+            values: Vec::new(),
+            subtypes: HashMap::new(),
+            lib,
+            invalid: false,
+            mark: false,
+            collect_parts: false,
+        }
     }
 
     fn the_intern(&mut self, key: TypeKey, t: impl FnOnce() -> Type_) -> St {
@@ -383,9 +481,22 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         s
     }
 
-    fn base(&mut self, ty: TypeId, kind: Kind, the_restr: Restr, the_name: String, impl_nullable: bool) -> St {
+    fn base(
+        &mut self,
+        ty: TypeId,
+        kind: Kind,
+        the_restr: Restr,
+        the_name: String,
+        impl_nullable: bool,
+    ) -> St {
         let key = TypeKey::Base(ty, the_restr.clone());
-        self.the_intern(key, || Type_::Base { ty, kind, the_restr, name: the_name, implicitly_nullable: impl_nullable })
+        self.the_intern(key, || Type_::Base {
+            ty,
+            kind,
+            the_restr,
+            name: the_name,
+            implicitly_nullable: impl_nullable,
+        })
     }
 
     fn wrapped(&mut self, w: St, i: St) -> St {
@@ -395,7 +506,13 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     fn unique(&mut self, ty: TypeId, the_name: &str) -> St {
         self.the_unique += 1;
         let id = self.the_unique;
-        self.base(ty, Kind::General, Restr::Id(Ident::Unique(id)), the_name.to_string(), false)
+        self.base(
+            ty,
+            Kind::General,
+            Restr::Id(Ident::Unique(id)),
+            the_name.to_string(),
+            false,
+        )
     }
 
     /// `getUnknownStaticType`.
@@ -412,7 +529,9 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
 
     /// `typeToString` (`DartType.toString`, without the alias).
     fn text(&self, t: TypeId) -> String {
-        self.m.table.format_without_alias(t, self.m.interner, self.m.program)
+        self.m
+            .table
+            .format_without_alias(t, self.m.interner, self.m.program)
     }
 
     fn dart_nullable(&self, t: TypeId) -> bool {
@@ -422,7 +541,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     /// `promoteToNonNull`.
     fn dart_non_null(&mut self, t: TypeId) -> TypeId {
         match self.m.table.get(t).clone() {
-            Type::TypeParameter { param, nullable: false } => {
+            Type::TypeParameter {
+                param,
+                nullable: false,
+            } => {
                 let b = self.m.table.param(param).bound;
                 let nb = self.dart_non_null(b);
                 if nb == b {
@@ -439,7 +561,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     fn as_instance_of(&mut self, t: TypeId, c: Option<ClassId>) -> Option<TypeId> {
         let c = c?;
         let t = crate::ops::non_nullable(t, self.m.table);
-        self.m.outline.hierarchy.supertype_of(t, c, self.m.table, self.m.core)
+        self.m
+            .outline
+            .hierarchy
+            .supertype_of(t, c, self.m.table, self.m.core)
     }
 
     fn args_of(&self, t: TypeId) -> Vec<TypeId> {
@@ -487,25 +612,66 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                     self.substitute_parameters(d, variance, prof + 1)
                 }
             }
-            Type::Interface { class, args, nullable } => {
-                let args: Vec<TypeId> = args.iter().map(|&a| self.substitute_parameters(a, variance, prof + 1)).collect();
-                self.m.table.intern(Type::Interface { class, args: args.into_boxed_slice(), nullable })
+            Type::Interface {
+                class,
+                args,
+                nullable,
+            } => {
+                let args: Vec<TypeId> = args
+                    .iter()
+                    .map(|&a| self.substitute_parameters(a, variance, prof + 1))
+                    .collect();
+                self.m.table.intern(Type::Interface {
+                    class,
+                    args: args.into_boxed_slice(),
+                    nullable,
+                })
             }
             Type::FutureOr { arg, nullable } => {
                 let arg = self.substitute_parameters(arg, variance, prof + 1);
                 self.m.table.intern(Type::FutureOr { arg, nullable })
             }
-            Type::Record { positional, named, nullable } => {
-                let positional: Vec<TypeId> = positional.iter().map(|&a| self.substitute_parameters(a, variance, prof + 1)).collect();
-                let named: Vec<_> = named.iter().map(|&(n, a)| (n, self.substitute_parameters(a, variance, prof + 1))).collect();
-                self.m.table.intern(Type::Record { positional: positional.into_boxed_slice(), named: named.into_boxed_slice(), nullable })
+            Type::Record {
+                positional,
+                named,
+                nullable,
+            } => {
+                let positional: Vec<TypeId> = positional
+                    .iter()
+                    .map(|&a| self.substitute_parameters(a, variance, prof + 1))
+                    .collect();
+                let named: Vec<_> = named
+                    .iter()
+                    .map(|&(n, a)| (n, self.substitute_parameters(a, variance, prof + 1)))
+                    .collect();
+                self.m.table.intern(Type::Record {
+                    positional: positional.into_boxed_slice(),
+                    named: named.into_boxed_slice(),
+                    nullable,
+                })
             }
-            Type::Function { type_params, ret, positional, optional, named, nullable } => {
+            Type::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+            } => {
                 let ret = self.substitute_parameters(ret, variance, prof + 1);
                 let inv = -variance;
-                let positional: Vec<TypeId> = positional.iter().map(|&a| self.substitute_parameters(a, inv, prof + 1)).collect();
-                let optional: Vec<TypeId> = optional.iter().map(|&a| self.substitute_parameters(a, inv, prof + 1)).collect();
-                let named: Vec<_> = named.iter().map(|&(n, a, r)| (n, self.substitute_parameters(a, inv, prof + 1), r)).collect();
+                let positional: Vec<TypeId> = positional
+                    .iter()
+                    .map(|&a| self.substitute_parameters(a, inv, prof + 1))
+                    .collect();
+                let optional: Vec<TypeId> = optional
+                    .iter()
+                    .map(|&a| self.substitute_parameters(a, inv, prof + 1))
+                    .collect();
+                let named: Vec<_> = named
+                    .iter()
+                    .map(|&(n, a, r)| (n, self.substitute_parameters(a, inv, prof + 1), r))
+                    .collect();
                 self.m.table.intern(Type::Function {
                     type_params,
                     ret,
@@ -537,7 +703,9 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             Type::Never => return NEVER,
             Type::Null => return NULL,
             Type::Dynamic => return OBJ_NULLABLE,
-            Type::Interface { class, nullable, .. } if Some(class) == self.m.core.object_class => {
+            Type::Interface {
+                class, nullable, ..
+            } if Some(class) == self.m.core.object_class => {
                 return if nullable { OBJ_NULLABLE } else { OBJ };
             }
             _ => {}
@@ -556,7 +724,11 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             Type::FutureOr { arg, .. } => {
                 let a = self.static_type(arg);
                 let fut = match core.future_class {
-                    Some(fc) => self.m.table.intern(Type::Interface { class: fc, args: vec![arg].into_boxed_slice(), nullable: false }),
+                    Some(fc) => self.m.table.intern(Type::Interface {
+                        class: fc,
+                        args: vec![arg].into_boxed_slice(),
+                        nullable: false,
+                    }),
                     None => core.object,
                 };
                 let f = self.static_type(fut);
@@ -564,12 +736,15 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 let ia = self.dart_nullable(arg) || matches!(self.m.table.get(arg), Type::Null);
                 self.base(nn, Kind::FutureOr { arg: a, fut: f }, Restr::Free, n, ia)
             }
-            Type::Interface { class, .. } if self.m.program.class(class).kind == ClassKind::Enum => {
+            Type::Interface { class, .. }
+                if self.m.program.class(class).kind == ClassKind::Enum =>
+            {
                 let n = self.text(nn);
                 self.base(nn, Kind::Enum(class), Restr::Free, n, false)
             }
             Type::Interface { class, .. }
-                if self.m.program.class(class).kind == ClassKind::Class && self.m.program.class(class).modifiers.sealed =>
+                if self.m.program.class(class).kind == ClassKind::Class
+                    && self.m.program.class(class).modifiers.sealed =>
             {
                 let n = self.text(nn);
                 self.base(nn, Kind::Sealed(class), Restr::Free, n, false)
@@ -641,7 +816,11 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             Type_::Nullable(_) => s != NULL,
             Type_::Base { kind, .. } => matches!(
                 kind,
-                Kind::Bool | Kind::Enum(_) | Kind::Sealed(_) | Kind::FutureOr { .. } | Kind::ListType
+                Kind::Bool
+                    | Kind::Enum(_)
+                    | Kind::Sealed(_)
+                    | Kind::FutureOr { .. }
+                    | Kind::ListType
             ),
             Type_::Wrapped(w, _) => self.the_sealed(*w),
             _ => false,
@@ -652,7 +831,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         match &self.types[s] {
             Type_::Nullable(_) => true,
             Type_::Object | Type_::Never => false,
-            Type_::Base { implicitly_nullable, .. } => *implicitly_nullable,
+            Type_::Base {
+                implicitly_nullable,
+                ..
+            } => *implicitly_nullable,
             Type_::Wrapped(w, _) => self.implicitly_nullable(*w),
         }
     }
@@ -683,9 +865,11 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             return true;
         }
         if let Type_::Wrapped(w, i) = self.types[b].clone()
-            && self.sub(a, w) && self.sub(a, i) {
-                return true;
-            }
+            && self.sub(a, w)
+            && self.sub(a, i)
+        {
+            return true;
+        }
         match self.types[a].clone() {
             Type_::Object => false,
             Type_::Never => true,
@@ -700,7 +884,11 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 }
                 match self.types[b].clone() {
                     Type_::Nullable(u2) => self.sub(a, u2),
-                    Type_::Base { ty: ty2, the_restr: r2, .. } => self.sub_dart(ty, ty2) && self.sub_constraint(&the_restr, &r2),
+                    Type_::Base {
+                        ty: ty2,
+                        the_restr: r2,
+                        ..
+                    } => self.sub_dart(ty, ty2) && self.sub_constraint(&the_restr, &r2),
                     _ => false,
                 }
             }
@@ -714,7 +902,14 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         match (a, b) {
             (Restr::Free, _) => false,
             (Restr::Id(x), Restr::Id(y)) => x == y,
-            (Restr::List { el, size, rest }, Restr::List { el: el2, size: size2, rest: rest2 }) => {
+            (
+                Restr::List { el, size, rest },
+                Restr::List {
+                    el: el2,
+                    size: size2,
+                    rest: rest2,
+                },
+            ) => {
                 if !self.sub_dart(*el, *el2) {
                     return false;
                 }
@@ -726,8 +921,17 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                     size == size2
                 }
             }
-            (Restr::Map { k, v, keys }, Restr::Map { k: k2, v: v2, keys: c2 }) => {
-                self.sub_dart(*k, *k2) && self.sub_dart(*v, *v2) && c2.iter().all(|c| keys.contains(c))
+            (
+                Restr::Map { k, v, keys },
+                Restr::Map {
+                    k: k2,
+                    v: v2,
+                    keys: c2,
+                },
+            ) => {
+                self.sub_dart(*k, *k2)
+                    && self.sub_dart(*v, *v2)
+                    && c2.iter().all(|c| keys.contains(c))
             }
             _ => false,
         }
@@ -744,7 +948,9 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 }
             }
             Type_::Wrapped(w, i) => {
-                if let (Type_::Nullable(wu), Type_::Nullable(iu)) = (self.types[w].clone(), self.types[i].clone()) {
+                if let (Type_::Nullable(wu), Type_::Nullable(iu)) =
+                    (self.types[w].clone(), self.types[i].clone())
+                {
                     let e = self.wrapped(wu, iu);
                     return vec![e, NULL];
                 }
@@ -753,8 +959,20 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             }
             Type_::Base { ty, kind, .. } => match kind {
                 Kind::Bool => {
-                    let t = self.base(ty, Kind::BoolValue, Restr::Id(Ident::Bool(true)), "true".into(), false);
-                    let f = self.base(ty, Kind::BoolValue, Restr::Id(Ident::Bool(false)), "false".into(), false);
+                    let t = self.base(
+                        ty,
+                        Kind::BoolValue,
+                        Restr::Id(Ident::Bool(true)),
+                        "true".into(),
+                        false,
+                    );
+                    let f = self.base(
+                        ty,
+                        Kind::BoolValue,
+                        Restr::Id(Ident::Bool(false)),
+                        "false".into(),
+                        false,
+                    );
                     vec![t, f]
                 }
                 Kind::FutureOr { arg, fut } => vec![arg, fut],
@@ -786,11 +1004,17 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         let constants = self.m.program.class(c).enum_constants.clone();
         // `overapproximate(_type)` per element (`enum.dart:118-124`): none
         // without elements.
-        let over = if constants.is_empty() { ty } else { self.overapproximate(ty) };
+        let over = if constants.is_empty() {
+            ty
+        } else {
+            self.overapproximate(ty)
+        };
         let mut v = Vec::new();
         for var in constants {
             let el = self.enum_element(c, var);
-            let Type_::Base { ty: tel, .. } = self.types[el].clone() else { continue };
+            let Type_::Base { ty: tel, .. } = self.types[el].clone() else {
+                continue;
+            };
             if self.sub_dart(tel, over) {
                 v.push(self.wrapped(el, s));
             }
@@ -804,14 +1028,26 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             .or(self.m.outline.variables[var.0 as usize].inferred)
             .unwrap_or_else(|| {
                 let args = Vec::new();
-                self.m.table.intern(Type::Interface { class: c, args: args.into_boxed_slice(), nullable: false })
+                self.m.table.intern(Type::Interface {
+                    class: c,
+                    args: args.into_boxed_slice(),
+                    nullable: false,
+                })
             });
         let the_name = format!(
             "{}.{}",
             self.m.interner.resolve(self.m.program.class(c).name),
-            self.m.interner.resolve(self.m.program.variables[var.0 as usize].name)
+            self.m
+                .interner
+                .resolve(self.m.program.variables[var.0 as usize].name)
         );
-        self.base(ty, Kind::EnumElement, Restr::Id(Ident::Enum(var)), the_name, false)
+        self.base(
+            ty,
+            Kind::EnumElement,
+            Restr::Id(Ident::Enum(var)),
+            the_name,
+            false,
+        )
     }
 
     /// `AnalyzerSealedClassOperations.getDirectSubclasses` and
@@ -822,7 +1058,11 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         let mut direct = Vec::new();
         for (i, k) in program.classes.iter().enumerate() {
             let id = ClassId(i as u32);
-            if k.library != lib || id == sealed || k.decl.is_none() || k.kind == ClassKind::ExtensionType {
+            if k.library != lib
+                || id == sealed
+                || k.decl.is_none()
+                || k.kind == ClassKind::ExtensionType
+            {
                 continue;
             }
             let mut sup = k.supertype_class;
@@ -850,7 +1090,9 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         let mut over: Option<TypeId> = None;
         let mut v = Vec::new();
         for sub in direct {
-            let Some(st) = self.subclass_as_instance(sub, ty) else { continue };
+            let Some(st) = self.subclass_as_instance(sub, ty) else {
+                continue;
+            };
             if self.args_of(st).is_empty() {
                 let over = match over {
                     Some(x) => x,
@@ -873,18 +1115,45 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     /// `getSubclassAsInstanceOf`.
     fn subclass_as_instance(&mut self, sub: ClassId, the_sealed: TypeId) -> Option<TypeId> {
         let params = self.m.outline.classes[sub.0 as usize].type_params.to_vec();
-        let args_this: Vec<TypeId> =
-            params.iter().map(|&p| self.m.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        let this = self.m.table.intern(Type::Interface { class: sub, args: args_this.clone().into_boxed_slice(), nullable: false });
-        let Type::Interface { class: cs, args: selected_args, .. } = self.m.table.get(the_sealed).clone() else { return None };
-        let as_ = self.m.outline.hierarchy.supertype_of(this, cs, self.m.table, self.m.core)?;
+        let args_this: Vec<TypeId> = params
+            .iter()
+            .map(|&p| {
+                self.m.table.intern(Type::TypeParameter {
+                    param: p,
+                    nullable: false,
+                })
+            })
+            .collect();
+        let this = self.m.table.intern(Type::Interface {
+            class: sub,
+            args: args_this.clone().into_boxed_slice(),
+            nullable: false,
+        });
+        let Type::Interface {
+            class: cs,
+            args: selected_args,
+            ..
+        } = self.m.table.get(the_sealed).clone()
+        else {
+            return None;
+        };
+        let as_ = self
+            .m
+            .outline
+            .hierarchy
+            .supertype_of(this, cs, self.m.table, self.m.core)?;
         if params.is_empty() {
             return Some(this);
         }
         let args_as = self.args_of(as_);
-        let mut trivial = args_this.len() == args_as.len() && args_this.iter().zip(args_as.iter()).all(|(a, b)| a == b);
+        let mut trivial = args_this.len() == args_as.len()
+            && args_this.iter().zip(args_as.iter()).all(|(a, b)| a == b);
         if trivial && selected_args.len() == params.len() {
-            let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(selected_args.iter().copied()).collect();
+            let map: HashMap<TypeParamId, TypeId> = params
+                .iter()
+                .copied()
+                .zip(selected_args.iter().copied())
+                .collect();
             for (i, &p) in params.iter().enumerate() {
                 let d = self.m.table.param(p).clone();
                 if d.explicit {
@@ -899,7 +1168,11 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             trivial = false;
         }
         if trivial {
-            Some(self.m.table.intern(Type::Interface { class: sub, args: selected_args.clone(), nullable: false }))
+            Some(self.m.table.intern(Type::Interface {
+                class: sub,
+                args: selected_args.clone(),
+                nullable: false,
+            }))
         } else {
             Some(self.overapproximate(this))
         }
@@ -916,13 +1189,26 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             }
         }
         let max = cab + cau;
-        let el = self.as_instance_of(ty, self.m.core.list_class).and_then(|l| self.args_of(l).first().copied()).unwrap_or(self.m.core.dynamic_);
-        let text = if matches!(self.m.table.get(el), Type::Dynamic) { String::new() } else { format!("<{}>", self.text(el)) };
+        let el = self
+            .as_instance_of(ty, self.m.core.list_class)
+            .and_then(|l| self.args_of(l).first().copied())
+            .unwrap_or(self.m.core.dynamic_);
+        let text = if matches!(self.m.table.get(el), Type::Dynamic) {
+            String::new()
+        } else {
+            format!("<{}>", self.text(el))
+        };
         let mut v = Vec::new();
         for size in 0..=max {
             let rest = size == max;
             let the_name = list_text(&text, size, rest);
-            v.push(self.base(ty, Kind::ListPattern, Restr::List { el, size, rest }, the_name, false));
+            v.push(self.base(
+                ty,
+                Kind::ListPattern,
+                Restr::List { el, size, rest },
+                the_name,
+                false,
+            ));
         }
         v
     }
@@ -935,11 +1221,17 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         let t = crate::ops::non_nullable(t, self.m.table);
         let (cls, args) = match self.m.table.get(t).clone() {
             Type::Interface { class, args, .. } => (class, args.to_vec()),
-            Type::Record { positional, named, .. } => {
-                if let Some(i) = the_name.strip_prefix('$').and_then(|x| x.parse::<usize>().ok())
-                    && i >= 1 && i <= positional.len() {
-                        return Some(positional[i - 1]);
-                    }
+            Type::Record {
+                positional, named, ..
+            } => {
+                if let Some(i) = the_name
+                    .strip_prefix('$')
+                    .and_then(|x| x.parse::<usize>().ok())
+                    && i >= 1
+                    && i <= positional.len()
+                {
+                    return Some(positional[i - 1]);
+                }
                 for (n, x) in named.iter() {
                     if self.m.interner.resolve(*n) == the_name {
                         return Some(*x);
@@ -961,19 +1253,32 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         let mut candidates: Vec<TypeId> = Vec::new();
         let mut supers = vec![t];
         if let Some(h) = self.m.outline.hierarchy.get(cls) {
-            let map: HashMap<TypeParamId, TypeId> = h.type_params.iter().copied().zip(args.iter().copied()).collect();
+            let map: HashMap<TypeParamId, TypeId> = h
+                .type_params
+                .iter()
+                .copied()
+                .zip(args.iter().copied())
+                .collect();
             let all = h.all_supertypes.clone();
             for s in all {
                 supers.push(crate::ops::substitute(s, &map, self.m.table));
             }
         }
         if let Some(o) = self.m.core.object_class
-            && cls != o {
-                supers.push(self.m.core.object);
-            }
+            && cls != o
+        {
+            supers.push(self.m.core.object);
+        }
         for s in supers {
-            let Type::Interface { class: k, args: ka, .. } = self.m.table.get(s).clone() else { continue };
-            let Some(&f) = self.m.program.class(k).instance_members.get(&sym) else { continue };
+            let Type::Interface {
+                class: k, args: ka, ..
+            } = self.m.table.get(s).clone()
+            else {
+                continue;
+            };
+            let Some(&f) = self.m.program.class(k).instance_members.get(&sym) else {
+                continue;
+            };
             let fe = self.m.program.function(f);
             if private && fe.library != self.lib {
                 continue;
@@ -984,14 +1289,17 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 FunctionKind::ImplicitAccessor => match fe.variable {
                     Some(v) => {
                         let vd = &self.m.outline.variables[v.0 as usize];
-                        vd.declared_type.or(vd.inferred).unwrap_or(self.m.outline.functions[f.0 as usize].return_type)
+                        vd.declared_type
+                            .or(vd.inferred)
+                            .unwrap_or(self.m.outline.functions[f.0 as usize].return_type)
                     }
                     None => self.m.outline.functions[f.0 as usize].return_type,
                 },
                 _ => self.m.outline.functions[f.0 as usize].signature,
             };
             let params = self.m.outline.classes[k.0 as usize].type_params.clone();
-            let map: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(ka.iter().copied()).collect();
+            let map: HashMap<TypeParamId, TypeId> =
+                params.iter().copied().zip(ka.iter().copied()).collect();
             candidates.push(crate::ops::substitute(raw, &map, self.m.table));
         }
         // The most specific one (the covariant overrider).
@@ -1043,7 +1351,9 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
 
     /// `getAdditionalPropertyType`.
     fn the_additional(&mut self, s: St, k: &Key) -> Option<St> {
-        let Type_::Base { ty, .. } = self.types[s].clone() else { return None };
+        let Type_::Base { ty, .. } = self.types[s].clone() else {
+            return None;
+        };
         let core = self.m.core;
         match k {
             Key::Map { .. } => {
@@ -1066,7 +1376,13 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
 
     // ---- o algoritmo (`fe76:exhaustive.dart`) ----
 
-    fn unmatched(&mut self, lines: &[Vec<Space>], values: &[Space], preds: &[Predicate], several: bool) -> Option<Vec<Vec<Predicate>>> {
+    fn unmatched(
+        &mut self,
+        lines: &[Vec<Space>],
+        values: &[Space],
+        preds: &[Predicate],
+        several: bool,
+    ) -> Option<Vec<Vec<Predicate>>> {
         if values.is_empty() {
             if !lines.is_empty() {
                 return None;
@@ -1093,13 +1409,31 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                     continue;
                 }
                 if self.the_sealed(t) {
-                    let r = self.filter_by_type(context, t, lines, &value, values, preds, &first.0.path, false);
+                    let r = self.filter_by_type(
+                        context,
+                        t,
+                        lines,
+                        &value,
+                        values,
+                        preds,
+                        &first.0.path,
+                        false,
+                    );
                     if r.is_some() {
                         let subs = self.subtypes(t, &interesting);
                         stack.extend(subs);
                     }
                 } else {
-                    let r = self.filter_by_type(context, t, lines, &value, values, preds, &first.0.path, false);
+                    let r = self.filter_by_type(
+                        context,
+                        t,
+                        lines,
+                        &value,
+                        values,
+                        preds,
+                        &first.0.path,
+                        false,
+                    );
                     if let Some(r) = r {
                         witnesses.get_or_insert_with(Vec::new).extend(r);
                         if !several {
@@ -1128,7 +1462,11 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         several: bool,
     ) -> Option<Vec<Vec<Predicate>>> {
         let mut extended = preds.to_vec();
-        extended.push(Predicate { path: path.clone(), the_static: context, value: t });
+        extended.push(Predicate {
+            path: path.clone(),
+            the_static: context,
+            value: t,
+        });
         let mut first_: Vec<Simple> = Vec::new();
         let mut remaining: Vec<Vec<Space>> = Vec::new();
         for l in lines {
@@ -1167,7 +1505,14 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         self.unmatched(&new_lines, &new_values, &extended, several)
     }
 
-    fn expand(&mut self, keys: &[Key], additional: &[Key], s: &Simple, t: St, path: &Path) -> Vec<Space> {
+    fn expand(
+        &mut self,
+        keys: &[Key],
+        additional: &[Key],
+        s: &Simple,
+        t: St,
+        path: &Path,
+    ) -> Vec<Space> {
         let mut r = Vec::new();
         for k in keys {
             if let Some(e) = s.prop(k) {
@@ -1175,9 +1520,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             } else {
                 let mut pt = self.property(t, k);
                 if pt.is_none()
-                    && let Key::Extension { ty: typ, .. } = k {
-                        pt = Some(*typ);
-                    }
+                    && let Key::Extension { ty: typ, .. } = k
+                {
+                    pt = Some(*typ);
+                }
                 r.push(Space::new(path.plus(k.clone()), pt.unwrap_or(OBJ_NULLABLE)));
             }
         }
@@ -1193,7 +1539,12 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     }
 
     /// `computeExhaustiveness`.
-    fn compute(&mut self, value: St, stored: &[bool], spaces: &[Space]) -> (Vec<usize>, Option<Vec<Vec<Predicate>>>) {
+    fn compute(
+        &mut self,
+        value: St,
+        stored: &[bool],
+        spaces: &[Space],
+    ) -> (Vec<usize>, Option<Vec<Vec<Predicate>>>) {
         let mut lines: Vec<Vec<Space>> = Vec::new();
         let mut unreachable = Vec::new();
         for (i, e) in spaces.iter().enumerate() {
@@ -1256,12 +1607,21 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         Space(Rc::new(SpaceD { path, simple: set }))
     }
 
-    fn pattern(&mut self, e: &Entry<'_>, path: Path, context: St, p: PatternId, non_null: bool) -> Space {
+    fn pattern(
+        &mut self,
+        e: &Entry<'_>,
+        path: Path,
+        context: St,
+        p: PatternId,
+        non_null: bool,
+    ) -> Space {
         if e.invalid_patterns.contains(&p) {
             self.invalid = true;
         }
         match &e.ast.pattern(p).kind {
-            PatternKind::Variable { final_, var_, ty, .. } => {
+            PatternKind::Variable {
+                final_, var_, ty, ..
+            } => {
                 let Some(&t) = e.pattern_types.get(&p) else {
                     // `case the_name:` is a constant pattern: the value of the top-level
                     // constant, if the verifier found it; otherwise the check is
@@ -1319,10 +1679,20 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                         Some(et) => {
                             let pt = self.static_type(et);
                             let recv = self.static_type(t);
-                            (Key::Extension { recv, name: the_name, ty: pt }, pt)
+                            (
+                                Key::Extension {
+                                    recv,
+                                    name: the_name,
+                                    ty: pt,
+                                },
+                                pt,
+                            )
                         }
                         None => {
-                            let k = Key::Name { name: the_name, is_record_field: false };
+                            let k = Key::Name {
+                                name: the_name,
+                                is_record_field: false,
+                            };
                             let pt = self.property(s, &k).unwrap_or(OBJ_NULLABLE);
                             (k, pt)
                         }
@@ -1337,11 +1707,15 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 let mut pos: Vec<PatternId> = Vec::new();
                 let mut named_args: Vec<(Rc<str>, PatternId)> = Vec::new();
                 for f in fields.iter() {
-                    let implicit = f.name.is_none() && e.source.as_bytes().get(f.span.start) == Some(&b':');
+                    let implicit =
+                        f.name.is_none() && e.source.as_bytes().get(f.span.start) == Some(&b':');
                     if f.name.is_none() && !implicit {
                         pos.push(f.pattern);
                     } else {
-                        let the_name = f.name.map(|n| n.sym).or_else(|| implicit_name(e.ast, f.pattern));
+                        let the_name = f
+                            .name
+                            .map(|n| n.sym)
+                            .or_else(|| implicit_name(e.ast, f.pattern));
                         let Some(the_name) = the_name else { continue };
                         let the_name: Rc<str> = self.m.interner.resolve(the_name).into();
                         if let Some(x) = named_args.iter_mut().find(|x| x.0 == the_name) {
@@ -1372,7 +1746,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                     props.push((k, es));
                 }
                 for (the_name, sub) in named_args {
-                    let k = Key::Name { name: the_name, is_record_field: true };
+                    let k = Key::Name {
+                        name: the_name,
+                        is_record_field: true,
+                    };
                     let pt = self.property(s, &k).unwrap_or(OBJ_NULLABLE);
                     let es = self.pattern(e, path.plus(k.clone()), pt, sub, false);
                     props.push((k, es));
@@ -1411,13 +1788,20 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 let d = self.unknown();
                 Space::new(path, d)
             }
-            PatternKind::List { type_args, elements } => {
+            PatternKind::List {
+                type_args,
+                elements,
+            } => {
                 let Some(&t) = e.pattern_types.get(&p) else {
                     self.invalid = true;
                     let d = self.unknown();
                     return Space::new(path, d);
                 };
-                let el = self.args_of(t).first().copied().unwrap_or(self.m.core.dynamic_);
+                let el = self
+                    .args_of(t)
+                    .first()
+                    .copied()
+                    .unwrap_or(self.m.core.dynamic_);
                 let mut head = Vec::new();
                 let mut tail = Vec::new();
                 let mut rest: Option<Option<PatternId>> = None;
@@ -1428,12 +1812,26 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                         ListPatternElement::Pattern(q) => head.push(*q),
                     }
                 }
-                let text = if type_args.is_empty() { String::new() } else { format!("<{}>", self.text(el)) };
+                let text = if type_args.is_empty() {
+                    String::new()
+                } else {
+                    format!("<{}>", self.text(el))
+                };
                 let (nc, nt) = (head.len(), tail.len());
                 let has_rest = rest.is_some();
                 let the_name = list_text(&text, nc + nt, has_rest);
                 let tt = crate::ops::non_nullable(t, self.m.table);
-                let mut s = self.base(tt, Kind::ListPattern, Restr::List { el, size: nc + nt, rest: has_rest }, the_name, false);
+                let mut s = self.base(
+                    tt,
+                    Kind::ListPattern,
+                    Restr::List {
+                        el,
+                        size: nc + nt,
+                        rest: has_rest,
+                    },
+                    the_name,
+                    false,
+                );
                 if self.dart_nullable(t) {
                     s = self.nullable(s);
                 }
@@ -1461,14 +1859,19 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 }
                 Space::the_with(path, s, Vec::new(), ad)
             }
-            PatternKind::Map { type_args, entries, .. } => {
+            PatternKind::Map {
+                type_args, entries, ..
+            } => {
                 let Some(&t) = e.pattern_types.get(&p) else {
                     self.invalid = true;
                     let d = self.unknown();
                     return Space::new(path, d);
                 };
                 let a = self.args_of(t);
-                let (k, v) = (a.first().copied().unwrap_or(self.m.core.dynamic_), a.get(1).copied().unwrap_or(self.m.core.dynamic_));
+                let (k, v) = (
+                    a.first().copied().unwrap_or(self.m.core.dynamic_),
+                    a.get(1).copied().unwrap_or(self.m.core.dynamic_),
+                );
                 let mut keys: Vec<(usize, String, PatternId)> = Vec::new();
                 for en in entries.iter() {
                     let Some(val) = e.key_values.get(&en.key).cloned() else {
@@ -1483,7 +1886,11 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                         keys.push((id, text, en.value));
                     }
                 }
-                let text = if type_args.len() == 2 { format!("<{}, {}>", self.text(k), self.text(v)) } else { String::new() };
+                let text = if type_args.len() == 2 {
+                    format!("<{}, {}>", self.text(k), self.text(v))
+                } else {
+                    String::new()
+                };
                 let mut ids: Vec<usize> = keys.iter().map(|x| x.0).collect();
                 ids.sort_unstable();
                 ids.dedup();
@@ -1496,7 +1903,9 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 }
                 the_name.push('}');
                 let tt = crate::ops::non_nullable(t, self.m.table);
-                let kind = Kind::MapPattern { keys: keys.iter().map(|x| (x.0, x.1.clone())).collect() };
+                let kind = Kind::MapPattern {
+                    keys: keys.iter().map(|x| (x.0, x.1.clone())).collect(),
+                };
                 let s = self.base(tt, kind, Restr::Map { k, v, keys: ids }, the_name, false);
                 let mut ad = Vec::new();
                 for (id, text, q) in keys {
@@ -1519,7 +1928,15 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     }
 
     /// `createCastSpace` (`fe76:shared.dart:570-632`).
-    fn cast(&mut self, e: &Entry<'_>, path: Path, context: St, t: TypeId, sub: PatternId, non_null: bool) -> Space {
+    fn cast(
+        &mut self,
+        e: &Entry<'_>,
+        path: Path,
+        context: St,
+        t: TypeId,
+        sub: PatternId,
+        non_null: bool,
+    ) -> Space {
         let mut space = self.pattern(e, path.clone(), context, sub, non_null);
         let ct = self.static_type(t);
         if e.version_3_3 {
@@ -1543,13 +1960,14 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
 
     fn potentially_nullable(&mut self, t: TypeId) -> bool {
         let n = self.m.core.null;
-        self.sub_dart(n, t) || match self.m.table.get(t).clone() {
-            Type::TypeParameter { param, .. } => {
-                let b = self.m.table.param(param).bound;
-                self.sub_dart(n, b)
+        self.sub_dart(n, t)
+            || match self.m.table.get(t).clone() {
+                Type::TypeParameter { param, .. } => {
+                    let b = self.m.table.param(param).bound;
+                    self.sub_dart(n, b)
+                }
+                _ => false,
             }
-            _ => false,
-        }
     }
 
     /// `expandSealedSubtypes`.
@@ -1649,7 +2067,11 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 props.push((k.clone(), eb.clone()));
             }
         }
-        Some(Simple(Rc::new(SimpleD { ty: typ, props, additional: Vec::new() })))
+        Some(Simple(Rc::new(SimpleD {
+            ty: typ,
+            props,
+            additional: Vec::new(),
+        })))
     }
 
     // ---- constants (`_convertConstantValue`) ----
@@ -1675,21 +2097,45 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             InstanceState::Null { .. } => "null".to_string(),
             InstanceState::Symbol(Some(s)) => format!("#{s}"),
             InstanceState::Type(Some(t)) => self.text(*t),
-            InstanceState::List { elements: elems, .. } | InstanceState::Set { elements: elems, .. } => {
-                let open = if matches!(v.state, InstanceState::List { .. }) { '[' } else { '{' };
+            InstanceState::List {
+                elements: elems, ..
+            }
+            | InstanceState::Set {
+                elements: elems, ..
+            } => {
+                let open = if matches!(v.state, InstanceState::List { .. }) {
+                    '['
+                } else {
+                    '{'
+                };
                 let closes = if open == '[' { ']' } else { '}' };
-                let parts: Vec<String> = elems.iter().map(|x| format!("{} ({})", self.text(x.ty), self.value_text(x))).collect();
+                let parts: Vec<String> = elems
+                    .iter()
+                    .map(|x| format!("{} ({})", self.text(x.ty), self.value_text(x)))
+                    .collect();
                 format!("{open}{}{closes}", parts.join(", "))
             }
-            InstanceState::Record { positional: positional_args, named: named_args } => {
-                let mut parts: Vec<String> = positional_args.iter().map(|x| format!("{} ({})", self.text(x.ty), self.value_text(x))).collect();
+            InstanceState::Record {
+                positional: positional_args,
+                named: named_args,
+            } => {
+                let mut parts: Vec<String> = positional_args
+                    .iter()
+                    .map(|x| format!("{} ({})", self.text(x.ty), self.value_text(x)))
+                    .collect();
                 let mut n: Vec<(String, String)> = named_args
                     .iter()
-                    .map(|(s, x)| (self.m.interner.resolve(*s).to_string(), format!("{} ({})", self.text(x.ty), self.value_text(x))))
+                    .map(|(s, x)| {
+                        (
+                            self.m.interner.resolve(*s).to_string(),
+                            format!("{} ({})", self.text(x.ty), self.value_text(x)),
+                        )
+                    })
                     .collect();
                 n.sort();
                 if !n.is_empty() {
-                    let named_args: Vec<String> = n.into_iter().map(|(a, b)| format!("{a}: {b}")).collect();
+                    let named_args: Vec<String> =
+                        n.into_iter().map(|(a, b)| format!("{a}: {b}")).collect();
                     parts.push(format!("{{{}}}", named_args.join(", ")));
                 }
                 format!("({})", parts.join(", "))
@@ -1721,7 +2167,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 let subs = self.subtypes(base, &[]);
                 return Space::new(path, if *b { subs[0] } else { subs[1] });
             }
-            InstanceState::Record { positional: positional_args, named: named_args } => {
+            InstanceState::Record {
+                positional: positional_args,
+                named: named_args,
+            } => {
                 let mut props = Vec::new();
                 for (i, x) in positional_args.iter().enumerate() {
                     let k = Key::Index(i);
@@ -1729,7 +2178,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                     props.push((k, e));
                 }
                 for (n, x) in named_args.iter() {
-                    let k = Key::Name { name: self.m.interner.resolve(*n).into(), is_record_field: true };
+                    let k = Key::Name {
+                        name: self.m.interner.resolve(*n).into(),
+                        is_record_field: true,
+                    };
                     let e = self.constant_value(x, path.plus(k.clone()));
                     props.push((k, e));
                 }
@@ -1740,22 +2192,33 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         }
         if let Type::Interface { class, .. } = self.m.table.get(v.ty).clone()
             && self.m.program.class(class).kind == ClassKind::Enum
-                && let InstanceState::Generic { fields: the_fields, .. } = &v.state {
-                    let index = the_fields.iter().find_map(|(c, x)| match (c, &x.state) {
-                        (super::value::Field::Index, InstanceState::Int(Some(i))) => Some(*i as usize),
-                        _ => None,
-                    });
-                    if let Some(var) = index.and_then(|i| self.m.program.class(class).enum_constants.get(i).copied()) {
-                        let el = self.enum_element(class, var);
-                        return Space::new(path, el);
-                    }
-                }
+            && let InstanceState::Generic {
+                fields: the_fields, ..
+            } = &v.state
+        {
+            let index = the_fields.iter().find_map(|(c, x)| match (c, &x.state) {
+                (super::value::Field::Index, InstanceState::Int(Some(i))) => Some(*i as usize),
+                _ => None,
+            });
+            if let Some(var) =
+                index.and_then(|i| self.m.program.class(class).enum_constants.get(i).copied())
+            {
+                let el = self.enum_element(class, var);
+                return Space::new(path, el);
+            }
+        }
         let lib = self.lib;
         let s = if self.m.primitive_equality(v, lib) {
             let id = self.value_id(v);
             let the_name = self.value_text(v);
             let nn = crate::ops::non_nullable(v.ty, self.m.table);
-            let s = self.base(nn, Kind::General, Restr::Id(Ident::Value(id)), the_name, false);
+            let s = self.base(
+                nn,
+                Kind::General,
+                Restr::Id(Ident::Value(id)),
+                the_name,
+                false,
+            );
             if self.dart_nullable(v.ty) {
                 self.nullable(s)
             } else {
@@ -1770,14 +2233,25 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     // ---- witnesses (`fe76:witness.dart`) ----
 
     fn build_witness(&self, preds: &[Predicate]) -> Witness {
-        let mut root = Witness { static_type: OBJ_NULLABLE, value: OBJ_NULLABLE, props: Vec::new() };
+        let mut root = Witness {
+            static_type: OBJ_NULLABLE,
+            value: OBJ_NULLABLE,
+            props: Vec::new(),
+        };
         for p in preds {
             let mut here = &mut root;
             for k in p.path.list() {
                 let i = match here.props.iter().position(|(c, _)| *c == k) {
                     Some(i) => i,
                     None => {
-                        here.props.push((k, Witness { static_type: OBJ_NULLABLE, value: OBJ_NULLABLE, props: Vec::new() }));
+                        here.props.push((
+                            k,
+                            Witness {
+                                static_type: OBJ_NULLABLE,
+                                value: OBJ_NULLABLE,
+                                props: Vec::new(),
+                            },
+                        ));
                         here.props.len() - 1
                     }
                 };
@@ -1848,7 +2322,13 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
         }
     }
 
-    fn extra_fields(&mut self, buf: &mut String, the_fields: &[(Key, &Witness)], fix: bool, skip: impl Fn(&Key) -> bool) {
+    fn extra_fields(
+        &mut self,
+        buf: &mut String,
+        the_fields: &[(Key, &Witness)],
+        fix: bool,
+        skip: impl Fn(&Key) -> bool,
+    ) {
         let mut start = " && Object(";
         let mut end = "";
         let mut comma = "";
@@ -1876,9 +2356,15 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 Kind::Record => {
                     buf.push('(');
                     let mut comma = "";
-                    let (pos, named_args): (usize, Vec<String>) = match self.m.table.get(ty).clone() {
-                        Type::Record { positional, named, .. } => {
-                            let mut n: Vec<String> = named.iter().map(|(s, _)| self.m.interner.resolve(*s).to_string()).collect();
+                    let (pos, named_args): (usize, Vec<String>) = match self.m.table.get(ty).clone()
+                    {
+                        Type::Record {
+                            positional, named, ..
+                        } => {
+                            let mut n: Vec<String> = named
+                                .iter()
+                                .map(|(s, _)| self.m.interner.resolve(*s).to_string())
+                                .collect();
                             n.sort();
                             (positional.len(), n)
                         }
@@ -1897,7 +2383,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                         comma = ", ";
                         buf.push_str(&n);
                         buf.push_str(": ");
-                        let k = Key::Name { name: n.as_str().into(), is_record_field: true };
+                        let k = Key::Name {
+                            name: n.as_str().into(),
+                            is_record_field: true,
+                        };
                         match the_fields.iter().find(|(c, _)| *c == k) {
                             Some((_, w)) => self.write_witness(buf, w, fix),
                             None => buf.push('_'),
@@ -1908,14 +2397,27 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 }
                 Kind::BoolValue | Kind::EnumElement | Kind::General => {
                     match (&self.types[s], self.mark) {
-                        (Type_::Base { kind: Kind::EnumElement, the_restr: Restr::Id(Ident::Enum(v)), .. }, true) => {
+                        (
+                            Type_::Base {
+                                kind: Kind::EnumElement,
+                                the_restr: Restr::Id(Ident::Enum(v)),
+                                ..
+                            },
+                            true,
+                        ) => {
                             buf.push(MARK);
                             buf.push_str(&format!("E{}", v.0));
                             buf.push(MARK);
                         }
                         // `writeGeneralConstantValue`: the witness cannot be
                         // represented.
-                        (Type_::Base { kind: Kind::General, .. }, true) => {
+                        (
+                            Type_::Base {
+                                kind: Kind::General,
+                                ..
+                            },
+                            true,
+                        ) => {
                             buf.push(MARK);
                             buf.push('X');
                             buf.push(MARK);
@@ -1925,7 +2427,18 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                     self.extra_fields(buf, the_fields, fix, |k| k.of_record());
                 }
                 Kind::ListPattern => {
-                    let Type_::Base { the_restr: Restr::List { size, rest: has_rest, .. }, .. } = self.types[s].clone() else { return };
+                    let Type_::Base {
+                        the_restr:
+                            Restr::List {
+                                size,
+                                rest: has_rest,
+                                ..
+                            },
+                        ..
+                    } = self.types[s].clone()
+                    else {
+                        return;
+                    };
                     let (mut cab, mut cau) = (0usize, 0usize);
                     let mut rest: Option<&Witness> = None;
                     for (k, w) in the_fields {
@@ -1976,7 +2489,10 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                         buf.push_str(comma);
                         buf.push_str(&text);
                         buf.push_str(": ");
-                        let k = Key::Map { id, text: text.clone() };
+                        let k = Key::Map {
+                            id,
+                            text: text.clone(),
+                        };
                         match the_fields.iter().find(|(c, _)| *c == k) {
                             Some((_, w)) => self.write_witness(buf, w, fix),
                             None => buf.push('_'),
@@ -2001,7 +2517,13 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     }
 
     /// `_BaseStaticType.witnessToDart`.
-    fn base_for_dart(&mut self, buf: &mut String, s: St, the_fields: &[(Key, &Witness)], fix: bool) {
+    fn base_for_dart(
+        &mut self,
+        buf: &mut String,
+        s: St,
+        the_fields: &[(Key, &Witness)],
+        fix: bool,
+    ) {
         if s == OBJ_NULLABLE && the_fields.is_empty() {
             buf.push('_');
         } else if s == NULL && the_fields.is_empty() {
@@ -2030,7 +2552,9 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             Type::Null => true,
             Type::Interface { class, .. } => {
                 let c = self.m.program.class(class);
-                c.kind == ClassKind::Enum || (c.kind == ClassKind::Class && c.modifiers.sealed) || Some(class) == self.m.core.bool_class
+                c.kind == ClassKind::Enum
+                    || (c.kind == ClassKind::Class && c.modifiers.sealed)
+                    || Some(class) == self.m.core.bool_class
             }
             Type::ExtensionType { .. } => {
                 let a = self.m.erase(t);
@@ -2047,8 +2571,14 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
                 let b = self.m.table.param(param).bound;
                 self.m.table.param(param).explicit && self.always_exhaustive(b, prof + 1)
             }
-            Type::Record { positional, named, .. } => {
-                let all: Vec<TypeId> = positional.iter().copied().chain(named.iter().map(|(_, c)| *c)).collect();
+            Type::Record {
+                positional, named, ..
+            } => {
+                let all: Vec<TypeId> = positional
+                    .iter()
+                    .copied()
+                    .chain(named.iter().map(|(_, c)| *c))
+                    .collect();
                 all.into_iter().all(|c| self.always_exhaustive(c, prof + 1))
             }
             _ => false,
@@ -2058,7 +2588,12 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
     /// `_validateSwitchExhaustiveness` without the report: the unreachable cases
     /// and, if not exhaustive, the first witness. `None` when there is an
     /// invalid type (the analyzer does not check).
-    pub(crate) fn verify(&mut self, e: &Entry<'_>, scrutinee: TypeId, cases: &[Case]) -> Option<Result_> {
+    pub(crate) fn verify(
+        &mut self,
+        e: &Entry<'_>,
+        scrutinee: TypeId,
+        cases: &[Case],
+    ) -> Option<Result_> {
         self.invalid = false;
         let value = self.static_type(scrutinee);
         let mut spaces = Vec::new();
@@ -2075,7 +2610,12 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             return None;
         }
         let (unreach, not_) = self.compute(value, &stored, &spaces);
-        let mut r = Result_ { unreachable: unreach.into_iter().map(|i| indices[i]).collect(), witness: None, fix: None, parts: Vec::new() };
+        let mut r = Result_ {
+            unreachable: unreach.into_iter().map(|i| indices[i]).collect(),
+            witness: None,
+            fix: None,
+            parts: Vec::new(),
+        };
         if let Some(ts) = &not_
             && self.collect_parts
         {
@@ -2092,15 +2632,16 @@ impl<'m, 'a> Exhaustiveness<'m, 'a> {
             self.mark = false;
         }
         if let Some(ts) = not_
-            && let Some(the_first) = ts.first() {
-                let w = self.build_witness(the_first);
-                let mut a = String::new();
-                self.write_witness(&mut a, &w, false);
-                let mut b = String::new();
-                self.write_witness(&mut b, &w, true);
-                r.witness = Some(a);
-                r.fix = Some(b);
-            }
+            && let Some(the_first) = ts.first()
+        {
+            let w = self.build_witness(the_first);
+            let mut a = String::new();
+            self.write_witness(&mut a, &w, false);
+            let mut b = String::new();
+            self.write_witness(&mut b, &w, true);
+            r.witness = Some(a);
+            r.fix = Some(b);
+        }
         Some(r)
     }
 }
@@ -2125,7 +2666,9 @@ fn list_text(text: &str, size: usize, rest: bool) -> String {
 fn implicit_name(a: &ast::Ast, p: PatternId) -> Option<dartforge_intern::SymbolId> {
     match &a.pattern(p).kind {
         PatternKind::Variable { name, .. } => Some(name.sym),
-        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => implicit_name(a, *x),
+        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => {
+            implicit_name(a, *x)
+        }
         PatternKind::Cast { pattern, .. } => implicit_name(a, *pattern),
         _ => None,
     }

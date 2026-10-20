@@ -60,11 +60,15 @@ fn items(t: &Tokens) -> Vec<Item> {
 }
 
 fn optional(i: &Item) -> bool {
-    matches!(i.kind_, Type::Token(TokenKind::Op(Op::Comma)) | Type::Token(TokenKind::Op(Op::Semicolon)))
+    matches!(
+        i.kind_,
+        Type::Token(TokenKind::Op(Op::Comma)) | Type::Token(TokenKind::Op(Op::Semicolon))
+    )
 }
 
 fn valid_change(s: &str) -> bool {
-    s.chars().all(|c| c.is_whitespace() || matches!(c, ',' | ';' | '<' | '>'))
+    s.chars()
+        .all(|c| c.is_whitespace() || matches!(c, ',' | ';' | '<' | '>'))
 }
 
 /// The minimal edits that turn `original` into `formatted`.
@@ -144,7 +148,9 @@ pub fn minimal_edits(original: &str, formatted: &str, range: Option<(usize, usiz
                     }
                     continue;
                 }
-            } else if matches!(tok_a.kind_, Type::Comment { .. }) && text_a(&tok_a) != text_b(&tok_b) {
+            } else if matches!(tok_a.kind_, Type::Comment { .. })
+                && text_a(&tok_a) != text_b(&tok_b)
+            {
                 end_a = tok_a.end;
                 ia += 1;
                 has_a = ia < a.len();
@@ -206,7 +212,12 @@ impl EditComputer<'_> {
         let blank_a = &self.original[start_a..end_a];
         let blank_b = &self.formatted[start_b..end_b];
         if let Some((range_start, range_end)) = self.range {
-            if start_a < range_start && end_a > range_start && blank_a.contains('\n') && blank_b.contains('\n') && !blank_a.ends_with('\n') {
+            if start_a < range_start
+                && end_a > range_start
+                && blank_a.contains('\n')
+                && blank_b.contains('\n')
+                && !blank_a.ends_with('\n')
+            {
                 let oa = blank_a.rfind('\n').expect("line break") + 1;
                 let ob = blank_b.rfind('\n').expect("line break") + 1;
                 self.add(start_a, start_a + oa, start_b, start_b + ob, false);
@@ -236,10 +247,18 @@ impl EditComputer<'_> {
         let old: String = va[p..va.len() - s].iter().collect();
         let new: String = vb[p..vb.len() - s].iter().collect();
         let start = start_a + va[..p].iter().map(|c| c.len_utf8()).sum::<usize>();
-        let end = end_a - va[va.len() - s..].iter().map(|c| c.len_utf8()).sum::<usize>();
+        let end = end_a
+            - va[va.len() - s..]
+                .iter()
+                .map(|c| c.len_utf8())
+                .sum::<usize>();
         if !any && (!valid_change(&old) || !valid_change(&new)) {
             return;
         }
-        self.edits.push(Edit { start, end, text: new });
+        self.edits.push(Edit {
+            start,
+            end,
+            text: new,
+        });
     }
 }

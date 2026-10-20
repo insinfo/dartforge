@@ -60,14 +60,27 @@ mod simd_tests {
     #[test]
     fn vector_boxes_produce_owned_and_arc_emission_uses_native_words() {
         for from in [Type::V4F32, Type::V4I32, Type::V2F64] {
-            let mut m = Module::new(); m.arc_memory = true;
+            let mut m = Module::new();
+            m.arc_memory = true;
             m.dart_ref_returns.insert("caixa".into());
             m.functions.push(Function {
-                symbol: "caixa".into(), name: "caixa".into(), debug_info: None,
-                params: vec![(ValueId(0), "vetor".into(), from)], return_ty: Type::Ref,
-                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                    (ValueId(1), Instruction::Box { op: Operand::Val(ValueId(0)), from }, Type::Ref),
-                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }],
+                symbol: "caixa".into(),
+                name: "caixa".into(),
+                debug_info: None,
+                params: vec![(ValueId(0), "vetor".into(), from)],
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::Box {
+                            op: Operand::Val(ValueId(0)),
+                            from,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                }],
             });
             let mut ps = HashMap::from([("caixa".into(), DartFunctionPlan::default())]);
             assert_eq!(prepare_arc_dart_module(&mut m, &mut ps).unwrap(), (0, 0));
@@ -76,9 +89,11 @@ mod simd_tests {
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
             assert!(ir.contains("call i64 @dartforge_arc_box_simd_owned_v1(i64"));
             assert!(ir.contains("extractelement <2 x i64> %bx1, i32 0"));
-            let before = format!("{m:?}"); let plans = ps.clone();
+            let before = format!("{m:?}");
+            let plans = ps.clone();
             assert_eq!(prepare_arc_dart_module(&mut m, &mut ps).unwrap(), (0, 0));
-            assert_eq!(format!("{m:?}"), before); assert_eq!(ps, plans);
+            assert_eq!(format!("{m:?}"), before);
+            assert_eq!(ps, plans);
             m.arc_memory = false;
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
             assert!(ir.contains("call i64 @df.simd_box("));
@@ -90,13 +105,27 @@ mod simd_tests {
     fn box_origin_cannot_be_ref_or_other_width_scalar() {
         for from in [Type::V4F32, Type::V4I32, Type::V2F64] {
             let f = Function {
-                symbol: "invalida".into(), name: "invalida".into(), debug_info: None,
-                params: vec![(ValueId(0), "handle".into(), Type::Ref)], return_ty: Type::Ref,
-                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                    (ValueId(1), Instruction::Box { op: Operand::Val(ValueId(0)), from }, Type::Ref),
-                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }],
+                symbol: "invalida".into(),
+                name: "invalida".into(),
+                debug_info: None,
+                params: vec![(ValueId(0), "handle".into(), Type::Ref)],
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::Box {
+                            op: Operand::Val(ValueId(0)),
+                            from,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                }],
             };
-            assert!(produce_arc_contracts(&f, &mut HashMap::new(), &mut TokenPlan::default()).is_err());
+            assert!(
+                produce_arc_contracts(&f, &mut HashMap::new(), &mut TokenPlan::default()).is_err()
+            );
         }
     }
 }

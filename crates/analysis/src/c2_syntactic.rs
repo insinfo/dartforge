@@ -27,8 +27,8 @@ use crate::Unit;
 use dartforge_diagnostics::codes::{compile_time_error as c, parser as pe, warning as w};
 use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::ast::{
-    self, AsyncModifier, CollectionElement, DeclKind, DirectiveKind, ExprId, ExprKind, FunctionBody, FunctionKind, MemberId,
-    MemberKind, PatternId, PatternKind, StmtId, StmtKind,
+    self, AsyncModifier, CollectionElement, DeclKind, DirectiveKind, ExprId, ExprKind,
+    FunctionBody, FunctionKind, MemberId, MemberKind, PatternId, PatternKind, StmtId, StmtKind,
 };
 use dartforge_intern::{Interner, SymbolId};
 
@@ -97,13 +97,19 @@ pub fn check(u: Unit<'_>, names: &Interner) -> Vec<Diagnostic> {
     // Directive URIs cannot have interpolation.
     for d in u.unit.directives.iter() {
         let uri = match &d.kind {
-            DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } | DirectiveKind::Part { uri } => Some(uri),
+            DirectiveKind::Import { uri, .. }
+            | DirectiveKind::Export { uri, .. }
+            | DirectiveKind::Part { uri } => Some(uri),
             _ => None,
         };
         if let Some(uri) = uri
-            && uri.parts.iter().any(|p| matches!(p, ast::StringPart::Interpolation(_))) {
-                v.report(c::URI_WITH_INTERPOLATION, uri.span, &[]);
-            }
+            && uri
+                .parts
+                .iter()
+                .any(|p| matches!(p, ast::StringPart::Interpolation(_)))
+        {
+            v.report(c::URI_WITH_INTERPOLATION, uri.span, &[]);
+        }
     }
     let main_sym = names.lookup("main");
     for &d in u.unit.declarations.iter() {
@@ -114,13 +120,15 @@ pub fn check(u: Unit<'_>, names: &Interner) -> Vec<Diagnostic> {
 
 impl<'a> Visitor<'a> {
     fn report(&mut self, code: Code, span: Span, args: &[&str]) {
-        self.out.push(Diagnostic::with_code(code, span, args.iter().copied()));
+        self.out
+            .push(Diagnostic::with_code(code, span, args.iter().copied()));
     }
 
     fn decl(&mut self, d: ast::DeclId, main_sym: Option<SymbolId>) {
         let a = self.a;
         // A top-level `main` that is not a function.
-        let not_function = |n: ast::Name| -> Option<Span> { (Some(n.sym) == main_sym).then_some(n.span) };
+        let not_function =
+            |n: ast::Name| -> Option<Span> { (Some(n.sym) == main_sym).then_some(n.span) };
         match &a.decl(d).kind {
             DeclKind::Variables(l) => {
                 for var in l.variables.iter() {
@@ -135,9 +143,10 @@ impl<'a> Visitor<'a> {
             DeclKind::Function(f) => {
                 let func = a.function(*f);
                 if matches!(func.kind, FunctionKind::Getter | FunctionKind::Setter)
-                    && let Some(sp) = func.name.and_then(not_function) {
-                        self.report(c::MAIN_IS_NOT_FUNCTION, sp, &[]);
-                    }
+                    && let Some(sp) = func.name.and_then(not_function)
+                {
+                    self.report(c::MAIN_IS_NOT_FUNCTION, sp, &[]);
+                }
                 self.function(*f);
             }
             DeclKind::Class(k) => {
@@ -191,8 +200,19 @@ impl<'a> Visitor<'a> {
                     // generative constructor: on the word `late`.
                     if has_const_generative && l.late && l.final_ && !l.static_ {
                         let sp = a.member(mid).span;
-                        if let Some(i) = self.source.get(sp.start..sp.end.min(self.source.len())).and_then(|t| first_word(t, "late")) {
-                            self.report(c::LATE_FINAL_FIELD_WITH_CONST_CONSTRUCTOR, Span { start: sp.start + i, end: sp.start + i + 4 }, &[]);
+                        if let Some(i) = self
+                            .source
+                            .get(sp.start..sp.end.min(self.source.len()))
+                            .and_then(|t| first_word(t, "late"))
+                        {
+                            self.report(
+                                c::LATE_FINAL_FIELD_WITH_CONST_CONSTRUCTOR,
+                                Span {
+                                    start: sp.start + i,
+                                    end: sp.start + i + 4,
+                                },
+                                &[],
+                            );
                         }
                     }
                     for var in l.variables.iter() {
@@ -219,13 +239,16 @@ impl<'a> Visitor<'a> {
                     for init in k.initializers.iter() {
                         match init {
                             ast::Initializer::Field { value, .. } => self.expr(*value),
-                            ast::Initializer::Assert { condition, message, .. } => {
+                            ast::Initializer::Assert {
+                                condition, message, ..
+                            } => {
                                 self.expr(*condition);
                                 if let Some(m) = message {
                                     self.expr(*m);
                                 }
                             }
-                            ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
+                            ast::Initializer::Super { arguments, .. }
+                            | ast::Initializer::Redirect { arguments, .. } => {
                                 for x in arguments.args.iter() {
                                     self.expr(x.value);
                                 }
@@ -245,8 +268,19 @@ impl<'a> Visitor<'a> {
             // error is `INITIALIZING_DECLARING_PARAMETER` (without this warning).
             if p.final_ && (p.this_ || p.super_) && !p.declaring {
                 let end = p.name.map_or(p.span.end, |n| n.span.start);
-                if let Some(i) = self.source.get(p.span.start..end).and_then(|t| first_word(t, "final")) {
-                    self.report(w::UNNECESSARY_FINAL, Span { start: p.span.start + i, end: p.span.start + i + 5 }, &[]);
+                if let Some(i) = self
+                    .source
+                    .get(p.span.start..end)
+                    .and_then(|t| first_word(t, "final"))
+                {
+                    self.report(
+                        w::UNNECESSARY_FINAL,
+                        Span {
+                            start: p.span.start + i,
+                            end: p.span.start + i + 5,
+                        },
+                        &[],
+                    );
                 }
             }
             if let Some(fp) = &p.function_parameters {
@@ -282,7 +316,11 @@ impl<'a> Visitor<'a> {
         // A setter with `async`, `async*` or `sync*`: on the first token of
         // the modifier (the `*` is not included).
         if func.kind == FunctionKind::Setter && func.modifier != AsyncModifier::None {
-            let word = if func.modifier == AsyncModifier::SyncStar { "sync" } else { "async" };
+            let word = if func.modifier == AsyncModifier::SyncStar {
+                "sync"
+            } else {
+                "async"
+            };
             let end = match &func.body {
                 FunctionBody::Block(s) => a.stmt(*s).span.start,
                 FunctionBody::Expression(e) => a.expr(*e).span.start,
@@ -291,7 +329,14 @@ impl<'a> Visitor<'a> {
             let start = func.name.map_or(func.span.start, |n| n.span.end);
             if let Some(i) = self.source.get(start..end).and_then(|t| last_word(t, word)) {
                 let start = start + i;
-                self.report(c::INVALID_MODIFIER_ON_SETTER, Span { start, end: start + word.len() }, &[]);
+                self.report(
+                    c::INVALID_MODIFIER_ON_SETTER,
+                    Span {
+                        start,
+                        end: start + word.len(),
+                    },
+                    &[],
+                );
             }
         }
         let after_params = func.name.map_or(func.span.start, |n| n.span.end);
@@ -304,12 +349,22 @@ impl<'a> Visitor<'a> {
             FunctionBody::Block(s) => self.stmt(*s),
             FunctionBody::Expression(e) => {
                 // `f() sync* => 0;`: a generator returns no value; on the arrow.
-                if matches!(self.modifier, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
+                if matches!(
+                    self.modifier,
+                    AsyncModifier::SyncStar | AsyncModifier::AsyncStar
+                ) {
                     let end = self.a.expr(*e).span.start;
                     let start = from.unwrap_or(0).min(end);
                     if let Some(i) = self.source.get(start..end).and_then(|t| t.rfind("=>")) {
                         let start = start + i;
-                        self.report(c::RETURN_IN_GENERATOR, Span { start, end: start + 2 }, &[]);
+                        self.report(
+                            c::RETURN_IN_GENERATOR,
+                            Span {
+                                start,
+                                end: start + 2,
+                            },
+                            &[],
+                        );
                     }
                 }
                 self.expr(*e);
@@ -329,7 +384,11 @@ impl<'a> Visitor<'a> {
         if let Some(r) = self.labels.iter_mut().rev().find(|r| r.name == label.sym) {
             r.used = true;
         }
-        let local = self.labels[self.boundary..].iter().rev().find(|r| r.name == label.sym).copied();
+        let local = self.labels[self.boundary..]
+            .iter()
+            .rev()
+            .find(|r| r.name == label.sym)
+            .copied();
         match local {
             Some(r) => {
                 if is_continue && !r.accepts_continue {
@@ -340,7 +399,10 @@ impl<'a> Visitor<'a> {
                 }
             }
             None => {
-                if self.labels[..self.boundary].iter().any(|r| r.name == label.sym) {
+                if self.labels[..self.boundary]
+                    .iter()
+                    .any(|r| r.name == label.sym)
+                {
                     self.report(c::LABEL_IN_OUTER_SCOPE, label.span, &[&text]);
                 } else {
                     self.report(c::LABEL_UNDEFINED, label.span, &[&text]);
@@ -357,8 +419,18 @@ impl<'a> Visitor<'a> {
                 let text = self.names.resolve(r.name).to_string();
                 // On the whole `Label` node: the name and the colon.
                 let rest = self.source.get(r.span.end..).unwrap_or("");
-                let end = rest.find(':').filter(|&i| rest[..i].trim().is_empty()).map_or(r.span.end, |i| r.span.end + i + 1);
-                self.report(w::UNUSED_LABEL, Span { start: r.span.start, end }, &[&text]);
+                let end = rest
+                    .find(':')
+                    .filter(|&i| rest[..i].trim().is_empty())
+                    .map_or(r.span.end, |i| r.span.end + i + 1);
+                self.report(
+                    w::UNUSED_LABEL,
+                    Span {
+                        start: r.span.start,
+                        end,
+                    },
+                    &[&text],
+                );
             }
         }
     }
@@ -395,7 +467,9 @@ impl<'a> Visitor<'a> {
     fn for_in_target(&mut self, target: &'a ast::ForInTarget) {
         match target {
             ast::ForInTarget::Declared { .. } => {}
-            ast::ForInTarget::Pattern { pattern, .. } => self.top_level_pattern(*pattern, PatternContext::Declaration),
+            ast::ForInTarget::Pattern { pattern, .. } => {
+                self.top_level_pattern(*pattern, PatternContext::Declaration)
+            }
             ast::ForInTarget::Expression(e) => self.expr(*e),
         }
     }
@@ -416,7 +490,13 @@ impl<'a> Visitor<'a> {
             }
             StmtKind::Function(f) => self.function(*f),
             StmtKind::Expression(e) => self.expr(*e),
-            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+            StmtKind::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
                     self.top_level_pattern(*p, PatternContext::Refutable);
@@ -429,7 +509,13 @@ impl<'a> Visitor<'a> {
                     self.stmt(*e);
                 }
             }
-            StmtKind::For { init, condition, updates, body, .. } => {
+            StmtKind::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 self.for_init(init);
                 if let Some(x) = condition {
                     self.expr(*x);
@@ -439,7 +525,12 @@ impl<'a> Visitor<'a> {
                 }
                 self.loop_body(*body);
             }
-            StmtKind::ForIn { target, iterable, body, .. } => {
+            StmtKind::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 self.for_in_target(target);
                 self.expr(*iterable);
                 self.loop_body(*body);
@@ -458,7 +549,13 @@ impl<'a> Visitor<'a> {
                 let before = self.labels.len();
                 for case in cases.iter() {
                     for l in case.labels.iter() {
-                        self.labels.push(Label { name: l.sym, span: l.span, accepts_continue: true, on_switch_member: true, used: false });
+                        self.labels.push(Label {
+                            name: l.sym,
+                            span: l.span,
+                            accepts_continue: true,
+                            on_switch_member: true,
+                            used: false,
+                        });
                     }
                 }
                 // Inside a loop the `switch` does not change the state: an
@@ -481,18 +578,26 @@ impl<'a> Visitor<'a> {
                 self.loop_state = loop_state;
                 self.close_labels(before);
             }
-            StmtKind::Break(label) => {
-                match label {
-                    Some(r) => self.jump(*r, false, node.span),
-                    None => {
-                        if self.loop_state == LoopState::Outside {
-                            self.report(pe::BREAK_OUTSIDE_OF_LOOP, Span { start: node.span.start, end: node.span.start + 5 }, &[]);
-                        }
+            StmtKind::Break(label) => match label {
+                Some(r) => self.jump(*r, false, node.span),
+                None => {
+                    if self.loop_state == LoopState::Outside {
+                        self.report(
+                            pe::BREAK_OUTSIDE_OF_LOOP,
+                            Span {
+                                start: node.span.start,
+                                end: node.span.start + 5,
+                            },
+                            &[],
+                        );
                     }
                 }
-            }
+            },
             StmtKind::Continue(label) => {
-                let word = Span { start: node.span.start, end: node.span.start + 8 };
+                let word = Span {
+                    start: node.span.start,
+                    end: node.span.start + 8,
+                };
                 if self.loop_state == LoopState::Outside {
                     self.report(pe::CONTINUE_OUTSIDE_OF_LOOP, word, &[]);
                 } else if label.is_none() && self.loop_state == LoopState::InSwitch {
@@ -504,21 +609,42 @@ impl<'a> Visitor<'a> {
             }
             StmtKind::Return(Some(e)) => {
                 // `return value;` in a generator: on the `return` token.
-                if matches!(self.modifier, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
-                    self.report(c::RETURN_IN_GENERATOR, Span { start: node.span.start, end: node.span.start + 6 }, &[]);
+                if matches!(
+                    self.modifier,
+                    AsyncModifier::SyncStar | AsyncModifier::AsyncStar
+                ) {
+                    self.report(
+                        c::RETURN_IN_GENERATOR,
+                        Span {
+                            start: node.span.start,
+                            end: node.span.start + 6,
+                        },
+                        &[],
+                    );
                 }
                 self.expr(*e);
             }
             StmtKind::Yield { star, value } => {
                 // `YieldStatementResolver._resolve_notGenerator`: on the whole
                 // statement, `YIELD_EACH_IN_NON_GENERATOR` with `*`.
-                if !matches!(self.modifier, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
-                    let code = if *star { c::YIELD_EACH_IN_NON_GENERATOR } else { c::YIELD_IN_NON_GENERATOR };
+                if !matches!(
+                    self.modifier,
+                    AsyncModifier::SyncStar | AsyncModifier::AsyncStar
+                ) {
+                    let code = if *star {
+                        c::YIELD_EACH_IN_NON_GENERATOR
+                    } else {
+                        c::YIELD_IN_NON_GENERATOR
+                    };
                     self.report(code, node.span, &[]);
                 }
                 self.expr(*value)
             }
-            StmtKind::Try { body, catches, finally_ } => {
+            StmtKind::Try {
+                body,
+                catches,
+                finally_,
+            } => {
                 self.stmt(*body);
                 for k in catches.iter() {
                     self.catch_depth += 1;
@@ -532,11 +658,20 @@ impl<'a> Visitor<'a> {
             StmtKind::Labeled { labels, body } => {
                 let loop_state = matches!(
                     a.stmt(*body).kind,
-                    StmtKind::For { .. } | StmtKind::ForIn { .. } | StmtKind::While { .. } | StmtKind::DoWhile { .. }
+                    StmtKind::For { .. }
+                        | StmtKind::ForIn { .. }
+                        | StmtKind::While { .. }
+                        | StmtKind::DoWhile { .. }
                 );
                 let before = self.labels.len();
                 for l in labels.iter() {
-                    self.labels.push(Label { name: l.sym, span: l.span, accepts_continue: loop_state, on_switch_member: false, used: false });
+                    self.labels.push(Label {
+                        name: l.sym,
+                        span: l.span,
+                        accepts_continue: loop_state,
+                        on_switch_member: false,
+                        used: false,
+                    });
                 }
                 self.stmt(*body);
                 self.close_labels(before);
@@ -556,10 +691,20 @@ impl<'a> Visitor<'a> {
     /// The variables the pattern declares (or assigns), with the name of each
     /// occurrence; both sides of a `||` declare the same ones and count once.
     /// A repetition outside that is reported on the second occurrence.
-    fn pattern_variables(&mut self, p: PatternId, ctx: PatternContext, seen: &mut Vec<(SymbolId, Span)>) {
+    fn pattern_variables(
+        &mut self,
+        p: PatternId,
+        ctx: PatternContext,
+        seen: &mut Vec<(SymbolId, Span)>,
+    ) {
         let a = self.a;
         match &a.pattern(p).kind {
-            PatternKind::Variable { final_, var_, ty, name } => {
+            PatternKind::Variable {
+                final_,
+                var_,
+                ty,
+                name,
+            } => {
                 let declares = match ctx {
                     PatternContext::Declaration | PatternContext::Assignment => true,
                     PatternContext::Refutable => *final_ || *var_ || ty.is_some(),
@@ -573,11 +718,20 @@ impl<'a> Visitor<'a> {
                     // assigned pattern; the declaration, at the first
                     // definition (`duplicateDefinitionForNodes`).
                     let (code, context) = if ctx == PatternContext::Assignment {
-                        (c::DUPLICATE_PATTERN_ASSIGNMENT_VARIABLE, "The first assigned variable pattern.")
+                        (
+                            c::DUPLICATE_PATTERN_ASSIGNMENT_VARIABLE,
+                            "The first assigned variable pattern.",
+                        )
                     } else {
-                        (c::DUPLICATE_VARIABLE_PATTERN, "The first definition of this name.")
+                        (
+                            c::DUPLICATE_VARIABLE_PATTERN,
+                            "The first definition of this name.",
+                        )
                     };
-                    self.out.push(Diagnostic::with_code(code, name.span, [text.as_str()]).with_context(first, context));
+                    self.out.push(
+                        Diagnostic::with_code(code, name.span, [text.as_str()])
+                            .with_context(first, context),
+                    );
                 } else {
                     seen.push((name.sym, name.span));
                 }
@@ -597,12 +751,17 @@ impl<'a> Visitor<'a> {
                 self.pattern_variables(*x, ctx, seen);
                 self.pattern_variables(*y, ctx, seen);
             }
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.pattern_variables(*x, ctx, seen),
+            PatternKind::NullCheck(x)
+            | PatternKind::NullAssert(x)
+            | PatternKind::Parenthesized(x) => self.pattern_variables(*x, ctx, seen),
             PatternKind::Cast { pattern, .. } => self.pattern_variables(*pattern, ctx, seen),
             PatternKind::List { elements, .. } => {
                 for el in elements.iter() {
                     match el {
-                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.pattern_variables(*x, ctx, seen),
+                        ast::ListPatternElement::Pattern(x)
+                        | ast::ListPatternElement::Rest(Some(x)) => {
+                            self.pattern_variables(*x, ctx, seen)
+                        }
                         _ => {}
                     }
                 }
@@ -635,7 +794,11 @@ impl<'a> Visitor<'a> {
         let last = self.a.ty(*types.last()?).span;
         let bytes = self.source.as_bytes();
         let mut start = first.start;
-        while start > 0 && bytes.get(start - 1).is_some_and(|b| b.is_ascii_whitespace()) {
+        while start > 0
+            && bytes
+                .get(start - 1)
+                .is_some_and(|b| b.is_ascii_whitespace())
+        {
             start -= 1;
         }
         if start == 0 || bytes.get(start - 1) != Some(&b'<') {
@@ -648,7 +811,10 @@ impl<'a> Visitor<'a> {
         if bytes.get(end) != Some(&b'>') {
             return None;
         }
-        Some(Span { start: start - 1, end: end + 1 })
+        Some(Span {
+            start: start - 1,
+            end: end + 1,
+        })
     }
 
     /// Repeated fields of a record or object pattern: on the repeated field's
@@ -660,17 +826,25 @@ impl<'a> Visitor<'a> {
             let (name, span) = match f.name {
                 // `:var x` with the kept name (the variable's, inside the
                 // subpattern): the target is the `:` that precedes it.
-                Some(n) if {
-                    let sp = a.pattern(f.pattern).span;
-                    sp.start <= n.span.start && n.span.end <= sp.end
-                } =>
+                Some(n)
+                    if {
+                        let sp = a.pattern(f.pattern).span;
+                        sp.start <= n.span.start && n.span.end <= sp.end
+                    } =>
                 {
                     let bytes = self.source.as_bytes();
                     let mut i = a.pattern(f.pattern).span.start;
                     while i > 0 && bytes.get(i - 1).is_some_and(|b| b.is_ascii_whitespace()) {
                         i -= 1;
                     }
-                    let colon = if i > 0 && bytes.get(i - 1) == Some(&b':') { Span { start: i - 1, end: i } } else { n.span };
+                    let colon = if i > 0 && bytes.get(i - 1) == Some(&b':') {
+                        Span {
+                            start: i - 1,
+                            end: i,
+                        }
+                    } else {
+                        n.span
+                    };
                     (Some(n.sym), colon)
                 }
                 Some(n) => (Some(n.sym), n.span),
@@ -681,19 +855,30 @@ impl<'a> Visitor<'a> {
                     let name = loop {
                         match &a.pattern(q).kind {
                             PatternKind::Variable { name, .. } => break Some(name.sym),
-                            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => q = *x,
+                            PatternKind::NullCheck(x)
+                            | PatternKind::NullAssert(x)
+                            | PatternKind::Parenthesized(x) => q = *x,
                             PatternKind::Cast { pattern, .. } => q = *pattern,
                             _ => break None,
                         }
                     };
                     // The target of the implicit name is the `:` (`name ?? colon`).
-                    (if implicit { name } else { None }, Span { start: f.span.start, end: f.span.start + 1 })
+                    (
+                        if implicit { name } else { None },
+                        Span {
+                            start: f.span.start,
+                            end: f.span.start + 1,
+                        },
+                    )
                 }
             };
             let Some(name) = name else { continue };
             if let Some(&(_, first)) = seen.iter().find(|(s, _)| *s == name) {
                 let text = self.names.resolve(name).to_string();
-                self.out.push(Diagnostic::with_code(c::DUPLICATE_PATTERN_FIELD, span, [text.as_str()]).with_context(first, "The first field."));
+                self.out.push(
+                    Diagnostic::with_code(c::DUPLICATE_PATTERN_FIELD, span, [text.as_str()])
+                        .with_context(first, "The first field."),
+                );
             } else {
                 seen.push((name, span));
             }
@@ -710,32 +895,58 @@ impl<'a> Visitor<'a> {
                 self.pattern(*x);
                 self.pattern(*y);
             }
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.pattern(*x),
+            PatternKind::NullCheck(x)
+            | PatternKind::NullAssert(x)
+            | PatternKind::Parenthesized(x) => self.pattern(*x),
             PatternKind::Cast { pattern, .. } => self.pattern(*pattern),
-            PatternKind::List { type_args, elements } => {
+            PatternKind::List {
+                type_args,
+                elements,
+            } => {
                 if type_args.len() > 1
-                    && let Some(sp) = self.type_list(type_args) {
-                        let n = type_args.len().to_string();
-                        self.report(c::EXPECTED_ONE_LIST_PATTERN_TYPE_ARGUMENTS, sp, &[&n]);
-                    }
+                    && let Some(sp) = self.type_list(type_args)
+                {
+                    let n = type_args.len().to_string();
+                    self.report(c::EXPECTED_ONE_LIST_PATTERN_TYPE_ARGUMENTS, sp, &[&n]);
+                }
                 for el in elements.iter() {
                     match el {
-                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.pattern(*x),
+                        ast::ListPatternElement::Pattern(x)
+                        | ast::ListPatternElement::Rest(Some(x)) => self.pattern(*x),
                         _ => {}
                     }
                 }
             }
-            PatternKind::Map { type_args, entries, rest } => {
-                if !type_args.is_empty() && type_args.len() != 2
-                    && let Some(sp) = self.type_list(type_args) {
-                        let n = type_args.len().to_string();
-                        self.report(c::EXPECTED_TWO_MAP_PATTERN_TYPE_ARGUMENTS, sp, &[&n]);
-                    }
+            PatternKind::Map {
+                type_args,
+                entries,
+                rest,
+            } => {
+                if !type_args.is_empty()
+                    && type_args.len() != 2
+                    && let Some(sp) = self.type_list(type_args)
+                {
+                    let n = type_args.len().to_string();
+                    self.report(c::EXPECTED_TWO_MAP_PATTERN_TYPE_ARGUMENTS, sp, &[&n]);
+                }
                 // A map pattern has no rest: on the `...`.
                 if *rest {
-                    let from = entries.last().map_or(pattern_span.start, |en| a.pattern(en.value).span.end);
-                    if let Some(i) = self.source.get(from..pattern_span.end).and_then(|t| t.find("...")) {
-                        self.report(c::REST_ELEMENT_IN_MAP_PATTERN, Span { start: from + i, end: from + i + 3 }, &[]);
+                    let from = entries
+                        .last()
+                        .map_or(pattern_span.start, |en| a.pattern(en.value).span.end);
+                    if let Some(i) = self
+                        .source
+                        .get(from..pattern_span.end)
+                        .and_then(|t| t.find("..."))
+                    {
+                        self.report(
+                            c::REST_ELEMENT_IN_MAP_PATTERN,
+                            Span {
+                                start: from + i,
+                                end: from + i + 3,
+                            },
+                            &[],
+                        );
                     }
                 }
                 for en in entries.iter() {
@@ -761,13 +972,21 @@ impl<'a> Visitor<'a> {
 
     fn element(&mut self, el: &'a CollectionElement) {
         match el {
-            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => self.expr(*x),
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
+                self.expr(*x)
+            }
             CollectionElement::MapEntry { key, value, .. } => {
                 self.expr(*key);
                 self.expr(*value);
             }
             CollectionElement::Spread { value, .. } => self.expr(*value),
-            CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+            CollectionElement::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
                     self.top_level_pattern(*p, PatternContext::Refutable);
@@ -780,7 +999,13 @@ impl<'a> Visitor<'a> {
                     self.element(x);
                 }
             }
-            CollectionElement::For { init, condition, updates, body, .. } => {
+            CollectionElement::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 self.for_init(init);
                 if let Some(x) = condition {
                     self.expr(*x);
@@ -790,7 +1015,12 @@ impl<'a> Visitor<'a> {
                 }
                 self.element(body);
             }
-            CollectionElement::ForIn { target, iterable, body, .. } => {
+            CollectionElement::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 self.for_in_target(target);
                 self.expr(*iterable);
                 self.element(body);
@@ -813,7 +1043,9 @@ impl<'a> Visitor<'a> {
                     self.element(el);
                 }
             }
-            ExprKind::Record { positional, named, .. } => {
+            ExprKind::Record {
+                positional, named, ..
+            } => {
                 for x in positional.iter().chain(named.iter().map(|(_, x)| x)) {
                     self.expr(*x);
                 }
@@ -848,7 +1080,11 @@ impl<'a> Visitor<'a> {
                 self.expr(*left);
                 self.expr(*right);
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 self.expr(*then);
                 self.expr(*else_);
@@ -862,7 +1098,9 @@ impl<'a> Visitor<'a> {
                 self.top_level_pattern(*pattern, PatternContext::Assignment);
                 self.expr(*value);
             }
-            ExprKind::Cascade { target, sections, .. } => {
+            ExprKind::Cascade {
+                target, sections, ..
+            } => {
                 self.expr(*target);
                 for s in sections.iter() {
                     self.expr(*s);
@@ -891,7 +1129,9 @@ fn first_word(text: &str, word: &str) -> Option<usize> {
     while let Some(i) = text.get(from..).and_then(|t| t.find(word)) {
         let start = from + i;
         let after = start + word.len();
-        if (start == 0 || !is_word_char(b[start - 1])) && (after >= b.len() || !is_word_char(b[after])) {
+        if (start == 0 || !is_word_char(b[start - 1]))
+            && (after >= b.len() || !is_word_char(b[after]))
+        {
             return Some(start);
         }
         from = after;
@@ -927,14 +1167,30 @@ mod tests {
     fn codes(source: &str) -> Vec<(&'static str, usize, usize)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
-        check(u, &names).into_iter().map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end)).collect()
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
+        check(u, &names)
+            .into_iter()
+            .map(|d| {
+                (
+                    d.code.map_or("", |c| c.info().name),
+                    d.span.start,
+                    d.span.end,
+                )
+            })
+            .collect()
     }
 
     #[test]
     fn rethrow_outside_and_inside_catch() {
         // void f() { rethrow; }
-        assert_eq!(codes("void f() { rethrow; }"), vec![("rethrow_outside_catch", 11, 18)]);
+        assert_eq!(
+            codes("void f() { rethrow; }"),
+            vec![("rethrow_outside_catch", 11, 18)]
+        );
         assert!(codes("void f() { try {} catch (e) { rethrow; } }").is_empty());
         // The function literal inside the `catch` restarts the count.
         let r = codes("void f() { try {} catch (e) { () { rethrow; }; } }");
@@ -944,30 +1200,48 @@ mod tests {
     #[test]
     fn return_with_value_in_generator() {
         // f() async* { return 0; }
-        assert_eq!(codes("f() async* { return 0; }"), vec![("return_in_generator", 13, 19)]);
+        assert_eq!(
+            codes("f() async* { return 0; }"),
+            vec![("return_in_generator", 13, 19)]
+        );
         // f() sync* => 0;
-        assert_eq!(codes("f() sync* => 0;"), vec![("return_in_generator", 10, 12)]);
+        assert_eq!(
+            codes("f() sync* => 0;"),
+            vec![("return_in_generator", 10, 12)]
+        );
         assert!(codes("f() async* { return; }").is_empty());
     }
 
     #[test]
     fn labels() {
         // void f() { break L; }
-        assert_eq!(codes("void f() { break L; }"), vec![("label_undefined", 17, 18)]);
+        assert_eq!(
+            codes("void f() { break L; }"),
+            vec![("label_undefined", 17, 18)]
+        );
         let r = codes("void f() { L: while (true) { () { break L; }; } }");
         assert_eq!(r[0].0, "label_in_outer_scope");
         // Outside a loop both come out: the parser's and the resolution's.
         let r = codes("void f() { L: { continue L; } }");
         let names: Vec<&str> = r.iter().map(|x| x.0).collect();
-        assert_eq!(names, vec!["continue_outside_of_loop", "continue_label_invalid"]);
+        assert_eq!(
+            names,
+            vec!["continue_outside_of_loop", "continue_label_invalid"]
+        );
         assert!(codes("void f() { L: while (true) { continue L; } }").is_empty());
     }
 
     #[test]
     fn jumps_outside_loop() {
         // void f() { break; }
-        assert_eq!(codes("void f() { break; }"), vec![("break_outside_of_loop", 11, 16)]);
-        assert_eq!(codes("void f() { continue; }"), vec![("continue_outside_of_loop", 11, 19)]);
+        assert_eq!(
+            codes("void f() { break; }"),
+            vec![("break_outside_of_loop", 11, 16)]
+        );
+        assert_eq!(
+            codes("void f() { continue; }"),
+            vec![("continue_outside_of_loop", 11, 19)]
+        );
         let r = codes("void f(x) { switch (x) { case 1: continue; } }");
         assert_eq!(r[0].0, "continue_without_label_in_case");
         assert!(codes("void f(x) { while (x) { switch (x) { case 1: continue; } } }").is_empty());
@@ -977,7 +1251,10 @@ mod tests {
     #[test]
     fn unused_label_and_member_label() {
         // void f() { L: while (true) {} }
-        assert_eq!(codes("void f() { L: while (true) {} }"), vec![("unused_label", 11, 13)]); // the `Label` node: `L:`
+        assert_eq!(
+            codes("void f() { L: while (true) {} }"),
+            vec![("unused_label", 11, 13)]
+        ); // the `Label` node: `L:`
         let r = codes("void f(x) { switch (x) { L: case 1: break L; } }");
         assert_eq!(r[0].0, "break_label_on_switch_member");
     }

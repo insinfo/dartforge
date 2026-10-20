@@ -5,15 +5,18 @@
 //! records, default values, constant and relational patterns, initializers
 //! of `const` constructors.
 
-use super::evaluation::{Constant, Ctx, Invalid, Engine};
+use super::evaluation::{Constant, Ctx, Engine, Invalid};
 use super::exhaustiveness::{Case, Entry, Exhaustiveness};
 use super::value::{InstanceState, Value};
 use crate::resolved::Resolved;
 use crate::table::{Type, TypeId};
-use dartforge_diagnostics::{codes::compile_time_error as c, codes::warning as w, Code, Diagnostic, Span};
+use dartforge_diagnostics::{
+    Code, Diagnostic, Span, codes::compile_time_error as c, codes::warning as w,
+};
 use dartforge_elements::model::{ClassId, LibraryId, UnitId, VariableId, VariableRef};
 use dartforge_frontend::ast::{
-    self, CollectionElement, DeclKind, ExprId, ExprKind, MemberKind, PatternId, PatternKind, StmtId, StmtKind,
+    self, CollectionElement, DeclKind, ExprId, ExprKind, MemberKind, PatternId, PatternKind,
+    StmtId, StmtKind,
 };
 use std::collections::HashMap;
 
@@ -137,18 +140,28 @@ const CONSTANT_ERRORS: &[&str] = &[
 /// reports none of the `CONSTANT_ERRORS`. The constant creation here is
 /// the same `visitInstanceCreationExpression` as in the regular verification
 /// (`constant_creation`), with the arguments visited in a constant context.
-pub fn creation_can_be_const(m: &mut Engine<'_>, lib: LibraryId, unit_id: UnitId, e: ExprId) -> bool {
+pub fn creation_can_be_const(
+    m: &mut Engine<'_>,
+    lib: LibraryId,
+    unit_id: UnitId,
+    e: ExprId,
+) -> bool {
     let program = m.program;
     let a = m.ast(unit_id);
     let args_list = match &a.expr(e).kind {
-        ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => &**arguments,
+        ExprKind::InstanceCreation { arguments, .. } | ExprKind::Call { arguments, .. } => {
+            &**arguments
+        }
         _ => return false,
     };
-    let Some(Resolved::Constructor(f)) = m.resolved(unit_id, e) else { return false };
+    let Some(Resolved::Constructor(f)) = m.resolved(unit_id, e) else {
+        return false;
+    };
     if !program.function(*f).const_ {
         return false;
     }
-    let patterns_enabled = program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+    let patterns_enabled = program.library(lib).features.version()
+        >= dartforge_frontend::features::LanguageVersion::new(3, 0);
     let mut v = Verifier {
         m,
         lib,
@@ -163,12 +176,20 @@ pub fn creation_can_be_const(m: &mut Engine<'_>, lib: LibraryId, unit_id: UnitId
         in_constant_expression: false,
     };
     v.constant_creation(a, e, args_list);
-    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unique)))
+    !v.output.iter().any(|(_, d)| {
+        d.code
+            .is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unique))
+    })
 }
 
 /// A verifier without the library's tables (the lint queries).
-fn standalone_verifier<'v, 'm>(m: &'v mut Engine<'m>, lib: LibraryId, unit_id: UnitId) -> Verifier<'v, 'm> {
-    let patterns_enabled = m.program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+fn standalone_verifier<'v, 'm>(
+    m: &'v mut Engine<'m>,
+    lib: LibraryId,
+    unit_id: UnitId,
+) -> Verifier<'v, 'm> {
+    let patterns_enabled = m.program.library(lib).features.version()
+        >= dartforge_frontend::features::LanguageVersion::new(3, 0);
     Verifier {
         m,
         lib,
@@ -187,11 +208,19 @@ fn standalone_verifier<'v, 'm>(m: &'v mut Engine<'m>, lib: LibraryId, unit_id: U
 /// `canBeConst` of a typed literal (`_canBeConstTypedLiteral`): the
 /// `ConstantVerifier` over the literal with `const` reports none of the
 /// `CONSTANT_ERRORS`.
-pub fn literal_can_be_const(m: &mut Engine<'_>, lib: LibraryId, unit_id: UnitId, e: ExprId) -> bool {
+pub fn literal_can_be_const(
+    m: &mut Engine<'_>,
+    lib: LibraryId,
+    unit_id: UnitId,
+    e: ExprId,
+) -> bool {
     let a = m.ast(unit_id);
     let mut v = standalone_verifier(m, lib, unit_id);
     v.expr(a, e, true);
-    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unique)))
+    !v.output.iter().any(|(_, d)| {
+        d.code
+            .is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unique))
+    })
 }
 
 /// `ConstructorDeclaration.canBeConst` (`analyzer/lib/src/lint/linter.dart`):
@@ -199,11 +228,20 @@ pub fn literal_can_be_const(m: &mut Engine<'_>, lib: LibraryId, unit_id: UnitId,
 /// `ConstantVerifier` over the constructor marked `const` reports none of the
 /// `CONSTANT_ERRORS`: potentially constant initializers, instance fields
 /// with a constant initializer and constant default values.
-pub fn constructor_can_be_const(m: &mut Engine<'_>, lib: LibraryId, unit_id: UnitId, mid: ast::MemberId) -> bool {
+pub fn constructor_can_be_const(
+    m: &mut Engine<'_>,
+    lib: LibraryId,
+    unit_id: UnitId,
+    mid: ast::MemberId,
+) -> bool {
     let a = m.ast(unit_id);
-    let MemberKind::Constructor(k) = &a.member(mid).kind else { return false };
+    let MemberKind::Constructor(k) = &a.member(mid).kind else {
+        return false;
+    };
     let mut v = standalone_verifier(m, lib, unit_id);
-    let Some(cls) = v.class_of(a, mid) else { return false };
+    let Some(cls) = v.class_of(a, mid) else {
+        return false;
+    };
     let program = v.m.program;
     // `hasNonFinalField`.
     let non_final = program.class(cls).fields.iter().any(|f| {
@@ -213,12 +251,20 @@ pub fn constructor_can_be_const(m: &mut Engine<'_>, lib: LibraryId, unit_id: Uni
     if non_final {
         return false;
     }
-    let cx = Ctx { lexical: None, ..v.cx() };
+    let cx = Ctx {
+        lexical: None,
+        ..v.cx()
+    };
     for init in k.initializers.iter() {
         let exprs: Vec<ExprId> = match init {
             ast::Initializer::Field { value, .. } => vec![*value],
-            ast::Initializer::Assert { condition, message, .. } => std::iter::once(*condition).chain(*message).collect(),
-            ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => arguments.args.iter().map(|x| x.value).collect(),
+            ast::Initializer::Assert {
+                condition, message, ..
+            } => std::iter::once(*condition).chain(*message).collect(),
+            ast::Initializer::Super { arguments, .. }
+            | ast::Initializer::Redirect { arguments, .. } => {
+                arguments.args.iter().map(|x| x.value).collect()
+            }
         };
         for x in exprs {
             let mut nodes = Vec::new();
@@ -230,12 +276,16 @@ pub fn constructor_can_be_const(m: &mut Engine<'_>, lib: LibraryId, unit_id: Uni
     }
     if !k.factory {
         for fm in v.class_members(a, cls) {
-            let MemberKind::Field(l) = &a.member(fm).kind else { continue };
+            let MemberKind::Field(l) = &a.member(fm).kind else {
+                continue;
+            };
             if l.static_ {
                 continue;
             }
             for var in l.variables.iter() {
-                let Some(init) = var.initializer else { continue };
+                let Some(init) = var.initializer else {
+                    continue;
+                };
                 let cx = v.cx();
                 if matches!(v.m.evaluate(&cx, init, l.const_), Constant::Invalid(_)) {
                     return false;
@@ -244,7 +294,10 @@ pub fn constructor_can_be_const(m: &mut Engine<'_>, lib: LibraryId, unit_id: Uni
         }
     }
     v.default_values(a, &k.parameters);
-    !v.output.iter().any(|(_, d)| d.code.is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unique)))
+    !v.output.iter().any(|(_, d)| {
+        d.code
+            .is_some_and(|c| CONSTANT_ERRORS.contains(&c.info().unique))
+    })
 }
 
 /// The constant errors of the units of `lib`.
@@ -256,12 +309,19 @@ pub fn the_verify(m: &mut Engine<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic
     let mut the_fields = HashMap::new();
     let mut top = HashMap::new();
     let mut member_class = HashMap::new();
-    for (i, v) in program.index().library_variables[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.variable(x))) {
+    for (i, v) in program.index().library_variables[lib.0 as usize]
+        .iter()
+        .map(|&x| (x.0 as usize, program.variable(x)))
+    {
         if v.library != lib {
             continue;
         }
         match v.node {
-            VariableRef::Field { unit, member, index } => {
+            VariableRef::Field {
+                unit,
+                member,
+                index,
+            } => {
                 the_fields.insert((unit, member, index), VariableId(i as u32));
                 if let Some(k) = v.class {
                     member_class.insert((unit, member), k);
@@ -273,7 +333,8 @@ pub fn the_verify(m: &mut Engine<'_>, lib: LibraryId) -> Vec<(UnitId, Diagnostic
             _ => {}
         }
     }
-    let patterns_enabled = program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 0);
+    let patterns_enabled = program.library(lib).features.version()
+        >= dartforge_frontend::features::LanguageVersion::new(3, 0);
     let mut v = Verifier {
         m,
         lib,
@@ -313,23 +374,48 @@ impl Verifier<'_, '_> {
     /// mixin declares a field (`ConstructorElementImpl.isConst` of forwarded
     /// constructors, `analyzer/lib/src/dart/element/element.dart:612-614`);
     /// otherwise, `CONST_WITH_NON_CONST` at the `const` keyword.
-    fn non_const_forwarded(&mut self, ty: ast::TypeId, mut the_constructor: Option<ast::Name>, span: Span) {
+    fn non_const_forwarded(
+        &mut self,
+        ty: ast::TypeId,
+        mut the_constructor: Option<ast::Name>,
+        span: Span,
+    ) {
         let program = self.m.program;
         let u = self.unit;
-        let class = match self.annotation_type(ty).map(|t| self.m.table.get(t).clone()) {
+        let class = match self
+            .annotation_type(ty)
+            .map(|t| self.m.table.get(t).clone())
+        {
             Some(Type::Interface { class, .. }) => class,
             _ => {
                 // The creation's type is not recorded: the written name.
-                let ast::TypeKind::Named { name, .. } = &program.unit(u).ast.ty(ty).kind else { return };
+                let ast::TypeKind::Named { name, .. } = &program.unit(u).ast.ty(ty).kind else {
+                    return;
+                };
                 // `C.the_name` comes out of the parser as a two-part name (`p.C` or
                 // `C.the_name`): the first part as a class is `C`, with the constructor.
                 let (el, ctor) = match &name[..] {
-                    [n] => (program.lookup_in_unit(u, n.sym).and_then(|b| b.getter), the_constructor),
+                    [n] => (
+                        program.lookup_in_unit(u, n.sym).and_then(|b| b.getter),
+                        the_constructor,
+                    ),
                     [a1, b1] => match program.lookup_in_unit(u, a1.sym).and_then(|b| b.getter) {
-                        Some(el @ dartforge_elements::model::Element::Class(_)) => (Some(el), Some(*b1)),
-                        _ => (program.lookup_prefixed_in_unit(u, a1.sym, b1.sym).and_then(|b| b.getter), the_constructor),
+                        Some(el @ dartforge_elements::model::Element::Class(_)) => {
+                            (Some(el), Some(*b1))
+                        }
+                        _ => (
+                            program
+                                .lookup_prefixed_in_unit(u, a1.sym, b1.sym)
+                                .and_then(|b| b.getter),
+                            the_constructor,
+                        ),
                     },
-                    [p, c, n] => (program.lookup_prefixed_in_unit(u, p.sym, c.sym).and_then(|b| b.getter), Some(*n)),
+                    [p, c, n] => (
+                        program
+                            .lookup_prefixed_in_unit(u, p.sym, c.sym)
+                            .and_then(|b| b.getter),
+                        Some(*n),
+                    ),
                     _ => (None, None),
                 };
                 the_constructor = ctor;
@@ -349,15 +435,29 @@ impl Verifier<'_, '_> {
             _ => interner.lookup(""),
         };
         let Some(the_key) = the_key else { return };
-        let Some(is_const) = self.const_forwarded_constructor(*class, the_key, 0) else { return };
+        let Some(is_const) = self.const_forwarded_constructor(*class, the_key, 0) else {
+            return;
+        };
         if !is_const {
-            self.report(c::CONST_WITH_NON_CONST, Span { start: span.start, end: span.start + 5 }, Vec::new());
+            self.report(
+                c::CONST_WITH_NON_CONST,
+                Span {
+                    start: span.start,
+                    end: span.start + 5,
+                },
+                Vec::new(),
+            );
         }
     }
 
     /// `isConst` of constructor `the_key` as seen by class `c` (forwarded in mixin
     /// applications); `None` without a constructor.
-    fn const_forwarded_constructor(&self, c: ClassId, the_key: dartforge_intern::SymbolId, prof: u32) -> Option<bool> {
+    fn const_forwarded_constructor(
+        &self,
+        c: ClassId,
+        the_key: dartforge_intern::SymbolId,
+        prof: u32,
+    ) -> Option<bool> {
         if prof > 32 {
             return None;
         }
@@ -373,7 +473,10 @@ impl Verifier<'_, '_> {
         }
         let s = k.supertype_class?;
         let from_super = self.const_forwarded_constructor(s, the_key, prof + 1)?;
-        let mixin_with_field = k.mixin_classes.iter().any(|&m| !program.class(m).fields.is_empty());
+        let mixin_with_field = k
+            .mixin_classes
+            .iter()
+            .any(|&m| !program.class(m).fields.is_empty());
         Some(from_super && !mixin_with_field)
     }
 
@@ -384,10 +487,17 @@ impl Verifier<'_, '_> {
         let Some(args) = &m.arguments else { return };
         let program = self.m.program;
         let interner = self.m.interner;
-        let Some(el) = crate::annotations::annotation_element(program, interner, self.unit, m) else { return };
+        let Some(el) = crate::annotations::annotation_element(program, interner, self.unit, m)
+        else {
+            return;
+        };
         let cls = match el {
             dartforge_elements::model::Element::Class(c) => c,
-            dartforge_elements::model::Element::Typedef(td) => match self.m.table.get(self.m.outline.typedefs[td.0 as usize].target_type) {
+            dartforge_elements::model::Element::Typedef(td) => match self
+                .m
+                .table
+                .get(self.m.outline.typedefs[td.0 as usize].target_type)
+            {
                 Type::Interface { class, .. } => *class,
                 _ => return,
             },
@@ -399,9 +509,16 @@ impl Verifier<'_, '_> {
         let named_one = (m.name.len() >= 2)
             .then_some(last)
             .flatten()
-            .filter(|&s| interner.resolve(s) != "new" && interner.resolve(s) != interner.resolve(program.class(cls).name))
+            .filter(|&s| {
+                interner.resolve(s) != "new"
+                    && interner.resolve(s) != interner.resolve(program.class(cls).name)
+            })
             .and_then(|s| program.class(cls).constructors.get(&s).copied());
-        let f = named_one.or_else(|| interner.lookup("").and_then(|k| program.class(cls).constructors.get(&k).copied()));
+        let f = named_one.or_else(|| {
+            interner
+                .lookup("")
+                .and_then(|k| program.class(cls).constructors.get(&k).copied())
+        });
         let Some(f) = f else { return };
         if !program.function(program.public(f)).const_ {
             return;
@@ -416,7 +533,8 @@ impl Verifier<'_, '_> {
     }
 
     fn report(&mut self, code: Code, span: Span, args: Vec<String>) {
-        self.output.push((self.unit, Diagnostic::with_code(code, span, args)));
+        self.output
+            .push((self.unit, Diagnostic::with_code(code, span, args)));
     }
 
     /// The error with its code and the `contextMessages` (in each one's file,
@@ -425,7 +543,11 @@ impl Verifier<'_, '_> {
         let mut d = Diagnostic::with_code(i.code, i.span, i.args.clone());
         for (u, span, text) in &i.context {
             let file = (*u != self.unit).then(|| self.m.program.unit_path(*u).into());
-            d.context.push(dartforge_diagnostics::ContextMessage { file, span: *span, message: text.as_str().into() });
+            d.context.push(dartforge_diagnostics::ContextMessage {
+                file,
+                span: *span,
+                message: text.as_str().into(),
+            });
         }
         self.output.push((self.unit, d));
     }
@@ -464,9 +586,10 @@ impl Verifier<'_, '_> {
                     if let Some(init) = var.initializer {
                         self.expr(a, init, l.const_);
                         if l.const_
-                            && let Some(&v) = self.top.get(&(self.unit, d, i)) {
-                                self.variable_result(v, true);
-                            }
+                            && let Some(&v) = self.top.get(&(self.unit, d, i))
+                        {
+                            self.variable_result(v, true);
+                        }
                     }
                 }
             }
@@ -475,7 +598,11 @@ impl Verifier<'_, '_> {
             DeclKind::Mixin(k) => self.members(a, &k.members),
             DeclKind::Enum(k) => {
                 let unit_id = self.unit;
-                let cls = self.m.program.class_of_decl(unit_id, d).map(|c| c.0 as usize);
+                let cls = self
+                    .m
+                    .program
+                    .class_of_decl(unit_id, d)
+                    .map(|c| c.0 as usize);
                 for (i, cst) in k.constants.iter().enumerate() {
                     if let Some(args) = &cst.arguments {
                         for arg in args.args.iter() {
@@ -483,7 +610,11 @@ impl Verifier<'_, '_> {
                         }
                         // `visitEnumConstantDeclaration`: `_validateConstantArguments`.
                         for arg in args.args.iter() {
-                            self.evaluate_and_report(arg.value, true, c::CONST_WITH_NON_CONSTANT_ARGUMENT);
+                            self.evaluate_and_report(
+                                arg.value,
+                                true,
+                                c::CONST_WITH_NON_CONSTANT_ARGUMENT,
+                            );
                         }
                     }
                     // `visitEnumConstantDeclaration` (`constant_verifier.dart:204-217`):
@@ -507,7 +638,11 @@ impl Verifier<'_, '_> {
     fn variable_result(&mut self, v: VariableId, const_: bool) {
         if let Some(Constant::Invalid(i)) = self.m.variable_value(v) {
             let i = (*i).clone();
-            let the_pattern = if const_ { Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE) } else { None };
+            let the_pattern = if const_ {
+                Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE)
+            } else {
+                None
+            };
             self.report_invalid(&i, the_pattern);
         }
     }
@@ -518,12 +653,21 @@ impl Verifier<'_, '_> {
             match &mem.kind {
                 MemberKind::Field(l) => {
                     for (i, var) in l.variables.iter().enumerate() {
-                        let Some(init) = var.initializer else { continue };
+                        let Some(init) = var.initializer else {
+                            continue;
+                        };
                         let const_class = !l.static_
-                            && self.member_class.get(&(self.unit, mid)).copied().is_some_and(|k| {
-                                self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Class && self.has_const_generative_constructor(k)
-                            });
-                        let before = std::mem::replace(&mut self.in_constant_expression, const_class);
+                            && self
+                                .member_class
+                                .get(&(self.unit, mid))
+                                .copied()
+                                .is_some_and(|k| {
+                                    self.m.program.class(k).kind
+                                        == dartforge_elements::model::ClassKind::Class
+                                        && self.has_const_generative_constructor(k)
+                                });
+                        let before =
+                            std::mem::replace(&mut self.in_constant_expression, const_class);
                         self.expr(a, init, l.const_);
                         self.in_constant_expression = before;
                         if !(l.const_ || l.final_) {
@@ -539,16 +683,23 @@ impl Verifier<'_, '_> {
                         if !l.static_ && Self::class_member_with_primary(a, mid) {
                             let cx = self.cx();
                             let mut nodes = Vec::new();
-                            super::potential::collect_into(self.m, &cx, init, true, false, &mut nodes);
+                            super::potential::collect_into(
+                                self.m, &cx, init, true, false, &mut nodes,
+                            );
                             if !nodes.is_empty() {
                                 continue;
                             }
                         }
-                        let Some(&v) = self.fields.get(&(self.unit, mid, i)) else { continue };
+                        let Some(&v) = self.fields.get(&(self.unit, mid, i)) else {
+                            continue;
+                        };
                         if !l.static_ {
                             let cls = self.member_class.get(&(self.unit, mid)).copied();
                             let has = cls.is_some_and(|k| self.has_const_generative_constructor(k));
-                            let is_class = cls.is_some_and(|k| self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Class);
+                            let is_class = cls.is_some_and(|k| {
+                                self.m.program.class(k).kind
+                                    == dartforge_elements::model::ClassKind::Class
+                            });
                             if is_class && !has {
                                 continue;
                             }
@@ -610,13 +761,18 @@ impl Verifier<'_, '_> {
 
     fn constructor_rules(&mut self, a: &ast::Ast, mid: ast::MemberId, k: &ast::Constructor) {
         use dartforge_elements::model::ClassKind;
-        let Some(cls) = self.class_of(a, mid) else { return };
+        let Some(cls) = self.class_of(a, mid) else {
+            return;
+        };
         let program = self.m.program;
         let interner = self.m.interner;
         let data = program.class(cls);
         // `atConstructorDeclaration`: from the class name to the end of the
         // constructor name, when there is one.
-        let header = Span { start: k.class_name.span.start, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) };
+        let header = Span {
+            start: k.class_name.span.start,
+            end: k.name.map_or(k.class_name.span.end, |n| n.span.end),
+        };
         // Only in `visitConstructorDeclaration`: a leftover `this` part (repeated
         // or without a primary header) is a `PrimaryConstructorBody`, not a
         // constructor declaration (3.13.4).
@@ -636,7 +792,11 @@ impl Verifier<'_, '_> {
             let throws: Vec<Span> = a
                 .exprs
                 .iter()
-                .filter(|x| matches!(x.kind, ExprKind::Throw(_)) && x.span.start >= sp.start && x.span.end <= sp.end)
+                .filter(|x| {
+                    matches!(x.kind, ExprKind::Throw(_))
+                        && x.span.start >= sp.start
+                        && x.span.end <= sp.end
+                })
                 .map(|x| x.span)
                 .collect();
             for s in throws {
@@ -661,7 +821,11 @@ impl Verifier<'_, '_> {
                 if the_abstract_ && var.final_ {
                     continue;
                 }
-                mixin_fields.push(format!("'{}.{}'", interner.resolve(program.class(mx).name), interner.resolve(var.name)));
+                mixin_fields.push(format!(
+                    "'{}.{}'",
+                    interner.resolve(program.class(mx).name),
+                    interner.resolve(var.name)
+                ));
             }
         }
         // `implicitErrorRange`: for a primary constructor (3.13) it is the
@@ -673,7 +837,11 @@ impl Verifier<'_, '_> {
             let source = &program.unit(self.unit).source;
             let start = if k.const_ {
                 let before = source[..k.class_name.span.start].trim_end();
-                if before.ends_with("const") { before.len() - "const".len() } else { k.class_name.span.start }
+                if before.ends_with("const") {
+                    before.len() - "const".len()
+                } else {
+                    k.class_name.span.start
+                }
             } else {
                 k.class_name.span.start
             };
@@ -687,55 +855,74 @@ impl Verifier<'_, '_> {
             k.class_name.span
         };
         if mixin_fields.len() == 1 {
-            self.report(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELD, range, mixin_fields);
+            self.report(
+                c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELD,
+                range,
+                mixin_fields,
+            );
             return;
         }
         if mixin_fields.len() > 1 {
-            self.report(c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELDS, range, vec![mixin_fields.join(", ")]);
+            self.report(
+                c::CONST_CONSTRUCTOR_WITH_MIXIN_WITH_FIELDS,
+                range,
+                vec![mixin_fields.join(", ")],
+            );
             return;
         }
         // The superclass constructor that this one invokes (the written one, or
         // the implicit unnamed one) is not `const`. An enum always calls a
         // `const` one; a redirecting one is checked elsewhere.
-        let redirects = k.initializers.iter().any(|i| matches!(i, ast::Initializer::Redirect { .. }));
+        let redirects = k
+            .initializers
+            .iter()
+            .any(|i| matches!(i, ast::Initializer::Redirect { .. }));
         if data.kind != ClassKind::Enum && !redirects {
             let written = k.initializers.iter().find_map(|i| match i {
-                ast::Initializer::Super { span, constructor, .. } => Some((*span, constructor.map(|n| n.sym))),
+                ast::Initializer::Super {
+                    span, constructor, ..
+                } => Some((*span, constructor.map(|n| n.sym))),
                 _ => None,
             });
             if let Some(sup) = super::cycles::declared_superclass(program, cls)
-                && Some(sup) != self.m.core.object_class {
-                    let super_name = written.and_then(|(_, n)| n);
-                    let the_key = super_name.or_else(|| interner.lookup(""));
-                    let tgt = the_key.and_then(|ch| program.class(sup).constructors.get(&ch).copied());
-                    let non_const = match tgt {
-                        Some(g) => !program.function(program.public(g)).const_,
-                        // A superclass without a declared constructor: the implicit
-                        // default one, which is not `const`.
-                        None => program.class(sup).constructors.is_empty() && super_name.is_none(),
-                    };
-                    if non_const {
-                        // Without a written `super(…)`, the `implicitErrorRange`: for
-                        // the primary, the header's range (`class const B()`: the
-                        // `const`).
-                        let implicit = if primary { range } else { k.class_name.span };
-                        let span = written.map_or(implicit, |(s, _)| s);
-                        // In 3.6.2 the argument is the CONSTRUCTOR's class; in
-                        // 3.13.4, the superclass (the second argument, which only
-                        // the 3.13 variant of the code uses: T2, case c04).
-                        let the_name = interner.resolve(data.name).to_string();
-                        let upper = interner.resolve(program.class(sup).name).to_string();
-                        self.report(c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER, span, vec![the_name, upper]);
-                        return;
-                    }
+                && Some(sup) != self.m.core.object_class
+            {
+                let super_name = written.and_then(|(_, n)| n);
+                let the_key = super_name.or_else(|| interner.lookup(""));
+                let tgt = the_key.and_then(|ch| program.class(sup).constructors.get(&ch).copied());
+                let non_const = match tgt {
+                    Some(g) => !program.function(program.public(g)).const_,
+                    // A superclass without a declared constructor: the implicit
+                    // default one, which is not `const`.
+                    None => program.class(sup).constructors.is_empty() && super_name.is_none(),
+                };
+                if non_const {
+                    // Without a written `super(…)`, the `implicitErrorRange`: for
+                    // the primary, the header's range (`class const B()`: the
+                    // `const`).
+                    let implicit = if primary { range } else { k.class_name.span };
+                    let span = written.map_or(implicit, |(s, _)| s);
+                    // In 3.6.2 the argument is the CONSTRUCTOR's class; in
+                    // 3.13.4, the superclass (the second argument, which only
+                    // the 3.13 variant of the code uses: T2, case c04).
+                    let the_name = interner.resolve(data.name).to_string();
+                    let upper = interner.resolve(program.class(sup).name).to_string();
+                    self.report(
+                        c::CONST_CONSTRUCTOR_WITH_NON_CONST_SUPER,
+                        span,
+                        vec![the_name, upper],
+                    );
+                    return;
                 }
+            }
         }
         // `hasNonFinalField`: the class, the mixins and the superclasses,
         // breadth-first: some instance field that is neither `final` nor
         // `const`. In 3.13.4 (`link.dart:284-323`, `_computeHasNonFinalField`)
         // only a field with storage counts: `abstract int x;` does not (in
         // 3.6.2, `element.dart:329-356`, it does).
-        let reference_313 = program.reference(self.unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
+        let reference_313 =
+            program.reference(self.unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
         if data.kind == ClassKind::Class {
             let mut queue: Vec<ClassId> = vec![cls];
             let mut seen: Vec<ClassId> = Vec::new();
@@ -771,12 +958,18 @@ impl Verifier<'_, '_> {
     /// constructor is potentially constant (`INVALID_CONSTANT` at each node
     /// that is not).
     fn potentially_constant_initializers(&mut self, k: &ast::Constructor) {
-        let cx = Ctx { lexical: None, ..self.cx() };
+        let cx = Ctx {
+            lexical: None,
+            ..self.cx()
+        };
         for init in k.initializers.iter() {
             let exprs: Vec<ExprId> = match init {
                 ast::Initializer::Field { value, .. } => vec![*value],
-                ast::Initializer::Assert { condition, message, .. } => std::iter::once(*condition).chain(*message).collect(),
-                ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
+                ast::Initializer::Assert {
+                    condition, message, ..
+                } => std::iter::once(*condition).chain(*message).collect(),
+                ast::Initializer::Super { arguments, .. }
+                | ast::Initializer::Redirect { arguments, .. } => {
                     arguments.args.iter().map(|x| x.value).collect()
                 }
             };
@@ -807,8 +1000,14 @@ impl Verifier<'_, '_> {
             let primary = self.is_primary(a, mid, k);
             if in_cycle && !k.factory && !primary {
                 let span = match k.name {
-                    Some(n) if self.m.program.reference(self.unit) == dartforge_diagnostics::AnalyzerReference::V3_13 => {
-                        Span { start: k.class_name.span.start, end: n.span.end }
+                    Some(n)
+                        if self.m.program.reference(self.unit)
+                            == dartforge_diagnostics::AnalyzerReference::V3_13 =>
+                    {
+                        Span {
+                            start: k.class_name.span.start,
+                            end: n.span.end,
+                        }
                     }
                     _ => k.class_name.span,
                 };
@@ -832,13 +1031,16 @@ impl Verifier<'_, '_> {
         for init in k.initializers.iter() {
             match init {
                 ast::Initializer::Field { value, .. } => self.expr(a, *value, false),
-                ast::Initializer::Assert { condition, message, .. } => {
+                ast::Initializer::Assert {
+                    condition, message, ..
+                } => {
                     self.expr(a, *condition, false);
                     if let Some(m) = message {
                         self.expr(a, *m, false);
                     }
                 }
-                ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
+                ast::Initializer::Super { arguments, .. }
+                | ast::Initializer::Redirect { arguments, .. } => {
                     for x in arguments.args.iter() {
                         self.expr(a, x.value, false);
                     }
@@ -855,12 +1057,18 @@ impl Verifier<'_, '_> {
     /// count), without evaluating: `final int i = d.length` is not reported here
     /// (the evaluation error comes from the field), `final int x = fn(p)` is.
     fn field_initializers(&mut self, a: &ast::Ast, mid: ast::MemberId, primary: bool) {
-        let Some(k) = self.class_of(a, mid) else { return };
+        let Some(k) = self.class_of(a, mid) else {
+            return;
+        };
         let is_enum = self.m.program.class(k).kind == dartforge_elements::model::ClassKind::Enum;
-        let Some(the_keyword) = self.const_keyword(a, mid) else { return };
+        let Some(the_keyword) = self.const_keyword(a, mid) else {
+            return;
+        };
         let members: Vec<ast::MemberId> = self.class_members(a, k);
         for fm in members {
-            let MemberKind::Field(l) = &a.member(fm).kind else { continue };
+            let MemberKind::Field(l) = &a.member(fm).kind else {
+                continue;
+            };
             if l.static_ {
                 continue;
             }
@@ -868,7 +1076,9 @@ impl Verifier<'_, '_> {
                 if is_enum && self.m.interner.resolve(var.name.sym) == "values" {
                     continue;
                 }
-                let Some(init) = var.initializer else { continue };
+                let Some(init) = var.initializer else {
+                    continue;
+                };
                 let cx = self.cx();
                 let invalid = if primary {
                     let mut nodes = Vec::new();
@@ -879,7 +1089,11 @@ impl Verifier<'_, '_> {
                 };
                 if invalid {
                     let the_name = self.m.interner.resolve(var.name.sym).to_string();
-                    self.report(c::CONST_CONSTRUCTOR_WITH_FIELD_INITIALIZED_BY_NON_CONST, the_keyword, vec![the_name]);
+                    self.report(
+                        c::CONST_CONSTRUCTOR_WITH_FIELD_INITIALIZED_BY_NON_CONST,
+                        the_keyword,
+                        vec![the_name],
+                    );
                 }
             }
         }
@@ -890,15 +1104,19 @@ impl Verifier<'_, '_> {
         for (i, f) in self.m.program.functions.iter().enumerate() {
             let _ = i;
             if let dartforge_elements::model::FunctionRef::Constructor { unit, member } = f.node
-                && unit == self.unit && member == mid {
-                    return f.class;
-                }
+                && unit == self.unit
+                && member == mid
+            {
+                return f.class;
+            }
         }
         None
     }
 
     fn class_members(&self, a: &ast::Ast, k: ClassId) -> Vec<ast::MemberId> {
-        let Some(d) = self.m.program.class(k).decl else { return Vec::new() };
+        let Some(d) = self.m.program.class(k).decl else {
+            return Vec::new();
+        };
         if d.unit != self.unit {
             return Vec::new();
         }
@@ -919,8 +1137,15 @@ impl Verifier<'_, '_> {
         let mut i = 0;
         let b = t.as_bytes();
         while i + 5 <= b.len() {
-            if &b[i..i + 5] == b"const" && (i == 0 || !b[i - 1].is_ascii_alphanumeric()) && b.get(i + 5).is_none_or(|c| !c.is_ascii_alphanumeric() && *c != b'_') {
-                return Some(Span { start: s.start + i, end: s.start + i + 5 });
+            if &b[i..i + 5] == b"const"
+                && (i == 0 || !b[i - 1].is_ascii_alphanumeric())
+                && b.get(i + 5)
+                    .is_none_or(|c| !c.is_ascii_alphanumeric() && *c != b'_')
+            {
+                return Some(Span {
+                    start: s.start + i,
+                    end: s.start + i + 5,
+                });
             }
             i += 1;
         }
@@ -979,7 +1204,10 @@ impl Verifier<'_, '_> {
                         if l.const_ {
                             let r = self.m.declared_local_value(self.unit, self.lib, s, i);
                             if let Constant::Invalid(x) = r {
-                                self.report_invalid(&x, Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE));
+                                self.report_invalid(
+                                    &x,
+                                    Some(c::CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE),
+                                );
                             }
                         }
                     }
@@ -991,7 +1219,13 @@ impl Verifier<'_, '_> {
             }
             StmtKind::Function(f) => self.function(a, *f),
             StmtKind::Expression(e) => self.expr(a, *e, false),
-            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+            StmtKind::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(a, *condition, false);
                 if let Some(p) = case_pattern {
                     self.pattern(a, *p);
@@ -1004,7 +1238,13 @@ impl Verifier<'_, '_> {
                     self.stmt(a, *e);
                 }
             }
-            StmtKind::For { init, condition, updates, body, .. } => {
+            StmtKind::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 match init {
                     Some(ast::ForInit::Variables(l)) => {
                         for var in l.variables.iter() {
@@ -1028,7 +1268,12 @@ impl Verifier<'_, '_> {
                 }
                 self.stmt(a, *body);
             }
-            StmtKind::ForIn { target, iterable, body, .. } => {
+            StmtKind::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 if let ast::ForInTarget::Pattern { pattern, .. } = target {
                     self.pattern(a, *pattern);
                 }
@@ -1046,7 +1291,9 @@ impl Verifier<'_, '_> {
                         if self.patterns_enabled {
                             self.pattern(a, p);
                         } else if let PatternKind::Variable { name, .. } = &a.pattern(p).kind
-                            && self.m.body.units[self.unit.0 as usize].non_constant_name_patterns.contains(&p)
+                            && self.m.body.units[self.unit.0 as usize]
+                                .non_constant_name_patterns
+                                .contains(&p)
                         {
                             // The old `case the_name:` (the expression of the `SwitchCase`).
                             self.report(c::NON_CONSTANT_CASE_EXPRESSION, name.span, Vec::new());
@@ -1057,13 +1304,18 @@ impl Verifier<'_, '_> {
                             // Without patterns, the value needs primitive equality:
                             // `CASE_EXPRESSION_TYPE_IMPLEMENTS_EQUALS` with the value's type
                             // (`constant_verifier.dart:1009-1030`).
-                            if let Constant::Value(v) = self.evaluate_and_report(e, true, c::NON_CONSTANT_CASE_EXPRESSION)
+                            if let Constant::Value(v) =
+                                self.evaluate_and_report(e, true, c::NON_CONSTANT_CASE_EXPRESSION)
                                 && !v.actually_unknown()
                                 && !self.m.primitive_equality(&v, self.lib)
                             {
                                 let sp = self.m.span(self.unit, e);
                                 let typ = self.m.format(v.ty);
-                                self.report(c::CASE_EXPRESSION_TYPE_IMPLEMENTS_EQUALS, sp, vec![typ]);
+                                self.report(
+                                    c::CASE_EXPRESSION_TYPE_IMPLEMENTS_EQUALS,
+                                    sp,
+                                    vec![typ],
+                                );
                             }
                         }
                     }
@@ -1075,14 +1327,25 @@ impl Verifier<'_, '_> {
                     }
                 }
                 if self.patterns_enabled {
-                    let the_cases: Vec<Case> = cases.iter().map(|k| Case { pattern: k.pattern, stored: k.guard.is_some() }).collect();
+                    let the_cases: Vec<Case> = cases
+                        .iter()
+                        .map(|k| Case {
+                            pattern: k.pattern,
+                            stored: k.guard.is_some(),
+                        })
+                        .collect();
                     let start = a.stmt(s).span.start;
-                    let pos: Vec<usize> = cases.iter().map(|k| self.case_keyword_start(k)).collect();
+                    let pos: Vec<usize> =
+                        cases.iter().map(|k| self.case_keyword_start(k)).collect();
                     self.exhaustiveness(a, *value, start, &the_cases, &pos, false);
                 }
             }
             StmtKind::Return(Some(e)) | StmtKind::Yield { value: e, .. } => self.expr(a, *e, false),
-            StmtKind::Try { body, catches, finally_ } => {
+            StmtKind::Try {
+                body,
+                catches,
+                finally_,
+            } => {
                 self.stmt(a, *body);
                 for c in catches.iter() {
                     self.stmt(a, c.body);
@@ -1108,14 +1371,18 @@ impl Verifier<'_, '_> {
     fn erase_extension(&mut self, t: TypeId) -> TypeId {
         let outline = self.m.outline;
         let program = self.m.program;
-        let rep = |decl: ClassId, args: &[TypeId], table: &mut crate::table::TypeTable| -> Option<TypeId> {
+        let rep = |decl: ClassId,
+                   args: &[TypeId],
+                   table: &mut crate::table::TypeTable|
+         -> Option<TypeId> {
             let v = program.class(decl).representation?;
             let t = outline.variables[v.0 as usize].declared_type?;
             let params = &outline.classes[decl.0 as usize].type_params;
             if params.is_empty() || params.len() != args.len() {
                 return Some(t);
             }
-            let map: HashMap<crate::table::TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+            let map: HashMap<crate::table::TypeParamId, TypeId> =
+                params.iter().copied().zip(args.iter().copied()).collect();
             Some(crate::ops::substitute(t, &map, table))
         };
         crate::ops::erase_extension_type(t, self.m.table, &rep)
@@ -1142,7 +1409,11 @@ impl Verifier<'_, '_> {
                     return true;
                 }
                 let greater = self.greatest_closure_of(v, true, &[]);
-                let mut env = crate::subtyping::SubtypeEnv::new(&mut *self.m.table, &self.m.outline.hierarchy, self.m.core);
+                let mut env = crate::subtyping::SubtypeEnv::new(
+                    &mut *self.m.table,
+                    &self.m.outline.hierarchy,
+                    self.m.core,
+                );
                 crate::subtyping::is_subtype(c, greater, &mut env)
             }
             Type::TypeParameter { param, nullable } => {
@@ -1150,7 +1421,11 @@ impl Verifier<'_, '_> {
                 if !data.explicit || parameter_reference(self.m.table, data.bound) {
                     return true;
                 }
-                let b = if nullable { crate::ops::nullable(data.bound, self.m.table) } else { data.bound };
+                let b = if nullable {
+                    crate::ops::nullable(data.bound, self.m.table)
+                } else {
+                    data.bound
+                };
                 self.can_be_equal(c, b, prof + 1)
             }
             // `promotedBound`: the promoted bound (the nullability is the
@@ -1176,11 +1451,19 @@ impl Verifier<'_, '_> {
     /// becomes `Object?` in covariant positions and `Never` in contravariant ones
     /// (with the nullability joined); the formals of the function type itself
     /// stay.
-    fn greatest_closure_of(&mut self, t: TypeId, co: bool, formals: &[crate::table::TypeParamId]) -> TypeId {
+    fn greatest_closure_of(
+        &mut self,
+        t: TypeId,
+        co: bool,
+        formals: &[crate::table::TypeParamId],
+    ) -> TypeId {
         let the_table = &mut *self.m.table;
         match the_table.get(t).clone() {
-            Type::TypeParameter { param, .. } | Type::Intersection { param, .. } if !formals.contains(&param) => {
-                let is_nullable = matches!(the_table.get(t), Type::TypeParameter { nullable: true, .. });
+            Type::TypeParameter { param, .. } | Type::Intersection { param, .. }
+                if !formals.contains(&param) =>
+            {
+                let is_nullable =
+                    matches!(the_table.get(t), Type::TypeParameter { nullable: true, .. });
                 if co {
                     self.m.core.object_nullable
                 } else if is_nullable {
@@ -1189,30 +1472,82 @@ impl Verifier<'_, '_> {
                     self.m.core.never
                 }
             }
-            Type::Interface { class, args, nullable } if !args.is_empty() => {
-                let new_: Vec<TypeId> = args.iter().map(|&x| self.greatest_closure_of(x, co, formals)).collect();
-                self.m.table.intern(Type::Interface { class, args: new_.into_boxed_slice(), nullable })
+            Type::Interface {
+                class,
+                args,
+                nullable,
+            } if !args.is_empty() => {
+                let new_: Vec<TypeId> = args
+                    .iter()
+                    .map(|&x| self.greatest_closure_of(x, co, formals))
+                    .collect();
+                self.m.table.intern(Type::Interface {
+                    class,
+                    args: new_.into_boxed_slice(),
+                    nullable,
+                })
             }
-            Type::ExtensionType { decl, args, nullable } if !args.is_empty() => {
-                let new_: Vec<TypeId> = args.iter().map(|&x| self.greatest_closure_of(x, co, formals)).collect();
-                self.m.table.intern(Type::ExtensionType { decl, args: new_.into_boxed_slice(), nullable })
+            Type::ExtensionType {
+                decl,
+                args,
+                nullable,
+            } if !args.is_empty() => {
+                let new_: Vec<TypeId> = args
+                    .iter()
+                    .map(|&x| self.greatest_closure_of(x, co, formals))
+                    .collect();
+                self.m.table.intern(Type::ExtensionType {
+                    decl,
+                    args: new_.into_boxed_slice(),
+                    nullable,
+                })
             }
             Type::FutureOr { arg, nullable } => {
                 let arg = self.greatest_closure_of(arg, co, formals);
                 self.m.table.intern(Type::FutureOr { arg, nullable })
             }
-            Type::Record { positional, named, nullable } => {
-                let pos: Vec<TypeId> = positional.iter().map(|&x| self.greatest_closure_of(x, co, formals)).collect();
-                let nm: Vec<(dartforge_intern::SymbolId, TypeId)> = named.iter().map(|&(n, x)| (n, self.greatest_closure_of(x, co, formals))).collect();
-                self.m.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable })
+            Type::Record {
+                positional,
+                named,
+                nullable,
+            } => {
+                let pos: Vec<TypeId> = positional
+                    .iter()
+                    .map(|&x| self.greatest_closure_of(x, co, formals))
+                    .collect();
+                let nm: Vec<(dartforge_intern::SymbolId, TypeId)> = named
+                    .iter()
+                    .map(|&(n, x)| (n, self.greatest_closure_of(x, co, formals)))
+                    .collect();
+                self.m.table.intern(Type::Record {
+                    positional: pos.into_boxed_slice(),
+                    named: nm.into_boxed_slice(),
+                    nullable,
+                })
             }
-            Type::Function { type_params, ret, positional, optional, named, nullable } => {
+            Type::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+            } => {
                 let mut inside: Vec<crate::table::TypeParamId> = formals.to_vec();
                 inside.extend(type_params.iter().copied());
                 let ret = self.greatest_closure_of(ret, co, &inside);
-                let pos: Vec<TypeId> = positional.iter().map(|&x| self.greatest_closure_of(x, !co, &inside)).collect();
-                let opt: Vec<TypeId> = optional.iter().map(|&x| self.greatest_closure_of(x, !co, &inside)).collect();
-                let nm: Vec<(dartforge_intern::SymbolId, TypeId, bool)> = named.iter().map(|&(n, x, r)| (n, self.greatest_closure_of(x, !co, &inside), r)).collect();
+                let pos: Vec<TypeId> = positional
+                    .iter()
+                    .map(|&x| self.greatest_closure_of(x, !co, &inside))
+                    .collect();
+                let opt: Vec<TypeId> = optional
+                    .iter()
+                    .map(|&x| self.greatest_closure_of(x, !co, &inside))
+                    .collect();
+                let nm: Vec<(dartforge_intern::SymbolId, TypeId, bool)> = named
+                    .iter()
+                    .map(|&(n, x, r)| (n, self.greatest_closure_of(x, !co, &inside), r))
+                    .collect();
                 self.m.table.intern(Type::Function {
                     type_params,
                     ret,
@@ -1238,9 +1573,15 @@ impl Verifier<'_, '_> {
                     && let ExprKind::TypeArguments { target, type_args } = &a.expr(x).kind
                     && matches!(
                         self.m.body.units[self.unit.0 as usize].get_resolved(*target),
-                        Some(crate::resolved::Resolved::Element(dartforge_elements::model::Element::Class(_) | dartforge_elements::model::Element::Typedef(_)))
+                        Some(crate::resolved::Resolved::Element(
+                            dartforge_elements::model::Element::Class(_)
+                                | dartforge_elements::model::Element::Typedef(_)
+                        ))
                     )
-                    && type_args.iter().any(|&t| self.annotation_type(t).is_some_and(|r| self.m.mentions_parameter(r)))
+                    && type_args.iter().any(|&t| {
+                        self.annotation_type(t)
+                            .is_some_and(|r| self.m.mentions_parameter(r))
+                    })
                 {
                     self.report(c::CONST_TYPE_PARAMETER, a.expr(x).span, Vec::new());
                     return;
@@ -1251,7 +1592,11 @@ impl Verifier<'_, '_> {
                 if self.m.invalid_type(self.unit, e) {
                     return;
                 }
-                let r = self.evaluate_and_report(e, false, c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION);
+                let r = self.evaluate_and_report(
+                    e,
+                    false,
+                    c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION,
+                );
                 if let Constant::Value(v) = r {
                     // `CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE`
                     // (an611:src/dart/constant/constant_verifier.dart:141-158):
@@ -1260,12 +1605,21 @@ impl Verifier<'_, '_> {
                     // types).
                     if self.patterns_enabled
                         && self.m.primitive_equality(&v, self.lib)
-                        && let Some(&matched) = self.m.body.units[self.unit.0 as usize].matched_types.get(&p)
+                        && let Some(&matched) = self.m.body.units[self.unit.0 as usize]
+                            .matched_types
+                            .get(&p)
                     {
                         let matched = self.erase_extension(matched);
                         if !self.can_be_equal(v.ty, matched, 0) {
-                            let displayer = crate::display::Displayer { table: &*self.m.table, interner: self.m.interner, program: self.m.program };
-                            let (texts, context) = displayer.arguments_and_context(&[crate::display::Arg::Type_(matched), crate::display::Arg::Type_(v.ty)]);
+                            let displayer = crate::display::Displayer {
+                                table: &*self.m.table,
+                                interner: self.m.interner,
+                                program: self.m.program,
+                            };
+                            let (texts, context) = displayer.arguments_and_context(&[
+                                crate::display::Arg::Type_(matched),
+                                crate::display::Arg::Type_(v.ty),
+                            ]);
                             let mut d = Diagnostic::with_code(dartforge_diagnostics::codes::warning::CONSTANT_PATTERN_NEVER_MATCHES_VALUE_TYPE, a.pattern(p).span, texts);
                             d.context.extend(context);
                             self.output.push((self.unit, d));
@@ -1279,32 +1633,53 @@ impl Verifier<'_, '_> {
             }
             // `case the_name:` (the parser stores it as a variable): the top-level
             // constant with that name, for exhaustiveness.
-            PatternKind::Variable { final_: false, var_: false, ty: None, name } if self.patterns_enabled => {
-                if self.m.body.units[self.unit.0 as usize].non_constant_name_patterns.contains(&p) {
-                    self.report(c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION, name.span, Vec::new());
+            PatternKind::Variable {
+                final_: false,
+                var_: false,
+                ty: None,
+                name,
+            } if self.patterns_enabled => {
+                if self.m.body.units[self.unit.0 as usize]
+                    .non_constant_name_patterns
+                    .contains(&p)
+                {
+                    self.report(
+                        c::CONSTANT_PATTERN_WITH_NON_CONSTANT_EXPRESSION,
+                        name.span,
+                        Vec::new(),
+                    );
                     return;
                 }
                 let program = self.m.program;
-                if let Some(dartforge_elements::model::Element::Variable(v)) =
-                    program.lookup_in_unit(self.unit, name.sym).and_then(|b| b.getter)
-                    && let Some(Constant::Value(val)) = self.m.variable_value(v) {
-                        self.the_default_values.insert(p, val);
-                    }
+                if let Some(dartforge_elements::model::Element::Variable(v)) = program
+                    .lookup_in_unit(self.unit, name.sym)
+                    .and_then(|b| b.getter)
+                    && let Some(Constant::Value(val)) = self.m.variable_value(v)
+                {
+                    self.the_default_values.insert(p, val);
+                }
             }
             PatternKind::Relational { value, .. } => {
                 self.expr(a, *value, false);
-                self.evaluate_and_report(*value, false, c::NON_CONSTANT_RELATIONAL_PATTERN_EXPRESSION);
+                self.evaluate_and_report(
+                    *value,
+                    false,
+                    c::NON_CONSTANT_RELATIONAL_PATTERN_EXPRESSION,
+                );
             }
             PatternKind::Or(x, y) | PatternKind::And(x, y) => {
                 self.pattern(a, *x);
                 self.pattern(a, *y);
             }
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.pattern(a, *x),
+            PatternKind::NullCheck(x)
+            | PatternKind::NullAssert(x)
+            | PatternKind::Parenthesized(x) => self.pattern(a, *x),
             PatternKind::Cast { pattern, .. } => self.pattern(a, *pattern),
             PatternKind::List { elements, .. } => {
                 for el in elements.iter() {
                     match el {
-                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.pattern(a, *x),
+                        ast::ListPatternElement::Pattern(x)
+                        | ast::ListPatternElement::Rest(Some(x)) => self.pattern(a, *x),
                         _ => {}
                     }
                 }
@@ -1321,15 +1696,22 @@ impl Verifier<'_, '_> {
                 let mut the_repeated: Vec<(Span, Span)> = Vec::new();
                 for en in entries.iter() {
                     self.pattern(a, en.value);
-                    if let Constant::Value(v) = self.evaluate_and_report(en.key, false, c::NON_CONSTANT_MAP_PATTERN_KEY) {
-                        let known = !(v.actually_unknown() || matches!(v.state, InstanceState::Null { invalid: true }));
+                    if let Constant::Value(v) =
+                        self.evaluate_and_report(en.key, false, c::NON_CONSTANT_MAP_PATTERN_KEY)
+                    {
+                        let known = !(v.actually_unknown()
+                            || matches!(v.state, InstanceState::Null { invalid: true }));
                         if known {
                             let span = a.expr(en.key).span;
                             let lib = self.lib;
-                            let record = |x: &Value| matches!(x.state, InstanceState::Record { .. });
+                            let record =
+                                |x: &Value| matches!(x.state, InstanceState::Record { .. });
                             let primitive_v = !record(&v) || self.m.primitive_equality(&v, lib);
                             let m = &mut *self.m;
-                            let the_found = unique.iter().find(|(x, _)| (!record(x) || (primitive_v && m.primitive_equality(x, lib))) && m.equal(x, &v));
+                            let the_found = unique.iter().find(|(x, _)| {
+                                (!record(x) || (primitive_v && m.primitive_equality(x, lib)))
+                                    && m.equal(x, &v)
+                            });
                             match the_found {
                                 Some(&(_, original)) => the_repeated.push((span, original)),
                                 None => unique.push((v.clone(), span)),
@@ -1340,7 +1722,12 @@ impl Verifier<'_, '_> {
                 }
                 // `equalKeysInMapPattern`: the context is the first key.
                 for (sp, original) in the_repeated {
-                    let d = Diagnostic::with_code(c::EQUAL_KEYS_IN_MAP_PATTERN, sp, Vec::<String>::new()).with_context(original, "The first key with this value.");
+                    let d = Diagnostic::with_code(
+                        c::EQUAL_KEYS_IN_MAP_PATTERN,
+                        sp,
+                        Vec::<String>::new(),
+                    )
+                    .with_context(original, "The first key with this value.");
                     self.output.push((self.unit, d));
                 }
             }
@@ -1358,7 +1745,12 @@ impl Verifier<'_, '_> {
     fn expr(&mut self, a: &ast::Ast, e: ExprId, in_const: bool) {
         let u = self.unit;
         match &a.expr(e).kind {
-            ExprKind::InstanceCreation { keyword, arguments, ty, constructor } => {
+            ExprKind::InstanceCreation {
+                keyword,
+                arguments,
+                ty,
+                constructor,
+            } => {
                 let const_ = matches!(keyword, Some(ast::CreationKeyword::Const));
                 // `_checkForConstWithNonConst` with the forwarded constructor of a
                 // mixin application (inference does not resolve it).
@@ -1399,7 +1791,11 @@ impl Verifier<'_, '_> {
                     self.expr(a, x.value, in_const);
                 }
             }
-            ExprKind::List { const_, elements, type_args } => {
+            ExprKind::List {
+                const_,
+                elements,
+                type_args,
+            } => {
                 let c = *const_ || in_const;
                 for el in elements.iter() {
                     self.child_element(a, el, c);
@@ -1415,13 +1811,21 @@ impl Verifier<'_, '_> {
                         Type::Interface { args, .. } if args.len() == 1 => args[0],
                         _ => self.m.core.dynamic_,
                     };
-                    let mut lv = Literal { ty: LiteralType::List(element), the_unique: Vec::new(), duplicates: Vec::new() };
+                    let mut lv = Literal {
+                        ty: LiteralType::List(element),
+                        the_unique: Vec::new(),
+                        duplicates: Vec::new(),
+                    };
                     for el in elements.iter() {
                         self.verify_element(a, &mut lv, el);
                     }
                 }
             }
-            ExprKind::SetOrMap { const_, elements, type_args } => {
+            ExprKind::SetOrMap {
+                const_,
+                elements,
+                type_args,
+            } => {
                 let c = *const_ || in_const;
                 for el in elements.iter() {
                     self.child_element(a, el, c);
@@ -1454,7 +1858,11 @@ impl Verifier<'_, '_> {
                         None
                     };
                     if let Some(tl) = tl {
-                        let mut lv = Literal { ty: tl, the_unique: Vec::new(), duplicates: Vec::new() };
+                        let mut lv = Literal {
+                            ty: tl,
+                            the_unique: Vec::new(),
+                            duplicates: Vec::new(),
+                        };
                         for el in elements.iter() {
                             self.verify_element(a, &mut lv, el);
                         }
@@ -1463,10 +1871,14 @@ impl Verifier<'_, '_> {
                         let (code, context) = if matches!(lv.ty, LiteralType::Map(..)) {
                             (c::EQUAL_KEYS_IN_CONST_MAP, "The first key with this value.")
                         } else {
-                            (c::EQUAL_ELEMENTS_IN_CONST_SET, "The first element with this value.")
+                            (
+                                c::EQUAL_ELEMENTS_IN_CONST_SET,
+                                "The first element with this value.",
+                            )
                         };
                         for (dup, original) in std::mem::take(&mut lv.duplicates) {
-                            let d = Diagnostic::with_code(code, dup, Vec::<String>::new()).with_context(original, context);
+                            let d = Diagnostic::with_code(code, dup, Vec::<String>::new())
+                                .with_context(original, context);
                             self.output.push((self.unit, d));
                         }
                     }
@@ -1474,7 +1886,11 @@ impl Verifier<'_, '_> {
                     self.duplicates_in_non_constant_literal(a, e, elements);
                 }
             }
-            ExprKind::Record { const_, positional, named } => {
+            ExprKind::Record {
+                const_,
+                positional,
+                named,
+            } => {
                 let c = *const_ || in_const;
                 for x in positional.iter().chain(named.iter().map(|(_, x)| x)) {
                     self.expr(a, *x, c);
@@ -1493,15 +1909,25 @@ impl Verifier<'_, '_> {
                     }
                 }
             }
-            ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.expr(a, *x, in_const),
+            ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => {
+                self.expr(a, *x, in_const)
+            }
             ExprKind::Property { target, name, .. } => {
                 // `visitConstructorReference`: `C<T>.the_name` of a constructor.
                 if (in_const || self.in_constant_expression)
-                    && let ExprKind::TypeArguments { target: base, type_args } = &a.expr(*target).kind
+                    && let ExprKind::TypeArguments {
+                        target: base,
+                        type_args,
+                    } = &a.expr(*target).kind
                     && self.referenced_constructor(a, *base, *name)
                 {
                     for &x in type_args.iter() {
-                        self.without_type_parameters(a, x, c::CONST_WITH_TYPE_PARAMETERS_CONSTRUCTOR_TEAROFF, &[]);
+                        self.without_type_parameters(
+                            a,
+                            x,
+                            c::CONST_WITH_TYPE_PARAMETERS_CONSTRUCTOR_TEAROFF,
+                            &[],
+                        );
                     }
                     self.expr(a, *base, in_const);
                     return;
@@ -1515,9 +1941,16 @@ impl Verifier<'_, '_> {
             ExprKind::TypeArguments { target, type_args } => {
                 // `visitFunctionReference`: the instantiation of a function (not
                 // the type literal, of type `Type`).
-                if (in_const || self.in_constant_expression) && self.m.the_static(u, e) != self.m.core.type_ {
+                if (in_const || self.in_constant_expression)
+                    && self.m.the_static(u, e) != self.m.core.type_
+                {
                     for &x in type_args.iter() {
-                        self.without_type_parameters(a, x, c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF, &[]);
+                        self.without_type_parameters(
+                            a,
+                            x,
+                            c::CONST_WITH_TYPE_PARAMETERS_FUNCTION_TEAROFF,
+                            &[],
+                        );
                     }
                 }
                 self.expr(a, *target, in_const)
@@ -1527,7 +1960,11 @@ impl Verifier<'_, '_> {
                 self.expr(a, *left, in_const);
                 self.expr(a, *right, in_const);
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 self.expr(a, *condition, in_const);
                 self.expr(a, *then, in_const);
                 self.expr(a, *else_, in_const);
@@ -1548,7 +1985,9 @@ impl Verifier<'_, '_> {
                 self.pattern(a, *pattern);
                 self.expr(a, *value, in_const);
             }
-            ExprKind::Cascade { target, sections, .. } => {
+            ExprKind::Cascade {
+                target, sections, ..
+            } => {
                 self.expr(a, *target, in_const);
                 for s in sections.iter() {
                     self.expr(a, *s, in_const);
@@ -1563,7 +2002,13 @@ impl Verifier<'_, '_> {
                     }
                     self.expr(a, case.body, in_const);
                 }
-                let the_cases: Vec<Case> = cases.iter().map(|k| Case { pattern: Some(k.pattern), stored: k.guard.is_some() }).collect();
+                let the_cases: Vec<Case> = cases
+                    .iter()
+                    .map(|k| Case {
+                        pattern: Some(k.pattern),
+                        stored: k.guard.is_some(),
+                    })
+                    .collect();
                 let start = a.expr(e).span.start;
                 let pos: Vec<usize> = cases.iter().map(|k| self.case_arrow(a, k)).collect();
                 self.exhaustiveness(a, *value, start, &the_cases, &pos, true);
@@ -1578,17 +2023,28 @@ impl Verifier<'_, '_> {
     /// arrow), `NON_EXHAUSTIVE_SWITCH_*` (at the `switch` keyword) and
     /// `UNREACHABLE_SWITCH_DEFAULT` (at the `default` keyword). `pos` is the
     /// start of each case's token.
-    fn exhaustiveness(&mut self, a: &ast::Ast, the_value: ExprId, switch_start: usize, the_cases: &[Case], pos: &[usize], expression: bool) {
+    fn exhaustiveness(
+        &mut self,
+        a: &ast::Ast,
+        the_value: ExprId,
+        switch_start: usize,
+        the_cases: &[Case],
+        pos: &[usize],
+        expression: bool,
+    ) {
         let u = self.unit;
         let body = self.m.body;
         let the_body = &body.units[u.0 as usize];
         if the_body.invalid_types.contains(&the_value) {
             return;
         }
-        let Some(t) = the_body.get_type(the_value) else { return };
+        let Some(t) = the_body.get_type(the_value) else {
+            return;
+        };
         let program = self.m.program;
         let source = program.unit(u).source.as_str();
-        let version_3_3 = program.library(self.lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(3, 3);
+        let version_3_3 = program.library(self.lib).features.version()
+            >= dartforge_frontend::features::LanguageVersion::new(3, 3);
         let the_default_values = std::mem::take(&mut self.the_default_values);
         let key_values = std::mem::take(&mut self.key_values);
         let entry = Entry {
@@ -1613,13 +2069,24 @@ impl Verifier<'_, '_> {
         let mut parts = r.parts;
         for i in r.unreachable {
             let n = if expression { 2 } else { 4 };
-            self.report(w::UNREACHABLE_SWITCH_CASE, Span { start: pos[i], end: pos[i] + n }, Vec::new());
+            self.report(
+                w::UNREACHABLE_SWITCH_CASE,
+                Span {
+                    start: pos[i],
+                    end: pos[i] + n,
+                },
+                Vec::new(),
+            );
         }
         let default = the_cases.iter().position(|k| k.pattern.is_none());
         match (r.witness, r.fix) {
             (Some(tw), Some(co)) => {
                 if must && default.is_none() {
-                    let code = if expression { c::NON_EXHAUSTIVE_SWITCH_EXPRESSION } else { c::NON_EXHAUSTIVE_SWITCH_STATEMENT };
+                    let code = if expression {
+                        c::NON_EXHAUSTIVE_SWITCH_EXPRESSION
+                    } else {
+                        c::NON_EXHAUSTIVE_SWITCH_STATEMENT
+                    };
                     let typ = self.m.format(t);
                     // The fourth argument only exists for the "private" variant of
                     // 3.13.4 (`constant_verifier.dart` from main, case c29 of
@@ -1631,7 +2098,8 @@ impl Verifier<'_, '_> {
                             let k = self.m.program.class(*class);
                             k.kind == dartforge_elements::model::ClassKind::Enum
                                 && k.library != self.lib
-                                && (self.m.interner.resolve(k.name).starts_with('_') || tw.contains("._"))
+                                && (self.m.interner.resolve(k.name).starts_with('_')
+                                    || tw.contains("._"))
                         }
                         _ => false,
                     };
@@ -1639,7 +2107,14 @@ impl Verifier<'_, '_> {
                     if private {
                         args.push(String::new());
                     }
-                    self.report(code, Span { start: switch_start, end: switch_start + 6 }, args);
+                    self.report(
+                        code,
+                        Span {
+                            start: switch_start,
+                            end: switch_start + 6,
+                        },
+                        args,
+                    );
                     let u = self.unit;
                     if let Some(map) = self.m.witnesses.as_mut() {
                         map.insert((u, switch_start), std::mem::take(&mut parts));
@@ -1648,9 +2123,17 @@ impl Verifier<'_, '_> {
             }
             _ => {
                 if let Some(d) = default
-                    && must {
-                        self.report(w::UNREACHABLE_SWITCH_DEFAULT, Span { start: pos[d], end: pos[d] + 7 }, Vec::new());
-                    }
+                    && must
+                {
+                    self.report(
+                        w::UNREACHABLE_SWITCH_DEFAULT,
+                        Span {
+                            start: pos[d],
+                            end: pos[d] + 7,
+                        },
+                        Vec::new(),
+                    );
+                }
             }
         }
     }
@@ -1688,13 +2171,21 @@ impl Verifier<'_, '_> {
 
     fn child_element(&mut self, a: &ast::Ast, el: &CollectionElement, in_const: bool) {
         match el {
-            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => self.expr(a, *x, in_const),
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
+                self.expr(a, *x, in_const)
+            }
             CollectionElement::MapEntry { key, value, .. } => {
                 self.expr(a, *key, in_const);
                 self.expr(a, *value, in_const);
             }
             CollectionElement::Spread { value, .. } => self.expr(a, *value, in_const),
-            CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+            CollectionElement::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(a, *condition, in_const);
                 if let Some(p) = case_pattern {
                     self.pattern(a, *p);
@@ -1707,7 +2198,12 @@ impl Verifier<'_, '_> {
                     self.child_element(a, x, in_const);
                 }
             }
-            CollectionElement::For { condition, updates, body, .. } => {
+            CollectionElement::For {
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 if let Some(c) = condition {
                     self.expr(a, *c, in_const);
                 }
@@ -1727,10 +2223,16 @@ impl Verifier<'_, '_> {
     /// reports (with the real reporter: unresolved arguments too); with a value,
     /// continues into the arguments.
     fn constant_creation(&mut self, a: &ast::Ast, e: ExprId, arguments: &ast::Arguments) {
-        if !matches!(self.m.resolved(self.unit, e), Some(Resolved::Constructor(_))) {
+        if !matches!(
+            self.m.resolved(self.unit, e),
+            Some(Resolved::Constructor(_))
+        ) {
             return;
         }
-        let cx = Ctx { report: true, ..self.cx() };
+        let cx = Ctx {
+            report: true,
+            ..self.cx()
+        };
         let before = self.m.reports.len();
         let r = self.m.evaluate(&cx, e, true);
         let reports: Vec<Invalid> = self.m.reports.drain(before..).collect();
@@ -1768,7 +2270,9 @@ impl Verifier<'_, '_> {
         let code = Self::literal_code(&lv.ty);
         match el {
             CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
-                let Constant::Value(v) = self.evaluate_and_report(*x, true, code) else { return false };
+                let Constant::Value(v) = self.evaluate_and_report(*x, true, code) else {
+                    return false;
+                };
                 let span = self.m.span(u, *x);
                 match lv.ty {
                     LiteralType::List(t) => {
@@ -1801,23 +2305,35 @@ impl Verifier<'_, '_> {
                 self.report(c::CONST_EVAL_FOR_ELEMENT, s, Vec::new());
                 false
             }
-            CollectionElement::If { condition, then, else_, case_pattern, .. } => {
+            CollectionElement::If {
+                condition,
+                then,
+                else_,
+                case_pattern,
+                ..
+            } => {
                 if case_pattern.is_some() {
                     return false;
                 }
-                let Constant::Value(cond) = self.evaluate_and_report(*condition, true, code) else { return false };
+                let Constant::Value(cond) = self.evaluate_and_report(*condition, true, code) else {
+                    return false;
+                };
                 if !cond.state.is_bool() {
                     return false;
                 }
                 match cond.as_bool() {
                     None => {
                         let a1 = self.potential_in_literal(a, lv, then);
-                        let a2 = else_.as_ref().is_none_or(|x| self.potential_in_literal(a, lv, x));
+                        let a2 = else_
+                            .as_ref()
+                            .is_none_or(|x| self.potential_in_literal(a, lv, x));
                         a1 && a2
                     }
                     Some(true) => {
                         let a1 = self.verify_element(a, lv, then);
-                        let a2 = else_.as_ref().is_none_or(|x| self.potential_in_literal(a, lv, x));
+                        let a2 = else_
+                            .as_ref()
+                            .is_none_or(|x| self.potential_in_literal(a, lv, x));
                         a1 && a2
                     }
                     Some(false) => {
@@ -1828,7 +2344,9 @@ impl Verifier<'_, '_> {
                 }
             }
             CollectionElement::MapEntry { key, value, .. } => {
-                let LiteralType::Map(tk, tv) = lv.ty else { return false };
+                let LiteralType::Map(tk, tv) = lv.ty else {
+                    return false;
+                };
                 let k = self.evaluate_and_report(*key, true, c::NON_CONSTANT_MAP_KEY);
                 let v = self.evaluate_and_report(*value, true, c::NON_CONSTANT_MAP_VALUE);
                 if let Constant::Value(k) = k {
@@ -1844,15 +2362,18 @@ impl Verifier<'_, '_> {
                     self.record_unique(lv, k, span);
                 }
                 if let Constant::Value(v) = v
-                    && !self.m.matches_type(&v, tv) {
-                        let span = self.m.span(u, *value);
-                        let args = vec![self.m.format(v.ty), self.m.format(tv)];
-                        self.report(c::MAP_VALUE_TYPE_NOT_ASSIGNABLE, span, args);
-                    }
+                    && !self.m.matches_type(&v, tv)
+                {
+                    let span = self.m.span(u, *value);
+                    let args = vec![self.m.format(v.ty), self.m.format(tv)];
+                    self.report(c::MAP_VALUE_TYPE_NOT_ASSIGNABLE, span, args);
+                }
                 true
             }
             CollectionElement::Spread { value, null_aware } => {
-                let Constant::Value(v) = self.evaluate_and_report(*value, true, code) else { return false };
+                let Constant::Value(v) = self.evaluate_and_report(*value, true, code) else {
+                    return false;
+                };
                 let span = self.m.span(u, *value);
                 match lv.ty {
                     LiteralType::List(_) | LiteralType::Set(_) => {
@@ -1868,7 +2389,9 @@ impl Verifier<'_, '_> {
                         if matches!(lv.ty, LiteralType::List(_)) {
                             return true;
                         }
-                        if list.is_some() && !items.iter().all(|x| self.m.primitive_equality(x, self.lib)) {
+                        if list.is_some()
+                            && !items.iter().all(|x| self.m.primitive_equality(x, self.lib))
+                        {
                             let s = self.m.element_span(u, el);
                             let args = vec![self.m.format(v.ty)];
                             self.report(c::CONST_SET_ELEMENT_NOT_PRIMITIVE_EQUALITY, s, args);
@@ -1907,12 +2430,21 @@ impl Verifier<'_, '_> {
     /// that names an outer type parameter (at the node, without descending), and
     /// its arguments; in a function type, its own formals are allowed, and the
     /// bounds, the return and the simple parameters are checked.
-    fn without_type_parameters(&mut self, a: &ast::Ast, x: ast::TypeId, code: Code, allowed: &[crate::table::TypeParamId]) {
+    fn without_type_parameters(
+        &mut self,
+        a: &ast::Ast,
+        x: ast::TypeId,
+        code: Code,
+        allowed: &[crate::table::TypeParamId],
+    ) {
         let annotation = a.ty(x);
         match &annotation.kind {
             ast::TypeKind::Named { args, .. } => {
                 let parameter = self.annotation_type(x).and_then(|r| {
-                    if matches!(self.m.table.decoration(r), Some(crate::table::DisplayDecoration::Alias { .. })) {
+                    if matches!(
+                        self.m.table.decoration(r),
+                        Some(crate::table::DisplayDecoration::Alias { .. })
+                    ) {
                         return None;
                     }
                     match self.m.table.get(r) {
@@ -1930,10 +2462,17 @@ impl Verifier<'_, '_> {
                     self.without_type_parameters(a, y, code, allowed);
                 }
             }
-            ast::TypeKind::Function { return_type, type_params, parameters } => {
+            ast::TypeKind::Function {
+                return_type,
+                type_params,
+                parameters,
+            } => {
                 let mut inside: Vec<crate::table::TypeParamId> = allowed.to_vec();
                 if let Some(r) = self.annotation_type(x)
-                    && let Type::Function { type_params: formals, .. } = self.m.table.get(r)
+                    && let Type::Function {
+                        type_params: formals,
+                        ..
+                    } = self.m.table.get(r)
                 {
                     inside.extend(formals.iter().copied());
                 }
@@ -1964,29 +2503,48 @@ impl Verifier<'_, '_> {
         let u = self.unit;
         let el = match &a.expr(base).kind {
             ExprKind::Identifier(n) => program.lookup_in_unit(u, n.sym).and_then(|b| b.getter),
-            ExprKind::Property { target: p, name: n, .. } => match &a.expr(*p).kind {
-                ExprKind::Identifier(p) => program.lookup_prefixed_in_unit(u, p.sym, n.sym).and_then(|b| b.getter),
+            ExprKind::Property {
+                target: p, name: n, ..
+            } => match &a.expr(*p).kind {
+                ExprKind::Identifier(p) => program
+                    .lookup_prefixed_in_unit(u, p.sym, n.sym)
+                    .and_then(|b| b.getter),
                 _ => None,
             },
             _ => None,
         };
         let cls = match el {
             Some(dartforge_elements::model::Element::Class(c)) => Some(c),
-            Some(dartforge_elements::model::Element::Typedef(td)) => match self.m.table.get(self.m.outline.typedefs[td.0 as usize].target_type) {
-                Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => Some(*class),
+            Some(dartforge_elements::model::Element::Typedef(td)) => match self
+                .m
+                .table
+                .get(self.m.outline.typedefs[td.0 as usize].target_type)
+            {
+                Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
+                    Some(*class)
+                }
                 _ => None,
             },
             _ => None,
         };
         let Some(c) = cls else { return false };
         let text = self.m.interner.resolve(the_name.sym);
-        let the_key = if text == "new" { self.m.interner.lookup("") } else { Some(the_name.sym) };
+        let the_key = if text == "new" {
+            self.m.interner.lookup("")
+        } else {
+            Some(the_name.sym)
+        };
         the_key.is_some_and(|k| program.class(c).constructors.contains_key(&k))
     }
 
     fn annotation_type(&self, x: ast::TypeId) -> Option<TypeId> {
         let u = self.unit;
-        self.m.body.units.get(u.0 as usize).and_then(|b| b.annotation_types.get(&x).copied()).or_else(|| self.m.outline.written_types.get(&(u, x)).copied())
+        self.m
+            .body
+            .units
+            .get(u.0 as usize)
+            .and_then(|b| b.annotation_types.get(&x).copied())
+            .or_else(|| self.m.outline.written_types.get(&(u, x)).copied())
     }
 
     /// `_checkTypeArgumentConst` (`type_arguments_verifier.dart:501-544`): a type
@@ -1996,12 +2554,18 @@ impl Verifier<'_, '_> {
     /// parameters and the return of a function type, and into the fields of a
     /// record.
     fn const_type_argument(&mut self, a: &ast::Ast, x: ast::TypeId, code: Code) {
-        let is_parameter = |s: &Self, t: ast::TypeId| s.annotation_type(t).filter(|r| matches!(s.m.table.get(*r), Type::TypeParameter { .. }));
+        let is_parameter = |s: &Self, t: ast::TypeId| {
+            s.annotation_type(t)
+                .filter(|r| matches!(s.m.table.get(*r), Type::TypeParameter { .. }))
+        };
         let annotation = a.ty(x);
         match &annotation.kind {
             ast::TypeKind::Named { name, args } => {
                 if is_parameter(self, x).is_some() {
-                    let lexeme = name.last().map(|n| self.m.interner.resolve(n.sym).to_string()).unwrap_or_default();
+                    let lexeme = name
+                        .last()
+                        .map(|n| self.m.interner.resolve(n.sym).to_string())
+                        .unwrap_or_default();
                     self.report(code, annotation.span, vec![lexeme]);
                 } else {
                     for &y in args.iter() {
@@ -2009,15 +2573,27 @@ impl Verifier<'_, '_> {
                     }
                 }
             }
-            ast::TypeKind::Function { return_type, parameters, .. } => {
-                let mut children: Vec<ast::TypeId> = parameters.iter().filter(|p| p.function_parameters.is_none()).filter_map(|p| p.ty).collect();
+            ast::TypeKind::Function {
+                return_type,
+                parameters,
+                ..
+            } => {
+                let mut children: Vec<ast::TypeId> = parameters
+                    .iter()
+                    .filter(|p| p.function_parameters.is_none())
+                    .filter_map(|p| p.ty)
+                    .collect();
                 children.extend(return_type.iter().copied());
                 for y in children {
                     self.const_type_field(a, y, code);
                 }
             }
             ast::TypeKind::Record { positional, named } => {
-                let children: Vec<ast::TypeId> = positional.iter().copied().chain(named.iter().map(|(_, t)| *t)).collect();
+                let children: Vec<ast::TypeId> = positional
+                    .iter()
+                    .copied()
+                    .chain(named.iter().map(|(_, t)| *t))
+                    .collect();
                 for y in children {
                     self.const_type_field(a, y, code);
                 }
@@ -2043,7 +2619,12 @@ impl Verifier<'_, '_> {
     /// first-level elements (set) or keys (map) that constant evaluation gives
     /// without an error, equal to a previous one:
     /// `EQUAL_ELEMENTS_IN_SET`/`EQUAL_KEYS_IN_MAP` at the repeated one.
-    fn duplicates_in_non_constant_literal(&mut self, _a: &ast::Ast, e: ExprId, elements: &[CollectionElement]) {
+    fn duplicates_in_non_constant_literal(
+        &mut self,
+        _a: &ast::Ast,
+        e: ExprId,
+        elements: &[CollectionElement],
+    ) {
         let u = self.unit;
         let typ = self.m.the_static(u, e);
         let cls = match self.m.table.get(typ) {
@@ -2068,7 +2649,9 @@ impl Verifier<'_, '_> {
         let mut seen: Vec<Value> = Vec::new();
         for x in expressions {
             let cx = self.cx();
-            let Constant::Value(v) = self.m.evaluate(&cx, x, false) else { continue };
+            let Constant::Value(v) = self.m.evaluate(&cx, x, false) else {
+                continue;
+            };
             if v.actually_unknown() {
                 continue;
             }
@@ -2114,7 +2697,13 @@ impl Verifier<'_, '_> {
         false
     }
 
-    fn collect_element(&mut self, cx: &Ctx, el: &CollectionElement, base: Code, nodes: &mut Vec<(Span, Code)>) {
+    fn collect_element(
+        &mut self,
+        cx: &Ctx,
+        el: &CollectionElement,
+        base: Code,
+        nodes: &mut Vec<(Span, Code)>,
+    ) {
         let map = base == c::NON_CONSTANT_MAP_ELEMENT;
         let one = |m: &Engine<'_>, x: ExprId, code: Code, nodes: &mut Vec<(Span, Code)>| {
             let mut v = Vec::new();
@@ -2122,15 +2711,24 @@ impl Verifier<'_, '_> {
             nodes.extend(v.into_iter().map(|s| (s, code)));
         };
         match el {
-            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) | CollectionElement::Spread { value: x, .. } => {
-                one(self.m, *x, base, nodes)
-            }
+            CollectionElement::Expression(x)
+            | CollectionElement::NullAwareExpression(x)
+            | CollectionElement::Spread { value: x, .. } => one(self.m, *x, base, nodes),
             CollectionElement::MapEntry { key, value, .. } => {
-                let (ck, cv) = if map { (c::NON_CONSTANT_MAP_KEY, c::NON_CONSTANT_MAP_VALUE) } else { (base, base) };
+                let (ck, cv) = if map {
+                    (c::NON_CONSTANT_MAP_KEY, c::NON_CONSTANT_MAP_VALUE)
+                } else {
+                    (base, base)
+                };
                 one(self.m, *key, ck, nodes);
                 one(self.m, *value, cv, nodes);
             }
-            CollectionElement::If { condition, then, else_, .. } => {
+            CollectionElement::If {
+                condition,
+                then,
+                else_,
+                ..
+            } => {
                 one(self.m, *condition, base, nodes);
                 self.collect_element(cx, then, base, nodes);
                 if let Some(x) = else_ {
@@ -2189,15 +2787,29 @@ fn unparenthesize(a: &ast::Ast, mut e: ExprId) -> ExprId {
 fn parameter_reference(table: &crate::table::TypeTable, t: TypeId) -> bool {
     match table.get(t) {
         Type::TypeParameter { .. } | Type::Intersection { .. } => true,
-        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|&a| parameter_reference(table, a)),
+        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => {
+            args.iter().any(|&a| parameter_reference(table, a))
+        }
         Type::FutureOr { arg, .. } => parameter_reference(table, *arg),
-        Type::Function { ret, positional, optional, named, .. } => {
+        Type::Function {
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
             parameter_reference(table, *ret)
-                || positional.iter().chain(optional.iter()).any(|&a| parameter_reference(table, a))
+                || positional
+                    .iter()
+                    .chain(optional.iter())
+                    .any(|&a| parameter_reference(table, a))
                 || named.iter().any(|(_, a, _)| parameter_reference(table, *a))
         }
-        Type::Record { positional, named, .. } => {
-            positional.iter().any(|&a| parameter_reference(table, a)) || named.iter().any(|(_, a)| parameter_reference(table, *a))
+        Type::Record {
+            positional, named, ..
+        } => {
+            positional.iter().any(|&a| parameter_reference(table, a))
+                || named.iter().any(|(_, a)| parameter_reference(table, *a))
         }
         _ => false,
     }

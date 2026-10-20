@@ -257,7 +257,9 @@ fn match_nodes(
     s: bool,
     k: &mut dyn FnMut(usize) -> bool,
 ) -> bool {
-    let Some(node) = nodes.get(i) else { return k(j) };
+    let Some(node) = nodes.get(i) else {
+        return k(j);
+    };
     match node {
         Node::Literal(l) => {
             if t.len() - j < l.len() || !l.iter().zip(&t[j..]).all(|(a, b)| equal(*a, *b, s)) {
@@ -278,9 +280,13 @@ fn match_nodes(
             while end < t.len() && t[end] != '/' {
                 end += 1;
             }
-            (j..=end).rev().any(|e| match_nodes(nodes, i + 1, t, e, s, k))
+            (j..=end)
+                .rev()
+                .any(|e| match_nodes(nodes, i + 1, t, e, s, k))
         }
-        Node::DoubleStar => (j..=t.len()).rev().any(|e| match_nodes(nodes, i + 1, t, e, s, k)),
+        Node::DoubleStar => (j..=t.len())
+            .rev()
+            .any(|e| match_nodes(nodes, i + 1, t, e, s, k)),
         Node::Options(ops) => ops.iter().any(|op| {
             let mut cont = |e: usize| match_nodes(nodes, i + 1, t, e, s, k);
             match_nodes(op, 0, t, j, s, &mut cont)
@@ -294,7 +300,9 @@ fn match_prefix(nodes: &[Node], i: usize, t: &[char], j: usize, s: bool) -> bool
     if j == t.len() {
         return true;
     }
-    let Some(node) = nodes.get(i) else { return false };
+    let Some(node) = nodes.get(i) else {
+        return false;
+    };
     match node {
         Node::Literal(l) => {
             let n = l.len().min(t.len() - j);

@@ -31,12 +31,18 @@ enum SuperElement {
     Constructor(dartforge_elements::model::FunctionElementId),
     Class(ClassId),
     /// The inherited member named `name` (a setter's with `=`) in `class`.
-    Other { name: String, setter: bool, class: ClassId },
+    Other {
+        name: String,
+        setter: bool,
+        class: ClassId,
+    },
 }
-use crate::project::{Target, Concrete, Owner, Project};
+use crate::project::{Concrete, Owner, Project, Target};
 use crate::refactorings::Context;
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionKind, LibraryId, UnitId, UnitRole};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, FunctionKind, LibraryId, UnitId, UnitRole,
+};
 use dartforge_frontend::ast::{self, DeclKind};
 use dartforge_frontend::token::Kind;
 use dartforge_types::table::DisplayDecoration;
@@ -55,13 +61,24 @@ impl Project {
         let p = self.program();
         (0..p.classes.len())
             .map(|i| ClassId(i as u32))
-            .filter(|x| *x != c && p.class(*x).decl.is_some() && p.class(*x).kind != ClassKind::MixinApplication)
+            .filter(|x| {
+                *x != c
+                    && p.class(*x).decl.is_some()
+                    && p.class(*x).kind != ClassKind::MixinApplication
+            })
             .filter(|x| {
                 if direct {
                     let cl = p.class(*x);
-                    cl.supertype_class.iter().chain(&cl.mixin_classes).chain(&cl.interface_classes).chain(&cl.on_classes).any(|s| {
-                        *s == c || (p.class(*s).kind == ClassKind::MixinApplication && self.supertypes(*s).contains(&c))
-                    })
+                    cl.supertype_class
+                        .iter()
+                        .chain(&cl.mixin_classes)
+                        .chain(&cl.interface_classes)
+                        .chain(&cl.on_classes)
+                        .any(|s| {
+                            *s == c
+                                || (p.class(*s).kind == ClassKind::MixinApplication
+                                    && self.supertypes(*s).contains(&c))
+                        })
                 } else {
                     self.supertypes(*x).contains(&c)
                 }
@@ -87,7 +104,11 @@ impl Project {
                 let s = self.non_synthetic_superclass(c)?;
                 self.top_element_name(Element::Class(s))
             }
-            SuperElement::Other { name, setter, class } => {
+            SuperElement::Other {
+                name,
+                setter,
+                class,
+            } => {
                 let member = self.inherited_member(class, &name, setter)?;
                 self.function_name(member)
             }
@@ -98,25 +119,48 @@ impl Project {
     /// of the enclosing declaration (`getElementOfNode` walking up the nodes).
     fn super_element(&self, unit: UnitId, offset: usize) -> Option<SuperElement> {
         let p = self.program();
-        let is_constructor = |f: dartforge_elements::model::FunctionElementId| matches!(p.function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor);
+        let is_constructor = |f: dartforge_elements::model::FunctionElementId| {
+            matches!(
+                p.function(f).kind,
+                FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+            )
+        };
         if let Ok(Some(d)) = self.identify(unit, offset) {
             return match (&d.target, d.concrete) {
-                (_, Some(Concrete::Function(f))) if is_constructor(f) => Some(SuperElement::Constructor(f)),
+                (_, Some(Concrete::Function(f))) if is_constructor(f) => {
+                    Some(SuperElement::Constructor(f))
+                }
                 (Target::Constructor(f), _) => Some(SuperElement::Constructor(*f)),
                 (Target::Top(Element::Class(c)), _) => {
                     // A mixin has no `supertype` (only the `on` constraints).
                     (p.class(*c).kind != ClassKind::Mixin).then_some(SuperElement::Class(*c))
                 }
-                (Target::Member { owner: Owner::Class(c), name, .. }, concrete) => {
-                    let setter = matches!(concrete, Some(Concrete::Function(f)) if self.is_setter(f));
-                    Some(SuperElement::Other { name: name.clone(), setter, class: *c })
+                (
+                    Target::Member {
+                        owner: Owner::Class(c),
+                        name,
+                        ..
+                    },
+                    concrete,
+                ) => {
+                    let setter =
+                        matches!(concrete, Some(Concrete::Function(f)) if self.is_setter(f));
+                    Some(SuperElement::Other {
+                        name: name.clone(),
+                        setter,
+                        class: *c,
+                    })
                 }
                 // A local or a type parameter: its name in the enclosing class
                 // (`thisOrAncestorOfType<InterfaceElement>`).
                 (Target::Local { .. } | Target::TypeParameter { .. }, _) => {
                     let class = self.enclosing_class(unit, offset)?;
                     let source = &p.unit(unit).source;
-                    Some(SuperElement::Other { name: source[d.name.start..d.name.end].to_string(), setter: false, class })
+                    Some(SuperElement::Other {
+                        name: source[d.name.start..d.name.end].to_string(),
+                        setter: false,
+                        class,
+                    })
                 }
                 _ => None,
             };
@@ -129,7 +173,9 @@ impl Project {
         let e = p.function(f);
         match e.kind {
             FunctionKind::Setter => true,
-            FunctionKind::ImplicitAccessor => e.variable.is_some_and(|v| p.variable(v).setter == Some(f)),
+            FunctionKind::ImplicitAccessor => {
+                e.variable.is_some_and(|v| p.variable(v).setter == Some(f))
+            }
             _ => false,
         }
     }
@@ -150,9 +196,11 @@ impl Project {
                         | dartforge_frontend::ast::DeclKind::ExtensionType(_)
                 )
         })?;
-        (0..p.classes.len())
-            .map(|i| ClassId(i as u32))
-            .find(|c| p.class(*c).decl.is_some_and(|d| d.unit == unit && d.decl.0 as usize == decl))
+        (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|c| {
+            p.class(*c)
+                .decl
+                .is_some_and(|d| d.unit == unit && d.decl.0 as usize == decl)
+        })
     }
 
     /// Without a name under the cursor: the innermost function (local, or a
@@ -165,7 +213,12 @@ impl Project {
         let ast = &p.unit(unit_).ast;
         let contains = |s: Span| s.start <= offset && offset <= s.end;
         // The member that contains the offset.
-        let member_ = ast.members.iter().enumerate().filter(|(_, m)| contains(m.span)).min_by_key(|(_, m)| m.span.end - m.span.start);
+        let member_ = ast
+            .members
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| contains(m.span))
+            .min_by_key(|(_, m)| m.span.end - m.span.start);
         // The innermost function (local or expression) inside the member.
         let member_function = member_.and_then(|(_, m)| match m.kind {
             MemberKind::Method(f) => Some(f),
@@ -182,7 +235,11 @@ impl Project {
             // A function expression has an empty name: no inherited member.
             let name = f.name?;
             let class = self.enclosing_class(unit_, offset)?;
-            return Some(SuperElement::Other { name: self.name(name.sym).to_string(), setter: false, class });
+            return Some(SuperElement::Other {
+                name: self.name(name.sym).to_string(),
+                setter: false,
+                class,
+            });
         }
         if let Some((i, m)) = member_ {
             let class = self.enclosing_class(unit_, offset);
@@ -196,11 +253,26 @@ impl Project {
                 MemberKind::Method(fid) => {
                     let f = ast.function(*fid);
                     let setter = f.kind == dartforge_frontend::ast::FunctionKind::Setter;
-                    Some(SuperElement::Other { name: self.name(f.name?.sym).to_string(), setter, class: class? })
+                    Some(SuperElement::Other {
+                        name: self.name(f.name?.sym).to_string(),
+                        setter,
+                        class: class?,
+                    })
                 }
                 MemberKind::Field(l) => {
-                    let v = l.variables.iter().find(|v| v.initializer.is_some_and(|e| contains(ast.expr(e).span)) || contains(v.name.span)).or_else(|| l.variables.first())?;
-                    Some(SuperElement::Other { name: self.name(v.name.sym).to_string(), setter: false, class: class? })
+                    let v = l
+                        .variables
+                        .iter()
+                        .find(|v| {
+                            v.initializer.is_some_and(|e| contains(ast.expr(e).span))
+                                || contains(v.name.span)
+                        })
+                        .or_else(|| l.variables.first())?;
+                    Some(SuperElement::Other {
+                        name: self.name(v.name.sym).to_string(),
+                        setter: false,
+                        class: class?,
+                    })
                 }
             };
         }
@@ -215,7 +287,10 @@ impl Project {
         let p = self.program();
         let mut s = p.class(c).supertype_class?;
         let mut steps = 0;
-        while p.class(s).decl.is_none() && p.class(s).kind == ClassKind::MixinApplication && steps < 64 {
+        while p.class(s).decl.is_none()
+            && p.class(s).kind == ClassKind::MixinApplication
+            && steps < 64
+        {
             s = p.class(s).supertype_class?;
             steps += 1;
         }
@@ -226,7 +301,10 @@ impl Project {
     /// the generative constructor `f` calls (that of the written
     /// `super(…)`/`super.name(…)`, or the unnamed one); none for a factory or a
     /// redirecting constructor.
-    pub(crate) fn super_constructor(&self, f: dartforge_elements::model::FunctionElementId) -> Option<dartforge_elements::model::FunctionElementId> {
+    pub(crate) fn super_constructor(
+        &self,
+        f: dartforge_elements::model::FunctionElementId,
+    ) -> Option<dartforge_elements::model::FunctionElementId> {
         use dartforge_elements::model::FunctionRef;
         use dartforge_frontend::ast::{Initializer, MemberKind};
         let p = self.program();
@@ -236,19 +314,26 @@ impl Project {
         }
         let class = fe.class?;
         let name = match fe.node {
-            FunctionRef::Constructor { unit, member } => match &p.unit(unit).ast.member(member).kind {
-                MemberKind::Constructor(k) => {
-                    if k.initializers.iter().any(|i| matches!(i, Initializer::Redirect { .. })) {
-                        return None;
+            FunctionRef::Constructor { unit, member } => {
+                match &p.unit(unit).ast.member(member).kind {
+                    MemberKind::Constructor(k) => {
+                        if k.initializers
+                            .iter()
+                            .any(|i| matches!(i, Initializer::Redirect { .. }))
+                        {
+                            return None;
+                        }
+                        k.initializers.iter().find_map(|i| match i {
+                            Initializer::Super { constructor, .. } => {
+                                Some(constructor.map(|n| n.sym))
+                            }
+                            _ => None,
+                        })
                     }
-                    k.initializers.iter().find_map(|i| match i {
-                        Initializer::Super { constructor, .. } => Some(constructor.map(|n| n.sym)),
-                        _ => None,
-                    })
+                    _ => None,
                 }
-                _ => None,
+                .flatten()
             }
-            .flatten(),
             _ => None,
         };
         let s = self.non_synthetic_superclass(class)?;
@@ -261,22 +346,48 @@ impl Project {
 
     /// `InheritanceManager3.getInherited2(class, Name(the class's library,
     /// name))`.
-    fn inherited_member(&mut self, class: ClassId, name: &str, setter: bool) -> Option<dartforge_elements::model::FunctionElementId> {
-        let crate::query::Query { program, names, core, outline, table, .. } = &mut self.query;
+    fn inherited_member(
+        &mut self,
+        class: ClassId,
+        name: &str,
+        setter: bool,
+    ) -> Option<dartforge_elements::model::FunctionElementId> {
+        let crate::query::Query {
+            program,
+            names,
+            core,
+            outline,
+            table,
+            ..
+        } = &mut self.query;
         let symbol = names.lookup(name)?;
-        let mut n = dartforge_types::inheritance::MemberName::new(names, program.class(class).library, symbol);
+        let mut n = dartforge_types::inheritance::MemberName::new(
+            names,
+            program.class(class).library,
+            symbol,
+        );
         if setter {
             n = n.from_setter(names)?;
         }
-        let mut provider = dartforge_types::inheritance::OutlineProvider { program, interner: names, core, outline, table };
+        let mut provider = dartforge_types::inheritance::OutlineProvider {
+            program,
+            interner: names,
+            core,
+            outline,
+            table,
+        };
         let mut inheritance = dartforge_types::inheritance::InheritanceManager::default();
-        inheritance.inherited(&mut provider, class, n).map(|m| m.function)
+        inheritance
+            .inherited(&mut provider, class, n)
+            .map(|m| m.function)
     }
 
     /// The implementations of what `offset` denotes: subtypes of a class, or the
     /// member declared in each subtype.
     pub(crate) fn implementations(&self, unit: UnitId, offset: usize) -> Vec<(UnitId, Span)> {
-        let Ok(Some(d)) = self.identify(unit, offset) else { return Vec::new() };
+        let Ok(Some(d)) = self.identify(unit, offset) else {
+            return Vec::new();
+        };
         let p = self.program();
         let (class, member) = match (&d.target, d.concrete) {
             (Target::Top(Element::Class(c)), _) => (*c, None),
@@ -284,10 +395,20 @@ impl Project {
                 Some(c) => (c, None),
                 None => return Vec::new(),
             },
-            (Target::Member { owner: Owner::Class(c), name, is_static }, concrete) => {
+            (
+                Target::Member {
+                    owner: Owner::Class(c),
+                    name,
+                    is_static,
+                },
+                concrete,
+            ) => {
                 // A constructor called through `A.name()` resolves to the class.
                 if let Some(Concrete::Function(f)) = concrete
-                    && matches!(p.function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor)
+                    && matches!(
+                        p.function(f).kind,
+                        FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+                    )
                 {
                     (*c, None)
                 } else {
@@ -298,7 +419,12 @@ impl Project {
         };
         // Extension type members do not override: they only redeclare.
         let is_extension_type = |c: ClassId| {
-            p.class(c).decl.is_some_and(|dr| matches!(p.unit(dr.unit).ast.decl(dr.decl).kind, dartforge_frontend::ast::DeclKind::ExtensionType(_)))
+            p.class(c).decl.is_some_and(|dr| {
+                matches!(
+                    p.unit(dr.unit).ast.decl(dr.decl).kind,
+                    dartforge_frontend::ast::DeclKind::ExtensionType(_)
+                )
+            })
         };
         // `TypeHierarchyComputerHelper`: the pivot's kind (the node's element: the
         // getter of a read, the setter of a write, the field at the declaration)
@@ -309,7 +435,9 @@ impl Project {
                 match fe.kind {
                     FunctionKind::Getter => PivotKind::Getter,
                     FunctionKind::Setter => PivotKind::Setter,
-                    FunctionKind::ImplicitAccessor if self.name(fe.name).ends_with('=') => PivotKind::Setter,
+                    FunctionKind::ImplicitAccessor if self.name(fe.name).ends_with('=') => {
+                        PivotKind::Setter
+                    }
                     FunctionKind::ImplicitAccessor => PivotKind::Getter,
                     _ => PivotKind::Method,
                 }
@@ -317,7 +445,9 @@ impl Project {
             Some(Concrete::Variable(v)) => match d.expr {
                 Some(e) if self.write_target(unit, e) => PivotKind::Setter,
                 Some(_) => PivotKind::Getter,
-                None => PivotKind::Field { final_: p.variable(v).final_ || p.variable(v).const_ },
+                None => PivotKind::Field {
+                    final_: p.variable(v).final_ || p.variable(v).const_,
+                },
             },
             None => PivotKind::Method,
         };
@@ -332,19 +462,27 @@ impl Project {
         };
         // `needsMember`: the pivot has the member in its own class.
         let needs_member = match &member {
-            Some((name, _)) => self.implementation_member(class, name, kind, pivot_library, pivot).is_some() || {
-                // The pivot itself (the lookup finds itself, without a mixin).
-                pivot.is_some_and(|f| p.function(f).class == Some(class))
-                    || matches!(d.concrete, Some(Concrete::Variable(v)) if p.variable(v).class == Some(class))
-            },
+            Some((name, _)) => {
+                self.implementation_member(class, name, kind, pivot_library, pivot)
+                    .is_some()
+                    || {
+                        // The pivot itself (the lookup finds itself, without a mixin).
+                        pivot.is_some_and(|f| p.function(f).class == Some(class))
+                            || matches!(d.concrete, Some(Concrete::Variable(v)) if p.variable(v).class == Some(class))
+                    }
+            }
             None => false,
         };
         let mut seen = BTreeSet::new();
         let mut output = Vec::new();
         for x in self.index_all_subtypes(class) {
             let local = match &member {
-                Some(_) if needs_member && (is_extension_type(class) || is_extension_type(x)) => None,
-                Some((name, _)) if needs_member => self.implementation_member(x, name, kind, pivot_library, pivot),
+                Some(_) if needs_member && (is_extension_type(class) || is_extension_type(x)) => {
+                    None
+                }
+                Some((name, _)) if needs_member => {
+                    self.implementation_member(x, name, kind, pivot_library, pivot)
+                }
                 _ => self.top_element_name(Element::Class(x)),
             };
             if let Some((u, s)) = local
@@ -381,26 +519,56 @@ impl Project {
     /// (accessible in the pivot's library), else in the last mixin that
     /// declares it; the location of the non-synthetic one (the field of an
     /// implicit accessor).
-    fn implementation_member(&self, c: ClassId, name: &str, kind: PivotKind, library: LibraryId, pivot: Option<dartforge_elements::model::FunctionElementId>) -> Option<(UnitId, Span)> {
+    fn implementation_member(
+        &self,
+        c: ClassId,
+        name: &str,
+        kind: PivotKind,
+        library: LibraryId,
+        pivot: Option<dartforge_elements::model::FunctionElementId>,
+    ) -> Option<(UnitId, Span)> {
         let p = self.program();
         let find = |x: ClassId| -> Option<dartforge_elements::model::FunctionElementId> {
             let k = p.class(x);
-            let declared = |key: &str, accepts: &dyn Fn(FunctionKind) -> bool| -> Option<dartforge_elements::model::FunctionElementId> {
+            let declared = |key: &str,
+                            accepts: &dyn Fn(FunctionKind) -> bool|
+             -> Option<dartforge_elements::model::FunctionElementId> {
                 let s = self.query.names.lookup(key)?;
-                [k.instance_members.get(&s), k.static_members.get(&s)].into_iter().flatten().copied().find(|&f| accepts(p.function(f).kind))
+                [k.instance_members.get(&s), k.static_members.get(&s)]
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .find(|&f| accepts(p.function(f).kind))
             };
-            let method = |_: ()| declared(name, &|e| matches!(e, FunctionKind::Function | FunctionKind::Operator));
-            let getter = |_: ()| declared(name, &|e| matches!(e, FunctionKind::Getter | FunctionKind::ImplicitAccessor));
-            let setter = |_: ()| declared(&format!("{name}_="), &|e| matches!(e, FunctionKind::Setter | FunctionKind::ImplicitAccessor));
+            let method = |_: ()| {
+                declared(name, &|e| {
+                    matches!(e, FunctionKind::Function | FunctionKind::Operator)
+                })
+            };
+            let getter = |_: ()| {
+                declared(name, &|e| {
+                    matches!(e, FunctionKind::Getter | FunctionKind::ImplicitAccessor)
+                })
+            };
+            let setter = |_: ()| {
+                declared(&format!("{name}_="), &|e| {
+                    matches!(e, FunctionKind::Setter | FunctionKind::ImplicitAccessor)
+                })
+            };
             match kind {
                 PivotKind::Method => method(()),
                 PivotKind::Getter => getter(()),
                 PivotKind::Setter => setter(()),
-                PivotKind::Field { final_ } => getter(()).or_else(|| if final_ { None } else { setter(()) }),
+                PivotKind::Field { final_ } => {
+                    getter(()).or_else(|| if final_ { None } else { setter(()) })
+                }
             }
         };
         let accessible = |x: ClassId| !name.starts_with('_') || p.class(x).library == library;
-        let local = |f: dartforge_elements::model::FunctionElementId| match (p.function(f).kind, p.function(f).variable) {
+        let local = |f: dartforge_elements::model::FunctionElementId| match (
+            p.function(f).kind,
+            p.function(f).variable,
+        ) {
             (FunctionKind::ImplicitAccessor, Some(v)) => self.variable_name(v),
             _ => self.function_name(f),
         };
@@ -429,16 +597,23 @@ impl Project {
         // `thisType`; that of a constant variable (`@override`), the prefix and the
         // constructor name have no static type.
         for a in crate::project::metadata(ast, &p.unit(unit).unit) {
-            let Some(i) = a.name.iter().position(|n| inside(n.span)) else { continue };
+            let Some(i) = a.name.iter().position(|n| inside(n.span)) else {
+                continue;
+            };
             let lib = p.unit(unit).library;
             let prefixed = a.name.len() >= 2 && crate::project::is_prefix(p, lib, a.name[0].sym);
             let (class_index, binding) = if prefixed {
-                (1, p.lookup_prefixed_in_unit(unit, a.name[0].sym, a.name[1].sym))
+                (
+                    1,
+                    p.lookup_prefixed_in_unit(unit, a.name[0].sym, a.name[1].sym),
+                )
             } else {
                 (0, p.lookup_in_unit(unit, a.name[0].sym))
             };
             return match binding.and_then(|b| b.getter) {
-                Some(Element::Class(c)) if i == class_index => self.top_element_name(Element::Class(c)),
+                Some(Element::Class(c)) if i == class_index => {
+                    self.top_element_name(Element::Class(c))
+                }
                 _ => None,
             };
         }
@@ -446,12 +621,17 @@ impl Project {
         // `A.n(…)`) is the class; the constructor name (`n`) is not a node with a
         // type; neither is the field of an initializer (`x = …`).
         for (i, m) in ast.members.iter().enumerate() {
-            let ast::MemberKind::Constructor(k) = &m.kind else { continue };
+            let ast::MemberKind::Constructor(k) = &m.kind else {
+                continue;
+            };
             if inside(k.class_name.span) {
                 let f = self.node_constructor(unit, ast::MemberId(i as u32))?;
                 return self.top_element_name(Element::Class(p.function(f).class?));
             }
-            if k.initializers.iter().any(|x| matches!(x, ast::Initializer::Field { name, .. } if inside(name.span))) {
+            if k.initializers
+                .iter()
+                .any(|x| matches!(x, ast::Initializer::Field { name, .. } if inside(name.span)))
+            {
                 return None;
             }
         }
@@ -462,7 +642,11 @@ impl Project {
             (Target::Top(Element::Class(c)), None) => self.top_element_name(Element::Class(*c)),
             (_, Some(Concrete::Function(f))) => self.function_name(f),
             (_, Some(Concrete::Variable(v)))
-                if self.program().variable(v).class.is_some_and(|c| self.program().class(c).enum_constants.contains(&v)) =>
+                if self
+                    .program()
+                    .variable(v)
+                    .class
+                    .is_some_and(|c| self.program().class(c).enum_constants.contains(&v)) =>
             {
                 self.variable_name(v)
             }
@@ -474,33 +658,60 @@ impl Project {
         let bodies = &self.query.bodies.units[unit.0 as usize];
         let ty = match (&d.target, d.concrete) {
             // Class name (type, reference, unnamed constructor).
-            (Target::Top(Element::Class(c)), _) => return self.top_element_name(Element::Class(*c)),
+            (Target::Top(Element::Class(c)), _) => {
+                return self.top_element_name(Element::Class(*c));
+            }
             // Named constructor: the analyzer looks at the name (an expression without
             // an interface type).
             (Target::Constructor(_), _) => return None,
             (_, Some(Concrete::Function(f)))
-                if !matches!(self.program().function(f).kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor)
-                    && !(self.program().function(f).kind == FunctionKind::Setter && d.expr.is_some_and(|e| self.write_target(unit, e))) =>
+                if !matches!(
+                    self.program().function(f).kind,
+                    FunctionKind::Getter | FunctionKind::ImplicitAccessor
+                ) && !(self.program().function(f).kind == FunctionKind::Setter
+                    && d.expr.is_some_and(|e| self.write_target(unit, e))) =>
             {
                 // Method or function: the type is a function.
                 return None;
             }
             _ => match d.expr {
                 // `inSetterContext`: the type of the `writeElement`'s variable.
-                Some(e) if self.write_target(unit, e) && !matches!(d.target, Target::Local { .. }) => match d.concrete {
-                    Some(Concrete::Variable(v)) => self.query.variable_type(v)?,
-                    Some(Concrete::Function(f)) => match (self.program().function(f).kind, self.program().function(f).variable) {
-                        (FunctionKind::ImplicitAccessor, Some(v)) => self.query.variable_type(v)?,
-                        (FunctionKind::Setter, _) => self.query.outline.functions[f.0 as usize].parameters.first()?.ty,
-                        _ => bodies.get_type(e)?,
-                    },
-                    None => bodies.get_type(e)?,
-                },
+                Some(e)
+                    if self.write_target(unit, e) && !matches!(d.target, Target::Local { .. }) =>
+                {
+                    match d.concrete {
+                        Some(Concrete::Variable(v)) => self.query.variable_type(v)?,
+                        Some(Concrete::Function(f)) => match (
+                            self.program().function(f).kind,
+                            self.program().function(f).variable,
+                        ) {
+                            (FunctionKind::ImplicitAccessor, Some(v)) => {
+                                self.query.variable_type(v)?
+                            }
+                            (FunctionKind::Setter, _) => {
+                                self.query.outline.functions[f.0 as usize]
+                                    .parameters
+                                    .first()?
+                                    .ty
+                            }
+                            _ => bodies.get_type(e)?,
+                        },
+                        None => bodies.get_type(e)?,
+                    }
+                }
                 Some(e) => bodies.get_type(e)?,
                 None => match (&d.target, d.concrete) {
-                    (Target::Local { unit: u, declaration }, _) => self.query.bodies.units[u.0 as usize].local_type(*declaration)?,
+                    (
+                        Target::Local {
+                            unit: u,
+                            declaration,
+                        },
+                        _,
+                    ) => self.query.bodies.units[u.0 as usize].local_type(*declaration)?,
                     (_, Some(Concrete::Variable(v))) => self.query.variable_type(v)?,
-                    (_, Some(Concrete::Function(f))) => self.query.outline.functions[f.0 as usize].return_type,
+                    (_, Some(Concrete::Function(f))) => {
+                        self.query.outline.functions[f.0 as usize].return_type
+                    }
                     _ => return None,
                 },
             },
@@ -516,11 +727,23 @@ impl Project {
     /// `e` is written: the target of an assignment or of `++`/`--`.
     pub(crate) fn write_target(&self, unit: UnitId, e: dartforge_frontend::ast::ExprId) -> bool {
         use dartforge_frontend::ast::{ExprKind, UnaryOp};
-        self.program().unit(unit).ast.exprs.iter().any(|x| match &x.kind {
-            ExprKind::Assign { target, .. } => *target == e,
-            ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } => *operand == e,
-            _ => false,
-        })
+        self.program()
+            .unit(unit)
+            .ast
+            .exprs
+            .iter()
+            .any(|x| match &x.kind {
+                ExprKind::Assign { target, .. } => *target == e,
+                ExprKind::Unary {
+                    op:
+                        UnaryOp::PrefixInc
+                        | UnaryOp::PrefixDec
+                        | UnaryOp::PostfixInc
+                        | UnaryOp::PostfixDec,
+                    operand,
+                } => *operand == e,
+                _ => false,
+            })
     }
 
     // -- Type hierarchy (`DartLazyTypeHierarchyComputer`) ---------------------
@@ -530,13 +753,19 @@ impl Project {
     /// `Null`; nothing for `InvalidType`, `Never?` and the other types.
     pub(crate) fn interface_class(&self, t: TypeId) -> Option<(ClassId, Vec<TypeId>)> {
         let table = &self.query.table;
-        if matches!(table.decoration(t), Some(DisplayDecoration::Invalid | DisplayDecoration::NeverNullable)) {
+        if matches!(
+            table.decoration(t),
+            Some(DisplayDecoration::Invalid | DisplayDecoration::NeverNullable)
+        ) {
             return None;
         }
         match table.get(t) {
             Type::Interface { class, args, .. } => Some((*class, args.to_vec())),
             Type::ExtensionType { decl, args, .. } => Some((*decl, args.to_vec())),
-            Type::FutureOr { arg, .. } => Some((self.sdk_class(self.query.core.async_library?, "FutureOr")?, vec![*arg])),
+            Type::FutureOr { arg, .. } => Some((
+                self.sdk_class(self.query.core.async_library?, "FutureOr")?,
+                vec![*arg],
+            )),
             Type::Null => Some((self.query.core.null_class?, Vec::new())),
             _ => None,
         }
@@ -553,14 +782,36 @@ impl Project {
 
     /// The `thisType` of `c`: the arguments are its own type parameters.
     fn type_this(&mut self, c: ClassId) -> (TypeId, Vec<TypeId>) {
-        let parameters: Vec<TypeParamId> = self.query.outline.classes.get(c.0 as usize).map(|d| d.type_params.to_vec()).unwrap_or_default();
+        let parameters: Vec<TypeParamId> = self
+            .query
+            .outline
+            .classes
+            .get(c.0 as usize)
+            .map(|d| d.type_params.to_vec())
+            .unwrap_or_default();
         let extension = self.program().class(c).kind == ClassKind::ExtensionType;
         let table = &mut self.query.table;
-        let args: Vec<TypeId> = parameters.iter().map(|&param| table.intern(Type::TypeParameter { param, nullable: false })).collect();
+        let args: Vec<TypeId> = parameters
+            .iter()
+            .map(|&param| {
+                table.intern(Type::TypeParameter {
+                    param,
+                    nullable: false,
+                })
+            })
+            .collect();
         let ty = if extension {
-            table.intern(Type::ExtensionType { decl: c, args: args.clone().into_boxed_slice(), nullable: false })
+            table.intern(Type::ExtensionType {
+                decl: c,
+                args: args.clone().into_boxed_slice(),
+                nullable: false,
+            })
         } else {
-            table.intern(Type::Interface { class: c, args: args.clone().into_boxed_slice(), nullable: false })
+            table.intern(Type::Interface {
+                class: c,
+                args: args.clone().into_boxed_slice(),
+                nullable: false,
+            })
         };
         (ty, args)
     }
@@ -568,10 +819,14 @@ impl Project {
     /// `_isInterfaceTypeInterface`: a non-nullable interface type that is not an
     /// enum, extension type, `Function` nor `Null`.
     fn valid_interface(&self, t: TypeId) -> bool {
-        let Some((c, _)) = self.interface_class(t) else { return false };
+        let Some((c, _)) = self.interface_class(t) else {
+            return false;
+        };
         let core = &self.query.core;
-        !matches!(self.program().class(c).kind, ClassKind::Enum | ClassKind::ExtensionType)
-            && Some(c) != core.function_class
+        !matches!(
+            self.program().class(c).kind,
+            ClassKind::Enum | ClassKind::ExtensionType
+        ) && Some(c) != core.function_class
             && Some(c) != core.null_class
             && !self.query.table.get(t).is_declared_nullable()
     }
@@ -579,14 +834,23 @@ impl Project {
     /// `_isInterfaceTypeClass`: a valid interface whose element is a class.
     fn valid_class(&self, t: TypeId) -> bool {
         self.valid_interface(t)
-            && self.interface_class(t).is_some_and(|(c, _)| matches!(self.program().class(c).kind, ClassKind::Class | ClassKind::MixinApplication))
+            && self.interface_class(t).is_some_and(|(c, _)| {
+                matches!(
+                    self.program().class(c).kind,
+                    ClassKind::Class | ClassKind::MixinApplication
+                )
+            })
     }
 
     /// `isValidExtensionTypeSuperinterface`.
     fn extension_type_superinterface(&self, t: TypeId) -> bool {
-        let Some((c, _)) = self.interface_class(t) else { return false };
+        let Some((c, _)) = self.interface_class(t) else {
+            return false;
+        };
         let core = &self.query.core;
-        let future_or = core.async_library.and_then(|l| self.sdk_class(l, "FutureOr"));
+        let future_or = core
+            .async_library
+            .and_then(|l| self.sdk_class(l, "FutureOr"));
         !self.query.table.get(t).is_declared_nullable()
             && Some(c) != future_or
             && Some(c) != core.function_class
@@ -600,7 +864,9 @@ impl Project {
     /// them), the interfaces and the mixins, with the parameters of `c`
     /// substituted by `args`.
     fn type_supertypes(&mut self, c: ClassId, args: &[TypeId]) -> Vec<TypeId> {
-        let Some(data) = self.query.outline.classes.get(c.0 as usize).cloned() else { return Vec::new() };
+        let Some(data) = self.query.outline.classes.get(c.0 as usize).cloned() else {
+            return Vec::new();
+        };
         let kind = self.program().class(c).kind;
         let core = &self.query.core;
         let object = core.object;
@@ -608,19 +874,30 @@ impl Project {
         let enum_ = core.core_library.and_then(|l| self.sdk_class(l, "Enum"));
         let mut list: Vec<TypeId> = Vec::new();
         match kind {
-            ClassKind::Class | ClassKind::MixinApplication => match data.supertype.filter(|&s| self.valid_class(s)) {
-                Some(s) => list.push(s),
-                None if !is_object => list.push(object),
-                None => {}
-            },
+            ClassKind::Class | ClassKind::MixinApplication => {
+                match data.supertype.filter(|&s| self.valid_class(s)) {
+                    Some(s) => list.push(s),
+                    None if !is_object => list.push(object),
+                    None => {}
+                }
+            }
             ClassKind::Enum => match enum_ {
-                Some(e) => list.push(self.query.table.intern(Type::Interface { class: e, args: Box::new([]), nullable: false })),
+                Some(e) => list.push(self.query.table.intern(Type::Interface {
+                    class: e,
+                    args: Box::new([]),
+                    nullable: false,
+                })),
                 None => list.push(object),
             },
             ClassKind::Mixin | ClassKind::ExtensionType => {}
         }
         if kind == ClassKind::Mixin {
-            let constraints: Vec<TypeId> = data.on.iter().copied().filter(|&t| self.valid_interface(t)).collect();
+            let constraints: Vec<TypeId> = data
+                .on
+                .iter()
+                .copied()
+                .filter(|&t| self.valid_interface(t))
+                .collect();
             if constraints.is_empty() {
                 list.push(object);
             } else {
@@ -628,16 +905,38 @@ impl Project {
             }
         }
         if kind == ClassKind::ExtensionType {
-            list.extend(data.interfaces.iter().copied().filter(|&t| self.extension_type_superinterface(t)));
+            list.extend(
+                data.interfaces
+                    .iter()
+                    .copied()
+                    .filter(|&t| self.extension_type_superinterface(t)),
+            );
         } else {
-            list.extend(data.interfaces.iter().copied().filter(|&t| self.valid_interface(t)));
+            list.extend(
+                data.interfaces
+                    .iter()
+                    .copied()
+                    .filter(|&t| self.valid_interface(t)),
+            );
         }
-        list.extend(data.mixins.iter().copied().filter(|&t| self.valid_interface(t)));
+        list.extend(
+            data.mixins
+                .iter()
+                .copied()
+                .filter(|&t| self.valid_interface(t)),
+        );
         if data.type_params.is_empty() {
             return list;
         }
-        let map: HashMap<TypeParamId, TypeId> = data.type_params.iter().copied().zip(args.iter().copied()).collect();
-        list.into_iter().map(|t| dartforge_types::substitute(t, &map, &mut self.query.table)).collect()
+        let map: HashMap<TypeParamId, TypeId> = data
+            .type_params
+            .iter()
+            .copied()
+            .zip(args.iter().copied())
+            .collect();
+        list.into_iter()
+            .map(|t| dartforge_types::substitute(t, &map, &mut self.query.table))
+            .collect()
     }
 
     /// The URI of a unit's `Source`: the library's for the unit that defines
@@ -651,10 +950,20 @@ impl Project {
             return lib.uri.clone();
         }
         if lib.uri.starts_with("dart:")
-            && let (Some(path), Some(base)) = (unit.path.as_deref(), lib.units.first().and_then(|f| p.unit(*f).path.as_deref()).and_then(|x| x.parent()))
+            && let (Some(path), Some(base)) = (
+                unit.path.as_deref(),
+                lib.units
+                    .first()
+                    .and_then(|f| p.unit(*f).path.as_deref())
+                    .and_then(|x| x.parent()),
+            )
             && let Ok(relative) = path.strip_prefix(base)
         {
-            return format!("{}/{}", lib.uri, relative.to_string_lossy().replace('\\', "/"));
+            return format!(
+                "{}/{}",
+                lib.uri,
+                relative.to_string_lossy().replace('\\', "/")
+            );
         }
         unit.uri.clone()
     }
@@ -665,8 +974,18 @@ impl Project {
         let p = self.program();
         let class = p.class(c);
         let d = class.decl?;
-        let components = [p.library(class.library).uri.clone(), self.origin_uri(d.unit), self.name(class.name).to_string()];
-        Some(components.iter().map(|s| s.replace(';', ";;")).collect::<Vec<_>>().join(";"))
+        let components = [
+            p.library(class.library).uri.clone(),
+            self.origin_uri(d.unit),
+            self.name(class.name).to_string(),
+        ];
+        Some(
+            components
+                .iter()
+                .map(|s| s.replace(';', ";;"))
+                .collect::<Vec<_>>()
+                .join(";"),
+        )
     }
 
     /// `session.locateElement(ElementLocationImpl.con2(reference))` restricted
@@ -674,7 +993,9 @@ impl Project {
     /// is not the element.
     pub(crate) fn reference_class(&self, reference: &str) -> Option<ClassId> {
         let components = decode_reference(reference);
-        let [lib, unit, name] = components.as_slice() else { return None };
+        let [lib, unit, name] = components.as_slice() else {
+            return None;
+        };
         let p = self.program();
         (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|&k| {
             let class = p.class(k);
@@ -690,7 +1011,11 @@ impl Project {
     /// The class declared by `did` in `u`.
     fn declaration_class(&self, u: UnitId, did: ast::DeclId) -> Option<ClassId> {
         let p = self.program();
-        (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|&c| p.class(c).decl.is_some_and(|d| d.unit == u && d.decl == did))
+        (0..p.classes.len()).map(|i| ClassId(i as u32)).find(|&c| {
+            p.class(c)
+                .decl
+                .is_some_and(|d| d.unit == u && d.decl == did)
+        })
     }
 
     /// The `NamedType.type` of node `k`: the type built in an instance creation,
@@ -708,17 +1033,27 @@ impl Project {
             .types
             .iter()
             .enumerate()
-            .filter(|(_, t)| t.span == s && matches!(t.kind, ast::TypeKind::Named { .. } | ast::TypeKind::Void))
+            .filter(|(_, t)| {
+                t.span == s && matches!(t.kind, ast::TypeKind::Named { .. } | ast::TypeKind::Void)
+            })
             .find_map(|(i, _)| {
                 let id = ast::TypeId(i as u32);
-                cx.bodies.annotation_types.get(&id).or_else(|| self.query.outline.written_types.get(&(cx.unit, id))).copied()
+                cx.bodies
+                    .annotation_types
+                    .get(&id)
+                    .or_else(|| self.query.outline.written_types.get(&(cx.unit, id)))
+                    .copied()
             })
     }
 
     /// `findTarget`: the type of the `NamedType` containing the node that covers
     /// the cursor (`nodeCovering`); without it, the `thisType` of the containing
     /// class, mixin, enum or extension type. Only interface types.
-    pub(crate) fn hierarchy_target(&mut self, unit: UnitId, offset: usize) -> Option<(ClassId, TypeId)> {
+    pub(crate) fn hierarchy_target(
+        &mut self,
+        unit: UnitId,
+        offset: usize,
+    ) -> Option<(ClassId, TypeId)> {
         let (written, declared) = {
             let cx = Context::new(self, unit);
             let n = cx.coverage(offset, 0)?;
@@ -726,11 +1061,18 @@ impl Project {
             match chain.iter().copied().find(|&k| cx.kind(k) == "NamedType") {
                 Some(k) => (Some(self.named_type_type(&cx, k)?), None),
                 None => {
-                    let d = chain
-                        .iter()
-                        .copied()
-                        .find(|&k| matches!(cx.kind(k), "ClassDeclaration" | "MixinDeclaration" | "ExtensionTypeDeclaration" | "EnumDeclaration"))?;
-                    let Mark::Decl(did) = cx.tree.nodes[d].mark else { return None };
+                    let d = chain.iter().copied().find(|&k| {
+                        matches!(
+                            cx.kind(k),
+                            "ClassDeclaration"
+                                | "MixinDeclaration"
+                                | "ExtensionTypeDeclaration"
+                                | "EnumDeclaration"
+                        )
+                    })?;
+                    let Mark::Decl(did) = cx.tree.nodes[d].mark else {
+                        return None;
+                    };
                     (None, Some(self.declaration_class(unit, did)?))
                 }
             }
@@ -758,13 +1100,30 @@ impl Project {
         let mut output = Vec::new();
         for &(c, ty) in types {
             let Some(d) = p.class(c).decl else { continue };
-            let Some((u, selection)) = self.top_element_name(Element::Class(c)) else { continue };
-            let cx = trees.entry(d.unit).or_insert_with(|| Context::new(self, d.unit));
-            let Some(node) = cx.tree.nodes.iter().position(|n| matches!(n.mark, Mark::Decl(x) if x == d.decl)) else { continue };
+            let Some((u, selection)) = self.top_element_name(Element::Class(c)) else {
+                continue;
+            };
+            let cx = trees
+                .entry(d.unit)
+                .or_insert_with(|| Context::new(self, d.unit));
+            let Some(node) = cx
+                .tree
+                .nodes
+                .iter()
+                .position(|n| matches!(n.mark, Mark::Decl(x) if x == d.decl))
+            else {
+                continue;
+            };
             let range = cx.tree.span(node);
-            let (Some(uri), Some(reference)) = (self.unit_uri(u), self.class_reference(c)) else { continue };
+            let (Some(uri), Some(reference)) = (self.unit_uri(u), self.class_reference(c)) else {
+                continue;
+            };
             output.push(crate::TypeItem {
-                name: self.query.table.format_without_alias(ty, &self.query.names, &self.query.program),
+                name: self.query.table.format_without_alias(
+                    ty,
+                    &self.query.names,
+                    &self.query.program,
+                ),
                 uri,
                 range,
                 selection,
@@ -778,7 +1137,12 @@ impl Project {
     /// `_locateTargetFromAnchor`: from the anchor's `thisType`, follows the
     /// indexes through the supertypes; the found type counts if its element is
     /// `target`.
-    fn type_by_anchor(&mut self, reference: &str, path: &[usize], target: ClassId) -> Option<(ClassId, Vec<TypeId>)> {
+    fn type_by_anchor(
+        &mut self,
+        reference: &str,
+        path: &[usize],
+        target: ClassId,
+    ) -> Option<(ClassId, Vec<TypeId>)> {
         let root = self.reference_class(reference)?;
         let mut current = Some((root, self.type_this(root).1));
         for &i in path {
@@ -793,7 +1157,11 @@ impl Project {
     /// does not locate a class. Supertypes with type arguments carry the anchor
     /// (the request's, or the item's own with an empty path) with the index
     /// appended.
-    pub(crate) fn reference_supertypes(&mut self, reference: &str, anchor: Option<(&str, &[usize])>) -> Option<Vec<crate::TypeItem>> {
+    pub(crate) fn reference_supertypes(
+        &mut self,
+        reference: &str,
+        anchor: Option<(&str, &[usize])>,
+    ) -> Option<Vec<crate::TypeItem>> {
         let c = self.reference_class(reference)?;
         let mut target = (c, self.type_this(c).1);
         let (anchor_ref, path) = match anchor {
@@ -808,8 +1176,12 @@ impl Project {
         let supertypes = self.type_supertypes(target.0, &target.1);
         let mut output = Vec::new();
         for (i, t) in supertypes.into_iter().enumerate() {
-            let Some((k, args)) = self.interface_class(t) else { continue };
-            let Some(mut item) = self.type_item(k, t) else { continue };
+            let Some((k, args)) = self.interface_class(t) else {
+                continue;
+            };
+            let Some(mut item) = self.type_item(k, t) else {
+                continue;
+            };
             if !args.is_empty() {
                 let mut new = path.clone();
                 new.push(i);
@@ -825,15 +1197,23 @@ impl Project {
     pub(crate) fn reference_subtypes(&mut self, reference: &str) -> Option<Vec<crate::TypeItem>> {
         let c = self.reference_class(reference)?;
         let subtypes = self.index_subtypes(c);
-        let types: Vec<(ClassId, TypeId)> = subtypes.into_iter().map(|k| (k, self.type_this(k).0)).collect();
+        let types: Vec<(ClassId, TypeId)> = subtypes
+            .into_iter()
+            .map(|k| (k, self.type_this(k).0))
+            .collect();
         Some(self.type_items(&types))
     }
 
     /// The written type `t` of `u` names `target` directly (the index's
     /// `NamedType.element`: a `typedef` alias does not count).
     fn names_a_class(&self, u: UnitId, t: ast::TypeId, target: ClassId) -> bool {
-        let Some(&ty) = self.query.outline.written_types.get(&(u, t)) else { return false };
-        if matches!(self.query.table.decoration(ty), Some(DisplayDecoration::Alias { .. })) {
+        let Some(&ty) = self.query.outline.written_types.get(&(u, t)) else {
+            return false;
+        };
+        if matches!(
+            self.query.table.decoration(ty),
+            Some(DisplayDecoration::Alias { .. })
+        ) {
             return false;
         }
         self.interface_class(ty).is_some_and(|(c, _)| c == target)
@@ -848,15 +1228,26 @@ impl Project {
     /// of the files and of the clauses. An `augment` declaration is left out.
     fn index_subtypes(&self, target: ClassId) -> Vec<ClassId> {
         let p = self.program();
-        let Some(d) = p.class(target).decl else { return Vec::new() };
+        let Some(d) = p.class(target).decl else {
+            return Vec::new();
+        };
         let name = self.name(p.class(target).name);
         let lib = p.library(p.class(target).library);
         let common = |u: UnitId| p.unit(u).role != UnitRole::Patch;
         let mut files: Vec<UnitId> = Vec::new();
         if name.starts_with('_') {
-            files.extend(lib.units.iter().copied().filter(|&u| common(u) && (u == d.unit || cites_name(&p.unit(u).source, name))));
+            files.extend(
+                lib.units
+                    .iter()
+                    .copied()
+                    .filter(|&u| common(u) && (u == d.unit || cites_name(&p.unit(u).source, name))),
+            );
         } else {
-            files.extend((0..p.units.len()).map(|i| UnitId(i as u32)).filter(|&u| common(u) && cites_name(&p.unit(u).source, name)));
+            files.extend(
+                (0..p.units.len())
+                    .map(|i| UnitId(i as u32))
+                    .filter(|&u| common(u) && cites_name(&p.unit(u).source, name)),
+            );
             for &u in &lib.units {
                 if common(u) && !files.contains(&u) {
                     files.push(u);
@@ -864,22 +1255,48 @@ impl Project {
             }
         }
         let object = Some(target) == self.query.core.object_class;
-        let by_declaration: HashMap<(UnitId, ast::DeclId), ClassId> =
-            (0..p.classes.len()).map(|i| ClassId(i as u32)).filter_map(|c| p.class(c).decl.map(|d| ((d.unit, d.decl), c))).collect();
+        let by_declaration: HashMap<(UnitId, ast::DeclId), ClassId> = (0..p.classes.len())
+            .map(|i| ClassId(i as u32))
+            .filter_map(|c| p.class(c).decl.map(|d| ((d.unit, d.decl), c)))
+            .collect();
         let mut output = Vec::new();
         for u in files {
             let unit = p.unit(u);
             for &did in &unit.unit.declarations {
                 let decl = unit.ast.decl(did);
                 let (implicit, clausulas): (bool, Vec<ast::TypeId>) = match &decl.kind {
-                    DeclKind::Class(k) if k.mixin_application => (false, k.extends.iter().chain(k.with.iter()).chain(k.implements.iter()).copied().collect()),
-                    DeclKind::Class(k) => (k.extends.is_none(), k.extends.iter().chain(k.with.iter()).chain(k.implements.iter()).copied().collect()),
-                    DeclKind::Mixin(k) => (false, k.on.iter().chain(k.implements.iter()).copied().collect()),
-                    DeclKind::Enum(k) => (false, k.with.iter().chain(k.implements.iter()).copied().collect()),
+                    DeclKind::Class(k) if k.mixin_application => (
+                        false,
+                        k.extends
+                            .iter()
+                            .chain(k.with.iter())
+                            .chain(k.implements.iter())
+                            .copied()
+                            .collect(),
+                    ),
+                    DeclKind::Class(k) => (
+                        k.extends.is_none(),
+                        k.extends
+                            .iter()
+                            .chain(k.with.iter())
+                            .chain(k.implements.iter())
+                            .copied()
+                            .collect(),
+                    ),
+                    DeclKind::Mixin(k) => (
+                        false,
+                        k.on.iter().chain(k.implements.iter()).copied().collect(),
+                    ),
+                    DeclKind::Enum(k) => (
+                        false,
+                        k.with.iter().chain(k.implements.iter()).copied().collect(),
+                    ),
                     DeclKind::ExtensionType(k) => (false, k.implements.to_vec()),
                     _ => continue,
                 };
-                let Some(&class) = by_declaration.get(&(u, did)) else { continue };
+                let Some(&class) = by_declaration.get(&(u, did)) else {
+                    continue;
+                };
                 if decl.augment {
                     continue;
                 }
@@ -904,7 +1321,9 @@ fn cites_name(source: &str, name: &str) -> bool {
         return false;
     }
     match dartforge_frontend::lexer::lex(source) {
-        Ok(tokens) => tokens.iter().any(|t| matches!(t.kind, Kind::Ident) && &source[t.span.start..t.span.end] == name),
+        Ok(tokens) => tokens
+            .iter()
+            .any(|t| matches!(t.kind, Kind::Ident) && &source[t.span.start..t.span.end] == name),
         Err(_) => true,
     }
 }

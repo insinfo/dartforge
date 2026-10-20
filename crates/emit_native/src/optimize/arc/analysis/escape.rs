@@ -199,10 +199,7 @@ fn compute_validated(f: &Function, a: &HirAnalysis) -> Result<EscapeResult, Stri
         );
     }
     if a.opaque_implicit_emission {
-        publish(
-            EscapeCause::ImplicitEmission,
-            PointSet::unknown(a.limit),
-        );
+        publish(EscapeCause::ImplicitEmission, PointSet::unknown(a.limit));
     }
     Ok(r)
 }
@@ -373,7 +370,13 @@ mod tests {
         f.blocks[0].terminator = Terminator::Throw(Operand::Val(ValueId(0)));
         let a = analyze(&f, &facts, 3).unwrap();
         let r = compute(&f, &a).unwrap();
-        assert_eq!(r.publications[&EscapeCause::Exception].nodes().unwrap().len(), 2);
+        assert_eq!(
+            r.publications[&EscapeCause::Exception]
+                .nodes()
+                .unwrap()
+                .len(),
+            2
+        );
         f.blocks[0].terminator = Terminator::Return(Some(Operand::Constant(Constant::Null)));
         assert!(compute(&f, &a).is_err());
     }

@@ -41,7 +41,8 @@ fn ir(debug_info: bool) -> Option<String> {
     let text = std::thread::Builder::new()
         .stack_size(64 << 20)
         .spawn(move || {
-            let options = CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+            let options = CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: Some(Path::new(&sdk)),
                 packages: None,
                 timings: false,
@@ -52,7 +53,9 @@ fn ir(debug_info: bool) -> Option<String> {
                 generator: None,
                 cpu: None,
             };
-            emit_ir_with(&entry, &options).unwrap_or_else(|e| panic!("did not compile:\n{e}")).text
+            emit_ir_with(&entry, &options)
+                .unwrap_or_else(|e| panic!("did not compile:\n{e}"))
+                .text
         })
         .unwrap()
         .join()
@@ -62,7 +65,9 @@ fn ir(debug_info: bool) -> Option<String> {
 
 /// The body from `define … @symbol(` up to the `}`.
 fn function<'a>(ir: &'a str, symbol: &str) -> &'a str {
-    let ini = ir.find(&format!("@{symbol}(")).unwrap_or_else(|| panic!("{symbol} missing"));
+    let ini = ir
+        .find(&format!("@{symbol}("))
+        .unwrap_or_else(|| panic!("{symbol} missing"));
     let ini = ir[..ini].rfind("define ").unwrap();
     let end = ir[ini..].find("\n}\n").map_or(ir.len(), |f| ini + f);
     &ir[ini..end]
@@ -70,8 +75,15 @@ fn function<'a>(ir: &'a str, symbol: &str) -> &'a str {
 
 /// The line of the `DILocation` `!n`.
 fn line_of(ir: &str, n: &str) -> u32 {
-    let def = ir.lines().find(|l| l.starts_with(&format!("{n} = !DILocation("))).unwrap_or_else(|| panic!("{n} missing"));
-    def.split("line: ").nth(1).and_then(|r| r.split(',').next()).and_then(|x| x.parse().ok()).unwrap()
+    let def = ir
+        .lines()
+        .find(|l| l.starts_with(&format!("{n} = !DILocation(")))
+        .unwrap_or_else(|| panic!("{n} missing"));
+    def.split("line: ")
+        .nth(1)
+        .and_then(|r| r.split(',').next())
+        .and_then(|x| x.parse().ok())
+        .unwrap()
 }
 
 #[test]
@@ -83,18 +95,25 @@ fn each_instruction_carries_statement_line() {
     // The subprograms with the Dart name and the line of the first statement.
     for (name, line) in [("dobro", 2), ("Conta.depositar", 9), ("main", 14)] {
         assert!(
-            ir.contains(&format!("!DISubprogram(name: \"{name}\", ")) && ir.contains(&format!("line: {line}, type:")),
+            ir.contains(&format!("!DISubprogram(name: \"{name}\", "))
+                && ir.contains(&format!("line: {line}, type:")),
             "subprograma {name} (linha {line})"
         );
     }
     // Every instruction of `double_of` has `!dbg`, and the `ret` is that of `return y;`
     // (line 3), which emits no instruction of its own.
     let double_of = function(&ir, "df.main$2edart..dobro");
-    assert!(double_of.lines().next().unwrap().contains(" !dbg !"), "{double_of}");
+    assert!(
+        double_of.lines().next().unwrap().contains(" !dbg !"),
+        "{double_of}"
+    );
     for l in double_of.lines().skip(1).filter(|l| l.starts_with("  ")) {
         assert!(l.contains(", !dbg !"), "instruction without !dbg: {l}");
     }
-    let ret = double_of.lines().find(|l| l.trim_start().starts_with("ret ")).expect("ret");
+    let ret = double_of
+        .lines()
+        .find(|l| l.trim_start().starts_with("ret "))
+        .expect("ret");
     let n = ret.rsplit(", !dbg ").next().unwrap();
     assert_eq!(line_of(&ir, n), 3, "{ret}");
     // The function with positions is not inlined in the HIR: `main` calls it.

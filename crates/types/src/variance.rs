@@ -244,12 +244,7 @@ pub fn variance(
                             let v = variance_in(table, outline, x, ty);
                             report(first.name.span, x, v, &mut diags);
                             if !vl.final_ && !vl.covariant {
-                                report(
-                                    first.name.span,
-                                    x,
-                                    V::Contravariant.combine(v),
-                                    &mut diags,
-                                );
+                                report(first.name.span, x, V::Contravariant.combine(v), &mut diags);
                             }
                         }
                     }
@@ -308,14 +303,18 @@ pub fn variance(
         // arguments (`Covariant<CovFunction<T>>`): the clause annotation with
         // the same structure.
         let written_ones: Vec<TypeId> = {
-            let (e, w, i, o): (Option<ast::TypeId>, &[ast::TypeId], &[ast::TypeId], &[ast::TypeId]) =
-                match &ast_.decl(decl.decl).kind {
-                    DeclKind::Class(d) => (d.extends, &d.with, &d.implements, &[]),
-                    DeclKind::Mixin(d) => (None, &[], &d.implements, &d.on),
-                    DeclKind::Enum(d) => (None, &d.with, &d.implements, &[]),
-                    DeclKind::ExtensionType(d) => (None, &[], &d.implements, &[]),
-                    _ => (None, &[], &[], &[]),
-                };
+            let (e, w, i, o): (
+                Option<ast::TypeId>,
+                &[ast::TypeId],
+                &[ast::TypeId],
+                &[ast::TypeId],
+            ) = match &ast_.decl(decl.decl).kind {
+                DeclKind::Class(d) => (d.extends, &d.with, &d.implements, &[]),
+                DeclKind::Mixin(d) => (None, &[], &d.implements, &d.on),
+                DeclKind::Enum(d) => (None, &d.with, &d.implements, &[]),
+                DeclKind::ExtensionType(d) => (None, &[], &d.implements, &[]),
+                _ => (None, &[], &[], &[]),
+            };
             e.iter()
                 .chain(w.iter())
                 .chain(i.iter())
@@ -382,32 +381,60 @@ impl Position {
 }
 
 /// The type parameter `x` appears in `t` in a non-covariant position.
-fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Position, prof: u32) -> bool {
+fn in_non_covariant_position(
+    table: &TypeTable,
+    x: TypeParamId,
+    t: TypeId,
+    v: Position,
+    prof: u32,
+) -> bool {
     if prof > 64 {
         return false;
     }
     match table.get(t) {
         Type::TypeParameter { param, .. } => v != Position::Covariant && *param == x,
-        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.iter().any(|a| in_non_covariant_position(table, x, *a, v, prof + 1)),
+        Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args
+            .iter()
+            .any(|a| in_non_covariant_position(table, x, *a, v, prof + 1)),
         Type::FutureOr { arg, .. } => in_non_covariant_position(table, x, *arg, v, prof + 1),
-        Type::Record { positional, named, .. } => {
-            positional.iter().any(|a| in_non_covariant_position(table, x, *a, v, prof + 1))
-                || named.iter().any(|(_, a)| in_non_covariant_position(table, x, *a, v, prof + 1))
+        Type::Record {
+            positional, named, ..
+        } => {
+            positional
+                .iter()
+                .any(|a| in_non_covariant_position(table, x, *a, v, prof + 1))
+                || named
+                    .iter()
+                    .any(|(_, a)| in_non_covariant_position(table, x, *a, v, prof + 1))
         }
-        Type::Function { type_params, ret, positional, optional, named, .. } => {
+        Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
             if in_non_covariant_position(table, x, *ret, v, prof + 1) {
                 return true;
             }
             // The written bounds of the function's type parameters: invariant.
             for tp in type_params.iter() {
                 let d = table.param(*tp);
-                if d.explicit && in_non_covariant_position(table, x, d.bound, Position::Invariant, prof + 1) {
+                if d.explicit
+                    && in_non_covariant_position(table, x, d.bound, Position::Invariant, prof + 1)
+                {
                     return true;
                 }
             }
             let against = v.the_with(Position::Contravariant);
-            positional.iter().chain(optional.iter()).any(|a| in_non_covariant_position(table, x, *a, against, prof + 1))
-                || named.iter().any(|(_, a, _)| in_non_covariant_position(table, x, *a, against, prof + 1))
+            positional
+                .iter()
+                .chain(optional.iter())
+                .any(|a| in_non_covariant_position(table, x, *a, against, prof + 1))
+                || named
+                    .iter()
+                    .any(|(_, a, _)| in_non_covariant_position(table, x, *a, against, prof + 1))
         }
         _ => false,
     }
@@ -417,22 +444,52 @@ fn in_non_covariant_position(table: &TypeTable, x: TypeParamId, t: TypeId, v: Po
 /// (`analyzer/lib/src/generated/error_verifier.dart:4752-4780`): each type
 /// parameter of an extension type that appears in a non-covariant position of
 /// the representation type, at the type parameter's node.
-pub fn non_covariant_positions_in_representation(program: &Program, table: &TypeTable, outline: &OutlineTypes, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
+pub fn non_covariant_positions_in_representation(
+    program: &Program,
+    table: &TypeTable,
+    outline: &OutlineTypes,
+    lib: LibraryId,
+) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
     for (i, k) in program.classes.iter().enumerate() {
         if k.library != lib || k.kind != dartforge_elements::model::ClassKind::ExtensionType {
             continue;
         }
-        let (Some(d), Some(rep)) = (k.decl, k.representation) else { continue };
-        let Some(t) = outline.variables.get(rep.0 as usize).and_then(|x| x.declared_type) else { continue };
-        let Some(formals) = outline.classes.get(i).map(|x| x.type_params.clone()) else { continue };
+        let (Some(d), Some(rep)) = (k.decl, k.representation) else {
+            continue;
+        };
+        let Some(t) = outline
+            .variables
+            .get(rep.0 as usize)
+            .and_then(|x| x.declared_type)
+        else {
+            continue;
+        };
+        let Some(formals) = outline.classes.get(i).map(|x| x.type_params.clone()) else {
+            continue;
+        };
         let a = &program.unit(d.unit).ast;
-        let DeclKind::ExtensionType(x) = &a.decl(d.decl).kind else { continue };
+        let DeclKind::ExtensionType(x) = &a.decl(d.decl).kind else {
+            continue;
+        };
         for (tp, &pid) in x.type_params.iter().zip(formals.iter()) {
             if in_non_covariant_position(table, pid, t, Position::Covariant, 0) {
-                let start = tp.metadata.first().map_or(tp.span.start, |m| m.span.start.min(tp.span.start));
-                let sp = Span { start, end: tp.span.end };
-                output.push((d.unit, Diagnostic::with_code(c::NON_COVARIANT_TYPE_PARAMETER_POSITION_IN_REPRESENTATION_TYPE, sp, std::iter::empty::<&str>())));
+                let start = tp
+                    .metadata
+                    .first()
+                    .map_or(tp.span.start, |m| m.span.start.min(tp.span.start));
+                let sp = Span {
+                    start,
+                    end: tp.span.end,
+                };
+                output.push((
+                    d.unit,
+                    Diagnostic::with_code(
+                        c::NON_COVARIANT_TYPE_PARAMETER_POSITION_IN_REPRESENTATION_TYPE,
+                        sp,
+                        std::iter::empty::<&str>(),
+                    ),
+                ));
             }
         }
     }

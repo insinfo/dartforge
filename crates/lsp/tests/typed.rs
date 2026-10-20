@@ -68,8 +68,7 @@ fn published_typed_code_reaches_editor() {
     p.server.pause_typed_analysis(false);
     let outputs = p.server.await_diagnostics(LIMIT);
     let uri = p.uri("lib/a.dart");
-    let typed =
-        last(&outputs, &uri).unwrap_or_else(|| panic!("no typed publication: {outputs:?}"));
+    let typed = last(&outputs, &uri).unwrap_or_else(|| panic!("no typed publication: {outputs:?}"));
     assert_eq!(typed["params"]["version"], 1);
     assert_eq!(codes(typed), vec!["non_bool_condition"], "{typed}");
     let d = &typed["params"]["diagnostics"][0];
@@ -100,7 +99,11 @@ fn only_published_codes_and_ignore_respected() {
     // The order of `dart language-server` 3.6.2: errors before warnings.
     assert_eq!(
         codes(&typed),
-        vec!["invalid_assignment", "non_bool_condition", "unused_local_variable"],
+        vec![
+            "invalid_assignment",
+            "non_bool_condition",
+            "unused_local_variable"
+        ],
         "{typed}"
     );
     assert_eq!(
@@ -141,7 +144,10 @@ fn stale_version_result_is_discarded() {
     );
     let outputs = p.server.pump();
     assert!(
-        outputs.iter().filter(|m| m["method"] == "textDocument/publishDiagnostics").all(|m| m["params"]["version"] == 2),
+        outputs
+            .iter()
+            .filter(|m| m["method"] == "textDocument/publishDiagnostics")
+            .all(|m| m["params"]["version"] == 2),
         "published a stale version: {outputs:?}"
     );
     assert_eq!(p.server.typed_discarded(), 1);
@@ -224,11 +230,16 @@ fn normalized(p: &Project, outputs: &[Value]) -> Vec<String> {
 fn typed_scenario(p: &mut Project) -> Vec<String> {
     p.write("lib/c.dart", "void g() {\n  if (2) {}\n}\n");
     // `initialized`: the workspace folder is analyzed and its files published.
-    p.server.receive(json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
+    p.server
+        .receive(json!({"jsonrpc":"2.0","method":"initialized","params":{}}));
     let mut outputs = p.server.pump();
     outputs.extend(p.server.await_diagnostics(LIMIT));
     outputs.extend(open_and_wait(p, "lib/b.dart", "int x = 0;\n"));
-    outputs.extend(open_and_wait(p, "lib/a.dart", "import 'b.dart';\nvoid f() {\n  if (x) {}\n}\n"));
+    outputs.extend(open_and_wait(
+        p,
+        "lib/a.dart",
+        "import 'b.dart';\nvoid f() {\n  if (x) {}\n}\n",
+    ));
     outputs.extend(change_and_wait(p, "lib/b.dart", 2, "bool x = true;\n"));
     outputs.extend(change_and_wait(p, "lib/b.dart", 3, "int x = 0;\n"));
     normalized(p, &outputs)
@@ -241,9 +252,18 @@ fn typed_scenario(p: &mut Project) -> Vec<String> {
 fn child_process_publishes_like_the_thread() {
     let mut in_thread = Project::new("typed-thread");
     let expected = typed_scenario(&mut in_thread);
-    assert!(expected.iter().any(|m| m.contains("c.dart") && m.contains("non_bool_condition")), "{expected:?}");
+    assert!(
+        expected
+            .iter()
+            .any(|m| m.contains("c.dart") && m.contains("non_bool_condition")),
+        "{expected:?}"
+    );
     let mut in_child = Project::new("typed-child");
-    in_child.server.analyze_in_child_processes(std::path::PathBuf::from(env!("CARGO_BIN_EXE_dartforge-lsp")));
+    in_child
+        .server
+        .analyze_in_child_processes(std::path::PathBuf::from(env!(
+            "CARGO_BIN_EXE_dartforge-lsp"
+        )));
     assert_eq!(typed_scenario(&mut in_child), expected);
 }
 
@@ -283,7 +303,10 @@ fn pulled_codes(report: &Value) -> Vec<String> {
 #[test]
 fn pulled_diagnostics_instead_of_pushed() {
     // The capability is only announced to whoever asks for it.
-    for (capabilities, announces) in [(json!({}), false), (json!({"textDocument": {"diagnostic": {}}}), true)] {
+    for (capabilities, announces) in [
+        (json!({}), false),
+        (json!({"textDocument": {"diagnostic": {}}}), true),
+    ] {
         let mut s = dartforge_lsp::Server::new();
         s.receive(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":capabilities}}));
         let r = s.pump();
@@ -310,33 +333,57 @@ fn pulled_diagnostics_instead_of_pushed() {
     assert!(last(&p.server.pump(), &uri).is_none());
     // The immediate (syntactic) flow on request; the same `resultId` comes back
     // `unchanged`.
-    let immediate = p.request("textDocument/diagnostic", json!({"textDocument": document_text}));
+    let immediate = p.request(
+        "textDocument/diagnostic",
+        json!({"textDocument": document_text}),
+    );
     assert_eq!(immediate["result"]["kind"], "full", "{immediate}");
     assert_eq!(immediate["result"]["resultId"], "1");
     assert!(pulled_codes(&immediate).is_empty(), "{immediate}");
-    let equal = p.request("textDocument/diagnostic", json!({"textDocument": document_text, "previousResultId": "1"}));
-    assert_eq!(equal["result"], json!({"kind": "unchanged", "resultId": "1"}));
+    let equal = p.request(
+        "textDocument/diagnostic",
+        json!({"textDocument": document_text, "previousResultId": "1"}),
+    );
+    assert_eq!(
+        equal["result"],
+        json!({"kind": "unchanged", "resultId": "1"})
+    );
     // The typed result asks for a `refresh` instead of publishing.
     p.server.pause_typed_analysis(false);
     let outputs = p.server.await_diagnostics(LIMIT);
-    assert!(outputs.iter().all(|m| m["method"] != "textDocument/publishDiagnostics"), "{outputs:?}");
+    assert!(
+        outputs
+            .iter()
+            .all(|m| m["method"] != "textDocument/publishDiagnostics"),
+        "{outputs:?}"
+    );
     let refresh = outputs
         .iter()
         .find(|m| m["method"] == "workspace/diagnostic/refresh")
         .unwrap_or_else(|| panic!("no refresh: {outputs:?}"));
     assert!(refresh["id"].is_string(), "{refresh}");
     // The client's response to the `refresh` is accepted silently.
-    p.server.receive(json!({"jsonrpc":"2.0","id":refresh["id"].clone(),"result":null}));
+    p.server
+        .receive(json!({"jsonrpc":"2.0","id":refresh["id"].clone(),"result":null}));
     assert!(p.server.pump().is_empty());
     // Pulled again, the typed result of the same version comes.
-    let typed = p.request("textDocument/diagnostic", json!({"textDocument": document_text, "previousResultId": "1"}));
+    let typed = p.request(
+        "textDocument/diagnostic",
+        json!({"textDocument": document_text, "previousResultId": "1"}),
+    );
     assert_eq!(typed["result"]["kind"], "full", "{typed}");
     assert_eq!(typed["result"]["resultId"], "1.t");
     assert_eq!(pulled_codes(&typed), vec!["non_bool_condition"], "{typed}");
-    assert_eq!(typed["result"]["items"][0]["range"]["start"], json!({"line": 1, "character": 6}));
+    assert_eq!(
+        typed["result"]["items"][0]["range"]["start"],
+        json!({"line": 1, "character": 6})
+    );
     // Closing does not push either; once closed, the document has no diagnostics.
     p.server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{"textDocument": document_text}}));
     assert!(p.server.pump().is_empty());
-    let closed = p.request("textDocument/diagnostic", json!({"textDocument": document_text}));
+    let closed = p.request(
+        "textDocument/diagnostic",
+        json!({"textDocument": document_text}),
+    );
     assert_eq!(closed["result"], json!({"kind": "full", "items": []}));
 }

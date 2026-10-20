@@ -47,12 +47,13 @@ pub fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
             })?);
         }
     }
-    let size = size
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "frame without Content-Length"))?;
+    let size = size.ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "frame without Content-Length")
+    })?;
     let mut body = vec![0u8; size];
     reader.read_exact(&mut body)?;
-    let value: Value = serde_json::from_slice(&body)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let value: Value =
+        serde_json::from_slice(&body).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     Ok(Some(value))
 }
 
@@ -84,7 +85,10 @@ pub fn decode_all(mut bytes: &[u8]) -> io::Result<Vec<Value>> {
     while !bytes.is_empty() {
         let mut reader = bytes;
         let message = read_message(&mut reader)?.ok_or_else(|| {
-            io::Error::new(io::ErrorKind::UnexpectedEof, "remaining bytes without a frame")
+            io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "remaining bytes without a frame",
+            )
         })?;
         let consumed = bytes.len() - reader.len();
         messages.push(message);

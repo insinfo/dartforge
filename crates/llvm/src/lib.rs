@@ -25,39 +25,46 @@
 pub mod check_rs4gc;
 pub mod image_sections;
 
+use llvm_sys::LLVMOpcode;
 use llvm_sys::bit_writer::LLVMWriteBitcodeToMemoryBuffer;
 use llvm_sys::core::{
-    LLVMConstNull, LLVMContextCreate, LLVMContextDispose, LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDeleteFunction,
-    LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule, LLVMDisposeOperandBundle, LLVMGetBufferSize,
-    LLVMGetBufferStart, LLVMGetDataLayoutStr, LLVMGetFirstBasicBlock, LLVMGetFirstFunction, LLVMGetFirstInstruction,
-    LLVMGetFirstUse, LLVMGetGC, LLVMGetInstructionOpcode, LLVMGetNamedFunction, LLVMGetNextBasicBlock, LLVMGetNextFunction,
-    LLVMGetNextInstruction, LLVMGetNumArgOperands, LLVMGetNumOperandBundleArgs, LLVMGetNumOperandBundles, LLVMGetNumOperands,
-    LLVMGetOperand, LLVMGetOperandBundleAtIndex, LLVMGetOperandBundleTag, LLVMGetTarget, LLVMGetVersion, LLVMIsACallInst,
-    LLVMIsAConstantExpr, LLVMIsAConstantInt, LLVMIsAGlobalValue, LLVMIsAInstruction, LLVMIsAInvokeInst, LLVMPrintModuleToString,
-    LLVMSetDataLayout, LLVMSetOperand, LLVMSetTarget, LLVMTypeOf, LLVMConstIntGetZExtValue, LLVMGetCalledValue, LLVMGetValueName2,
-    LLVMConstInt,
+    LLVMConstInt, LLVMConstIntGetZExtValue, LLVMConstNull, LLVMContextCreate, LLVMContextDispose,
+    LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDeleteFunction, LLVMDisposeMemoryBuffer,
+    LLVMDisposeMessage, LLVMDisposeModule, LLVMDisposeOperandBundle, LLVMGetBufferSize,
+    LLVMGetBufferStart, LLVMGetCalledValue, LLVMGetDataLayoutStr, LLVMGetFirstBasicBlock,
+    LLVMGetFirstFunction, LLVMGetFirstInstruction, LLVMGetFirstUse, LLVMGetGC,
+    LLVMGetInstructionOpcode, LLVMGetNamedFunction, LLVMGetNextBasicBlock, LLVMGetNextFunction,
+    LLVMGetNextInstruction, LLVMGetNumArgOperands, LLVMGetNumOperandBundleArgs,
+    LLVMGetNumOperandBundles, LLVMGetNumOperands, LLVMGetOperand, LLVMGetOperandBundleAtIndex,
+    LLVMGetOperandBundleTag, LLVMGetTarget, LLVMGetValueName2, LLVMGetVersion, LLVMIsACallInst,
+    LLVMIsAConstantExpr, LLVMIsAConstantInt, LLVMIsAGlobalValue, LLVMIsAInstruction,
+    LLVMIsAInvokeInst, LLVMPrintModuleToString, LLVMSetDataLayout, LLVMSetOperand, LLVMSetTarget,
+    LLVMTypeOf,
 };
-use llvm_sys::LLVMOpcode;
 use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage};
 use llvm_sys::ir_reader::LLVMParseIRInContext2;
-use llvm_sys::support::LLVMParseCommandLineOptions;
 use llvm_sys::prelude::{LLVMContextRef, LLVMMemoryBufferRef, LLVMModuleRef};
+use llvm_sys::support::LLVMParseCommandLineOptions;
 use llvm_sys::target::{
-    LLVM_InitializeNativeAsmParser, LLVM_InitializeNativeAsmPrinter, LLVM_InitializeNativeTarget, LLVMDisposeTargetData, LLVMSetModuleDataLayout,
+    LLVM_InitializeNativeAsmParser, LLVM_InitializeNativeAsmPrinter, LLVM_InitializeNativeTarget,
+    LLVMDisposeTargetData, LLVMSetModuleDataLayout,
+};
+use llvm_sys::target::{
+    LLVMInitializeAArch64AsmParser, LLVMInitializeAArch64AsmPrinter, LLVMInitializeAArch64Target,
+    LLVMInitializeAArch64TargetInfo, LLVMInitializeAArch64TargetMC, LLVMInitializeX86AsmParser,
+    LLVMInitializeX86AsmPrinter, LLVMInitializeX86Target, LLVMInitializeX86TargetInfo,
+    LLVMInitializeX86TargetMC,
 };
 use llvm_sys::target_machine::{
-    LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout, LLVMCreateTargetMachine,
-    LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple, LLVMGetHostCPUFeatures, LLVMGetHostCPUName, LLVMGetTargetFromTriple, LLVMRelocMode,
+    LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
+    LLVMCreateTargetMachine, LLVMDisposeTargetMachine, LLVMGetDefaultTargetTriple,
+    LLVMGetHostCPUFeatures, LLVMGetHostCPUName, LLVMGetTargetFromTriple, LLVMRelocMode,
     LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef,
 };
 use llvm_sys::transforms::pass_builder::{
     LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
 };
 use std::ffi::{CStr, CString, c_char};
-use llvm_sys::target::{LLVMInitializeX86TargetInfo, LLVMInitializeX86Target,
-    LLVMInitializeX86TargetMC, LLVMInitializeX86AsmPrinter, LLVMInitializeX86AsmParser,
-    LLVMInitializeAArch64TargetInfo, LLVMInitializeAArch64Target, LLVMInitializeAArch64TargetMC,
-    LLVMInitializeAArch64AsmPrinter, LLVMInitializeAArch64AsmParser};
 use std::ptr;
 use std::sync::OnceLock;
 
@@ -79,10 +86,16 @@ pub fn init_native_target() -> Result<(), String> {
             // routines only register the target in LLVM's global tables.
             // SAFETY: registration is serialized by STATE, before generation.
             unsafe {
-                LLVMInitializeX86TargetInfo(); LLVMInitializeX86Target();
-                LLVMInitializeX86TargetMC(); LLVMInitializeX86AsmPrinter(); LLVMInitializeX86AsmParser();
-                LLVMInitializeAArch64TargetInfo(); LLVMInitializeAArch64Target();
-                LLVMInitializeAArch64TargetMC(); LLVMInitializeAArch64AsmPrinter(); LLVMInitializeAArch64AsmParser();
+                LLVMInitializeX86TargetInfo();
+                LLVMInitializeX86Target();
+                LLVMInitializeX86TargetMC();
+                LLVMInitializeX86AsmPrinter();
+                LLVMInitializeX86AsmParser();
+                LLVMInitializeAArch64TargetInfo();
+                LLVMInitializeAArch64Target();
+                LLVMInitializeAArch64TargetMC();
+                LLVMInitializeAArch64AsmPrinter();
+                LLVMInitializeAArch64AsmParser();
             }
             let has_failed = unsafe {
                 LLVM_InitializeNativeTarget() != 0
@@ -94,10 +107,19 @@ pub fn init_native_target() -> Result<(), String> {
             }
             // The code generator options, global to the process and read once
             // (`cl::opt` rejects a second occurrence).
-            let arguments: Vec<CString> = generator_options().iter().map(|a| CString::new(a.as_str()).expect("option without NUL")).collect();
+            let arguments: Vec<CString> = generator_options()
+                .iter()
+                .map(|a| CString::new(a.as_str()).expect("option without NUL"))
+                .collect();
             let pointers: Vec<*const c_char> = arguments.iter().map(|a| a.as_ptr()).collect();
             // SAFETY: `argv` points to C strings alive until the end of the call.
-            unsafe { LLVMParseCommandLineOptions(pointers.len() as i32, pointers.as_ptr(), c"dartforge".as_ptr()) };
+            unsafe {
+                LLVMParseCommandLineOptions(
+                    pointers.len() as i32,
+                    pointers.as_ptr(),
+                    c"dartforge".as_ptr(),
+                )
+            };
             Ok(())
         })
         .clone()
@@ -117,7 +139,10 @@ pub fn roots_in_registers() -> bool {
 /// The code generator options that dartforge passes to LLVM (the embedded one, and
 /// `ld64.lld` through `-mllvm`), without the program name.
 pub fn generator_options_without_program() -> Vec<String> {
-    vec![format!("-use-registers-for-deopt-values={}", roots_in_registers())]
+    vec![format!(
+        "-use-registers-for-deopt-values={}",
+        roots_in_registers()
+    )]
 }
 
 fn generator_options() -> Vec<String> {
@@ -184,7 +209,12 @@ impl Options {
 /// `-march=native`).
 fn machine_cpu() -> (String, String) {
     // SAFETY: the returned strings are ours and freed by `take_message`.
-    unsafe { (take_message(LLVMGetHostCPUName()), take_message(LLVMGetHostCPUFeatures())) }
+    unsafe {
+        (
+            take_message(LLVMGetHostCPUName()),
+            take_message(LLVMGetHostCPUFeatures()),
+        )
+    }
 }
 
 /// The generator's identity for the cache keys: the LLVM version, the host's triple
@@ -195,7 +225,13 @@ pub fn identity() -> Result<String, String> {
     ID.get_or_init(|| {
         init_native_target()?;
         let triple = default_triple();
-        Ok(format!("embedded-llvm {} {} {} {}", version(), triple, default_cpu(&triple), generator_options_without_program().join(" ")))
+        Ok(format!(
+            "embedded-llvm {} {} {} {}",
+            version(),
+            triple,
+            default_cpu(&triple),
+            generator_options_without_program().join(" ")
+        ))
     })
     .clone()
 }
@@ -223,7 +259,8 @@ pub fn generate(name: &str, ir: &str, options: &Options) -> Result<Vec<u8>, Stri
     // selection). The code generator of those functions is never the `-O0` one
     // (FastISel has known defects with `gc.relocate`).
     let with_maps = ir.contains(GC_MARK);
-    let llvm_machine = TargetMachine::from_triple(&triple, options.optimize || with_maps, options.cpu)?;
+    let llvm_machine =
+        TargetMachine::from_triple(&triple, options.optimize || with_maps, options.cpu)?;
     module.complete_target(&triple, &llvm_machine, with_maps);
     // Production bitcode never goes through the maps pass here: it runs after all
     // the link-time optimization — on Windows and Linux at the end of the
@@ -236,7 +273,9 @@ pub fn generate(name: &str, ir: &str, options: &Options) -> Result<Vec<u8>, Stri
     // `DARTFORGE_OBJECT_PIPELINE` replaces the pipeline of the optimized object
     // (time and size measurement: `default<O1>`, `default<Os>`;
     // docs/NATIVO-PRODUCAO-GRANDE.md).
-    let chosen = std::env::var("DARTFORGE_OBJECT_PIPELINE").ok().filter(|p| !p.is_empty());
+    let chosen = std::env::var("DARTFORGE_OBJECT_PIPELINE")
+        .ok()
+        .filter(|p| !p.is_empty());
     let pipeline = match (options.format, options.optimize) {
         (Format::Bitcode, _) => "lto-pre-link<O2>",
         (Format::Object, true) => chosen.as_deref().unwrap_or("default<O2>"),
@@ -258,7 +297,9 @@ pub fn generate(name: &str, ir: &str, options: &Options) -> Result<Vec<u8>, Stri
     match options.format {
         Format::Object => {
             dump_before_generator(name, &module);
-            llvm_machine.emit_object(&module).map_err(|e| dump_if_requested(name, "object", &module, e))
+            llvm_machine
+                .emit_object(&module)
+                .map_err(|e| dump_if_requested(name, "object", &module, e))
         }
         Format::Bitcode => Ok(module.bitcode()),
     }
@@ -286,16 +327,18 @@ unsafe fn static_address(v: llvm_sys::prelude::LLVMValueRef, depth: u32) -> bool
         }
         let constant = |x| !LLVMIsAConstantInt(x).is_null();
         match LLVMGetInstructionOpcode(v) {
-            LLVMOpcode::LLVMPtrToInt | LLVMOpcode::LLVMIntToPtr | LLVMOpcode::LLVMBitCast | LLVMOpcode::LLVMAddrSpaceCast => {
-                static_address(LLVMGetOperand(v, 0), depth + 1)
-            }
+            LLVMOpcode::LLVMPtrToInt
+            | LLVMOpcode::LLVMIntToPtr
+            | LLVMOpcode::LLVMBitCast
+            | LLVMOpcode::LLVMAddrSpaceCast => static_address(LLVMGetOperand(v, 0), depth + 1),
             LLVMOpcode::LLVMGetElementPtr => {
                 (1..LLVMGetNumOperands(v) as u32).all(|k| constant(LLVMGetOperand(v, k)))
                     && static_address(LLVMGetOperand(v, 0), depth + 1)
             }
             LLVMOpcode::LLVMAdd => {
                 let (a, b) = (LLVMGetOperand(v, 0), LLVMGetOperand(v, 1));
-                (constant(b) && static_address(a, depth + 1)) || (constant(a) && static_address(b, depth + 1))
+                (constant(b) && static_address(a, depth + 1))
+                    || (constant(a) && static_address(b, depth + 1))
             }
             LLVMOpcode::LLVMLoad => canonical_load(LLVMGetOperand(v, 0)),
             _ => false,
@@ -346,7 +389,10 @@ unsafe fn canonical_load(p: llvm_sys::prelude::LLVMValueRef) -> bool {
     const FALSE: u64 = 368;
     // SAFETY: the function's contract; only reads.
     unsafe {
-        if LLVMIsAInstruction(p).is_null() || LLVMGetInstructionOpcode(p) != LLVMOpcode::LLVMGetElementPtr || LLVMGetNumOperands(p) != 2 {
+        if LLVMIsAInstruction(p).is_null()
+            || LLVMGetInstructionOpcode(p) != LLVMOpcode::LLVMGetElementPtr
+            || LLVMGetNumOperands(p) != 2
+        {
             return false;
         }
         let base = LLVMGetOperand(p, 0);
@@ -356,10 +402,14 @@ unsafe fn canonical_load(p: llvm_sys::prelude::LLVMValueRef) -> bool {
         let callee = LLVMGetCalledValue(base);
         let mut n = 0usize;
         let name = LLVMGetValueName2(callee, &mut n);
-        if name.is_null() || std::slice::from_raw_parts(name.cast::<u8>(), n) != b"dartforge_context" {
+        if name.is_null()
+            || std::slice::from_raw_parts(name.cast::<u8>(), n) != b"dartforge_context"
+        {
             return false;
         }
-        let canonical = |x| !LLVMIsAConstantInt(x).is_null() && matches!(LLVMConstIntGetZExtValue(x), TRUE | FALSE);
+        let canonical = |x| {
+            !LLVMIsAConstantInt(x).is_null() && matches!(LLVMConstIntGetZExtValue(x), TRUE | FALSE)
+        };
         let ix = LLVMGetOperand(p, 1);
         if canonical(ix) {
             return true;
@@ -374,7 +424,6 @@ unsafe fn canonical_load(p: llvm_sys::prelude::LLVMValueRef) -> bool {
 /// The attribute of the functions with roots in the stack map, as the emitter
 /// writes it (`emit_native/src/llvm/mod.rs`).
 pub const GC_MARK: &str = "gc \"statepoint-example\"";
-
 
 /// The native object of one part of the **distributed ThinLTO**
 /// (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.4 and Stage 3): `bitcode` is the
@@ -393,7 +442,11 @@ pub const GC_MARK: &str = "gc \"statepoint-example\"";
 /// # Errors
 /// Bitcode the reader rejects, a failure of the pass, of the verifier or of the
 /// code generator — the message is LLVM's.
-pub fn generate_from_bitcode(name: &str, bitcode: &[u8], cpu: Option<&'static str>) -> Result<(Vec<u8>, bool), String> {
+pub fn generate_from_bitcode(
+    name: &str,
+    bitcode: &[u8],
+    cpu: Option<&'static str>,
+) -> Result<(Vec<u8>, bool), String> {
     init_native_target()?;
     let context = Context::new();
     let module = context.read_bytes(name, bitcode)?;
@@ -410,7 +463,12 @@ pub fn generate_from_bitcode(name: &str, bitcode: &[u8], cpu: Option<&'static st
         module.optimize("verify", &llvm_machine)?;
     }
     dump_before_generator(name, &module);
-    Ok((llvm_machine.emit_object(&module).map_err(|e| dump_if_requested(name, "object", &module, e))?, with_maps))
+    Ok((
+        llvm_machine
+            .emit_object(&module)
+            .map_err(|e| dump_if_requested(name, "object", &module, e))?,
+        with_maps,
+    ))
 }
 
 /// Inspect explicit section definitions, declarations and assembly in IR/bitcode.
@@ -655,7 +713,8 @@ fn check_after_rs4gc(name: &str, module: &IrModule<'_>) -> Result<(), String> {
     if !std::env::var("DARTFORGE_CHECK_RS4GC").is_ok_and(|v| v == "1") {
         return Ok(());
     }
-    check_rs4gc::check(&module.text()).map_err(|e| dump_if_requested(name, "rs4gc", module, format!("{name}: {e}")))
+    check_rs4gc::check(&module.text())
+        .map_err(|e| dump_if_requested(name, "rs4gc", module, format!("{name}: {e}")))
 }
 
 /// `DARTFORGE_DUMP_MODULE=<trecho>`: the module whose name contains the chunk
@@ -667,10 +726,16 @@ fn dump_before_generator(name: &str, module: &IrModule<'_>) {
         && !chunk.is_empty()
         && name.contains(&chunk)
     {
-        let file_name: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        let file_name: String = name
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
         let dest = std::env::temp_dir().join(format!("gerador-{file_name}.ll"));
         let _ = std::fs::write(&dest, module.text());
-        eprintln!("dartforge: the module before the code generator was saved at {}", dest.display());
+        eprintln!(
+            "dartforge: the module before the code generator was saved at {}",
+            dest.display()
+        );
     }
 }
 
@@ -679,10 +744,16 @@ fn dump_before_generator(name: &str, module: &IrModule<'_>) {
 /// Returns the error.
 fn dump_if_requested(name: &str, stage: &str, module: &IrModule<'_>, error: String) -> String {
     if std::env::var_os("DARTFORGE_KEEP_IR").is_some() {
-        let file_name: String = name.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+        let file_name: String = name
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect();
         let dest = std::env::temp_dir().join(format!("{stage}-{file_name}.ll"));
         let _ = std::fs::write(&dest, module.text());
-        eprintln!("dartforge: the failing module was saved at {}", dest.display());
+        eprintln!(
+            "dartforge: the failing module was saved at {}",
+            dest.display()
+        );
     }
     error
 }
@@ -773,16 +844,27 @@ impl Context {
         // consume it, and it is freed right after. The created module is ours and
         // goes to the `IrModule`; the error message, if any, is ours.
         unsafe {
-            let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(ir.as_ptr().cast(), ir.len(), c_name.as_ptr());
+            let buffer = LLVMCreateMemoryBufferWithMemoryRangeCopy(
+                ir.as_ptr().cast(),
+                ir.len(),
+                c_name.as_ptr(),
+            );
             let mut module = ptr::null_mut();
             let mut message = ptr::null_mut();
             let has_failed = LLVMParseIRInContext2(self.0, buffer, &mut module, &mut message) != 0;
             LLVMDisposeMemoryBuffer(buffer);
             if has_failed {
-                let detail = if message.is_null() { "invalid IR".to_owned() } else { take_message(message) };
+                let detail = if message.is_null() {
+                    "invalid IR".to_owned()
+                } else {
+                    take_message(message)
+                };
                 return Err(format!("LLVM rejected the IR of {name}: {detail}"));
             }
-            Ok(IrModule { m: module, _context: self })
+            Ok(IrModule {
+                m: module,
+                _context: self,
+            })
         }
     }
 }
@@ -805,7 +887,9 @@ impl IrModule<'_> {
     /// The module's `target triple`, if declared.
     fn triple(&self) -> Option<String> {
         // SAFETY: the string belongs to the module, which is alive; it is copied.
-        let t = unsafe { CStr::from_ptr(LLVMGetTarget(self.m)) }.to_string_lossy().into_owned();
+        let t = unsafe { CStr::from_ptr(LLVMGetTarget(self.m)) }
+            .to_string_lossy()
+            .into_owned();
         (!t.is_empty()).then_some(t)
     }
 
@@ -824,13 +908,18 @@ impl IrModule<'_> {
             {
                 LLVMSetTarget(self.m, t.as_ptr());
             }
-            if CStr::from_ptr(LLVMGetDataLayoutStr(self.m)).to_bytes().is_empty() {
+            if CStr::from_ptr(LLVMGetDataLayoutStr(self.m))
+                .to_bytes()
+                .is_empty()
+            {
                 let data = LLVMCreateTargetDataLayout(llvm_machine.0);
                 LLVMSetModuleDataLayout(self.m, data);
                 LLVMDisposeTargetData(data);
             }
             if with_maps {
-                let current = CStr::from_ptr(LLVMGetDataLayoutStr(self.m)).to_string_lossy().into_owned();
+                let current = CStr::from_ptr(LLVMGetDataLayoutStr(self.m))
+                    .to_string_lossy()
+                    .into_owned();
                 if !current.split('-').any(|p| p.starts_with("ni:"))
                     && let Ok(new) = CString::new(format!("{current}-ni:1"))
                 {
@@ -904,7 +993,8 @@ impl IrModule<'_> {
                                 let ob = LLVMGetOperandBundleAtIndex(i, k);
                                 let mut n = 0usize;
                                 let tag = LLVMGetOperandBundleTag(ob, &mut n);
-                                let is_deopt = std::slice::from_raw_parts(tag.cast::<u8>(), n) == b"deopt";
+                                let is_deopt =
+                                    std::slice::from_raw_parts(tag.cast::<u8>(), n) == b"deopt";
                                 let args = LLVMGetNumOperandBundleArgs(ob);
                                 LLVMDisposeOperandBundle(ob);
                                 if is_deopt {
@@ -994,7 +1084,11 @@ impl TargetMachine {
             let mut target = ptr::null_mut();
             let mut message = ptr::null_mut();
             if LLVMGetTargetFromTriple(triple_c.as_ptr(), &mut target, &mut message) != 0 {
-                let detail = if message.is_null() { "unknown target".to_owned() } else { take_message(message) };
+                let detail = if message.is_null() {
+                    "unknown target".to_owned()
+                } else {
+                    take_message(message)
+                };
                 return Err(format!("LLVM does not have the target {triple}: {detail}"));
             }
             let llvm_machine = LLVMCreateTargetMachine(
@@ -1002,12 +1096,22 @@ impl TargetMachine {
                 triple_c.as_ptr(),
                 cpu.as_ptr(),
                 resources.as_ptr(),
-                if optimize { LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault } else { LLVMCodeGenOptLevel::LLVMCodeGenLevelNone },
-                if windows { LLVMRelocMode::LLVMRelocDefault } else { LLVMRelocMode::LLVMRelocPIC },
+                if optimize {
+                    LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault
+                } else {
+                    LLVMCodeGenOptLevel::LLVMCodeGenLevelNone
+                },
+                if windows {
+                    LLVMRelocMode::LLVMRelocDefault
+                } else {
+                    LLVMRelocMode::LLVMRelocPIC
+                },
                 LLVMCodeModel::LLVMCodeModelDefault,
             );
             if llvm_machine.is_null() {
-                return Err(format!("LLVM did not create the target machine for {triple}"));
+                return Err(format!(
+                    "LLVM did not create the target machine for {triple}"
+                ));
             }
             Ok(TargetMachine(llvm_machine))
         }
@@ -1027,7 +1131,11 @@ impl TargetMachine {
                 &mut buffer,
             ) != 0;
             if has_failed {
-                return Err(if message.is_null() { "the LLVM code generator failed".to_owned() } else { take_message(message) });
+                return Err(if message.is_null() {
+                    "the LLVM code generator failed".to_owned()
+                } else {
+                    take_message(message)
+                });
             }
             Ok(take_buffer(buffer))
         }
@@ -1050,15 +1158,36 @@ mod tests_mod {
     #[test]
     fn produces_object_and_bitcode() {
         for optimize in [false, true] {
-            let obj = generate("soma", IR, &Options { optimize, format: Format::Object, cpu: None }).unwrap();
+            let obj = generate(
+                "soma",
+                IR,
+                &Options {
+                    optimize,
+                    format: Format::Object,
+                    cpu: None,
+                },
+            )
+            .unwrap();
             let magic = &obj[..4];
             // ELF, Mach-O (64 bits) or COFF x86-64/arm64.
             assert!(
-                magic == b"\x7fELF" || magic == [0xcf, 0xfa, 0xed, 0xfe] || obj[..2] == [0x64, 0x86] || obj[..2] == [0x64, 0xaa],
+                magic == b"\x7fELF"
+                    || magic == [0xcf, 0xfa, 0xed, 0xfe]
+                    || obj[..2] == [0x64, 0x86]
+                    || obj[..2] == [0x64, 0xaa],
                 "unexpected header: {magic:x?}"
             );
         }
-        let bc = generate("soma", IR, &Options { optimize: true, format: Format::Bitcode, cpu: None }).unwrap();
+        let bc = generate(
+            "soma",
+            IR,
+            &Options {
+                optimize: true,
+                format: Format::Bitcode,
+                cpu: None,
+            },
+        )
+        .unwrap();
         // Darwin may emit a bitcode wrapper instead of the raw bitstream.
         // Verify both the binary container and LLVM's ability to read its IR.
         assert!(bc.starts_with(b"BC\xc0\xde") || bc.starts_with(&[0xde, 0xc0, 0x17, 0x0b]));
@@ -1069,13 +1198,29 @@ mod tests_mod {
 
     #[test]
     fn same_ir_same_bytes() {
-        let op = Options { optimize: true, format: Format::Object, cpu: None };
-        assert_eq!(generate("a", IR, &op).unwrap(), generate("a", IR, &op).unwrap());
+        let op = Options {
+            optimize: true,
+            format: Format::Object,
+            cpu: None,
+        };
+        assert_eq!(
+            generate("a", IR, &op).unwrap(),
+            generate("a", IR, &op).unwrap()
+        );
     }
 
     #[test]
     fn invalid_ir_gives_error_with_llvm_message() {
-        let e = generate("ruim", "define i32 @f( {", &Options { optimize: false, format: Format::Object, cpu: None }).unwrap_err();
+        let e = generate(
+            "ruim",
+            "define i32 @f( {",
+            &Options {
+                optimize: false,
+                format: Format::Object,
+                cpu: None,
+            },
+        )
+        .unwrap_err();
         assert!(e.contains("ruim"), "{e}");
     }
 

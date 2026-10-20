@@ -49,8 +49,10 @@ pub(crate) fn publish(
     let value = json!({"schema":SCHEMA,"cache_key":key,"production":production,
         "compiler":env!("DARTFORGE_EMITTER_HASH"),"runtime":runtime,"artifacts":artifacts,"inventory":bundle.to_json()});
     let file = std::fs::File::create(directory.join(FILE)).map_err(|error| error.to_string())?;
-    let digest = super::integrity_io::write_json(file, &value).map_err(|error| error.to_string())?;
-    let ready = json!({"schema":SCHEMA,"cache_key":key,"inventory_digest":digest.to_hex().to_string()});
+    let digest =
+        super::integrity_io::write_json(file, &value).map_err(|error| error.to_string())?;
+    let ready =
+        json!({"schema":SCHEMA,"cache_key":key,"inventory_digest":digest.to_hex().to_string()});
     std::fs::write(directory.join(READY), format!("{}\n", ready)).map_err(|error| error.to_string())
 }
 

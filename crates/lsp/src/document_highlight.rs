@@ -8,10 +8,12 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::analyzer_tree::Mark;
-use crate::project::{Target, Concrete, Project};
+use crate::project::{Concrete, Project, Target};
 use crate::refactorings::Context;
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, Element, ExtensionId, FunctionElementId, FunctionKind, LibraryId, UnitId, VariableId};
+use dartforge_elements::model::{
+    ClassId, Element, ExtensionId, FunctionElementId, FunctionKind, LibraryId, UnitId, VariableId,
+};
 use dartforge_frontend::ast;
 use dartforge_intern::SymbolId;
 use dartforge_types::{MemberRef, Resolved};
@@ -48,10 +50,12 @@ impl Project {
     pub(crate) fn dart_highlights(&self, unit: UnitId, offset: usize) -> Vec<Span> {
         let cx = Context::new(self, unit);
         let mut groups: Vec<(Key, usize, Vec<usize>)> = Vec::new();
-        let mut register = |key: Key, length: usize, o: usize| match groups.iter_mut().find(|(k, _, _)| *k == key) {
-            Some((_, _, v)) => v.push(o),
-            None => groups.push((key, length, vec![o])),
-        };
+        let mut register =
+            |key: Key, length: usize, o: usize| match groups.iter_mut().find(|(k, _, _)| *k == key)
+            {
+                Some((_, _, v)) => v.push(o),
+                None => groups.push((key, length, vec![o])),
+            };
         // Pre-order: the declaration records the name before the children.
         let mut stack = vec![0usize];
         while let Some(n) = stack.pop() {
@@ -66,7 +70,10 @@ impl Project {
                 continue;
             }
             for &o in offsets {
-                let s = Span { start: o, end: o + length };
+                let s = Span {
+                    start: o,
+                    end: o + length,
+                };
                 if !output.contains(&s) {
                     output.push(s);
                 }
@@ -81,23 +88,34 @@ fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> 
     let node = &cx.tree.nodes[n];
     let mut v = Vec::new();
     match node.kind {
-        "ClassDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration" => {
+        "ClassDeclaration"
+        | "EnumDeclaration"
+        | "ExtensionTypeDeclaration"
+        | "MixinDeclaration" => {
             if let Mark::Decl(d) = node.mark
                 && let Some(c) = cx.declaration_class(cx.unit, d)
                 && let Some(name) = cx.declaration_name(d)
             {
-                v.push((Key::Class(c), name.span.end - name.span.start, name.span.start));
+                v.push((
+                    Key::Class(c),
+                    name.span.end - name.span.start,
+                    name.span.start,
+                ));
             }
         }
         "FunctionDeclaration" | "MethodDeclaration" => {
             if let Mark::Function(fid) = node.mark
                 && let Some(name) = cx.ast.function(fid).name
             {
-                let local = node.kind == "FunctionDeclaration" && cx.parent(n).is_some_and(|x| cx.kind(x) == "FunctionDeclarationStatement");
+                let local = node.kind == "FunctionDeclaration"
+                    && cx
+                        .parent(n)
+                        .is_some_and(|x| cx.kind(x) == "FunctionDeclarationStatement");
                 let key = if local {
                     Some(Key::Local(name.span.start))
                 } else {
-                    p.node_function(cx.unit, fid).and_then(|f| function_key(p, f))
+                    p.node_function(cx.unit, fid)
+                        .and_then(|f| function_key(p, f))
                 };
                 if let Some(k) = key {
                     v.push((k, name.span.end - name.span.start, name.span.start));
@@ -115,13 +133,24 @@ fn records(p: &Project, cx: &Context<'_>, n: usize) -> Vec<(Key, usize, usize)> 
                 v.push((k, name.len(), node.start));
             }
         }
-        "DeclaredIdentifier" | "DeclaredVariablePattern" | "SuperFormalParameter" | "SimpleFormalParameter" | "FieldFormalParameter" | "EnumConstantDeclaration" => {
+        "DeclaredIdentifier"
+        | "DeclaredVariablePattern"
+        | "SuperFormalParameter"
+        | "SimpleFormalParameter"
+        | "FieldFormalParameter"
+        | "EnumConstantDeclaration" => {
             // The name: the last identifier before `=`/`:`/`(` (in an enum constant,
             // the first).
-            let declared = if node.kind == "EnumConstantDeclaration" { first_identifier(cx, n) } else { declared_name(cx, n) };
+            let declared = if node.kind == "EnumConstantDeclaration" {
+                first_identifier(cx, n)
+            } else {
+                declared_name(cx, n)
+            };
             if let Some((o, name)) = declared {
                 let key = match node.kind {
-                    "EnumConstantDeclaration" => variable_declared_in(p, cx.unit, o).map(Key::Variable),
+                    "EnumConstantDeclaration" => {
+                        variable_declared_in(p, cx.unit, o).map(Key::Variable)
+                    }
                     "FieldFormalParameter" => this_field(p, cx, n, &name).map(Key::Variable),
                     _ => Some(Key::Local(o)),
                 };
@@ -160,12 +189,17 @@ fn name_length(p: &Project, k: &Key, pattern: usize) -> usize {
     match k {
         Key::Function(f) => {
             let fe = p.program().function(*f);
-            if matches!(fe.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
+            if matches!(
+                fe.kind,
+                FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+            ) {
                 let name = p.name(fe.name);
                 if name.is_empty() {
                     // The unnamed constructor: the written class name, or 0.
                     return match (fe.kind, fe.class) {
-                        (FunctionKind::Constructor, Some(c)) => p.name(p.program().class(c).name).len(),
+                        (FunctionKind::Constructor, Some(c)) => {
+                            p.name(p.program().class(c).name).len()
+                        }
                         _ => 0,
                     };
                 }
@@ -191,7 +225,10 @@ fn function_key(p: &Project, f: FunctionElementId) -> Option<Key> {
                 (Some(c), _) => Owner2::Class(c),
                 _ => Owner2::Library(fe.library),
             };
-            Some(Key::Accessors(owner, p.name(fe.name).trim_end_matches('=').to_string()))
+            Some(Key::Accessors(
+                owner,
+                p.name(fe.name).trim_end_matches('=').to_string(),
+            ))
         }
         _ => Some(Key::Function(f)),
     }
@@ -208,12 +245,24 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
     if let Some(parent) = cx.parent(n)
         && cx.kind(parent) == "ConstructorDeclaration"
     {
-        let f = declared_constructor_in(p, cx.unit, cx.tree.nodes[parent].start, cx.tree.nodes[parent].end)?;
+        let f = declared_constructor_in(
+            p,
+            cx.unit,
+            cx.tree.nodes[parent].start,
+            cx.tree.nodes[parent].end,
+        )?;
         return p.program().function(f).class.map(Key::Class);
     }
     // Statement labels and `break`/`continue`.
     if let Some(parent) = cx.parent(n) {
-        if cx.kind(parent) == "Label" && cx.parent(parent).is_some_and(|g| matches!(cx.kind(g), "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")) {
+        if cx.kind(parent) == "Label"
+            && cx.parent(parent).is_some_and(|g| {
+                matches!(
+                    cx.kind(g),
+                    "LabeledStatement" | "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"
+                )
+            })
+        {
             return Some(Key::Label(node.start));
         }
         if matches!(cx.kind(parent), "BreakStatement" | "ContinueStatement") {
@@ -245,23 +294,35 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
                 Some(Key::Local(d))
             }
             Some(Resolved::Element(Element::Function(f)))
-            | Some(Resolved::Member { member: MemberRef::Function(f), .. })
+            | Some(Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            })
             | Some(Resolved::ExtensionMember { member: f, .. }) => {
                 // In a write, the setter (the same variable/pair).
                 function_key(p, *f)
             }
-            Some(Resolved::Element(Element::Variable(v))) | Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => Some(Key::Variable(*v)),
+            Some(Resolved::Element(Element::Variable(v)))
+            | Some(Resolved::Member {
+                member: MemberRef::Variable(v),
+                ..
+            }) => Some(Key::Variable(*v)),
             Some(Resolved::Element(Element::Class(c))) => Some(Key::Class(*c)),
             Some(Resolved::Element(Element::Extension(e))) => Some(Key::Extension(*e)),
             Some(Resolved::Element(Element::Typedef(t))) => Some(Key::Typedef(*t)),
             Some(Resolved::Element(Element::Prefix(l, s))) => Some(Key::Prefix(*l, *s)),
             Some(Resolved::Prefix(_)) => {
-                let ast::ExprKind::Identifier(name) = &cx.ast.expr(x).kind else { return None };
+                let ast::ExprKind::Identifier(name) = &cx.ast.expr(x).kind else {
+                    return None;
+                };
                 Some(Key::Prefix(p.program().unit(cx.unit).library, name.sym))
             }
             Some(Resolved::TypeParameter(_)) => {
-                let ast::ExprKind::Identifier(name) = &cx.ast.expr(x).kind else { return None };
-                crate::project::type_parameter_declaration(cx.ast, name.span.start, name.sym).map(Key::TypeParameter)
+                let ast::ExprKind::Identifier(name) = &cx.ast.expr(x).kind else {
+                    return None;
+                };
+                crate::project::type_parameter_declaration(cx.ast, name.span.start, name.sym)
+                    .map(Key::TypeParameter)
             }
             Some(Resolved::Constructor(f)) => Some(Key::Function(*f)),
             None if cx.constructors_by_target.contains_key(&x) => {
@@ -300,10 +361,16 @@ fn identifier_key(p: &Project, cx: &Context<'_>, n: usize) -> Option<Key> {
 fn type_element(p: &Project, cx: &Context<'_>, n: usize) -> Option<(Key, usize)> {
     let prog = p.program();
     let node = &cx.tree.nodes[n];
-    let prefix = cx.children(n).iter().copied().find(|&k| cx.kind(k) == "ImportPrefixReference");
+    let prefix = cx
+        .children(n)
+        .iter()
+        .copied()
+        .find(|&k| cx.kind(k) == "ImportPrefixReference");
     let name_start = prefix.map_or(node.start, |k| cx.tree.nodes[k].end);
     let rest = cx.source[name_start..node.end].trim_start();
-    let end = rest.find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+    let end = rest
+        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+        .unwrap_or(rest.len());
     let name = &rest[..end];
     if name.is_empty() || name == "dynamic" || name == "void" {
         return None;
@@ -362,7 +429,10 @@ fn declared_name(cx: &Context<'_>, n: usize) -> Option<(usize, String)> {
                 i += 1;
             }
             let word = &t[start..i];
-            if !matches!(word, "final" | "var" | "const" | "late" | "covariant" | "required" | "this" | "super") {
+            if !matches!(
+                word,
+                "final" | "var" | "const" | "late" | "covariant" | "required" | "this" | "super"
+            ) {
                 best = Some((node.start + start, word.to_string()));
             }
             continue;
@@ -412,20 +482,38 @@ fn class_field_in(p: &Project, cx: &Context<'_>, offset: usize, name: &str) -> O
             }
         })
     })?;
-    prog.class(ClassId(c as u32)).fields.iter().copied().find(|v| p.name(prog.variable(*v).name) == name)
+    prog.class(ClassId(c as u32))
+        .fields
+        .iter()
+        .copied()
+        .find(|v| p.name(prog.variable(*v).name) == name)
 }
 
 /// The variable (top-level, field or enum constant) whose name starts at
 /// `offset` in the unit.
 pub(crate) fn variable_declared_in(p: &Project, u: UnitId, offset: usize) -> Option<VariableId> {
     let prog = p.program();
-    (0..prog.variables.len()).map(|i| VariableId(i as u32)).find(|&v| p.variable_name(v).is_some_and(|(uu, s)| uu == u && s.start == offset))
+    (0..prog.variables.len())
+        .map(|i| VariableId(i as u32))
+        .find(|&v| {
+            p.variable_name(v)
+                .is_some_and(|(uu, s)| uu == u && s.start == offset)
+        })
 }
 
 /// The constructor declared in the range.
-fn declared_constructor_in(p: &Project, u: UnitId, start: usize, end: usize) -> Option<FunctionElementId> {
+fn declared_constructor_in(
+    p: &Project,
+    u: UnitId,
+    start: usize,
+    end: usize,
+) -> Option<FunctionElementId> {
     let prog = p.program();
     let unit = prog.unit(u);
-    let (mi, _) = unit.ast.members.iter().enumerate().find(|(_, m)| matches!(m.kind, ast::MemberKind::Constructor(_)) && m.span.start >= start && m.span.end <= end)?;
+    let (mi, _) = unit.ast.members.iter().enumerate().find(|(_, m)| {
+        matches!(m.kind, ast::MemberKind::Constructor(_))
+            && m.span.start >= start
+            && m.span.end <= end
+    })?;
     p.node_constructor(u, ast::MemberId(mi as u32))
 }

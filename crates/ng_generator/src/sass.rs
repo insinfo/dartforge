@@ -223,7 +223,11 @@ pub fn compile_asset(
     reader: &dyn AssetReader,
     options: AssetOptions,
 ) -> Result<Sheet, String> {
-    let AssetOptions { style, source_map: map, version } = options;
+    let AssetOptions {
+        style,
+        source_map: map,
+        version,
+    } = options;
     let mut packages = Packages::new();
     for (name, root) in roots {
         packages.insert(name.clone(), root.clone());

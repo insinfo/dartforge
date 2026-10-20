@@ -22,8 +22,8 @@
 //! session of [`crate::session`], and is discarded when any text changes.
 
 use crate::DocumentStore;
-use crate::query::Query;
 use crate::dartdoc;
+use crate::query::Query;
 use crate::semantic::SemanticAnalyzer;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{
@@ -64,7 +64,8 @@ pub(crate) struct Project {
     pub(crate) libraries: HashSet<LibraryId>,
     /// The `referencedNames` of each unit already computed
     /// (`crate::referenced_names`).
-    pub(crate) referenced_names: std::sync::Mutex<std::collections::HashMap<UnitId, std::sync::Arc<HashSet<String>>>>,
+    pub(crate) referenced_names:
+        std::sync::Mutex<std::collections::HashMap<UnitId, std::sync::Arc<HashSet<String>>>>,
     /// The reverse index name → units that cite it
     /// (`crate::referenced_names::ReverseIndex`), maintained per unit.
     pub(crate) reverse_index: std::sync::Mutex<crate::referenced_names::ReverseIndex>,
@@ -74,7 +75,8 @@ pub(crate) struct Project {
     /// The occurrence index of each unit already walked
     /// ([`Project::unit_occurrences`]), with the stamp (text size and number of
     /// expressions) it came from.
-    pub(crate) occurrences_by_unit: std::sync::Mutex<std::collections::HashMap<UnitId, StampedOccurrences>>,
+    pub(crate) occurrences_by_unit:
+        std::sync::Mutex<std::collections::HashMap<UnitId, StampedOccurrences>>,
     /// [`Project::written_subtypes`], computed once and forgotten whenever a
     /// unit's text changes ([`Project::forget_unit`]).
     pub(crate) written_subtypes: std::sync::Mutex<Option<std::sync::Arc<WrittenSubtypes>>>,
@@ -118,10 +120,7 @@ pub(crate) enum Target {
     /// Named constructor (the unnamed one denotes the class).
     Constructor(FunctionElementId),
     /// Import prefix of a library.
-    Prefix {
-        library: LibraryId,
-        name: SymbolId,
-    },
+    Prefix { library: LibraryId, name: SymbolId },
     /// Type parameter: unit and offset of the declared name.
     TypeParameter { unit: UnitId, declaration: usize },
 }
@@ -176,16 +175,12 @@ pub(crate) fn project_files(root: &Path) -> Vec<PathBuf> {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
-        let mut entries: Vec<PathBuf> =
-            entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        let mut entries: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
         entries.sort();
         for path in entries {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if path.is_dir() {
-                if name.starts_with('.')
-                    || name == "build"
-                    || path.join("pubspec.yaml").is_file()
-                {
+                if name.starts_with('.') || name == "build" || path.join("pubspec.yaml").is_file() {
                     continue;
                 }
                 stack.push(path);
@@ -240,10 +235,18 @@ const KNOWN: &str = ".dartforge_known.dart";
 /// `(name, lib/ folder)` of the packages in `root`'s `package_config.json`.
 pub(crate) fn packages_with_name(root: &Path) -> Vec<(String, PathBuf)> {
     let file = root.join(".dart_tool").join("package_config.json");
-    let Ok(text) = std::fs::read_to_string(&file) else { return Vec::new() };
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else { return Vec::new() };
-    let Some(list) = json.get("packages").and_then(|v| v.as_array()) else { return Vec::new() };
-    let Some(base) = file.parent() else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(&file) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let Some(list) = json.get("packages").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    let Some(base) = file.parent() else {
+        return Vec::new();
+    };
     let resolve = |u: &str, relative_to: &Path| -> Option<PathBuf> {
         if let Ok(x) = Url::parse(u) {
             return x.to_file_path().ok();
@@ -252,9 +255,19 @@ pub(crate) fn packages_with_name(root: &Path) -> Vec<(String, PathBuf)> {
     };
     let mut output = Vec::new();
     for p in list {
-        let (Some(name), Some(root_uri)) = (p.get("name").and_then(|v| v.as_str()), p.get("rootUri").and_then(|v| v.as_str())) else { continue };
-        let Some(package_root) = resolve(root_uri, base) else { continue };
-        let package_uri = p.get("packageUri").and_then(|v| v.as_str()).unwrap_or("lib/");
+        let (Some(name), Some(root_uri)) = (
+            p.get("name").and_then(|v| v.as_str()),
+            p.get("rootUri").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+        let Some(package_root) = resolve(root_uri, base) else {
+            continue;
+        };
+        let package_uri = p
+            .get("packageUri")
+            .and_then(|v| v.as_str())
+            .unwrap_or("lib/");
         if let Some(lib) = resolve(package_uri, &package_root) {
             output.push((name.to_string(), lib));
         }
@@ -267,20 +280,29 @@ pub(crate) fn packages_with_name(root: &Path) -> Vec<(String, PathBuf)> {
 /// the packages, with the project's bodies inferred. Those of the outside
 /// libraries that cite or declare a name come in through
 /// [`Project::widen_to`].
-pub(crate) fn load_wide_project(sdk: &SdkLayout, documents: &DocumentStore, uri: &str) -> Option<Project> {
+pub(crate) fn load_wide_project(
+    sdk: &SdkLayout,
+    documents: &DocumentStore,
+    uri: &str,
+) -> Option<Project> {
     let file = uri_file(uri)?;
     let root = project_root(&file);
     let mut text = String::new();
     let mut sdk_libraries: Vec<&String> = sdk.libraries.keys().collect();
     sdk_libraries.sort();
     for b in sdk_libraries {
-        text.push_str(&format!("import 'dart:{b}' as _sdk_{};\n", b.replace(|c: char| !c.is_ascii_alphanumeric(), "_")));
+        text.push_str(&format!(
+            "import 'dart:{b}' as _sdk_{};\n",
+            b.replace(|c: char| !c.is_ascii_alphanumeric(), "_")
+        ));
     }
     for (i, (package, lib)) in packages_with_name(&root).into_iter().enumerate() {
         let mut stack = vec![lib.clone()];
         let mut files = Vec::new();
         while let Some(d) = stack.pop() {
-            let Ok(r) = std::fs::read_dir(&d) else { continue };
+            let Ok(r) = std::fs::read_dir(&d) else {
+                continue;
+            };
             for e in r.flatten() {
                 let c = e.path();
                 if c.is_dir() {
@@ -295,9 +317,13 @@ pub(crate) fn load_wide_project(sdk: &SdkLayout, documents: &DocumentStore, uri:
             if std::fs::read_to_string(&a).is_ok_and(|t| is_part(&t)) {
                 continue;
             }
-            let Ok(rel) = a.strip_prefix(&lib) else { continue };
+            let Ok(rel) = a.strip_prefix(&lib) else {
+                continue;
+            };
             let rel = rel.to_string_lossy().replace('\\', "/");
-            text.push_str(&format!("import 'package:{package}/{rel}' as _pkg_{i}_{k};\n"));
+            text.push_str(&format!(
+                "import 'package:{package}/{rel}' as _pkg_{i}_{k};\n"
+            ));
         }
     }
     load_project_with(sdk, documents, uri, Some((root.join(KNOWN), text)))
@@ -314,7 +340,10 @@ impl Project {
         for i in 0..p.units.len() {
             let u = UnitId(i as u32);
             let unit = p.unit(u);
-            if self.libraries.contains(&unit.library) || extras.contains(&unit.library) || unit.role == dartforge_elements::model::UnitRole::Patch {
+            if self.libraries.contains(&unit.library)
+                || extras.contains(&unit.library)
+                || unit.role == dartforge_elements::model::UnitRole::Patch
+            {
                 continue;
             }
             if unit.path.as_deref().is_some_and(|c| c.ends_with(KNOWN)) {
@@ -323,7 +352,9 @@ impl Project {
             if !unit.source.contains(name) {
                 continue;
             }
-            if self.unit_referenced_names(u).contains(name) || declares(unit, &self.query.names, name) {
+            if self.unit_referenced_names(u).contains(name)
+                || declares(unit, &self.query.names, name)
+            {
                 extras.push(unit.library);
             }
         }
@@ -337,7 +368,11 @@ impl Project {
 }
 
 /// The unit declares (at top level or as a member) something named `name`.
-fn declares(unit: &dartforge_elements::model::Unit, names: &dartforge_intern::Interner, name: &str) -> bool {
+fn declares(
+    unit: &dartforge_elements::model::Unit,
+    names: &dartforge_intern::Interner,
+    name: &str,
+) -> bool {
     let a = &unit.ast;
     let n = |s: SymbolId| names.resolve(s) == name;
     a.decls.iter().any(|d| match &d.kind {
@@ -378,11 +413,7 @@ fn load_project_with(
         open.or_else(|| std::fs::read_to_string(path).ok())
     };
     let mut candidates = vec![file.clone()];
-    candidates.extend(
-        project_files(&root)
-            .into_iter()
-            .filter(|c| *c != file),
-    );
+    candidates.extend(project_files(&root).into_iter().filter(|c| *c != file));
     // Open documents under the root that do not exist on disk yet.
     for open in documents.uris() {
         if let Some(c) = uri_file(open)
@@ -422,7 +453,9 @@ fn load_project_with(
         .iter()
         .filter(|u| {
             !program.library(u.library).is_sdk
-                && u.path.as_deref().is_some_and(|p| inside(p, &root) && Some(p) != synthetic_path.as_deref())
+                && u.path
+                    .as_deref()
+                    .is_some_and(|p| inside(p, &root) && Some(p) != synthetic_path.as_deref())
         })
         .map(|u| u.library)
         .collect();
@@ -487,17 +520,20 @@ pub(crate) fn word(source: &str, offset: usize) -> Option<Span> {
     while end < b.len() && is_ident(b[end]) {
         end += 1;
     }
-    (start < end && !b[start].is_ascii_digit()).then_some(Span {
-        start,
-        end,
-    })
+    (start < end && !b[start].is_ascii_digit()).then_some(Span { start, end })
 }
 
 /// Base name of a member: a setter is stored as `x=` (or `x_=`).
 pub(crate) fn base_name(name: &str) -> &str {
     // Only a setter's `=` (`x=`): the `==` and `[]=` operators stay.
     name.strip_suffix("_=")
-        .or_else(|| name.strip_suffix('=').filter(|r| !r.is_empty() && r.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '$')))
+        .or_else(|| {
+            name.strip_suffix('=').filter(|r| {
+                !r.is_empty()
+                    && r.chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '$')
+            })
+        })
         .unwrap_or(name)
 }
 
@@ -591,11 +627,7 @@ impl Project {
     /// What the position denotes. `Ok(None)`: there is no name there
     /// (whitespace, keyword, literal). `Err`: there is a name, but without
     /// resolution.
-    pub(crate) fn identify(
-        &self,
-        unit: UnitId,
-        offset: usize,
-    ) -> Result<Option<Denoted>, String> {
+    pub(crate) fn identify(&self, unit: UnitId, offset: usize) -> Result<Option<Denoted>, String> {
         let u = self.program().unit(unit);
         let Some(name_) = word(&u.source, offset) else {
             return Ok(None);
@@ -651,9 +683,14 @@ impl Project {
             let constructor = call_constructor(ast, bodies, id);
             if matches!(bodies.get_resolved(id), None | Some(Resolved::Dynamic))
                 && constructor.is_none()
-                && let Some(f) = self.object_member_on_dynamic(unit, id, Self::call_arguments(ast, id))
+                && let Some(f) =
+                    self.object_member_on_dynamic(unit, id, Self::call_arguments(ast, id))
             {
-                return denoted(self.function_member(f), Some(id), Some(self.function_concrete(f)));
+                return denoted(
+                    self.function_member(f),
+                    Some(id),
+                    Some(self.function_concrete(f)),
+                );
             }
             let resolved = match (bodies.get_resolved(id), constructor) {
                 (None, Some(f)) => Some(Resolved::Constructor(f)),
@@ -726,7 +763,11 @@ impl Project {
                             Some(id),
                             Some(Concrete::Function(*f)),
                         ),
-                        _ => denoted(Target::Constructor(*f), Some(id), Some(Concrete::Function(*f))),
+                        _ => denoted(
+                            Target::Constructor(*f),
+                            Some(id),
+                            Some(Concrete::Function(*f)),
+                        ),
                     }
                 }
                 Some(Resolved::TypeParameter(_)) => {
@@ -748,7 +789,9 @@ impl Project {
         // Bare constant patterns have no expression node. Body resolution
         // records their actual element separately from pattern bindings.
         for (index, pattern) in ast.patterns.iter().enumerate() {
-            let ast::PatternKind::Variable { name, .. } = &pattern.kind else { continue };
+            let ast::PatternKind::Variable { name, .. } = &pattern.kind else {
+                continue;
+            };
             if name.span != name_ {
                 continue;
             }
@@ -757,10 +800,21 @@ impl Project {
                     let (target, concrete) = self.top(*element);
                     return denoted(target, None, concrete);
                 }
-                Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
-                    return denoted(self.function_member(*f), None, Some(self.function_concrete(*f)));
+                Some(Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                })
+                | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                    return denoted(
+                        self.function_member(*f),
+                        None,
+                        Some(self.function_concrete(*f)),
+                    );
                 }
-                Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
+                Some(Resolved::Member {
+                    member: MemberRef::Variable(v),
+                    ..
+                }) => {
                     return denoted(self.variable_member(*v), None, Some(Concrete::Variable(*v)));
                 }
                 _ => {}
@@ -770,7 +824,9 @@ impl Project {
         // A shorthand name belongs to its local binding instead; its inferred
         // getter name shares that span and must not intercept the local cursor.
         for pattern in &ast.patterns {
-            let ast::PatternKind::Object { fields, .. } = &pattern.kind else { continue };
+            let ast::PatternKind::Object { fields, .. } = &pattern.kind else {
+                continue;
+            };
             for field in fields.iter() {
                 if !field.name.is_some_and(|name| name.span == name_)
                     || u.source.as_bytes().get(field.span.start) == Some(&b':')
@@ -778,12 +834,19 @@ impl Project {
                     continue;
                 }
                 return match bodies.field_elements.get(&field.pattern) {
-                    Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
-                        denoted(self.function_member(*f), None, Some(self.function_concrete(*f)))
-                    }
-                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
-                        denoted(self.variable_member(*v), None, Some(Concrete::Variable(*v)))
-                    }
+                    Some(Resolved::Member {
+                        member: MemberRef::Function(f),
+                        ..
+                    })
+                    | Some(Resolved::ExtensionMember { member: f, .. }) => denoted(
+                        self.function_member(*f),
+                        None,
+                        Some(self.function_concrete(*f)),
+                    ),
+                    Some(Resolved::Member {
+                        member: MemberRef::Variable(v),
+                        ..
+                    }) => denoted(self.variable_member(*v), None, Some(Concrete::Variable(*v))),
                     _ => Err(format!("'{text}' is not resolved.")),
                 };
             }
@@ -806,10 +869,8 @@ impl Project {
             // class and the named constructor, not a prefix and a type.
             if let [class, constructor] = &name[..]
                 && !is_prefix(self.program(), lib, class.sym)
-                && let Some(Element::Class(c)) = self
-                    .program()
-                    .lookup(lib, class.sym)
-                    .and_then(|b| b.getter)
+                && let Some(Element::Class(c)) =
+                    self.program().lookup(lib, class.sym).and_then(|b| b.getter)
             {
                 if pos == 0 {
                     let (target_, concrete) = self.top(Element::Class(c));
@@ -883,17 +944,29 @@ impl Project {
                 .iter()
                 .filter(|i| i.unit == unit)
                 .map(|i| (i.directive, i.library))
-                .chain(lib.exports.iter().filter(|e| e.unit == unit).map(|e| (e.directive, e.library)));
+                .chain(
+                    lib.exports
+                        .iter()
+                        .filter(|e| e.unit == unit)
+                        .map(|e| (e.directive, e.library)),
+                );
             for (index, target_lib) in targets {
-                let Some(d) = u.unit.directives.get(index) else { continue };
+                let Some(d) = u.unit.directives.get(index) else {
+                    continue;
+                };
                 let combinators_ = match &d.kind {
-                    ast::DirectiveKind::Import { combinators, .. } | ast::DirectiveKind::Export { combinators, .. } => combinators,
+                    ast::DirectiveKind::Import { combinators, .. }
+                    | ast::DirectiveKind::Export { combinators, .. } => combinators,
                     _ => continue,
                 };
                 for c in combinators_ {
                     let (ast::Combinator::Show(names) | ast::Combinator::Hide(names)) = c;
                     if let Some(n) = names.iter().find(|n| n.span == name_)
-                        && let Some(el) = p.library(target_lib).exported.get(&n.sym).and_then(|b| b.getter.or(b.setter))
+                        && let Some(el) = p
+                            .library(target_lib)
+                            .exported
+                            .get(&n.sym)
+                            .and_then(|b| b.getter.or(b.setter))
                     {
                         let (target_, concrete) = self.top(el);
                         return denoted(target_, None, concrete);
@@ -907,12 +980,22 @@ impl Project {
         }
         // `x = e` in a constructor initializer: the field.
         for (mi, m) in ast.members.iter().enumerate() {
-            let MemberKind::Constructor(k) = &m.kind else { continue };
+            let MemberKind::Constructor(k) = &m.kind else {
+                continue;
+            };
             for start in k.initializers.iter() {
                 if let ast::Initializer::Field { name, .. } = start
                     && name.span == name_
-                    && let Some(c) = self.node_constructor(unit, ast::MemberId(mi as u32)).and_then(|f| self.program().function(f).class)
-                    && let Some(v) = self.program().class(c).fields.iter().copied().find(|v| self.program().variable(*v).name == name.sym)
+                    && let Some(c) = self
+                        .node_constructor(unit, ast::MemberId(mi as u32))
+                        .and_then(|f| self.program().function(f).class)
+                    && let Some(v) = self
+                        .program()
+                        .class(c)
+                        .fields
+                        .iter()
+                        .copied()
+                        .find(|v| self.program().variable(*v).name == name.sym)
                 {
                     return denoted(self.variable_member(v), None, Some(Concrete::Variable(v)));
                 }
@@ -941,12 +1024,21 @@ impl Project {
     /// (`_hasMatchingObjectMethod`: `toString()`, `noSuchMethod(i)`), or, without
     /// a call, a getter or a method tear-off of `Object`. `InvalidType` targets
     /// resolve to nothing.
-    pub(crate) fn object_member_on_dynamic(&self, unit: UnitId, id: ast::ExprId, call: Option<&ast::Arguments>) -> Option<FunctionElementId> {
+    pub(crate) fn object_member_on_dynamic(
+        &self,
+        unit: UnitId,
+        id: ast::ExprId,
+        call: Option<&ast::Arguments>,
+    ) -> Option<FunctionElementId> {
         let ast = &self.program().unit(unit).ast;
-        let ExprKind::Property { target, name, .. } = &ast.expr(id).kind else { return None };
+        let ExprKind::Property { target, name, .. } = &ast.expr(id).kind else {
+            return None;
+        };
         let bodies = &self.query.bodies.units[unit.0 as usize];
         let t = bodies.get_type(*target)?;
-        if !matches!(self.query.table.get(t), dartforge_types::Type::Dynamic) || self.query.table.is_invalid(t) {
+        if !matches!(self.query.table.get(t), dartforge_types::Type::Dynamic)
+            || self.query.table.is_invalid(t)
+        {
             return None;
         }
         let object = self.program().class(self.query.core.object_class?);
@@ -959,7 +1051,10 @@ impl Project {
                     "noSuchMethod" => 1,
                     _ => return None,
                 };
-                (kind == FunctionKind::Function && arguments.args.len() == parameters && arguments.args.iter().all(|a| a.name.is_none())).then_some(f)
+                (kind == FunctionKind::Function
+                    && arguments.args.len() == parameters
+                    && arguments.args.iter().all(|a| a.name.is_none()))
+                .then_some(f)
             }
             None => matches!(kind, FunctionKind::Function | FunctionKind::Getter).then_some(f),
         }
@@ -982,21 +1077,11 @@ impl Project {
         {
             return r;
         }
-        (
-            Target::Local {
-                unit,
-                declaration,
-            },
-            None,
-        )
+        (Target::Local { unit, declaration }, None)
     }
 
     /// The field initialized by the `this.x` parameter declared at `offset`.
-    fn parameter_field(
-        &self,
-        unit: UnitId,
-        offset: usize,
-    ) -> Option<(Target, Option<Concrete>)> {
+    fn parameter_field(&self, unit: UnitId, offset: usize) -> Option<(Target, Option<Concrete>)> {
         let ast = &self.program().unit(unit).ast;
         let (p, _) = parameter_in(ast, offset)?;
         let symbol = p.name?.sym;
@@ -1224,28 +1309,58 @@ impl Project {
                 ExprKind::InstanceCreation { arguments, .. } => (&**arguments, None),
                 _ => continue,
             };
-            let Some(label) = arguments_.args.iter().filter_map(|a| a.name).find(|n| n.span == name) else { continue };
-            let call = [Some(ast::ExprId(i as u32)), target_].into_iter().flatten().find_map(|x| match bodies.get_resolved(x) {
-                Some(Resolved::Constructor(f))
-                | Some(Resolved::Element(Element::Function(f)))
-                | Some(Resolved::Member { member: MemberRef::Function(f), .. })
-                | Some(Resolved::ExtensionMember { member: f, .. }) => Some(*f),
-                _ => None,
-            })?;
+            let Some(label) = arguments_
+                .args
+                .iter()
+                .filter_map(|a| a.name)
+                .find(|n| n.span == name)
+            else {
+                continue;
+            };
+            let call = [Some(ast::ExprId(i as u32)), target_]
+                .into_iter()
+                .flatten()
+                .find_map(|x| match bodies.get_resolved(x) {
+                    Some(Resolved::Constructor(f))
+                    | Some(Resolved::Element(Element::Function(f)))
+                    | Some(Resolved::Member {
+                        member: MemberRef::Function(f),
+                        ..
+                    })
+                    | Some(Resolved::ExtensionMember { member: f, .. }) => Some(*f),
+                    _ => None,
+                })?;
             let fe = p.function(call);
             let parameters: (UnitId, &[ast::Parameter]) = match fe.node {
-                FunctionRef::Function { unit, function } => (unit, p.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[])),
-                FunctionRef::Constructor { unit, member } => match &p.unit(unit).ast.member(member).kind {
-                    MemberKind::Constructor(k) => (unit, &k.parameters[..]),
-                    _ => return None,
-                },
+                FunctionRef::Function { unit, function } => (
+                    unit,
+                    p.unit(unit)
+                        .ast
+                        .function(function)
+                        .parameters
+                        .as_deref()
+                        .unwrap_or(&[]),
+                ),
+                FunctionRef::Constructor { unit, member } => {
+                    match &p.unit(unit).ast.member(member).kind {
+                        MemberKind::Constructor(k) => (unit, &k.parameters[..]),
+                        _ => return None,
+                    }
+                }
                 FunctionRef::None => return None,
             };
             let (pu, list) = parameters;
-            let q = list.iter().find(|q| q.kind == ast::ParameterKind::Named && q.name.is_some_and(|n| n.sym == label.sym))?;
+            let q = list.iter().find(|q| {
+                q.kind == ast::ParameterKind::Named && q.name.is_some_and(|n| n.sym == label.sym)
+            })?;
             let decl = q.name?.span.start;
             let (target_, concrete) = self.local_or_field(pu, decl);
-            return Some(Denoted { target: target_, name, expr: None, concrete });
+            return Some(Denoted {
+                target: target_,
+                name,
+                expr: None,
+                concrete,
+            });
         }
         None
     }
@@ -1446,8 +1561,11 @@ impl Project {
         if let [first, second] = parts
             && second.1 == "new"
         {
-            let (target, _) = self.resolve_doc_reference(unit, comment, std::slice::from_ref(first))?;
-            let Target::Top(Element::Class(c)) = target else { return None };
+            let (target, _) =
+                self.resolve_doc_reference(unit, comment, std::slice::from_ref(first))?;
+            let Target::Top(Element::Class(c)) = target else {
+                return None;
+            };
             let empty = self.query.names.lookup("")?;
             let f = *self.program().class(c).constructors.get(&empty)?;
             return Some((Target::Constructor(f), Some(Concrete::Function(f))));
@@ -1560,13 +1678,7 @@ impl Project {
         self.program()
             .functions
             .iter()
-            .position(|f| {
-                f.node
-                    == FunctionRef::Constructor {
-                        unit,
-                        member: mid,
-                    }
-            })
+            .position(|f| f.node == FunctionRef::Constructor { unit, member: mid })
             .map(|i| FunctionElementId(i as u32))
     }
 
@@ -1728,20 +1840,27 @@ impl Project {
             return None;
         }
         for (mi, m) in ast.members.iter().enumerate() {
-            let MemberKind::Constructor(k) = &m.kind else { continue };
+            let MemberKind::Constructor(k) = &m.kind else {
+                continue;
+            };
             if k.class_name.span != d.name {
                 continue;
             }
-            let starts_at_name = m.span.start == k.class_name.span.start && m.metadata.is_empty() && !doc_comment_before(&u.source, m.span.start);
+            let starts_at_name = m.span.start == k.class_name.span.start
+                && m.metadata.is_empty()
+                && !doc_comment_before(&u.source, m.span.start);
             if k.name.is_none() && starts_at_name {
                 break;
             }
-            let class = self.node_constructor(unit, ast::MemberId(mi as u32)).and_then(|f| p.function(f).class)?;
+            let class = self
+                .node_constructor(unit, ast::MemberId(mi as u32))
+                .and_then(|f| p.function(f).class)?;
             return self.top_element_name(Element::Class(class));
         }
         for a in metadata(ast, &u.unit) {
             if a.name.first().is_some_and(|n| n.span == d.name)
-                && let Some(Element::Class(c)) = p.lookup(u.library, a.name[0].sym).and_then(|b| b.getter)
+                && let Some(Element::Class(c)) =
+                    p.lookup(u.library, a.name[0].sym).and_then(|b| b.getter)
             {
                 return self.top_element_name(Element::Class(c));
             }
@@ -1767,23 +1886,41 @@ impl Project {
         if !parameter.super_ {
             return None;
         }
-        let OwnerParameter::Constructor(m) = owner else { return None };
-        let MemberKind::Constructor(k) = &ast.member(m).kind else { return None };
+        let OwnerParameter::Constructor(m) = owner else {
+            return None;
+        };
+        let MemberKind::Constructor(k) = &ast.member(m).kind else {
+            return None;
+        };
         let sub = self.node_constructor(unit, m)?;
         let sup = self.super_constructor(sub)?;
         let (su, parameters): (UnitId, &[Parameter]) = match p.function(sup).node {
-            FunctionRef::Constructor { unit, member } => match &p.unit(unit).ast.member(member).kind {
-                MemberKind::Constructor(x) => (unit, &x.parameters[..]),
-                _ => return None,
-            },
+            FunctionRef::Constructor { unit, member } => {
+                match &p.unit(unit).ast.member(member).kind {
+                    MemberKind::Constructor(x) => (unit, &x.parameters[..]),
+                    _ => return None,
+                }
+            }
             _ => return None,
         };
         let name = parameter.name?;
         let target = if parameter.kind == ast::ParameterKind::Named {
-            parameters.iter().find(|q| q.kind == ast::ParameterKind::Named && q.name.is_some_and(|n| self.name(n.sym) == self.name(name.sym)))?
+            parameters.iter().find(|q| {
+                q.kind == ast::ParameterKind::Named
+                    && q.name
+                        .is_some_and(|n| self.name(n.sym) == self.name(name.sym))
+            })?
         } else {
-            let position = k.parameters.iter().take_while(|q| q.name.is_none_or(|n| n.span.start != declaration)).filter(|q| q.super_ && q.kind != ast::ParameterKind::Named).count();
-            parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).nth(position)?
+            let position = k
+                .parameters
+                .iter()
+                .take_while(|q| q.name.is_none_or(|n| n.span.start != declaration))
+                .filter(|q| q.super_ && q.kind != ast::ParameterKind::Named)
+                .count();
+            parameters
+                .iter()
+                .filter(|q| q.kind != ast::ParameterKind::Named)
+                .nth(position)?
         };
         Some((su, target.name?.span))
     }
@@ -1808,14 +1945,38 @@ impl Project {
                 FunctionKind::Setter => {
                     let base = base_name(self.name(fe.name)).to_string();
                     let getter = match (fe.class, fe.extension) {
-                        (Some(c), _) => p.class(c).instance_members.values().chain(p.class(c).static_members.values()).copied().find(|&g| {
-                            p.function(g).kind == FunctionKind::Getter && self.name(p.function(g).name) == base
-                        }),
-                        (_, Some(x)) => p.extension(x).instance_members.values().chain(p.extension(x).static_members.values()).copied().find(|&g| {
-                            p.function(g).kind == FunctionKind::Getter && self.name(p.function(g).name) == base
-                        }),
-                        _ => match self.query.names.lookup(&base).and_then(|s| p.lookup(fe.library, s)).and_then(|b| b.getter) {
-                            Some(Element::Function(g)) if p.function(g).kind == FunctionKind::Getter => Some(g),
+                        (Some(c), _) => p
+                            .class(c)
+                            .instance_members
+                            .values()
+                            .chain(p.class(c).static_members.values())
+                            .copied()
+                            .find(|&g| {
+                                p.function(g).kind == FunctionKind::Getter
+                                    && self.name(p.function(g).name) == base
+                            }),
+                        (_, Some(x)) => p
+                            .extension(x)
+                            .instance_members
+                            .values()
+                            .chain(p.extension(x).static_members.values())
+                            .copied()
+                            .find(|&g| {
+                                p.function(g).kind == FunctionKind::Getter
+                                    && self.name(p.function(g).name) == base
+                            }),
+                        _ => match self
+                            .query
+                            .names
+                            .lookup(&base)
+                            .and_then(|s| p.lookup(fe.library, s))
+                            .and_then(|b| b.getter)
+                        {
+                            Some(Element::Function(g))
+                                if p.function(g).kind == FunctionKind::Getter =>
+                            {
+                                Some(g)
+                            }
                             _ => None,
                         },
                     };
@@ -1832,14 +1993,7 @@ impl Project {
     /// Where the target is declared (the first declaration, in the family).
     pub(crate) fn target_declaration(&self, target: &Target) -> Option<(UnitId, Span)> {
         match target {
-            Target::Local {
-                unit,
-                declaration,
-            }
-            | Target::TypeParameter {
-                unit,
-                declaration,
-            } => {
+            Target::Local { unit, declaration } | Target::TypeParameter { unit, declaration } => {
                 let source = &self.program().unit(*unit).source;
                 Some((*unit, word(source, *declaration)?))
             }
@@ -1852,7 +2006,8 @@ impl Project {
                 is_static,
             } => {
                 let p = self.program();
-                let (functions, variables): (Vec<FunctionElementId>, Vec<VariableId>) = match owner {
+                let (functions, variables): (Vec<FunctionElementId>, Vec<VariableId>) = match owner
+                {
                     Owner::Class(c) => {
                         let cl = p.class(*c);
                         (
@@ -1985,7 +2140,10 @@ impl Project {
     /// [`Project::occurrences`] as the member rename sees them
     /// (`RenameClassMemberRefactoringImpl.fillChange`): the references of the
     /// `this.x` parameters of every renamed field, not only of the pivot's.
-    pub(crate) fn rename_occurrences(&self, target: &Target) -> Result<BTreeSet<(UnitId, usize, usize)>, String> {
+    pub(crate) fn rename_occurrences(
+        &self,
+        target: &Target,
+    ) -> Result<BTreeSet<(UnitId, usize, usize)>, String> {
         self.occurrences_with(target, false, None, true)
     }
 
@@ -2001,10 +2159,7 @@ impl Project {
             output.insert((u, s.start, s.end));
         };
         match target {
-            Target::Local {
-                unit,
-                declaration,
-            } => {
+            Target::Local { unit, declaration } => {
                 for (u, s) in self.local_occurrences(*unit, *declaration, refuse_external)? {
                     by(u, s);
                 }
@@ -2014,22 +2169,33 @@ impl Project {
                 owner,
                 name,
                 is_static,
-            } => self.member_occurrences(MemberSearch { owner: *owner, name, is_static: *is_static, refuse_external, family_parameters, filter }, &mut by)?,
+            } => self.member_occurrences(
+                MemberSearch {
+                    owner: *owner,
+                    name,
+                    is_static: *is_static,
+                    refuse_external,
+                    family_parameters,
+                    filter,
+                },
+                &mut by,
+            )?,
             Target::Constructor(f) => self.constructor_occurrences(*f, filter, &mut by),
-            Target::Prefix { library, name } => {
-                self.prefix_occurrences(*library, *name, &mut by)
+            Target::Prefix { library, name } => self.prefix_occurrences(*library, *name, &mut by),
+            Target::TypeParameter { unit, declaration } => {
+                self.type_parameter_occurrences(*unit, *declaration, &mut by)
             }
-            Target::TypeParameter {
-                unit,
-                declaration,
-            } => self.type_parameter_occurrences(*unit, *declaration, &mut by),
         }
         // Documentation references: what the reference resolves to must be one
         // of the elements searched (`_getRefElements`), so a member of a class the
         // index does not see as a subtype (`with MapMixin`) stays out even when
         // its own family reaches the target.
         let family = match target {
-            Target::Member { owner, name, is_static } => self.family(*owner, name, *is_static, false).ok(),
+            Target::Member {
+                owner,
+                name,
+                is_static,
+            } => self.family(*owner, name, *is_static, false).ok(),
             _ => None,
         };
         let matches_ = |a: &Target, concrete: Option<Concrete>| match (&family, concrete) {
@@ -2094,7 +2260,10 @@ impl Project {
         // `with_declaration`: the declared name is included (in rename, and in the
         // element itself); in references, the homonymous parameters of the
         // hierarchy only contribute their uses (§11.9 E5).
-        let uses_of = |unit_: UnitId, declaration: usize, output: &mut Vec<(UnitId, Span)>, with_declaration: bool| {
+        let uses_of = |unit_: UnitId,
+                       declaration: usize,
+                       output: &mut Vec<(UnitId, Span)>,
+                       with_declaration: bool| {
             let u = self.program().unit(unit_);
             let end = word(&u.source, declaration).map_or(declaration, |s| s.end);
             if with_declaration {
@@ -2126,17 +2295,31 @@ impl Project {
             let (function_, positional): (Option<FunctionElementId>, Vec<usize>) = match owner {
                 OwnerParameter::Function(fid) => (
                     self.node_function(unit_, fid),
-                    u.ast.function(fid).parameters.iter().flatten().filter(|q| q.kind != ast::ParameterKind::Named).filter_map(|q| q.name.map(|n| n.span.start)).collect(),
+                    u.ast
+                        .function(fid)
+                        .parameters
+                        .iter()
+                        .flatten()
+                        .filter(|q| q.kind != ast::ParameterKind::Named)
+                        .filter_map(|q| q.name.map(|n| n.span.start))
+                        .collect(),
                 ),
                 OwnerParameter::Constructor(mid) => (
                     self.node_constructor(unit_, mid),
                     match &u.ast.member(mid).kind {
-                        MemberKind::Constructor(k) => k.parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).filter_map(|q| q.name.map(|n| n.span.start)).collect(),
+                        MemberKind::Constructor(k) => k
+                            .parameters
+                            .iter()
+                            .filter(|q| q.kind != ast::ParameterKind::Named)
+                            .filter_map(|q| q.name.map(|n| n.span.start))
+                            .collect(),
                         _ => Vec::new(),
                     },
                 ),
             };
-            if let (Some(f), Some(index)) = (function_, positional.iter().position(|&o| o == declaration)) {
+            if let (Some(f), Some(index)) =
+                (function_, positional.iter().position(|&o| o == declaration))
+            {
                 for (x, s) in self.positional_arguments(f, index) {
                     output.push((x, s));
                 }
@@ -2164,8 +2347,11 @@ impl Project {
         {
             let name = self.name(fe.name).to_string();
             let family = self.family(Owner::Class(c), &name, false, refuse_external)?;
-            let mut other: Vec<FunctionElementId> =
-                family.functions.into_iter().filter(|f| *f != function_).collect();
+            let mut other: Vec<FunctionElementId> = family
+                .functions
+                .into_iter()
+                .filter(|f| *f != function_)
+                .collect();
             other.sort();
             for f in other {
                 let FunctionRef::Function { unit, function } = self.program().function(f).node
@@ -2184,14 +2370,14 @@ impl Project {
                     });
                 if let Some(n) = homonym.and_then(|q| q.name) {
                     functions.push(f);
-                    if self
-                        .libraries
-                        .contains(&self.program().unit(unit).library)
-                    {
+                    if self.libraries.contains(&self.program().unit(unit).library) {
                         uses_of(unit, n.span.start, &mut output, refuse_external);
                         // The `[name]` of the homonymous member's doc (the local search has the
                         // whole member as its root), in references and in rename.
-                        output.extend(self.docs_that_refer(&Target::Local { unit, declaration: n.span.start }));
+                        output.extend(self.docs_that_refer(&Target::Local {
+                            unit,
+                            declaration: n.span.start,
+                        }));
                     }
                 }
             }
@@ -2220,7 +2406,13 @@ impl Project {
     /// which the search only includes for the field itself
     /// (`includeParametersForFields`): it counts only when the target is a
     /// member of the field's class.
-    fn documentation_references(&self, target: &Target, filter: Option<&HashSet<UnitId>>, matches_: impl Fn(&Target, Option<Concrete>) -> bool, index: bool) -> Vec<(UnitId, Span)> {
+    fn documentation_references(
+        &self,
+        target: &Target,
+        filter: Option<&HashSet<UnitId>>,
+        matches_: impl Fn(&Target, Option<Concrete>) -> bool,
+        index: bool,
+    ) -> Vec<(UnitId, Span)> {
         let word = self.target_word(target);
         let mut v = Vec::new();
         for u in self.units_in(filter) {
@@ -2230,12 +2422,18 @@ impl Project {
             }
             for c in self.unit_comments(u).iter() {
                 for r in &c.references {
-                    if word.as_deref().is_some_and(|w| r.iter().all(|(_, s)| s != w)) {
+                    if word
+                        .as_deref()
+                        .is_some_and(|w| r.iter().all(|(_, s)| s != w))
+                    {
                         continue;
                     }
                     let only_constructor = index
                         && r.len() <= 2
-                        && matches!(self.resolve_doc_reference(u, c.span, r), Some((Target::Constructor(_), _)));
+                        && matches!(
+                            self.resolve_doc_reference(u, c.span, r),
+                            Some((Target::Constructor(_), _))
+                        );
                     for i in 0..r.len() {
                         if only_constructor && i + 1 < r.len() {
                             continue;
@@ -2245,10 +2443,21 @@ impl Project {
                         }
                         if let Some((a, concrete)) = self.resolve_doc_reference(u, c.span, &r[..=i])
                             && matches_(&a, concrete)
-                            && !(index && i == 0 && self.cites_foreign_field_parameter(u, c.span, &r[0].1, target, concrete))
+                            && !(index
+                                && i == 0
+                                && self.cites_foreign_field_parameter(
+                                    u, c.span, &r[0].1, target, concrete,
+                                ))
                         {
                             let s = r[i].0;
-                            let s = if index && matches!(target, Target::Constructor(_)) && i > 0 { Span { start: r[i - 1].0.end, end: s.end } } else { s };
+                            let s = if index && matches!(target, Target::Constructor(_)) && i > 0 {
+                                Span {
+                                    start: r[i - 1].0.end,
+                                    end: s.end,
+                                }
+                            } else {
+                                s
+                            };
                             v.push((u, s));
                         }
                     }
@@ -2261,13 +2470,30 @@ impl Project {
     /// The single-name reference `name` of `comment` is a `this.x` parameter of
     /// the documented constructor whose field (`concrete`) is not a member of
     /// `target`'s class: the index records it on the parameter, not the field.
-    fn cites_foreign_field_parameter(&self, unit: UnitId, comment: Span, name: &str, target: &Target, concrete: Option<Concrete>) -> bool {
-        let Some(Concrete::Variable(v)) = concrete else { return false };
+    fn cites_foreign_field_parameter(
+        &self,
+        unit: UnitId,
+        comment: Span,
+        name: &str,
+        target: &Target,
+        concrete: Option<Concrete>,
+    ) -> bool {
+        let Some(Concrete::Variable(v)) = concrete else {
+            return false;
+        };
         let ast = &self.program().unit(unit).ast;
-        let Some(Documented::Member(m)) = self.documented(unit, comment) else { return false };
-        let MemberKind::Constructor(k) = &ast.member(m).kind else { return false };
+        let Some(Documented::Member(m)) = self.documented(unit, comment) else {
+            return false;
+        };
+        let MemberKind::Constructor(k) = &ast.member(m).kind else {
+            return false;
+        };
         let source = &self.program().unit(unit).source;
-        let is_field_parameter = k.parameters.iter().any(|p| p.this_ && p.name.is_some_and(|n| &source[n.span.start..n.span.end] == name));
+        let is_field_parameter = k.parameters.iter().any(|p| {
+            p.this_
+                && p.name
+                    .is_some_and(|n| &source[n.span.start..n.span.end] == name)
+        });
         if !is_field_parameter {
             return false;
         }
@@ -2285,11 +2511,16 @@ impl Project {
                 source[s.start..s.end].to_string()
             }
             Target::Member { name, .. } => name.clone(),
-            Target::Top(el) => self.query.element_name(*el).map(|s| self.name(s).trim_end_matches('=').to_string())?,
+            Target::Top(el) => self
+                .query
+                .element_name(*el)
+                .map(|s| self.name(s).trim_end_matches('=').to_string())?,
             Target::Prefix { name, .. } => self.name(*name).to_string(),
             Target::Constructor(_) => return None,
         };
-        let ident = !w.is_empty() && w.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
+        let ident = !w.is_empty()
+            && w.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$');
         ident.then_some(w)
     }
 
@@ -2299,7 +2530,11 @@ impl Project {
     pub(crate) fn unit_occurrences(&self, u: UnitId) -> std::sync::Arc<UnitOccurrences> {
         let unit = self.program().unit(u);
         let stamp = (unit.source.len(), unit.ast.exprs.len());
-        if let Some((c, i)) = self.occurrences_by_unit.lock().ok().and_then(|m| m.get(&u).cloned())
+        if let Some((c, i)) = self
+            .occurrences_by_unit
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&u).cloned())
             && c == stamp
         {
             return i;
@@ -2314,7 +2549,9 @@ impl Project {
                 _ => continue,
             };
             let id = ast::ExprId(i as u32);
-            if matches!(e.kind, ExprKind::Property { .. }) && matches!(bodies.get_resolved(id), None | Some(Resolved::Dynamic)) {
+            if matches!(e.kind, ExprKind::Property { .. })
+                && matches!(bodies.get_resolved(id), None | Some(Resolved::Dynamic))
+            {
                 let calls = calls.get_or_insert_with(|| {
                     unit.ast
                         .exprs
@@ -2332,23 +2569,41 @@ impl Project {
             }
             match bodies.get_resolved(id) {
                 Some(Resolved::Element(r)) => index.elements.entry(*r).or_default().push(s),
-                Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                Some(Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                })
+                | Some(Resolved::ExtensionMember { member: f, .. }) => {
                     index.functions.entry(*f).or_default().push(s)
                 }
-                Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => index.variables.entry(*v).or_default().push(s),
+                Some(Resolved::Member {
+                    member: MemberRef::Variable(v),
+                    ..
+                }) => index.variables.entry(*v).or_default().push(s),
                 _ => {}
             }
         }
         // Bare constant names resolve through the pattern side table, not the
         // expression arena. Index only its resolved facts, never equal spellings.
         for (&id, resolved) in &bodies.pattern_names {
-            let ast::PatternKind::Variable { name, .. } = &unit.ast.pattern(id).kind else { continue };
+            let ast::PatternKind::Variable { name, .. } = &unit.ast.pattern(id).kind else {
+                continue;
+            };
             match resolved {
-                Resolved::Element(element) => index.elements.entry(*element).or_default().push(name.span),
-                Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => {
+                Resolved::Element(element) => {
+                    index.elements.entry(*element).or_default().push(name.span)
+                }
+                Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                }
+                | Resolved::ExtensionMember { member: f, .. } => {
                     index.functions.entry(*f).or_default().push(name.span);
                 }
-                Resolved::Member { member: MemberRef::Variable(v), .. } => index.variables.entry(*v).or_default().push(name.span),
+                Resolved::Member {
+                    member: MemberRef::Variable(v),
+                    ..
+                } => index.variables.entry(*v).or_default().push(name.span),
                 _ => {}
             }
         }
@@ -2356,19 +2611,31 @@ impl Project {
         // shares its name with a local binding; represent the getter by an
         // insertion at its AST colon so renaming it preserves that binding.
         for pattern in &unit.ast.patterns {
-            let ast::PatternKind::Object { fields, .. } = &pattern.kind else { continue };
+            let ast::PatternKind::Object { fields, .. } = &pattern.kind else {
+                continue;
+            };
             for field in fields.iter() {
                 let Some(name) = field.name else { continue };
                 let span = if unit.source.as_bytes().get(field.span.start) == Some(&b':') {
-                    Span { start: field.span.start, end: field.span.start }
+                    Span {
+                        start: field.span.start,
+                        end: field.span.start,
+                    }
                 } else {
                     name.span
                 };
                 match bodies.field_elements.get(&field.pattern) {
-                    Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                    Some(Resolved::Member {
+                        member: MemberRef::Function(f),
+                        ..
+                    })
+                    | Some(Resolved::ExtensionMember { member: f, .. }) => {
                         index.functions.entry(*f).or_default().push(span);
                     }
-                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => index.variables.entry(*v).or_default().push(span),
+                    Some(Resolved::Member {
+                        member: MemberRef::Variable(v),
+                        ..
+                    }) => index.variables.entry(*v).or_default().push(span),
                     _ => {}
                 }
             }
@@ -2385,12 +2652,20 @@ impl Project {
             }
         };
         let scopes = type_parameter_scopes(&unit.ast);
-        let type_parameter = |n: &ast::Name| scopes.get(&n.sym).is_some_and(|l| l.iter().any(|s| contains(*s, n.span.start)));
+        let type_parameter = |n: &ast::Name| {
+            scopes
+                .get(&n.sym)
+                .is_some_and(|l| l.iter().any(|s| contains(*s, n.span.start)))
+        };
         for ty in &unit.ast.types {
-            let ast::TypeKind::Named { name, .. } = &ty.kind else { continue };
+            let ast::TypeKind::Named { name, .. } = &ty.kind else {
+                continue;
+            };
             match &name[..] {
                 [n] if !type_parameter(n) => ty_(p.lookup(lib, n.sym), n.span),
-                [pr, n] if is_prefix(p, lib, pr.sym) => ty_(p.lookup_prefixed(lib, pr.sym, n.sym), n.span),
+                [pr, n] if is_prefix(p, lib, pr.sym) => {
+                    ty_(p.lookup_prefixed(lib, pr.sym, n.sym), n.span)
+                }
                 [c, _] => ty_(p.lookup(lib, c.sym), c.span),
                 [pr, n, _] => ty_(p.lookup_prefixed(lib, pr.sym, n.sym), n.span),
                 _ => {}
@@ -2433,7 +2708,11 @@ impl Project {
 
     /// The `i`-th positional argument of each call to `f`, when it goes through
     /// the index's `visitExpression`: the empty range at its start.
-    pub(crate) fn positional_arguments(&self, f: FunctionElementId, index: usize) -> Vec<(UnitId, Span)> {
+    pub(crate) fn positional_arguments(
+        &self,
+        f: FunctionElementId,
+        index: usize,
+    ) -> Vec<(UnitId, Span)> {
         let mut v = Vec::new();
         for u in self.units() {
             let bodies = &self.query.bodies.units[u.0 as usize];
@@ -2444,30 +2723,51 @@ impl Project {
                     ExprKind::InstanceCreation { arguments, .. } => (&**arguments, None),
                     _ => continue,
                 };
-                let call = [Some(ast::ExprId(i as u32)), target_].into_iter().flatten().find_map(|x| match bodies.get_resolved(x) {
-                    Some(Resolved::Constructor(g))
-                    | Some(Resolved::Element(Element::Function(g)))
-                    | Some(Resolved::Member { member: MemberRef::Function(g), .. })
-                    | Some(Resolved::ExtensionMember { member: g, .. }) => Some(*g),
-                    _ => None,
-                });
+                let call = [Some(ast::ExprId(i as u32)), target_]
+                    .into_iter()
+                    .flatten()
+                    .find_map(|x| match bodies.get_resolved(x) {
+                        Some(Resolved::Constructor(g))
+                        | Some(Resolved::Element(Element::Function(g)))
+                        | Some(Resolved::Member {
+                            member: MemberRef::Function(g),
+                            ..
+                        })
+                        | Some(Resolved::ExtensionMember { member: g, .. }) => Some(*g),
+                        _ => None,
+                    });
                 if call != Some(f) {
                     continue;
                 }
-                let Some(a) = arguments_.args.iter().filter(|a| a.name.is_none()).nth(index) else { continue };
+                let Some(a) = arguments_
+                    .args
+                    .iter()
+                    .filter(|a| a.name.is_none())
+                    .nth(index)
+                else {
+                    continue;
+                };
                 let x = ast.expr(a.value);
                 let without_visit_expression = match &x.kind {
                     ExprKind::Identifier(_) => true,
                     // `MethodInvocation`: a call with an identifier or property target that is
                     // not a constructor.
                     ExprKind::Call { target, .. } => {
-                        matches!(ast.expr(*target).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
-                            && !matches!(bodies.get_resolved(a.value), Some(Resolved::Constructor(_)))
+                        matches!(
+                            ast.expr(*target).kind,
+                            ExprKind::Identifier(_) | ExprKind::Property { .. }
+                        ) && !matches!(bodies.get_resolved(a.value), Some(Resolved::Constructor(_)))
                     }
                     _ => false,
                 };
                 if !without_visit_expression {
-                    v.push((u, Span { start: x.span.start, end: x.span.start }));
+                    v.push((
+                        u,
+                        Span {
+                            start: x.span.start,
+                            end: x.span.start,
+                        },
+                    ));
                 }
             }
         }
@@ -2481,7 +2781,14 @@ impl Project {
         search: MemberSearch<'_>,
         by: &mut impl FnMut(UnitId, Span),
     ) -> Result<(), String> {
-        let MemberSearch { owner, name: name_, is_static, refuse_external, family_parameters, filter } = search;
+        let MemberSearch {
+            owner,
+            name: name_,
+            is_static,
+            refuse_external,
+            family_parameters,
+            filter,
+        } = search;
         let family = self.family(owner, name_, is_static, refuse_external)?;
         for f in &family.functions {
             if let Some((u, s)) = self.function_name(*f)
@@ -2579,9 +2886,18 @@ impl Project {
             }
             for c in classes {
                 for (u, m) in self.program().class_members(c) {
-                    let MemberKind::Constructor(k) = &self.program().unit(u).ast.member(m).kind else { continue };
-                    let Some(f) = self.node_constructor(u, m) else { continue };
-                    let positional: Vec<&ast::Parameter> = k.parameters.iter().filter(|q| q.kind != ast::ParameterKind::Named).collect();
+                    let MemberKind::Constructor(k) = &self.program().unit(u).ast.member(m).kind
+                    else {
+                        continue;
+                    };
+                    let Some(f) = self.node_constructor(u, m) else {
+                        continue;
+                    };
+                    let positional: Vec<&ast::Parameter> = k
+                        .parameters
+                        .iter()
+                        .filter(|q| q.kind != ast::ParameterKind::Named)
+                        .collect();
                     for (i, q) in positional.iter().enumerate() {
                         if q.this_ && q.name.is_some_and(|n| self.name(n.sym) == name_) {
                             parameters.push((f, Some(i)));
@@ -2592,7 +2908,11 @@ impl Project {
                             }
                         }
                     }
-                    if k.parameters.iter().any(|q| q.kind == ast::ParameterKind::Named && q.this_ && q.name.is_some_and(|n| self.name(n.sym) == name_)) {
+                    if k.parameters.iter().any(|q| {
+                        q.kind == ast::ParameterKind::Named
+                            && q.this_
+                            && q.name.is_some_and(|n| self.name(n.sym) == name_)
+                    }) {
                         parameters.push((f, None));
                     }
                 }
@@ -2601,12 +2921,18 @@ impl Project {
                 for u in self.units_in(filter) {
                     let ast = &self.program().unit(u).ast;
                     for (mi, m) in ast.members.iter().enumerate() {
-                        let MemberKind::Constructor(k) = &m.kind else { continue };
+                        let MemberKind::Constructor(k) = &m.kind else {
+                            continue;
+                        };
                         if !k.parameters.iter().any(|q| q.super_) {
                             continue;
                         }
-                        let Some(sub) = self.node_constructor(u, ast::MemberId(mi as u32)) else { continue };
-                        let Some(sup) = self.super_constructor(sub) else { continue };
+                        let Some(sub) = self.node_constructor(u, ast::MemberId(mi as u32)) else {
+                            continue;
+                        };
+                        let Some(sup) = self.super_constructor(sub) else {
+                            continue;
+                        };
                         let mut position = 0usize;
                         for q in k.parameters.iter() {
                             let named = q.kind == ast::ParameterKind::Named;
@@ -2616,7 +2942,9 @@ impl Project {
                                     f == sup
                                         && match (i, target_q) {
                                             (Some(a), Some(b)) => a == b,
-                                            (None, None) => q.name.is_some_and(|n| self.name(n.sym) == name_),
+                                            (None, None) => {
+                                                q.name.is_some_and(|n| self.name(n.sym) == name_)
+                                            }
                                             _ => false,
                                         }
                                 });
@@ -2638,7 +2966,12 @@ impl Project {
     /// Named constructor: the declaration, the creations (`A.name()`,
     /// `new A.name()`), the tear-offs, the redirections (`this.name()`,
     /// `super.name()`, `= A.name`), the enum constants and the metadata.
-    fn constructor_occurrences(&self, f: FunctionElementId, filter: Option<&HashSet<UnitId>>, by: &mut impl FnMut(UnitId, Span)) {
+    fn constructor_occurrences(
+        &self,
+        f: FunctionElementId,
+        filter: Option<&HashSet<UnitId>>,
+        by: &mut impl FnMut(UnitId, Span),
+    ) {
         // The index relations (§11.1.2): a named constructor is `.name` (with the
         // dot; `A.new` gives `.new`); the unnamed one has length 0 at the end of
         // the type, of `super`/`this`, of the enum constant's name; the implicit
@@ -2660,28 +2993,49 @@ impl Project {
             let source = unit.source.as_str();
             let with_dot = |s: Span| {
                 let before = source[..s.start].trim_end();
-                if before.ends_with('.') { Span { start: before.len() - 1, end: s.end } } else { s }
+                if before.ends_with('.') {
+                    Span {
+                        start: before.len() - 1,
+                        end: s.end,
+                    }
+                } else {
+                    s
+                }
             };
             let bodies = &self.query.bodies.units[u.0 as usize];
             for (i, e) in ast.exprs.iter().enumerate() {
                 let id = ast::ExprId(i as u32);
                 let this = matches!(bodies.get_resolved(id), Some(Resolved::Constructor(g)) if *g == f)
-                    || bodies.get_resolved(id).is_none() && call_constructor(ast, bodies, id) == Some(f)
+                    || bodies.get_resolved(id).is_none()
+                        && call_constructor(ast, bodies, id) == Some(f)
                     || matches!(bodies.get_resolved(id), Some(Resolved::Element(Element::Class(c))) if *c == class)
                         && call_constructor(ast, bodies, id) == Some(f);
                 if !this {
                     continue;
                 }
                 match &e.kind {
-                    ExprKind::Property { name, .. } if name.sym == symbol || (unnamed && self.name(name.sym) == "new") => by(u, with_dot(name.span)),
+                    ExprKind::Property { name, .. }
+                        if name.sym == symbol || (unnamed && self.name(name.sym) == "new") =>
+                    {
+                        by(u, with_dot(name.span))
+                    }
                     // `p.A()`: the prefixed type.
                     ExprKind::Property { .. } if unnamed => by(u, empty(e.span.end)),
-                    ExprKind::Identifier(_) | ExprKind::TypeArguments { .. } if unnamed => by(u, empty(e.span.end)),
-                    ExprKind::InstanceCreation { constructor: Some(n), .. } if n.sym == symbol || (unnamed && self.name(n.sym) == "new") => {
+                    ExprKind::Identifier(_) | ExprKind::TypeArguments { .. } if unnamed => {
+                        by(u, empty(e.span.end))
+                    }
+                    ExprKind::InstanceCreation {
+                        constructor: Some(n),
+                        ..
+                    } if n.sym == symbol || (unnamed && self.name(n.sym) == "new") => {
                         by(u, with_dot(n.span))
                     }
                     // `new A.name()`: the constructor name comes in the type.
-                    ExprKind::InstanceCreation { constructor: None, ty, .. } => {
+                    ExprKind::InstanceCreation {
+                        constructor: None,
+                        ty,
+                        ..
+                    } => {
                         if unnamed {
                             if self.constructor_in_type(u, *ty, class, symbol).is_none() {
                                 by(u, empty(ast.ty(*ty).span.end));
@@ -2698,17 +3052,28 @@ impl Project {
                     continue;
                 };
                 // The class that owns this constructor, for `this.`/`super.`.
-                let owner = self.node_constructor(u, ast::MemberId(mi as u32)).and_then(|g| p.function(g).class);
+                let owner = self
+                    .node_constructor(u, ast::MemberId(mi as u32))
+                    .and_then(|g| p.function(g).class);
                 let mut calls_super = false;
                 for start in k.initializers.iter() {
                     let (target_class, name_, span, word) = match start {
-                        ast::Initializer::Redirect { constructor, span, .. } => {
+                        ast::Initializer::Redirect {
+                            constructor, span, ..
+                        } => {
                             calls_super = true;
                             (owner, *constructor, *span, "this")
                         }
-                        ast::Initializer::Super { constructor, span, .. } => {
+                        ast::Initializer::Super {
+                            constructor, span, ..
+                        } => {
                             calls_super = true;
-                            (owner.and_then(|d| p.class(d).supertype_class), *constructor, *span, "super")
+                            (
+                                owner.and_then(|d| p.class(d).supertype_class),
+                                *constructor,
+                                *span,
+                                "super",
+                            )
                         }
                         _ => continue,
                     };
@@ -2724,7 +3089,9 @@ impl Project {
                 if let Some(r) = &k.redirect {
                     calls_super = true;
                     match r.constructor {
-                        Some(n) if n.sym == symbol && self.type_class(u, r.ty) == Some(class) => by(u, with_dot(n.span)),
+                        Some(n) if n.sym == symbol && self.type_class(u, r.ty) == Some(class) => {
+                            by(u, with_dot(n.span))
+                        }
                         None => {
                             if let Some(n) = self.constructor_in_type(u, r.ty, class, symbol) {
                                 by(u, with_dot(n));
@@ -2743,7 +3110,13 @@ impl Project {
                     && p.class(d).supertype_class == Some(class)
                 {
                     let end = k.name.map_or(k.class_name.span.end, |n| n.span.end);
-                    by(u, Span { start: k.class_name.span.start, end });
+                    by(
+                        u,
+                        Span {
+                            start: k.class_name.span.start,
+                            end,
+                        },
+                    );
                 }
             }
             // A class that only has the synthetic constructor calls the superclass's
@@ -2754,11 +3127,16 @@ impl Project {
                     if dr.unit != u || c.supertype_class != Some(class) {
                         continue;
                     }
-                    let DeclKind::Class(cd) = &ast.decl(dr.decl).kind else { continue };
+                    let DeclKind::Class(cd) = &ast.decl(dr.decl).kind else {
+                        continue;
+                    };
                     if cd.mixin_application {
                         continue;
                     }
-                    let synthetic_only = c.constructors.values().all(|g| p.function(*g).kind == FunctionKind::SyntheticConstructor);
+                    let synthetic_only = c
+                        .constructors
+                        .values()
+                        .all(|g| p.function(*g).kind == FunctionKind::SyntheticConstructor);
                     let _ = ci;
                     if synthetic_only {
                         by(u, cd.name.span);
@@ -2769,7 +3147,10 @@ impl Project {
             // constructor at the end of the name.
             for d in &ast.decls {
                 if let DeclKind::Enum(e) = &d.kind {
-                    let is_owner = p.class(class).decl.is_some_and(|dr| dr.unit == u && std::ptr::eq(ast.decl(dr.decl), d));
+                    let is_owner = p
+                        .class(class)
+                        .decl
+                        .is_some_and(|dr| dr.unit == u && std::ptr::eq(ast.decl(dr.decl), d));
                     if !is_owner {
                         continue;
                     }
@@ -2787,7 +3168,8 @@ impl Project {
             for a in metadata(ast, &unit.unit) {
                 let parts: Vec<SymbolId> = a.name.iter().map(|n| n.sym).collect();
                 if parts.len() >= 2
-                    && let Some((Target::Constructor(g), _)) = self.resolve_path(unit.library, None, &parts)
+                    && let Some((Target::Constructor(g), _)) =
+                        self.resolve_path(unit.library, None, &parts)
                     && g == f
                 {
                     by(u, a.name[a.name.len() - 1].span);
@@ -2858,7 +3240,13 @@ impl Project {
     /// used in an expression at `offset` (`getImportElement`): its index in the
     /// library's `imports`. `None` in a type (`p.T`, the `PrefixElement`) or when
     /// the used element does not resolve.
-    pub(crate) fn prefix_import(&self, unit: UnitId, offset: usize, lib: LibraryId, name: SymbolId) -> Option<usize> {
+    pub(crate) fn prefix_import(
+        &self,
+        unit: UnitId,
+        offset: usize,
+        lib: LibraryId,
+        name: SymbolId,
+    ) -> Option<usize> {
         let (declaration, _) = self.prefix_references_with(unit, offset, lib, name, true)?;
         let (_, s) = declaration?;
         (s.start == s.end).then_some(s.start)
@@ -2876,7 +3264,9 @@ impl Project {
         let u = p.unit(unit);
         let ast = &u.ast;
         let in_type = ast.types.iter().any(|t| match &t.kind {
-            ast::TypeKind::Named { name, .. } => matches!(&name[..], [pr, _] if pr.span.start <= offset && offset <= pr.span.end),
+            ast::TypeKind::Named { name, .. } => {
+                matches!(&name[..], [pr, _] if pr.span.start <= offset && offset <= pr.span.end)
+            }
             _ => false,
         });
         if in_type {
@@ -2892,7 +3282,8 @@ impl Project {
                         && n.sym == name_
                         && matches!(
                             bodies.get_resolved(ast::ExprId(i as u32)),
-                            Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..)))
+                            Some(Resolved::Prefix(_))
+                                | Some(Resolved::Element(Element::Prefix(..)))
                         )
                     {
                         uses.push((x, n.span));
@@ -2912,7 +3303,9 @@ impl Project {
                     return None;
                 }
                 match &p.unit(i.unit).unit.directives.get(i.directive)?.kind {
-                    ast::DirectiveKind::Import { prefix: Some(n), .. } => Some((i.unit, n.span)),
+                    ast::DirectiveKind::Import {
+                        prefix: Some(n), ..
+                    } => Some((i.unit, n.span)),
                     _ => None,
                 }
             });
@@ -2921,27 +3314,51 @@ impl Project {
         // The import: that of the `as p` under the cursor, or `getImportElement`
         // through the element used after `p.`.
         let defining = *p.library(lib).units.first()?;
-        let imports: Vec<&dartforge_elements::model::Import> =
-            p.library(lib).imports.iter().filter(|i| i.unit == defining && i.prefix == Some(name_)).collect();
-        let node_as = imports.iter().position(|i| match p.unit(i.unit).unit.directives.get(i.directive).map(|d| &d.kind) {
-            Some(ast::DirectiveKind::Import { prefix: Some(n), .. }) => i.unit == unit && n.span.start <= offset && offset <= n.span.end,
-            _ => false,
+        let imports: Vec<&dartforge_elements::model::Import> = p
+            .library(lib)
+            .imports
+            .iter()
+            .filter(|i| i.unit == defining && i.prefix == Some(name_))
+            .collect();
+        let node_as = imports.iter().position(|i| {
+            match p
+                .unit(i.unit)
+                .unit
+                .directives
+                .get(i.directive)
+                .map(|d| &d.kind)
+            {
+                Some(ast::DirectiveKind::Import {
+                    prefix: Some(n), ..
+                }) => i.unit == unit && n.span.start <= offset && offset <= n.span.end,
+                _ => false,
+            }
         });
         let chosen = match node_as {
             Some(k) => Some(k),
             None => {
                 let bodies = &self.query.bodies.units[unit.0 as usize];
-                let used = ast.exprs.iter().enumerate().find_map(|(i, e)| match &e.kind {
-                    ExprKind::Property { target, name, .. } => match &ast.expr(*target).kind {
-                        ExprKind::Identifier(pn) if pn.sym == name_ && pn.span.start <= offset && offset <= pn.span.end => {
-                            let id = ast::ExprId(i as u32);
-                            let r = bodies.get_resolved(id).cloned().or_else(|| call_constructor(ast, bodies, id).map(Resolved::Constructor));
-                            Some((r, name.sym))
-                        }
+                let used = ast
+                    .exprs
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, e)| match &e.kind {
+                        ExprKind::Property { target, name, .. } => match &ast.expr(*target).kind {
+                            ExprKind::Identifier(pn)
+                                if pn.sym == name_
+                                    && pn.span.start <= offset
+                                    && offset <= pn.span.end =>
+                            {
+                                let id = ast::ExprId(i as u32);
+                                let r = bodies.get_resolved(id).cloned().or_else(|| {
+                                    call_constructor(ast, bodies, id).map(Resolved::Constructor)
+                                });
+                                Some((r, name.sym))
+                            }
+                            _ => None,
+                        },
                         _ => None,
-                    },
-                    _ => None,
-                });
+                    });
                 let (resolved, used_name) = used?;
                 let element = match resolved {
                     Some(Resolved::Element(el)) => el,
@@ -2949,24 +3366,52 @@ impl Project {
                     _ => return None,
                 };
                 let element_lib = self.element_library(element);
-                let candidates: Vec<usize> = (0..imports.len()).filter(|&k| imports[k].library == element_lib).collect();
-                if let Some(&k) = candidates.iter().find(|&&k| imports[k].combinators.is_empty()) {
+                let candidates: Vec<usize> = (0..imports.len())
+                    .filter(|&k| imports[k].library == element_lib)
+                    .collect();
+                if let Some(&k) = candidates
+                    .iter()
+                    .find(|&&k| imports[k].combinators.is_empty())
+                {
                     Some(k)
                 } else if candidates.len() == 1 {
                     Some(candidates[0])
                 } else {
-                    candidates
-                        .into_iter()
-                        .find(|&k| p.library(imports[k].library).exported.get(&used_name).and_then(|b| b.getter.or(b.setter)) == Some(element))
+                    candidates.into_iter().find(|&k| {
+                        p.library(imports[k].library)
+                            .exported
+                            .get(&used_name)
+                            .and_then(|b| b.getter.or(b.setter))
+                            == Some(element)
+                    })
                 }
             }
         };
         let imp = imports.get(chosen?)?;
         let directive = p.unit(imp.unit).unit.directives.get(imp.directive)?;
-        let declaration = Some((imp.unit, Span { start: directive.span.start, end: directive.span.start }));
+        let declaration = Some((
+            imp.unit,
+            Span {
+                start: directive.span.start,
+                end: directive.span.start,
+            },
+        ));
         if only_import {
-            let index = p.library(lib).imports.iter().position(|i| std::ptr::eq(i, *imp))?;
-            return Some((Some((imp.unit, Span { start: index, end: index })), Vec::new()));
+            let index = p
+                .library(lib)
+                .imports
+                .iter()
+                .position(|i| std::ptr::eq(i, *imp))?;
+            return Some((
+                Some((
+                    imp.unit,
+                    Span {
+                        start: index,
+                        end: index,
+                    },
+                )),
+                Vec::new(),
+            ));
         }
         // The `p.` uses of elements of this import's namespace.
         let namespace = &p.library(imp.library).exported;
@@ -2984,7 +3429,10 @@ impl Project {
             let until_next = |pr: Span| {
                 let after_dot = fx[pr.end..].find('.').map_or(pr.end, |k| pr.end + k + 1);
                 let spaces = fx[after_dot..].len() - fx[after_dot..].trim_start().len();
-                Span { start: pr.start, end: after_dot + spaces }
+                Span {
+                    start: pr.start,
+                    end: after_dot + spaces,
+                }
             };
             for e in un.ast.exprs.iter() {
                 if let ExprKind::Property { target, name, .. } = &e.kind
@@ -3187,7 +3635,12 @@ impl Project {
     }
 
     /// Top level: declarations, uses, types, metadata and `show`/`hide`.
-    fn top_occurrences(&self, el: Element, filter: Option<&HashSet<UnitId>>, by: &mut impl FnMut(UnitId, Span)) {
+    fn top_occurrences(
+        &self,
+        el: Element,
+        filter: Option<&HashSet<UnitId>>,
+        by: &mut impl FnMut(UnitId, Span),
+    ) {
         let p = self.program();
         let elements = self.top_elements(el);
         let Some(symbol) = self.query.element_name(el) else {
@@ -3302,13 +3755,15 @@ impl Project {
 
     fn compute_written_subtypes(&self) -> WrittenSubtypes {
         let p = self.program();
-        let mut m: std::collections::HashMap<ClassId, Vec<ClassId>> = std::collections::HashMap::new();
+        let mut m: std::collections::HashMap<ClassId, Vec<ClassId>> =
+            std::collections::HashMap::new();
         // The index's `visitClassDeclaration`: a class without `extends` has the
         // implicit `IS_EXTENDED_BY` from `Object`, which the subtype search
         // (`Search._addResults`) finds in the files that cite the name `Object`
         // and in those of its library.
         let object = self.query.core.object_class;
-        let mut eligible: std::collections::HashMap<UnitId, bool> = std::collections::HashMap::new();
+        let mut eligible: std::collections::HashMap<UnitId, bool> =
+            std::collections::HashMap::new();
         for (i, c) in p.classes.iter().enumerate() {
             let Some(d) = c.decl else { continue };
             let unit = p.unit(d.unit);
@@ -3330,14 +3785,22 @@ impl Project {
                 }
             }
             let types: Vec<ast::TypeId> = match &ast.decl(d.decl).kind {
-                DeclKind::Class(x) => x.extends.iter().chain(x.with.iter()).chain(x.implements.iter()).copied().collect(),
+                DeclKind::Class(x) => x
+                    .extends
+                    .iter()
+                    .chain(x.with.iter())
+                    .chain(x.implements.iter())
+                    .copied()
+                    .collect(),
                 DeclKind::Mixin(x) => x.on.iter().chain(x.implements.iter()).copied().collect(),
                 DeclKind::Enum(x) => x.with.iter().chain(x.implements.iter()).copied().collect(),
                 DeclKind::ExtensionType(x) => x.implements.to_vec(),
                 _ => Vec::new(),
             };
             for t in types {
-                let ast::TypeKind::Named { name, .. } = &ast.ty(t).kind else { continue };
+                let ast::TypeKind::Named { name, .. } = &ast.ty(t).kind else {
+                    continue;
+                };
                 let binding = match &name[..] {
                     [n] => p.lookup_in_unit(d.unit, n.sym),
                     [pf, n] => p.lookup_prefixed_in_unit(d.unit, pf.sym, n.sym),
@@ -3452,7 +3915,10 @@ impl Project {
                 // that declares the name.
                 let library = p.class(c).library;
                 let private = name.starts_with('_');
-                let declares = |x: ClassId| !self.declared(x, name, false).is_empty() || !self.declared(x, name, true).is_empty();
+                let declares = |x: ClassId| {
+                    !self.declared(x, name, false).is_empty()
+                        || !self.declared(x, name, true).is_empty()
+                };
                 let mut supers: Vec<ClassId> = self
                     .supertypes(c)
                     .into_iter()
@@ -3483,7 +3949,11 @@ impl Project {
                     descent.retain(|&s| p.class(s).library == library);
                 }
                 for x in &descent {
-                    let doses: Vec<FunctionElementId> = self.declared(*x, name, false).into_iter().chain(self.declared(*x, name, true)).collect();
+                    let doses: Vec<FunctionElementId> = self
+                        .declared(*x, name, false)
+                        .into_iter()
+                        .chain(self.declared(*x, name, true))
+                        .collect();
                     if doses.is_empty() {
                         continue;
                     }
@@ -3619,8 +4089,14 @@ pub(crate) fn parameter_in(ast: &Ast, offset: usize) -> Option<(&Parameter, Owne
 /// no navigation region.
 fn for_in_variable(ast: &Ast, name: Span) -> bool {
     let declared = |t: &ast::ForInTarget| matches!(t, ast::ForInTarget::Declared { name: n, .. } if n.span == name);
-    ast.stmts.iter().any(|s| matches!(&s.kind, ast::StmtKind::ForIn { target, .. } if declared(target)))
-        || ast.exprs.iter().any(|e| collection_elements(&e.kind).iter().any(|c| for_in_element(c, &declared)))
+    ast.stmts
+        .iter()
+        .any(|s| matches!(&s.kind, ast::StmtKind::ForIn { target, .. } if declared(target)))
+        || ast.exprs.iter().any(|e| {
+            collection_elements(&e.kind)
+                .iter()
+                .any(|c| for_in_element(c, &declared))
+        })
 }
 
 fn collection_elements(kind: &ExprKind) -> &[ast::CollectionElement] {
@@ -3630,11 +4106,21 @@ fn collection_elements(kind: &ExprKind) -> &[ast::CollectionElement] {
     }
 }
 
-fn for_in_element(c: &ast::CollectionElement, declared: &impl Fn(&ast::ForInTarget) -> bool) -> bool {
+fn for_in_element(
+    c: &ast::CollectionElement,
+    declared: &impl Fn(&ast::ForInTarget) -> bool,
+) -> bool {
     match c {
-        ast::CollectionElement::ForIn { target, body, .. } => declared(target) || for_in_element(body, declared),
+        ast::CollectionElement::ForIn { target, body, .. } => {
+            declared(target) || for_in_element(body, declared)
+        }
         ast::CollectionElement::For { body, .. } => for_in_element(body, declared),
-        ast::CollectionElement::If { then, else_, .. } => for_in_element(then, declared) || else_.as_deref().is_some_and(|o| for_in_element(o, declared)),
+        ast::CollectionElement::If { then, else_, .. } => {
+            for_in_element(then, declared)
+                || else_
+                    .as_deref()
+                    .is_some_and(|o| for_in_element(o, declared))
+        }
         _ => false,
     }
 }
@@ -3644,7 +4130,9 @@ fn for_in_element(c: &ast::CollectionElement, declared: &impl Fn(&ast::ForInTarg
 fn doc_comment_before(source: &str, start: usize) -> bool {
     let before = source[..start].trim_end();
     if before.ends_with("*/") {
-        return before.rfind("/*").is_some_and(|i| before[i..].starts_with("/**"));
+        return before
+            .rfind("/*")
+            .is_some_and(|i| before[i..].starts_with("/**"));
     }
     let line = before.rsplit('\n').next().unwrap_or("").trim_start();
     line.starts_with("///")
@@ -3728,4 +4216,3 @@ pub(crate) fn type_parameter_declaration(
     }
     best.map(|(_, d)| d)
 }
-

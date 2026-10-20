@@ -29,7 +29,10 @@ enum Shape {
 /// The assembled text with the header of the requested shape (the rest is
 /// the same, byte for byte).
 fn with_header(text: &str, library: &Path, shape: Shape) -> String {
-    let name = library.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = library
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     let rest = text.split_once('\n').map_or("", |(_, r)| r);
     match shape {
         Shape::Sdk36 => format!("augment library '{name}';\n{rest}"),
@@ -40,7 +43,9 @@ fn with_header(text: &str, library: &Path, shape: Shape) -> String {
 /// Our macro API: `--api`, `DARTFORGE_MACROS_API`, or `packages/macros` in a
 /// directory above the executable or the current directory.
 fn find_api(explicit: Option<PathBuf>) -> Option<PathBuf> {
-    if let Some(p) = explicit.or_else(|| std::env::var_os("DARTFORGE_MACROS_API").map(PathBuf::from)) {
+    if let Some(p) =
+        explicit.or_else(|| std::env::var_os("DARTFORGE_MACROS_API").map(PathBuf::from))
+    {
         return Some(p);
     }
     let bases = [std::env::current_exe().ok(), std::env::current_dir().ok()];
@@ -56,7 +61,10 @@ fn find_api(explicit: Option<PathBuf>) -> Option<PathBuf> {
 }
 
 pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>> {
-    let texts: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let texts: Vec<String> = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let mut it = texts.iter().map(String::as_str);
     let mut input: Option<PathBuf> = None;
     let mut materialize = false;
@@ -90,21 +98,33 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
         }
     }
     let input = input.ok_or(USAGE)?;
-    let sdk_dir = sdk_lib.or_else(SdkLayout::discover).ok_or("SDK not found (use --sdk)")?;
+    let sdk_dir = sdk_lib
+        .or_else(SdkLayout::discover)
+        .ok_or("SDK not found (use --sdk)")?;
     let mut sdk = SdkLayout::load(&sdk_dir, "dartdevc")?;
     language.apply(&mut sdk);
     let packages = packages.or_else(|| dartforge_elements::config::PackageConfig::discover(&input));
 
     let mut names = Interner::new();
-    let (program, diags) =
-        dartforge_elements::load::load_lenient_generated(&input, &sdk, packages.as_deref(), &mut names, None, None, None);
+    let (program, diags) = dartforge_elements::load::load_lenient_generated(
+        &input,
+        &sdk,
+        packages.as_deref(),
+        &mut names,
+        None,
+        None,
+        None,
+    );
     if !diags.is_empty() {
         for d in &diags {
             eprintln!("error: {d}");
         }
         return Err(format!("{} error(s) loading the program", diags.len()).into());
     }
-    let apps = dartforge_macros_host::applications::detect(&dartforge_macros_host::model::View { program: &program, interner: &names });
+    let apps = dartforge_macros_host::applications::detect(&dartforge_macros_host::model::View {
+        program: &program,
+        interner: &names,
+    });
     if apps.is_empty() {
         println!("no macro applications");
         return Ok(());
@@ -117,61 +137,101 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error::Error>
             if !cfg!(feature = "native") {
                 return Err("--native requires dartforge built with the nativo feature (compile-native compiles the executor)".into());
             }
-            let api = find_api(api).ok_or("the macro API (packages/macros) was not found: use --api")?;
+            let api =
+                find_api(api).ok_or("the macro API (packages/macros) was not found: use --api")?;
             let root = input.parent().unwrap_or(Path::new("."));
             let cfg = dartforge_macros_host::native::NativeConfig {
                 compiler: std::env::current_exe()?,
                 sdk_lib: sdk.root.clone(),
                 api,
-                work_dir: root.join(".dart_tool").join("dartforge").join("macros").join("native"),
+                work_dir: root
+                    .join(".dart_tool")
+                    .join("dartforge")
+                    .join("macros")
+                    .join("native"),
             };
-            Box::new(dartforge_macros_host::native::start(&cfg, &apps, packages.as_deref())?)
+            Box::new(dartforge_macros_host::native::start(
+                &cfg,
+                &apps,
+                packages.as_deref(),
+            )?)
         }
         Some(d) => {
-            let api = find_api(api).ok_or("the macro API (packages/macros) was not found: use --api")?;
+            let api =
+                find_api(api).ok_or("the macro API (packages/macros) was not found: use --api")?;
             let root = input.parent().unwrap_or(Path::new("."));
             let cfg = dartforge_macros_host::vm::VmConfig {
                 dart: d.clone(),
                 api,
                 work_dir: root.join(".dart_tool").join("dartforge").join("macros"),
             };
-            Box::new(dartforge_macros_host::vm::start(&cfg, &apps, packages.as_deref())?)
+            Box::new(dartforge_macros_host::vm::start(
+                &cfg,
+                &apps,
+                packages.as_deref(),
+            )?)
         }
         None => Box::new(Unavailable::default()),
     };
     let mut load = |i: &mut Interner, g| {
-        dartforge_elements::load::load_lenient_generated(&input, &sdk, packages.as_deref(), i, None, None, g)
+        dartforge_elements::load::load_lenient_generated(
+            &input,
+            &sdk,
+            packages.as_deref(),
+            i,
+            None,
+            None,
+            g,
+        )
     };
-    let output = match dartforge_macros_host::apply(program, &mut names, None, &mut load, executor.as_mut()) {
-        Ok(s) => s,
-        Err(ds) => {
-            for d in &ds {
-                eprintln!("error: {d}");
+    let output =
+        match dartforge_macros_host::apply(program, &mut names, None, &mut load, executor.as_mut())
+        {
+            Ok(s) => s,
+            Err(ds) => {
+                for d in &ds {
+                    eprintln!("error: {d}");
+                }
+                return Err(format!("{} error(s) in the macros", ds.len()).into());
             }
-            return Err(format!("{} error(s) in the macros", ds.len()).into());
-        }
-    };
+        };
     for a in &output.warnings {
         eprintln!("warning: {a}");
     }
     for t in &output.texts {
         let library = t.path.with_file_name(
-            t.path.file_name().map(|n| n.to_string_lossy().replace(".macro.dart", ".dart")).unwrap_or_default(),
+            t.path
+                .file_name()
+                .map(|n| n.to_string_lossy().replace(".macro.dart", ".dart"))
+                .unwrap_or_default(),
         );
         if materialize {
             let text = with_header(&t.text, &library, shape);
             std::fs::write(&t.path, text).map_err(|e| format!("{}: {e}", t.path.display()))?;
-            let name = t.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let name = t
+                .path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
             let directive = match shape {
                 Shape::Sdk36 => format!("import augment '{name}';"),
                 Shape::Current => format!("part '{name}';"),
             };
-            println!("{} ({}; include `{directive}` in {})", t.path.display(), t.library, library.display());
+            println!(
+                "{} ({}; include `{directive}` in {})",
+                t.path.display(),
+                t.library,
+                library.display()
+            );
         } else {
             println!("// {} ({})", t.path.display(), t.library);
             print!("{}", t.text);
         }
     }
-    eprintln!("{} application(s), {} macro run(s)", apps.len(), output.executed_macros);
+    eprintln!(
+        "{} application(s), {} macro run(s)",
+        apps.len(),
+        output.executed_macros
+    );
     Ok(())
 }

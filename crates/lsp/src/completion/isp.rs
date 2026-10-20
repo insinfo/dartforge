@@ -34,53 +34,196 @@ use dartforge_frontend::token::{Kind, Op, Token};
 /// reserved, built-in and pseudo-keywords): for them `type == IDENTIFIER` is
 /// false and `isKeyword` is true.
 pub(super) const ANALYZER_WORDS: &[&str] = &[
-    "abstract", "as", "assert", "async", "augment", "await", "base", "break", "case", "catch", "class", "const", "continue", "covariant", "default",
-    "deferred", "do", "dynamic", "else", "enum", "export", "extends", "extension", "external", "factory", "false", "final", "finally", "for",
-    "Function", "get", "hide", "if", "implements", "import", "in", "inout", "interface", "is", "late", "library", "mixin", "native", "new", "null",
-    "of", "on", "operator", "out", "part", "patch", "required", "rethrow", "return", "sealed", "set", "show", "source", "static", "super", "switch",
-    "sync", "this", "throw", "true", "try", "typedef", "var", "void", "when", "while", "with", "yield",
+    "abstract",
+    "as",
+    "assert",
+    "async",
+    "augment",
+    "await",
+    "base",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "covariant",
+    "default",
+    "deferred",
+    "do",
+    "dynamic",
+    "else",
+    "enum",
+    "export",
+    "extends",
+    "extension",
+    "external",
+    "factory",
+    "false",
+    "final",
+    "finally",
+    "for",
+    "Function",
+    "get",
+    "hide",
+    "if",
+    "implements",
+    "import",
+    "in",
+    "inout",
+    "interface",
+    "is",
+    "late",
+    "library",
+    "mixin",
+    "native",
+    "new",
+    "null",
+    "of",
+    "on",
+    "operator",
+    "out",
+    "part",
+    "patch",
+    "required",
+    "rethrow",
+    "return",
+    "sealed",
+    "set",
+    "show",
+    "source",
+    "static",
+    "super",
+    "switch",
+    "sync",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "typedef",
+    "var",
+    "void",
+    "when",
+    "while",
+    "with",
+    "yield",
 ];
 
 /// The node kinds that are an `Expression` in the analyzer.
 pub(super) const EXPRESSION_KINDS: &[&str] = &[
-    "AdjacentStrings", "AsExpression", "AssignmentExpression", "AwaitExpression", "BinaryExpression", "BooleanLiteral", "CascadeExpression",
-    "ConditionalExpression", "ConstructorReference", "DotShorthand", "DoubleLiteral", "ExtensionOverride", "FunctionExpression", "FunctionExpressionInvocation",
-    "FunctionReference", "IndexExpression", "InstanceCreationExpression", "IntegerLiteral", "IsExpression", "ListLiteral", "MethodInvocation",
-    "NamedExpression", "NullLiteral", "ParenthesizedExpression", "PatternAssignment", "PostfixExpression", "PrefixExpression",
-    "PrefixedIdentifier", "PropertyAccess", "RecordLiteral", "RethrowExpression", "SetOrMapLiteral", "SimpleIdentifier",
-    "SimpleStringLiteral", "StringInterpolation", "SuperExpression", "SwitchExpression", "SymbolLiteral", "ThisExpression",
-    "ThrowExpression", "TypeLiteral",
+    "AdjacentStrings",
+    "AsExpression",
+    "AssignmentExpression",
+    "AwaitExpression",
+    "BinaryExpression",
+    "BooleanLiteral",
+    "CascadeExpression",
+    "ConditionalExpression",
+    "ConstructorReference",
+    "DotShorthand",
+    "DoubleLiteral",
+    "ExtensionOverride",
+    "FunctionExpression",
+    "FunctionExpressionInvocation",
+    "FunctionReference",
+    "IndexExpression",
+    "InstanceCreationExpression",
+    "IntegerLiteral",
+    "IsExpression",
+    "ListLiteral",
+    "MethodInvocation",
+    "NamedExpression",
+    "NullLiteral",
+    "ParenthesizedExpression",
+    "PatternAssignment",
+    "PostfixExpression",
+    "PrefixExpression",
+    "PrefixedIdentifier",
+    "PropertyAccess",
+    "RecordLiteral",
+    "RethrowExpression",
+    "SetOrMapLiteral",
+    "SimpleIdentifier",
+    "SimpleStringLiteral",
+    "StringInterpolation",
+    "SuperExpression",
+    "SwitchExpression",
+    "SymbolLiteral",
+    "ThisExpression",
+    "ThrowExpression",
+    "TypeLiteral",
 ];
 
 /// The kind is a `DartPattern`.
 pub(super) fn is_pattern(e: &str) -> bool {
     matches!(
         e,
-        "CastPattern" | "ConstantPattern" | "DeclaredVariablePattern" | "ListPattern" | "LogicalAndPattern" | "LogicalOrPattern" | "MapPattern"
-            | "NullAssertPattern" | "NullCheckPattern" | "ObjectPattern" | "ParenthesizedPattern" | "RecordPattern" | "RelationalPattern"
-            | "WildcardPattern" | "AssignedVariablePattern"
+        "CastPattern"
+            | "ConstantPattern"
+            | "DeclaredVariablePattern"
+            | "ListPattern"
+            | "LogicalAndPattern"
+            | "LogicalOrPattern"
+            | "MapPattern"
+            | "NullAssertPattern"
+            | "NullCheckPattern"
+            | "ObjectPattern"
+            | "ParenthesizedPattern"
+            | "RecordPattern"
+            | "RelationalPattern"
+            | "WildcardPattern"
+            | "AssignedVariablePattern"
     )
 }
 
 /// The kind is a declaration with a member body (a `Declaration` where an
 /// `@override` annotation applies).
 pub(super) fn is_declaration(e: &str) -> bool {
-    matches!(e, "ClassDeclaration" | "MixinDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration")
+    matches!(
+        e,
+        "ClassDeclaration"
+            | "MixinDeclaration"
+            | "EnumDeclaration"
+            | "ExtensionDeclaration"
+            | "ExtensionTypeDeclaration"
+    )
 }
 
 /// The kind is a `Statement`.
 pub(super) fn is_command(e: &str) -> bool {
     matches!(
         e,
-        "AssertStatement" | "Block" | "BreakStatement" | "ContinueStatement" | "DoStatement" | "EmptyStatement" | "ExpressionStatement"
-            | "ForStatement" | "FunctionDeclarationStatement" | "IfStatement" | "LabeledStatement" | "PatternVariableDeclarationStatement"
-            | "ReturnStatement" | "SwitchStatement" | "TryStatement" | "VariableDeclarationStatement" | "WhileStatement" | "YieldStatement"
+        "AssertStatement"
+            | "Block"
+            | "BreakStatement"
+            | "ContinueStatement"
+            | "DoStatement"
+            | "EmptyStatement"
+            | "ExpressionStatement"
+            | "ForStatement"
+            | "FunctionDeclarationStatement"
+            | "IfStatement"
+            | "LabeledStatement"
+            | "PatternVariableDeclarationStatement"
+            | "ReturnStatement"
+            | "SwitchStatement"
+            | "TryStatement"
+            | "VariableDeclarationStatement"
+            | "WhileStatement"
+            | "YieldStatement"
     )
 }
 
 /// The kind is a `FormalParameter`.
 pub(super) fn is_parameter(e: &str) -> bool {
-    matches!(e, "SimpleFormalParameter" | "FieldFormalParameter" | "SuperFormalParameter" | "FunctionTypedFormalParameter" | "DefaultFormalParameter")
+    matches!(
+        e,
+        "SimpleFormalParameter"
+            | "FieldFormalParameter"
+            | "SuperFormalParameter"
+            | "FunctionTypedFormalParameter"
+            | "DefaultFormalParameter"
+    )
 }
 
 /// A language feature that completion consults (`featureSet`), by the
@@ -126,7 +269,11 @@ pub(super) enum Operation {
     /// `ConstructorsOperation`.
     Constructors,
     /// `InstanceExtensionMembersOperation`.
-    ExtensionMembers { ty: TypeId, methods: bool, setters: bool },
+    ExtensionMembers {
+        ty: TypeId,
+        methods: bool,
+        setters: bool,
+    },
 }
 
 /// The result of the pass.
@@ -228,7 +375,9 @@ pub(super) fn run(
     let toks = dartforge_frontend::lexer::lex(text).unwrap_or_default();
     let mut exprs = HashMap::new();
     for (i, e) in query.program.unit(unit).ast.exprs.iter().enumerate() {
-        exprs.entry((e.span.start, e.span.end)).or_insert(ExprId(i as u32));
+        exprs
+            .entry((e.span.start, e.span.end))
+            .or_insert(ExprId(i as u32));
     }
     let library = query.program.unit(unit).library;
     let path = query.program.unit(unit).path.clone();
@@ -245,7 +394,12 @@ pub(super) fn run(
         unit,
         swap,
         exprs,
-        collector: Collector { items: Vec::new(), library, receiver: None, inherited: false },
+        collector: Collector {
+            items: Vec::new(),
+            library,
+            receiver: None,
+            inherited: false,
+        },
         scores: Vec::new(),
         local: None,
         prefers_constants: false,
@@ -285,7 +439,9 @@ pub(super) fn run(
     let in_constant_context = isp.request_in_constant_context(&target);
     let context = isp.context_type_in(target.node, offset);
     isp.context_type = context;
-    isp.matcher = (!matcher_prefix.is_empty()).then(|| crate::fuzzy_matcher::Matcher::new(&matcher_prefix, crate::fuzzy_matcher::Style::Text));
+    isp.matcher = (!matcher_prefix.is_empty()).then(|| {
+        crate::fuzzy_matcher::Matcher::new(&matcher_prefix, crate::fuzzy_matcher::Style::Text)
+    });
     if let Some(node) = isp.completion_node() {
         isp.visit(node);
     }
@@ -317,8 +473,23 @@ pub(super) fn run(
             }
         }
     }
-    let Isp { collector, scores, local, incomplete, prefers_constants, operations, flags, visible, .. } = isp;
-    let items = collector.items.into_iter().zip(scores).map(|(i, s)| (s, i)).collect();
+    let Isp {
+        collector,
+        scores,
+        local,
+        incomplete,
+        prefers_constants,
+        operations,
+        flags,
+        visible,
+        ..
+    } = isp;
+    let items = collector
+        .items
+        .into_iter()
+        .zip(scores)
+        .map(|(i, s)| (s, i))
+        .collect();
     ResultIsp {
         items,
         local,
@@ -409,12 +580,19 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The first child of the kind.
     pub(super) fn child(&self, n: usize, kind: &str) -> Option<usize> {
-        self.children(n).iter().copied().find(|&f| self.kind(f) == kind)
+        self.children(n)
+            .iter()
+            .copied()
+            .find(|&f| self.kind(f) == kind)
     }
 
     /// The children of one of the kinds.
     pub(super) fn children_of(&self, n: usize, kinds: &[&str]) -> Vec<usize> {
-        self.children(n).iter().copied().filter(|&f| kinds.contains(&self.kind(f))).collect()
+        self.children(n)
+            .iter()
+            .copied()
+            .filter(|&f| kinds.contains(&self.kind(f)))
+            .collect()
     }
 
     /// The closest ancestor (itself included) of one of the kinds.
@@ -440,7 +618,11 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `elementBefore(offset)`: the last one with `end <= offset`.
     pub(super) fn element_before(&self, nodes: &[usize]) -> Option<usize> {
-        nodes.iter().copied().rev().find(|&k| self.end(k) <= self.offset)
+        nodes
+            .iter()
+            .copied()
+            .rev()
+            .find(|&k| self.end(k) <= self.offset)
     }
 
     // -- Tokens ------------------------------------------------------------------
@@ -453,12 +635,17 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The token that starts exactly at `off`.
     pub(super) fn tok_at(&self, off: usize) -> Option<usize> {
         let i = self.tok_since(off);
-        self.toks.get(i).filter(|t| t.span.start == off && t.kind != Kind::Eof).map(|_| i)
+        self.toks
+            .get(i)
+            .filter(|t| t.span.start == off && t.kind != Kind::Eof)
+            .map(|_| i)
     }
 
     /// The last token that ends at or before `off`.
     pub(super) fn tok_before(&self, off: usize) -> Option<usize> {
-        self.toks.partition_point(|t| t.span.end <= off).checked_sub(1)
+        self.toks
+            .partition_point(|t| t.span.end <= off)
+            .checked_sub(1)
     }
 
     /// The first token that starts at `off` or after (excluding EOF).
@@ -477,7 +664,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `isKeywordOrIdentifier`.
     pub(super) fn word(&self, i: usize) -> bool {
-        matches!(self.toks.get(i).map(|t| t.kind), Some(Kind::Ident | Kind::Keyword(_)))
+        matches!(
+            self.toks.get(i).map(|t| t.kind),
+            Some(Kind::Ident | Kind::Keyword(_))
+        )
     }
 
     /// `type.isKeyword` (fasta's `KeywordToken`).
@@ -524,7 +714,10 @@ impl<'a, 'c> Isp<'a, 'c> {
             if t.span.start >= until || t.kind == Kind::Eof {
                 return None;
             }
-            if bottom == 0 && matches!(t.kind, Kind::Ident | Kind::Keyword(_)) && t.text(self.source) == text {
+            if bottom == 0
+                && matches!(t.kind, Kind::Ident | Kind::Keyword(_))
+                && t.text(self.source) == text
+            {
                 return Some(i);
             }
             match t.kind {
@@ -584,7 +777,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The `offset` of a token fasta would create as synthetic when it is not in
     /// the text: that of the next real token after `after`.
     pub(super) fn synthetic(&self, after: usize) -> Span {
-        let p = self.tok_after(after).map_or(self.source.len(), |i| self.span_tok(i).start);
+        let p = self
+            .tok_after(after)
+            .map_or(self.source.len(), |i| self.span_tok(i).start);
         Span { start: p, end: p }
     }
 
@@ -613,7 +808,8 @@ impl<'a, 'c> Isp<'a, 'c> {
                 after = after.max(self.end(f));
             }
         }
-        self.tok_after(after).filter(|&i| self.span_tok(i).start < self.end(n).max(after + 1))
+        self.tok_after(after)
+            .filter(|&i| self.span_tok(i).start < self.end(n).max(after + 1))
     }
 
     /// `isFullySynthetic` here: the node has no token in the text.
@@ -662,31 +858,90 @@ impl<'a, 'c> Isp<'a, 'c> {
         let f = self.kind(child);
         let annotation = f == "Annotation";
         match self.kind(parent) {
-            "AdjacentStrings" | "ArgumentList" | "Block" | "FormalParameterList" | "RecordLiteral" | "HideCombinator" | "ShowCombinator"
-            | "DottedName" | "LibraryIdentifier" | "TypeArgumentList" | "TypeParameterList" | "ImplementsClause" | "WithClause"
-            | "MixinOnClause" | "RecordTypeAnnotationNamedFields" => true,
+            "AdjacentStrings"
+            | "ArgumentList"
+            | "Block"
+            | "FormalParameterList"
+            | "RecordLiteral"
+            | "HideCombinator"
+            | "ShowCombinator"
+            | "DottedName"
+            | "LibraryIdentifier"
+            | "TypeArgumentList"
+            | "TypeParameterList"
+            | "ImplementsClause"
+            | "WithClause"
+            | "MixinOnClause"
+            | "RecordTypeAnnotationNamedFields" => true,
             "CascadeExpression" => self.children(parent).first() != Some(&child),
-            "ClassDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration" => {
-                annotation || matches!(f, "FieldDeclaration" | "MethodDeclaration" | "ConstructorDeclaration")
+            "ClassDeclaration"
+            | "ExtensionDeclaration"
+            | "ExtensionTypeDeclaration"
+            | "MixinDeclaration" => {
+                annotation
+                    || matches!(
+                        f,
+                        "FieldDeclaration" | "MethodDeclaration" | "ConstructorDeclaration"
+                    )
             }
-            "EnumDeclaration" => annotation || matches!(f, "EnumConstantDeclaration" | "FieldDeclaration" | "MethodDeclaration" | "ConstructorDeclaration"),
+            "EnumDeclaration" => {
+                annotation
+                    || matches!(
+                        f,
+                        "EnumConstantDeclaration"
+                            | "FieldDeclaration"
+                            | "MethodDeclaration"
+                            | "ConstructorDeclaration"
+                    )
+            }
             "Comment" => f == "CommentReference",
             "CompilationUnit" => f != "ScriptTag",
             "ConstructorDeclaration" => {
-                annotation || matches!(f, "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer")
+                annotation
+                    || matches!(
+                        f,
+                        "ConstructorFieldInitializer"
+                            | "SuperConstructorInvocation"
+                            | "RedirectingConstructorInvocation"
+                            | "AssertInitializer"
+                    )
             }
-            "ExportDirective" | "ImportDirective" => annotation || matches!(f, "ShowCombinator" | "HideCombinator" | "Configuration"),
-            "ClassTypeAlias" | "DeclaredIdentifier" | "EnumConstantDeclaration" | "FieldDeclaration" | "ForEachPartsWithPattern"
-            | "SimpleFormalParameter" | "FieldFormalParameter" | "SuperFormalParameter" | "FunctionTypedFormalParameter"
-            | "DefaultFormalParameter" | "FunctionDeclaration" | "FunctionTypeAlias" | "GenericTypeAlias" | "LibraryDirective"
-            | "MethodDeclaration" | "PartDirective" | "PartOfDirective" | "PatternVariableDeclaration" | "RecordTypeAnnotationNamedField"
-            | "RecordTypeAnnotationPositionalField" | "RepresentationDeclaration" | "TopLevelVariableDeclaration" | "TypeParameter"
+            "ExportDirective" | "ImportDirective" => {
+                annotation || matches!(f, "ShowCombinator" | "HideCombinator" | "Configuration")
+            }
+            "ClassTypeAlias"
+            | "DeclaredIdentifier"
+            | "EnumConstantDeclaration"
+            | "FieldDeclaration"
+            | "ForEachPartsWithPattern"
+            | "SimpleFormalParameter"
+            | "FieldFormalParameter"
+            | "SuperFormalParameter"
+            | "FunctionTypedFormalParameter"
+            | "DefaultFormalParameter"
+            | "FunctionDeclaration"
+            | "FunctionTypeAlias"
+            | "GenericTypeAlias"
+            | "LibraryDirective"
+            | "MethodDeclaration"
+            | "PartDirective"
+            | "PartOfDirective"
+            | "PatternVariableDeclaration"
+            | "RecordTypeAnnotationNamedField"
+            | "RecordTypeAnnotationPositionalField"
+            | "RepresentationDeclaration"
+            | "TopLevelVariableDeclaration"
+            | "TypeParameter"
             | "VariableDeclaration" => annotation,
-            "ForPartsWithDeclarations" | "ForPartsWithExpression" | "ForPartsWithPattern" => {
-                self.tree.for_parts.get(&parent).is_some_and(|p| p.updaters.contains(&child))
-            }
+            "ForPartsWithDeclarations" | "ForPartsWithExpression" | "ForPartsWithPattern" => self
+                .tree
+                .for_parts
+                .get(&parent)
+                .is_some_and(|p| p.updaters.contains(&child)),
             "LabeledStatement" => f == "Label",
-            "ListLiteral" | "SetOrMapLiteral" | "ListPattern" | "MapPattern" => f != "TypeArgumentList",
+            "ListLiteral" | "SetOrMapLiteral" | "ListPattern" | "MapPattern" => {
+                f != "TypeArgumentList"
+            }
             "ObjectPattern" | "RecordPattern" => f == "PatternField",
             "RecordTypeAnnotation" => f == "RecordTypeAnnotationPositionalField",
             "SwitchExpression" => f == "SwitchExpressionCase",
@@ -694,7 +949,13 @@ impl<'a, 'c> Isp<'a, 'c> {
             "SwitchPatternCase" => f != "GuardedPattern",
             // Old `case e:`: the labels and the statements; the expression (the first
             // child that is not a label) is not.
-            "SwitchCase" => self.children(parent).iter().copied().find(|&k| self.kind(k) != "Label") != Some(child),
+            "SwitchCase" => {
+                self.children(parent)
+                    .iter()
+                    .copied()
+                    .find(|&k| self.kind(k) != "Label")
+                    != Some(child)
+            }
             "SwitchStatement" => matches!(f, "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"),
             "TryStatement" => f == "CatchClause",
             "VariableDeclarationList" => annotation || f == "VariableDeclaration",
@@ -721,7 +982,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         let mut child = c;
         let mut parent = self.parent(c);
         while let Some(p) = parent {
-            if self.initial(p) != b || (self.kind(child) != "SimpleIdentifier" && self.child_in_list(p, child)) {
+            if self.initial(p) != b
+                || (self.kind(child) != "SimpleIdentifier" && self.child_in_list(p, child))
+            {
                 break;
             }
             child = p;
@@ -793,11 +1056,18 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The variable list of a `VariableDeclarationList` (through the parent).
     pub(super) fn real_list(&self, n: usize) -> Option<&'a ast::VariableList> {
-        let p = if self.kind(n) == "VariableDeclarationList" { self.parent(n)? } else { n };
+        let p = if self.kind(n) == "VariableDeclarationList" {
+            self.parent(n)?
+        } else {
+            n
+        };
         match self.link(p) {
             Binding::Stmt(s) => match &self.a.stmt(s).kind {
                 ast::StmtKind::Variables(l) => Some(l),
-                ast::StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => Some(l),
+                ast::StmtKind::For {
+                    init: Some(ast::ForInit::Variables(l)),
+                    ..
+                } => Some(l),
                 _ => None,
             },
             Binding::Decl(d) => match &self.a.decl(d).kind {
@@ -813,11 +1083,17 @@ impl<'a, 'c> Isp<'a, 'c> {
                 let grandparent = self.parent(p)?;
                 match self.link(grandparent) {
                     Binding::Stmt(s) => match &self.a.stmt(s).kind {
-                        ast::StmtKind::For { init: Some(ast::ForInit::Variables(l)), .. } => Some(l),
+                        ast::StmtKind::For {
+                            init: Some(ast::ForInit::Variables(l)),
+                            ..
+                        } => Some(l),
                         _ => None,
                     },
                     Binding::Element(_) => self.real_element(grandparent).and_then(|el| match el {
-                        ast::CollectionElement::For { init: Some(ast::ForInit::Variables(l)), .. } => Some(l),
+                        ast::CollectionElement::For {
+                            init: Some(ast::ForInit::Variables(l)),
+                            ..
+                        } => Some(l),
                         _ => None,
                     }),
                     _ => None,
@@ -829,13 +1105,18 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The variable of a `VariableDeclaration` (by name).
     pub(super) fn real_variable(&self, n: usize) -> Option<&'a ast::Variable> {
         let list = self.real_list(self.parent(n)?)?;
-        list.variables.iter().find(|v| v.name.span.start == self.start(n))
+        list.variables
+            .iter()
+            .find(|v| v.name.span.start == self.start(n))
     }
 
     /// The `ast::Parameter` of a parameter node.
     pub(super) fn real_parameter(&self, n: usize) -> Option<&'a ast::Parameter> {
-        let Binding::Parameter(end) = self.link(n) else { return None };
-        let find = |ps: &'a [ast::Parameter]| ps.iter().find(|p| crate::analyzer_tree::address(*p) == end);
+        let Binding::Parameter(end) = self.link(n) else {
+            return None;
+        };
+        let find =
+            |ps: &'a [ast::Parameter]| ps.iter().find(|p| crate::analyzer_tree::address(*p) == end);
         for f in self.a.functions.iter() {
             if let Some(ps) = &f.parameters {
                 if let Some(p) = find(ps) {
@@ -877,10 +1158,15 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `ast::Initializer` of an initializer node.
     pub(super) fn real_initializer(&self, n: usize) -> Option<&'a ast::Initializer> {
-        let Binding::Initializer(end) = self.link(n) else { return None };
+        let Binding::Initializer(end) = self.link(n) else {
+            return None;
+        };
         for m in self.a.members.iter() {
             if let ast::MemberKind::Constructor(k) = &m.kind
-                && let Some(i) = k.initializers.iter().find(|i| crate::analyzer_tree::address(*i) == end)
+                && let Some(i) = k
+                    .initializers
+                    .iter()
+                    .find(|i| crate::analyzer_tree::address(*i) == end)
             {
                 return Some(i);
             }
@@ -890,21 +1176,31 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `ast::Directive`.
     pub(super) fn real_directive(&self, n: usize) -> Option<&'a ast::Directive> {
-        let Binding::Directive(end) = self.link(n) else { return None };
-        self.cu.directives.iter().find(|d| crate::analyzer_tree::address(*d) == end)
+        let Binding::Directive(end) = self.link(n) else {
+            return None;
+        };
+        self.cu
+            .directives
+            .iter()
+            .find(|d| crate::analyzer_tree::address(*d) == end)
     }
 
     /// The `ast::CollectionElement`.
     pub(super) fn real_element(&self, n: usize) -> Option<&'a ast::CollectionElement> {
-        let Binding::Element(end) = self.link(n) else { return None };
+        let Binding::Element(end) = self.link(n) else {
+            return None;
+        };
         fn at(els: &[ast::CollectionElement], end: usize) -> Option<&ast::CollectionElement> {
             for el in els {
                 if crate::analyzer_tree::address(el) == end {
                     return Some(el);
                 }
                 let inside: Vec<&ast::CollectionElement> = match el {
-                    ast::CollectionElement::If { then, else_, .. } => std::iter::once(&**then).chain(else_.as_deref()).collect(),
-                    ast::CollectionElement::For { body, .. } | ast::CollectionElement::ForIn { body, .. } => vec![&**body],
+                    ast::CollectionElement::If { then, else_, .. } => {
+                        std::iter::once(&**then).chain(else_.as_deref()).collect()
+                    }
+                    ast::CollectionElement::For { body, .. }
+                    | ast::CollectionElement::ForIn { body, .. } => vec![&**body],
                     _ => Vec::new(),
                 };
                 for d in inside {
@@ -916,7 +1212,8 @@ impl<'a, 'c> Isp<'a, 'c> {
             None
         }
         for e in self.a.exprs.iter() {
-            if let ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } = &e.kind
+            if let ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } =
+                &e.kind
                 && let Some(x) = at(elements, end)
             {
                 return Some(x);
@@ -971,7 +1268,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The query's expression for the real expression `e`.
     pub(super) fn query_expr(&self, e: ExprId) -> Option<ExprId> {
         let s = self.a.expr(e).span;
-        self.exprs.get(&(self.map(s.start), self.map_end(s.end))).copied()
+        self.exprs
+            .get(&(self.map(s.start), self.map_end(s.end)))
+            .copied()
     }
 
     /// `staticType` of the real expression `e`.
@@ -983,12 +1282,17 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `staticElement` of the real expression `e`.
     pub(super) fn resolved(&self, e: ExprId) -> Option<Resolved> {
         let c = self.query_expr(e)?;
-        self.query.bodies.units[self.unit.0 as usize].get_resolved(c).cloned()
+        self.query.bodies.units[self.unit.0 as usize]
+            .get_resolved(c)
+            .cloned()
     }
 
     /// The type of a local or a local function parameter by the name offset.
     pub(super) fn local_type(&self, name: usize) -> Option<TypeId> {
-        self.query.bodies.units[self.unit.0 as usize].local_types.get(&self.map(name)).copied()
+        self.query.bodies.units[self.unit.0 as usize]
+            .local_types
+            .get(&self.map(name))
+            .copied()
     }
 
     /// The class (or mixin, enum, extension type) declared with the name at
@@ -1012,17 +1316,28 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The extension declared with the name at `name` (or, unnamed, starting at
     /// `start`).
-    pub(super) fn extension_in(&self, start: usize, name: Option<usize>) -> Option<dartforge_elements::model::ExtensionId> {
+    pub(super) fn extension_in(
+        &self,
+        start: usize,
+        name: Option<usize>,
+    ) -> Option<dartforge_elements::model::ExtensionId> {
         let p = &self.query.program;
-        (0..p.extensions.len()).map(|i| dartforge_elements::model::ExtensionId(i as u32)).find(|&x| {
-            let ex = p.extension(x);
-            ex.decl.unit == self.unit
-                && match (&p.unit(ex.decl.unit).ast.decl(ex.decl.decl).kind, name) {
-                    (ast::DeclKind::Extension(e), Some(n)) => e.name.is_some_and(|k| k.span.start == self.map(n)),
-                    (ast::DeclKind::Extension(_), None) => p.unit(ex.decl.unit).ast.decl(ex.decl.decl).span.start >= self.map(start),
-                    _ => false,
-                }
-        })
+        (0..p.extensions.len())
+            .map(|i| dartforge_elements::model::ExtensionId(i as u32))
+            .find(|&x| {
+                let ex = p.extension(x);
+                ex.decl.unit == self.unit
+                    && match (&p.unit(ex.decl.unit).ast.decl(ex.decl.decl).kind, name) {
+                        (ast::DeclKind::Extension(e), Some(n)) => {
+                            e.name.is_some_and(|k| k.span.start == self.map(n))
+                        }
+                        (ast::DeclKind::Extension(_), None) => {
+                            p.unit(ex.decl.unit).ast.decl(ex.decl.decl).span.start
+                                >= self.map(start)
+                        }
+                        _ => false,
+                    }
+            })
     }
 
     /// The class whose declaration contains the node (the
@@ -1044,16 +1359,20 @@ impl<'a, 'c> Isp<'a, 'c> {
         let k = self.real_constructor(n)?;
         let target = self.map(k.name.unwrap_or(k.class_name).span.start);
         let p = &self.query.program;
-        (0..p.functions.len()).map(|i| FunctionElementId(i as u32)).find(|&f| match p.function(f).node {
-            dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
-                unit == self.unit
-                    && match &p.unit(unit).ast.member(member).kind {
-                        ast::MemberKind::Constructor(c) => c.name.unwrap_or(c.class_name).span.start == target,
-                        _ => false,
-                    }
-            }
-            _ => false,
-        })
+        (0..p.functions.len())
+            .map(|i| FunctionElementId(i as u32))
+            .find(|&f| match p.function(f).node {
+                dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
+                    unit == self.unit
+                        && match &p.unit(unit).ast.member(member).kind {
+                            ast::MemberKind::Constructor(c) => {
+                                c.name.unwrap_or(c.class_name).span.start == target
+                            }
+                            _ => false,
+                        }
+                }
+                _ => false,
+            })
     }
 
     /// The element of the function (top-level, method, local) declared with the
@@ -1061,12 +1380,19 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn declared_function(&self, name: usize) -> Option<FunctionElementId> {
         let target = self.map(name);
         let p = &self.query.program;
-        (0..p.functions.len()).map(|i| FunctionElementId(i as u32)).find(|&f| match p.function(f).node {
-            dartforge_elements::model::FunctionRef::Function { unit, function } => {
-                unit == self.unit && p.unit(unit).ast.function(function).name.is_some_and(|n| n.span.start == target)
-            }
-            _ => false,
-        })
+        (0..p.functions.len())
+            .map(|i| FunctionElementId(i as u32))
+            .find(|&f| match p.function(f).node {
+                dartforge_elements::model::FunctionRef::Function { unit, function } => {
+                    unit == self.unit
+                        && p.unit(unit)
+                            .ast
+                            .function(function)
+                            .name
+                            .is_some_and(|n| n.span.start == target)
+                }
+                _ => false,
+            })
     }
 
     /// The request's library.
@@ -1086,8 +1412,13 @@ impl<'a, 'c> Isp<'a, 'c> {
                 "MethodDeclaration" => {
                     return self.real_function(k).is_some_and(|f| f.static_);
                 }
-                "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"
-                    if self.parent(k).is_some_and(|p| self.kind(p) == "ConstructorDeclaration") =>
+                "BlockFunctionBody"
+                | "ExpressionFunctionBody"
+                | "EmptyFunctionBody"
+                | "NativeFunctionBody"
+                    if self
+                        .parent(k)
+                        .is_some_and(|p| self.kind(p) == "ConstructorDeclaration") =>
                 {
                     return false;
                 }
@@ -1117,13 +1448,21 @@ impl<'a, 'c> Isp<'a, 'c> {
             match e {
                 "Annotation" | "EnumConstantArguments" | "SwitchCase" => return true,
                 "ConstantPattern" => return self.starts_with_const(k),
-                "InstanceCreationExpression" | "RecordLiteral" | "ListLiteral" | "SetOrMapLiteral" => {
+                "InstanceCreationExpression"
+                | "RecordLiteral"
+                | "ListLiteral"
+                | "SetOrMapLiteral" => {
                     if self.starts_with_const(k) {
                         return true;
                     }
                 }
                 "VariableDeclarationList" => return self.real_list(k).is_some_and(|l| l.const_),
-                "ArgumentList" | "IfElement" | "ForElement" | "MapLiteralEntry" | "SpreadElement" | "VariableDeclaration" => {}
+                "ArgumentList"
+                | "IfElement"
+                | "ForElement"
+                | "MapLiteralEntry"
+                | "SpreadElement"
+                | "VariableDeclaration" => {}
                 _ if EXPRESSION_KINDS.contains(&e) => {}
                 _ => return false,
             }
@@ -1135,7 +1474,15 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The `FunctionBody` that contains the node (itself included:
     /// `thisOrAncestorOfType<FunctionBody>`).
     pub(super) fn containing_body(&self, n: usize) -> Option<usize> {
-        self.ancestor(n, &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyFunctionBody", "NativeFunctionBody"])
+        self.ancestor(
+            n,
+            &[
+                "BlockFunctionBody",
+                "ExpressionFunctionBody",
+                "EmptyFunctionBody",
+                "NativeFunctionBody",
+            ],
+        )
     }
 
     /// The modifier of the body containing the node (`body.keyword`, `body.star`).
@@ -1143,7 +1490,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         let body = self.containing_body(n)?;
         let owner = self.parent(body)?;
         match self.kind(owner) {
-            "FunctionExpression" | "MethodDeclaration" | "FunctionDeclaration" => self.real_function(owner).map(|f| f.modifier),
+            "FunctionExpression" | "MethodDeclaration" | "FunctionDeclaration" => {
+                self.real_function(owner).map(|f| f.modifier)
+            }
             _ => Some(ast::AsyncModifier::None),
         }
     }
@@ -1155,13 +1504,17 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `inAsyncStarOrSyncStarMethodOrFunction`.
     pub(super) fn in_generator(&self, n: usize) -> bool {
-        matches!(self.modifier(n), Some(ast::AsyncModifier::AsyncStar | ast::AsyncModifier::SyncStar))
+        matches!(
+            self.modifier(n),
+            Some(ast::AsyncModifier::AsyncStar | ast::AsyncModifier::SyncStar)
+        )
     }
 
     /// `inLoop` (`inDoLoop || inForLoop || inWhileLoop`): some ancestor (itself
     /// included) is a loop; does not stop at functions.
     pub(super) fn in_loop(&self, n: usize) -> bool {
-        self.ancestor(n, &["ForStatement", "WhileStatement", "DoStatement"]).is_some()
+        self.ancestor(n, &["ForStatement", "WhileStatement", "DoStatement"])
+            .is_some()
     }
 
     /// `inSwitch`: some ancestor is a `switch` statement.
@@ -1188,23 +1541,43 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The previous member in the class body (`precedingMember`).
     pub(super) fn previous_member(&self, n: usize) -> Option<usize> {
         let p = self.parent(n)?;
-        if !matches!(self.kind(p), "ClassDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "ExtensionTypeDeclaration" | "MixinDeclaration") {
+        if !matches!(
+            self.kind(p),
+            "ClassDeclaration"
+                | "EnumDeclaration"
+                | "ExtensionDeclaration"
+                | "ExtensionTypeDeclaration"
+                | "MixinDeclaration"
+        ) {
             return None;
         }
-        let members = self.children_of(p, &["FieldDeclaration", "MethodDeclaration", "ConstructorDeclaration"]);
+        let members = self.children_of(
+            p,
+            &[
+                "FieldDeclaration",
+                "MethodDeclaration",
+                "ConstructorDeclaration",
+            ],
+        );
         let i = members.iter().position(|&k| k == n)?;
         i.checked_sub(1).map(|j| members[j])
     }
 
     /// `sortedDirectivesAndDeclarations` of the unit.
     pub(super) fn unit_members(&self) -> Vec<usize> {
-        self.children(0).iter().copied().filter(|&k| self.kind(k) != "ScriptTag").collect()
+        self.children(0)
+            .iter()
+            .copied()
+            .filter(|&k| self.kind(k) != "ScriptTag")
+            .collect()
     }
 
     /// `membersBeforeAndAfterMember`.
     pub(super) fn member_neighbors(&self, m: usize) -> (Option<usize>, Option<usize>) {
         let ms = self.unit_members();
-        let Some(i) = ms.iter().position(|&k| k == m) else { return (None, None) };
+        let Some(i) = ms.iter().position(|&k| k == m) else {
+            return (None, None);
+        };
         (i.checked_sub(1).map(|j| ms[j]), ms.get(i + 1).copied())
     }
 

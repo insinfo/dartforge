@@ -55,10 +55,18 @@ fn project(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
     let proj = dir.join("proj");
     std::fs::create_dir_all(proj.join("lib")).unwrap();
     std::fs::create_dir_all(proj.join(".dart_tool")).unwrap();
-    std::fs::write(proj.join("pubspec.yaml"), "name: proj\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    std::fs::write(
+        proj.join("pubspec.yaml"),
+        "name: proj\nenvironment:\n  sdk: ^3.6.0\n",
+    )
+    .unwrap();
     // Empty definition sections are valid configuration, not a generation
     // stage. No lockfile or engine is needed for this project.
-    std::fs::write(proj.join("build.yaml"), "builders:\npost_process_builders:\n").unwrap();
+    std::fs::write(
+        proj.join("build.yaml"),
+        "builders:\npost_process_builders:\n",
+    )
+    .unwrap();
     let cfg = proj.join(".dart_tool/package_config.json");
     std::fs::write(
         &cfg,
@@ -68,7 +76,11 @@ fn project(dir: &Path) -> (PathBuf, PathBuf, PathBuf) {
     let support = proj.join("lib/support.dart");
     std::fs::write(&support, "int twice(int x) => x + x;\n").unwrap();
     let main = proj.join("main.dart");
-    std::fs::write(&main, "import 'package:proj/support.dart';\nvoid main() { print(twice(2)); }\n").unwrap();
+    std::fs::write(
+        &main,
+        "import 'package:proj/support.dart';\nvoid main() { print(twice(2)); }\n",
+    )
+    .unwrap();
     (main, support, cfg)
 }
 
@@ -79,16 +91,27 @@ fn project_without_builders_costs_zero() {
     let (main, support, cfg) = project(tmp.path());
     // Same output path length in both sessions.
     let (s1, s2) = (tmp.path().join("output1"), tmp.path().join("output2"));
-    let mut with_detection = Session::new(&main, Some(&sdk), Some(&cfg), &s1).expect("session with detection");
-    let mut without_stages =
-        Session::with_stages(&main, Some(&sdk), Some(&cfg), &s2, Vec::new()).expect("session without stages");
-    assert!(!with_detection.has_stages(), "a project without build_runner got a generation stage");
+    let mut with_detection =
+        Session::new(&main, Some(&sdk), Some(&cfg), &s1).expect("session with detection");
+    let mut without_stages = Session::with_stages(&main, Some(&sdk), Some(&cfg), &s2, Vec::new())
+        .expect("session without stages");
+    assert!(
+        !with_detection.has_stages(),
+        "a project without build_runner got a generation stage"
+    );
     let r1 = with_detection.compile().expect("first compilation");
     let r2 = without_stages.compile().expect("first compilation");
-    assert!(r1.engine.is_none() && r2.engine.is_none(), "report with an engine in a project without builders");
+    assert!(
+        r1.engine.is_none() && r2.engine.is_none(),
+        "report with an engine in a project without builders"
+    );
     assert_eq!(r1.modules, r2.modules);
     for i in 0..4 {
-        std::fs::write(&support, format!("int twice(int x) {{ var y = {i:03}; return x + x; }}\n")).unwrap();
+        std::fs::write(
+            &support,
+            format!("int twice(int x) {{ var y = {i:03}; return x + x; }}\n"),
+        )
+        .unwrap();
         let mut counts = Vec::new();
         for s in [&mut with_detection, &mut without_stages] {
             let before = dartforge_instrument::allocation_count();
@@ -99,7 +122,10 @@ fn project_without_builders_costs_zero() {
             let r = s.compile().expect("edit");
             counts.push(dartforge_instrument::allocation_count() - before);
             assert!(r.engine.is_none());
-            assert_eq!(r.reanalyzed_units, 1, "a body edit reanalyzes only the edited unit");
+            assert_eq!(
+                r.reanalyzed_units, 1,
+                "a body edit reanalyzes only the edited unit"
+            );
         }
         assert_eq!(
             counts[0], counts[1],
@@ -107,5 +133,9 @@ fn project_without_builders_costs_zero() {
             counts[0], counts[1]
         );
     }
-    assert_eq!(dartforge_build::instance_count(), 0, "a build engine was built");
+    assert_eq!(
+        dartforge_build::instance_count(),
+        0,
+        "a build engine was built"
+    );
 }

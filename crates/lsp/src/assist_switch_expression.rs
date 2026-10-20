@@ -9,15 +9,21 @@
 
 use crate::actions::CodeAction;
 use crate::refactorings::{Context, Elem};
-use crate::refactorings_exec::{Text, ONE_INDENT};
+use crate::refactorings_exec::{ONE_INDENT, Text};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassKind, FunctionKind};
 use dartforge_types::{Type, TypeId, TypeTable};
 
 /// `_Group`: the lone `default` or the pattern cases together.
 enum Group {
-    Pattern { member: usize, commands: Vec<usize> },
-    Cases { cases: Vec<usize>, commands: Vec<usize> },
+    Pattern {
+        member: usize,
+        commands: Vec<usize>,
+    },
+    Cases {
+        cases: Vec<usize>,
+        commands: Vec<usize>,
+    },
 }
 
 impl Group {
@@ -50,11 +56,21 @@ impl Context<'_> {
             Type::Null => true,
             Type::Interface { class, .. } => {
                 let c = prog.class(class);
-                Some(class) == query.core.bool_class || c.kind == ClassKind::Enum || (c.kind == ClassKind::Class && c.modifiers.sealed)
+                Some(class) == query.core.bool_class
+                    || c.kind == ClassKind::Enum
+                    || (c.kind == ClassKind::Class && c.modifiers.sealed)
             }
             Type::ExtensionType { .. } => {
                 let deleted = {
-                    let mut engine = dartforge_types::const_eval::evaluation::Engine::new(prog, &query.names, table, &query.core, &query.outline, &query.bodies, &self.p.libraries);
+                    let mut engine = dartforge_types::const_eval::evaluation::Engine::new(
+                        prog,
+                        &query.names,
+                        table,
+                        &query.core,
+                        &query.outline,
+                        &query.bodies,
+                        &self.p.libraries,
+                    );
                     engine.erase(t)
                 };
                 deleted != t && self.always_exhaustive_in_lsp(table, deleted, prof + 1)
@@ -70,9 +86,17 @@ impl Context<'_> {
                 let (explicit, limit) = (table.param(param).explicit, table.param(param).bound);
                 explicit && self.always_exhaustive_in_lsp(table, limit, prof + 1)
             }
-            Type::Record { positional, named, .. } => {
-                let fields: Vec<TypeId> = positional.iter().copied().chain(named.iter().map(|(_, c)| *c)).collect();
-                fields.into_iter().all(|c| self.always_exhaustive_in_lsp(table, c, prof + 1))
+            Type::Record {
+                positional, named, ..
+            } => {
+                let fields: Vec<TypeId> = positional
+                    .iter()
+                    .copied()
+                    .chain(named.iter().map(|(_, c)| *c))
+                    .collect();
+                fields
+                    .into_iter()
+                    .all(|c| self.always_exhaustive_in_lsp(table, c, prof + 1))
             }
             _ => false,
         }
@@ -83,11 +107,16 @@ impl Context<'_> {
         let after = match self.kind(member) {
             "SwitchDefault" => self.next_token(self.tree.nodes[member].start)?.end,
             _ => {
-                let saved = self.children(member).iter().copied().find(|&f| self.kind(f) == "GuardedPattern")?;
+                let saved = self
+                    .children(member)
+                    .iter()
+                    .copied()
+                    .find(|&f| self.kind(f) == "GuardedPattern")?;
                 self.tree.nodes[saved].end
             }
         };
-        self.next_token(after).filter(|t| &self.source[t.start..t.end] == ":")
+        self.next_token(after)
+            .filter(|t| &self.source[t.start..t.end] == ":")
     }
 
     /// The node's last token (`endToken`).
@@ -97,7 +126,12 @@ impl Context<'_> {
 
     /// `statement.beginToken.precedingComments != null`.
     fn has_comment_before(&self, n: usize) -> bool {
-        !self.comments_before(Span { start: self.tree.nodes[n].start, end: self.tree.nodes[n].start }).is_empty()
+        !self
+            .comments_before(Span {
+                start: self.tree.nodes[n].start,
+                end: self.tree.nodes[n].start,
+            })
+            .is_empty()
     }
 
     /// `_getBreakRange`: from the end of the first comment before the `break`
@@ -108,14 +142,21 @@ impl Context<'_> {
             Some(c) => c.end,
             None => self.previous_token(s)?.end,
         };
-        Some(Span { start: before, end: self.tree.nodes[b].end })
+        Some(Span {
+            start: before,
+            end: self.tree.nodes[b].end,
+        })
     }
 
     /// The pattern (the text) of the joined cases.
     fn pattern_text(&self, cases: &[usize]) -> Option<String> {
         let mut parts = Vec::new();
         for &c in cases {
-            let saved = self.children(c).iter().copied().find(|&f| self.kind(f) == "GuardedPattern")?;
+            let saved = self
+                .children(c)
+                .iter()
+                .copied()
+                .find(|&f| self.kind(f) == "GuardedPattern")?;
             parts.push(self.node_text(*self.children(saved).first()?));
         }
         Some(parts.join(" || "))
@@ -136,27 +177,40 @@ impl Context<'_> {
         let mut groups = Vec::new();
         let how_many = member_groups.len();
         for (members, commands) in member_groups {
-            if members.iter().any(|&m| self.children(m).iter().any(|&f| self.kind(f) == "Label")) {
+            if members
+                .iter()
+                .any(|&m| self.children(m).iter().any(|&f| self.kind(f) == "Label"))
+            {
                 return None;
             }
             if let [m] = members[..]
                 && self.kind(m) == "SwitchDefault"
             {
-                groups.push(Group::Pattern { member: m, commands: commands.clone() });
+                groups.push(Group::Pattern {
+                    member: m,
+                    commands: commands.clone(),
+                });
             } else {
                 if members.iter().any(|&m| self.kind(m) != "SwitchPatternCase") {
                     return None;
                 }
                 if members.len() != 1
                     && members.iter().any(|&m| {
-                        self.children(m)
-                            .iter()
-                            .any(|&g| self.kind(g) == "GuardedPattern" && self.children(g).iter().any(|&w| self.kind(w) == "WhenClause"))
+                        self.children(m).iter().any(|&g| {
+                            self.kind(g) == "GuardedPattern"
+                                && self
+                                    .children(g)
+                                    .iter()
+                                    .any(|&w| self.kind(w) == "WhenClause")
+                        })
                     })
                 {
                     return None;
                 }
-                groups.push(Group::Cases { cases: members.clone(), commands: commands.clone() });
+                groups.push(Group::Cases {
+                    cases: members.clone(),
+                    commands: commands.clone(),
+                });
             }
             if commands.is_empty() || commands.len() > 2 {
                 return None;
@@ -181,9 +235,14 @@ impl Context<'_> {
                 if can_argument && self.kind(expression) == "MethodInvocation" {
                     can_assign = false;
                     let name = self.method_name(expression)?;
-                    let Elem::Function(f) = self.identifier_element(name, true) else { return None };
+                    let Elem::Function(f) = self.identifier_element(name, true) else {
+                        return None;
+                    };
                     let fe = prog.function(f);
-                    if fe.class.is_some() || fe.extension.is_some() || fe.kind != FunctionKind::Function {
+                    if fe.class.is_some()
+                        || fe.extension.is_some()
+                        || fe.kind != FunctionKind::Function
+                    {
                         return None;
                     }
                     match &function {
@@ -221,7 +280,10 @@ impl Context<'_> {
                     return None;
                 }
             } else {
-                if !can_return || self.kind(command) != "ReturnStatement" || self.children(command).is_empty() {
+                if !can_return
+                    || self.kind(command) != "ReturnStatement"
+                    || self.children(command).is_empty()
+                {
                     return None;
                 }
                 can_assign = false;
@@ -245,17 +307,34 @@ impl Context<'_> {
     }
 
     /// `ConvertToSwitchExpression`.
-    pub(crate) fn switch_to_expression(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn switch_to_expression(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let switch = self.tree.locate(start, end)?;
         if self.kind(switch) != "SwitchStatement" {
             return None;
         }
         let scrutinee = *self.children(switch).first()?;
-        let scrutinee_type = self.node_expr(scrutinee).and_then(|x| self.bodies.get_type(x));
+        let scrutinee_type = self
+            .node_expr(scrutinee)
+            .and_then(|x| self.bodies.get_type(x));
         // `_isEffectivelyExhaustive`.
         let exhaustive = scrutinee_type.is_some_and(|t| {
             self.always_exhaustive_in_lsp(&mut self.p.query.table.clone(), t, 0) || {
-                let members: Vec<usize> = self.children(switch).iter().copied().filter(|&k| matches!(self.kind(k), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")).collect();
+                let members: Vec<usize> = self
+                    .children(switch)
+                    .iter()
+                    .copied()
+                    .filter(|&k| {
+                        matches!(
+                            self.kind(k),
+                            "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"
+                        )
+                    })
+                    .collect();
                 match members.last() {
                     Some(&u) if self.kind(u) == "SwitchPatternCase" => self
                         .children(u)
@@ -300,13 +379,25 @@ impl Context<'_> {
                     let (colon, comma) = match g {
                         Group::Pattern { member, .. } => {
                             let dp = self.member_colon(*member)?;
-                            edits.push((Span { start: self.tree.nodes[*member].start, end: dp.end }, "_ =>".to_string()));
+                            edits.push((
+                                Span {
+                                    start: self.tree.nodes[*member].start,
+                                    end: dp.end,
+                                },
+                                "_ =>".to_string(),
+                            ));
                             (dp, false)
                         }
                         Group::Cases { cases, .. } => {
                             let dp = self.member_colon(*cases.last()?)?;
                             let text = self.pattern_text(cases)?;
-                            edits.push((Span { start: self.tree.nodes[cases[0]].start, end: dp.end }, format!("{text} =>")));
+                            edits.push((
+                                Span {
+                                    start: self.tree.nodes[cases[0]].start,
+                                    end: dp.end,
+                                },
+                                format!("{text} =>"),
+                            ));
                             (dp, i < how_many - 1 || next_throw.is_some())
                         }
                     };
@@ -316,27 +407,65 @@ impl Context<'_> {
                         "ReturnStatement" => {
                             let e = *self.children(command).first()?;
                             if !comment {
-                                edits.push((Span { start: colon.end, end: self.tree.nodes[e].start }, " ".to_string()));
+                                edits.push((
+                                    Span {
+                                        start: colon.end,
+                                        end: self.tree.nodes[e].start,
+                                    },
+                                    " ".to_string(),
+                                ));
                             } else {
-                                edits.push((Span { start: self.tree.nodes[command].start, end: self.tree.nodes[e].start }, String::new()));
+                                edits.push((
+                                    Span {
+                                        start: self.tree.nodes[command].start,
+                                        end: self.tree.nodes[e].start,
+                                    },
+                                    String::new(),
+                                ));
                             }
                         }
                         "ExpressionStatement" => {
                             let e = *self.children(command).first()?;
                             if self.kind(e) == "ThrowExpression" && !comment {
-                                edits.push((Span { start: colon.end, end: self.tree.nodes[e].start }, " ".to_string()));
+                                edits.push((
+                                    Span {
+                                        start: colon.end,
+                                        end: self.tree.nodes[e].start,
+                                    },
+                                    " ".to_string(),
+                                ));
                             }
                         }
                         _ => {}
                     }
-                    edits.push((self.last_token(command)?, if comma { ",".to_string() } else { String::new() }));
+                    edits.push((
+                        self.last_token(command)?,
+                        if comma {
+                            ",".to_string()
+                        } else {
+                            String::new()
+                        },
+                    ));
                 }
                 if let Some((command, throw)) = next_throw {
                     let closes = self.last_token(switch)?;
-                    let text = format!("{}_ => {},", tx.line_prefix(closes.start), self.node_text(throw));
-                    let indented: Vec<String> = text.split(eol).map(|l| format!("{ONE_INDENT}{l}")).collect();
-                    edits.push((empty(tx.content_start(closes.start)), format!("{}{eol}", indented.join(eol))));
-                    edits.push((tx.line_range(self.tree.nodes[command].start, self.tree.nodes[command].end), String::new()));
+                    let text = format!(
+                        "{}_ => {},",
+                        tx.line_prefix(closes.start),
+                        self.node_text(throw)
+                    );
+                    let indented: Vec<String> = text
+                        .split(eol)
+                        .map(|l| format!("{ONE_INDENT}{l}"))
+                        .collect();
+                    edits.push((
+                        empty(tx.content_start(closes.start)),
+                        format!("{}{eol}", indented.join(eol)),
+                    ));
+                    edits.push((
+                        tx.line_range(self.tree.nodes[command].start, self.tree.nodes[command].end),
+                        String::new(),
+                    ));
                 }
             }
             SwitchType::Assignment(name, operator) => {
@@ -345,13 +474,25 @@ impl Context<'_> {
                     let (colon, comma) = match g {
                         Group::Pattern { member, .. } => {
                             let dp = self.member_colon(*member)?;
-                            edits.push((Span { start: self.tree.nodes[*member].start, end: dp.end }, "_ =>".to_string()));
+                            edits.push((
+                                Span {
+                                    start: self.tree.nodes[*member].start,
+                                    end: dp.end,
+                                },
+                                "_ =>".to_string(),
+                            ));
                             (dp, false)
                         }
                         Group::Cases { cases, .. } => {
                             let dp = self.member_colon(*cases.last()?)?;
                             let text = self.pattern_text(cases)?;
-                            edits.push((Span { start: self.tree.nodes[cases[0]].start, end: dp.end }, format!("{text} =>")));
+                            edits.push((
+                                Span {
+                                    start: self.tree.nodes[cases[0]].start,
+                                    end: dp.end,
+                                },
+                                format!("{text} =>"),
+                            ));
                             (dp, i < how_many - 1)
                         }
                     };
@@ -363,18 +504,43 @@ impl Context<'_> {
                                 let right = *self.children(e).last()?;
                                 let op = self.next_token(self.tree.nodes[left].end)?;
                                 if !self.has_comment_before(command) {
-                                    edits.push((Span { start: colon.end, end: op.end }, String::new()));
+                                    edits.push((
+                                        Span {
+                                            start: colon.end,
+                                            end: op.end,
+                                        },
+                                        String::new(),
+                                    ));
                                 } else {
-                                    edits.push((Span { start: self.tree.nodes[e].start, end: self.tree.nodes[right].start }, String::new()));
+                                    edits.push((
+                                        Span {
+                                            start: self.tree.nodes[e].start,
+                                            end: self.tree.nodes[right].start,
+                                        },
+                                        String::new(),
+                                    ));
                                 }
                             } else if self.kind(e) == "ThrowExpression" {
-                                edits.push((Span { start: colon.end, end: self.tree.nodes[command].start - 1 }, String::new()));
+                                edits.push((
+                                    Span {
+                                        start: colon.end,
+                                        end: self.tree.nodes[command].start - 1,
+                                    },
+                                    String::new(),
+                                ));
                             }
                         }
                         if self.kind(command) == "BreakStatement" {
                             edits.push((self.break_range(command)?, String::new()));
                         } else {
-                            edits.push((self.last_token(command)?, if comma { ",".to_string() } else { String::new() }));
+                            edits.push((
+                                self.last_token(command)?,
+                                if comma {
+                                    ",".to_string()
+                                } else {
+                                    String::new()
+                                },
+                            ));
                         }
                     }
                 }
@@ -386,13 +552,25 @@ impl Context<'_> {
                     let (colon, comma) = match g {
                         Group::Pattern { member, .. } => {
                             let dp = self.member_colon(*member)?;
-                            edits.push((Span { start: self.tree.nodes[*member].start, end: dp.end }, "_ =>".to_string()));
+                            edits.push((
+                                Span {
+                                    start: self.tree.nodes[*member].start,
+                                    end: dp.end,
+                                },
+                                "_ =>".to_string(),
+                            ));
                             (dp, false)
                         }
                         Group::Cases { cases, .. } => {
                             let dp = self.member_colon(*cases.last()?)?;
                             let text = self.pattern_text(cases)?;
-                            edits.push((Span { start: self.tree.nodes[cases[0]].start, end: dp.end }, format!("{text} => ")));
+                            edits.push((
+                                Span {
+                                    start: self.tree.nodes[cases[0]].start,
+                                    end: dp.end,
+                                },
+                                format!("{text} => "),
+                            ));
                             (dp, i < how_many - 1)
                         }
                     };
@@ -401,27 +579,65 @@ impl Context<'_> {
                         if self.kind(command) == "ExpressionStatement" {
                             let e = *self.children(command).first()?;
                             if self.kind(e) == "MethodInvocation" {
-                                let list = self.children(e).iter().copied().find(|&f| self.kind(f) == "ArgumentList")?;
+                                let list = self
+                                    .children(e)
+                                    .iter()
+                                    .copied()
+                                    .find(|&f| self.kind(f) == "ArgumentList")?;
                                 let opens = self.tree.nodes[list].start + 1;
                                 let closes = self.tree.nodes[list].end;
-                                let from = if !comment { colon.end } else { self.tree.nodes[e].start };
-                                edits.push((Span { start: from, end: opens }, String::new()));
-                                edits.push((Span { start: closes - 1, end: closes }, String::new()));
+                                let from = if !comment {
+                                    colon.end
+                                } else {
+                                    self.tree.nodes[e].start
+                                };
+                                edits.push((
+                                    Span {
+                                        start: from,
+                                        end: opens,
+                                    },
+                                    String::new(),
+                                ));
+                                edits.push((
+                                    Span {
+                                        start: closes - 1,
+                                        end: closes,
+                                    },
+                                    String::new(),
+                                ));
                             }
                             if !comment && self.kind(e) == "ThrowExpression" {
-                                edits.push((Span { start: colon.end, end: self.tree.nodes[command].start - 1 }, String::new()));
+                                edits.push((
+                                    Span {
+                                        start: colon.end,
+                                        end: self.tree.nodes[command].start - 1,
+                                    },
+                                    String::new(),
+                                ));
                             }
                         }
                         if self.kind(command) == "BreakStatement" {
                             edits.push((self.break_range(command)?, String::new()));
                         } else {
-                            edits.push((self.last_token(command)?, if comma { ",".to_string() } else { String::new() }));
+                            edits.push((
+                                self.last_token(command)?,
+                                if comma {
+                                    ",".to_string()
+                                } else {
+                                    String::new()
+                                },
+                            ));
                         }
                     }
                 }
                 edits.push((empty(end_s), ");".to_string()));
             }
         }
-        Some(self.simple_action(uri, "Convert to switch expression", "refactor.convert.switchExpression", edits))
+        Some(self.simple_action(
+            uri,
+            "Convert to switch expression",
+            "refactor.convert.switchExpression",
+            edits,
+        ))
     }
 }

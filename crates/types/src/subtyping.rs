@@ -96,11 +96,17 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
 
     // Promoted variables `X & S` (subtyping.md, "Right/Left Promoted Variable").
     if let Type::Intersection { param, bound } = t1 {
-        let x1 = env.table.intern(Type::TypeParameter { param, nullable: false });
+        let x1 = env.table.intern(Type::TypeParameter {
+            param,
+            nullable: false,
+        });
         return is_subtype(t0_id, x1, env) && is_subtype(t0_id, bound, env);
     }
     if let Type::Intersection { param, bound } = t0 {
-        let x0 = env.table.intern(Type::TypeParameter { param, nullable: false });
+        let x0 = env.table.intern(Type::TypeParameter {
+            param,
+            nullable: false,
+        });
         return is_subtype(x0, t1_id, env) || is_subtype(bound, t1_id, env);
     }
 
@@ -296,7 +302,10 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
         if !tp0.is_empty() && tp0 != tp1 {
             let mut m = std::collections::HashMap::new();
             for (&y, &x) in tp1.iter().zip(tp0.iter()) {
-                let tx = env.table.intern(Type::TypeParameter { param: x, nullable: false });
+                let tx = env.table.intern(Type::TypeParameter {
+                    param: x,
+                    nullable: false,
+                });
                 m.insert(y, tx);
             }
             for (&y, &x) in tp1.iter().zip(tp0.iter()) {
@@ -312,7 +321,10 @@ fn is_subtype_inner(t0_id: TypeId, t1_id: TypeId, env: &mut SubtypeEnv) -> bool 
             let ret = sub(ret1, env);
             let positional: Box<[TypeId]> = pos1.iter().map(|&t| sub(t, env)).collect();
             let optional: Box<[TypeId]> = opt1.iter().map(|&t| sub(t, env)).collect();
-            let named: Box<[_]> = named1.iter().map(|&(n, t, r)| (n, sub(t, env), r)).collect();
+            let named: Box<[_]> = named1
+                .iter()
+                .map(|&(n, t, r)| (n, sub(t, env), r))
+                .collect();
             let t1r = env.table.intern(Type::Function {
                 type_params: tp0.clone(),
                 ret,
@@ -506,7 +518,13 @@ fn check_right_object(_t0_id: TypeId, t0: &Type, t1_id: TypeId, env: &mut Subtyp
 
 fn check_left_null(t1: &Type, env: &mut SubtypeEnv) -> bool {
     // - if T1 is a type variable (promoted or not) the query is false
-    if matches!(t1, Type::TypeParameter { nullable: false, .. } | Type::Intersection { .. }) {
+    if matches!(
+        t1,
+        Type::TypeParameter {
+            nullable: false,
+            ..
+        } | Type::Intersection { .. }
+    ) {
         return false;
     }
     // - if T1 is Null, S? for some S, then the query is true. Comes before
@@ -572,14 +590,28 @@ fn strip_nullability(ty_id: TypeId, ty: &Type, table: &mut TypeTable) -> TypeId 
 /// `_interfaceArguments` (`analyzer/lib/src/dart/element/subtype.dart`): the
 /// arguments of `C<S…>` against `C<T…>` by the declared variance of each
 /// parameter (`in`, `out`, `inout`; without a modifier, covariant).
-fn interface_arguments(c: dartforge_elements::model::ClassId, args0: &[TypeId], args1: &[TypeId], env: &mut SubtypeEnv) -> bool {
-    let params: Vec<crate::table::TypeParamId> = env.hierarchy.get(c).map(|d| d.type_params.to_vec()).unwrap_or_default();
+fn interface_arguments(
+    c: dartforge_elements::model::ClassId,
+    args0: &[TypeId],
+    args1: &[TypeId],
+    env: &mut SubtypeEnv,
+) -> bool {
+    let params: Vec<crate::table::TypeParamId> = env
+        .hierarchy
+        .get(c)
+        .map(|d| d.type_params.to_vec())
+        .unwrap_or_default();
     for (i, (&a0, &a1)) in args0.iter().zip(args1.iter()).enumerate() {
-        let variance = params.get(i).map(|&p| env.table.param(p).variance).unwrap_or_default();
+        let variance = params
+            .get(i)
+            .map(|&p| env.table.param(p).variance)
+            .unwrap_or_default();
         let ok = match variance {
             crate::table::Variance::Contravariant => is_subtype(a1, a0, env),
             crate::table::Variance::Invariant => is_subtype(a0, a1, env) && is_subtype(a1, a0, env),
-            crate::table::Variance::Covariant | crate::table::Variance::Unspecified => is_subtype(a0, a1, env),
+            crate::table::Variance::Covariant | crate::table::Variance::Unspecified => {
+                is_subtype(a0, a1, env)
+            }
         };
         if !ok {
             return false;

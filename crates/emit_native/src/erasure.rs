@@ -42,10 +42,18 @@ impl ExtensionTypes {
 }
 
 /// The type parameters of `c` and the representation type, written with them.
-fn representation(program: &Program, outline: &OutlineTypes, c: ClassId) -> Option<(Vec<TypeParamId>, TypeId)> {
+fn representation(
+    program: &Program,
+    outline: &OutlineTypes,
+    c: ClassId,
+) -> Option<(Vec<TypeParamId>, TypeId)> {
     let v = program.class(c).representation?;
     let t = outline.variables.get(v.0 as usize)?.declared_type?;
-    let params = outline.classes.get(c.0 as usize).map(|d| d.type_params.to_vec()).unwrap_or_default();
+    let params = outline
+        .classes
+        .get(c.0 as usize)
+        .map(|d| d.type_params.to_vec())
+        .unwrap_or_default();
     Some((params, t))
 }
 
@@ -60,10 +68,25 @@ pub fn compute(program: &Program, outline: &OutlineTypes, table: &mut TypeTable)
         return r;
     }
     for &c in &types {
-        let params = outline.classes.get(c.0 as usize).map(|d| d.type_params.to_vec()).unwrap_or_default();
-        let args: Vec<TypeId> =
-            params.iter().map(|&p| table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        let t = table.intern(Type::ExtensionType { decl: c, args: args.into_boxed_slice(), nullable: false });
+        let params = outline
+            .classes
+            .get(c.0 as usize)
+            .map(|d| d.type_params.to_vec())
+            .unwrap_or_default();
+        let args: Vec<TypeId> = params
+            .iter()
+            .map(|&p| {
+                table.intern(Type::TypeParameter {
+                    param: p,
+                    nullable: false,
+                })
+            })
+            .collect();
+        let t = table.intern(Type::ExtensionType {
+            decl: c,
+            args: args.into_boxed_slice(),
+            nullable: false,
+        });
         r.this.insert(c, t);
     }
     // The extension supertypes of each extension type of the table, through
@@ -72,13 +95,24 @@ pub fn compute(program: &Program, outline: &OutlineTypes, table: &mut TypeTable)
     while i < table.len() {
         let t = TypeId(i as u32);
         i += 1;
-        let Type::ExtensionType { decl, args, .. } = table.get(t).clone() else { continue };
+        let Type::ExtensionType { decl, args, .. } = table.get(t).clone() else {
+            continue;
+        };
         let mut pending_set = vec![(decl, args.to_vec())];
         while let Some((d, a)) = pending_set.pop() {
-            let Some(data) = outline.classes.get(d.0 as usize) else { continue };
-            let map: HashMap<TypeParamId, TypeId> = data.type_params.iter().copied().zip(a.iter().copied()).collect();
+            let Some(data) = outline.classes.get(d.0 as usize) else {
+                continue;
+            };
+            let map: HashMap<TypeParamId, TypeId> = data
+                .type_params
+                .iter()
+                .copied()
+                .zip(a.iter().copied())
+                .collect();
             for &s in data.interfaces.iter() {
-                let Type::ExtensionType { decl: sd, .. } = table.get(s).clone() else { continue };
+                let Type::ExtensionType { decl: sd, .. } = table.get(s).clone() else {
+                    continue;
+                };
                 let inst = dartforge_types::substitute(s, &map, table);
                 if r.supertypes.insert((t, sd), inst).is_none()
                     && let Type::ExtensionType { args: sa, .. } = table.get(inst).clone()
@@ -90,7 +124,8 @@ pub fn compute(program: &Program, outline: &OutlineTypes, table: &mut TypeTable)
     }
     let rep = |c: ClassId, args: &[TypeId], table: &mut TypeTable| -> Option<TypeId> {
         let (params, t) = representation(program, outline, c)?;
-        let map: HashMap<TypeParamId, TypeId> = params.into_iter().zip(args.iter().copied()).collect();
+        let map: HashMap<TypeParamId, TypeId> =
+            params.into_iter().zip(args.iter().copied()).collect();
         Some(dartforge_types::substitute(t, &map, table))
     };
     // The types the erasure creates come out already erased: the table from

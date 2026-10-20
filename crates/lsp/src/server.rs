@@ -30,7 +30,7 @@
 //! assert!(outputs[0]["result"]["capabilities"].is_object());
 //! ```
 
-use crate::{Analyzer, SyntacticAnalyzer, DocumentStore, ContentChange, Position};
+use crate::{Analyzer, ContentChange, DocumentStore, Position, SyntacticAnalyzer};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -108,8 +108,16 @@ const COMPUTATION_FAILURE: i32 = -32014;
 const MODIFIED_CONTENT: i32 = -32801;
 /// The `codeAction` source actions, in Dart's order: title, kind and command.
 const SOURCE_ACTIONS: &[(&str, &str, &str)] = &[
-    ("Sort Members", "source.sortMembers", "dart.edit.sortMembers"),
-    ("Organize Imports", "source.organizeImports", "dart.edit.organizeImports"),
+    (
+        "Sort Members",
+        "source.sortMembers",
+        "dart.edit.sortMembers",
+    ),
+    (
+        "Organize Imports",
+        "source.organizeImports",
+        "dart.edit.organizeImports",
+    ),
     ("Fix All", "source.fixAll", "dart.edit.fixAll"),
 ];
 /// Rename refused (invalid name, external element, conflict): the same code
@@ -428,7 +436,11 @@ impl<A: Analyzer> Server<A> {
     fn request_configuration(&mut self) {
         self.next_request += 1;
         let id = format!("dartforge/configuration/{}", self.next_request);
-        let mut items: Vec<Value> = self.folders.iter().map(|p| json!({"scopeUri": p, "section": "dart"})).collect();
+        let mut items: Vec<Value> = self
+            .folders
+            .iter()
+            .map(|p| json!({"scopeUri": p, "section": "dart"}))
+            .collect();
         items.push(json!({"section": "dart"}));
         self.configuration_request = Some(id.clone());
         self.pending_outputs.push(json!({"jsonrpc": "2.0", "id": id, "method": "workspace/configuration", "params": {"items": items}}));
@@ -438,7 +450,8 @@ impl<A: Analyzer> Server<A> {
     /// registrations, first what leaves, then what comes in; nothing without a
     /// difference.
     fn register_dynamic(&mut self) {
-        let rename_files = self.dynamic_file_operations && self.configuration.update_imports_on_rename;
+        let rename_files =
+            self.dynamic_file_operations && self.configuration.update_imports_on_rename;
         let new = crate::registration::records(
             &self.static_capabilities,
             &self.dynamic,
@@ -478,7 +491,9 @@ impl<A: Analyzer> Server<A> {
             let new = crate::registration::read_configuration(&global);
             if new.rename_files_with_classes == "always" {
                 self.rename_files = self.possible_file_rename;
-            } else if new.rename_files_with_classes == "never" && self.configuration.rename_files_with_classes != "never" {
+            } else if new.rename_files_with_classes == "never"
+                && self.configuration.rename_files_with_classes != "never"
+            {
                 self.rename_files = false;
             }
             // `affectsAnalysisResults` and `affectsAnalysisRoots`: the TODOs or the
@@ -493,7 +508,8 @@ impl<A: Analyzer> Server<A> {
                 .zip(list.iter())
                 .filter_map(|(u, v)| {
                     let path = url::Url::parse(u).ok()?.to_file_path().ok()?;
-                    v.is_object().then(|| (path, crate::registration::feature_configuration(v, &new)))
+                    v.is_object()
+                        .then(|| (path, crate::registration::feature_configuration(v, &new)))
                 })
                 .collect();
             self.configuration = new;
@@ -507,7 +523,12 @@ impl<A: Analyzer> Server<A> {
     /// The configuration of `uri` (`forResource`): that of the deepest workspace
     /// folder that contains it, otherwise the global one.
     fn configuration_of(&self, uri: &str) -> &crate::registration::Configuration {
-        let Some(path) = url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()) else { return &self.configuration };
+        let Some(path) = url::Url::parse(uri)
+            .ok()
+            .and_then(|u| u.to_file_path().ok())
+        else {
+            return &self.configuration;
+        };
         self.configuration_by_folder
             .iter()
             .filter(|(p, _)| path.starts_with(p))
@@ -535,7 +556,10 @@ impl<A: Analyzer> Server<A> {
     fn excluded(&self, uri: &str) -> bool {
         let excluded = self.excluded_folders();
         !excluded.is_empty()
-            && url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| excluded.iter().any(|e| c.starts_with(e)))
+            && url::Url::parse(uri)
+                .ok()
+                .and_then(|u| u.to_file_path().ok())
+                .is_some_and(|c| excluded.iter().any(|e| c.starts_with(e)))
     }
 
     /// The shown TODOs or the excluded folders changed: the typed worker gets the
@@ -543,7 +567,11 @@ impl<A: Analyzer> Server<A> {
     fn reconfigure_analysis(&mut self) {
         let excluded = self.excluded_folders();
         if let Some(t) = &self.typed {
-            t.configure(self.configuration.show_all, self.configuration.show_all_types.clone(), excluded);
+            t.configure(
+                self.configuration.show_all,
+                self.configuration.show_all_types.clone(),
+                excluded,
+            );
         }
         let uris: Vec<String> = self.documents.uris().map(str::to_string).collect();
         for u in uris {
@@ -621,14 +649,21 @@ impl<A: Analyzer> Server<A> {
         }
         self.typed_tried = true;
         if let Some(sdk) = crate::typed::analyzer_sdk(&self.analyzer) {
-            self.typed = crate::typed::Typed::start(sdk, self.wake.clone(), self.typed_process.clone());
+            self.typed =
+                crate::typed::Typed::start(sdk, self.wake.clone(), self.typed_process.clone());
         }
         // The current analysis configuration (the TODOs, the excluded folders).
         let excluded = self.excluded_folders();
         if let Some(t) = &self.typed
-            && (self.configuration.show_all || !self.configuration.show_all_types.is_empty() || !excluded.is_empty())
+            && (self.configuration.show_all
+                || !self.configuration.show_all_types.is_empty()
+                || !excluded.is_empty())
         {
-            t.configure(self.configuration.show_all, self.configuration.show_all_types.clone(), excluded);
+            t.configure(
+                self.configuration.show_all,
+                self.configuration.show_all_types.clone(),
+                excluded,
+            );
         }
     }
 
@@ -646,7 +681,11 @@ impl<A: Analyzer> Server<A> {
     /// Requests the typed analysis of the current text of `uri`.
     fn request_typed(&mut self, uri: &str) {
         self.ensure_typed();
-        let (Some(t), Some(version), Some(text)) = (&self.typed, self.documents.version(uri), self.documents.get(uri)) else {
+        let (Some(t), Some(version), Some(text)) = (
+            &self.typed,
+            self.documents.version(uri),
+            self.documents.get(uri),
+        ) else {
             return;
         };
         t.document(uri, version, text);
@@ -679,7 +718,9 @@ impl<A: Analyzer> Server<A> {
     /// Publishes the ready typed results that are still of the current version;
     /// the others are discarded.
     fn drain_typed(&mut self) -> Vec<Value> {
-        let Some(results) = self.typed.as_ref().map(|t| t.receive()) else { return Vec::new() };
+        let Some(results) = self.typed.as_ref().map(|t| t.receive()) else {
+            return Vec::new();
+        };
         let mut outputs = Vec::new();
         let mut new = false;
         let mut received = false;
@@ -725,7 +766,9 @@ impl<A: Analyzer> Server<A> {
                 let labels = self.analyzer.closing_labels(&self.documents, &r.uri);
                 let list: Vec<Value> = labels
                     .iter()
-                    .filter_map(|(span, text)| Some(json!({"range": self.range(&r.uri, *span)?, "label": text})))
+                    .filter_map(|(span, text)| {
+                        Some(json!({"range": self.range(&r.uri, *span)?, "label": text}))
+                    })
                     .collect();
                 outputs.push(json!({
                     "jsonrpc": "2.0",
@@ -758,7 +801,9 @@ impl<A: Analyzer> Server<A> {
         }
         // The analysis state (§2.6): working → idle. The result arrives a moment
         // before the worker declares itself idle; the short wait covers that window.
-        let idle = self.typed.as_ref().is_some_and(|t| t.idle() || (received && t.wait_idle(std::time::Duration::from_millis(20))));
+        let idle = self.typed.as_ref().is_some_and(|t| {
+            t.idle() || (received && t.wait_idle(std::time::Duration::from_millis(20)))
+        });
         if self.analyzing && idle {
             self.analyzing = false;
             // Ahead of this pass's publications: whoever reads the last message still
@@ -824,16 +869,26 @@ impl<A: Analyzer> Server<A> {
             // A panic in a notification: the Dart server's `showMessage` and
             // `logMessage` (`lsp_analysis_server.dart`, `sendErrorResponse` and
             // `logException`), and the semantic session drops.
-            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle_notification(&message))) {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.handle_notification(&message)
+            })) {
                 Ok(Some(output)) => outputs.push(output),
                 Ok(None) => {}
                 Err(panic) => {
                     self.analyzer.changed_document("");
-                    let method = message.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
+                    let method = message
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?")
+                        .to_string();
                     let text = format!("An error occurred while handling {method} notification");
                     register(format!("panic while handling {method}"));
                     outputs.push(message_notification("window/showMessage", 1, &text));
-                    outputs.push(message_notification("window/logMessage", 1, &format!("{text}: {}", panic_text(&*panic))));
+                    outputs.push(message_notification(
+                        "window/logMessage",
+                        1,
+                        &format!("{text}: {}", panic_text(&*panic)),
+                    ));
                 }
             }
             if self.shutdown {
@@ -845,7 +900,9 @@ impl<A: Analyzer> Server<A> {
             // A panic in a query does not bring the server down (Dart's never goes down
             // because of a request): the response is an internal error and the semantic
             // session, which may have been left half-done, drops.
-            let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.handle_request(&request)));
+            let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                self.handle_request(&request)
+            }));
             match response {
                 Ok(r) => outputs.push(r),
                 Err(panic) => {
@@ -853,11 +910,19 @@ impl<A: Analyzer> Server<A> {
                     // `logException` (an error-type `window/logMessage`, with the cause).
                     self.analyzer.changed_document("");
                     let id = request.get("id").cloned().unwrap_or(Value::Null);
-                    let method = request.get("method").and_then(Value::as_str).unwrap_or("?").to_string();
+                    let method = request
+                        .get("method")
+                        .and_then(Value::as_str)
+                        .unwrap_or("?")
+                        .to_string();
                     register(format!("panic while handling {method}"));
                     let text = format!("An error occurred while handling {method} request");
                     outputs.push(error(&id, ERROR_NOT_HANDLED, text.clone()));
-                    outputs.push(message_notification("window/logMessage", 1, &format!("{text}: {}", panic_text(&*panic))));
+                    outputs.push(message_notification(
+                        "window/logMessage",
+                        1,
+                        &format!("{text}: {}", panic_text(&*panic)),
+                    ));
                 }
             }
         }
@@ -993,7 +1058,10 @@ impl<A: Analyzer> Server<A> {
                 // Inside the workspace folders `didClose` does not clear: the file is
                 // analyzed again from disk and republished (§3.2). Outside them, the file's
                 // root goes away and its results are cleared (`flushResults`).
-                let inside = url::Url::parse(uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
+                let inside = url::Url::parse(uri)
+                    .ok()
+                    .and_then(|u| u.to_file_path().ok())
+                    .is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
                 if inside && self.typed.is_some() {
                     return None;
                 }
@@ -1004,8 +1072,18 @@ impl<A: Analyzer> Server<A> {
             // The workspace folders changed: the analysis roots and those of the
             // configuration request follow (the `changeNotifications`).
             "workspace/didChangeWorkspaceFolders" => {
-                let file_path_of = |v: &Value| v.as_str().and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
-                let list = |k: &str| message.pointer(&format!("/params/event/{k}")).and_then(Value::as_array).cloned().unwrap_or_default();
+                let file_path_of = |v: &Value| {
+                    v.as_str()
+                        .and_then(|u| url::Url::parse(u).ok())
+                        .and_then(|u| u.to_file_path().ok())
+                };
+                let list = |k: &str| {
+                    message
+                        .pointer(&format!("/params/event/{k}"))
+                        .and_then(Value::as_array)
+                        .cloned()
+                        .unwrap_or_default()
+                };
                 for f in list("removed") {
                     if let Some(u) = f["uri"].as_str() {
                         self.folders.retain(|p| p != u);
@@ -1038,7 +1116,8 @@ impl<A: Analyzer> Server<A> {
             "workspace/didChangeWatchedFiles" => {
                 // The file watcher (§3.3): what changed on disk.
                 if let Some(t) = &self.typed
-                    && let Some(changes) = message.pointer("/params/changes").and_then(Value::as_array)
+                    && let Some(changes) =
+                        message.pointer("/params/changes").and_then(Value::as_array)
                 {
                     for m in changes {
                         let Some(path) = m
@@ -1086,7 +1165,11 @@ impl<A: Analyzer> Server<A> {
         // notification: after `shutdown` only `exit` counts, and `initialize` only
         // counts once.
         if self.disabling {
-            return error(&id, INVALID_REQUEST, format!("Unable to handle {method} after shutdown request"));
+            return error(
+                &id,
+                INVALID_REQUEST,
+                format!("Unable to handle {method} after shutdown request"),
+            );
         }
         if method == "initialize" && self.initialized {
             return error(&id, SERVER_NOT_INITIALIZED, "Server already initialized");
@@ -1111,24 +1194,42 @@ impl<A: Analyzer> Server<A> {
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 // `experimental.snippetTextEdit == true` (`client_capabilities.dart:368-371`).
-                self.edits_snippet =
-                    message.pointer("/params/capabilities/experimental/snippetTextEdit").and_then(Value::as_bool).unwrap_or(false);
-                self.apply_edits =
-                    message.pointer("/params/capabilities/workspace/applyEdit").and_then(Value::as_bool).unwrap_or(false);
-                self.closing_labels =
-                    message.pointer("/params/initializationOptions/closingLabels").and_then(Value::as_bool).unwrap_or(false);
-                self.outline = message.pointer("/params/initializationOptions/outline").and_then(Value::as_bool).unwrap_or(false);
-                self.work_progress =
-                    message.pointer("/params/capabilities/window/workDoneProgress").and_then(Value::as_bool).unwrap_or(false);
+                self.edits_snippet = message
+                    .pointer("/params/capabilities/experimental/snippetTextEdit")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.apply_edits = message
+                    .pointer("/params/capabilities/workspace/applyEdit")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.closing_labels = message
+                    .pointer("/params/initializationOptions/closingLabels")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.outline = message
+                    .pointer("/params/initializationOptions/outline")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                self.work_progress = message
+                    .pointer("/params/capabilities/window/workDoneProgress")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 self.change_annotations = message
                     .pointer("/params/capabilities/workspace/workspaceEdit/changeAnnotationSupport")
                     .is_some_and(|x| !x.is_null());
-                let literals = message.pointer("/params/capabilities/textDocument/codeAction/codeActionLiteralSupport");
+                let literals = message.pointer(
+                    "/params/capabilities/textDocument/codeAction/codeActionLiteralSupport",
+                );
                 self.actions_literals = literals.is_some_and(|l| !l.is_null());
                 self.action_kinds = literals
                     .and_then(|l| l.pointer("/codeActionKind/valueSet"))
                     .and_then(Value::as_array)
-                    .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect());
+                    .map(|l| {
+                        l.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    });
                 let accepts_operation = |op: &str| {
                     message
                         .pointer("/params/capabilities/workspace/workspaceEdit/resourceOperations")
@@ -1144,16 +1245,28 @@ impl<A: Analyzer> Server<A> {
                 self.client_commands = message
                     .pointer("/params/capabilities/experimental/commands")
                     .and_then(Value::as_array)
-                    .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                    .map(|l| {
+                        l.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
                     .unwrap_or_default();
-                self.requestable_configuration =
-                    message.pointer("/params/capabilities/workspace/configuration").and_then(Value::as_bool).unwrap_or(false);
-                let (dynamic, dynamic_configuration) =
-                    crate::registration::dynamic(message.pointer("/params/capabilities").unwrap_or(&Value::Null));
+                self.requestable_configuration = message
+                    .pointer("/params/capabilities/workspace/configuration")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                let (dynamic, dynamic_configuration) = crate::registration::dynamic(
+                    message
+                        .pointer("/params/capabilities")
+                        .unwrap_or(&Value::Null),
+                );
                 self.dynamic = dynamic;
                 self.dynamic_configuration = dynamic_configuration;
                 self.observe_files = message
-                    .pointer("/params/capabilities/workspace/didChangeWatchedFiles/dynamicRegistration")
+                    .pointer(
+                        "/params/capabilities/workspace/didChangeWatchedFiles/dynamicRegistration",
+                    )
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 self.dynamic_file_operations = message
@@ -1161,29 +1274,55 @@ impl<A: Analyzer> Server<A> {
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 // The workspace folders (or the root), for the `scopeUri`.
-                self.folders = match message.pointer("/params/workspaceFolders").and_then(Value::as_array) {
-                    Some(l) => l.iter().filter_map(|p| p.get("uri").and_then(Value::as_str)).map(str::to_string).collect(),
-                    None => message.pointer("/params/rootUri").and_then(Value::as_str).map(|u| vec![u.to_string()]).unwrap_or_default(),
+                self.folders = match message
+                    .pointer("/params/workspaceFolders")
+                    .and_then(Value::as_array)
+                {
+                    Some(l) => l
+                        .iter()
+                        .filter_map(|p| p.get("uri").and_then(Value::as_str))
+                        .map(str::to_string)
+                        .collect(),
+                    None => message
+                        .pointer("/params/rootUri")
+                        .and_then(Value::as_str)
+                        .map(|u| vec![u.to_string()])
+                        .unwrap_or_default(),
                 };
-                self.create_files = self.versioned_changes
-                    && accepts_operation("create");
+                self.create_files = self.versioned_changes && accepts_operation("create");
                 self.rename_files = self.versioned_changes
                     && accepts_rename_file
-                    && message.pointer("/params/initializationOptions/renameFilesWithClasses").and_then(Value::as_str) == Some("always");
+                    && message
+                        .pointer("/params/initializationOptions/renameFilesWithClasses")
+                        .and_then(Value::as_str)
+                        == Some("always");
                 self.roots = initialize_roots(message.get("params"));
                 self.completion_calls = message
                     .pointer("/params/capabilities/textDocument/completion/completionItem/snippetSupport")
                     .and_then(Value::as_bool)
                     .unwrap_or(false)
                     && message.pointer("/params/initializationOptions/completeFunctionCalls").and_then(Value::as_bool) != Some(false);
-                self.completion_not_imported = message.pointer("/params/initializationOptions/suggestFromUnimportedLibraries").and_then(Value::as_bool) != Some(false)
-                    && message.pointer("/params/capabilities/workspace/applyEdit").and_then(Value::as_bool).unwrap_or(false);
-                self.completion_capabilities = crate::completion_item::Capabilities::from_initialize(message.pointer("/params/capabilities").unwrap_or(&Value::Null));
+                self.completion_not_imported = message
+                    .pointer("/params/initializationOptions/suggestFromUnimportedLibraries")
+                    .and_then(Value::as_bool)
+                    != Some(false)
+                    && message
+                        .pointer("/params/capabilities/workspace/applyEdit")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                self.completion_capabilities =
+                    crate::completion_item::Capabilities::from_initialize(
+                        message
+                            .pointer("/params/capabilities")
+                            .unwrap_or(&Value::Null),
+                    );
                 self.documentation_markdown = message
                     .pointer("/params/capabilities/textDocument/completion/completionItem/documentationFormat")
                     .and_then(Value::as_array)
                     .is_some_and(|f| f.iter().any(|x| x.as_str() == Some("markdown")));
-                self.pulled_diagnostics = message.pointer("/params/capabilities/textDocument/diagnostic").is_some_and(Value::is_object);
+                self.pulled_diagnostics = message
+                    .pointer("/params/capabilities/textDocument/diagnostic")
+                    .is_some_and(Value::is_object);
                 self.update_pulled = message
                     .pointer("/params/capabilities/workspace/diagnostics/refreshSupport")
                     .and_then(Value::as_bool)
@@ -1209,14 +1348,20 @@ impl<A: Analyzer> Server<A> {
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 self.multiline_tokens = message
-                    .pointer("/params/capabilities/textDocument/semanticTokens/multilineTokenSupport")
+                    .pointer(
+                        "/params/capabilities/textDocument/semanticTokens/multilineTokenSupport",
+                    )
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
                 self.folds_line_only = message
                     .pointer("/params/capabilities/textDocument/foldingRange/lineFoldingOnly")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let rename_ = if self.prepare_rename { json!({"prepareProvider": true}) } else { json!(true) };
+                let rename_ = if self.prepare_rename {
+                    json!({"prepareProvider": true})
+                } else {
+                    json!(true)
+                };
                 // `handler_code_actions.dart:252-280`: the list of kinds only for a client
                 // with literals; otherwise, `true`.
                 let code_actions = if self.actions_literals {
@@ -1279,9 +1424,11 @@ impl<A: Analyzer> Server<A> {
                     });
                     result["capabilities"]["documentRangeFormattingProvider"] = json!(true);
                 }
-                result["capabilities"]["workspace"] = json!({"workspaceFolders": {"supported": true, "changeNotifications": true}});
+                result["capabilities"]["workspace"] =
+                    json!({"workspaceFolders": {"supported": true, "changeNotifications": true}});
                 if !self.dynamic_file_operations && self.configuration.update_imports_on_rename {
-                    result["capabilities"]["workspace"]["fileOperations"] = json!({"willRename": crate::registration::file_operation_options()});
+                    result["capabilities"]["workspace"]["fileOperations"] =
+                        json!({"willRename": crate::registration::file_operation_options()});
                 }
                 if self.pulled_diagnostics {
                     // A document depends on others (imports): editing one changes the
@@ -1300,16 +1447,28 @@ impl<A: Analyzer> Server<A> {
                 response(&id, result)
             }
             "textDocument/diagnostic" => {
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
-                let previous = message.pointer("/params/previousResultId").and_then(Value::as_str);
-                response(&id, uri.map_or_else(|| json!({"kind": "full", "items": []}), |u| self.pulled_report(&u, previous)))
+                let uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let previous = message
+                    .pointer("/params/previousResultId")
+                    .and_then(Value::as_str);
+                response(
+                    &id,
+                    uri.map_or_else(
+                        || json!({"kind": "full", "items": []}),
+                        |u| self.pulled_report(&u, previous),
+                    ),
+                )
             }
             "shutdown" => {
                 self.disabling = true;
                 response(&id, Value::Null)
             }
             "textDocument/documentSymbol" => {
-                let uri = message.get("params")
+                let uri = message
+                    .get("params")
                     .and_then(|p| p.get("textDocument"))
                     .and_then(|d| d.get("uri"))
                     .and_then(Value::as_str);
@@ -1331,7 +1490,8 @@ impl<A: Analyzer> Server<A> {
                 response(&id, json!(result))
             }
             "workspace/symbol" => {
-                let query = message.get("params")
+                let query = message
+                    .get("params")
                     .and_then(|p| p.get("query"))
                     .and_then(Value::as_str)
                     .unwrap_or("")
@@ -1344,7 +1504,9 @@ impl<A: Analyzer> Server<A> {
                     .and_then(|p| p.get("textDocument"))
                     .and_then(|d| d.get("uri"))
                     .and_then(Value::as_str);
-                let position = params.and_then(|p| p.get("position")).and_then(read_position);
+                let position = params
+                    .and_then(|p| p.get("position"))
+                    .and_then(read_position);
                 let result = uri.zip(position).and_then(|(u, p)| {
                     let text = self.documents.get(u)?.to_string();
                     let offset = self.documents.lines(u)?
@@ -1381,7 +1543,9 @@ impl<A: Analyzer> Server<A> {
                     .and_then(|p| p.get("textDocument"))
                     .and_then(|d| d.get("uri"))
                     .and_then(Value::as_str);
-                let position = params.and_then(|p| p.get("position")).and_then(read_position);
+                let position = params
+                    .and_then(|p| p.get("position"))
+                    .and_then(read_position);
                 let include_declaration = params
                     .and_then(|p| p.get("context"))
                     .and_then(|c| c.get("includeDeclaration"))
@@ -1398,7 +1562,11 @@ impl<A: Analyzer> Server<A> {
                     let owner = found.declaration.as_ref().map(|(target, _)| target.clone());
                     let mut uses = found.uses.clone();
                     uses.sort_by(|(a, sa), (b, sb)| {
-                        (Some(a) == owner.as_ref(), a, sa.start).cmp(&(Some(b) == owner.as_ref(), b, sb.start))
+                        (Some(a) == owner.as_ref(), a, sa.start).cmp(&(
+                            Some(b) == owner.as_ref(),
+                            b,
+                            sb.start,
+                        ))
                     });
                     let declaration = found.declaration.filter(|_| include_declaration);
                     let locals: Vec<Value> = uses
@@ -1418,12 +1586,16 @@ impl<A: Analyzer> Server<A> {
                     .and_then(|p| p.get("textDocument"))
                     .and_then(|d| d.get("uri"))
                     .and_then(Value::as_str);
-                let position = params.and_then(|p| p.get("position")).and_then(read_position);
+                let position = params
+                    .and_then(|p| p.get("position"))
+                    .and_then(read_position);
                 let result = uri.zip(position).and_then(|(u, p)| {
                     let text = self.documents.get(u)?.to_string();
                     let table = self.documents.lines(u)?;
                     let offset = table.position_offset(&text, p.line, p.column);
-                    let hover = self.analyzer.hover_in_workspace(u, &text, offset, &self.documents)?;
+                    let hover =
+                        self.analyzer
+                            .hover_in_workspace(u, &text, offset, &self.documents)?;
                     let (l0, c0) = table.offset_position(&text, hover.range.start);
                     let (l1, c1) = table.offset_position(&text, hover.range.end);
                     // The Dart server's format: the description in a code block, the type and,
@@ -1431,7 +1603,11 @@ impl<A: Analyzer> Server<A> {
                     let content = if self.hover_markdown {
                         // Like Dart's `toHover`: description, type, library and, after `---`, the
                         // documentation.
-                        let mut value = if hover.description.is_empty() { String::new() } else { format!("```dart\n{}\n```\n", hover.description) };
+                        let mut value = if hover.description.is_empty() {
+                            String::new()
+                        } else {
+                            format!("```dart\n{}\n```\n", hover.description)
+                        };
                         if let Some(t) = &hover.ty {
                             value.push_str(&format!("Type: `{t}`\n\n"));
                         }
@@ -1468,10 +1644,18 @@ impl<A: Analyzer> Server<A> {
             "textDocument/completion" => {
                 // `maxCompletionItems` and `enableSnippets` come from the document's folder
                 // (`forResource`).
-                let request_uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
-                let max = self.configuration_of(&request_uri).max_completion_items.map_or(crate::completion::MAX_PATTERN, |m| m as usize);
+                let request_uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let max = self
+                    .configuration_of(&request_uri)
+                    .max_completion_items
+                    .map_or(crate::completion::MAX_PATTERN, |m| m as usize);
                 self.analyzer.set_completion_max(max);
-                self.analyzer.set_not_imported_in_completion(self.completion_not_imported);
+                self.analyzer
+                    .set_not_imported_in_completion(self.completion_not_imported);
                 let result = self.request_position(message).and_then(|(u, offset)| {
                     let completion = self.analyzer.completion(&self.documents, &u, offset)?;
                     let text = self.documents.get(&u)?.to_string();
@@ -1495,12 +1679,22 @@ impl<A: Analyzer> Server<A> {
                     if cap.default_range {
                         patterns.insert(
                             "editRange".into(),
-                            if !cap.insert_replace || equal { replace.clone() } else { json!({"insert": insert, "replace": replace}) },
+                            if !cap.insert_replace || equal {
+                                replace.clone()
+                            } else {
+                                json!({"insert": insert, "replace": replace})
+                            },
                         );
                     }
                     // `_hasExistingArgList`: there are already parentheses after the name.
-                    let with_parens = text[word_end..].trim_start_matches([' ', '\t']).starts_with('(');
-                    let file = url::Url::parse(&u).ok().and_then(|x| x.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+                    let with_parens = text[word_end..]
+                        .trim_start_matches([' ', '\t'])
+                        .starts_with('(');
+                    let file = url::Url::parse(&u)
+                        .ok()
+                        .and_then(|x| x.to_file_path().ok())
+                        .map(|p| p.to_string_lossy().into_owned())
+                        .unwrap_or_default();
                     let request = crate::completion_item::Request {
                         replace: replace.clone(),
                         insert: insert.clone(),
@@ -1520,16 +1714,28 @@ impl<A: Analyzer> Server<A> {
                                 let source = texts.entry(path.clone()).or_insert_with(|| {
                                     url::Url::from_file_path(path)
                                         .ok()
-                                        .and_then(|x| self.documents.get(x.as_str()).map(str::to_string))
+                                        .and_then(|x| {
+                                            self.documents.get(x.as_str()).map(str::to_string)
+                                        })
                                         .or_else(|| std::fs::read_to_string(path).ok())
                                 });
-                                source.as_deref().filter(|f| *start <= f.len() && f.is_char_boundary(*start)).and_then(|f| crate::dartdoc::documentation(f, *start))
+                                source
+                                    .as_deref()
+                                    .filter(|f| *start <= f.len() && f.is_char_boundary(*start))
+                                    .and_then(|f| crate::dartdoc::documentation(f, *start))
                             }
                             _ => None,
                         };
                         let v = crate::completion_item::item(cap, &request, item, doc);
                         if let Some(r) = v.pointer("/data/ref").and_then(Value::as_str) {
-                            self.not_imported.insert(r.to_string(), UnimportedCompletion { origin: item.origin.clone(), import: item.import.clone(), detail: item.detail.clone() });
+                            self.not_imported.insert(
+                                r.to_string(),
+                                UnimportedCompletion {
+                                    origin: item.origin.clone(),
+                                    import: item.import.clone(),
+                                    detail: item.detail.clone(),
+                                },
+                            );
                         }
                         items.push(v);
                     }
@@ -1537,26 +1743,53 @@ impl<A: Analyzer> Server<A> {
                     // The snippets (without ranking, at the end).
                     if cap.snippet && self.configuration_of(&u).enable_snippets {
                         let prefix = &text[completion.start..completion.end];
-                        if let Some(context) = crate::completion_item::snippet_context(&text, offset) {
+                        if let Some(context) =
+                            crate::completion_item::snippet_context(&text, offset)
+                        {
                             let indent: String = {
                                 let start_ = text[..offset].rfind('\n').map_or(0, |i| i + 1);
-                                text[start_..].chars().take_while(|c| *c == ' ' || *c == '\t').collect()
+                                text[start_..]
+                                    .chars()
+                                    .take_while(|c| *c == ' ' || *c == '\t')
+                                    .collect()
                             };
                             let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
-                            let in_tests = std::path::Path::new(&file).components().any(|c| c.as_os_str() == "test");
+                            let in_tests = std::path::Path::new(&file)
+                                .components()
+                                .any(|c| c.as_os_str() == "test");
                             let finals = std::path::Path::new(&file).parent().is_some_and(|_| {
                                 let path = std::path::Path::new(&file);
                                 let root = crate::project::project_root(path);
-                                let options = dartforge_parity::filters::AnalysisOptions::from_subfolder(path, &root).unwrap_or_else(|| root.join("analysis_options.yaml"));
-                                dartforge_parity::filters::AnalysisOptions::read_file(&options).rules.get("prefer_final_locals").copied().unwrap_or(false)
+                                let options =
+                                    dartforge_parity::filters::AnalysisOptions::from_subfolder(
+                                        path, &root,
+                                    )
+                                    .unwrap_or_else(|| root.join("analysis_options.yaml"));
+                                dartforge_parity::filters::AnalysisOptions::read_file(&options)
+                                    .rules
+                                    .get("prefer_final_locals")
+                                    .copied()
+                                    .unwrap_or(false)
                             });
-                            let mut matcher = crate::fuzzy_matcher::Matcher::new(prefix, crate::fuzzy_matcher::Style::Text);
-                            for (pre, label, doc, body) in crate::completion_item::snippets(context, &indent, eol, in_tests, finals) {
+                            let mut matcher = crate::fuzzy_matcher::Matcher::new(
+                                prefix,
+                                crate::fuzzy_matcher::Style::Text,
+                            );
+                            for (pre, label, doc, body) in crate::completion_item::snippets(
+                                context, &indent, eol, in_tests, finals,
+                            ) {
                                 if matcher.score(pre) <= 0.0 {
                                     continue;
                                 }
-                                let v = crate::completion_item::snippet_item(cap, &request, pre, label, doc, &body);
-                                let filter = v.get("filterText").or_else(|| v.get("label")).and_then(Value::as_str).unwrap_or("").to_string();
+                                let v = crate::completion_item::snippet_item(
+                                    cap, &request, pre, label, doc, &body,
+                                );
+                                let filter = v
+                                    .get("filterText")
+                                    .or_else(|| v.get("label"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("")
+                                    .to_string();
                                 if matcher.score(&filter) <= 0.0 {
                                     continue;
                                 }
@@ -1578,18 +1811,35 @@ impl<A: Analyzer> Server<A> {
                 let mut item = message.get("params").cloned().unwrap_or(Value::Null);
                 // `resolveDartCompletion`: only an item with `data` (not imported): the
                 // import, the documentation and the `detail`.
-                let key = item.pointer("/data/ref").and_then(Value::as_str).map(str::to_string);
+                let key = item
+                    .pointer("/data/ref")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 if let Some(key) = key
-                    && let Some(UnimportedCompletion { origin, import, detail }) = self.not_imported.get(&key).cloned()
+                    && let Some(UnimportedCompletion {
+                        origin,
+                        import,
+                        detail,
+                    }) = self.not_imported.get(&key).cloned()
                 {
-                    let file = item.pointer("/data/file").and_then(Value::as_str).unwrap_or("").to_string();
-                    let uri_doc = url::Url::from_file_path(&file).map(|x| x.to_string()).unwrap_or_default();
+                    let file = item
+                        .pointer("/data/file")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
+                    let uri_doc = url::Url::from_file_path(&file)
+                        .map(|x| x.to_string())
+                        .unwrap_or_default();
                     if let Some(imp) = &import
-                        && let (Some(text), Some(table)) = (self.documents.get(&uri_doc), self.documents.lines(&uri_doc))
+                        && let (Some(text), Some(table)) =
+                            (self.documents.get(&uri_doc), self.documents.lines(&uri_doc))
                     {
                         item["additionalTextEdits"] = json!([{"range": lsp_range(text, table, imp.span.start, imp.span.end), "newText": imp.text}]);
                         let displayed = crate::completion_item::display_uri(&imp.uri, &file);
-                        let d = format!("Auto import from '{displayed}'\n\n{}", detail.unwrap_or_default());
+                        let d = format!(
+                            "Auto import from '{displayed}'\n\n{}",
+                            detail.unwrap_or_default()
+                        );
                         item["detail"] = json!(d.trim());
                     }
                     if let Some((path, start)) = origin {
@@ -1597,8 +1847,16 @@ impl<A: Analyzer> Server<A> {
                             .ok()
                             .and_then(|x| self.documents.get(x.as_str()).map(str::to_string))
                             .or_else(|| std::fs::read_to_string(&path).ok());
-                        if let Some(doc) = source.as_deref().filter(|f| start <= f.len() && f.is_char_boundary(start)).and_then(|f| crate::dartdoc::documentation(f, start)) {
-                            item["documentation"] = if self.documentation_markdown { json!({"kind": "markdown", "value": doc}) } else { json!(doc) };
+                        if let Some(doc) = source
+                            .as_deref()
+                            .filter(|f| start <= f.len() && f.is_char_boundary(start))
+                            .and_then(|f| crate::dartdoc::documentation(f, start))
+                        {
+                            item["documentation"] = if self.documentation_markdown {
+                                json!({"kind": "markdown", "value": doc})
+                            } else {
+                                json!(doc)
+                            };
                         }
                     }
                 }
@@ -1606,12 +1864,16 @@ impl<A: Analyzer> Server<A> {
             }
             "textDocument/codeAction" => {
                 let params = message.get("params");
-                let uri = params.and_then(|p| p.pointer("/textDocument/uri")).and_then(Value::as_str).map(str::to_string);
+                let uri = params
+                    .and_then(|p| p.pointer("/textDocument/uri"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 let range2 = params.and_then(|p| p.get("range")).and_then(read_range);
                 let (Some(u), Some((from, until))) = (uri, range2) else {
                     return response(&id, Value::Null);
                 };
-                let (Some(text), Some(table)) = (self.documents.get(&u), self.documents.lines(&u)) else {
+                let (Some(text), Some(table)) = (self.documents.get(&u), self.documents.lines(&u))
+                else {
                     return response(&id, Value::Null);
                 };
                 let start = table.position_offset(text, from.line, from.column);
@@ -1620,27 +1882,49 @@ impl<A: Analyzer> Server<A> {
                 let only: Option<Vec<String>> = params
                     .and_then(|p| p.pointer("/context/only"))
                     .and_then(Value::as_array)
-                    .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect());
+                    .map(|l| {
+                        l.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    });
                 // Only the typed ones published for the current version.
                 let empty = Vec::new();
                 let published = match self.typed_published.get(&u) {
                     Some((v, d)) if Some(*v) == self.documents.version(&u) => d,
                     _ => &empty,
                 };
-                let actions = self.analyzer.actions(&self.documents, &u, start, end, published);
+                let actions = self
+                    .analyzer
+                    .actions(&self.documents, &u, start, end, published);
                 let mut output = Vec::new();
                 // The source actions (§13.12.1): before all the others, as commands, always
                 // offered (the computation is left to `executeCommand`), and only to a
                 // client that accepts `workspace/applyEdit`.
-                let requested_sources = only.as_ref().is_none_or(|l| l.iter().any(|w| w == "source" || w.starts_with("source.")));
-                let path = url::Url::parse(&u).ok().filter(|x| x.scheme() == "file").and_then(|x| x.to_file_path().ok());
-                if let (true, true, true, Some(path)) = (requested_sources, self.apply_edits, u.ends_with(".dart"), path) {
+                let requested_sources = only
+                    .as_ref()
+                    .is_none_or(|l| l.iter().any(|w| w == "source" || w.starts_with("source.")));
+                let path = url::Url::parse(&u)
+                    .ok()
+                    .filter(|x| x.scheme() == "file")
+                    .and_then(|x| x.to_file_path().ok());
+                if let (true, true, true, Some(path)) = (
+                    requested_sources,
+                    self.apply_edits,
+                    u.ends_with(".dart"),
+                    path,
+                ) {
                     let mut argument = json!({"path": path.to_string_lossy()});
-                    if params.and_then(|p| p.pointer("/context/triggerKind")).and_then(Value::as_u64) == Some(2) {
+                    if params
+                        .and_then(|p| p.pointer("/context/triggerKind"))
+                        .and_then(Value::as_u64)
+                        == Some(2)
+                    {
                         argument["autoTriggered"] = json!(true);
                     }
                     for (title, kind, command) in SOURCE_ACTIONS {
-                        let matches_ = |w: &String| *kind == w.as_str() || kind.starts_with(&format!("{w}."));
+                        let matches_ =
+                            |w: &String| *kind == w.as_str() || kind.starts_with(&format!("{w}."));
                         let included = match (&only, &self.action_kinds) {
                             (Some(l), _) => l.iter().any(matches_),
                             (None, Some(l)) if self.actions_literals => l.iter().any(matches_),
@@ -1650,11 +1934,18 @@ impl<A: Analyzer> Server<A> {
                             continue;
                         }
                         let c = json!({"title": title, "command": command, "arguments": [argument.clone()]});
-                        output.push(if self.actions_literals { json!({"title": title, "kind": kind, "command": c}) } else { c });
+                        output.push(if self.actions_literals {
+                            json!({"title": title, "kind": kind, "command": c})
+                        } else {
+                            c
+                        });
                     }
                 }
-                let (mut fixes, mut assists, mut refactorings): (Vec<Value>, Vec<Value>, Vec<Value>) =
-                    (Vec::new(), Vec::new(), Vec::new());
+                let (mut fixes, mut assists, mut refactorings): (
+                    Vec<Value>,
+                    Vec<Value>,
+                    Vec<Value>,
+                ) = (Vec::new(), Vec::new(), Vec::new());
                 for action in actions {
                     // The analyzer's source actions (the ready edit of `Organize Imports`) give
                     // way to the commands above.
@@ -1662,7 +1953,8 @@ impl<A: Analyzer> Server<A> {
                         continue;
                     }
                     let allowed = only.as_ref().is_none_or(|l| {
-                        l.iter().any(|k| action.kind == *k || action.kind.starts_with(&format!("{k}.")))
+                        l.iter()
+                            .any(|k| action.kind == *k || action.kind.starts_with(&format!("{k}.")))
                     });
                     if !allowed {
                         continue;
@@ -1672,7 +1964,10 @@ impl<A: Analyzer> Server<A> {
                         // edit or nothing.
                         Some(_) if !self.create_files => continue,
                         Some((new, content)) => {
-                            let mut e = self.workspace_edit(&action.edits, Some(json!({"kind": "create", "uri": new})));
+                            let mut e = self.workspace_edit(
+                                &action.edits,
+                                Some(json!({"kind": "create", "uri": new})),
+                            );
                             if !content.is_empty()
                                 && let Some(l) = e["documentChanges"].as_array_mut()
                             {
@@ -1695,12 +1990,16 @@ impl<A: Analyzer> Server<A> {
                     // as they were.
                     // The `Inline invocation of '…'` assist (`dart.assist.inline`) has the same
                     // kind and is an assist.
-                    let refactoring = matches!(action.kind.as_str(), "refactor.inline" | "refactor.extract")
-                        && !action.title.starts_with("Inline invocation of");
-                    let mut value = json!({"title": action.title, "kind": action.kind, "edit": edit});
-                    if let (Some(d), Some(text), Some(table)) =
-                        (&action.diagnostic, self.documents.get(&u), self.documents.lines(&u))
-                    {
+                    let refactoring =
+                        matches!(action.kind.as_str(), "refactor.inline" | "refactor.extract")
+                            && !action.title.starts_with("Inline invocation of");
+                    let mut value =
+                        json!({"title": action.title, "kind": action.kind, "edit": edit});
+                    if let (Some(d), Some(text), Some(table)) = (
+                        &action.diagnostic,
+                        self.documents.get(&u),
+                        self.documents.lines(&u),
+                    ) {
                         value["diagnostics"] = json!([convert_diagnostic(text, table, d)]);
                     } else if !refactoring {
                         value["diagnostics"] = json!([]);
@@ -1739,14 +2038,21 @@ impl<A: Analyzer> Server<A> {
                 match self.analyzer.prepare_rename(&self.documents, &u, offset) {
                     Ok(Some((span, text))) => {
                         let range = self.range(&u, span);
-                        response(&id, range.map_or(Value::Null, |r| json!({"range": r, "placeholder": text})))
+                        response(
+                            &id,
+                            range.map_or(Value::Null, |r| json!({"range": r, "placeholder": text})),
+                        )
                     }
                     Ok(None) => response(&id, Value::Null),
                     Err(reason) => error(&id, RENAME_INVALID, reason),
                 }
             }
             "textDocument/rename" => {
-                let new = message.pointer("/params/newName").and_then(Value::as_str).unwrap_or("").to_string();
+                let new = message
+                    .pointer("/params/newName")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 let Some((u, offset)) = self.request_position(message) else {
                     return response(&id, Value::Null);
                 };
@@ -1783,8 +2089,14 @@ impl<A: Analyzer> Server<A> {
                 };
                 // Automatic trigger (`(` typed, help closed): only if the `(` opens the
                 // list, like the Dart server.
-                let auto = message.pointer("/params/context/triggerKind").and_then(Value::as_u64) == Some(2)
-                    && message.pointer("/params/context/isRetrigger").and_then(Value::as_bool) == Some(false);
+                let auto = message
+                    .pointer("/params/context/triggerKind")
+                    .and_then(Value::as_u64)
+                    == Some(2)
+                    && message
+                        .pointer("/params/context/isRetrigger")
+                        .and_then(Value::as_bool)
+                        == Some(false);
                 let Some(a) = self.analyzer.signature(&self.documents, &u, offset, auto) else {
                     return response(&id, Value::Null);
                 };
@@ -1793,8 +2105,11 @@ impl<A: Analyzer> Server<A> {
                     "parameters": a.parameters.iter().map(|p| json!({"label": p})).collect::<Vec<_>>(),
                 });
                 if let Some(d) = &a.documentation {
-                    signature["documentation"] =
-                        if self.signature_markdown { json!({"kind": "markdown", "value": d}) } else { json!(d) };
+                    signature["documentation"] = if self.signature_markdown {
+                        json!({"kind": "markdown", "value": d})
+                    } else {
+                        json!(d)
+                    };
                 }
                 // No active parameter and no `null` in the client: an index outside the
                 // list (VS Code highlights none).
@@ -1803,14 +2118,23 @@ impl<A: Analyzer> Server<A> {
                     None if self.signature_without_active => Value::Null,
                     None => json!(a.parameters.len()),
                 };
-                response(&id, json!({"signatures": [signature], "activeSignature": 0, "activeParameter": active}))
+                response(
+                    &id,
+                    json!({"signatures": [signature], "activeSignature": 0, "activeParameter": active}),
+                )
             }
             "textDocument/documentHighlight" => {
                 let Some((u, offset)) = self.request_position(message) else {
                     return response(&id, Value::Null);
                 };
-                let document_highlights = self.analyzer.document_highlights(&self.documents, &u, offset).unwrap_or_default();
-                let items: Vec<Value> = document_highlights.into_iter().filter_map(|s| Some(json!({"range": self.range(&u, s)?}))).collect();
+                let document_highlights = self
+                    .analyzer
+                    .document_highlights(&self.documents, &u, offset)
+                    .unwrap_or_default();
+                let items: Vec<Value> = document_highlights
+                    .into_iter()
+                    .filter_map(|s| Some(json!({"range": self.range(&u, s)?})))
+                    .collect();
                 // Dart answers `[]`, never `null` (§11.6).
                 response(&id, json!(items))
             }
@@ -1822,7 +2146,9 @@ impl<A: Analyzer> Server<A> {
                     .analyzer
                     .implementations(&self.documents, &u, offset)
                     .into_iter()
-                    .filter_map(|(target, s)| Some(json!({"uri": target, "range": self.range(&target, s)?})))
+                    .filter_map(|(target, s)| {
+                        Some(json!({"uri": target, "range": self.range(&target, s)?}))
+                    })
                     .collect();
                 response(&id, json!(locals))
             }
@@ -1831,8 +2157,18 @@ impl<A: Analyzer> Server<A> {
             // files and the relative ones that leave them; `null` on a fatal condition.
             "workspace/willRenameFiles" => {
                 let mut map = Vec::new();
-                for f in message.pointer("/params/files").and_then(Value::as_array).cloned().unwrap_or_default() {
-                    let path = |k: &str| f.get(k).and_then(Value::as_str).and_then(|u| url::Url::parse(u).ok()).and_then(|u| u.to_file_path().ok());
+                for f in message
+                    .pointer("/params/files")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+                {
+                    let path = |k: &str| {
+                        f.get(k)
+                            .and_then(Value::as_str)
+                            .and_then(|u| url::Url::parse(u).ok())
+                            .and_then(|u| u.to_file_path().ok())
+                    };
                     let (Some(old), Some(new)) = (path("oldUri"), path("newUri")) else {
                         return error(&id, -32602, "invalid file URI in willRenameFiles");
                     };
@@ -1857,10 +2193,12 @@ impl<A: Analyzer> Server<A> {
                 let Some((u, offset)) = self.request_position(message) else {
                     return response(&id, Value::Null);
                 };
-                let local = self
-                    .analyzer
-                    .upper(&self.documents, &u, offset)
-                    .and_then(|(target, s)| Some(json!({"uri": target, "range": self.range(&target, s)?})));
+                let local =
+                    self.analyzer
+                        .upper(&self.documents, &u, offset)
+                        .and_then(|(target, s)| {
+                            Some(json!({"uri": target, "range": self.range(&target, s)?}))
+                        });
                 response(&id, local.unwrap_or(Value::Null))
             }
             "textDocument/typeDefinition" => {
@@ -1870,7 +2208,9 @@ impl<A: Analyzer> Server<A> {
                 let local = self
                     .analyzer
                     .type_definition(&self.documents, &u, offset)
-                    .and_then(|(target, s)| Some(json!({"uri": target, "range": self.range(&target, s)?})));
+                    .and_then(|(target, s)| {
+                        Some(json!({"uri": target, "range": self.range(&target, s)?}))
+                    });
                 response(&id, local.unwrap_or_else(|| json!([])))
             }
             // `handler_document_link.dart:26-53` (docs/LSP-ESPECIFICACAO.md §8.4): in
@@ -1878,11 +2218,17 @@ impl<A: Analyzer> Server<A> {
             // comments; directive URIs do not become links (the oracle returns `[]` on
             // the 36 files, all with imports). Outside Flutter the response is always
             // the empty list.
-            "textDocument/formatting" | "textDocument/rangeFormatting" | "textDocument/onTypeFormatting" => {
+            "textDocument/formatting"
+            | "textDocument/rangeFormatting"
+            | "textDocument/onTypeFormatting" => {
                 // `FormattingHandler`, `FormatRangeHandler` and `FormatOnTypeHandler`: only
                 // Dart files, nothing with `enableSdkFormatter: false`, the resource's
                 // `lineLength`; `onTypeFormatting` formats the whole document.
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
                 if !uri.ends_with(".dart") {
                     return response(&id, Value::Null);
                 }
@@ -1899,11 +2245,24 @@ impl<A: Analyzer> Server<A> {
                     // line start without a limit (it may go past the line break).
                     let mut points = [0usize; 2];
                     for (i, p) in ["start", "end"].into_iter().enumerate() {
-                        let l = message.pointer(&format!("/params/range/{p}/line")).and_then(Value::as_u64).unwrap_or(0);
-                        let c = message.pointer(&format!("/params/range/{p}/character")).and_then(Value::as_u64).unwrap_or(0);
+                        let l = message
+                            .pointer(&format!("/params/range/{p}/line"))
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0);
+                        let c = message
+                            .pointer(&format!("/params/range/{p}/character"))
+                            .and_then(Value::as_u64)
+                            .unwrap_or(0);
                         match crate::formatting::offset_without_limit(&text, l, c) {
                             Some(o) => points[i] = o,
-                            None => return error_with_data(&id, -32004, "Invalid line number", json!(l.to_string())),
+                            None => {
+                                return error_with_data(
+                                    &id,
+                                    -32004,
+                                    "Invalid line number",
+                                    json!(l.to_string()),
+                                );
+                            }
                         }
                     }
                     Some((points[0], points[1]))
@@ -1915,9 +2274,16 @@ impl<A: Analyzer> Server<A> {
             "textDocument/documentLink" => {
                 // The `{@tool}` blocks that cite the example code (`crate::links`, the 3.6.2
                 // visitor).
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
-                let path = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok());
-                let (Some(text), Some(path)) = (self.documents.get(&uri).map(str::to_string), path) else {
+                let uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let path = url::Url::parse(&uri)
+                    .ok()
+                    .and_then(|u| u.to_file_path().ok());
+                let (Some(text), Some(path)) = (self.documents.get(&uri).map(str::to_string), path)
+                else {
                     return response(&id, json!([]));
                 };
                 if path.extension().is_none_or(|e| e != "dart") {
@@ -1936,9 +2302,22 @@ impl<A: Analyzer> Server<A> {
             // lenses, and only for a client that declares the `dart.goToLocation`
             // command; without augmentations, an empty list.
             "textDocument/codeLens" => {
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
-                let (augmentations, augmented) = (self.configuration.code_lens_augmentation, self.configuration.code_lens_augmented);
-                if !uri.ends_with(".dart") || !(augmentations || augmented) || !self.client_commands.iter().any(|c| c == "dart.goToLocation") {
+                let uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let (augmentations, augmented) = (
+                    self.configuration.code_lens_augmentation,
+                    self.configuration.code_lens_augmented,
+                );
+                if !uri.ends_with(".dart")
+                    || !(augmentations || augmented)
+                    || !self
+                        .client_commands
+                        .iter()
+                        .any(|c| c == "dart.goToLocation")
+                {
                     return response(&id, json!([]));
                 }
                 let lenses: Vec<Value> = self
@@ -1955,7 +2334,11 @@ impl<A: Analyzer> Server<A> {
             // `textDocument/documentColor` (the `ColorComputer`, §8.2): the colors from
             // 0 to 1.
             "textDocument/documentColor" => {
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
+                let uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
                 if !uri.ends_with(".dart") {
                     return response(&id, json!([]));
                 }
@@ -1974,20 +2357,49 @@ impl<A: Analyzer> Server<A> {
             // expression is constant outside a constant context; nothing outside the
             // analysis roots or without Flutter's `Color`.
             "textDocument/colorPresentation" => {
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or_default().to_string();
-                let color = message.pointer("/params/color").cloned().unwrap_or(Value::Null);
-                let reach = message.pointer("/params/range").cloned().unwrap_or(Value::Null);
+                let uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let color = message
+                    .pointer("/params/color")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                let reach = message
+                    .pointer("/params/range")
+                    .cloned()
+                    .unwrap_or(Value::Null);
                 let n = |k: &str| color.get(k).and_then(Value::as_f64).unwrap_or(0.0);
-                let inside = url::Url::parse(&uri).ok().and_then(|u| u.to_file_path().ok()).is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
+                let inside = url::Url::parse(&uri)
+                    .ok()
+                    .and_then(|u| u.to_file_path().ok())
+                    .is_some_and(|c| self.roots.iter().any(|r| c.starts_with(r)));
                 if !uri.ends_with(".dart") || !inside || self.excluded(&uri) {
                     return response(&id, json!([]));
                 }
                 let start = reach
                     .pointer("/start")
-                    .and_then(|p| Some((p.get("line")?.as_u64()? as u32, p.get("character")?.as_u64()? as u32)))
-                    .and_then(|(l, c)| Some(self.documents.lines(&uri)?.position_offset(self.documents.get(&uri)?, l, c)));
-                let Some(start) = start else { return response(&id, json!([])) };
-                let Some(with_const) = self.analyzer.color_presentation(&self.documents, &uri, start) else {
+                    .and_then(|p| {
+                        Some((
+                            p.get("line")?.as_u64()? as u32,
+                            p.get("character")?.as_u64()? as u32,
+                        ))
+                    })
+                    .and_then(|(l, c)| {
+                        Some(self.documents.lines(&uri)?.position_offset(
+                            self.documents.get(&uri)?,
+                            l,
+                            c,
+                        ))
+                    });
+                let Some(start) = start else {
+                    return response(&id, json!([]));
+                };
+                let Some(with_const) =
+                    self.analyzer
+                        .color_presentation(&self.documents, &uri, start)
+                else {
                     return response(&id, json!([]));
                 };
                 let list: Vec<Value> = crate::colors::presentations(n("alpha"), n("red"), n("green"), n("blue"), with_const)
@@ -2005,12 +2417,19 @@ impl<A: Analyzer> Server<A> {
                 let local = self
                     .analyzer
                     .augmentation_neighbor(&self.documents, &u, offset, next)
-                    .and_then(|(target, s)| Some(json!({"uri": target, "range": self.range(&target, s)?})));
+                    .and_then(|(target, s)| {
+                        Some(json!({"uri": target, "range": self.range(&target, s)?}))
+                    });
                 response(&id, local.unwrap_or(Value::Null))
             }
             "textDocument/foldingRange" => {
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
-                let Some((u, text)) = uri.and_then(|u| Some((u.clone(), self.documents.get(&u)?.to_string()))) else {
+                let uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let Some((u, text)) =
+                    uri.and_then(|u| Some((u.clone(), self.documents.get(&u)?.to_string())))
+                else {
                     return response(&id, Value::Null);
                 };
                 let lines_only = self.folds_line_only;
@@ -2033,8 +2452,13 @@ impl<A: Analyzer> Server<A> {
                 response(&id, json!(folds))
             }
             "textDocument/selectionRange" => {
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
-                let Some((u, text)) = uri.and_then(|u| Some((u.clone(), self.documents.get(&u)?.to_string()))) else {
+                let uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let Some((u, text)) =
+                    uri.and_then(|u| Some((u.clone(), self.documents.get(&u)?.to_string())))
+                else {
                     return response(&id, Value::Null);
                 };
                 let positions: Vec<Position> = message
@@ -2044,11 +2468,17 @@ impl<A: Analyzer> Server<A> {
                     .unwrap_or_default();
                 let mut output = Vec::new();
                 for p in positions {
-                    let Some(offset) = self.documents.lines(&u).map(|t| t.position_offset(&text, p.line, p.column)) else {
+                    let Some(offset) = self
+                        .documents
+                        .lines(&u)
+                        .map(|t| t.position_offset(&text, p.line, p.column))
+                    else {
                         break;
                     };
                     let spans = self.analyzer.selections(&u, &text, offset);
-                    let Some(table) = self.documents.lines(&u) else { break };
+                    let Some(table) = self.documents.lines(&u) else {
+                        break;
+                    };
                     // From the outermost to the innermost, each one the parent of the next.
                     let mut current: Option<Value> = None;
                     for s in spans.iter().rev() {
@@ -2058,33 +2488,51 @@ impl<A: Analyzer> Server<A> {
                         }
                         current = Some(v);
                     }
-                    output.push(current.unwrap_or_else(|| json!({"range": lsp_range(&text, table, offset, offset)})));
+                    output.push(current.unwrap_or_else(
+                        || json!({"range": lsp_range(&text, table, offset, offset)}),
+                    ));
                 }
                 response(&id, json!(output))
             }
             "textDocument/semanticTokens/full" | "textDocument/semanticTokens/range" => {
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 let Some(u) = uri.filter(|u| self.documents.get(u).is_some()) else {
                     return response(&id, Value::Null);
                 };
-                let range_ = message.pointer("/params/range").and_then(read_range).and_then(|(from, until)| {
-                    let text = self.documents.get(&u)?;
-                    let table = self.documents.lines(&u)?;
-                    Some((table.position_offset(text, from.line, from.column), table.position_offset(text, until.line, until.column)))
-                });
+                let range_ = message
+                    .pointer("/params/range")
+                    .and_then(read_range)
+                    .and_then(|(from, until)| {
+                        let text = self.documents.get(&u)?;
+                        let table = self.documents.lines(&u)?;
+                        Some((
+                            table.position_offset(text, from.line, from.column),
+                            table.position_offset(text, until.line, until.column),
+                        ))
+                    });
                 let multiline = self.multiline_tokens;
-                match self.analyzer.semantic_tokens(&self.documents, &u, multiline, range_) {
+                match self
+                    .analyzer
+                    .semantic_tokens(&self.documents, &u, multiline, range_)
+                {
                     Some(data) => response(&id, json!({"data": data})),
                     None => response(&id, Value::Null),
                 }
             }
             "textDocument/inlayHint" => {
-                let uri = message.pointer("/params/textDocument/uri").and_then(Value::as_str).map(str::to_string);
+                let uri = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 let Some(u) = uri.filter(|u| self.documents.get(u).is_some()) else {
                     return response(&id, json!([]));
                 };
                 let hints = self.analyzer.hints(&self.documents, &u);
-                let (Some(text), Some(table)) = (self.documents.get(&u), self.documents.lines(&u)) else {
+                let (Some(text), Some(table)) = (self.documents.get(&u), self.documents.lines(&u))
+                else {
                     return response(&id, json!([]));
                 };
                 let items: Vec<Value> = hints
@@ -2116,11 +2564,23 @@ impl<A: Analyzer> Server<A> {
                 // `toServerItem`: the file, the name in `selectionRange` and the displayed
                 // name of the client's item.
                 let item = message.pointer("/params/item");
-                let uri = item.and_then(|i| i.get("uri")).and_then(Value::as_str).map(str::to_string);
-                let name = item.and_then(|i| i.get("name")).and_then(Value::as_str).unwrap_or("").to_string();
-                let constructor = item.and_then(|i| i.get("kind")).and_then(Value::as_u64) == Some(9);
-                let start = item.and_then(|i| i.pointer("/selectionRange/start")).cloned();
-                let Some(uri) = uri else { return response(&id, json!([])) };
+                let uri = item
+                    .and_then(|i| i.get("uri"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let name = item
+                    .and_then(|i| i.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let constructor =
+                    item.and_then(|i| i.get("kind")).and_then(Value::as_u64) == Some(9);
+                let start = item
+                    .and_then(|i| i.pointer("/selectionRange/start"))
+                    .cloned();
+                let Some(uri) = uri else {
+                    return response(&id, json!([]));
+                };
                 if !uri.ends_with(".dart") {
                     return response(&id, json!([]));
                 }
@@ -2130,23 +2590,48 @@ impl<A: Analyzer> Server<A> {
                     self.offset_in_file(&uri, line, column)
                 });
                 let Some(offset) = offset else {
-                    return error(&id, MODIFIED_CONTENT, "Content was modified since Call Hierarchy node was produced");
+                    return error(
+                        &id,
+                        MODIFIED_CONTENT,
+                        "Content was modified since Call Hierarchy node was produced",
+                    );
                 };
                 let received = method == "callHierarchy/incomingCalls";
-                let calls = self.analyzer.calls(&self.documents, &uri, offset, &name, constructor, received);
+                let calls = self.analyzer.calls(
+                    &self.documents,
+                    &uri,
+                    offset,
+                    &name,
+                    constructor,
+                    received,
+                );
                 let mut output = Vec::new();
                 for (item, spans) in calls {
                     // Incoming: ranges in the caller's file; outgoing: in the requested item's file.
-                    let file = if received { item.uri.clone() } else { uri.clone() };
-                    let ranges: Vec<Value> = spans.iter().filter_map(|s| self.range(&file, *s)).collect();
-                    let Some(v) = self.call_item(&item) else { continue };
-                    output.push(if received { json!({"from": v, "fromRanges": ranges}) } else { json!({"to": v, "fromRanges": ranges}) });
+                    let file = if received {
+                        item.uri.clone()
+                    } else {
+                        uri.clone()
+                    };
+                    let ranges: Vec<Value> =
+                        spans.iter().filter_map(|s| self.range(&file, *s)).collect();
+                    let Some(v) = self.call_item(&item) else {
+                        continue;
+                    };
+                    output.push(if received {
+                        json!({"from": v, "fromRanges": ranges})
+                    } else {
+                        json!({"to": v, "fromRanges": ranges})
+                    });
                 }
                 response(&id, json!(output))
             }
             "textDocument/prepareTypeHierarchy" => {
                 // `isDartDocument`: another file answers an empty list.
-                let request = message.pointer("/params/textDocument/uri").and_then(Value::as_str).unwrap_or("");
+                let request = message
+                    .pointer("/params/textDocument/uri")
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
                 if !request.ends_with(".dart") {
                     return response(&id, json!([]));
                 }
@@ -2164,24 +2649,54 @@ impl<A: Analyzer> Server<A> {
             }
             "typeHierarchy/supertypes" | "typeHierarchy/subtypes" => {
                 let item = message.pointer("/params/item");
-                let uri = item.and_then(|i| i.get("uri")).and_then(Value::as_str).unwrap_or("").to_string();
+                let uri = item
+                    .and_then(|i| i.get("uri"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 let data = item.and_then(|i| i.get("data")).filter(|d| !d.is_null());
-                let Some(reference) = data.and_then(|d| d.get("ref")).and_then(Value::as_str).map(str::to_string) else {
+                let Some(reference) = data
+                    .and_then(|d| d.get("ref"))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                else {
                     return error(&id, -32602, "TypeHierarchyItem is missing the data field");
                 };
-                let anchor: Option<(String, Vec<usize>)> = data.and_then(|d| d.get("anchor")).filter(|a| !a.is_null()).and_then(|a| {
-                    let r = a.get("ref")?.as_str()?.to_string();
-                    let path = a.get("path")?.as_array()?.iter().filter_map(Value::as_u64).map(|x| x as usize).collect();
-                    Some((r, path))
-                });
+                let anchor: Option<(String, Vec<usize>)> = data
+                    .and_then(|d| d.get("anchor"))
+                    .filter(|a| !a.is_null())
+                    .and_then(|a| {
+                        let r = a.get("ref")?.as_str()?.to_string();
+                        let path = a
+                            .get("path")?
+                            .as_array()?
+                            .iter()
+                            .filter_map(Value::as_u64)
+                            .map(|x| x as usize)
+                            .collect();
+                        Some((r, path))
+                    });
                 let project = self.hierarchy_document(&uri);
                 let supertypes = method == "typeHierarchy/supertypes";
-                let items = self.analyzer.hierarchy(&self.documents, &project, &reference, anchor.as_ref().map(|(r, c)| (r.as_str(), c.as_slice())), supertypes);
+                let items = self.analyzer.hierarchy(
+                    &self.documents,
+                    &project,
+                    &reference,
+                    anchor.as_ref().map(|(r, c)| (r.as_str(), c.as_slice())),
+                    supertypes,
+                );
                 match items {
                     None => response(&id, Value::Null),
                     // `_convertItems`: each item with its own file's lines; what cannot be read
                     // is left out.
-                    Some(list) => response(&id, json!(list.iter().filter_map(|i| self.hierarchy_item(i, None)).collect::<Vec<_>>())),
+                    Some(list) => response(
+                        &id,
+                        json!(
+                            list.iter()
+                                .filter_map(|i| self.hierarchy_item(i, None))
+                                .collect::<Vec<_>>()
+                        ),
+                    ),
                 }
             }
             SLEEP_METHOD => {
@@ -2199,11 +2714,7 @@ impl<A: Analyzer> Server<A> {
             }
             _ => {
                 register(format!("unknown request: {method}"));
-                error(
-                    &id,
-                    METHOD_NOT_FOUND,
-                    format!("Unknown method {method}"),
-                )
+                error(&id, METHOD_NOT_FOUND, format!("Unknown method {method}"))
             }
         }
     }
@@ -2212,7 +2723,10 @@ impl<A: Analyzer> Server<A> {
     /// `toSymbolKindMapping` with the fallback (`File` → `Module`; another one
     /// not announced or unknown → `Object`), without `data`.
     fn call_item(&self, item: &crate::CallItem) -> Option<Value> {
-        let accepted: Vec<u64> = self.symbol_kinds.clone().unwrap_or_else(|| (1..=18).collect());
+        let accepted: Vec<u64> = self
+            .symbol_kinds
+            .clone()
+            .unwrap_or_else(|| (1..=18).collect());
         let kind = match item.kind.symbol() {
             Some(k) if accepted.contains(&u64::from(k)) => u64::from(k),
             Some(1) => 2,
@@ -2247,8 +2761,14 @@ impl<A: Analyzer> Server<A> {
     /// converted with that document's lines.
     fn hierarchy_item(&self, item: &crate::TypeItem, lines_of: Option<&str>) -> Option<Value> {
         let (range, selection) = match lines_of {
-            Some(origin) => (self.range_with_lines_of(&item.uri, origin, item.range)?, self.range_with_lines_of(&item.uri, origin, item.selection)?),
-            None => (self.range(&item.uri, item.range)?, self.range(&item.uri, item.selection)?),
+            Some(origin) => (
+                self.range_with_lines_of(&item.uri, origin, item.range)?,
+                self.range_with_lines_of(&item.uri, origin, item.selection)?,
+            ),
+            None => (
+                self.range(&item.uri, item.range)?,
+                self.range(&item.uri, item.selection)?,
+            ),
         };
         let mut data = json!({"ref": item.reference});
         if let Some((r, path)) = &item.anchor {
@@ -2285,14 +2805,21 @@ impl<A: Analyzer> Server<A> {
             return Some(std::borrow::Cow::Borrowed(text));
         }
         let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;
-        std::fs::read_to_string(path).ok().map(std::borrow::Cow::Owned)
+        std::fs::read_to_string(path)
+            .ok()
+            .map(std::borrow::Cow::Owned)
     }
 
     /// A range of `file` converted with the `LineInfo` of `origin`
     /// (`sourceRangeToRange(unit.lineInfo, …)` of `prepareTypeHierarchy`): the
     /// UTF-16 offsets of the class's file, the line from the last line start of
     /// `origin` that does not exceed them, and the column without a limit.
-    fn range_with_lines_of(&self, file: &str, origin: &str, span: dartforge_diagnostics::Span) -> Option<Value> {
+    fn range_with_lines_of(
+        &self,
+        file: &str,
+        origin: &str,
+        span: dartforge_diagnostics::Span,
+    ) -> Option<Value> {
         if file == origin {
             return self.range(file, span);
         }
@@ -2319,25 +2846,46 @@ impl<A: Analyzer> Server<A> {
     /// order, as commands; only with `workspace/applyEdit` and with `refactor`
     /// requested. The legacy ones go through `shouldIncludeKind`; that of the
     /// `RefactoringProcessor` (Move) does not.
-    fn refactorings_by_command(&mut self, u: &str, start: usize, end: usize, only: Option<&[String]>) -> Vec<Value> {
-        let requested = only.is_none_or(|l| l.iter().any(|w| w == "refactor" || w.starts_with("refactor.")));
+    fn refactorings_by_command(
+        &mut self,
+        u: &str,
+        start: usize,
+        end: usize,
+        only: Option<&[String]>,
+    ) -> Vec<Value> {
+        let requested = only.is_none_or(|l| {
+            l.iter()
+                .any(|w| w == "refactor" || w.starts_with("refactor."))
+        });
         if !requested || !self.apply_edits || !u.ends_with(".dart") {
             return Vec::new();
         }
-        let Some(path) = url::Url::parse(u).ok().filter(|x| x.scheme() == "file").and_then(|x| x.to_file_path().ok()) else {
+        let Some(path) = url::Url::parse(u)
+            .ok()
+            .filter(|x| x.scheme() == "file")
+            .and_then(|x| x.to_file_path().ok())
+        else {
             return Vec::new();
         };
         let path = path.to_string_lossy().into_owned();
-        let list = self.analyzer.refactorings(&self.documents, u, start, end - start, self.create_files);
-        let Some(text) = self.documents.get(u) else { return Vec::new() };
+        let list =
+            self.analyzer
+                .refactorings(&self.documents, u, start, end - start, self.create_files);
+        let Some(text) = self.documents.get(u) else {
+            return Vec::new();
+        };
         let o16 = text[..start.min(text.len())].encode_utf16().count();
-        let l16 = text[start.min(text.len())..end.min(text.len())].encode_utf16().count();
+        let l16 = text[start.min(text.len())..end.min(text.len())]
+            .encode_utf16()
+            .count();
         let version = self.documents.version(u);
         let mut output = Vec::new();
         for r in list {
             match r.command {
                 crate::RefactoringCommand::Move { path_pattern } => {
-                    let pattern = url::Url::from_file_path(&path_pattern).map(|x| x.to_string()).unwrap_or_default();
+                    let pattern = url::Url::from_file_path(&path_pattern)
+                        .map(|x| x.to_string())
+                        .unwrap_or_default();
                     let c = json!({
                         "title": r.title,
                         "command": "dart.refactor.move_top_level_to_file",
@@ -2358,7 +2906,8 @@ impl<A: Analyzer> Server<A> {
                     }));
                 }
                 crate::RefactoringCommand::Legacy(kind) => {
-                    let matches = |w: &String| r.kind == w.as_str() || r.kind.starts_with(&format!("{w}."));
+                    let matches =
+                        |w: &String| r.kind == w.as_str() || r.kind.starts_with(&format!("{w}."));
                     let included = match (only, &self.action_kinds) {
                         (Some(l), _) => l.iter().any(matches),
                         (None, Some(l)) if self.actions_literals => l.iter().any(matches),
@@ -2372,7 +2921,11 @@ impl<A: Analyzer> Server<A> {
                         "command": "refactor.perform",
                         "arguments": [kind, path, version, o16, l16, null],
                     });
-                    output.push(if self.actions_literals { json!({"title": r.title, "kind": r.kind, "command": c}) } else { c });
+                    output.push(if self.actions_literals {
+                        json!({"title": r.title, "kind": r.kind, "command": c})
+                    } else {
+                        c
+                    });
                 }
             }
         }
@@ -2381,12 +2934,24 @@ impl<A: Analyzer> Server<A> {
 
     /// The current text of the file (the open one, otherwise the disk's).
     fn current_text(&self, uri: &str, path: &str) -> Option<String> {
-        self.documents.get(uri).map(str::to_string).or_else(|| std::fs::read_to_string(path).ok())
+        self.documents
+            .get(uri)
+            .map(str::to_string)
+            .or_else(|| std::fs::read_to_string(path).ok())
     }
 
     /// `refactor.perform`/`refactor.validate` (§13.11.2).
-    fn run_legacy_refactoring(&mut self, id: &Value, message: &Value, only_validate: bool) -> Value {
-        let name = if only_validate { "Validate Refactor" } else { "Perform Refactor" };
+    fn run_legacy_refactoring(
+        &mut self,
+        id: &Value,
+        message: &Value,
+        only_validate: bool,
+    ) -> Value {
+        let name = if only_validate {
+            "Validate Refactor"
+        } else {
+            "Perform Refactor"
+        };
         let invalid = || {
             error(
                 id,
@@ -2397,11 +2962,17 @@ impl<A: Analyzer> Server<A> {
             )
         };
         // `parseArgList`: positional, 6 items; any other shape becomes `{}`.
-        let arguments = message.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
+        let arguments = message
+            .pointer("/params/arguments")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         if arguments.len() != 6 {
             return invalid();
         }
-        let (Some(kind), Some(path)) = (arguments[0].as_str(), arguments[1].as_str()) else { return invalid() };
+        let (Some(kind), Some(path)) = (arguments[0].as_str(), arguments[1].as_str()) else {
+            return invalid();
+        };
         let version = match &arguments[2] {
             Value::Null => None,
             v => match v.as_i64() {
@@ -2409,7 +2980,9 @@ impl<A: Analyzer> Server<A> {
                 None => return invalid(),
             },
         };
-        let (Some(offset), Some(length)) = (arguments[3].as_i64(), arguments[4].as_i64()) else { return invalid() };
+        let (Some(offset), Some(length)) = (arguments[3].as_i64(), arguments[4].as_i64()) else {
+            return invalid();
+        };
         let options = match &arguments[5] {
             Value::Null => None,
             Value::Object(m) => Some(m.clone()),
@@ -2425,19 +2998,48 @@ impl<A: Analyzer> Server<A> {
             return error(id, FILE_NOT_ANALYZED, "File is not being analyzed");
         }
         if !REFACTORING_TYPES.contains(&kind) {
-            return error(id, ERROR_NOT_HANDLED, format!("Exception: Illegal enum value: {kind}"));
+            return error(
+                id,
+                ERROR_NOT_HANDLED,
+                format!("Exception: Illegal enum value: {kind}"),
+            );
         }
         if matches!(kind, "MOVE_FILE" | "RENAME") {
-            return error(id, INVALID_COMMAND_ARGUMENTS, format!("Unknown RefactoringKind RefactoringKind.{kind} was supplied to {name}"));
+            return error(
+                id,
+                INVALID_COMMAND_ARGUMENTS,
+                format!("Unknown RefactoringKind RefactoringKind.{kind} was supplied to {name}"),
+            );
         }
         if offset < 0 || length < 0 {
-            return error(id, ERROR_NOT_HANDLED, format!("RangeError: offset {offset}, length {length}"));
+            return error(
+                id,
+                ERROR_NOT_HANDLED,
+                format!("RangeError: offset {offset}, length {length}"),
+            );
         }
         let start = byte_from_utf16(&text, offset as usize);
         let end = byte_from_utf16(&text, (offset + length) as usize);
-        let request = crate::RefactoringRequest { kind: kind.to_string(), offset: start, length: end - start, options, only_validate };
-        let result = self.analyzer.run_refactoring(&self.documents, &uri, &request);
-        self.refactoring_response(id, name, result, if only_validate { None } else { Some((uri, version)) })
+        let request = crate::RefactoringRequest {
+            kind: kind.to_string(),
+            offset: start,
+            length: end - start,
+            options,
+            only_validate,
+        };
+        let result = self
+            .analyzer
+            .run_refactoring(&self.documents, &uri, &request);
+        self.refactoring_response(
+            id,
+            name,
+            result,
+            if only_validate {
+                None
+            } else {
+                Some((uri, version))
+            },
+        )
     }
 
     /// The response of a computed refactoring. `versioned`: the file and the
@@ -2455,7 +3057,11 @@ impl<A: Analyzer> Server<A> {
             R::NotAnalyzed => error(id, FILE_NOT_ANALYZED, "File is not being analyzed"),
             R::InvalidArguments(m) => error(id, INVALID_COMMAND_ARGUMENTS, m),
             R::InternalError(m) => error(id, ERROR_NOT_HANDLED, m),
-            R::Failure(reason) => error(id, COMPUTATION_FAILURE, reason.unwrap_or_else(|| "Cannot compute the change. No details.".to_string())),
+            R::Failure(reason) => error(
+                id,
+                COMPUTATION_FAILURE,
+                reason.unwrap_or_else(|| "Cannot compute the change. No details.".to_string()),
+            ),
             R::Error(m) if validate => response(id, json!({"valid": false, "message": m})),
             R::Error(m) => {
                 // `showErrorMessageToUser` and a `null` success.
@@ -2466,7 +3072,14 @@ impl<A: Analyzer> Server<A> {
                 }));
                 response(id, Value::Null)
             }
-            R::Valid => response(id, if validate { json!({"valid": true}) } else { Value::Null }),
+            R::Valid => response(
+                id,
+                if validate {
+                    json!({"valid": true})
+                } else {
+                    Value::Null
+                },
+            ),
             R::Change { .. } if validate => response(id, json!({"valid": true})),
             R::Change { edits, create } => {
                 if edits.is_empty() && create.is_none() {
@@ -2475,11 +3088,16 @@ impl<A: Analyzer> Server<A> {
                 if let Some((uri, Some(v))) = &versioned
                     && Some(*v) != self.documents.version(uri).map(i64::from)
                 {
-                    return error(id, MODIFIED_CONTENT, "Document was modified before operation completed");
+                    return error(
+                        id,
+                        MODIFIED_CONTENT,
+                        "Document was modified before operation completed",
+                    );
                 }
                 let edit = match create {
                     Some((new, content)) => {
-                        let mut e = self.workspace_edit(&edits, Some(json!({"kind": "create", "uri": new})));
+                        let mut e = self
+                            .workspace_edit(&edits, Some(json!({"kind": "create", "uri": new})));
                         if !content.is_empty()
                             && let Some(l) = e["documentChanges"].as_array_mut()
                         {
@@ -2507,11 +3125,21 @@ impl<A: Analyzer> Server<A> {
                 "Refactoring operations require 4 parameters: filePath: String, offset: int, length: int, arguments: List",
             )
         };
-        let arguments = message.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
+        let arguments = message
+            .pointer("/params/arguments")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let parameters = match arguments.as_slice() {
             [] => json!({}),
             [single] if single.is_object() => single.clone(),
-            _ => return error(id, INVALID_COMMAND_ARGUMENTS, format!("{command} requires a single Map argument")),
+            _ => {
+                return error(
+                    id,
+                    INVALID_COMMAND_ARGUMENTS,
+                    format!("{command} requires a single Map argument"),
+                );
+            }
         };
         let (Some(path), Some(offset), Some(length), Some(list)) = (
             parameters.get("filePath").and_then(Value::as_str),
@@ -2530,15 +3158,24 @@ impl<A: Analyzer> Server<A> {
             return error(id, FILE_NOT_ANALYZED, "File is not being analyzed");
         }
         if offset < 0 || length < 0 {
-            return error(id, ERROR_NOT_HANDLED, format!("RangeError: offset {offset}, length {length}"));
+            return error(
+                id,
+                ERROR_NOT_HANDLED,
+                format!("RangeError: offset {offset}, length {length}"),
+            );
         }
         let start = byte_from_utf16(&text, offset as usize);
         let end = byte_from_utf16(&text, (offset + length) as usize);
         let result = if command == "dart.refactor.move_top_level_to_file" {
             // `arguments[0] as String`: another type throws.
             match list.first().and_then(Value::as_str) {
-                Some(target) => self.analyzer.move_to_file(&self.documents, &uri, start, end - start, target),
-                None => crate::RefactoringResult::InternalError("type 'Null' is not a subtype of type 'String' in type cast".to_string()),
+                Some(target) => {
+                    self.analyzer
+                        .move_to_file(&self.documents, &uri, start, end - start, target)
+                }
+                None => crate::RefactoringResult::InternalError(
+                    "type 'Null' is not a subtype of type 'String' in type cast".to_string(),
+                ),
             }
         } else {
             // The experimental ones (`analyzeAvailability`): without the change.
@@ -2548,13 +3185,20 @@ impl<A: Analyzer> Server<A> {
     }
 
     fn run_command(&mut self, id: &Value, message: &Value) -> Value {
-        let command = message.pointer("/params/command").and_then(Value::as_str).unwrap_or("").to_string();
+        let command = message
+            .pointer("/params/command")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
         match command.as_str() {
             "refactor.perform" => return self.run_legacy_refactoring(id, message, false),
             "refactor.validate" => return self.run_legacy_refactoring(id, message, true),
             _ => {}
         }
-        if let Some(&c) = COMMANDS.iter().find(|c| c.starts_with("dart.refactor.") && **c == command) {
+        if let Some(&c) = COMMANDS
+            .iter()
+            .find(|c| c.starts_with("dart.refactor.") && **c == command)
+        {
             return self.run_new_refactoring(id, message, c);
         }
         let label: &'static str = match command.as_str() {
@@ -2565,37 +3209,70 @@ impl<A: Analyzer> Server<A> {
             "dart.edit.fixAllInWorkspace" => "Apply All Fixes in Workspace",
             "dart.edit.sendWorkspaceEdit" => "Send Workspace Edit",
             "dart.logAction" => "Log Action",
-            _ => return error(id, UNKNOWN_COMMAND, format!("{command} is not a valid command identifier")),
+            _ => {
+                return error(
+                    id,
+                    UNKNOWN_COMMAND,
+                    format!("{command} is not a valid command identifier"),
+                );
+            }
         };
-        let arguments = message.pointer("/params/arguments").and_then(Value::as_array).cloned().unwrap_or_default();
+        let arguments = message
+            .pointer("/params/arguments")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let parameters = match arguments.as_slice() {
             [] => json!({}),
             [single] if single.is_object() => single.clone(),
-            _ => return error(id, INVALID_COMMAND_ARGUMENTS, format!("{command} requires a single Map argument")),
+            _ => {
+                return error(
+                    id,
+                    INVALID_COMMAND_ARGUMENTS,
+                    format!("{command} requires a single Map argument"),
+                );
+            }
         };
         match command.as_str() {
             // Only telemetry in the Dart server; without `action`, its conversion
             // throws (`log_action.dart:23`).
             "dart.logAction" => match parameters.get("action").and_then(Value::as_str) {
                 Some(_) => response(id, Value::Null),
-                None => error(id, ERROR_NOT_HANDLED, "dart.logAction without the action field"),
+                None => error(
+                    id,
+                    ERROR_NOT_HANDLED,
+                    "dart.logAction without the action field",
+                ),
             },
             "dart.edit.fixAllInWorkspace" | "dart.edit.fixAllInWorkspace.preview" => {
                 self.fix_workspace(id, label, command.ends_with(".preview"))
             }
-            "dart.edit.sendWorkspaceEdit" => match parameters.get("edit").filter(|e| e.is_object()).cloned() {
-                Some(edit) => self.request_application(id, label, edit),
-                None => error(
-                    id,
-                    INVALID_COMMAND_ARGUMENTS,
-                    "Send Workspace Edit requires a Map argument containing \"edit\" (WorkspaceEdit)",
-                ),
-            },
+            "dart.edit.sendWorkspaceEdit" => {
+                match parameters.get("edit").filter(|e| e.is_object()).cloned() {
+                    Some(edit) => self.request_application(id, label, edit),
+                    None => error(
+                        id,
+                        INVALID_COMMAND_ARGUMENTS,
+                        "Send Workspace Edit requires a Map argument containing \"edit\" (WorkspaceEdit)",
+                    ),
+                }
+            }
             _ => {
-                let Some(path) = parameters.get("path").and_then(Value::as_str).map(str::to_string) else {
-                    return error(id, INVALID_COMMAND_ARGUMENTS, format!("{label} requires a Map argument containing a \"path\""));
+                let Some(path) = parameters
+                    .get("path")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                else {
+                    return error(
+                        id,
+                        INVALID_COMMAND_ARGUMENTS,
+                        format!("{label} requires a Map argument containing a \"path\""),
+                    );
                 };
-                let auto = parameters.get("autoTriggered").and_then(Value::as_bool).unwrap_or(false);
+                let auto = parameters
+                    .get("autoTriggered")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 let uri = url::Url::from_file_path(&path).ok().map(|u| u.to_string());
                 let text = uri
                     .as_deref()
@@ -2605,7 +3282,11 @@ impl<A: Analyzer> Server<A> {
                     return if auto && command != "dart.edit.fixAll" {
                         response(id, Value::Null)
                     } else {
-                        error(id, FILE_NOT_ANALYZED, format!("{label} is only available for analyzed files"))
+                        error(
+                            id,
+                            FILE_NOT_ANALYZED,
+                            format!("{label} is only available for analyzed files"),
+                        )
                     };
                 };
                 if command == "dart.edit.fixAll" {
@@ -2617,7 +3298,8 @@ impl<A: Analyzer> Server<A> {
                 let with_errors = analyzed.diagnostics.iter().any(|d| {
                     d.code.is_none_or(|c| {
                         let single = c.info().unique;
-                        single.starts_with("ParserErrorCode.") || single.starts_with("ScannerErrorCode.")
+                        single.starts_with("ParserErrorCode.")
+                            || single.starts_with("ScannerErrorCode.")
                     })
                 });
                 if with_errors {
@@ -2637,7 +3319,10 @@ impl<A: Analyzer> Server<A> {
                         .map(|(offset, length, new)| {
                             vec![crate::Edit {
                                 uri: uri.clone(),
-                                span: dartforge_diagnostics::Span { start: offset, end: offset + length },
+                                span: dartforge_diagnostics::Span {
+                                    start: offset,
+                                    end: offset + length,
+                                },
                                 text: new,
                             }]
                         })
@@ -2652,11 +3337,18 @@ impl<A: Analyzer> Server<A> {
                         .filter(|(version, _)| Some(*version) == self.documents.version(&uri))
                         .map(|(_, d)| d.as_slice())
                         .unwrap_or_default();
-                    let name_of =
-                        |d: &dartforge_diagnostics::Diagnostic| d.code.map_or("", |c| c.info().unique.rsplit('.').next().unwrap_or(""));
+                    let name_of = |d: &dartforge_diagnostics::Diagnostic| {
+                        d.code
+                            .map_or("", |c| c.info().unique.rsplit('.').next().unwrap_or(""))
+                    };
                     let removable: Vec<usize> = typed
                         .iter()
-                        .filter(|d| matches!(name_of(d), "DUPLICATE_IMPORT" | "UNUSED_IMPORT" | "UNNECESSARY_IMPORT"))
+                        .filter(|d| {
+                            matches!(
+                                name_of(d),
+                                "DUPLICATE_IMPORT" | "UNUSED_IMPORT" | "UNNECESSARY_IMPORT"
+                            )
+                        })
                         .map(|d| d.span.start)
                         .collect();
                     // The nine codes with `isUnresolvedIdentifier`.
@@ -2674,16 +3366,25 @@ impl<A: Analyzer> Server<A> {
                                 | "UNDEFINED_IDENTIFIER"
                         )
                     });
-                    crate::organize_imports::organize(&text, &analyzed.unit, &removable, not_resolved, true)
-                        .and_then(|new| crate::organize_imports::edit(&text, &new))
-                        .map(|(offset, length, new)| {
-                            vec![crate::Edit {
-                                uri: uri.clone(),
-                                span: dartforge_diagnostics::Span { start: offset, end: offset + length },
-                                text: new,
-                            }]
-                        })
-                        .unwrap_or_default()
+                    crate::organize_imports::organize(
+                        &text,
+                        &analyzed.unit,
+                        &removable,
+                        not_resolved,
+                        true,
+                    )
+                    .and_then(|new| crate::organize_imports::edit(&text, &new))
+                    .map(|(offset, length, new)| {
+                        vec![crate::Edit {
+                            uri: uri.clone(),
+                            span: dartforge_diagnostics::Span {
+                                start: offset,
+                                end: offset + length,
+                            },
+                            text: new,
+                        }]
+                    })
+                    .unwrap_or_default()
                 };
                 // Nothing to change: `null`, without talking to the client.
                 if edits.is_empty() {
@@ -2702,7 +3403,14 @@ impl<A: Analyzer> Server<A> {
     /// following ones run over the already fixed text (a copy of the open
     /// documents) and only see the analyzer's immediate diagnostics. No refusal
     /// because of syntax errors.
-    fn fix_all(&mut self, id: &Value, label: &'static str, uri: &str, text: &str, auto: bool) -> Value {
+    fn fix_all(
+        &mut self,
+        id: &Value,
+        label: &'static str,
+        uri: &str,
+        text: &str,
+        auto: bool,
+    ) -> Value {
         use crate::fix_all::{Constructor, Ed};
         if !uri.ends_with(".dart") || crate::fix_all::generated(uri) {
             return response(id, Value::Null);
@@ -2719,8 +3427,11 @@ impl<A: Analyzer> Server<A> {
         let mut overlapping: Option<DocumentStore> = None;
         for passed_ in 0..4 {
             let documents = overlapping.as_ref().unwrap_or(&self.documents);
-            let seen: &[dartforge_diagnostics::Diagnostic] = if passed_ == 0 { &published } else { &[] };
-            let actions = self.analyzer.actions(documents, uri, 0, current.len(), seen);
+            let seen: &[dartforge_diagnostics::Diagnostic] =
+                if passed_ == 0 { &published } else { &[] };
+            let actions = self
+                .analyzer
+                .actions(documents, uri, 0, current.len(), seen);
             // Phase A: per diagnostic, in offset order.
             let mut candidates: Vec<&crate::CodeAction> = actions
                 .iter()
@@ -2728,13 +3439,21 @@ impl<A: Analyzer> Server<A> {
                     a.diagnostic.is_some()
                         && a.create_file.is_none()
                         && crate::fix_all::in_batch(&a.kind, auto)
-                        && a.edits.iter().all(|e| e.uri == uri && e.span.start <= e.span.end && e.span.end <= current.len())
+                        && a.edits.iter().all(|e| {
+                            e.uri == uri
+                                && e.span.start <= e.span.end
+                                && e.span.end <= current.len()
+                        })
                 })
                 .collect();
             candidates.sort_by_key(|a| a.diagnostic.as_ref().map_or(0, |d| d.span.start));
             let mut constructor = Constructor::default();
             for a in candidates {
-                constructor.apply_producer(a.edits.iter().map(|e| (e.span.start, e.span.end - e.span.start, e.text.clone())));
+                constructor.apply_producer(
+                    a.edits
+                        .iter()
+                        .map(|e| (e.span.start, e.span.end - e.span.start, e.text.clone())),
+                );
             }
             // Phase B: the import cleanup, only on a manual request and in a pass
             // without phase A edits. The import errors are the typed ones, which only
@@ -2742,7 +3461,8 @@ impl<A: Analyzer> Server<A> {
             if constructor.edits.is_empty() && !auto && passed_ == 0 {
                 let mut names = dartforge_intern::Interner::new();
                 let analyzed = dartforge_frontend::parser::parse(&current, &mut names);
-                for removal in crate::fix_all::remove_imports(&current, &analyzed.unit, &published) {
+                for removal in crate::fix_all::remove_imports(&current, &analyzed.unit, &published)
+                {
                     constructor.apply_producer([removal]);
                 }
             }
@@ -2756,7 +3476,8 @@ impl<A: Analyzer> Server<A> {
             let mut copy = DocumentStore::new();
             for other in self.documents.uris() {
                 if other != uri
-                    && let (Some(v), Some(t)) = (self.documents.version(other), self.documents.get(other))
+                    && let (Some(v), Some(t)) =
+                        (self.documents.version(other), self.documents.get(other))
                 {
                     copy.open(other.to_string(), v, t.to_string());
                 }
@@ -2781,7 +3502,10 @@ impl<A: Analyzer> Server<A> {
             .rev()
             .map(|(offset, length, new)| crate::Edit {
                 uri: uri.to_string(),
-                span: dartforge_diagnostics::Span { start: offset, end: offset + length },
+                span: dartforge_diagnostics::Span {
+                    start: offset,
+                    end: offset + length,
+                },
                 text: new,
             })
             .collect();
@@ -2798,16 +3522,34 @@ impl<A: Analyzer> Server<A> {
     fn fix_workspace(&mut self, id: &Value, label: &'static str, confirm: bool) -> Value {
         use crate::fix_all::{Constructor, Ed};
         if !self.apply_edits {
-            return error(id, FEATURE_DISABLED, format!("\"{label}\" is only available for clients that support workspace/applyEdit"));
+            return error(
+                id,
+                FEATURE_DISABLED,
+                format!(
+                    "\"{label}\" is only available for clients that support workspace/applyEdit"
+                ),
+            );
         }
         if !self.change_annotations {
-            return error(id, FEATURE_DISABLED, format!("\"{label}\" is only available for clients that support change annotations"));
+            return error(
+                id,
+                FEATURE_DISABLED,
+                format!(
+                    "\"{label}\" is only available for clients that support change annotations"
+                ),
+            );
         }
         // The targets: the open ones and, from disk, those not open.
-        let mut targets: Vec<(String, bool)> = self.documents.uris().map(|u| (u.to_string(), true)).collect();
+        let mut targets: Vec<(String, bool)> = self
+            .documents
+            .uris()
+            .map(|u| (u.to_string(), true))
+            .collect();
         targets.sort();
-        let open: HashSet<std::path::PathBuf> =
-            targets.iter().filter_map(|(u, _)| url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok())).collect();
+        let open: HashSet<std::path::PathBuf> = targets
+            .iter()
+            .filter_map(|(u, _)| url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok()))
+            .collect();
         let mut seen: HashSet<std::path::PathBuf> = HashSet::new();
         for root in &self.roots {
             for file in dartforge_parity::corpus::dart_files(root) {
@@ -2834,12 +3576,23 @@ impl<A: Analyzer> Server<A> {
                 continue;
             }
             let (text, typed): (String, Vec<dartforge_diagnostics::Diagnostic>) = if *open {
-                let Some(t) = self.documents.get(u) else { continue };
+                let Some(t) = self.documents.get(u) else {
+                    continue;
+                };
                 let version = self.documents.version(u);
-                let d = self.typed_published.get(u).filter(|(v, _)| Some(*v) == version).map(|(_, d)| d.clone()).unwrap_or_default();
+                let d = self
+                    .typed_published
+                    .get(u)
+                    .filter(|(v, _)| Some(*v) == version)
+                    .map(|(_, d)| d.clone())
+                    .unwrap_or_default();
                 (t.to_string(), d)
             } else {
-                let Some(t) = url::Url::parse(u).ok().and_then(|x| x.to_file_path().ok()).and_then(|p| std::fs::read_to_string(p).ok()) else {
+                let Some(t) = url::Url::parse(u)
+                    .ok()
+                    .and_then(|x| x.to_file_path().ok())
+                    .and_then(|p| std::fs::read_to_string(p).ok())
+                else {
                     continue;
                 };
                 copy.open(u.clone(), 0, t.clone());
@@ -2854,14 +3607,20 @@ impl<A: Analyzer> Server<A> {
                     a.diagnostic.is_some()
                         && a.create_file.is_none()
                         && crate::fix_all::in_batch(&a.kind, false)
-                        && a.edits.iter().all(|e| e.uri == *u && e.span.start <= e.span.end && e.span.end <= text.len())
+                        && a.edits.iter().all(|e| {
+                            e.uri == *u && e.span.start <= e.span.end && e.span.end <= text.len()
+                        })
                 })
                 .collect();
             candidates.sort_by_key(|a| a.diagnostic.as_ref().map_or(0, |d| d.span.start));
             let mut constructor = Constructor::default();
             let mut described: Vec<(Ed, &'static str)> = Vec::new();
             for a in candidates {
-                let edits_: Vec<Ed> = a.edits.iter().map(|e| (e.span.start, e.span.end - e.span.start, e.text.clone())).collect();
+                let edits_: Vec<Ed> = a
+                    .edits
+                    .iter()
+                    .map(|e| (e.span.start, e.span.end - e.span.start, e.text.clone()))
+                    .collect();
                 if constructor.apply_producer(edits_.clone()) {
                     let description = crate::fix_all::description(&a.kind);
                     described.extend(edits_.into_iter().map(|e| (e, description)));
@@ -2884,7 +3643,10 @@ impl<A: Analyzer> Server<A> {
                     .edits
                     .into_iter()
                     .map(|e| {
-                        let d = described.iter().find(|(x, _)| *x == e).map_or("", |(_, d)| *d);
+                        let d = described
+                            .iter()
+                            .find(|(x, _)| *x == e)
+                            .map_or("", |(_, d)| *d);
                         (e, d)
                     })
                     .collect();
@@ -2904,9 +3666,21 @@ impl<A: Analyzer> Server<A> {
             let mut list = Vec::new();
             // In LSP, ascending offset order.
             for ((offset, length, new), description) in edits_.iter().rev() {
-                let Some(range) = self.range(u, dartforge_diagnostics::Span { start: *offset, end: offset + length }) else { continue };
+                let Some(range) = self.range(
+                    u,
+                    dartforge_diagnostics::Span {
+                        start: *offset,
+                        end: offset + length,
+                    },
+                ) else {
+                    continue;
+                };
                 // Without a description, the last segment of the URI.
-                let edit_label: &str = if description.is_empty() { u.rsplit('/').next().unwrap_or(u.as_str()) } else { description };
+                let edit_label: &str = if description.is_empty() {
+                    u.rsplit('/').next().unwrap_or(u.as_str())
+                } else {
+                    description
+                };
                 annotations
                     .entry(edit_label.to_string())
                     .or_insert_with(|| json!({"label": edit_label, "needsConfirmation": confirm}));
@@ -2952,15 +3726,25 @@ impl<A: Analyzer> Server<A> {
             && pending.version.is_some()
             && self.documents.version(&pending.uri) != pending.version
         {
-            return error(&pending.id, MODIFIED_CONTENT, "Document was modified before operation completed");
+            return error(
+                &pending.id,
+                MODIFIED_CONTENT,
+                "Document was modified before operation completed",
+            );
         }
         let mut feature = None;
         if let Some(file) = pending.file.take()
             && self.possible_file_rename
         {
             // `renameFilesWithClasses` of the file's folder (`forResource`).
-            let mode = self.configuration_of(&file.from).rename_files_with_classes.clone();
-            let renames = if pending.file_question || mode == "always" || (self.rename_files && mode != "never" && mode != "prompt") {
+            let mode = self
+                .configuration_of(&file.from)
+                .rename_files_with_classes
+                .clone();
+            let renames = if pending.file_question
+                || mode == "always"
+                || (self.rename_files && mode != "never" && mode != "prompt")
+            {
                 true
             } else if mode == "prompt" && self.user_questions {
                 let base = |u: &str| u.rsplit('/').next().unwrap_or(u).to_string();
@@ -2983,7 +3767,9 @@ impl<A: Analyzer> Server<A> {
         // The `SourceChange` order: the declaration's file (the first edit) and the
         // others in search order (by path).
         if let Some(first) = pending.edits.first().map(|e| e.uri.clone()) {
-            pending.edits.sort_by(|a, b| (a.uri != first, &a.uri).cmp(&(b.uri != first, &b.uri)));
+            pending
+                .edits
+                .sort_by(|a, b| (a.uri != first, &a.uri).cmp(&(b.uri != first, &b.uri)));
         }
         response(&pending.id, self.workspace_edit(&pending.edits, feature))
     }
@@ -3010,7 +3796,8 @@ impl<A: Analyzer> Server<A> {
     fn request_application(&mut self, id: &Value, label: &'static str, edit: Value) -> Value {
         self.next_request += 1;
         let request = json!(format!("dartforge/applyEdit/{}", self.next_request));
-        self.pending_edits.insert(key_id(&request), (id.clone(), label, edit.clone()));
+        self.pending_edits
+            .insert(key_id(&request), (id.clone(), label, edit.clone()));
         json!({
             "jsonrpc": "2.0",
             "id": request,
@@ -3024,7 +3811,11 @@ impl<A: Analyzer> Server<A> {
     /// sent it (the table of §13.12.3); the others carry no data.
     fn client_response(&mut self, message: &Value) -> Option<Value> {
         let key = key_id(message.get("id")?);
-        if self.configuration_request.as_ref().is_some_and(|p| key_id(&json!(p)) == key) {
+        if self
+            .configuration_request
+            .as_ref()
+            .is_some_and(|p| key_id(&json!(p)) == key)
+        {
             self.received_configuration(message);
             return None;
         }
@@ -3033,12 +3824,19 @@ impl<A: Analyzer> Server<A> {
         }
         // The client refused the dynamic registration (`_applyRegistrations`): the
         // error goes to the client's log.
-        if message.get("id").and_then(Value::as_str).is_some_and(|i| i.starts_with("dartforge/registerCapability/"))
+        if message
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|i| i.starts_with("dartforge/registerCapability/"))
             && let Some(e) = message.get("error").filter(|e| !e.is_null())
         {
             let code = e.get("code").map(|c| c.to_string()).unwrap_or_default();
             let text = e.get("message").and_then(Value::as_str).unwrap_or_default();
-            return Some(message_notification("window/logMessage", 1, &format!("Failed to register capabilities with client: ({code}) {text}")));
+            return Some(message_notification(
+                "window/logMessage",
+                1,
+                &format!("Failed to register capabilities with client: ({code}) {text}"),
+            ));
         }
         let (id, label, edit) = self.pending_edits.remove(&key)?;
         if let Some(e) = message.get("error").filter(|e| !e.is_null()) {
@@ -3050,7 +3848,11 @@ impl<A: Analyzer> Server<A> {
             ));
         }
         let Some(result) = message.get("result").filter(|r| r.is_object()) else {
-            return Some(error(&id, ERROR_NOT_HANDLED, "workspace/applyEdit response without a result"));
+            return Some(error(
+                &id,
+                ERROR_NOT_HANDLED,
+                "workspace/applyEdit response without a result",
+            ));
         };
         if result.get("applied").and_then(Value::as_bool) == Some(true) {
             return Some(response(&id, Value::Null));
@@ -3079,10 +3881,16 @@ impl<A: Analyzer> Server<A> {
     /// there is a selection or a linked group. Otherwise `None`: the plain
     /// edit, without selection or groups.
     fn edit_snippet(&self, uri: &str, action: &crate::CodeAction) -> Option<Value> {
-        if !self.edits_snippet || !self.versioned_changes || action.create_file.is_some() || action.linked.empty() {
+        if !self.edits_snippet
+            || !self.versioned_changes
+            || action.create_file.is_some()
+            || action.linked.empty()
+        {
             return None;
         }
-        let [e] = action.edits.as_slice() else { return None };
+        let [e] = action.edits.as_slice() else {
+            return None;
+        };
         if e.uri != uri {
             return None;
         }
@@ -3090,7 +3898,10 @@ impl<A: Analyzer> Server<A> {
         // A single edit: its text starts at the same offset in the final document
         // (`toSnippetTextEdits`, `offsetDelta` = 0).
         let new = crate::snippets::snippet_text(&e.text, e.span.start, &action.linked);
-        let version = self.documents.version(&e.uri).map_or(Value::Null, |v| json!(v));
+        let version = self
+            .documents
+            .version(&e.uri)
+            .map_or(Value::Null, |v| json!(v));
         Some(json!({"documentChanges": [{
             "textDocument": {"uri": e.uri, "version": version},
             "edits": [{"insertTextFormat": 2, "range": range, "newText": new}],
@@ -3100,7 +3911,9 @@ impl<A: Analyzer> Server<A> {
     fn workspace_edit(&self, edits_: &[crate::Edit], feature: Option<Value>) -> Value {
         let mut by_uri: Vec<(String, Vec<Value>)> = Vec::new();
         for e in edits_ {
-            let Some(range) = self.range(&e.uri, e.span) else { continue };
+            let Some(range) = self.range(&e.uri, e.span) else {
+                continue;
+            };
             let item = json!({"range": range, "newText": e.text});
             match by_uri.iter_mut().find(|(u, _)| *u == e.uri) {
                 Some((_, l)) => l.push(item),
@@ -3111,7 +3924,10 @@ impl<A: Analyzer> Server<A> {
             let mut changes: Vec<Value> = by_uri
                 .into_iter()
                 .map(|(uri, edits)| {
-                    let version = self.documents.version(&uri).map_or(Value::Null, |v| json!(v));
+                    let version = self
+                        .documents
+                        .version(&uri)
+                        .map_or(Value::Null, |v| json!(v));
                     json!({"textDocument": {"uri": uri, "version": version}, "edits": edits})
                 })
                 .collect();
@@ -3142,18 +3958,26 @@ impl<A: Analyzer> Server<A> {
         // URI's path, only to index the open text).
         let open_path = |u: &str| -> Option<std::path::PathBuf> {
             let x = url::Url::parse(u).ok()?;
-            Some(x.to_file_path().unwrap_or_else(|_| std::path::PathBuf::from(x.path())))
+            Some(
+                x.to_file_path()
+                    .unwrap_or_else(|_| std::path::PathBuf::from(x.path())),
+            )
         };
         let mut open_texts: HashMap<std::path::PathBuf, (String, String)> = HashMap::new();
         let mut loose: Vec<std::path::PathBuf> = Vec::new();
         for open in self.documents.uris() {
-            let Some(file) = open_path(open) else { continue };
+            let Some(file) = open_path(open) else {
+                continue;
+            };
             let root = crate::project::project_root(&file);
             if root.join("pubspec.yaml").is_file() && !roots.contains(&root) {
                 roots.push(root);
             }
             if let Some(text) = self.documents.get(open) {
-                open_texts.insert(dartforge_elements::generated::key(&file), (open.to_string(), text.to_string()));
+                open_texts.insert(
+                    dartforge_elements::generated::key(&file),
+                    (open.to_string(), text.to_string()),
+                );
             }
             if file.extension().is_some_and(|x| x == "dart") {
                 loose.push(file);
@@ -3161,16 +3985,29 @@ impl<A: Analyzer> Server<A> {
         }
         // `addedFiles`: the files of the analyzed roots; the known ones: the SDK
         // and the `lib/` of the packages of each root.
-        let mut added: Vec<std::path::PathBuf> = roots.iter().flat_map(|r| crate::project::project_files(r)).collect();
+        let mut added: Vec<std::path::PathBuf> = roots
+            .iter()
+            .flat_map(|r| crate::project::project_files(r))
+            .collect();
         // An open document outside the roots is also analyzed (the server creates a
         // context for it).
         loose.retain(|c| !roots.iter().any(|r| c.starts_with(r)));
         loose.sort();
         added.extend(loose);
-        let packages: Vec<std::path::PathBuf> = roots.iter().flat_map(|r| crate::workspace_symbols::package_folders(r)).collect();
+        let packages: Vec<std::path::PathBuf> = roots
+            .iter()
+            .flat_map(|r| crate::workspace_symbols::package_folders(r))
+            .collect();
         let sdk = dartforge_elements::sdk::SdkLayout::discover();
         let kinds = self.workspace_symbol_kinds.clone();
-        self.symbol_index.search(query, &added, sdk.as_deref(), &packages, &open_texts, kinds.as_deref())
+        self.symbol_index.search(
+            query,
+            &added,
+            sdk.as_deref(),
+            &packages,
+            &open_texts,
+            kinds.as_deref(),
+        )
     }
 
     /// URI and offset (bytes) of `params.textDocument` + `params.position`, when
@@ -3180,7 +4017,10 @@ impl<A: Analyzer> Server<A> {
         let uri = params.get("textDocument")?.get("uri")?.as_str()?;
         let position = read_position(params.get("position")?)?;
         let text = self.documents.get(uri)?;
-        let offset = self.documents.lines(uri)?.position_offset(text, position.line, position.column);
+        let offset =
+            self.documents
+                .lines(uri)?
+                .position_offset(text, position.line, position.column);
         Some((uri.to_string(), offset))
     }
 
@@ -3221,7 +4061,10 @@ impl<A: Analyzer> Server<A> {
     /// empty list for a file the client already has empty is not sent; the
     /// others update the record.
     fn filter_repeated_empty(&mut self, uri: &str, publication: Value) -> Option<Value> {
-        let empty = publication.pointer("/params/diagnostics").and_then(Value::as_array).is_none_or(|l| l.is_empty());
+        let empty = publication
+            .pointer("/params/diagnostics")
+            .and_then(Value::as_array)
+            .is_none_or(|l| l.is_empty());
         if empty {
             if !self.with_client_diagnostics.remove(uri) {
                 return None;
@@ -3236,7 +4079,12 @@ impl<A: Analyzer> Server<A> {
     /// The publication of the diagnostics of a YAML file (in the analyzer's
     /// JSON: 1-based line and column, UTF-16 offset): the ranges through the
     /// read text.
-    fn yaml_publication(&mut self, uri: &str, text: &str, diagnostics: &[dartforge_parity::json::DiagJson]) -> Option<Value> {
+    fn yaml_publication(
+        &mut self,
+        uri: &str,
+        text: &str,
+        diagnostics: &[dartforge_parity::json::DiagJson],
+    ) -> Option<Value> {
         let items: Vec<Value> = diagnostics
             .iter()
             .map(|d| {
@@ -3268,9 +4116,17 @@ impl<A: Analyzer> Server<A> {
         self.filter_repeated_empty(uri, p)
     }
 
-    fn text_publication(&mut self, uri: &str, text: &str, diagnostics: &[dartforge_diagnostics::Diagnostic]) -> Option<Value> {
+    fn text_publication(
+        &mut self,
+        uri: &str,
+        text: &str,
+        diagnostics: &[dartforge_diagnostics::Diagnostic],
+    ) -> Option<Value> {
         let table = crate::utf16::LineTable::build(text);
-        let items: Vec<Value> = diagnostics.iter().map(|d| convert_diagnostic(text, &table, d)).collect();
+        let items: Vec<Value> = diagnostics
+            .iter()
+            .map(|d| convert_diagnostic(text, &table, d))
+            .collect();
         let p = json!({
             "jsonrpc": "2.0",
             "method": "textDocument/publishDiagnostics",
@@ -3292,7 +4148,10 @@ impl<A: Analyzer> Server<A> {
         if self.excluded(uri) {
             return json!({"kind": "full", "items": []});
         }
-        let typed = self.typed_published.get(uri).is_some_and(|(v, _)| *v == version);
+        let typed = self
+            .typed_published
+            .get(uri)
+            .is_some_and(|(v, _)| *v == version);
         let result_id = format!("{version}{}", if typed { ".t" } else { "" });
         if previous == Some(result_id.as_str()) {
             return json!({"kind": "unchanged", "resultId": result_id});
@@ -3300,13 +4159,20 @@ impl<A: Analyzer> Server<A> {
         let diagnostics = if typed {
             self.typed_published[uri].1.clone()
         } else {
-            let text = self.documents.get(uri).map(str::to_string).unwrap_or_default();
+            let text = self
+                .documents
+                .get(uri)
+                .map(str::to_string)
+                .unwrap_or_default();
             self.analyzer.diagnose(uri, &text)
         };
         let (Some(text), Some(table)) = (self.documents.get(uri), self.documents.lines(uri)) else {
             return json!({"kind": "full", "items": []});
         };
-        let items: Vec<Value> = diagnostics.iter().map(|d| convert_diagnostic(text, table, d)).collect();
+        let items: Vec<Value> = diagnostics
+            .iter()
+            .map(|d| convert_diagnostic(text, table, d))
+            .collect();
         json!({"kind": "full", "resultId": result_id, "items": items})
     }
 
@@ -3354,7 +4220,9 @@ fn utf16_starts(text: &str) -> Vec<usize> {
 }
 
 fn initialize_roots(params: Option<&Value>) -> Vec<std::path::PathBuf> {
-    let Some(params) = params else { return Vec::new() };
+    let Some(params) = params else {
+        return Vec::new();
+    };
     let file_path_of = |v: &Value| {
         v.as_str()
             .and_then(|u| url::Url::parse(u).ok())
@@ -3369,7 +4237,12 @@ fn initialize_roots(params: Option<&Value>) -> Vec<std::path::PathBuf> {
         roots.extend(params.get("rootUri").and_then(file_path_of));
     }
     if roots.is_empty() {
-        roots.extend(params.get("rootPath").and_then(Value::as_str).map(std::path::PathBuf::from));
+        roots.extend(
+            params
+                .get("rootPath")
+                .and_then(Value::as_str)
+                .map(std::path::PathBuf::from),
+        );
     }
     roots.retain(|r| r.is_dir());
     roots
@@ -3452,7 +4325,8 @@ fn action_id(kind: &str) -> Option<String> {
     if let Some(rest) = kind.strip_prefix("quickfix.") {
         return Some(format!("dart.fix.{rest}"));
     }
-    kind.strip_prefix("refactor.").map(|rest| format!("dart.assist.{rest}"))
+    kind.strip_prefix("refactor.")
+        .map(|rest| format!("dart.assist.{rest}"))
 }
 
 /// `_CodeActionSorter.sort` (`handler_code_actions.dart:284-406`;
@@ -3482,16 +4356,22 @@ fn sort_actions(actions: Vec<Value>, request_column: i64) -> Vec<Value> {
             None => groups.push((title, vec![a])),
         }
     }
-    let distance = |a: &Value| a.pointer("/diagnostics/0/range/start/character").and_then(Value::as_i64).map_or(0, |c| (c - request_column).abs());
+    let distance = |a: &Value| {
+        a.pointer("/diagnostics/0/range/start/character")
+            .and_then(Value::as_i64)
+            .map_or(0, |c| (c - request_column).abs())
+    };
     let mut unique: Vec<Value> = Vec::new();
     for (_, mut group) in groups {
         if group.len() > 1 {
             group.sort_by_key(distance);
             let mut first = group.remove(0);
-            let mut diagnostics: Vec<Value> = first["diagnostics"].as_array().cloned().unwrap_or_default();
+            let mut diagnostics: Vec<Value> =
+                first["diagnostics"].as_array().cloned().unwrap_or_default();
             for other in group {
                 if other["edit"] == first["edit"] {
-                    diagnostics.extend(other["diagnostics"].as_array().cloned().unwrap_or_default());
+                    diagnostics
+                        .extend(other["diagnostics"].as_array().cloned().unwrap_or_default());
                 }
             }
             first["diagnostics"] = Value::Array(diagnostics);
@@ -3549,8 +4429,7 @@ fn read_changes(value: &Value) -> Vec<ContentChange> {
     let Some(list) = value.as_array() else {
         return Vec::new();
     };
-    list
-        .iter()
+    list.iter()
         .map(|m| {
             let range = m.get("range").and_then(read_range);
             let text = m
@@ -3650,15 +4529,15 @@ pub fn supported_methods() -> HashMap<&'static str, &'static str> {
             "initialize",
             "request: handshake and capability announcement",
         ),
-        (
-            "shutdown",
-            "request: prepares the shutdown with code 0",
-        ),
+        ("shutdown", "request: prepares the shutdown with code 0"),
         (
             "initialized",
             "notification: the client's acknowledgement, no effect",
         ),
-        ("exit", "notification: exits (0 after shutdown, 1 without it)"),
+        (
+            "exit",
+            "notification: exits (0 after shutdown, 1 without it)",
+        ),
         (
             "$/cancelRequest",
             "notification: cancels a queued or running request",

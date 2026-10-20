@@ -2,9 +2,9 @@
 //! the cases where `dart_style` tells them apart, token coverage and the
 //! errors the analyzer reports as syntactic.
 
-use dartforge_formatter::syntax::tree::{Tree, Node, NodeId};
 use dartforge_formatter::syntax::parser::{ParseOptions, parse, parse_with, verify};
 use dartforge_formatter::syntax::token::Tokens;
+use dartforge_formatter::syntax::tree::{Node, NodeId, Tree};
 
 /// Parses `source`, checks coverage and returns the tokens and the tree.
 fn read(source: &str) -> (Tokens, Tree) {
@@ -253,15 +253,15 @@ fn function_references_and_relationals() {
 fn composed_greater_operators() {
     let source = "f() { a >> b >>> c; x >>= 1; y >= 2; }";
     let (t, a) = read(source);
-    let ops: Vec<&str> =
-        a.nodes
-            .iter()
-            .filter_map(|d| match d.node {
-                Node::BinaryExpression { operator, .. }
-                | Node::AssignmentExpression { operator, .. } => Some(t.text(source, operator)),
-                _ => None,
-            })
-            .collect();
+    let ops: Vec<&str> = a
+        .nodes
+        .iter()
+        .filter_map(|d| match d.node {
+            Node::BinaryExpression { operator, .. }
+            | Node::AssignmentExpression { operator, .. } => Some(t.text(source, operator)),
+            _ => None,
+        })
+        .collect();
     assert_eq!(ops, [">>", ">>>", ">>=", ">="]);
     // In a type, the `>` stay separate.
     let (t, a) = read("List<List<int>> x;");
@@ -389,23 +389,18 @@ fn formal_parameters_() {
     );
     let source = "f([a]) {}\ng({b}) {}";
     let (_, a) = read(source);
-    let types_: Vec<String> =
-        a.nodes
-            .iter()
-            .filter_map(|d| match d.node {
-                Node::SimpleFormalParameter { kind, .. }
-                | Node::DefaultFormalParameter { kind, .. } => Some(format!("{kind:?}")),
-                _ => None,
-            })
-            .collect();
+    let types_: Vec<String> = a
+        .nodes
+        .iter()
+        .filter_map(|d| match d.node {
+            Node::SimpleFormalParameter { kind, .. }
+            | Node::DefaultFormalParameter { kind, .. } => Some(format!("{kind:?}")),
+            _ => None,
+        })
+        .collect();
     assert_eq!(
         types_,
-        [
-            "OptionalPositional",
-            "OptionalPositional",
-            "Named",
-            "Named"
-        ]
+        ["OptionalPositional", "OptionalPositional", "Named", "Named"]
     );
     rejection("f(a = 1) {}");
     rejection("f([a], {b}) {}");
@@ -746,11 +741,19 @@ fn language_version() {
     let source = "f(x) { switch (x) { case 1: break; } }";
     let (t, a) = parse_with(source, ParseOptions { version: (2, 19) }).unwrap();
     verify::check(&t, &a, source).unwrap();
-    assert!(a.nodes.iter().any(|d| matches!(d.node, Node::SwitchCase { .. })));
+    assert!(
+        a.nodes
+            .iter()
+            .any(|d| matches!(d.node, Node::SwitchCase { .. }))
+    );
     // The `// @dart=` comment wins over the requested version.
     let source = "// @dart=2.19\nf(x) { switch (x) { case 1: break; } }";
     let (_, a) = parse(source).unwrap();
-    assert!(a.nodes.iter().any(|d| matches!(d.node, Node::SwitchCase { .. })));
+    assert!(
+        a.nodes
+            .iter()
+            .any(|d| matches!(d.node, Node::SwitchCase { .. }))
+    );
     assert!(parse("// @dart=2.19\nvar r = (1, 2);").is_err());
     assert!(parse("// @dart=3.5\nvar x = 1_000;").is_err());
 }

@@ -32,9 +32,11 @@ struct Candidate {
 fn target_name(project: &Project, a: &ast::Ast, e: ExprId) -> Option<String> {
     match &a.expr(e).kind {
         ExprKind::Identifier(n) => Some(project.query.names.resolve(n.sym).to_string()),
-        ExprKind::Property { target, name, .. } => {
-            Some(format!("{}.{}", target_name(project, a, *target)?, project.query.names.resolve(name.sym)))
-        }
+        ExprKind::Property { target, name, .. } => Some(format!(
+            "{}.{}",
+            target_name(project, a, *target)?,
+            project.query.names.resolve(name.sym)
+        )),
         ExprKind::TypeArguments { target, .. } => target_name(project, a, *target),
         _ => None,
     }
@@ -62,7 +64,11 @@ impl Project {
                 _ => None,
             })
             .collect();
-        let in_interpolation = |s: Span| interpolated.iter().any(|i| i.start <= s.start && s.end <= i.end);
+        let in_interpolation = |s: Span| {
+            interpolated
+                .iter()
+                .any(|i| i.start <= s.start && s.end <= i.end)
+        };
         let mut candidates: Vec<Candidate> = Vec::new();
         for (i, e) in a.exprs.iter().enumerate() {
             if in_interpolation(e.span) {
@@ -70,42 +76,84 @@ impl Project {
             }
             let id = ExprId(i as u32);
             match &e.kind {
-                ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
-                    let TypeKind::Named { name, .. } = &a.types[ty.0 as usize].kind else { continue };
-                    let mut label = name.iter().map(|n| names.resolve(n.sym)).collect::<Vec<_>>().join(".");
+                ExprKind::InstanceCreation {
+                    ty,
+                    constructor,
+                    arguments,
+                    ..
+                } => {
+                    let TypeKind::Named { name, .. } = &a.types[ty.0 as usize].kind else {
+                        continue;
+                    };
+                    let mut label = name
+                        .iter()
+                        .map(|n| names.resolve(n.sym))
+                        .collect::<Vec<_>>()
+                        .join(".");
                     if let Some(k) = constructor {
                         label.push('.');
                         label.push_str(names.resolve(k.sym));
                     }
-                    candidates.push(Candidate { span: e.span, measured: arguments.span, label });
+                    candidates.push(Candidate {
+                        span: e.span,
+                        measured: arguments.span,
+                        label,
+                    });
                 }
                 // `A(...)` without `new`: a creation when it resolves to a constructor.
                 ExprKind::Call { target, arguments } => {
-                    let constructor_ = matches!(bodies.get_resolved(id), Some(Resolved::Constructor(_)))
-                        || matches!(bodies.get_resolved(*target), Some(Resolved::Constructor(_)));
+                    let constructor_ =
+                        matches!(bodies.get_resolved(id), Some(Resolved::Constructor(_)))
+                            || matches!(
+                                bodies.get_resolved(*target),
+                                Some(Resolved::Constructor(_))
+                            );
                     if constructor_ && let Some(label) = target_name(self, a, *target) {
-                        candidates.push(Candidate { span: e.span, measured: arguments.span, label });
+                        candidates.push(Candidate {
+                            span: e.span,
+                            measured: arguments.span,
+                            label,
+                        });
                     }
                 }
                 ExprKind::List { type_args, .. } => {
                     if let Some(t) = type_args.first() {
                         let s = a.types[t.0 as usize].span;
                         let text = source.get(s.start..s.end).unwrap_or("");
-                        candidates.push(Candidate { span: e.span, measured: e.span, label: format!("<{text}>[]") });
+                        candidates.push(Candidate {
+                            span: e.span,
+                            measured: e.span,
+                            label: format!("<{text}>[]"),
+                        });
                     }
                 }
                 _ => {}
             }
         }
         // Pre-order: by start; at the same start, the outer one first.
-        candidates.sort_by(|x, y| x.span.start.cmp(&y.span.start).then(y.span.end.cmp(&x.span.end)));
-        let line = |offset: usize| source.as_bytes()[..offset.min(source.len())].iter().filter(|b| **b == b'\n').count();
-        let contains = |outside: Span, inside: Span| outside.start <= inside.start && inside.end <= outside.end && outside != inside;
+        candidates.sort_by(|x, y| {
+            x.span
+                .start
+                .cmp(&y.span.start)
+                .then(y.span.end.cmp(&x.span.end))
+        });
+        let line = |offset: usize| {
+            source.as_bytes()[..offset.min(source.len())]
+                .iter()
+                .filter(|b| **b == b'\n')
+                .count()
+        };
+        let contains = |outside: Span, inside: Span| {
+            outside.start <= inside.start && inside.end <= outside.end && outside != inside
+        };
         candidates
             .iter()
             .filter(|k| {
-                let several_lines = line(k.measured.start) != line(k.measured.end.saturating_sub(1));
-                let nested = candidates.iter().any(|o| contains(o.span, k.span) || contains(k.span, o.span));
+                let several_lines =
+                    line(k.measured.start) != line(k.measured.end.saturating_sub(1));
+                let nested = candidates
+                    .iter()
+                    .any(|o| contains(o.span, k.span) || contains(k.span, o.span));
                 several_lines && nested
             })
             .map(|k| (k.span, k.label.clone()))

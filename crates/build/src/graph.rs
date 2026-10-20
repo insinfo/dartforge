@@ -7,7 +7,7 @@
 //! visibility of `target_graph.dart`.
 use crate::glob::Glob;
 use crate::packages::{PackageGraph, SDK};
-use crate::plan::{InputMatcher, Configs, Phase, TargetNode};
+use crate::plan::{Configs, InputMatcher, Phase, TargetNode};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -221,10 +221,7 @@ impl Graph {
             .iter()
             .map(|target| InputMatcher::new(&target.sources, Some(&default)))
             .collect::<Result<_, _>>()?;
-        Ok(Some(SourceFilter {
-            targets,
-            visible,
-        }))
+        Ok(Some(SourceFilter { targets, visible }))
     }
 
     /// Sources of a package, by its targets (`_listAssetIds`).
@@ -300,7 +297,9 @@ impl Graph {
                 g.anchors(fi, phase, graph, &inputs);
                 continue;
             }
-            let Some(ext) = &phase.extensions else { continue };
+            let Some(ext) = &phase.extensions else {
+                continue;
+            };
             let package: Arc<str> = graph.nodes[phase.package].name.as_str().into();
             let candidates: Vec<Arc<str>> = inputs
                 .get(&package)

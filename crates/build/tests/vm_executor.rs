@@ -10,11 +10,11 @@
 #[path = "support/corpus_cases.rs"]
 mod corpus_cases;
 
-use dartforge_build::query::NoDb;
-use dartforge_build::graph::AssetId;
 use dartforge_build::engine::Origin;
+use dartforge_build::graph::AssetId;
+use dartforge_build::query::NoDb;
 use dartforge_build::vm::{VmConfig, VmExecutor};
-use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions, EngineReport};
+use dartforge_build::{Demand, Engine, EngineOptions, EngineReport, UpdateContext};
 use dartforge_elements::config::PackageConfig;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -264,13 +264,12 @@ fn json_serializable_through_the_vm_equals_build_runner_and_is_incremental() {
 #[test]
 #[ignore = "requires the Dart VM and `dart pub get` in each case of corpus/builders"]
 fn corpus_builders_through_the_vm() {
-    let cases = corpus_cases::planned_cases(&corpus_root(), None)
-        .expect("builder corpus prerequisites");
+    let cases =
+        corpus_cases::planned_cases(&corpus_root(), None).expect("builder corpus prerequisites");
     let mut lines = vec![
         "### corpus/builders through the VM — equal/pending/different".to_string(),
         String::new(),
-        "| case | equal | pending | different | clean (ms) | no change (ms) | reasons |"
-            .into(),
+        "| case | equal | pending | different | clean (ms) | no change (ms) | reasons |".into(),
         "|---|---|---|---|---|---|---|".into(),
     ];
     let mut different = Vec::new();
@@ -495,7 +494,10 @@ fn post_processor_through_the_vm() {
     let (rel, _) = update(&mut m, std::slice::from_ref(&notes));
     assert!(rel.changed_outputs >= 1, "{}", rel.text());
     assert!(summary(&m).is_none());
-    assert!(!published(&m, output), "output withdrawn from the generation");
+    assert!(
+        !published(&m, output),
+        "output withdrawn from the generation"
+    );
     let mut fresh = vm_engine(&dir);
     update(&mut fresh, &[]);
     assert_eq!(

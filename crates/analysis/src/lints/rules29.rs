@@ -30,8 +30,14 @@ use super::codes_g as c;
 use super::rules::LintReport;
 use crate::Unit;
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, FunctionRef, Program, TypedefId, UnitId, VariableId, VariableRef};
-use dartforge_frontend::ast::{self, Annotation, Ast, DeclId, DeclKind, ExprId, ExprKind, Initializer, MemberId, MemberKind, PatternKind, TypeKind, UnaryOp};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, FunctionRef,
+    Program, TypedefId, UnitId, VariableId, VariableRef,
+};
+use dartforge_frontend::ast::{
+    self, Annotation, Ast, DeclId, DeclKind, ExprId, ExprKind, Initializer, MemberId, MemberKind,
+    PatternKind, TypeKind, UnaryOp,
+};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use dartforge_types::table::Type;
@@ -49,7 +55,10 @@ enum Dec {
 impl Dec {
     fn unit(self) -> UnitId {
         match self {
-            Dec::TopLevel(u, ..) | Dec::TopLevelVar(u, ..) | Dec::Member(u, ..) | Dec::Field(u, ..) => u,
+            Dec::TopLevel(u, ..)
+            | Dec::TopLevelVar(u, ..)
+            | Dec::Member(u, ..)
+            | Dec::Field(u, ..) => u,
         }
     }
 }
@@ -90,7 +99,14 @@ impl Cx<'_> {
     }
 
     fn class_of_decl(&self, u: UnitId, d: DeclId) -> Option<ClassId> {
-        (0..self.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| self.program.class(*c).decl.is_some_and(|r| r.unit == u && r.decl == d))
+        (0..self.program.classes.len())
+            .map(|i| ClassId(i as u32))
+            .find(|c| {
+                self.program
+                    .class(*c)
+                    .decl
+                    .is_some_and(|r| r.unit == u && r.decl == d)
+            })
     }
 
     /// `declarationMap[element]`.
@@ -115,10 +131,16 @@ impl Cx<'_> {
                     FunctionRef::Constructor { unit, member } => Dec::Member(unit, member),
                     FunctionRef::Function { unit, function } => {
                         let a = &program.unit(unit).ast;
-                        if let Some(m) = a.members.iter().position(|m| matches!(m.kind, MemberKind::Method(x) if x == function)) {
+                        if let Some(m) = a
+                            .members
+                            .iter()
+                            .position(|m| matches!(m.kind, MemberKind::Method(x) if x == function))
+                        {
                             Dec::Member(unit, MemberId(m as u32))
                         } else {
-                            let d = a.decls.iter().position(|d| matches!(d.kind, DeclKind::Function(x) if x == function))?;
+                            let d = a.decls.iter().position(
+                                |d| matches!(d.kind, DeclKind::Function(x) if x == function),
+                            )?;
                             Dec::TopLevel(unit, DeclId(d as u32))
                         }
                     }
@@ -127,7 +149,11 @@ impl Cx<'_> {
             }
             Ref::Variable(v) => match program.variable(v).node {
                 VariableRef::TopLevel { unit, decl, index } => Dec::TopLevelVar(unit, decl, index),
-                VariableRef::Field { unit, member, index } => Dec::Field(unit, member, index),
+                VariableRef::Field {
+                    unit,
+                    member,
+                    index,
+                } => Dec::Field(unit, member, index),
                 _ => return None,
             },
             Ref::Position(u, p) => {
@@ -146,10 +172,14 @@ impl Cx<'_> {
             Ref::Extension(e) => program.extension(e).name.is_none_or(|n| self.is_private(n)),
             Ref::Typedef(t) => self.is_private(program.typedef(t).name),
             Ref::Function(f) => match program.function(f).node {
-                FunctionRef::Constructor { unit, member } => match &program.unit(unit).ast.member(member).kind {
-                    MemberKind::Constructor(k) => k.name.is_some_and(|n| self.is_private(n.sym)),
-                    _ => false,
-                },
+                FunctionRef::Constructor { unit, member } => {
+                    match &program.unit(unit).ast.member(member).kind {
+                        MemberKind::Constructor(k) => {
+                            k.name.is_some_and(|n| self.is_private(n.sym))
+                        }
+                        _ => false,
+                    }
+                }
                 _ => self.is_private(program.function(f).name),
             },
             Ref::Variable(v) => self.is_private(program.variable(v).name),
@@ -201,11 +231,27 @@ impl Cx<'_> {
     }
 
     /// The element of a resolution.
-    fn reference_from_resolved(&self, u: UnitId, body: &UnitBodyTypes, e: ExprId, pos: usize) -> Option<Ref> {
+    fn reference_from_resolved(
+        &self,
+        u: UnitId,
+        body: &UnitBodyTypes,
+        e: ExprId,
+        pos: usize,
+    ) -> Option<Ref> {
         Some(match body.get_resolved(e)? {
-            Resolved::Local(_) | Resolved::Parameter { .. } | Resolved::TypeParameter(_) => Ref::Position(u, pos),
-            Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => Ref::Variable(*v),
-            Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => Ref::Function(*f),
+            Resolved::Local(_) | Resolved::Parameter { .. } | Resolved::TypeParameter(_) => {
+                Ref::Position(u, pos)
+            }
+            Resolved::Member {
+                member: MemberRef::Variable(v),
+                ..
+            }
+            | Resolved::Element(Element::Variable(v)) => Ref::Variable(*v),
+            Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            }
+            | Resolved::Element(Element::Function(f)) => Ref::Function(*f),
             Resolved::ExtensionMember { member, .. } => Ref::Function(*member),
             Resolved::Constructor(f) => Ref::Function(*f),
             Resolved::Element(Element::Class(c)) => Ref::Class(*c),
@@ -227,15 +273,23 @@ impl Cx<'_> {
             return Some(Ref::Variable(v));
         }
         let text = self.interner.resolve(g.name);
-        let name = self.interner.lookup(text.strip_suffix("_=").unwrap_or(text))?;
+        let name = self
+            .interner
+            .lookup(text.strip_suffix("_=").unwrap_or(text))?;
         let members = match (g.class, g.extension) {
             (Some(c), _) => {
                 let x = self.program.class(c);
-                x.instance_members.get(&name).or_else(|| x.static_members.get(&name)).copied()
+                x.instance_members
+                    .get(&name)
+                    .or_else(|| x.static_members.get(&name))
+                    .copied()
             }
             (None, Some(e)) => {
                 let x = self.program.extension(e);
-                x.instance_members.get(&name).or_else(|| x.static_members.get(&name)).copied()
+                x.instance_members
+                    .get(&name)
+                    .or_else(|| x.static_members.get(&name))
+                    .copied()
             }
             _ => match self.program.lookup_in_unit(self.s.unit, name)?.getter? {
                 Element::Function(h) => Some(h),
@@ -250,8 +304,14 @@ impl Cx<'_> {
     /// parameter.
     fn type_element(&self, u: UnitId, body: &UnitBodyTypes, t: ast::TypeId) -> Option<Ref> {
         let a = &self.program.unit(u).ast;
-        let TypeKind::Named { name, .. } = &a.ty(t).kind else { return None };
-        let ty = body.annotation_types.get(&t).copied().or_else(|| self.s.outline.written_types.get(&(u, t)).copied());
+        let TypeKind::Named { name, .. } = &a.ty(t).kind else {
+            return None;
+        };
+        let ty = body
+            .annotation_types
+            .get(&t)
+            .copied()
+            .or_else(|| self.s.outline.written_types.get(&(u, t)).copied());
         if ty.is_some_and(|x| matches!(self.s.table.get(x), Type::TypeParameter { .. })) {
             return None;
         }
@@ -270,13 +330,26 @@ impl Cx<'_> {
 
     /// `getOverridden2(container, Name(lib, name)) != null`.
     fn overrides_member(&self, class_id: ClassId, name: SymbolId, setter: bool) -> bool {
-        let key = if setter { self.interner.lookup(&format!("{}_=", self.interner.resolve(name))) } else { Some(name) };
+        let key = if setter {
+            self.interner
+                .lookup(&format!("{}_=", self.interner.resolve(name)))
+        } else {
+            Some(name)
+        };
         let Some(key) = key else { return false };
         let own = self.program.class(class_id).library;
         let is_private_name = self.is_private(name);
         self.s.outline.hierarchy.get(class_id).is_some_and(|h| {
             h.supertypes.keys().any(|sc| {
-                *sc != class_id && self.program.class(*sc).instance_members.get(&key).is_some_and(|f| !is_private_name || self.program.function(*f).library == own)
+                *sc != class_id
+                    && self
+                        .program
+                        .class(*sc)
+                        .instance_members
+                        .get(&key)
+                        .is_some_and(|f| {
+                            !is_private_name || self.program.function(*f).library == own
+                        })
             })
         })
     }
@@ -302,20 +375,25 @@ fn unit_declarations(cx: &Cx<'_>, u: UnitId) -> Vec<Dec> {
             continue;
         }
         v.push(Dec::TopLevel(u, id));
-        let (name, members, interface): (Option<SymbolId>, &[MemberId], Option<ClassId>) = match &d.kind {
-            DeclKind::Class(x) if !x.mixin_application => (Some(x.name.sym), &x.members, cx.class_of_decl(u, id)),
-            DeclKind::Enum(x) => (Some(x.name.sym), &x.members, cx.class_of_decl(u, id)),
-            DeclKind::Mixin(x) => (Some(x.name.sym), &x.members, cx.class_of_decl(u, id)),
-            DeclKind::Extension(x) => (x.name.map(|n| n.sym), &x.members, None),
-            DeclKind::ExtensionType(x) => (Some(x.name.sym), &x.members, None),
-            _ => continue,
-        };
+        let (name, members, interface): (Option<SymbolId>, &[MemberId], Option<ClassId>) =
+            match &d.kind {
+                DeclKind::Class(x) if !x.mixin_application => {
+                    (Some(x.name.sym), &x.members, cx.class_of_decl(u, id))
+                }
+                DeclKind::Enum(x) => (Some(x.name.sym), &x.members, cx.class_of_decl(u, id)),
+                DeclKind::Mixin(x) => (Some(x.name.sym), &x.members, cx.class_of_decl(u, id)),
+                DeclKind::Extension(x) => (x.name.map(|n| n.sym), &x.members, None),
+                DeclKind::ExtensionType(x) => (Some(x.name.sym), &x.members, None),
+                _ => continue,
+            };
         // A private element (an unnamed extension too) has no members.
         if name.is_none_or(|n| cx.is_private(n)) {
             continue;
         }
         let is_enum = matches!(d.kind, DeclKind::Enum(_));
-        let overrides = |n: SymbolId, setter: bool| interface.is_some_and(|c| cx.overrides_member(c, n, setter));
+        let overrides = |n: SymbolId, setter: bool| {
+            interface.is_some_and(|c| cx.overrides_member(c, n, setter))
+        };
         for &m in members {
             match &a.member(m).kind {
                 MemberKind::Constructor(k) => {
@@ -337,7 +415,10 @@ fn unit_declarations(cx: &Cx<'_>, u: UnitId) -> Vec<Dec> {
                         continue;
                     }
                     let text = cx.interner.resolve(n.sym);
-                    let is_test = text.starts_with("test_") || text.starts_with("solo_test_") || text == "setUp" || text == "tearDown";
+                    let is_test = text.starts_with("test_")
+                        || text.starts_with("solo_test_")
+                        || text == "setUp"
+                        || text == "tearDown";
                     if !overrides(n.sym, f.kind == ast::FunctionKind::Setter) && !is_test {
                         v.push(Dec::Member(u, m));
                     }
@@ -351,12 +432,18 @@ fn unit_declarations(cx: &Cx<'_>, u: UnitId) -> Vec<Dec> {
 /// The regions (the subtree) of a declaration.
 fn regions(a: &Ast, d: Dec) -> Vec<(usize, usize)> {
     let with_annotations = |sp: Span, metadata: &[Annotation]| {
-        let start = metadata.iter().map(|m| m.span.start).min().map_or(sp.start, |x| x.min(sp.start));
+        let start = metadata
+            .iter()
+            .map(|m| m.span.start)
+            .min()
+            .map_or(sp.start, |x| x.min(sp.start));
         (start, sp.end)
     };
     let variable = |l: &ast::VariableList, i: usize| {
         let x = &l.variables[i];
-        let end = x.initializer.map_or(x.name.span.end, |e| a.expr(e).span.end);
+        let end = x
+            .initializer
+            .map_or(x.name.span.end, |e| a.expr(e).span.end);
         let mut v = vec![(x.name.span.start, end)];
         if let Some(t) = l.ty {
             let sp = a.ty(t).span;
@@ -399,7 +486,11 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
             ExprKind::Assign { target, .. } => {
                 written.insert(*target);
             }
-            ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } => {
+            ExprKind::Unary {
+                op:
+                    UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec,
+                operand,
+            } => {
                 written.insert(*operand);
             }
             _ => {}
@@ -412,13 +503,19 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
             constants.push(a.expr(*e).span);
         }
     }
-    let in_pattern = |sp: Span| constants.iter().any(|c| c.start <= sp.start && sp.end <= c.end);
+    let in_pattern = |sp: Span| {
+        constants
+            .iter()
+            .any(|c| c.start <= sp.start && sp.end <= c.end)
+    };
     // The parts of a constructor name (`ConstructorName`): the type and the name.
     let mut constructor_names: HashSet<ExprId> = HashSet::new();
     let mark = |mut x: ExprId, names: &mut HashSet<ExprId>| loop {
         names.insert(x);
         match &a.expr(x).kind {
-            ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => x = *target,
+            ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => {
+                x = *target
+            }
             _ => break,
         }
     };
@@ -439,7 +536,9 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
         loop {
             match &a.expr(x).kind {
                 ExprKind::Identifier(_) => break,
-                ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => x = *target,
+                ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => {
+                    x = *target
+                }
                 _ => return program.function(f).class.map(Ref::Class),
             }
         }
@@ -453,14 +552,18 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
         let id = ExprId(k as u32);
         let pos = e.span.start;
         match &e.kind {
-            ExprKind::Identifier(_) | ExprKind::Property { .. } if !written.contains(&id) && !constructor_names.contains(&id) => {
+            ExprKind::Identifier(_) | ExprKind::Property { .. }
+                if !written.contains(&id) && !constructor_names.contains(&id) =>
+            {
                 if let Some(r) = cx.reference_from_resolved(u, body, id, pos) {
                     out.push((pos, Action::Element(r)));
                 }
             }
             ExprKind::Assign { op, target, .. } => {
-                if matches!(a.expr(*target).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
-                    && let Some(r) = cx.reference_from_resolved(u, body, *target, pos)
+                if matches!(
+                    a.expr(*target).kind,
+                    ExprKind::Identifier(_) | ExprKind::Property { .. }
+                ) && let Some(r) = cx.reference_from_resolved(u, body, *target, pos)
                 {
                     out.push((pos, Action::Element(r)));
                     if *op != ast::AssignOp::Assign
@@ -470,9 +573,15 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
                     }
                 }
             }
-            ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } => {
-                if matches!(a.expr(*operand).kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
-                    && let Some(r) = cx.reference_from_resolved(u, body, *operand, pos)
+            ExprKind::Unary {
+                op:
+                    UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec,
+                operand,
+            } => {
+                if matches!(
+                    a.expr(*operand).kind,
+                    ExprKind::Identifier(_) | ExprKind::Property { .. }
+                ) && let Some(r) = cx.reference_from_resolved(u, body, *operand, pos)
                 {
                     out.push((pos, Action::Element(r)));
                     if let Some(l) = cx.read_of(r) {
@@ -493,7 +602,9 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
             };
             out.push((pos, Action::Element(Ref::Function(*f))));
             let ty = match &e.kind {
-                ExprKind::InstanceCreation { ty, .. } => cx.type_element(u, body, *ty).or_else(|| program.function(*f).class.map(Ref::Class)),
+                ExprKind::InstanceCreation { ty, .. } => cx
+                    .type_element(u, body, *ty)
+                    .or_else(|| program.function(*f).class.map(Ref::Class)),
                 _ => constructor_type(*f, callee),
             };
             if let Some(t) = ty {
@@ -514,7 +625,11 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
                     mark_type(a, *x, v);
                 }
             }
-            TypeKind::Function { return_type, type_params, parameters } => {
+            TypeKind::Function {
+                return_type,
+                type_params,
+                parameters,
+            } => {
                 if let Some(r) = return_type {
                     mark_type(a, *r, v);
                 }
@@ -554,14 +669,20 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
     }
     for e in a.exprs.iter() {
         match &e.kind {
-            ExprKind::List { type_args, .. } | ExprKind::SetOrMap { type_args, .. } | ExprKind::TypeArguments { type_args, .. } => roots.extend(type_args.iter().copied()),
-            ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => roots.extend(arguments.type_args.iter().copied()),
+            ExprKind::List { type_args, .. }
+            | ExprKind::SetOrMap { type_args, .. }
+            | ExprKind::TypeArguments { type_args, .. } => roots.extend(type_args.iter().copied()),
+            ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
+                roots.extend(arguments.type_args.iter().copied())
+            }
             _ => {}
         }
     }
     for p in a.patterns.iter() {
         match &p.kind {
-            PatternKind::List { type_args, .. } | PatternKind::Map { type_args, .. } => roots.extend(type_args.iter().copied()),
+            PatternKind::List { type_args, .. } | PatternKind::Map { type_args, .. } => {
+                roots.extend(type_args.iter().copied())
+            }
             _ => {}
         }
     }
@@ -607,27 +728,49 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
         if !matches!(t.kind, TypeKind::Named { .. }) {
             continue;
         }
-        let Some(r) = cx.type_element(u, body, id) else { continue };
-        let is_extension_type = matches!(r, Ref::Class(c) if program.class(c).kind == ClassKind::ExtensionType);
-        if matches!(r, Ref::Typedef(_)) || is_extension_type || in_arguments.contains(&id) || externals.contains(&id) {
+        let Some(r) = cx.type_element(u, body, id) else {
+            continue;
+        };
+        let is_extension_type =
+            matches!(r, Ref::Class(c) if program.class(c).kind == ClassKind::ExtensionType);
+        if matches!(r, Ref::Typedef(_))
+            || is_extension_type
+            || in_arguments.contains(&id)
+            || externals.contains(&id)
+        {
             out.push((t.span.start, Action::Element(r)));
         }
     }
     // `visitPatternField`: the getter of an object pattern field.
     for p in a.patterns.iter() {
-        let PatternKind::Object { ty, fields } = &p.kind else { continue };
-        let matched_ty = body.annotation_types.get(ty).copied().or_else(|| cx.s.outline.written_types.get(&(u, *ty)).copied());
+        let PatternKind::Object { ty, fields } = &p.kind else {
+            continue;
+        };
+        let matched_ty = body
+            .annotation_types
+            .get(ty)
+            .copied()
+            .or_else(|| cx.s.outline.written_types.get(&(u, *ty)).copied());
         let class_id = match matched_ty.map(|t| cx.s.table.get(t)) {
             Some(Type::Interface { class, .. }) => Some(*class),
             Some(Type::ExtensionType { decl, .. }) => Some(*decl),
             _ => None,
         };
         for f in fields.iter() {
-            let name = f.name.map(|n| n.sym).or_else(|| shorthand_name(a, f.pattern));
+            let name = f
+                .name
+                .map(|n| n.sym)
+                .or_else(|| shorthand_name(a, f.pattern));
             let Some(name) = name else { continue };
             let getter = class_id.and_then(|c| {
                 std::iter::once(c)
-                    .chain(cx.s.outline.hierarchy.get(c).map(|h| h.supertypes.keys().copied().collect::<Vec<_>>()).unwrap_or_default())
+                    .chain(
+                        cx.s.outline
+                            .hierarchy
+                            .get(c)
+                            .map(|h| h.supertypes.keys().copied().collect::<Vec<_>>())
+                            .unwrap_or_default(),
+                    )
                     .find_map(|x| program.class(x).instance_members.get(&name).copied())
             });
             if let Some(g) = getter {
@@ -674,7 +817,9 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
                 }
             },
             [p, k, n] => {
-                if let Some(Element::Class(c)) = element(program.lookup_prefixed_in_unit(u, p.sym, k.sym)) {
+                if let Some(Element::Class(c)) =
+                    element(program.lookup_prefixed_in_unit(u, p.sym, k.sym))
+                {
                     actions.push(Ref::Class(c));
                     if let Some(f) = cx.constructor(c, Some(n.sym)) {
                         actions.push(Ref::Function(f));
@@ -693,14 +838,24 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
         let id = DeclId(k as u32);
         match &d.kind {
             DeclKind::Class(x) if !x.mixin_application => {
-                for t in x.extends.iter().chain(x.with.iter()).chain(x.implements.iter()) {
+                for t in x
+                    .extends
+                    .iter()
+                    .chain(x.with.iter())
+                    .chain(x.implements.iter())
+                {
                     if let Some(r) = cx.type_element(u, body, *t) {
                         out.push((a.ty(*t).span.start, Action::Direct(r)));
                     }
                 }
-                let Some(class_id) = cx.class_of_decl(u, id) else { continue };
+                let Some(class_id) = cx.class_of_decl(u, id) else {
+                    continue;
+                };
                 let outer = program.class(class_id).supertype_class;
-                let has_constructors = x.members.iter().any(|m| matches!(a.member(*m).kind, MemberKind::Constructor(_)));
+                let has_constructors = x
+                    .members
+                    .iter()
+                    .any(|m| matches!(a.member(*m).kind, MemberKind::Constructor(_)));
                 if !has_constructors
                     && let Some(s) = outer
                     && let Some(k) = cx.constructor(s, None)
@@ -708,18 +863,34 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
                     out.push((x.name.span.start, Action::Element(Ref::Function(k))));
                 }
                 // `test_reflective_loader`'s `@reflectiveTest`.
-                if d.metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, cx.interner, u, m, "test_reflective_loader", "reflectiveTest"))
-                    && let Some(k) = cx.constructor(class_id, None)
+                if d.metadata.iter().any(|m| {
+                    dartforge_types::annotations::is_getter_of(
+                        program,
+                        cx.interner,
+                        u,
+                        m,
+                        "test_reflective_loader",
+                        "reflectiveTest",
+                    )
+                }) && let Some(k) = cx.constructor(class_id, None)
                 {
                     out.push((x.name.span.start, Action::Element(Ref::Function(k))));
                 }
                 for &m in x.members.iter() {
-                    let MemberKind::Constructor(kc) = &a.member(m).kind else { continue };
-                    if !kc.initializers.iter().any(|i| matches!(i, Initializer::Super { .. }))
+                    let MemberKind::Constructor(kc) = &a.member(m).kind else {
+                        continue;
+                    };
+                    if !kc
+                        .initializers
+                        .iter()
+                        .any(|i| matches!(i, Initializer::Super { .. }))
                         && let Some(s) = outer
                         && let Some(k) = cx.constructor(s, None)
                     {
-                        out.push((a.member(m).span.start.max(kc.class_name.span.start), Action::Element(Ref::Function(k))));
+                        out.push((
+                            a.member(m).span.start.max(kc.class_name.span.start),
+                            Action::Element(Ref::Function(k)),
+                        ));
                     }
                 }
             }
@@ -747,13 +918,21 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
                     let outer = class_id.and_then(|c| program.class(c).supertype_class);
                     for i in kc.initializers.iter() {
                         match i {
-                            Initializer::Super { span, constructor, .. } => {
-                                if let Some(f) = outer.and_then(|s| cx.constructor(s, constructor.map(|n| n.sym))) {
+                            Initializer::Super {
+                                span, constructor, ..
+                            } => {
+                                if let Some(f) = outer
+                                    .and_then(|s| cx.constructor(s, constructor.map(|n| n.sym)))
+                                {
                                     out.push((span.start, Action::Element(Ref::Function(f))));
                                 }
                             }
-                            Initializer::Redirect { span, constructor, .. } => {
-                                if let Some(f) = class_id.and_then(|c| cx.constructor(c, constructor.map(|n| n.sym))) {
+                            Initializer::Redirect {
+                                span, constructor, ..
+                            } => {
+                                if let Some(f) = class_id
+                                    .and_then(|c| cx.constructor(c, constructor.map(|n| n.sym)))
+                                {
                                     out.push((span.start, Action::Element(Ref::Function(f))));
                                 }
                             }
@@ -765,7 +944,9 @@ fn references(cx: &Cx<'_>, u: UnitId) -> Vec<(usize, Action)> {
                         && let Some(Ref::Class(redirect_class)) = cx.type_element(u, body, r.ty)
                     {
                         out.push((r.span.start, Action::Element(Ref::Class(redirect_class))));
-                        if let Some(f) = cx.constructor(redirect_class, r.constructor.map(|n| n.sym)) {
+                        if let Some(f) =
+                            cx.constructor(redirect_class, r.constructor.map(|n| n.sym))
+                        {
                             out.push((r.span.start, Action::Element(Ref::Function(f))));
                         }
                     }
@@ -796,14 +977,21 @@ fn shorthand_name(a: &Ast, mut p: ast::PatternId) -> Option<SymbolId> {
     loop {
         match &a.pattern(p).kind {
             PatternKind::Variable { name, .. } => return Some(name.sym),
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Cast { pattern: x, .. } => p = *x,
+            PatternKind::NullCheck(x)
+            | PatternKind::NullAssert(x)
+            | PatternKind::Cast { pattern: x, .. } => p = *x,
             _ => return None,
         }
     }
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !enabled("unreachable_from_main") {
@@ -812,7 +1000,13 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     let program = s.program;
     let library = program.unit(s.unit).library;
     let units: Vec<UnitId> = program.library(library).units.clone();
-    let mut cx = Cx { program, interner, s, decls: HashSet::new(), top_regions: HashMap::new() };
+    let mut cx = Cx {
+        program,
+        interner,
+        s,
+        decls: HashSet::new(),
+        top_regions: HashMap::new(),
+    };
     let mut all: Vec<Dec> = Vec::new();
     for &x in units.iter() {
         all.extend(unit_declarations(&cx, x));
@@ -837,11 +1031,15 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             [p, n] => program.lookup_prefixed_in_unit(x, p.sym, n.sym),
             _ => None,
         };
-        let Some(Element::Class(c)) = b.and_then(|b| b.getter) else { return false };
+        let Some(Element::Class(c)) = b.and_then(|b| b.getter) else {
+            return false;
+        };
         if program.library(program.class(c).library).uri != "dart:core" {
             return false;
         }
-        let Some(args) = &m.arguments else { return false };
+        let Some(args) = &m.arguments else {
+            return false;
+        };
         let a = &program.unit(x).ast;
         args.args.iter().find(|y| y.name.is_none()).is_some_and(|y| matches!(&a.expr(y.value).kind, ExprKind::String(sl) if sl.constant_value().is_some_and(|v| v == *"vm:entry-point")))
     };
@@ -849,11 +1047,18 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         .iter()
         .copied()
         .filter(|d| {
-            let Dec::TopLevel(x, k) = *d else { return false };
+            let Dec::TopLevel(x, k) = *d else {
+                return false;
+            };
             let a = &program.unit(x).ast;
             let decl = a.decl(k);
-            let DeclKind::Function(f) = &decl.kind else { return false };
-            a.function(*f).name.is_some_and(|n| interner.resolve(n.sym) == "main") || decl.metadata.iter().any(|m| entry_point_pragma(x, m))
+            let DeclKind::Function(f) = &decl.kind else {
+                return false;
+            };
+            a.function(*f)
+                .name
+                .is_some_and(|n| interner.resolve(n.sym) == "main")
+                || decl.metadata.iter().any(|m| entry_point_pragma(x, m))
         })
         .collect();
     if entries.is_empty() {
@@ -861,7 +1066,8 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     }
     // The dependencies of each declaration, by scanning the nested regions of
     // each unit.
-    let mut dependencies: HashMap<Dec, HashSet<Dec>> = all.iter().map(|d| (*d, HashSet::new())).collect();
+    let mut dependencies: HashMap<Dec, HashSet<Dec>> =
+        all.iter().map(|d| (*d, HashSet::new())).collect();
     for &x in units.iter() {
         let a = &program.unit(x).ast;
         let mut ranges: Vec<(usize, usize, Dec)> = Vec::new();
@@ -911,7 +1117,18 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     }
     // The unreached ones of the unit, public and without `@visibleForTesting`.
     let a = u.ast;
-    let visible_for_testing = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, s.unit, m, "meta", "visibleForTesting"));
+    let visible_for_testing = |metadata: &[Annotation]| {
+        metadata.iter().any(|m| {
+            dartforge_types::annotations::is_getter_of(
+                program,
+                interner,
+                s.unit,
+                m,
+                "meta",
+                "visibleForTesting",
+            )
+        })
+    };
     let mut findings: Vec<(Span, String)> = Vec::new();
     for d in unit_declarations(&cx, s.unit) {
         if used.contains(&d) {
@@ -945,7 +1162,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
             Dec::TopLevelVar(_, k, i) => {
                 let decl = a.decl(k);
-                let DeclKind::Variables(l) = &decl.kind else { continue };
+                let DeclKind::Variables(l) = &decl.kind else {
+                    continue;
+                };
                 let n = l.variables[i].name;
                 if cx.is_private(n.sym) || visible_for_testing(&decl.metadata) {
                     continue;
@@ -961,12 +1180,15 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     MemberKind::Constructor(k) => {
                         let class_id = interner.resolve(k.class_name.sym);
                         match k.name {
-                            Some(n) => findings.push((n.span, format!("{class_id}.{}", interner.resolve(n.sym)))),
+                            Some(n) => findings
+                                .push((n.span, format!("{class_id}.{}", interner.resolve(n.sym)))),
                             None => findings.push((k.class_name.span, format!("{class_id}.new"))),
                         }
                     }
                     MemberKind::Method(f) => {
-                        let Some(n) = a.function(*f).name else { continue };
+                        let Some(n) = a.function(*f).name else {
+                            continue;
+                        };
                         findings.push((n.span, interner.resolve(n.sym).to_string()));
                     }
                     _ => {}
@@ -974,7 +1196,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
             Dec::Field(_, m, i) => {
                 let member = a.member(m);
-                let MemberKind::Field(l) = &member.kind else { continue };
+                let MemberKind::Field(l) = &member.kind else {
+                    continue;
+                };
                 if visible_for_testing(&member.metadata) {
                     continue;
                 }
@@ -985,7 +1209,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     }
     findings.sort_by_key(|(sp, _)| (sp.start, sp.end));
     for (sp, name) in findings {
-        out.push(LintReport { code: &c::UNREACHABLE_FROM_MAIN, span: sp, args: vec![name] });
+        out.push(LintReport {
+            code: &c::UNREACHABLE_FROM_MAIN,
+            span: sp,
+            args: vec![name],
+        });
     }
     out
 }

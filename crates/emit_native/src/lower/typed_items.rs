@@ -30,18 +30,30 @@
 
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
-use dartforge_types::table::Type as T;
 use dartforge_types::TypeId;
+use dartforge_types::table::Type as T;
 
 impl FnBuilder<'_, '_> {
     /// The fixed list of the iterations being emitted that `target` (a local) names (N13).
-    pub(super) fn fixed_list_of(&self, ast: &dartforge_frontend::ast::Ast, target: dartforge_frontend::ast::ExprId) -> Option<super::fn_builder::FixedList> {
+    pub(super) fn fixed_list_of(
+        &self,
+        ast: &dartforge_frontend::ast::Ast,
+        target: dartforge_frontend::ast::ExprId,
+    ) -> Option<super::fn_builder::FixedList> {
         if self.fixed_lists.is_empty() {
             return None;
         }
-        let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(target).kind else { return None };
-        let super::locals::Mode::Memory(key) = self.lookup_local(n.sym)?.mode else { return None };
-        self.fixed_lists.iter().rev().find(|f| f.key == key).cloned()
+        let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(target).kind else {
+            return None;
+        };
+        let super::locals::Mode::Memory(key) = self.lookup_local(n.sym)?.mode else {
+            return None;
+        };
+        self.fixed_lists
+            .iter()
+            .rev()
+            .find(|f| f.key == key)
+            .cloned()
     }
 
     /// The proven typed list of the fast iterations being emitted
@@ -59,7 +71,9 @@ impl FnBuilder<'_, '_> {
             return None;
         }
         let address = |e: dartforge_frontend::ast::ExprId| {
-            let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(e).kind else { return None };
+            let dartforge_frontend::ast::ExprKind::Identifier(n) = &ast.expr(e).kind else {
+                return None;
+            };
             match self.lookup_local(n.sym)?.mode {
                 super::locals::Mode::Memory(p) => Some(p),
                 _ => None,
@@ -80,7 +94,12 @@ impl FnBuilder<'_, '_> {
     /// The address of the elements and the length of a typed or SIMD list
     /// (`list`, of static type `ix`), read before the iterations of a
     /// versioned loop; `write`: the length of an unmodifiable view is 0.
-    pub(super) fn proven_data(&mut self, list: &Operand, ix: Indexable, write: bool) -> Option<(Operand, Operand)> {
+    pub(super) fn proven_data(
+        &mut self,
+        list: &Operand,
+        ix: Indexable,
+        write: bool,
+    ) -> Option<(Operand, Operand)> {
         let list = self.coerce(list.clone(), Type::Ref);
         match ix {
             Indexable::Typed(TypedList { ty: typ, .. }) | Indexable::Simd { ty: typ, .. } => {
@@ -97,11 +116,16 @@ pub enum Indexable {
     Typed(TypedList),
     /// `List<E>`: the representation of the element that is written directly (`E`
     /// equal to `int` or `double`), or `None` (direct read only).
-    Core { write_op: Option<Type> },
+    Core {
+        write_op: Option<Type>,
+    },
     /// `Float32x4List`, `Int32x4List`, `Float64x2List`: the type in the runtime
     /// and the unboxed vector of the element (16 bytes, read and written as an
     /// LLVM vector).
-    Simd { ty: i64, k: Type },
+    Simd {
+        ty: i64,
+        k: Type,
+    },
 }
 
 /// A numeric typed list: the element type in the runtime (`TIPO_*` of
@@ -115,7 +139,11 @@ pub struct TypedList {
 impl TypedList {
     /// The Dart representation of the element.
     fn repr(self) -> Type {
-        if matches!(self.element, CType::F32 | CType::F64) { Type::F64 } else { Type::I64 }
+        if matches!(self.element, CType::F32 | CType::F64) {
+            Type::F64
+        } else {
+            Type::I64
+        }
     }
 
     /// Can `[]=` write directly? `Uint8ClampedList` saturates the value; it
@@ -129,7 +157,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The fast index path of static type `ty` (non-nullable), if
     /// any.
     pub(super) fn indexable(&self, ty: Option<TypeId>) -> Option<Indexable> {
-        let T::Interface { class, args, nullable: false } = self.ctx.table.get(ty?) else {
+        let T::Interface {
+            class,
+            args,
+            nullable: false,
+        } = self.ctx.table.get(ty?)
+        else {
             return None;
         };
         let c = self.ctx.program.classes.get(class.0 as usize)?;
@@ -137,7 +170,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let name_str = self.ctx.symbol_name(c.name);
         if library == "dart:core" && name_str == "List" {
             let write_op = match args.first().map(|&e| self.ctx.table.get(e)) {
-                Some(T::Interface { class: e, nullable: false, .. }) => {
+                Some(T::Interface {
+                    class: e,
+                    nullable: false,
+                    ..
+                }) => {
                     let e = self.ctx.program.classes.get(e.0 as usize)?;
                     let core = self.ctx.program.library(e.library).uri == "dart:core";
                     match self.ctx.symbol_name(e.name) {
@@ -190,43 +227,80 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         e: dartforge_frontend::ast::ExprId,
     ) -> Option<Operand> {
         use dartforge_frontend::ast::{ExprId, ExprKind};
-        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
-        if arguments.args.len() != 3 || arguments.args.iter().any(|a| a.name.is_some()) || !arguments.type_args.is_empty() {
+        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else {
+            return None;
+        };
+        if arguments.args.len() != 3
+            || arguments.args.iter().any(|a| a.name.is_some())
+            || !arguments.type_args.is_empty()
+        {
             return None;
         }
-        let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+        let ExprKind::Property {
+            target: recv,
+            name,
+            null_aware: false,
+        } = &ast.expr(*target).kind
+        else {
             return None;
         };
         if self.ctx.symbol_name(name.sym) != "fillRange" {
             return None;
         }
-        let Some(Indexable::Typed(l)) = self.indexable(self.ctx.get_type(self.unit_id, *recv)) else {
+        let Some(Indexable::Typed(l)) = self.indexable(self.ctx.get_type(self.unit_id, *recv))
+        else {
             return None;
         };
         if !l.direct_write() {
             return None;
         }
         let repr = l.repr();
-        let class_of = |s: &Self, x: ExprId| match s.ctx.get_type(s.unit_id, x).map(|t| s.ctx.table.get(t)) {
-            Some(T::Interface { class, nullable: false, .. }) => Some(*class),
-            _ => None,
-        };
+        let class_of =
+            |s: &Self, x: ExprId| match s.ctx.get_type(s.unit_id, x).map(|t| s.ctx.table.get(t)) {
+                Some(T::Interface {
+                    class,
+                    nullable: false,
+                    ..
+                }) => Some(*class),
+                _ => None,
+            };
         let int = self.ctx.core.int_class;
-        let element = if repr == Type::F64 { self.ctx.core.double_class } else { int };
-        let [a, b, v] = [arguments.args[0].value, arguments.args[1].value, arguments.args[2].value];
-        if int.is_none() || class_of(self, a) != int || class_of(self, b) != int || class_of(self, v) != element {
+        let element = if repr == Type::F64 {
+            self.ctx.core.double_class
+        } else {
+            int
+        };
+        let [a, b, v] = [
+            arguments.args[0].value,
+            arguments.args[1].value,
+            arguments.args[2].value,
+        ];
+        if int.is_none()
+            || class_of(self, a) != int
+            || class_of(self, b) != int
+            || class_of(self, v) != element
+        {
             return None;
         }
         // Dart evaluation order: receiver, then the arguments.
         let mut ops = Vec::with_capacity(4);
-        for (x, t) in [(*recv, Type::Ref), (a, Type::I64), (b, Type::I64), (v, repr)] {
+        for (x, t) in [
+            (*recv, Type::Ref),
+            (a, Type::I64),
+            (b, Type::I64),
+            (v, repr),
+        ] {
             let op = self.lower_expr(ast, x);
             if self.is_terminated() {
                 return Some(Operand::Constant(Constant::Null));
             }
             ops.push(self.coerce(op, t));
         }
-        let name_str = if repr == Type::F64 { "dartforge_typed_fill_double" } else { "dartforge_typed_fill_int" };
+        let name_str = if repr == Type::F64 {
+            "dartforge_typed_fill_double"
+        } else {
+            "dartforge_typed_fill_int"
+        };
         let done = self.emit(
             Instruction::CallRuntime {
                 name: name_str.to_string(),
@@ -241,13 +315,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::I64,
         );
-        let ok = self.emit(Instruction::ICmp(ICmpOp::Ne, done, Operand::Constant(Constant::Int(0))), Type::I1);
+        let ok = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, done, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
         let slow = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ok, then_block: join, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: ok,
+            then_block: join,
+            else_block: slow,
+        });
         self.set_block(slow);
-        let args: Vec<super::members::Evaluated> = ops[1..].iter().map(|o| (None, o.clone())).collect();
-        self.call_by_name(ops[0].clone(), super::sdk_source::AccessKind::Call, "fillRange", &args);
+        let args: Vec<super::members::Evaluated> =
+            ops[1..].iter().map(|o| (None, o.clone())).collect();
+        self.call_by_name(
+            ops[0].clone(),
+            super::sdk_source::AccessKind::Call,
+            "fillRange",
+            &args,
+        );
         if !self.is_terminated() {
             self.terminate(Terminator::Branch(join));
         }
@@ -258,14 +345,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// A SIMD list: the unboxed vector does not cross asynchronous frames
     /// (there the element keeps the dispatch).
     fn simd_list(&self, typ: i64, k: Type) -> Option<Indexable> {
-        self.async_state.is_none().then_some(Indexable::Simd { ty: typ, k })
+        self.async_state
+            .is_none()
+            .then_some(Indexable::Simd { ty: typ, k })
     }
-
 
     /// A prelude helper (`llvm/ir_typed.rs`): an inline read of the
     /// block, without effects (`HELPER_EFFECTS`).
     fn typed_helper(&mut self, name_str: &str, args: Vec<(Operand, Type)>, ret: Type) -> Operand {
-        self.emit(Instruction::CallRuntime { name: name_str.to_string(), args, ret_ty: ret }, ret)
+        self.emit(
+            Instruction::CallRuntime {
+                name: name_str.to_string(),
+                args,
+                ret_ty: ret,
+            },
+            ret,
+        )
     }
 
     /// The length for the fast path, or 0 if it does not apply: that of the typed
@@ -287,11 +382,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // (N13), the one read before them.
             return match &self.access_fixed {
                 Some(f) => f.length.clone(),
-                None => self.typed_helper("df.core_len", vec![(list.clone(), Type::Ref)], Type::I64),
+                None => {
+                    self.typed_helper("df.core_len", vec![(list.clone(), Type::Ref)], Type::I64)
+                }
             };
         };
         // N14: in the N13 iterations, the direct write was checked before them.
-        if let Some(n) = self.access_fixed.as_ref().and_then(|f| f.writable_length.clone()) {
+        if let Some(n) = self
+            .access_fixed
+            .as_ref()
+            .and_then(|f| f.writable_length.clone())
+        {
             return n;
         }
         // Direct write: `_List` or `_GrowableList` (the class says it is
@@ -326,11 +427,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return n;
         }
         // 0: empty, or not a runtime list — the getter answers.
-        let empty = self.emit(Instruction::ICmp(ICmpOp::Eq, n.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+        let empty = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, n.clone(), Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
         let fast_block = self.new_block();
         let slow_block = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: empty, then_block: slow_block, else_block: fast_block });
+        self.terminate(Terminator::CondBranch {
+            cond: empty,
+            then_block: slow_block,
+            else_block: fast_block,
+        });
         self.set_block(fast_block);
         self.terminate(Terminator::Branch(join));
         self.set_block(slow_block);
@@ -343,7 +451,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         self.terminate(Terminator::Branch(join));
         self.set_block(join);
-        self.emit(Instruction::Phi { incoming: vec![(fast_block, n), (slow_end, s)], ty: Type::I64 }, Type::I64)
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(fast_block, n), (slow_end, s)],
+                ty: Type::I64,
+            },
+            Type::I64,
+        )
     }
 
     /// Branches to the fast path when `index` is within the bounds of the
@@ -366,7 +480,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let fast_block = self.new_block();
         let slow_block = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ok, then_block: fast_block, else_block: slow_block });
+        self.terminate(Terminator::CondBranch {
+            cond: ok,
+            then_block: fast_block,
+            else_block: slow_block,
+        });
 
         self.set_block(fast_block);
         let r = fast(self);
@@ -386,7 +504,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         self.set_block(join);
         if slow_arrives {
-            self.emit(Instruction::Phi { incoming: vec![(fast_end, r), (slow_end, s)], ty: repr }, repr)
+            self.emit(
+                Instruction::Phi {
+                    incoming: vec![(fast_end, r), (slow_end, s)],
+                    ty: repr,
+                },
+                repr,
+            )
         } else {
             r
         }
@@ -410,13 +534,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// for the unmodifiable view of the type (`@df.typed_len_writable`, by the cid).
     /// Before, a fixed-address header per pure runtime call and a
     /// cache per access point.
-    fn typed_data_and_length(&mut self, list: &Operand, typ: i64, write: bool) -> (Operand, Operand) {
+    fn typed_data_and_length(
+        &mut self,
+        list: &Operand,
+        typ: i64,
+        write: bool,
+    ) -> (Operand, Operand) {
         let data = self.typed_helper("df.typed_data", vec![(list.clone(), Type::Ref)], Type::I64);
         let n = if write {
             let immutable = i64::from(dartforge_runtime::layout::cid::view(typ as u8, true));
             self.typed_helper(
                 "df.typed_len_writable",
-                vec![(list.clone(), Type::Ref), (Operand::Constant(Constant::Int(immutable)), Type::I64)],
+                vec![
+                    (list.clone(), Type::Ref),
+                    (Operand::Constant(Constant::Int(immutable)), Type::I64),
+                ],
                 Type::I64,
             )
         } else {
@@ -427,7 +559,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `list[index]`, in result `repr`. `None` when the index is not
     /// an unboxed `int` (the dispatch stays).
-    pub(super) fn read_indexed(&mut self, list: Operand, index: Operand, ix: Indexable, repr: Type) -> Option<Operand> {
+    pub(super) fn read_indexed(
+        &mut self,
+        list: Operand,
+        index: Operand,
+        ix: Indexable,
+        repr: Type,
+    ) -> Option<Operand> {
         if self.operand_type(&index) != Type::I64 {
             return None;
         }
@@ -438,11 +576,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(p) = self.access_proven.take() {
             match ix {
                 Indexable::Typed(l) => {
-                    let v = self.emit(Instruction::NativeLoad { address: p.data, index, ty: l.element }, l.repr());
+                    let v = self.emit(
+                        Instruction::NativeLoad {
+                            address: p.data,
+                            index,
+                            ty: l.element,
+                        },
+                        l.repr(),
+                    );
                     return Some(self.coerce(v, repr));
                 }
                 Indexable::Simd { k, .. } => {
-                    let v = self.emit(Instruction::Simd { op: OpSimd::Loads, args: vec![p.data, index] }, k);
+                    let v = self.emit(
+                        Instruction::Simd {
+                            op: OpSimd::Loads,
+                            args: vec![p.data, index],
+                        },
+                        k,
+                    );
                     return Some(self.coerce(v, repr));
                 }
                 Indexable::Core { .. } => {}
@@ -453,25 +604,50 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut fast = |s: &mut Self| match ix {
             Indexable::Typed(l) => {
                 let address = s.typed_addresses(&list2);
-                s.emit(Instruction::NativeLoad { address, index: index2.clone(), ty: l.element }, l.repr())
+                s.emit(
+                    Instruction::NativeLoad {
+                        address,
+                        index: index2.clone(),
+                        ty: l.element,
+                    },
+                    l.repr(),
+                )
             }
             Indexable::Core { .. } => s.read_list_element(&list2, &index2, repr),
             Indexable::Simd { k, .. } => {
                 let address = s.typed_addresses(&list2);
-                s.emit(Instruction::Simd { op: OpSimd::Loads, args: vec![address, index2.clone()] }, k)
+                s.emit(
+                    Instruction::Simd {
+                        op: OpSimd::Loads,
+                        args: vec![address, index2.clone()],
+                    },
+                    k,
+                )
             }
         };
         let mut slow = |s: &mut Self| {
             // The receiver has a static type (the indexable list): the typed
             // selector (`typed_entry.rs`).
-            s.call_by_name_with_typed_receiver(list2.clone(), true, super::sdk_source::AccessKind::Call, "[]", &[(None, index2.clone())])
+            s.call_by_name_with_typed_receiver(
+                list2.clone(),
+                true,
+                super::sdk_source::AccessKind::Call,
+                "[]",
+                &[(None, index2.clone())],
+            )
         };
         Some(self.branch_indexed(&list, &index, ix, false, repr, &mut fast, &mut slow))
     }
 
     /// `list[index] = value`. `false` when there is no fast path (the
     /// caller does the dispatch).
-    pub(super) fn store_indexed(&mut self, list: Operand, index: Operand, value: Operand, ix: Indexable) -> bool {
+    pub(super) fn store_indexed(
+        &mut self,
+        list: Operand,
+        index: Operand,
+        value: Operand,
+        ix: Indexable,
+    ) -> bool {
         let direct = match ix {
             Indexable::Typed(l) => l.direct_write(),
             Indexable::Core { write_op } => write_op.is_some(),
@@ -489,12 +665,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             match ix {
                 Indexable::Typed(l) => {
                     let v = self.coerce(value, l.repr());
-                    self.emit(Instruction::NativeWrite { address: p.data, index, ty: l.element, value: v }, Type::Void);
+                    self.emit(
+                        Instruction::NativeWrite {
+                            address: p.data,
+                            index,
+                            ty: l.element,
+                            value: v,
+                        },
+                        Type::Void,
+                    );
                     return true;
                 }
                 Indexable::Simd { k, .. } => {
                     let v = self.coerce(value, k);
-                    self.emit(Instruction::Simd { op: OpSimd::Writes, args: vec![p.data, index, v] }, Type::Void);
+                    self.emit(
+                        Instruction::Simd {
+                            op: OpSimd::Writes,
+                            args: vec![p.data, index, v],
+                        },
+                        Type::Void,
+                    );
                     return true;
                 }
                 Indexable::Core { .. } => {}
@@ -508,7 +698,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let address = s.typed_addresses(&list2);
                     let v = s.coerce(value2.clone(), l.repr());
                     s.emit(
-                        Instruction::NativeWrite { address, index: index2.clone(), ty: l.element, value: v },
+                        Instruction::NativeWrite {
+                            address,
+                            index: index2.clone(),
+                            ty: l.element,
+                            value: v,
+                        },
                         Type::Void,
                     );
                 }
@@ -521,7 +716,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let address = s.typed_addresses(&list2);
                     let v = s.coerce(value2.clone(), k);
                     s.emit(
-                        Instruction::Simd { op: OpSimd::Writes, args: vec![address, index2.clone(), v] },
+                        Instruction::Simd {
+                            op: OpSimd::Writes,
+                            args: vec![address, index2.clone(), v],
+                        },
                         Type::Void,
                     );
                 }
@@ -530,7 +728,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let mut slow = |s: &mut Self| {
             // An unboxed SIMD vector is only boxed here, on the slow path.
-            let value = if s.operand_type(&value).is_vector() { s.coerce(value.clone(), Type::Ref) } else { value.clone() };
+            let value = if s.operand_type(&value).is_vector() {
+                s.coerce(value.clone(), Type::Ref)
+            } else {
+                value.clone()
+            };
             s.call_by_name_with_typed_receiver(
                 list2.clone(),
                 true,
@@ -553,9 +755,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// after each access, which stays in the block of the read, without a call between
     /// the two (`optimize/arc/derived_set.rs`; growth replaces the storage).
     pub(super) fn list_storage(&mut self, list: &Operand) -> (Operand, Operand) {
-        let a = self.typed_helper("df.core_storage", vec![(list.clone(), Type::Ref)], Type::I64);
+        let a = self.typed_helper(
+            "df.core_storage",
+            vec![(list.clone(), Type::Ref)],
+            Type::I64,
+        );
         let shape = self.typed_helper("df.core_shape", vec![(a.clone(), Type::I64)], Type::I64);
-        let data = self.emit(Instruction::Add(a, Operand::Constant(Constant::Int(STORAGE_ELEMENTS))), Type::I64);
+        let data = self.emit(
+            Instruction::Add(a, Operand::Constant(Constant::Int(STORAGE_ELEMENTS))),
+            Type::I64,
+        );
         (data, shape)
     }
 
@@ -571,7 +780,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub(super) fn core_writable_length(&mut self, list: &Operand, shape: i64) -> Operand {
         self.typed_helper(
             "df.core_len_writable",
-            vec![(list.clone(), Type::Ref), (Operand::Constant(Constant::Int(shape)), Type::I64)],
+            vec![
+                (list.clone(), Type::Ref),
+                (Operand::Constant(Constant::Int(shape)), Type::I64),
+            ],
             Type::I64,
         )
     }
@@ -600,29 +812,57 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// representation: the `Ref` (`@df.word_ref`, which the
     /// emitter roots like any `Ref`), or the bits of the scalar. Under ARC,
     /// the general list goes through the checked read that produces an owner.
-    fn load_in_shape(&mut self, list: &Operand, data: &Operand, index: &Operand, k: i64) -> Operand {
+    fn load_in_shape(
+        &mut self,
+        list: &Operand,
+        data: &Operand,
+        index: &Operand,
+        k: i64,
+    ) -> Operand {
         match k {
             SHAPE_INT => self.emit(
-                Instruction::NativeLoad { address: data.clone(), index: index.clone(), ty: CType::I64 },
+                Instruction::NativeLoad {
+                    address: data.clone(),
+                    index: index.clone(),
+                    ty: CType::I64,
+                },
                 Type::I64,
             ),
             SHAPE_DOUBLE => self.emit(
-                Instruction::NativeLoad { address: data.clone(), index: index.clone(), ty: CType::F64 },
+                Instruction::NativeLoad {
+                    address: data.clone(),
+                    index: index.clone(),
+                    ty: CType::F64,
+                },
                 Type::F64,
             ),
             SHAPE_BOOL => {
                 let b = self.emit(
-                    Instruction::NativeLoad { address: data.clone(), index: index.clone(), ty: CType::I64 },
+                    Instruction::NativeLoad {
+                        address: data.clone(),
+                        index: index.clone(),
+                        ty: CType::I64,
+                    },
                     Type::I64,
                 );
-                self.emit(Instruction::ICmp(ICmpOp::Ne, b, Operand::Constant(Constant::Int(0))), Type::I1)
+                self.emit(
+                    Instruction::ICmp(ICmpOp::Ne, b, Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                )
             }
-            _ if self.ctx.arc_memory => self.emit(Instruction::CallRuntime {
-                name: arc_list_ref_read().into(),
-                args: vec![(list.clone(), Type::Ref), (index.clone(), Type::I64)],
-                ret_ty: Type::Ref,
-            }, Type::Ref),
-            _ => self.typed_helper("df.word_ref", vec![(data.clone(), Type::I64), (index.clone(), Type::I64)], Type::Ref),
+            _ if self.ctx.arc_memory => self.emit(
+                Instruction::CallRuntime {
+                    name: arc_list_ref_read().into(),
+                    args: vec![(list.clone(), Type::Ref), (index.clone(), Type::I64)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ),
+            _ => self.typed_helper(
+                "df.word_ref",
+                vec![(data.clone(), Type::I64), (index.clone(), Type::I64)],
+                Type::Ref,
+            ),
         }
     }
 
@@ -651,7 +891,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// boxed. What is left (a compact shape that is not that of the scalar
     /// `repr`) goes to the SDK `[]`. The shape known at emission (the N13
     /// iterations) spares the check.
-    pub(super) fn read_list_element(&mut self, list: &Operand, index: &Operand, repr: Type) -> Operand {
+    pub(super) fn read_list_element(
+        &mut self,
+        list: &Operand,
+        index: &Operand,
+        repr: Type,
+    ) -> Operand {
         let scalar = matches!(repr, Type::I64 | Type::F64 | Type::I1);
         let shapes: Vec<i64> = if scalar {
             vec![shape_code(repr), SHAPE_GENERAL]
@@ -670,10 +915,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let join = self.new_block();
         let mut entries = Vec::with_capacity(shapes.len() + 1);
         for k in shapes {
-            let ok = self.emit(Instruction::ICmp(ICmpOp::Eq, f.clone(), Operand::Constant(Constant::Int(k))), Type::I1);
+            let ok = self.emit(
+                Instruction::ICmp(ICmpOp::Eq, f.clone(), Operand::Constant(Constant::Int(k))),
+                Type::I1,
+            );
             let yes = self.new_block();
             let node = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: ok, then_block: yes, else_block: node });
+            self.terminate(Terminator::CondBranch {
+                cond: ok,
+                then_block: yes,
+                else_block: node,
+            });
             self.set_block(yes);
             let v = self.load_in_shape(list, &data, index, k);
             let v = self.coerce(v, repr);
@@ -695,7 +947,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Operand::Constant(Constant::Null)
             }
             1 => entries.pop().expect("one entry").1,
-            _ => self.emit(Instruction::Phi { incoming: entries, ty: repr }, repr),
+            _ => self.emit(
+                Instruction::Phi {
+                    incoming: entries,
+                    ty: repr,
+                },
+                repr,
+            ),
         }
     }
 
@@ -708,13 +966,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (typ, value) = match repr {
             Type::F64 => (CType::F64, value),
             Type::I1 => {
-                let b = self.emit(Instruction::ZExt { op: value, from: Type::I1, to: Type::I64 }, Type::I64);
+                let b = self.emit(
+                    Instruction::ZExt {
+                        op: value,
+                        from: Type::I1,
+                        to: Type::I64,
+                    },
+                    Type::I64,
+                );
                 (CType::I64, b)
             }
             _ => (CType::I64, value),
         };
         let (data, _) = self.elements_and_shape(list);
-        self.emit(Instruction::NativeWrite { address: data, index: index.clone(), ty: typ, value }, Type::Void);
+        self.emit(
+            Instruction::NativeWrite {
+                address: data,
+                index: index.clone(),
+                ty: typ,
+                value,
+            },
+            Type::Void,
+        );
     }
 }
 
@@ -732,9 +1005,12 @@ pub(super) fn arc_list_ref_read() -> &'static str {
 /// The shape of a runtime list storage: the `FORMAT` and
 /// `ELEMENT` bits of the `flags` (`layout::flags`, §2.3 and §2.16).
 pub(super) const SHAPE_GENERAL: i64 = dartforge_runtime::layout::flags::REFS as i64;
-const SHAPE_INT: i64 = (dartforge_runtime::layout::flags::RAW | dartforge_runtime::layout::flags::ELEMENT_INT) as i64;
-const SHAPE_DOUBLE: i64 = (dartforge_runtime::layout::flags::RAW | dartforge_runtime::layout::flags::ELEMENT_DOUBLE) as i64;
-const SHAPE_BOOL: i64 = (dartforge_runtime::layout::flags::RAW | dartforge_runtime::layout::flags::ELEMENT_BOOL) as i64;
+const SHAPE_INT: i64 =
+    (dartforge_runtime::layout::flags::RAW | dartforge_runtime::layout::flags::ELEMENT_INT) as i64;
+const SHAPE_DOUBLE: i64 = (dartforge_runtime::layout::flags::RAW
+    | dartforge_runtime::layout::flags::ELEMENT_DOUBLE) as i64;
+const SHAPE_BOOL: i64 =
+    (dartforge_runtime::layout::flags::RAW | dartforge_runtime::layout::flags::ELEMENT_BOOL) as i64;
 
 /// Element 0 of a storage, from the handle (`b+24` = `h+22`).
 const STORAGE_ELEMENTS: i64 =
@@ -756,8 +1032,12 @@ pub(super) fn shape_code(t: Type) -> i64 {
 /// `typed_data_patch.dart` (`_Int8List`, `_Int8ArrayView`,
 /// `_UnmodifiableInt8ArrayView`…); `None` for SIMD and the rest.
 fn class_element(class: &str) -> Option<(i64, CType)> {
-    let base = class.strip_prefix("_Unmodifiable").or_else(|| class.strip_prefix('_'))?;
-    let base = base.strip_suffix("ArrayView").or_else(|| base.strip_suffix("List"))?;
+    let base = class
+        .strip_prefix("_Unmodifiable")
+        .or_else(|| class.strip_prefix('_'))?;
+    let base = base
+        .strip_suffix("ArrayView")
+        .or_else(|| base.strip_suffix("List"))?;
     element_of_name(base)
 }
 
@@ -844,10 +1124,21 @@ impl FnBuilder<'_, '_> {
         let fast = self.new_block();
         let slowly = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ok, then_block: fast, else_block: slowly });
+        self.terminate(Terminator::CondBranch {
+            cond: ok,
+            then_block: fast,
+            else_block: slowly,
+        });
         self.set_block(fast);
         let data = self.typed_helper("df.typed_data", vec![(this.clone(), Type::Ref)], Type::I64);
-        let v = self.emit(Instruction::NativeLoad { address: data, index: i.clone(), ty: tc }, repr);
+        let v = self.emit(
+            Instruction::NativeLoad {
+                address: data,
+                index: i.clone(),
+                ty: tc,
+            },
+            repr,
+        );
         let fast_end = self.current_block;
         self.terminate(Terminator::Branch(join));
         self.set_block(slowly);
@@ -866,7 +1157,13 @@ impl FnBuilder<'_, '_> {
         }
         self.set_block(join);
         if arrives {
-            self.emit(Instruction::Phi { incoming: vec![(fast_end, v), (slow_end, s)], ty: repr }, repr)
+            self.emit(
+                Instruction::Phi {
+                    incoming: vec![(fast_end, v), (slow_end, s)],
+                    ty: repr,
+                },
+                repr,
+            )
         } else {
             v
         }
@@ -875,32 +1172,72 @@ impl FnBuilder<'_, '_> {
     /// `this._getX(off)` / `this._setX(off, v)` (element `tc` of `N`
     /// bytes at `off`, unaligned): inline when `off u< bytes` and
     /// `off + N <= bytes`, otherwise the runtime intrinsic `slow` (which throws).
-    fn inline_typed_bytes(&mut self, this: Operand, args: &[Operand], tc: CType, writes: bool, slow: &str) -> Operand {
+    fn inline_typed_bytes(
+        &mut self,
+        this: Operand,
+        args: &[Operand],
+        tc: CType,
+        writes: bool,
+        slow: &str,
+    ) -> Operand {
         let int = |x: i64| Operand::Constant(Constant::Int(x));
         let repr = tc.hir_type();
         let off = self.coerce(args[0].clone(), Type::I64);
-        let value = if writes { Some(self.coerce(args[1].clone(), repr)) } else { None };
+        let value = if writes {
+            Some(self.coerce(args[1].clone(), repr))
+        } else {
+            None
+        };
         let bytes = self.typed_helper("df.typed_bytes", vec![(this.clone(), Type::Ref)], Type::I64);
-        let inside = self.emit(Instruction::ICmp(ICmpOp::Ult, off.clone(), bytes.clone()), Type::I1);
+        let inside = self.emit(
+            Instruction::ICmp(ICmpOp::Ult, off.clone(), bytes.clone()),
+            Type::I1,
+        );
         let block_fits = self.new_block();
         let fast = self.new_block();
         let slowly = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: inside, then_block: block_fits, else_block: slowly });
+        self.terminate(Terminator::CondBranch {
+            cond: inside,
+            then_block: block_fits,
+            else_block: slowly,
+        });
         self.set_block(block_fits);
-        let end = self.emit(Instruction::Add(off.clone(), int(tc.c_size() as i64)), Type::I64);
+        let end = self.emit(
+            Instruction::Add(off.clone(), int(tc.c_size() as i64)),
+            Type::I64,
+        );
         let fits = self.emit(Instruction::ICmp(ICmpOp::Sle, end, bytes), Type::I1);
-        self.terminate(Terminator::CondBranch { cond: fits, then_block: fast, else_block: slowly });
+        self.terminate(Terminator::CondBranch {
+            cond: fits,
+            then_block: fast,
+            else_block: slowly,
+        });
 
         self.set_block(fast);
         let data = self.typed_helper("df.typed_data", vec![(this.clone(), Type::Ref)], Type::I64);
         let address = self.emit(Instruction::Add(data, off.clone()), Type::I64);
         let v = match &value {
             Some(x) => {
-                self.emit(Instruction::NativeWrite { address, index: int(0), ty: tc, value: x.clone() }, Type::Void);
+                self.emit(
+                    Instruction::NativeWrite {
+                        address,
+                        index: int(0),
+                        ty: tc,
+                        value: x.clone(),
+                    },
+                    Type::Void,
+                );
                 None
             }
-            None => Some(self.emit(Instruction::NativeLoad { address, index: int(0), ty: tc }, repr)),
+            None => Some(self.emit(
+                Instruction::NativeLoad {
+                    address,
+                    index: int(0),
+                    ty: tc,
+                },
+                repr,
+            )),
         };
         let fast_end = self.current_block;
         self.terminate(Terminator::Branch(join));
@@ -911,7 +1248,14 @@ impl FnBuilder<'_, '_> {
             a.push((x, repr));
         }
         let ret = if writes { Type::Void } else { repr };
-        let s = self.emit_call_with_check(Instruction::CallRuntime { name: crate::natives::symbol(slow), args: a, ret_ty: ret }, ret);
+        let s = self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: crate::natives::symbol(slow),
+                args: a,
+                ret_ty: ret,
+            },
+            ret,
+        );
         let slow_end = self.current_block;
         let arrives = !self.is_terminated();
         if arrives {
@@ -920,7 +1264,13 @@ impl FnBuilder<'_, '_> {
         self.set_block(join);
         match v {
             None => Operand::Constant(Constant::Null),
-            Some(v) if arrives => self.emit(Instruction::Phi { incoming: vec![(fast_end, v), (slow_end, s)], ty: repr }, repr),
+            Some(v) if arrives => self.emit(
+                Instruction::Phi {
+                    incoming: vec![(fast_end, v), (slow_end, s)],
+                    ty: repr,
+                },
+                repr,
+            ),
             Some(v) => v,
         }
     }

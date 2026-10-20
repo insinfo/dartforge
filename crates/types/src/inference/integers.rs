@@ -6,8 +6,8 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::body::Body;
 use super::BodyInferrer;
+use super::body::Body;
 use crate::table::TypeId;
 use dartforge_frontend::ast::ExprId;
 
@@ -45,20 +45,25 @@ fn natural_of(text: &str) -> Option<Natural> {
 /// `bitLength`.
 fn bits(n: &Natural) -> u32 {
     match n.last() {
-        Some(&top) if !(n.len() == 1 && top == 0) => (n.len() as u32 - 1) * 32 + (32 - top.leading_zeros()),
+        Some(&top) if !(n.len() == 1 && top == 0) => {
+            (n.len() as u32 - 1) * 32 + (32 - top.leading_zeros())
+        }
         _ => 0,
     }
 }
 
 /// Bit `i` (0 = the least significant).
 fn bit(n: &Natural, i: u32) -> bool {
-    n.get((i / 32) as usize).is_some_and(|l| (l >> (i % 32)) & 1 == 1)
+    n.get((i / 32) as usize)
+        .is_some_and(|l| (l >> (i % 32)) & 1 == 1)
 }
 
 /// `isValidAsInteger`: the VM's `int.tryParse` (decimal up to `2^63 - 1`, or
 /// `2^63` with the `-`; hexadecimal up to `0xFFFFFFFFFFFFFFFF`).
 fn valid_as_integer(text: &str, the_negated: bool) -> bool {
-    let Some(n) = natural_of(text) else { return false };
+    let Some(n) = natural_of(text) else {
+        return false;
+    };
     let hex = text.starts_with("0x") || text.starts_with("0X");
     let b = bits(&n);
     if hex {
@@ -82,7 +87,9 @@ fn valid_as_double(text: &str) -> bool {
     if text.len() < 16 {
         return true;
     }
-    let Some(n) = natural_of(text) else { return false };
+    let Some(n) = natural_of(text) else {
+        return false;
+    };
     let b = bits(&n);
     if b <= 53 {
         return true;
@@ -98,7 +105,8 @@ fn valid_as_double(text: &str) -> bool {
 fn nearest(n: &Natural) -> f64 {
     let b = bits(n);
     if b <= 64 {
-        let v = n.first().copied().unwrap_or(0) as u64 | (n.get(1).copied().unwrap_or(0) as u64) << 32;
+        let v =
+            n.first().copied().unwrap_or(0) as u64 | (n.get(1).copied().unwrap_or(0) as u64) << 32;
         return v as f64;
     }
     let shift = b - 64;
@@ -157,7 +165,10 @@ fn decimal_of(d: f64) -> String {
             n.pop();
         }
     }
-    let mut s = parts.last().map(|p| p.to_string()).unwrap_or_else(|| "0".to_string());
+    let mut s = parts
+        .last()
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| "0".to_string());
     for p in parts.iter().rev().skip(1) {
         s.push_str(&format!("{p:09}"));
     }
@@ -166,7 +177,13 @@ fn decimal_of(d: f64) -> String {
 
 /// `_checkForOutOfRange` on the integer literal `e` of static type `ty`;
 /// `the_negated` when the parent is the unary `-`.
-pub(crate) fn literal_out_of_range(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, ty: TypeId, the_negated: bool) {
+pub(crate) fn literal_out_of_range(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    e: ExprId,
+    ty: TypeId,
+    the_negated: bool,
+) {
     use dartforge_diagnostics::codes::compile_time_error as c;
     let sp = inf.span_expr(cx.unit, e);
     let lexeme = &inf.program.unit(cx.unit).source[sp.start..sp.end];
@@ -178,14 +195,28 @@ pub(crate) fn literal_out_of_range(inf: &mut BodyInferrer<'_>, cx: &Body, e: Exp
     }
     let source: String = lexeme.chars().filter(|ch| *ch != '_').collect();
     let as_double = ty == inf.core.double;
-    let valid = if as_double { valid_as_double(&source) } else { valid_as_integer(&source, the_negated) };
+    let valid = if as_double {
+        valid_as_double(&source)
+    } else {
+        valid_as_integer(&source, the_negated)
+    };
     if valid {
         return;
     }
-    let first = if the_negated { format!("-{lexeme}") } else { lexeme.to_string() };
+    let first = if the_negated {
+        format!("-{lexeme}")
+    } else {
+        lexeme.to_string()
+    };
     if as_double {
-        let next_ = natural_of(&source).map(|n| decimal_of(nearest(&n))).unwrap_or_default();
-        inf.warning_with_code(c::INTEGER_LITERAL_IMPRECISE_AS_DOUBLE, sp, &[&first, &next_]);
+        let next_ = natural_of(&source)
+            .map(|n| decimal_of(nearest(&n)))
+            .unwrap_or_default();
+        inf.warning_with_code(
+            c::INTEGER_LITERAL_IMPRECISE_AS_DOUBLE,
+            sp,
+            &[&first, &next_],
+        );
     } else {
         inf.warning_with_code(c::INTEGER_LITERAL_OUT_OF_RANGE, sp, &[&first]);
     }
@@ -210,7 +241,10 @@ mod tests {
         assert!(valid_as_double("9007199254740992"));
         assert!(!valid_as_double("9007199254740993"));
         assert_eq!(decimal_of(9007199254740992.0), "9007199254740992");
-        assert_eq!(decimal_of(nearest(&natural_of("9007199254740993").unwrap())), "9007199254740992");
+        assert_eq!(
+            decimal_of(nearest(&natural_of("9007199254740993").unwrap())),
+            "9007199254740992"
+        );
         assert_eq!(decimal_of(1e20), "100000000000000000000");
     }
 }

@@ -74,9 +74,7 @@ pub(super) fn produce(m: &Module) -> HashMap<String, HashMap<ValueId, u32>> {
                     entries.insert(s.clone());
                 }
                 Instruction::AllocClosureTyped {
-                    code_symbol,
-                    typed,
-                    ..
+                    code_symbol, typed, ..
                 } => {
                     entries.insert(code_symbol.clone());
                     entries.insert(typed.clone());
@@ -321,10 +319,7 @@ mod tests {
         prepare_arc_dart_module(&mut m, &mut plans).unwrap();
         assert!(m.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
             matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_write_field_ref_v1")));
-        assert_eq!(
-            prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-            (0, 0)
-        );
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
     }
 
     #[test]
@@ -380,9 +375,16 @@ mod tests {
                 // callers. Exposed entries also require a physical guard;
                 // null, a CID or an invalid size will be rejected by the runtime.
                 result.unwrap();
-                assert!(m.functions[1].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)|
-                    matches!(i, Instruction::CallRuntime { name, .. }
-                        if name == "dartforge_arc_write_field_ref_checked_v1")));
+                assert!(
+                    m.functions[1]
+                        .blocks
+                        .iter()
+                        .flat_map(|b| &b.instructions)
+                        .any(
+                            |(_, i, _)| matches!(i, Instruction::CallRuntime { name, .. }
+                        if name == "dartforge_arc_write_field_ref_checked_v1")
+                        )
+                );
                 assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             } else {
                 assert!(result.is_err(), "caso {case}: {result:?}");

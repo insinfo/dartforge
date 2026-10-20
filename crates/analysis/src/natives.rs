@@ -91,33 +91,58 @@ pub fn outside_sdk(unit: Unit<'_>) -> Vec<Diagnostic> {
     let b = unit.source.as_bytes();
     let mut out = Vec::new();
     for &id in &unit.unit.declarations {
-        let DeclKind::Class(c) = &ast.decl(id).kind else { continue };
+        let DeclKind::Class(c) = &ast.decl(id).kind else {
+            continue;
+        };
         if c.mixin_application {
             continue;
         }
         let mut end = c.name.span.end;
         end = end.max(c.type_params.iter().map(|t| t.span.end).max().unwrap_or(0));
-        for t in c.extends.iter().chain(c.with.iter()).chain(c.implements.iter()) {
+        for t in c
+            .extends
+            .iter()
+            .chain(c.with.iter())
+            .chain(c.implements.iter())
+        {
             end = end.max(ast.ty(*t).span.end);
         }
         // The `>` that closes the type parameters.
         let mut i = skip_blanks(b, end.min(b.len()));
-        if !c.type_params.is_empty() && end == c.type_params.iter().map(|t| t.span.end).max().unwrap_or(0) && b.get(i) == Some(&b'>') {
+        if !c.type_params.is_empty()
+            && end == c.type_params.iter().map(|t| t.span.end).max().unwrap_or(0)
+            && b.get(i) == Some(&b'>')
+        {
             i += 1;
         }
         if let Some(span) = clause(b, i) {
-            out.push(Diagnostic::with_code(p::NATIVE_CLAUSE_IN_NON_SDK_CODE, span, std::iter::empty::<&str>()));
+            out.push(Diagnostic::with_code(
+                p::NATIVE_CLAUSE_IN_NON_SDK_CODE,
+                span,
+                std::iter::empty::<&str>(),
+            ));
         }
     }
     for f in &ast.functions {
-        let FunctionBody::Native(name) = &f.body else { continue };
-        let limit = name.as_ref().map_or(f.span.end, |s| s.span.start).min(b.len());
-        let Some(start) = unit.source[f.span.start.min(limit)..limit].rfind("native").map(|k| k + f.span.start.min(limit)) else {
+        let FunctionBody::Native(name) = &f.body else {
+            continue;
+        };
+        let limit = name
+            .as_ref()
+            .map_or(f.span.end, |s| s.span.start)
+            .min(b.len());
+        let Some(start) = unit.source[f.span.start.min(limit)..limit]
+            .rfind("native")
+            .map(|k| k + f.span.start.min(limit))
+        else {
             continue;
         };
         out.push(Diagnostic::with_code(
             p::NATIVE_FUNCTION_BODY_IN_NON_SDK_CODE,
-            Span { start, end: f.span.end },
+            Span {
+                start,
+                end: f.span.end,
+            },
             std::iter::empty::<&str>(),
         ));
     }
@@ -133,9 +158,20 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, usize, usize)> {
         let mut names = Interner::new();
         let out = parse(source, &mut names);
-        assert!(out.diagnostics.is_empty(), "{source}: {:?}", out.diagnostics);
-        let u = Unit { ast: &out.ast, unit: &out.unit, source };
-        outside_sdk(u).into_iter().map(|d| (d.code.unwrap().info().name, d.span.start, d.span.end)).collect()
+        assert!(
+            out.diagnostics.is_empty(),
+            "{source}: {:?}",
+            out.diagnostics
+        );
+        let u = Unit {
+            ast: &out.ast,
+            unit: &out.unit,
+            source,
+        };
+        outside_sdk(u)
+            .into_iter()
+            .map(|d| (d.code.unwrap().info().name, d.span.start, d.span.end))
+            .collect()
     }
 
     /// Positions from `dart analyze` 3.6.2 (`syntax/syntax_native_test.dart`
@@ -144,11 +180,17 @@ mod tests {
     fn clause_and_body_like_the_oracle() {
         assert_eq!(
             findings("class A {}\nclass W<T> extends A native \"*W\" {}\nclass N native 'x' {}\n"),
-            [("native_clause_in_non_sdk_code", 32, 43), ("native_clause_in_non_sdk_code", 55, 65)]
+            [
+                ("native_clause_in_non_sdk_code", 32, 43),
+                ("native_clause_in_non_sdk_code", 55, 65)
+            ]
         );
         assert_eq!(
             findings("int f() native 'f';\nclass C { void m() native; }\n"),
-            [("native_function_body_in_non_sdk_code", 8, 19), ("native_function_body_in_non_sdk_code", 39, 46)]
+            [
+                ("native_function_body_in_non_sdk_code", 8, 19),
+                ("native_function_body_in_non_sdk_code", 39, 46)
+            ]
         );
     }
 }

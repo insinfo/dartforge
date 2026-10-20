@@ -30,21 +30,48 @@ pub(crate) struct Capabilities {
 impl Capabilities {
     pub(crate) fn from_initialize(c: &Value) -> Capabilities {
         let item = c.pointer("/textDocument/completion/completionItem");
-        let b = |p: &str| item.and_then(|i| i.pointer(p)).and_then(Value::as_bool).unwrap_or(false);
+        let b = |p: &str| {
+            item.and_then(|i| i.pointer(p))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        };
         let patterns: Vec<String> = c
             .pointer("/textDocument/completion/completionList/itemDefaults")
             .and_then(Value::as_array)
-            .map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .map(|l| {
+                l.iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
             .unwrap_or_default();
         Capabilities {
             deprecated: b("/deprecatedSupport"),
-            deprecated_tag: item.and_then(|i| i.pointer("/tagSupport/valueSet")).and_then(Value::as_array).is_some_and(|l| l.iter().any(|x| x.as_u64() == Some(1))),
-            doc_formats: item.and_then(|i| i.get("documentationFormat")).and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).map(str::to_string).collect()),
+            deprecated_tag: item
+                .and_then(|i| i.pointer("/tagSupport/valueSet"))
+                .and_then(Value::as_array)
+                .is_some_and(|l| l.iter().any(|x| x.as_u64() == Some(1))),
+            doc_formats: item
+                .and_then(|i| i.get("documentationFormat"))
+                .and_then(Value::as_array)
+                .map(|l| {
+                    l.iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect()
+                }),
             snippet: b("/snippetSupport"),
             insert_replace: b("/insertReplaceSupport"),
-            insertion_modes: item.and_then(|i| i.pointer("/insertTextModeSupport/valueSet")).and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_u64).collect()).unwrap_or_default(),
+            insertion_modes: item
+                .and_then(|i| i.pointer("/insertTextModeSupport/valueSet"))
+                .and_then(Value::as_array)
+                .map(|l| l.iter().filter_map(Value::as_u64).collect())
+                .unwrap_or_default(),
             label_details: b("/labelDetailsSupport"),
-            kinds: c.pointer("/textDocument/completion/completionItemKind/valueSet").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_u64).collect()),
+            kinds: c
+                .pointer("/textDocument/completion/completionItemKind/valueSet")
+                .and_then(Value::as_array)
+                .map(|l| l.iter().filter_map(Value::as_u64).collect()),
             default_range: patterns.iter().any(|p| p == "editRange"),
             default_mode: patterns.iter().any(|p| p == "insertTextMode"),
         }
@@ -64,7 +91,9 @@ impl Capabilities {
         match &self.doc_formats {
             None => json!(text),
             Some(l) => {
-                let markdown = l.is_empty() || l.iter().any(|f| f == "markdown") || !l.iter().any(|f| f == "plaintext");
+                let markdown = l.is_empty()
+                    || l.iter().any(|f| f == "markdown")
+                    || !l.iter().any(|f| f == "plaintext");
                 json!({"kind": if markdown { "markdown" } else { "plaintext" }, "value": text})
             }
         }
@@ -96,7 +125,11 @@ fn escape(t: &str) -> String {
 /// `buildSnippetStringWithTabStops(text, pairs)`.
 fn snippet_with_stops(text: &str, pairs: &[(usize, usize)]) -> String {
     let units: Vec<u16> = text.encode_utf16().collect();
-    let valid: Vec<(usize, usize)> = pairs.iter().copied().filter(|&(o, l)| o + l <= units.len()).collect();
+    let valid: Vec<(usize, usize)> = pairs
+        .iter()
+        .copied()
+        .filter(|&(o, l)| o + l <= units.len())
+        .collect();
     let mut s = String::new();
     let mut pos = 0usize;
     let single = valid.len() == 1;
@@ -107,7 +140,10 @@ fn snippet_with_stops(text: &str, pairs: &[(usize, usize)]) -> String {
         if inside.is_empty() {
             s.push_str(&format!("${n}"));
         } else {
-            let e = inside.replace('\\', "\\\\").replace('$', "\\$").replace('}', "\\}");
+            let e = inside
+                .replace('\\', "\\\\")
+                .replace('$', "\\$")
+                .replace('}', "\\}");
             s.push_str(&format!("${{{n}:{e}}}"));
         }
         pos = o + l;
@@ -148,7 +184,9 @@ fn list_pattern(parameters: &[String]) -> Option<(String, Vec<(usize, usize)>)> 
 /// `getCompletionDetail`: `truncatedParams` and `truncatedSignature` of a
 /// `detail` already in the form `(params) → ret` (or just the type).
 fn signatures(detail: Option<&str>, callable: bool) -> (String, String) {
-    let Some(d) = detail.filter(|d| !d.is_empty()) else { return (String::new(), String::new()) };
+    let Some(d) = detail.filter(|d| !d.is_empty()) else {
+        return (String::new(), String::new());
+    };
     if callable && d.starts_with('(') {
         let mut level = 0usize;
         let mut end = d.len();
@@ -165,8 +203,16 @@ fn signatures(detail: Option<&str>, callable: bool) -> (String, String) {
                 _ => {}
             }
         }
-        let truncated = if &d[..end] == "()" { "()".to_string() } else { "(…)".to_string() };
-        let return_ = d[end..].trim_start().strip_prefix('→').map(str::trim).filter(|r| !r.is_empty());
+        let truncated = if &d[..end] == "()" {
+            "()".to_string()
+        } else {
+            "(…)".to_string()
+        };
+        let return_ = d[end..]
+            .trim_start()
+            .strip_prefix('→')
+            .map(str::trim)
+            .filter(|r| !r.is_empty());
         let signature = match return_ {
             Some(r) => format!("{truncated} → {r}"),
             None => truncated.clone(),
@@ -202,7 +248,12 @@ fn preference(k: u32) -> Vec<u64> {
 }
 
 /// The `CompletionItem` of a server item.
-pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, documentation: Option<String>) -> Value {
+pub(crate) fn item(
+    cap: &Capabilities,
+    p: &Request<'_>,
+    i: &CompletionItem,
+    documentation: Option<String>,
+) -> Value {
     let callable = i.call.is_some();
     // `label` (the `displayText ?? completion`), `filterText`.
     let mut label = i.display.clone().unwrap_or_else(|| i.insert.clone());
@@ -210,7 +261,15 @@ pub(crate) fn item(cap: &Capabilities, p: &Request<'_>, i: &CompletionItem, docu
     let filter = if starts_with_pattern {
         label.clone()
     } else {
-        label.split('(').next().unwrap_or("").split("=>").next().unwrap_or("").trim().to_string()
+        label
+            .split('(')
+            .next()
+            .unwrap_or("")
+            .split("=>")
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string()
     };
     if cap.label_details {
         label = filter.clone();
@@ -352,37 +411,129 @@ pub(crate) enum SnippetContext {
 
 /// The code snippets (§14.8.9) of the context, filtered by the prefix:
 /// (prefix, label, documentation, body).
-pub(crate) fn snippets(context: SnippetContext, indent: &str, eol: &str, in_tests: bool, finals: bool) -> Vec<(&'static str, &'static str, &'static str, String)> {
+pub(crate) fn snippets(
+    context: SnippetContext,
+    indent: &str,
+    eol: &str,
+    in_tests: bool,
+    finals: bool,
+) -> Vec<(&'static str, &'static str, &'static str, String)> {
     let q = |s: &str| s.replace("⏎", &format!("{eol}{indent}"));
     let var = if finals { "final" } else { "var" };
     let mut v: Vec<(&'static str, &'static str, &'static str, String)> = Vec::new();
     match context {
         SnippetContext::Top => {
-            v.push(("class", "class", "Insert a class definition.", q("class ${1:ClassName} {⏎  $0⏎}")));
-            v.push(("fun", "fun", "Insert a function definition.", q("${1:void} ${2:name}(${3:params}) {⏎  $0⏎}")));
-            let main = if in_tests { "void main() {\n  $0\n}".to_string() } else { "void main(List<String> args) {\n  $0\n}".to_string() };
-            v.push(("main", "main()", "Insert a main function, used as an entry point.", main));
+            v.push((
+                "class",
+                "class",
+                "Insert a class definition.",
+                q("class ${1:ClassName} {⏎  $0⏎}"),
+            ));
+            v.push((
+                "fun",
+                "fun",
+                "Insert a function definition.",
+                q("${1:void} ${2:name}(${3:params}) {⏎  $0⏎}"),
+            ));
+            let main = if in_tests {
+                "void main() {\n  $0\n}".to_string()
+            } else {
+                "void main(List<String> args) {\n  $0\n}".to_string()
+            };
+            v.push((
+                "main",
+                "main()",
+                "Insert a main function, used as an entry point.",
+                main,
+            ));
         }
         SnippetContext::Block => {
-            v.push(("do", "do while", "Insert a do-while loop.", q("do {⏎  $0⏎} while (${1:condition});")));
-            v.push(("forin", "for in", "Insert a for-in loop.", q(&format!("for ({var} ${{1:element}} in ${{2:collection}}) {{⏎  $0⏎}}"))));
-            v.push(("for", "for", "Insert a for loop.", q("for (var i = 0; i < ${1:count}; i++) {⏎  $0⏎}")));
-            v.push(("fun", "fun", "Insert a function definition.", q("${1:void} ${2:name}(${3:params}) {⏎  $0⏎}")));
-            v.push(("ife", "ife", "Insert an if/else statement.", q("if (${1:condition}) {⏎  $0⏎} else {⏎  ⏎}")));
-            v.push(("if", "if", "Insert an if statement.", q("if (${1:condition}) {⏎  $0⏎}")));
-            v.push(("switch", "switch statement", "Insert a switch statement.", q("switch (${1:expression}) {⏎  case ${2:value}:⏎    $0⏎    break;⏎  default:⏎}")));
+            v.push((
+                "do",
+                "do while",
+                "Insert a do-while loop.",
+                q("do {⏎  $0⏎} while (${1:condition});"),
+            ));
+            v.push((
+                "forin",
+                "for in",
+                "Insert a for-in loop.",
+                q(&format!(
+                    "for ({var} ${{1:element}} in ${{2:collection}}) {{⏎  $0⏎}}"
+                )),
+            ));
+            v.push((
+                "for",
+                "for",
+                "Insert a for loop.",
+                q("for (var i = 0; i < ${1:count}; i++) {⏎  $0⏎}"),
+            ));
+            v.push((
+                "fun",
+                "fun",
+                "Insert a function definition.",
+                q("${1:void} ${2:name}(${3:params}) {⏎  $0⏎}"),
+            ));
+            v.push((
+                "ife",
+                "ife",
+                "Insert an if/else statement.",
+                q("if (${1:condition}) {⏎  $0⏎} else {⏎  ⏎}"),
+            ));
+            v.push((
+                "if",
+                "if",
+                "Insert an if statement.",
+                q("if (${1:condition}) {⏎  $0⏎}"),
+            ));
+            v.push((
+                "switch",
+                "switch statement",
+                "Insert a switch statement.",
+                q("switch (${1:expression}) {⏎  case ${2:value}:⏎    $0⏎    break;⏎  default:⏎}"),
+            ));
             if in_tests {
-                v.push(("test", "test", "Insert a test block.", q("test('${1:test name}', () {⏎  $0⏎});")));
-                v.push(("group", "group", "Insert a test group block.", q("group('${1:group name}', () {⏎  $0⏎});")));
+                v.push((
+                    "test",
+                    "test",
+                    "Insert a test block.",
+                    q("test('${1:test name}', () {⏎  $0⏎});"),
+                ));
+                v.push((
+                    "group",
+                    "group",
+                    "Insert a test group block.",
+                    q("group('${1:group name}', () {⏎  $0⏎});"),
+                ));
             }
-            v.push(("try", "try", "Insert a try/catch statement.", q("try {⏎  $0⏎} catch (${1:e}) {⏎  ⏎}")));
-            v.push(("while", "while", "Insert a while loop.", q("while (${1:condition}) {⏎  $0⏎}")));
+            v.push((
+                "try",
+                "try",
+                "Insert a try/catch statement.",
+                q("try {⏎  $0⏎} catch (${1:e}) {⏎  ⏎}"),
+            ));
+            v.push((
+                "while",
+                "while",
+                "Insert a while loop.",
+                q("while (${1:condition}) {⏎  $0⏎}"),
+            ));
         }
         SnippetContext::Class => {
-            v.push(("fun", "fun", "Insert a function definition.", q("${1:void} ${2:name}(${3:params}) {⏎  $0⏎}")));
+            v.push((
+                "fun",
+                "fun",
+                "Insert a function definition.",
+                q("${1:void} ${2:name}(${3:params}) {⏎  $0⏎}"),
+            ));
         }
         SnippetContext::Expression => {
-            v.push(("switch", "switch expression", "Insert a switch expression.", q("switch (${1:expression}) {⏎  ${2:pattern} => ${3:value},$0⏎}")));
+            v.push((
+                "switch",
+                "switch expression",
+                "Insert a switch expression.",
+                q("switch (${1:expression}) {⏎  ${2:pattern} => ${3:value},$0⏎}"),
+            ));
         }
         SnippetContext::Other => {}
     }
@@ -390,7 +541,14 @@ pub(crate) fn snippets(context: SnippetContext, indent: &str, eol: &str, in_test
 }
 
 /// The item of a snippet (`snippetToCompletionItem`, `MAP:788-878`).
-pub(crate) fn snippet_item(cap: &Capabilities, p: &Request<'_>, prefix: &str, label: &str, doc: &str, body: &str) -> Value {
+pub(crate) fn snippet_item(
+    cap: &Capabilities,
+    p: &Request<'_>,
+    prefix: &str,
+    label: &str,
+    doc: &str,
+    body: &str,
+) -> Value {
     let mut v = json!({"label": label, "kind": 15, "sortText": format!("zzz{prefix}"), "insertTextFormat": 2});
     if prefix != label {
         v["filterText"] = json!(prefix);
@@ -432,20 +590,39 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
     let mut names = dartforge_intern::Interner::new();
     let analyzed = dartforge_frontend::parser::parse(text, &mut names);
     let tree = crate::analyzer_tree::build(text, &analyzed.ast, &analyzed.unit, false);
-    let tokens: Vec<dartforge_frontend::token::Token> = dartforge_frontend::lexer::lex(text).unwrap_or_default().into_iter().filter(|t| t.kind != Kind::Eof).collect();
-    let word = |t: &dartforge_frontend::token::Token| matches!(t.kind, Kind::Ident | Kind::Keyword(_));
-    let candidate = |t: &dartforge_frontend::token::Token| offset < t.span.end || (offset == t.span.end && (word(t) || t.span.start == t.span.end));
+    let tokens: Vec<dartforge_frontend::token::Token> = dartforge_frontend::lexer::lex(text)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|t| t.kind != Kind::Eof)
+        .collect();
+    let word =
+        |t: &dartforge_frontend::token::Token| matches!(t.kind, Kind::Ident | Kind::Keyword(_));
+    let candidate = |t: &dartforge_frontend::token::Token| {
+        offset < t.span.end || (offset == t.span.end && (word(t) || t.span.start == t.span.end))
+    };
     let (mut cont, mut entity) = (0usize, Entity::None);
     'external: loop {
         let node = &tree.nodes[cont];
         // The entities: the children and the tokens outside them, in order.
-        let mut ents: Vec<(usize, Entity)> = node.children.iter().map(|&f| (tree.nodes[f].start, Entity::No(f))).collect();
-        let (start, end) = if cont == 0 { (0, text.len()) } else { (node.start, node.end) };
+        let mut ents: Vec<(usize, Entity)> = node
+            .children
+            .iter()
+            .map(|&f| (tree.nodes[f].start, Entity::No(f)))
+            .collect();
+        let (start, end) = if cont == 0 {
+            (0, text.len())
+        } else {
+            (node.start, node.end)
+        };
         for (k, t) in tokens.iter().enumerate() {
             if t.span.start < start || t.span.end > end {
                 continue;
             }
-            if node.children.iter().any(|&f| tree.nodes[f].start <= t.span.start && t.span.end <= tree.nodes[f].end) {
+            if node
+                .children
+                .iter()
+                .any(|&f| tree.nodes[f].start <= t.span.start && t.span.end <= tree.nodes[f].end)
+            {
                 continue;
             }
             ents.push((t.span.start, Entity::Token(k)));
@@ -461,7 +638,10 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
                 }
                 Entity::No(f) => {
                     let nf = &tree.nodes[f];
-                    let last = tokens.iter().rev().find(|t| t.span.end <= nf.end && t.span.start >= nf.start);
+                    let last = tokens
+                        .iter()
+                        .rev()
+                        .find(|t| t.span.end <= nf.end && t.span.start >= nf.start);
                     if !last.is_some_and(candidate) {
                         continue;
                     }
@@ -483,9 +663,19 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
         break;
     }
     match entity {
-        Entity::Token(k) if matches!(tokens[k].kind, Kind::Str(_) | Kind::StrBegin(..) | Kind::StrMid(..) | Kind::StrEnd(_)) => return Some(SnippetContext::Other),
+        Entity::Token(k)
+            if matches!(
+                tokens[k].kind,
+                Kind::Str(_) | Kind::StrBegin(..) | Kind::StrMid(..) | Kind::StrEnd(_)
+            ) =>
+        {
+            return Some(SnippetContext::Other);
+        }
         Entity::No(f) if tree.nodes[f].kind == "NamedExpression" => {
-            let name = tree.nodes[f].children.first().map(|&l| (tree.nodes[l].start, tree.nodes[l].end));
+            let name = tree.nodes[f]
+                .children
+                .first()
+                .map(|&l| (tree.nodes[l].start, tree.nodes[l].end));
             if name.is_some_and(|(a, b)| a <= offset && offset <= b) {
                 return Some(SnippetContext::Other);
             }
@@ -499,18 +689,31 @@ pub(crate) fn snippet_context(text: &str, offset: usize) -> Option<SnippetContex
         }
         let e = tree.nodes[k].kind;
         match e {
-            "ReturnStatement" if offset > tree.nodes[k].start + "return".len() => return Some(SnippetContext::Expression),
-            "Comment" | "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings" => return Some(SnippetContext::Other),
+            "ReturnStatement" if offset > tree.nodes[k].start + "return".len() => {
+                return Some(SnippetContext::Expression);
+            }
+            "Comment" | "SimpleStringLiteral" | "StringInterpolation" | "AdjacentStrings" => {
+                return Some(SnippetContext::Other);
+            }
             "VariableDeclaration" => return Some(SnippetContext::Expression),
             "VariableDeclarationList" => return Some(SnippetContext::Other),
-            "PropertyAccess" | "FieldFormalParameter" | "PrefixedIdentifier" | "ConstructorReference" | "InstanceCreationExpression" => return Some(SnippetContext::Other),
+            "PropertyAccess"
+            | "FieldFormalParameter"
+            | "PrefixedIdentifier"
+            | "ConstructorReference"
+            | "InstanceCreationExpression" => return Some(SnippetContext::Other),
             "Block" => return Some(SnippetContext::Block),
             _ if crate::refactorings::is_command_kind(e) => return Some(SnippetContext::Other),
             "SwitchExpression" => return Some(SnippetContext::Other),
-            _ if crate::refactorings::is_expression_kind(e) => return Some(SnippetContext::Expression),
+            _ if crate::refactorings::is_expression_kind(e) => {
+                return Some(SnippetContext::Expression);
+            }
             "Annotation" => return Some(SnippetContext::Other),
             "BlockFunctionBody" => return Some(SnippetContext::Block),
-            "ClassDeclaration" | "ExtensionDeclaration" | "MixinDeclaration" | "EnumDeclaration" => return Some(SnippetContext::Class),
+            "ClassDeclaration"
+            | "ExtensionDeclaration"
+            | "MixinDeclaration"
+            | "EnumDeclaration" => return Some(SnippetContext::Class),
             _ => {}
         }
         current = tree.nodes[k].parent;

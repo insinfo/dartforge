@@ -26,7 +26,7 @@
 //! declarations ([`Program::class_members`]), one element per member,
 //! and the added supertypes (`implements`/`with`/`extends`).
 use crate::model::*;
-use crate::outline::{extract_members, ElementPools};
+use crate::outline::{ElementPools, extract_members};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{self, DeclKind, FunctionBody, MemberKind};
 use dartforge_frontend::features::Feature;
@@ -48,41 +48,80 @@ pub(crate) struct Merge<'a> {
 impl Merge<'_> {
     fn error(&mut self, unit: UnitId, msg: impl Into<String>, span: Span) {
         let u = &self.units[unit.0 as usize];
-        self.diagnostics.push(Diagnostic::new(format!("{}: {}", u.uri, msg.into()), span));
+        self.diagnostics
+            .push(Diagnostic::new(format!("{}: {}", u.uri, msg.into()), span));
     }
 }
 
 /// Applies the top-level `augment` declaration `decl_id` of unit `unit_id`.
-pub(crate) fn apply(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: UnitId, decl_id: ast::DeclId) {
+pub(crate) fn apply(
+    f: &mut Merge<'_>,
+    pools: &mut ElementPools,
+    unit_id: UnitId,
+    decl_id: ast::DeclId,
+) {
     let ast = &f.units[unit_id.0 as usize].ast;
     let decl = ast.decl(decl_id);
     let span = decl.span;
     match &decl.kind {
         DeclKind::Class(c) => {
             if c.mixin_application {
-                f.error(unit_id, "a mixin application ('class C = S with M') cannot be augmented", span);
+                f.error(
+                    unit_id,
+                    "a mixin application ('class C = S with M') cannot be augmented",
+                    span,
+                );
                 return;
             }
-            let Some(cid) = introductory_class(f, pools, unit_id, c.name, ClassKind::Class) else { return };
+            let Some(cid) = introductory_class(f, pools, unit_id, c.name, ClassKind::Class) else {
+                return;
+            };
             let class_elem = &mut pools.classes[cid.0 as usize];
             if let Some(t) = c.extends {
                 if class_elem.supertype.is_some() {
-                    f.error(unit_id, format!("class '{}' already has an 'extends' clause", name_(f, c.name.sym)), span);
+                    f.error(
+                        unit_id,
+                        format!(
+                            "class '{}' already has an 'extends' clause",
+                            name_(f, c.name.sym)
+                        ),
+                        span,
+                    );
                 } else {
                     class_elem.supertype = Some((unit_id, t));
                 }
             }
-            class_elem.mixins.extend(c.with.iter().map(|t| (unit_id, *t)));
-            class_elem.interfaces.extend(c.implements.iter().map(|t| (unit_id, *t)));
-            f.chains.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
+            class_elem
+                .mixins
+                .extend(c.with.iter().map(|t| (unit_id, *t)));
+            class_elem
+                .interfaces
+                .extend(c.implements.iter().map(|t| (unit_id, *t)));
+            f.chains.push((
+                cid,
+                DeclRef {
+                    unit: unit_id,
+                    decl: decl_id,
+                },
+            ));
             apply_members(f, pools, cid, unit_id, &c.members);
         }
         DeclKind::Mixin(m) => {
-            let Some(cid) = introductory_class(f, pools, unit_id, m.name, ClassKind::Mixin) else { return };
+            let Some(cid) = introductory_class(f, pools, unit_id, m.name, ClassKind::Mixin) else {
+                return;
+            };
             let class_elem = &mut pools.classes[cid.0 as usize];
             class_elem.on.extend(m.on.iter().map(|t| (unit_id, *t)));
-            class_elem.interfaces.extend(m.implements.iter().map(|t| (unit_id, *t)));
-            f.chains.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
+            class_elem
+                .interfaces
+                .extend(m.implements.iter().map(|t| (unit_id, *t)));
+            f.chains.push((
+                cid,
+                DeclRef {
+                    unit: unit_id,
+                    decl: decl_id,
+                },
+            ));
             apply_members(f, pools, cid, unit_id, &m.members);
         }
         DeclKind::Function(fid) => {
@@ -97,7 +136,10 @@ pub(crate) fn apply(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: UnitId
             let Some(Element::Function(old)) = previous else {
                 f.error(
                     unit_id,
-                    format!("'augment' of '{}' without an introductory declaration before it", name_(f, n.sym)),
+                    format!(
+                        "'augment' of '{}' without an introductory declaration before it",
+                        name_(f, n.sym)
+                    ),
                     n.span,
                 );
                 return;
@@ -114,7 +156,10 @@ pub(crate) fn apply(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: UnitId
                 external: func.external,
                 const_: false,
                 factory: false,
-                node: FunctionRef::Function { unit: unit_id, function: *fid },
+                node: FunctionRef::Function {
+                    unit: unit_id,
+                    function: *fid,
+                },
                 variable: None,
                 patched_by: None,
                 public_declaration: None,
@@ -129,23 +174,40 @@ pub(crate) fn apply(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: UnitId
         }
         DeclKind::Enum(e) => {
             if e.primary_constructor.is_some() {
-                f.error(unit_id, "augmenting an enum with a primary constructor is not supported yet", span);
+                f.error(
+                    unit_id,
+                    "augmenting an enum with a primary constructor is not supported yet",
+                    span,
+                );
                 return;
             }
-            let Some(cid) = introductory_class(f, pools, unit_id, e.name, ClassKind::Enum) else { return };
+            let Some(cid) = introductory_class(f, pools, unit_id, e.name, ClassKind::Enum) else {
+                return;
+            };
             let class_elem = &mut pools.classes[cid.0 as usize];
-            class_elem.mixins.extend(e.with.iter().map(|t| (unit_id, *t)));
-            class_elem.interfaces.extend(e.implements.iter().map(|t| (unit_id, *t)));
+            class_elem
+                .mixins
+                .extend(e.with.iter().map(|t| (unit_id, *t)));
+            class_elem
+                .interfaces
+                .extend(e.implements.iter().map(|t| (unit_id, *t)));
             // New values go after the existing ones, in application order (spec,
             // "Augmenting enum declarations": `values` in chain order).
             for (idx, k) in e.constants.iter().enumerate() {
                 let c = &pools.classes[cid.0 as usize];
-                let repeated = c.enum_constants.iter().any(|v| pools.variables[v.0 as usize].name == k.name.sym)
+                let repeated = c
+                    .enum_constants
+                    .iter()
+                    .any(|v| pools.variables[v.0 as usize].name == k.name.sym)
                     || c.instance_members.contains_key(&k.name.sym)
                     || c.static_members.contains_key(&k.name.sym);
                 if repeated {
                     let n = name_(f, k.name.sym);
-                    f.error(unit_id, format!("'{n}' is already declared; to augment it, use 'augment'"), k.name.span);
+                    f.error(
+                        unit_id,
+                        format!("'{n}' is already declared; to augment it, use 'augment'"),
+                        k.name.span,
+                    );
                     continue;
                 }
                 let id = VariableId(pools.variables.len() as u32);
@@ -159,20 +221,38 @@ pub(crate) fn apply(f: &mut Merge<'_>, pools: &mut ElementPools, unit_id: UnitId
                     const_: true,
                     late: false,
                     external: false,
-                    node: VariableRef::EnumConstant { unit: unit_id, decl: decl_id, index: idx },
+                    node: VariableRef::EnumConstant {
+                        unit: unit_id,
+                        decl: decl_id,
+                        index: idx,
+                    },
                     getter: None,
                     setter: None,
                 });
                 pools.classes[cid.0 as usize].enum_constants.push(id);
             }
-            f.chains.push((cid, DeclRef { unit: unit_id, decl: decl_id }));
+            f.chains.push((
+                cid,
+                DeclRef {
+                    unit: unit_id,
+                    decl: decl_id,
+                },
+            ));
             apply_members(f, pools, cid, unit_id, &e.members);
         }
         DeclKind::Extension(_) | DeclKind::ExtensionType(_) => {
-            f.error(unit_id, "augmenting extensions and extension types is not supported yet", span);
+            f.error(
+                unit_id,
+                "augmenting extensions and extension types is not supported yet",
+                span,
+            );
         }
         DeclKind::Variables(_) => {
-            f.error(unit_id, "augmenting top-level variables is not supported yet", span);
+            f.error(
+                unit_id,
+                "augmenting top-level variables is not supported yet",
+                span,
+            );
         }
         DeclKind::Typedef(_) => {
             f.error(unit_id, "a typedef cannot be augmented", span);
@@ -192,11 +272,25 @@ fn introductory_class(
     match found_one {
         Some(Element::Class(cid)) if pools.classes[cid.0 as usize].kind == kind => Some(cid),
         Some(_) => {
-            f.error(unit_id, format!("'augment' of '{}' with a different kind of declaration", name_(f, n.sym)), n.span);
+            f.error(
+                unit_id,
+                format!(
+                    "'augment' of '{}' with a different kind of declaration",
+                    name_(f, n.sym)
+                ),
+                n.span,
+            );
             None
         }
         None => {
-            f.error(unit_id, format!("'augment' of '{}' without an introductory declaration before it", name_(f, n.sym)), n.span);
+            f.error(
+                unit_id,
+                format!(
+                    "'augment' of '{}' without an introductory declaration before it",
+                    name_(f, n.sym)
+                ),
+                n.span,
+            );
             None
         }
     }
@@ -204,7 +298,13 @@ fn introductory_class(
 
 /// The members of the body of an `augment class`/`augment mixin`: plain ones
 /// are added; `augment` ones attach to the member of the same name.
-fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit_id: UnitId, members_: &[ast::MemberId]) {
+fn apply_members(
+    f: &mut Merge<'_>,
+    pools: &mut ElementPools,
+    cid: ClassId,
+    unit_id: UnitId,
+    members_: &[ast::MemberId],
+) {
     let ast = &f.units[unit_id.0 as usize].ast;
     // In text order: a new member may be augmented right after it, in the same
     // body (that is what macro output does: `external C.x(...)` and
@@ -217,15 +317,22 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                 let exists_ = match &m.kind {
                     MemberKind::Constructor(k) => {
                         let s = k.name.map(|n| n.sym).unwrap_or(f.empty_sym);
-                        c.constructors
-                            .get(&s)
-                            .is_some_and(|id| pools.functions[id.0 as usize].kind != FunctionKind::SyntheticConstructor)
+                        c.constructors.get(&s).is_some_and(|id| {
+                            pools.functions[id.0 as usize].kind
+                                != FunctionKind::SyntheticConstructor
+                        })
                     }
-                    _ => c.instance_members.contains_key(&sym) || c.static_members.contains_key(&sym),
+                    _ => {
+                        c.instance_members.contains_key(&sym) || c.static_members.contains_key(&sym)
+                    }
                 };
                 if exists_ {
                     let n = name_(f, sym);
-                    f.error(unit_id, format!("'{n}' is already declared; to augment it, use 'augment'"), span);
+                    f.error(
+                        unit_id,
+                        format!("'{n}' is already declared; to augment it, use 'augment'"),
+                        span,
+                    );
                     continue;
                 }
             }
@@ -251,10 +358,18 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                     sym
                 };
                 let c = &pools.classes[cid.0 as usize];
-                let map = if func.static_ { &c.static_members } else { &c.instance_members };
+                let map = if func.static_ {
+                    &c.static_members
+                } else {
+                    &c.instance_members
+                };
                 let Some(&old) = map.get(&key) else {
                     let t = name_(f, n.sym);
-                    f.error(unit_id, format!("'augment' of '{t}' without an introductory member before it"), n.span);
+                    f.error(
+                        unit_id,
+                        format!("'augment' of '{t}' without an introductory member before it"),
+                        n.span,
+                    );
                     continue;
                 };
                 let new_ = FunctionElementId(pools.functions.len() as u32);
@@ -269,14 +384,21 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                     external: func.external,
                     const_: false,
                     factory: false,
-                    node: FunctionRef::Function { unit: unit_id, function: *fid },
+                    node: FunctionRef::Function {
+                        unit: unit_id,
+                        function: *fid,
+                    },
                     variable: None,
                     patched_by: None,
                     public_declaration: None,
                 });
                 if link(f, pools, unit_id, old, new_, full_function(func), n.span) {
                     let c = &mut pools.classes[cid.0 as usize];
-                    let map = if func.static_ { &mut c.static_members } else { &mut c.instance_members };
+                    let map = if func.static_ {
+                        &mut c.static_members
+                    } else {
+                        &mut c.instance_members
+                    };
                     map.insert(key, new_);
                 }
             }
@@ -284,7 +406,11 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                 let sym = k.name.map(|n| n.sym).unwrap_or(f.empty_sym);
                 let span = k.name.map(|n| n.span).unwrap_or(k.class_name.span);
                 let Some(&old) = pools.classes[cid.0 as usize].constructors.get(&sym) else {
-                    f.error(unit_id, "constructor 'augment' without an introductory constructor before it", span);
+                    f.error(
+                        unit_id,
+                        "constructor 'augment' without an introductory constructor before it",
+                        span,
+                    );
                     continue;
                 };
                 let new_ = FunctionElementId(pools.functions.len() as u32);
@@ -299,7 +425,10 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
                     external: k.external,
                     const_: k.const_,
                     factory: k.factory,
-                    node: FunctionRef::Constructor { unit: unit_id, member: mid },
+                    node: FunctionRef::Constructor {
+                        unit: unit_id,
+                        member: mid,
+                    },
                     variable: None,
                     patched_by: None,
                     public_declaration: None,
@@ -318,15 +447,33 @@ fn apply_members(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit
 /// A new member: the same elements as a plain declaration. A constructor
 /// declared in the augmentation removes the synthetic constructor (the class
 /// now declares a constructor).
-fn append_member(f: &mut Merge<'_>, pools: &mut ElementPools, cid: ClassId, unit_id: UnitId, mid: ast::MemberId) {
+fn append_member(
+    f: &mut Merge<'_>,
+    pools: &mut ElementPools,
+    cid: ClassId,
+    unit_id: UnitId,
+    mid: ast::MemberId,
+) {
     let ast = &f.units[unit_id.0 as usize].ast;
-    let mut class_elem = std::mem::replace(&mut pools.classes[cid.0 as usize], empty_class(f.lib_id, f.empty_sym));
+    let mut class_elem = std::mem::replace(
+        &mut pools.classes[cid.0 as usize],
+        empty_class(f.lib_id, f.empty_sym),
+    );
     if matches!(ast.member(mid).kind, MemberKind::Constructor(_)) {
-        class_elem
-            .constructors
-            .retain(|_, id| pools.functions[id.0 as usize].kind != FunctionKind::SyntheticConstructor);
+        class_elem.constructors.retain(|_, id| {
+            pools.functions[id.0 as usize].kind != FunctionKind::SyntheticConstructor
+        });
     }
-    extract_members(pools, ast, &mut class_elem, cid, unit_id, &[mid], f.empty_sym, f.interner);
+    extract_members(
+        pools,
+        ast,
+        &mut class_elem,
+        cid,
+        unit_id,
+        &[mid],
+        f.empty_sym,
+        f.interner,
+    );
     pools.classes[cid.0 as usize] = class_elem;
 }
 
@@ -347,8 +494,14 @@ fn link(
         pools.functions[new_.0 as usize].patched_by = Some(old);
         return false;
     }
-    if has_body(f.units, &pools.functions[old.0 as usize]) && !augmentation_with_macros(f.units, unit_id) {
-        f.error(unit_id, "the augmented declaration already has a body; an augmentation cannot replace it", span);
+    if has_body(f.units, &pools.functions[old.0 as usize])
+        && !augmentation_with_macros(f.units, unit_id)
+    {
+        f.error(
+            unit_id,
+            "the augmented declaration already has a body; an augmentation cannot replace it",
+            span,
+        );
         pools.functions[new_.0 as usize].patched_by = Some(old);
         return false;
     }
@@ -376,7 +529,9 @@ fn has_body(units: &[Unit], e: &FunctionElement) -> bool {
             !func.external && !matches!(func.body, FunctionBody::Empty)
         }
         FunctionRef::Constructor { unit, member } => {
-            let MemberKind::Constructor(k) = &units[unit.0 as usize].ast.member(member).kind else { return false };
+            let MemberKind::Constructor(k) = &units[unit.0 as usize].ast.member(member).kind else {
+                return false;
+            };
             !k.external && full_constructor(k)
         }
         // Implicit accessor of a non-abstract field: it has the synthetic body.
@@ -410,7 +565,11 @@ fn function_type(k: ast::FunctionKind) -> FunctionKind {
 fn member_name(ast: &ast::Ast, m: &ast::Member) -> Option<(SymbolId, Span)> {
     match &m.kind {
         MemberKind::Method(fid) => ast.function(*fid).name.map(|n| (n.sym, n.span)),
-        MemberKind::Constructor(k) => Some(k.name.map(|n| (n.sym, n.span)).unwrap_or((k.class_name.sym, k.class_name.span))),
+        MemberKind::Constructor(k) => Some(
+            k.name
+                .map(|n| (n.sym, n.span))
+                .unwrap_or((k.class_name.sym, k.class_name.span)),
+        ),
         MemberKind::Field(v) => v.variables.first().map(|x| (x.name.sym, x.name.span)),
     }
 }

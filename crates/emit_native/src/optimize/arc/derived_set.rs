@@ -38,9 +38,11 @@ fn origins(f: &Function) -> HashMap<ValueId, Origin> {
                     if matches!(name.as_str(), "df.typed_data" | "df.core_storage") =>
                 {
                     match args.as_slice() {
-                        [(Operand::Val(list), Type::Ref)] => {
-                            Some(Origin { list: *list, root: *v, core: name == "df.core_storage" })
-                        }
+                        [(Operand::Val(list), Type::Ref)] => Some(Origin {
+                            list: *list,
+                            root: *v,
+                            core: name == "df.core_storage",
+                        }),
                         _ => None,
                     }
                 }
@@ -69,9 +71,16 @@ pub(super) fn addresses(f: &Function) -> HashSet<ValueId> {
 /// The address read or written by `inst`, if it is a memory access.
 fn address(inst: &Instruction) -> Option<&Operand> {
     match inst {
-        Instruction::NativeLoad { address, .. } | Instruction::NativeWrite { address, .. } => Some(address),
-        Instruction::Simd { op: OpSimd::Loads | OpSimd::Writes, args } => args.first(),
-        Instruction::CallRuntime { name, args, .. } if name == "df.core_shape" => args.first().map(|(o, _)| o),
+        Instruction::NativeLoad { address, .. } | Instruction::NativeWrite { address, .. } => {
+            Some(address)
+        }
+        Instruction::Simd {
+            op: OpSimd::Loads | OpSimd::Writes,
+            args,
+        } => args.first(),
+        Instruction::CallRuntime { name, args, .. } if name == "df.core_shape" => {
+            args.first().map(|(o, _)| o)
+        }
         _ => None,
     }
 }
@@ -97,7 +106,9 @@ fn keep_alive(list: ValueId) -> Instruction {
 fn barrier(inst: &Instruction) -> bool {
     match inst {
         Instruction::CallRuntime { name, .. } => {
-            let base = name.strip_prefix(super::NATIVE_SCOPE_PREFIX).unwrap_or(name);
+            let base = name
+                .strip_prefix(super::NATIVE_SCOPE_PREFIX)
+                .unwrap_or(name);
             name != KEEP_ALIVE
                 && !matches!(base, "dartforge_safepoint" | "dartforge_exception_clear")
                 && super::contract(name).map_or(true, |c| c.invalidates_borrows || c.calls_dart)
@@ -135,7 +146,9 @@ pub(super) fn keep_live(f: &mut Function) -> Result<(), String> {
             .filter(|l| !holds(old_ones.get(k + 1).map(|(_, i, _)| i), *l));
             new_ones.push((*v, inst.clone(), *ty));
             if let Some(list) = list {
-                next_item = next_item.checked_add(1).ok_or("SSA IDs exhausted while keeping lists alive")?;
+                next_item = next_item
+                    .checked_add(1)
+                    .ok_or("SSA IDs exhausted while keeping lists alive")?;
                 new_ones.push((ValueId(next_item), keep_alive(list), Type::Void));
             }
         }
@@ -168,7 +181,11 @@ fn valid_storages(f: &Function, der: &HashMap<ValueId, Origin>) -> Vec<HashSet<V
     loop {
         let mut changed = false;
         for (k, &bi) in cfg.rpo.iter().enumerate() {
-            let mut state = if k == 0 { HashSet::new() } else { roots.clone() };
+            let mut state = if k == 0 {
+                HashSet::new()
+            } else {
+                roots.clone()
+            };
             for &p in &cfg.predecessors[bi] {
                 if cfg.idom[p] != usize::MAX {
                     state.retain(|r| exits[p].contains(r));
@@ -219,7 +236,10 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
                 error = Some(*v);
             }
             if let Some(x) = error {
-                return Err(format!("v{}: address derived from list v{} escapes in {}", v.0, x.0, f.symbol));
+                return Err(format!(
+                    "v{}: address derived from list v{} escapes in {}",
+                    v.0, x.0, f.symbol
+                ));
             }
             if barrier(inst) {
                 state.clear();
@@ -230,18 +250,33 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
             let Some(o) = access else { continue };
             let following = b.instructions.get(i + 1).map(|(_, inst, _)| inst);
             if !holds(following, o.list) {
-                return Err(format!("v{}: access through a derived address without keeping v{} alive in {}", v.0, o.list.0, f.symbol));
+                return Err(format!(
+                    "v{}: access through a derived address without keeping v{} alive in {}",
+                    v.0, o.list.0, f.symbol
+                ));
             }
             if o.core && !state.contains(&o.root) {
-                let barriers: Vec<String> = f.blocks.iter().flat_map(|b| &b.instructions)
+                let barriers: Vec<String> = f
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
                     .filter(|(_, inst, _)| barrier(inst))
-                    .map(|(x, inst, _)| format!("v{} {}", x.0, match inst {
-                        Instruction::CallRuntime { name, .. } => name.clone(),
-                        Instruction::CallStatic { symbol, .. } => symbol.clone(),
-                        another => format!("{another:?}").chars().take(40).collect(),
-                    }))
+                    .map(|(x, inst, _)| {
+                        format!(
+                            "v{} {}",
+                            x.0,
+                            match inst {
+                                Instruction::CallRuntime { name, .. } => name.clone(),
+                                Instruction::CallStatic { symbol, .. } => symbol.clone(),
+                                another => format!("{another:?}").chars().take(40).collect(),
+                            }
+                        )
+                    })
                     .collect();
-                return Err(format!("v{}: barrier between the read of the storage of v{} and the access in {} (barriers: {barriers:?})", v.0, o.list.0, f.symbol));
+                return Err(format!(
+                    "v{}: barrier between the read of the storage of v{} and the access in {} (barriers: {barriers:?})",
+                    v.0, o.list.0, f.symbol
+                ));
             }
         }
         let mut escapes = None;
@@ -253,7 +288,10 @@ pub(super) fn verify(f: &Function) -> Result<(), String> {
             }
         });
         if let Some(x) = escapes {
-            return Err(format!("address derived from list v{} escapes in the terminator of b{} in {}", x.0, b.id.0, f.symbol));
+            return Err(format!(
+                "address derived from list v{} escapes in the terminator of b{} in {}",
+                x.0, b.id.0, f.symbol
+            ));
         }
     }
     Ok(())
@@ -264,7 +302,11 @@ mod tests {
     use super::*;
 
     fn rt(name: &str, args: Vec<(Operand, Type)>, ret_ty: Type) -> Instruction {
-        Instruction::CallRuntime { name: name.into(), args, ret_ty }
+        Instruction::CallRuntime {
+            name: name.into(),
+            args,
+            ret_ty,
+        }
     }
 
     fn function(instructions: Vec<(ValueId, Instruction, Type)>) -> Function {
@@ -272,9 +314,16 @@ mod tests {
             symbol: "f".into(),
             name: "f".into(),
             debug_info: None,
-            params: vec![(ValueId(0), "l".into(), Type::Ref), (ValueId(1), "i".into(), Type::I64)],
+            params: vec![
+                (ValueId(0), "l".into(), Type::Ref),
+                (ValueId(1), "i".into(), Type::I64),
+            ],
             return_ty: Type::Void,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions, terminator: Terminator::Return(None) }],
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions,
+                terminator: Terminator::Return(None),
+            }],
         }
     }
 
@@ -285,19 +334,48 @@ mod tests {
     #[test]
     fn typed_access_gets_list_keep_alive() {
         let mut f = function(vec![
-            (ValueId(2), rt("df.typed_data", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
-            (ValueId(3), Instruction::NativeLoad { address: val(2), index: val(1), ty: CType::F64 }, Type::F64),
-            (ValueId(4), Instruction::Add(val(2), Operand::Constant(Constant::Int(8))), Type::I64),
-            (ValueId(5), Instruction::NativeWrite { address: val(4), index: val(1), ty: CType::F64, value: val(3) }, Type::Void),
+            (
+                ValueId(2),
+                rt("df.typed_data", vec![(val(0), Type::Ref)], Type::I64),
+                Type::I64,
+            ),
+            (
+                ValueId(3),
+                Instruction::NativeLoad {
+                    address: val(2),
+                    index: val(1),
+                    ty: CType::F64,
+                },
+                Type::F64,
+            ),
+            (
+                ValueId(4),
+                Instruction::Add(val(2), Operand::Constant(Constant::Int(8))),
+                Type::I64,
+            ),
+            (
+                ValueId(5),
+                Instruction::NativeWrite {
+                    address: val(4),
+                    index: val(1),
+                    ty: CType::F64,
+                    value: val(3),
+                },
+                Type::Void,
+            ),
         ]);
         keep_live(&mut f).unwrap();
-        let names: Vec<_> = f.blocks[0].instructions.iter().map(|(v, i, _)| match i {
-            Instruction::CallRuntime { name, args, .. } if name == KEEP_ALIVE => {
-                assert_eq!(args, &vec![(val(0), Type::Ref)]);
-                format!("manter{}", v.0)
-            }
-            _ => format!("v{}", v.0),
-        }).collect();
+        let names: Vec<_> = f.blocks[0]
+            .instructions
+            .iter()
+            .map(|(v, i, _)| match i {
+                Instruction::CallRuntime { name, args, .. } if name == KEEP_ALIVE => {
+                    assert_eq!(args, &vec![(val(0), Type::Ref)]);
+                    format!("manter{}", v.0)
+                }
+                _ => format!("v{}", v.0),
+            })
+            .collect();
         assert_eq!(names, ["v2", "v3", "manter6", "v4", "v5", "manter7"]);
         // Repeating changes nothing.
         let before = format!("{f:?}");
@@ -312,23 +390,75 @@ mod tests {
     fn derived_address_does_not_escape_or_cross_core_barrier() {
         // Passing the address to a call.
         let mut f = function(vec![
-            (ValueId(2), rt("df.typed_data", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
-            (ValueId(3), Instruction::CallStatic { symbol: "g".into(), args: vec![val(2)], ret_ty: Type::Void }, Type::Void),
+            (
+                ValueId(2),
+                rt("df.typed_data", vec![(val(0), Type::Ref)], Type::I64),
+                Type::I64,
+            ),
+            (
+                ValueId(3),
+                Instruction::CallStatic {
+                    symbol: "g".into(),
+                    args: vec![val(2)],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ),
         ]);
         assert!(keep_live(&mut f).unwrap_err().contains("escapes"));
         // A call between the read of the storage and the access.
         let mut f = function(vec![
-            (ValueId(2), rt("df.core_storage", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
-            (ValueId(3), Instruction::CallStatic { symbol: "g".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
-            (ValueId(4), Instruction::NativeLoad { address: val(2), index: val(1), ty: CType::I64 }, Type::I64),
+            (
+                ValueId(2),
+                rt("df.core_storage", vec![(val(0), Type::Ref)], Type::I64),
+                Type::I64,
+            ),
+            (
+                ValueId(3),
+                Instruction::CallStatic {
+                    symbol: "g".into(),
+                    args: vec![],
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            ),
+            (
+                ValueId(4),
+                Instruction::NativeLoad {
+                    address: val(2),
+                    index: val(1),
+                    ty: CType::I64,
+                },
+                Type::I64,
+            ),
         ]);
         assert!(keep_live(&mut f).unwrap_err().contains("barrier"));
         // Without a barrier, it passes; the shape is also an access.
         let mut f = function(vec![
-            (ValueId(2), rt("df.core_storage", vec![(val(0), Type::Ref)], Type::I64), Type::I64),
-            (ValueId(3), rt("df.core_shape", vec![(val(2), Type::I64)], Type::I64), Type::I64),
-            (ValueId(4), Instruction::Add(val(2), Operand::Constant(Constant::Int(22))), Type::I64),
-            (ValueId(5), Instruction::NativeLoad { address: val(4), index: val(1), ty: CType::I64 }, Type::I64),
+            (
+                ValueId(2),
+                rt("df.core_storage", vec![(val(0), Type::Ref)], Type::I64),
+                Type::I64,
+            ),
+            (
+                ValueId(3),
+                rt("df.core_shape", vec![(val(2), Type::I64)], Type::I64),
+                Type::I64,
+            ),
+            (
+                ValueId(4),
+                Instruction::Add(val(2), Operand::Constant(Constant::Int(22))),
+                Type::I64,
+            ),
+            (
+                ValueId(5),
+                Instruction::NativeLoad {
+                    address: val(4),
+                    index: val(1),
+                    ty: CType::I64,
+                },
+                Type::I64,
+            ),
         ]);
         keep_live(&mut f).unwrap();
         assert_eq!(f.blocks[0].instructions.len(), 6);
@@ -342,29 +472,60 @@ mod tests {
             symbol: "f".into(),
             name: "f".into(),
             debug_info: None,
-            params: vec![(ValueId(0), "l".into(), Type::Ref), (ValueId(1), "i".into(), Type::I64)],
+            params: vec![
+                (ValueId(0), "l".into(), Type::Ref),
+                (ValueId(1), "i".into(), Type::I64),
+            ],
             return_ty: Type::Void,
             blocks: vec![
                 BasicBlock {
                     id: BlockId(0),
-                    instructions: vec![(ValueId(2), rt("df.core_storage", vec![(val(0), Type::Ref)], Type::I64), Type::I64)],
+                    instructions: vec![(
+                        ValueId(2),
+                        rt("df.core_storage", vec![(val(0), Type::Ref)], Type::I64),
+                        Type::I64,
+                    )],
                     terminator: Terminator::Branch(BlockId(1)),
                 },
                 BasicBlock {
                     id: BlockId(1),
                     instructions: vec![
-                        (ValueId(3), Instruction::NativeLoad { address: val(2), index: val(1), ty: CType::I64 }, Type::I64),
+                        (
+                            ValueId(3),
+                            Instruction::NativeLoad {
+                                address: val(2),
+                                index: val(1),
+                                ty: CType::I64,
+                            },
+                            Type::I64,
+                        ),
                         (ValueId(4), body, Type::Void),
-                        (ValueId(5), Instruction::ICmp(ICmpOp::Slt, val(3), val(1)), Type::I1),
+                        (
+                            ValueId(5),
+                            Instruction::ICmp(ICmpOp::Slt, val(3), val(1)),
+                            Type::I1,
+                        ),
                     ],
-                    terminator: Terminator::CondBranch { cond: val(5), then_block: BlockId(1), else_block: BlockId(2) },
+                    terminator: Terminator::CondBranch {
+                        cond: val(5),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
                 },
-                BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(None) },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Return(None),
+                },
             ],
         };
         let mut f = loop_fn(rt("df.arc.scope.dartforge_safepoint", vec![], Type::Void));
         keep_live(&mut f).unwrap();
-        let mut f = loop_fn(Instruction::CallStatic { symbol: "g".into(), args: vec![], ret_ty: Type::Void });
+        let mut f = loop_fn(Instruction::CallStatic {
+            symbol: "g".into(),
+            args: vec![],
+            ret_ty: Type::Void,
+        });
         assert!(keep_live(&mut f).unwrap_err().contains("barrier"));
     }
 }

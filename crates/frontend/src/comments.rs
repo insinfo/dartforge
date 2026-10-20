@@ -32,7 +32,10 @@ impl Comments {
     /// whitespace between them and up to `pos`, in order.
     pub fn before(&self, source: &str, pos: usize) -> Vec<Span> {
         let b = source.as_bytes();
-        let only_whitespace = |from: usize, until: usize| b.get(from..until).is_some_and(|t| t.iter().all(u8::is_ascii_whitespace));
+        let only_whitespace = |from: usize, until: usize| {
+            b.get(from..until)
+                .is_some_and(|t| t.iter().all(u8::is_ascii_whitespace))
+        };
         let mut k = self.spans.partition_point(|s| s.end <= pos);
         let mut limit = pos;
         let mut v = Vec::new();
@@ -85,7 +88,10 @@ fn sweep(b: &[u8], mut i: usize, until_brace: bool, output: &mut Vec<Span>) -> u
             while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
                 i += 1;
             }
-            output.push(Span { start: start_, end: i });
+            output.push(Span {
+                start: start_,
+                end: i,
+            });
             continue;
         }
         if c == b'/' && b.get(i + 1) == Some(&b'*') {
@@ -106,7 +112,10 @@ fn sweep(b: &[u8], mut i: usize, until_brace: bool, output: &mut Vec<Span>) -> u
                     i += 1;
                 }
             }
-            output.push(Span { start: start_, end: i });
+            output.push(Span {
+                start: start_,
+                end: i,
+            });
             continue;
         }
         if until_brace {

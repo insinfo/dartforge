@@ -16,8 +16,8 @@
 //! hidden [`dartforge_lsp::TYPED_ANALYSIS_ARGUMENT`]), so that its program
 //! never stays in the server's memory.
 
+use dartforge_lsp::transport::{read_message, write_message};
 use dartforge_lsp::{SemanticAnalyzer, Server};
-use dartforge_lsp::transport::{write_message, read_message};
 use serde_json::Value;
 use std::io::{self, BufReader};
 use std::sync::{Arc, Mutex, mpsc};

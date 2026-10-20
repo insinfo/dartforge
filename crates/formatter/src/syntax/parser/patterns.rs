@@ -4,8 +4,8 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
+use super::super::token::{Tk, TokenKind};
 use super::super::tree::{Node, NodeId};
-use super::super::token::{TokenKind, Tk};
 use super::expressions::ConstCtx;
 use super::lookahead::{Shape, TypeInfo};
 use super::{Parser, R};
@@ -210,7 +210,9 @@ impl Parser<'_> {
         }
         let relational = match self.kind_(i) {
             TokenKind::Op(Op::Lt | Op::LtEq | Op::EqEq | Op::BangEq) => true,
-            TokenKind::Op(Op::Gt) => matches!(self.toks.composed_greater(i as Tk), None | Some(">=")),
+            TokenKind::Op(Op::Gt) => {
+                matches!(self.toks.composed_greater(i as Tk), None | Some(">="))
+            }
             _ => false,
         };
         if relational {
@@ -450,7 +452,11 @@ impl Parser<'_> {
     }
 
     /// Pattern field with an optional name (`(name)? :`).
-    fn pattern_field(&mut self, ctx: PatternCtx, allows_parenthesized_name: bool) -> R<(NodeId, bool)> {
+    fn pattern_field(
+        &mut self,
+        ctx: PatternCtx,
+        allows_parenthesized_name: bool,
+    ) -> R<(NodeId, bool)> {
         let fi = self.pos;
         let mut name_ = None;
         if self.op(self.pos, Op::Colon) {

@@ -18,32 +18,44 @@ use std::process::Command;
 
 /// The files of the link sysroot, in the order the Clang driver
 /// passes them.
-pub fn sysroot_files() -> Vec<&'static str> { vec![
-    "Scrt1.o",
-    "crti.o",
-    "crtbeginS.o",
-    "crtendS.o",
-    "crtn.o",
-    "libc.so.6",
-    "libc_nonshared.a",
-    "libm.so.6",
-    "libpthread.so.0",
-    "libdl.so.2",
-    "librt.so.1",
-    "libutil.so.1",
-    "libgcc_s.so.1",
-    "libgcc.a",
-    // The dynamic loader (`__tls_get_addr`…), which the development `libc.so`
-    // brings as `AS_NEEDED`.
-    loader_file(),
-] }
+pub fn sysroot_files() -> Vec<&'static str> {
+    vec![
+        "Scrt1.o",
+        "crti.o",
+        "crtbeginS.o",
+        "crtendS.o",
+        "crtn.o",
+        "libc.so.6",
+        "libc_nonshared.a",
+        "libm.so.6",
+        "libpthread.so.0",
+        "libdl.so.2",
+        "librt.so.1",
+        "libutil.so.1",
+        "libgcc_s.so.1",
+        "libgcc.a",
+        // The dynamic loader (`__tls_get_addr`…), which the development `libc.so`
+        // brings as `AS_NEEDED`.
+        loader_file(),
+    ]
+}
 
 /// The dynamic loader file of the host.
-fn loader_file() -> &'static str { if crate::target::is_aarch64() { "ld-linux-aarch64.so.1" } else { "ld-linux-x86-64.so.2" } }
+fn loader_file() -> &'static str {
+    if crate::target::is_aarch64() {
+        "ld-linux-aarch64.so.1"
+    } else {
+        "ld-linux-x86-64.so.2"
+    }
+}
 
 /// The sysroot triple of this host.
 pub fn sysroot_triple() -> &'static str {
-    if crate::target::is_aarch64() { "aarch64-linux-gnu" } else { "x86_64-linux-gnu" }
+    if crate::target::is_aarch64() {
+        "aarch64-linux-gnu"
+    } else {
+        "x86_64-linux-gnu"
+    }
 }
 
 /// The dynamic loader of the host and the `ld.lld` emulation.
@@ -66,8 +78,12 @@ impl SysrootLinux {
     pub fn locate(clang: &Path) -> Result<&'static SysrootLinux, String> {
         static S: std::sync::OnceLock<Result<SysrootLinux, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
-            if let Some(dir) = crate::cross::sysroot() { return Self::from_dir(&dir); }
-            if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{}", sysroot_triple())) {
+            if let Some(dir) = crate::cross::sysroot() {
+                return Self::from_dir(&dir);
+            }
+            if let Some(dir) =
+                dartforge_elements::distribution::in_lib(&format!("sysroot/{}", sysroot_triple()))
+            {
                 return Self::from_dir(&dir);
             }
             Self::from_system(clang)
@@ -79,7 +95,10 @@ impl SysrootLinux {
     fn from_dir(dir: &Path) -> Result<SysrootLinux, String> {
         let files: Vec<PathBuf> = sysroot_files().iter().map(|a| dir.join(a)).collect();
         if let Some(missing) = files.iter().find(|a| !a.is_file()) {
-            return Err(format!("the distribution sysroot is incomplete: {} is missing", missing.display()));
+            return Err(format!(
+                "the distribution sysroot is incomplete: {} is missing",
+                missing.display()
+            ));
         }
         Ok(SysrootLinux { files })
     }
@@ -105,7 +124,10 @@ impl SysrootLinux {
     }
 
     fn file(&self, name: &str) -> &Path {
-        let i = sysroot_files().iter().position(|a| *a == name).expect("sysroot file");
+        let i = sysroot_files()
+            .iter()
+            .position(|a| *a == name)
+            .expect("sysroot file");
         &self.files[i]
     }
 
@@ -113,7 +135,8 @@ impl SysrootLinux {
     pub fn copy_to(&self, dest: &Path) -> Result<(), String> {
         std::fs::create_dir_all(dest).map_err(|e| format!("{}: {e}", dest.display()))?;
         for (name, of) in sysroot_files().iter().zip(&self.files) {
-            std::fs::copy(of, dest.join(name)).map_err(|e| format!("copiar {}: {e}", of.display()))?;
+            std::fs::copy(of, dest.join(name))
+                .map_err(|e| format!("copiar {}: {e}", of.display()))?;
         }
         Ok(())
     }
@@ -125,7 +148,10 @@ pub enum Product<'a> {
     Executable,
     /// A shared library with the `soname`, exporting (and pulling
     /// from the `staticlib`s) the given symbols.
-    Shared { soname: &'a str, exported: &'a [String] },
+    Shared {
+        soname: &'a str,
+        exported: &'a [String],
+    },
 }
 
 /// A link through `ld.lld`.
@@ -153,17 +179,31 @@ pub fn ld_lld(clang: &Path) -> PathBuf {
         return l;
     }
     let alongside = clang.with_file_name("ld.lld");
-    if alongside.is_file() { alongside } else { PathBuf::from("ld.lld") }
+    if alongside.is_file() {
+        alongside
+    } else {
+        PathBuf::from("ld.lld")
+    }
 }
 
 /// Links with `ld.lld` and the link sysroot.
 pub fn link(ld: &Path, sysroot: &SysrootLinux, l: &Linkage<'_>) -> Result<(), String> {
     let mut cmd = statement(ld, sysroot, l)?;
-    let exit = cmd.output().map_err(|e| format!("failed to run {}: {e}", ld.display()))?;
+    let exit = cmd
+        .output()
+        .map_err(|e| format!("failed to run {}: {e}", ld.display()))?;
     if !exit.status.success() {
         let text = String::from_utf8_lossy(&exit.stderr);
-        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-        return Err(format!("ld.lld failed to link ({}):\n{}", exit.status, lines.join("\n")));
+        let lines: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .take(40)
+            .collect();
+        return Err(format!(
+            "ld.lld failed to link ({}):\n{}",
+            exit.status,
+            lines.join("\n")
+        ));
     }
     Ok(())
 }
@@ -192,7 +232,14 @@ fn statement_with_relr(
         // GLIBC_ABI_DT_RELR requirement when linking a glibc application.
         cmd.args(["-z", "pack-relative-relocs"]);
     }
-    cmd.args(["-z", "relro", "--hash-style=gnu", "--eh-frame-hdr", "-m", emulation]);
+    cmd.args([
+        "-z",
+        "relro",
+        "--hash-style=gnu",
+        "--eh-frame-hdr",
+        "-m",
+        emulation,
+    ]);
     match &l.product {
         Product::Executable => {
             cmd.args(["-pie", "-dynamic-linker", loader]);
@@ -212,7 +259,8 @@ fn statement_with_relr(
         }
     }
     cmd.arg("-o").arg(l.exit);
-    cmd.arg(sysroot.file("crti.o")).arg(sysroot.file("crtbeginS.o"));
+    cmd.arg(sysroot.file("crti.o"))
+        .arg(sysroot.file("crtbeginS.o"));
     if let Product::Shared { exported, .. } = &l.product {
         // Each name goes in as undefined, so that the linker also pulls from the
         // `staticlib` what the SDK does not use (the program does); the
@@ -229,10 +277,21 @@ fn statement_with_relr(
         cmd.args(["-rpath", "$ORIGIN"]);
     }
     if l.lto {
-        let partitions = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
-        let cpu = l.cpu.unwrap_or(if !crate::target::is_aarch64() { "x86-64" } else { "generic" });
-        cmd.arg(format!("--lto-O{}", crate::driver::lto_level())).arg(format!("--lto-partitions={partitions}")).arg(format!("-plugin-opt=mcpu={cpu}"));
-        cmd.arg(format!("--thinlto-jobs={}", crate::driver::generation_tasks()));
+        let partitions = std::thread::available_parallelism()
+            .map_or(4, |n| n.get())
+            .clamp(2, 16);
+        let cpu = l.cpu.unwrap_or(if !crate::target::is_aarch64() {
+            "x86-64"
+        } else {
+            "generic"
+        });
+        cmd.arg(format!("--lto-O{}", crate::driver::lto_level()))
+            .arg(format!("--lto-partitions={partitions}"))
+            .arg(format!("-plugin-opt=mcpu={cpu}"));
+        cmd.arg(format!(
+            "--thinlto-jobs={}",
+            crate::driver::generation_tasks()
+        ));
         // MergeFunctions (`driver::merge_functions_at_link`): a global LLVM
         // option the ThinLTO cache key does not see — its own subdirectory.
         let merge = crate::driver::merge_functions_at_link();
@@ -264,15 +323,26 @@ fn statement_with_relr(
     // The system libraries (the runtime's `-lgcc_s -lutil -lrt -lpthread -lm -ldl
     // -lc`), through the sysroot files.
     cmd.arg("--as-needed");
-    for b in ["libm.so.6", "libpthread.so.0", "libdl.so.2", "librt.so.1", "libutil.so.1", "libgcc_s.so.1"] {
+    for b in [
+        "libm.so.6",
+        "libpthread.so.0",
+        "libdl.so.2",
+        "librt.so.1",
+        "libutil.so.1",
+        "libgcc_s.so.1",
+    ] {
         cmd.arg(sysroot.file(b));
     }
     cmd.arg("--no-as-needed");
     cmd.arg(sysroot.file("libgcc.a"));
-    cmd.arg(sysroot.file("libc.so.6")).arg(sysroot.file("libc_nonshared.a"));
-    cmd.arg("--as-needed").arg(sysroot.file(loader_file())).arg("--no-as-needed");
+    cmd.arg(sysroot.file("libc.so.6"))
+        .arg(sysroot.file("libc_nonshared.a"));
+    cmd.arg("--as-needed")
+        .arg(sysroot.file(loader_file()))
+        .arg("--no-as-needed");
     cmd.arg(sysroot.file("libgcc.a"));
-    cmd.arg(sysroot.file("crtendS.o")).arg(sysroot.file("crtn.o"));
+    cmd.arg(sysroot.file("crtendS.o"))
+        .arg(sysroot.file("crtn.o"));
     Ok(cmd)
 }
 

@@ -50,8 +50,15 @@ impl CallChainVisitor {
         let mut calls: Vec<Selector> = Vec::new();
         let target_ = unwrap_target(v, node, &mut calls);
         let mut properties = Vec::new();
-        if matches!(v.node(unwrap_null_assertion(v, target_)), Node::SimpleIdentifier { .. }) {
-            properties = calls.iter().take_while(|c| c.is_property()).cloned().collect();
+        if matches!(
+            v.node(unwrap_null_assertion(v, target_)),
+            Node::SimpleIdentifier { .. }
+        ) {
+            properties = calls
+                .iter()
+                .take_while(|c| c.is_property())
+                .cloned()
+                .collect();
         }
         calls.drain(..properties.len());
 
@@ -203,12 +210,16 @@ impl CallChainVisitor {
                 v.visit_argument_list(*argument_list, false);
                 v.unnest();
             }
-            Node::PrefixedIdentifier { period, identifier, .. } => {
+            Node::PrefixedIdentifier {
+                period, identifier, ..
+            } => {
                 v.token(*period);
                 v.visit(Some(*identifier));
             }
             Node::PropertyAccess {
-                operator, property_name, ..
+                operator,
+                property_name,
+                ..
             } => {
                 v.token(*operator);
                 v.visit(Some(*property_name));
@@ -331,17 +342,34 @@ fn unwrap_target(v: &SourceVisitor, node: NodeId, calls: &mut Vec<Selector>) -> 
         return node;
     }
     match v.node(node) {
-        Node::MethodInvocation { target: Some(t), .. } => unwrap_selector(v, *t, SelectorKind::Method, node, calls),
-        Node::PropertyAccess { target: Some(t), .. } => unwrap_selector(v, *t, SelectorKind::Property, node, calls),
-        Node::PrefixedIdentifier { prefix, .. } => unwrap_selector(v, *prefix, SelectorKind::Prefixed, node, calls),
-        Node::IndexExpression { target: Some(t), .. } => unwrap_postfix(v, node, *t, calls),
-        Node::FunctionExpressionInvocation { function, .. } => unwrap_postfix(v, node, *function, calls),
-        Node::PostfixExpression { operand, operator } if v.tk.text(v.source, *operator) == "!" => unwrap_postfix(v, node, *operand, calls),
+        Node::MethodInvocation {
+            target: Some(t), ..
+        } => unwrap_selector(v, *t, SelectorKind::Method, node, calls),
+        Node::PropertyAccess {
+            target: Some(t), ..
+        } => unwrap_selector(v, *t, SelectorKind::Property, node, calls),
+        Node::PrefixedIdentifier { prefix, .. } => {
+            unwrap_selector(v, *prefix, SelectorKind::Prefixed, node, calls)
+        }
+        Node::IndexExpression {
+            target: Some(t), ..
+        } => unwrap_postfix(v, node, *t, calls),
+        Node::FunctionExpressionInvocation { function, .. } => {
+            unwrap_postfix(v, node, *function, calls)
+        }
+        Node::PostfixExpression { operand, operator } if v.tk.text(v.source, *operator) == "!" => {
+            unwrap_postfix(v, node, *operand, calls)
+        }
         _ => node,
     }
 }
 
-fn unwrap_postfix(v: &SourceVisitor, node: NodeId, target_: NodeId, calls: &mut Vec<Selector>) -> NodeId {
+fn unwrap_postfix(
+    v: &SourceVisitor,
+    node: NodeId,
+    target_: NodeId,
+    calls: &mut Vec<Selector>,
+) -> NodeId {
     let target_ = unwrap_target(v, target_, calls);
     if calls.is_empty() {
         return node;
@@ -350,7 +378,13 @@ fn unwrap_postfix(v: &SourceVisitor, node: NodeId, target_: NodeId, calls: &mut 
     target_
 }
 
-fn unwrap_selector(v: &SourceVisitor, target_: NodeId, kind_: SelectorKind, node: NodeId, calls: &mut Vec<Selector>) -> NodeId {
+fn unwrap_selector(
+    v: &SourceVisitor,
+    target_: NodeId,
+    kind_: SelectorKind,
+    node: NodeId,
+    calls: &mut Vec<Selector>,
+) -> NodeId {
     let target_ = unwrap_target(v, target_, calls);
     calls.push(Selector {
         kind_,

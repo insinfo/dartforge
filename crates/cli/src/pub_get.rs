@@ -106,6 +106,8 @@ pub(crate) fn run(args: &[OsString]) -> Result<(), String> {
 
 /// Shares the selected SDK mapping with distribution assembly.
 #[cfg(feature = "native")]
-pub(crate) fn sdk_package_paths(root: &std::path::Path) -> Result<std::collections::BTreeMap<String, PathBuf>, String> {
+pub(crate) fn sdk_package_paths(
+    root: &std::path::Path,
+) -> Result<std::collections::BTreeMap<String, PathBuf>, String> {
     sdk::declared_package_paths(root)
 }

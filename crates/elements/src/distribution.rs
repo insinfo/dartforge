@@ -30,7 +30,10 @@ pub fn root() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let exe = exe.canonicalize().unwrap_or(exe);
     let root = exe.parent()?.parent()?;
-    root.join("lib").join(MARKER).is_file().then(|| root.to_path_buf())
+    root.join("lib")
+        .join(MARKER)
+        .is_file()
+        .then(|| root.to_path_buf())
 }
 
 /// `<root>/lib/<rel>`, if the distribution exists and so does the path.
@@ -52,7 +55,11 @@ pub fn native_overlay() -> Option<PathBuf> {
 /// An LLVM executable of the distribution (`clang`, `ld.lld`…), with the
 /// system's extension.
 pub fn llvm_tool(name_: &str) -> Option<PathBuf> {
-    let file = if cfg!(windows) { format!("{name_}.exe") } else { name_.to_string() };
+    let file = if cfg!(windows) {
+        format!("{name_}.exe")
+    } else {
+        name_.to_string()
+    };
     in_lib(&format!("llvm/bin/{file}")).filter(|p| p.is_file())
 }
 

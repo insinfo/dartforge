@@ -36,17 +36,35 @@ use crate::context::Context;
 use crate::hir::*;
 use dartforge_elements::model::ClassId;
 use dartforge_frontend::ast::{self, ParameterKind};
-use dartforge_types::table::Type as T;
 use dartforge_types::TypeId;
+use dartforge_types::table::Type as T;
 
 /// The name of the target ABI in the `Abi` enum of `dart:ffi` (the key of the
 /// `@AbiSpecificIntegerMapping` annotations).
 fn target_abi() -> &'static str {
     let arm = crate::target::is_aarch64();
     match crate::target::target_os() {
-        crate::target::Os::Windows => if arm { "windowsArm64" } else { "windowsX64" },
-        crate::target::Os::Linux => if arm { "linuxArm64" } else { "linuxX64" },
-        crate::target::Os::MacOs => if arm { "macosArm64" } else { "macosX64" },
+        crate::target::Os::Windows => {
+            if arm {
+                "windowsArm64"
+            } else {
+                "windowsX64"
+            }
+        }
+        crate::target::Os::Linux => {
+            if arm {
+                "linuxArm64"
+            } else {
+                "linuxX64"
+            }
+        }
+        crate::target::Os::MacOs => {
+            if arm {
+                "macosArm64"
+            } else {
+                "macosX64"
+            }
+        }
     }
 }
 
@@ -86,7 +104,11 @@ pub struct NativeTypes {
 
 impl NativeTypes {
     pub fn of_program(ctx: &Context) -> Option<NativeTypes> {
-        let ffi = ctx.program.libraries.iter().position(|l| l.uri == "dart:ffi")?;
+        let ffi = ctx
+            .program
+            .libraries
+            .iter()
+            .position(|l| l.uri == "dart:ffi")?;
         let ffi = dartforge_elements::model::LibraryId(ffi as u32);
         let mut classes = std::collections::HashMap::new();
         let mut rejected = std::collections::HashMap::new();
@@ -119,14 +141,23 @@ impl NativeTypes {
                         classes.insert(id, t);
                     }
                     None => {
-                        rejected.insert(id, "ABI-specific integer without a mapping for this target");
+                        rejected
+                            .insert(id, "ABI-specific integer without a mapping for this target");
                     }
                 }
-            } else if c.supertype_class.is_some() && (c.supertype_class == struct_ || c.supertype_class == union_) {
+            } else if c.supertype_class.is_some()
+                && (c.supertype_class == struct_ || c.supertype_class == union_)
+            {
                 composites.insert(id);
             }
         }
-        Some(NativeTypes { classes, rejected, composites, varargs, array })
+        Some(NativeTypes {
+            classes,
+            rejected,
+            composites,
+            varargs,
+            array,
+        })
     }
 
     /// The C type of a native type (argument or return of a signature).
@@ -139,7 +170,10 @@ impl NativeTypes {
                 if let Some(m) = self.rejected.get(class) {
                     return Err(format!("{m} is not supported by the native backend yet"));
                 }
-                Err(format!("`{}` is not a native type", ctx.symbol_name(ctx.program.classes[class.0 as usize].name)))
+                Err(format!(
+                    "`{}` is not a native type",
+                    ctx.symbol_name(ctx.program.classes[class.0 as usize].name)
+                ))
             }
             _ => Err("native type is not a `dart:ffi` class".to_string()),
         }
@@ -147,12 +181,19 @@ impl NativeTypes {
 
     /// The native type of an argument or return: a primitive, or a struct/union
     /// by value (with the class, to create the returned value).
-    fn native_type(&self, ctx: &Context, t: TypeId) -> Result<(NativeType, Option<ClassId>), String> {
+    fn native_type(
+        &self,
+        ctx: &Context,
+        t: TypeId,
+    ) -> Result<(NativeType, Option<ClassId>), String> {
         if let T::Interface { class, .. } = ctx.table.get(t)
             && self.composites.contains(class)
         {
             let layout = layout_c(ctx, *class).ok_or_else(|| {
-                format!("struct `{}` sem layout", ctx.symbol_name(ctx.program.classes[class.0 as usize].name))
+                format!(
+                    "struct `{}` sem layout",
+                    ctx.symbol_name(ctx.program.classes[class.0 as usize].name)
+                )
             })?;
             if layout.size == 0 {
                 return Err("empty struct by value".to_string());
@@ -166,9 +207,18 @@ impl NativeTypes {
     /// structs and unions by value.
     pub fn native_signature(&self, ctx: &Context, f: TypeId) -> Result<NativeSignature, String> {
         match ctx.table.get(f) {
-            T::Function { type_params, ret, positional, optional, named, .. } => {
+            T::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                ..
+            } => {
                 if !type_params.is_empty() || !optional.is_empty() || !named.is_empty() {
-                    return Err("native signature with optional, named or generic parameters".to_string());
+                    return Err(
+                        "native signature with optional, named or generic parameters".to_string(),
+                    );
                 }
                 let (r, ret_class) = self.native_type(ctx, *ret)?;
                 let mut ps = Vec::with_capacity(positional.len());
@@ -184,7 +234,9 @@ impl NativeTypes {
                             }
                             variadic_flag = Some(i);
                             match args.first().map(|a| ctx.table.get(*a)) {
-                                Some(T::Record { positional, named, .. }) if named.is_empty() => positional.to_vec(),
+                                Some(T::Record {
+                                    positional, named, ..
+                                }) if named.is_empty() => positional.to_vec(),
                                 Some(_) => args.to_vec(),
                                 None => return Err("VarArgs without a type argument".to_string()),
                             }
@@ -193,7 +245,9 @@ impl NativeTypes {
                     };
                     for v in variadic_set {
                         match self.native_type(ctx, v)? {
-                            (NativeType::Prim(CType::Void), _) => return Err("`Void` native parameter".to_string()),
+                            (NativeType::Prim(CType::Void), _) => {
+                                return Err("`Void` native parameter".to_string());
+                            }
                             (t, c) => {
                                 ps.push(t);
                                 cs.push(c);
@@ -201,7 +255,13 @@ impl NativeTypes {
                         }
                     }
                 }
-                Ok(NativeSignature { ret: r, ret_class, params: ps, class_params: cs, variadic_flag })
+                Ok(NativeSignature {
+                    ret: r,
+                    ret_class,
+                    params: ps,
+                    class_params: cs,
+                    variadic_flag,
+                })
             }
             _ => Err("NativeFunction without a function type".to_string()),
         }
@@ -233,7 +293,11 @@ impl NativeTypes {
 
     /// The table (RTI id of the class, letter of the C type) that the runtime receives.
     pub fn rti_table(&self, ctx: &Context) -> Vec<(i64, char)> {
-        let mut v: Vec<(i64, char)> = self.classes.iter().map(|(c, t)| (ctx.id_rti(*c), t.letter())).collect();
+        let mut v: Vec<(i64, char)> = self
+            .classes
+            .iter()
+            .map(|(c, t)| (ctx.id_rti(*c), t.letter()))
+            .collect();
         // `VarArgs`: the mark of the variadic part in the key.
         v.extend(self.varargs.map(|c| (ctx.id_rti(c), '*')));
         v.sort_unstable();
@@ -246,10 +310,21 @@ fn contains_type_parameter(ctx: &Context, t: TypeId) -> bool {
     match ctx.table.get(t) {
         T::TypeParameter { .. } => true,
         T::Interface { args, .. } => args.iter().any(|a| contains_type_parameter(ctx, *a)),
-        T::Function { ret, positional, optional, named, .. } => {
+        T::Function {
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
             contains_type_parameter(ctx, *ret)
-                || positional.iter().chain(optional.iter()).any(|a| contains_type_parameter(ctx, *a))
-                || named.iter().any(|(_, a, _)| contains_type_parameter(ctx, *a))
+                || positional
+                    .iter()
+                    .chain(optional.iter())
+                    .any(|a| contains_type_parameter(ctx, *a))
+                || named
+                    .iter()
+                    .any(|(_, a, _)| contains_type_parameter(ctx, *a))
         }
         _ => false,
     }
@@ -263,7 +338,8 @@ fn abi_mapping(ctx: &Context, c: ClassId) -> Option<CType> {
     let a = &unit.ast;
     let target = target_abi();
     for an in a.decls[decl.decl.0 as usize].metadata.iter() {
-        if an.name.last().map(|n| ctx.interner.resolve(n.sym)) != Some("AbiSpecificIntegerMapping") {
+        if an.name.last().map(|n| ctx.interner.resolve(n.sym)) != Some("AbiSpecificIntegerMapping")
+        {
             continue;
         }
         let arg = an.arguments.as_ref()?.args.first()?;
@@ -271,7 +347,9 @@ fn abi_mapping(ctx: &Context, c: ClassId) -> Option<CType> {
             return None;
         };
         for e in elements.iter() {
-            let ast::CollectionElement::MapEntry { key, value, .. } = e else { continue };
+            let ast::CollectionElement::MapEntry { key, value, .. } = e else {
+                continue;
+            };
             let map_key = match &a.exprs[key.0 as usize].kind {
                 ast::ExprKind::Property { name, .. } => ctx.interner.resolve(name.sym),
                 _ => continue,
@@ -290,7 +368,12 @@ fn abi_mapping(ctx: &Context, c: ClassId) -> Option<CType> {
                 },
                 _ => return None,
             };
-            return primitive(cls).filter(|t| !matches!(t, CType::Void | CType::Ptr | CType::F32 | CType::F64 | CType::Bool));
+            return primitive(cls).filter(|t| {
+                !matches!(
+                    t,
+                    CType::Void | CType::Ptr | CType::F32 | CType::F64 | CType::Bool
+                )
+            });
         }
     }
     None
@@ -340,11 +423,16 @@ pub fn signature_key(ctx: &Context, a: &NativeSignature) -> String {
 /// Generates the trampolines of the signatures of the program and the tables that the
 /// runtime receives when preparing the isolate.
 pub fn lower_ffi(ctx: &Context, module: &mut Module) {
-    let Some(types) = NativeTypes::of_program(ctx) else { return };
+    let Some(types) = NativeTypes::of_program(ctx) else {
+        return;
+    };
     module.ffi_types = types.rti_table(ctx);
     if let Some(comp) = composites(ctx) {
         let idx = |v: dartforge_elements::model::VariableId, c: ClassId| {
-            super::members::layout(ctx, c).iter().position(|&x| x == v).map_or(-1, |i| (i + super::enums::layout_base(ctx, c)) as i64)
+            super::members::layout(ctx, c)
+                .iter()
+                .position(|&x| x == v)
+                .map_or(-1, |i| (i + super::enums::layout_base(ctx, c)) as i64)
         };
         let mut v: Vec<FfiComposite> = comp
             .classes
@@ -353,7 +441,8 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
                 Some(FfiComposite {
                     rti: ctx.id_rti(*c),
                     class: i64::from(ctx.class_id_of(*c)?),
-                    fields: (super::members::layout(ctx, *c).len() + super::enums::layout_base(ctx, *c)) as i64,
+                    fields: (super::members::layout(ctx, *c).len()
+                        + super::enums::layout_base(ctx, *c)) as i64,
                     base_index: idx(comp.base, *c),
                     offset_index: idx(comp.offset, *c),
                     size: l.size as i64,
@@ -368,25 +457,39 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
     for f in types.program_signatures(ctx) {
         // A signature that is not lowered stays without a trampoline: the runtime rejects
         // the call with the signature.
-        let Ok(signature) = types.native_signature(ctx, f) else { continue };
+        let Ok(signature) = types.native_signature(ctx, f) else {
+            continue;
+        };
         let map_key = signature_key(ctx, &signature);
         if !done.insert(map_key.clone()) {
             continue;
         }
         let symbol = format!("df.ffi.{}$ent", escape_key(&map_key));
         let unit = dartforge_elements::model::UnitId(0);
-        let mut b = FnBuilder::new(ctx, unit, symbol.clone(), format!("ffi {map_key}"), Type::Ref);
+        let mut b = FnBuilder::new(
+            ctx,
+            unit,
+            symbol.clone(),
+            format!("ffi {map_key}"),
+            Type::Ref,
+        );
         b.trampoline_body(&signature);
         module.functions.push(b.func);
         module.functions.extend(b.extra_functions);
-        module.dart_scalar_parameters.extend(b.dart_scalar_parameters);
+        module
+            .dart_scalar_parameters
+            .extend(b.dart_scalar_parameters);
         module.dart_rti_parameters.extend(b.dart_rti_parameters);
-        module.dart_vector_parameters.extend(b.dart_vector_parameters);
+        module
+            .dart_vector_parameters
+            .extend(b.dart_vector_parameters);
         module.arc_uniform_returns.extend(b.arc_uniform_returns);
         module.dart_ref_returns.extend(b.dart_ref_returns);
         module.arc_rti_caches.extend(b.arc_rti_caches);
         module.arc_shared_functions.extend(b.arc_shared_functions);
-        module.arc_direct_local_functions.extend(b.arc_direct_local_functions);
+        module
+            .arc_direct_local_functions
+            .extend(b.arc_direct_local_functions);
         module.globals.extend(b.extra_globals);
         module.ffi_trampolines.push((map_key.clone(), symbol));
         // The callback of the same signature (`Pointer.fromFunction`,
@@ -396,20 +499,37 @@ pub fn lower_ffi(ctx: &Context, module: &mut Module) {
             continue;
         }
         let body = format!("df.ffi.{}$cb", escape_key(&map_key));
-        let mut b = FnBuilder::new(ctx, unit, body.clone(), format!("ffi callback {map_key}"), signature.ret.hir_type());
+        let mut b = FnBuilder::new(
+            ctx,
+            unit,
+            body.clone(),
+            format!("ffi callback {map_key}"),
+            signature.ret.hir_type(),
+        );
         b.callback_body(ctx, &signature);
         module.functions.push(b.func);
         module.functions.extend(b.extra_functions);
-        module.dart_scalar_parameters.extend(b.dart_scalar_parameters);
+        module
+            .dart_scalar_parameters
+            .extend(b.dart_scalar_parameters);
         module.dart_rti_parameters.extend(b.dart_rti_parameters);
-        module.dart_vector_parameters.extend(b.dart_vector_parameters);
+        module
+            .dart_vector_parameters
+            .extend(b.dart_vector_parameters);
         module.arc_uniform_returns.extend(b.arc_uniform_returns);
         module.dart_ref_returns.extend(b.dart_ref_returns);
         module.arc_rti_caches.extend(b.arc_rti_caches);
         module.arc_shared_functions.extend(b.arc_shared_functions);
-        module.arc_direct_local_functions.extend(b.arc_direct_local_functions);
+        module
+            .arc_direct_local_functions
+            .extend(b.arc_direct_local_functions);
         module.globals.extend(b.extra_globals);
-        module.ffi_callbacks.push(FfiCallback { key: map_key, body, ret: signature.ret.clone(), params: signature.params.clone() });
+        module.ffi_callbacks.push(FfiCallback {
+            key: map_key,
+            body,
+            ret: signature.ret.clone(),
+            params: signature.params.clone(),
+        });
     }
 }
 
@@ -421,20 +541,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// type arguments and the site reach it.
     pub fn redirected_ffi_call(&self, fid: usize) -> Option<(usize, Redirection)> {
         if super::sync_native_callable::is_creation(self.ctx, fid) {
-            return Some((self.top_level_function("dart:ffi", "_dartforgeCallableSync")?, Redirection::DirectOnly));
+            return Some((
+                self.top_level_function("dart:ffi", "_dartforgeCallableSync")?,
+                Redirection::DirectOnly,
+            ));
         }
         let f = &self.ctx.program.functions[fid];
         let c = f.class?;
         if self.ctx.program.library(f.library).uri != "dart:ffi" {
             return None;
         }
-        let cls = self.ctx.symbol_name(self.ctx.program.classes[c.0 as usize].name);
+        let cls = self
+            .ctx
+            .symbol_name(self.ctx.program.classes[c.0 as usize].name);
         let name_str = self.ctx.symbol_name(f.name);
         let (helper, shape) = match (cls, name_str, f.factory) {
-            ("Pointer", "fromFunction", false) if f.static_ => ("_dartforgeFromFunction", Redirection::WithSite),
-            ("NativeCallable", "isolateLocal", true) => ("_dartforgeCallableLocal", Redirection::ClassTuple),
-            ("NativeCallable", "listener", true) => ("_dartforgeCallableListener", Redirection::ClassTuple),
-            ("Struct" | "Union", "create", false) if f.static_ => ("_dartforgeCompoundCreated", Redirection::DirectOnly),
+            ("Pointer", "fromFunction", false) if f.static_ => {
+                ("_dartforgeFromFunction", Redirection::WithSite)
+            }
+            ("NativeCallable", "isolateLocal", true) => {
+                ("_dartforgeCallableLocal", Redirection::ClassTuple)
+            }
+            ("NativeCallable", "listener", true) => {
+                ("_dartforgeCallableListener", Redirection::ClassTuple)
+            }
+            ("Struct" | "Union", "create", false) if f.static_ => {
+                ("_dartforgeCompoundCreated", Redirection::DirectOnly)
+            }
             _ => return None,
         };
         Some((self.top_level_function("dart:ffi", helper)?, shape))
@@ -448,8 +581,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// (`ffi_callbacks.rs`).
     fn callback_body(&mut self, ctx: &Context, a: &NativeSignature) {
         let context = Operand::Val(self.add_param("ctx".to_string(), Type::I64));
-        let values: Vec<Operand> =
-            a.params.iter().enumerate().map(|(i, t)| Operand::Val(self.add_param(format!("a{i}"), t.hir_type()))).collect();
+        let values: Vec<Operand> = a
+            .params
+            .iter()
+            .enumerate()
+            .map(|(i, t)| Operand::Val(self.add_param(format!("a{i}"), t.hir_type())))
+            .collect();
         // Under ARC, the context and the arguments arrive from the C entry already in
         // scalar representation (addresses, handles and numbers): Trivial.
         if self.ctx.arc_memory {
@@ -460,7 +597,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .filter(|(_, _, t)| matches!(t, Type::I64 | Type::F64 | Type::I1 | Type::I8))
                 .map(|(v, _, _)| *v)
                 .collect();
-            self.dart_scalar_parameters.entry(self.func.symbol.clone()).or_default().extend(scalars);
+            self.dart_scalar_parameters
+                .entry(self.func.symbol.clone())
+                .or_default()
+                .extend(scalars);
         }
         let clo = self.emit(
             Instruction::CallRuntime {
@@ -471,7 +611,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Ref,
         );
         let mut evaluated = Vec::with_capacity(a.params.len());
-        for (i, ((v, t), cls)) in values.into_iter().zip(a.params.iter()).zip(&a.class_params).enumerate() {
+        for (i, ((v, t), cls)) in values
+            .into_iter()
+            .zip(a.params.iter())
+            .zip(&a.class_params)
+            .enumerate()
+        {
             let x = match (t, cls) {
                 (NativeType::Prim(CType::Handle), _) => self.emit_call_with_check(
                     Instruction::CallRuntime {
@@ -485,7 +630,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 (NativeType::Prim(CType::Ptr), _) => self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: "dartforge_ffi_callback_pointer".to_string(),
-                        args: vec![(context.clone(), Type::I64), (Operand::Constant(Constant::Int(i as i64)), Type::I64), (v, Type::I64)],
+                        args: vec![
+                            (context.clone(), Type::I64),
+                            (Operand::Constant(Constant::Int(i as i64)), Type::I64),
+                            (v, Type::I64),
+                        ],
                         ret_ty: Type::Ref,
                     },
                     Type::Ref,
@@ -495,7 +644,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 (NativeType::Composite(_), Some(c)) => self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: "dartforge_ffi_compound_copy".to_string(),
-                        args: vec![(Operand::Constant(Constant::Int(ctx.id_rti(*c))), Type::I64), (v, Type::I64)],
+                        args: vec![
+                            (Operand::Constant(Constant::Int(ctx.id_rti(*c))), Type::I64),
+                            (v, Type::I64),
+                        ],
                         ret_ty: Type::Ref,
                     },
                     Type::Ref,
@@ -565,7 +717,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let infos: Vec<EntryParam> = a
             .params
             .iter()
-            .map(|_| EntryParam { name: None, kind: ParameterKind::Required, required: true, pattern: DefaultValue::Absent })
+            .map(|_| EntryParam {
+                name: None,
+                kind: ParameterKind::Required,
+                required: true,
+                pattern: DefaultValue::Absent,
+            })
             .collect();
         let Some(values) = self.unpack(&infos, args, desc) else {
             return;
@@ -592,11 +749,20 @@ pub fn layout_c(ctx: &Context, c: ClassId) -> Option<LayoutC> {
         flatten(ctx, field, *offset, &mut leaves)?;
     }
     leaves.sort_by_key(|(o, _)| *o);
-    Some(LayoutC { size: l.size, alignment: l.alignment, leaves })
+    Some(LayoutC {
+        size: l.size,
+        alignment: l.alignment,
+        leaves,
+    })
 }
 
 /// The primitive leaves of a field at `base`.
-fn flatten(ctx: &Context, t: &FieldType, base: usize, leaves: &mut Vec<(usize, CType)>) -> Option<()> {
+fn flatten(
+    ctx: &Context,
+    t: &FieldType,
+    base: usize,
+    leaves: &mut Vec<(usize, CType)>,
+) -> Option<()> {
     match t {
         FieldType::Prim(tc) => leaves.push((base, *tc)),
         FieldType::Composite(c) => {
@@ -644,7 +810,10 @@ pub enum FieldType {
     Prim(CType),
     Composite(ClassId),
     /// `@Array(d0, d1…)` of `elem` elements (the innermost type).
-    Array { elem: Box<FieldType>, dims: Vec<usize> },
+    Array {
+        elem: Box<FieldType>,
+        dims: Vec<usize>,
+    },
 }
 
 /// The layout of a struct or union.
@@ -652,7 +821,8 @@ pub enum FieldType {
 pub struct Composite {
     pub size: usize,
     pub alignment: usize,
-    pub fields: std::collections::HashMap<dartforge_elements::model::VariableId, (usize, FieldType)>,
+    pub fields:
+        std::collections::HashMap<dartforge_elements::model::VariableId, (usize, FieldType)>,
 }
 
 /// The compounds of the program and the `_Compound` fields that the accesses use.
@@ -664,7 +834,9 @@ pub struct Composites {
 
 /// The compounds of the program (computed once per context).
 pub fn composites<'c>(ctx: &'c Context) -> Option<&'c Composites> {
-    ctx.ffi_composites.get_or_init(|| compute_composites(ctx)).as_ref()
+    ctx.ffi_composites
+        .get_or_init(|| compute_composites(ctx))
+        .as_ref()
 }
 
 fn compute_composites(ctx: &Context) -> Option<Composites> {
@@ -680,14 +852,29 @@ fn compute_composites(ctx: &Context) -> Option<Composites> {
     let (base, offset) = (field("_typedDataBase")?, field("_offsetInBytes")?);
     let struct_ = ctx.sdk_class("ffi", "Struct");
     let union_ = ctx.sdk_class("ffi", "Union");
-    let mut calc = Computation { ctx, types: &types, struct_, union_, done_set: Default::default(), ongoing: Default::default() };
+    let mut calc = Computation {
+        ctx,
+        types: &types,
+        struct_,
+        union_,
+        done_set: Default::default(),
+        ongoing: Default::default(),
+    };
     for i in 0..ctx.program.classes.len() {
         let c = ClassId(i as u32);
         if calc.is_composite(c) {
             calc.layout(c);
         }
     }
-    Some(Composites { classes: calc.done_set.into_iter().filter_map(|(c, l)| Some((c, l?))).collect(), base, offset })
+    Some(Composites {
+        classes: calc
+            .done_set
+            .into_iter()
+            .filter_map(|(c, l)| Some((c, l?)))
+            .collect(),
+        base,
+        offset,
+    })
 }
 
 struct Computation<'a, 'c> {
@@ -706,7 +893,8 @@ impl Computation<'_, '_> {
     }
 
     fn is_union(&self, c: ClassId) -> bool {
-        self.union_.is_some() && self.ctx.program.classes[c.0 as usize].supertype_class == self.union_
+        self.union_.is_some()
+            && self.ctx.program.classes[c.0 as usize].supertype_class == self.union_
     }
 
     /// `(size, alignment)` of a field type.
@@ -762,7 +950,11 @@ impl Computation<'_, '_> {
         }
         let raw = if union_ { max_size } else { offset };
         let size = raw.div_ceil(largest_alignment) * largest_alignment;
-        Some(Composite { size, alignment: largest_alignment, fields })
+        Some(Composite {
+            size,
+            alignment: largest_alignment,
+            fields,
+        })
     }
 
     /// The native type of a field: by the annotation (`@Int32()`, `@Long()`,
@@ -770,7 +962,9 @@ impl Computation<'_, '_> {
     fn field_type(&mut self, vid: dartforge_elements::model::VariableId) -> Option<FieldType> {
         let ctx = self.ctx;
         let declared = super::members::variable_type(ctx, vid);
-        let dartforge_elements::model::VariableRef::Field { unit, member, .. } = ctx.program.variables[vid.0 as usize].node else {
+        let dartforge_elements::model::VariableRef::Field { unit, member, .. } =
+            ctx.program.variables[vid.0 as usize].node
+        else {
             return None;
         };
         let u = ctx.program.unit(unit);
@@ -789,30 +983,48 @@ impl Computation<'_, '_> {
             if name_str == "Array" {
                 let dims = array_dimensions(&u.source, ast, an)?;
                 let elem = self.array_element(declared)?;
-                return Some(FieldType::Array { elem: Box::new(elem), dims });
+                return Some(FieldType::Array {
+                    elem: Box::new(elem),
+                    dims,
+                });
             }
             if let Some(tc) = primitive(name_str) {
                 return Some(FieldType::Prim(tc));
             }
-            if let Some((_, tc)) = self.types.classes.iter().find(|(c, _)| ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == name_str) {
+            if let Some((_, tc)) =
+                self.types.classes.iter().find(|(c, _)| {
+                    ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == name_str
+                })
+            {
                 return Some(FieldType::Prim(*tc));
             }
         }
         match ctx.table.get(declared) {
-            T::Interface { class, .. } if self.types.classes.get(class) == Some(&CType::Ptr) => Some(FieldType::Prim(CType::Ptr)),
-            T::Interface { class, .. } if self.is_composite(*class) => Some(FieldType::Composite(*class)),
+            T::Interface { class, .. } if self.types.classes.get(class) == Some(&CType::Ptr) => {
+                Some(FieldType::Prim(CType::Ptr))
+            }
+            T::Interface { class, .. } if self.is_composite(*class) => {
+                Some(FieldType::Composite(*class))
+            }
             _ => None,
         }
     }
 
     /// The class named by an annotation `@Name()`, `@p.Name()` or
     /// `@Alias()` (an alias of a class), through the library scope.
-    fn annotation_class(&self, lib: dartforge_elements::model::LibraryId, an: &ast::Annotation) -> Option<ClassId> {
+    fn annotation_class(
+        &self,
+        lib: dartforge_elements::model::LibraryId,
+        an: &ast::Annotation,
+    ) -> Option<ClassId> {
         use dartforge_elements::model::Element;
         let ctx = self.ctx;
         let cls = |el: Option<Element>| match el? {
             Element::Class(c) => Some(c),
-            Element::Typedef(td) => match ctx.table.get(ctx.outline.typedefs.get(td.0 as usize)?.target_type) {
+            Element::Typedef(td) => match ctx
+                .table
+                .get(ctx.outline.typedefs.get(td.0 as usize)?.target_type)
+            {
                 T::Interface { class, .. } => Some(*class),
                 _ => None,
             },
@@ -820,16 +1032,27 @@ impl Computation<'_, '_> {
         };
         // `@Name()`/`@Name.ctor()`, otherwise `@p.Name()`/`@p.Name.ctor()`.
         let first_one = an.name.first()?;
-        cls(ctx.program.lookup(lib, first_one.sym).and_then(|b| b.getter)).or_else(|| {
+        cls(ctx
+            .program
+            .lookup(lib, first_one.sym)
+            .and_then(|b| b.getter))
+        .or_else(|| {
             let n = an.name.get(1)?;
-            cls(ctx.program.lookup_prefixed(lib, first_one.sym, n.sym).and_then(|b| b.getter))
+            cls(ctx
+                .program
+                .lookup_prefixed(lib, first_one.sym, n.sym)
+                .and_then(|b| b.getter))
         })
     }
 
     /// The innermost type of `Array<Array<…<E>>>`.
     fn array_element(&mut self, t: TypeId) -> Option<FieldType> {
-        let T::Interface { class, args, .. } = self.ctx.table.get(t) else { return None };
-        let name_str = self.ctx.symbol_name(self.ctx.program.classes[class.0 as usize].name);
+        let T::Interface { class, args, .. } = self.ctx.table.get(t) else {
+            return None;
+        };
+        let name_str = self
+            .ctx
+            .symbol_name(self.ctx.program.classes[class.0 as usize].name);
         if name_str == "Array" {
             return self.array_element(*args.first()?);
         }
@@ -845,8 +1068,15 @@ impl Computation<'_, '_> {
 
 /// The innermost element of `Array<Array<…<E>>>` with `n` levels (the
 /// dimensions of the annotation): a primitive native type, a pointer or a compound.
-fn native_array_element(ctx: &Context, types: &NativeTypes, t: TypeId, n: usize) -> Option<FieldType> {
-    let T::Interface { class, args, .. } = ctx.table.get(t) else { return None };
+fn native_array_element(
+    ctx: &Context,
+    types: &NativeTypes,
+    t: TypeId,
+    n: usize,
+) -> Option<FieldType> {
+    let T::Interface { class, args, .. } = ctx.table.get(t) else {
+        return None;
+    };
     if n > 0 {
         if Some(*class) != types.array {
             return None;
@@ -856,16 +1086,22 @@ fn native_array_element(ctx: &Context, types: &NativeTypes, t: TypeId, n: usize)
     if let Some(tc) = types.classes.get(class) {
         return (*tc != CType::Void).then_some(FieldType::Prim(*tc));
     }
-    types.composites.contains(class).then_some(FieldType::Composite(*class))
+    types
+        .composites
+        .contains(class)
+        .then_some(FieldType::Composite(*class))
 }
 
 /// The dimensions of `@Array(2, 3)` or `@Array.multi([2, 3])`.
 fn array_dimensions(source: &str, ast: &ast::Ast, an: &ast::Annotation) -> Option<Vec<usize>> {
     let args = &an.arguments.as_ref()?.args;
-    let integer = |e: ast::ExprId| integer_literal(source, ast, e).and_then(|n| usize::try_from(n).ok());
+    let integer =
+        |e: ast::ExprId| integer_literal(source, ast, e).and_then(|n| usize::try_from(n).ok());
     if an.name.len() > 1 {
         // `Array.multi([…])`.
-        let ast::ExprKind::List { elements, .. } = &ast.expr(args.first()?.value).kind else { return None };
+        let ast::ExprKind::List { elements, .. } = &ast.expr(args.first()?.value).kind else {
+            return None;
+        };
         return elements
             .iter()
             .map(|el| match el {
@@ -893,7 +1129,9 @@ fn full_annotation(ctx: &Context, c: ClassId, name_str: &str) -> Option<i64> {
 
 /// The value of an integer literal (decimal or hexadecimal).
 fn integer_literal(source: &str, ast: &ast::Ast, e: ast::ExprId) -> Option<i64> {
-    let ast::ExprKind::Int(span) = &ast.expr(e).kind else { return None };
+    let ast::ExprKind::Int(span) = &ast.expr(e).kind else {
+        return None;
+    };
     let text = source.get(span.start..span.end)?.replace('_', "");
     match text.strip_prefix("0x").or_else(|| text.strip_prefix("0X")) {
         Some(h) => i64::from_str_radix(h, 16).ok(),
@@ -924,7 +1162,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The `external` field of a struct/union: `(base, offset, ty)`
     /// of the access — `_typedDataBase` of the object and `_offsetInBytes` + the
     /// offset of the field in the layout.
-    fn ffi_field_address(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId) -> Option<(Operand, Operand, FieldType)> {
+    fn ffi_field_address(
+        &mut self,
+        obj: Operand,
+        vid: dartforge_elements::model::VariableId,
+    ) -> Option<(Operand, Operand, FieldType)> {
         let v = &self.ctx.program.variables[vid.0 as usize];
         if !v.external || v.static_ {
             return None;
@@ -936,12 +1178,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let base = self.read_field(obj.clone(), vbase, span);
         let d0 = self.read_field(obj, vdesl, span);
         let d0 = self.coerce(d0, Type::I64);
-        let d = self.emit(Instruction::Add(d0, Operand::Constant(Constant::Int(off as i64))), Type::I64);
+        let d = self.emit(
+            Instruction::Add(d0, Operand::Constant(Constant::Int(off as i64))),
+            Type::I64,
+        );
         Some((base, d, typ))
     }
 
     /// Read of an `external` field of a struct/union (`None`: it is not one).
-    pub fn read_ffi_field(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId) -> Option<Operand> {
+    pub fn read_ffi_field(
+        &mut self,
+        obj: Operand,
+        vid: dartforge_elements::model::VariableId,
+    ) -> Option<Operand> {
         let (base, d, typ) = self.ffi_field_address(obj, vid)?;
         Some(self.read_ffi_memory(base, d, typ))
     }
@@ -951,7 +1200,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn read_ffi_memory(&mut self, base: Operand, d: Operand, typ: FieldType) -> Operand {
         match typ {
             FieldType::Prim(tc) => {
-                let ret = if matches!(tc, CType::F32 | CType::F64) { Type::F64 } else { Type::I64 };
+                let ret = if matches!(tc, CType::F32 | CType::F64) {
+                    Type::F64
+                } else {
+                    Type::I64
+                };
                 // The load checks the base (a pending `RangeError`/`ArgumentError`).
                 let v = self.emit_call_with_check(
                     Instruction::CallRuntime {
@@ -962,7 +1215,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     ret,
                 );
                 match tc {
-                    CType::Bool => self.emit(Instruction::ICmp(ICmpOp::Ne, v, Operand::Constant(Constant::Int(0))), Type::I1),
+                    CType::Bool => self.emit(
+                        Instruction::ICmp(ICmpOp::Ne, v, Operand::Constant(Constant::Int(0))),
+                        Type::I1,
+                    ),
                     CType::Ptr => self.emit_call_with_check(
                         Instruction::CallRuntime {
                             name: "dartforge_ffi_pointer_new".to_string(),
@@ -977,7 +1233,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             FieldType::Composite(c) => self.emit_call_with_check(
                 Instruction::CallRuntime {
                     name: "dartforge_ffi_compound".to_string(),
-                    args: vec![(Operand::Constant(Constant::Int(self.ctx.id_rti(c))), Type::I64), (base, Type::Ref), (d, Type::I64)],
+                    args: vec![
+                        (
+                            Operand::Constant(Constant::Int(self.ctx.id_rti(c))),
+                            Type::I64,
+                        ),
+                        (base, Type::Ref),
+                        (d, Type::I64),
+                    ],
                     ret_ty: Type::Ref,
                 },
                 Type::Ref,
@@ -1001,13 +1264,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let rest = self.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_list_from_table".to_string(),
-                        args: vec![(data, Type::Ptr), (Operand::Constant(Constant::Int(table.len() as i64)), Type::I64)],
+                        args: vec![
+                            (data, Type::Ptr),
+                            (
+                                Operand::Constant(Constant::Int(table.len() as i64)),
+                                Type::I64,
+                            ),
+                        ],
                         ret_ty: Type::Ref,
                     },
                     Type::Ref,
                 );
                 let Some(f) = self.top_level_function("dart:ffi", "_dartforgeArray") else {
-                    return self.unsupported("dart:ffi without `_dartforgeArray`", dartforge_diagnostics::Span { start: 0, end: 0 });
+                    return self.unsupported(
+                        "dart:ffi without `_dartforgeArray`",
+                        dartforge_diagnostics::Span { start: 0, end: 0 },
+                    );
                 };
                 let bytes = size_of(self.ctx, &elem) as i64;
                 let args = vec![
@@ -1024,8 +1296,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Write of an `external` field of a struct/union (`false`: it is not one).
-    pub fn store_ffi_field(&mut self, obj: Operand, vid: dartforge_elements::model::VariableId, val: Operand) -> bool {
-        let Some((base, d, typ)) = self.ffi_field_address(obj, vid) else { return false };
+    pub fn store_ffi_field(
+        &mut self,
+        obj: Operand,
+        vid: dartforge_elements::model::VariableId,
+        val: Operand,
+    ) -> bool {
+        let Some((base, d, typ)) = self.ffi_field_address(obj, vid) else {
+            return false;
+        };
         self.store_ffi_memory(base, d, typ, val);
         true
     }
@@ -1038,7 +1317,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     CType::F32 | CType::F64 => (self.coerce(val, Type::F64), Type::F64),
                     CType::Bool => {
                         let b = self.coerce(val, Type::I1);
-                        (self.emit(Instruction::ZExt { op: b, from: Type::I1, to: Type::I64 }, Type::I64), Type::I64)
+                        (
+                            self.emit(
+                                Instruction::ZExt {
+                                    op: b,
+                                    from: Type::I1,
+                                    to: Type::I64,
+                                },
+                                Type::I64,
+                            ),
+                            Type::I64,
+                        )
                     }
                     CType::Ptr => {
                         let p = self.coerce(val, Type::Ref);
@@ -1059,7 +1348,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // The store checks the base, like the load.
                 self.emit_call_with_check(
                     Instruction::CallRuntime {
-                        name: format!("dartforge_native_DartForge_ffi_store_{}", tc.memory_suffix()),
+                        name: format!(
+                            "dartforge_native_DartForge_ffi_store_{}",
+                            tc.memory_suffix()
+                        ),
                         args: vec![(base, Type::Ref), (d, Type::I64), (v, ty)],
                         ret_ty: Type::Void,
                     },
@@ -1069,7 +1361,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             FieldType::Composite(_) | FieldType::Array { .. } => {
                 // By value: copies the bytes of the assigned compound.
                 let size = size_of(self.ctx, &typ);
-                let Some(comp) = composites(self.ctx) else { return };
+                let Some(comp) = composites(self.ctx) else {
+                    return;
+                };
                 let (vbase, vdesl) = (comp.base, comp.offset);
                 let span = dartforge_diagnostics::Span { start: 0, end: 0 };
                 let val = self.coerce(val, Type::Ref);
@@ -1108,7 +1402,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit_call_with_check(
             Instruction::CallRuntime {
                 name: "dartforge_ffi_native_symbol".to_string(),
-                args: vec![(name_str, Type::Ptr), (Operand::Constant(Constant::Int(symbol.len() as i64)), Type::I64)],
+                args: vec![
+                    (name_str, Type::Ptr),
+                    (
+                        Operand::Constant(Constant::Int(symbol.len() as i64)),
+                        Type::I64,
+                    ),
+                ],
                 ret_ty: Type::I64,
             },
             Type::I64,
@@ -1117,20 +1417,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// An `external` variable with `@Native<T>()`: the symbol and the type of the
     /// data (`None`: it is not one).
-    fn native_variable(&self, vid: dartforge_elements::model::VariableId) -> Option<Result<(Vec<u8>, FieldType), String>> {
+    fn native_variable(
+        &self,
+        vid: dartforge_elements::model::VariableId,
+    ) -> Option<Result<(Vec<u8>, FieldType), String>> {
         use dartforge_elements::model::VariableRef;
         let v = &self.ctx.program.variables[vid.0 as usize];
         if !v.external {
             return None;
         }
-        let VariableRef::TopLevel { unit, decl, .. } = v.node else { return None };
+        let VariableRef::TopLevel { unit, decl, .. } = v.node else {
+            return None;
+        };
         let u = self.ctx.program.unit(unit);
-        let an = u.ast.decls[decl.0 as usize]
-            .metadata
-            .iter()
-            .find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
-        let Some(types) = NativeTypes::of_program(self.ctx) else { return Some(Err("@Native without dart:ffi".to_string())) };
-        let symbol = annotation_symbol(self.ctx, &u.ast, an).unwrap_or_else(|| self.ctx.symbol_name(v.name).as_bytes().to_vec());
+        let an = u.ast.decls[decl.0 as usize].metadata.iter().find(|an| {
+            an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native")
+        })?;
+        let Some(types) = NativeTypes::of_program(self.ctx) else {
+            return Some(Err("@Native without dart:ffi".to_string()));
+        };
+        let symbol = annotation_symbol(self.ctx, &u.ast, an)
+            .unwrap_or_else(|| self.ctx.symbol_name(v.name).as_bytes().to_vec());
         // `@Array(d0, d1…)` on the variable: the data is the C vector, with the
         // elements of the declared type (`Array<Array<…<E>>>`), like an `@Array`
         // field of a struct.
@@ -1139,20 +1446,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .iter()
             .find(|an| an.name.first().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Array"))
         {
-            let Some(dims) = array_dimensions(&u.source, &u.ast, arr).filter(|d| !d.is_empty()) else {
-                return Some(Err("@Array of an @Native variable without constant dimensions".to_string()));
+            let Some(dims) = array_dimensions(&u.source, &u.ast, arr).filter(|d| !d.is_empty())
+            else {
+                return Some(Err(
+                    "@Array of an @Native variable without constant dimensions".to_string(),
+                ));
             };
             let declared = super::members::variable_type(self.ctx, vid);
             let Some(elem) = native_array_element(self.ctx, &types, declared, dims.len()) else {
-                return Some(Err("@Native of `Array` with an element that is not a native type".to_string()));
+                return Some(Err(
+                    "@Native of `Array` with an element that is not a native type".to_string(),
+                ));
             };
-            return Some(Ok((symbol, FieldType::Array { elem: Box::new(elem), dims })));
+            return Some(Ok((
+                symbol,
+                FieldType::Array {
+                    elem: Box::new(elem),
+                    dims,
+                },
+            )));
         }
         let Some(&t) = an.type_args.first() else {
             return Some(Err("@Native variable without the type argument".to_string()));
         };
         let typ = match types.annotation_native_type(self.ctx, &u.ast, t, v.library) {
-            Ok((NativeType::Prim(CType::Void), _)) => return Some(Err("`Void` @Native variable".to_string())),
+            Ok((NativeType::Prim(CType::Void), _)) => {
+                return Some(Err("`Void` @Native variable".to_string()));
+            }
             Ok((NativeType::Prim(tc), _)) => FieldType::Prim(tc),
             Ok((NativeType::Composite(_), Some(c))) => FieldType::Composite(c),
             Ok(_) => return Some(Err("type of an @Native variable".to_string())),
@@ -1165,13 +1485,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn native_variable_base(&mut self, symbol: &[u8]) -> Operand {
         let e = self.symbol_address(symbol);
         self.emit_call_with_check(
-            Instruction::CallRuntime { name: "dartforge_ffi_pointer_new".to_string(), args: vec![(e, Type::I64)], ret_ty: Type::Ref },
+            Instruction::CallRuntime {
+                name: "dartforge_ffi_pointer_new".to_string(),
+                args: vec![(e, Type::I64)],
+                ret_ty: Type::Ref,
+            },
             Type::Ref,
         )
     }
 
     /// Read of an `@Native` variable (`None`: it is not one).
-    pub fn read_native_variable(&mut self, vid: dartforge_elements::model::VariableId, span: dartforge_diagnostics::Span) -> Option<Operand> {
+    pub fn read_native_variable(
+        &mut self,
+        vid: dartforge_elements::model::VariableId,
+        span: dartforge_diagnostics::Span,
+    ) -> Option<Operand> {
         let (symbol, typ) = match self.native_variable(vid)? {
             Ok(x) => x,
             Err(m) => return Some(self.unsupported(&m, span)),
@@ -1181,8 +1509,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Write of an `@Native` variable (`false`: it is not one).
-    pub fn store_native_variable(&mut self, vid: dartforge_elements::model::VariableId, val: Operand, span: dartforge_diagnostics::Span) -> bool {
-        let Some(r) = self.native_variable(vid) else { return false };
+    pub fn store_native_variable(
+        &mut self,
+        vid: dartforge_elements::model::VariableId,
+        val: Operand,
+        span: dartforge_diagnostics::Span,
+    ) -> bool {
+        let Some(r) = self.native_variable(vid) else {
+            return false;
+        };
         let (symbol, typ) = match r {
             Ok(x) => x,
             Err(m) => {
@@ -1197,7 +1532,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `Native.addressOf<T>(x)` (what the VM's front end rewrites): the
     /// `Pointer` to the symbol of the cited `@Native` function or variable.
-    pub fn native_address(&mut self, ast: &ast::Ast, arg: ast::ExprId, span: dartforge_diagnostics::Span) -> Operand {
+    pub fn native_address(
+        &mut self,
+        ast: &ast::Ast,
+        arg: ast::ExprId,
+        span: dartforge_diagnostics::Span,
+    ) -> Operand {
         use dartforge_elements::model::Element;
         let resolved = self.ctx.get_resolved(self.unit_id, arg).cloned();
         let el = match resolved {
@@ -1214,18 +1554,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some(Element::Function(f)) => {
                 let fid = f.0 as usize;
                 match self.ctx.program.functions[fid].variable {
-                    Some(vid) => self.native_variable(vid).and_then(Result::ok).map(|(s, _)| s),
+                    Some(vid) => self
+                        .native_variable(vid)
+                        .and_then(Result::ok)
+                        .map(|(s, _)| s),
                     None => function_metadata(self.ctx, fid).and_then(|(_, a, meta)| {
-                        let an = meta.iter().find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
-                        Some(annotation_symbol(self.ctx, a, an).unwrap_or_else(|| self.ctx.symbol_name(self.ctx.program.functions[fid].name).as_bytes().to_vec()))
+                        let an = meta.iter().find(|an| {
+                            an.name.last().map(|n| self.ctx.interner.resolve(n.sym))
+                                == Some("Native")
+                        })?;
+                        Some(annotation_symbol(self.ctx, a, an).unwrap_or_else(|| {
+                            self.ctx
+                                .symbol_name(self.ctx.program.functions[fid].name)
+                                .as_bytes()
+                                .to_vec()
+                        }))
                     }),
                 }
             }
-            Some(Element::Variable(vid)) => self.native_variable(vid).and_then(Result::ok).map(|(s, _)| s),
+            Some(Element::Variable(vid)) => self
+                .native_variable(vid)
+                .and_then(Result::ok)
+                .map(|(s, _)| s),
             _ => None,
         };
         let Some(symbol) = symbol else {
-            return self.language_error("Argument to 'Native.addressOf' must be annotated with @Native.", span);
+            return self.language_error(
+                "Argument to 'Native.addressOf' must be annotated with @Native.",
+                span,
+            );
         };
         self.native_variable_base(&symbol)
     }
@@ -1248,7 +1605,9 @@ fn annotation_symbol(ctx: &Context, ast: &ast::Ast, an: &ast::Annotation) -> Opt
 fn size_of(ctx: &Context, t: &FieldType) -> usize {
     match t {
         FieldType::Prim(tc) => tc.c_size(),
-        FieldType::Composite(c) => composites(ctx).and_then(|x| x.classes.get(c)).map_or(0, |l| l.size),
+        FieldType::Composite(c) => composites(ctx)
+            .and_then(|x| x.classes.get(c))
+            .map_or(0, |l| l.size),
         FieldType::Array { elem, dims } => size_of(ctx, elem) * dims.iter().product::<usize>(),
     }
 }
@@ -1264,10 +1623,15 @@ fn size_of(ctx: &Context, t: &FieldType) -> usize {
 // needed: the process includes the libraries linked to the executable).
 
 /// The annotations of the declaration of a function.
-fn function_metadata<'p>(ctx: &'p Context, fid: usize) -> Option<(&'p str, &'p ast::Ast, &'p [ast::Annotation])> {
+fn function_metadata<'p>(
+    ctx: &'p Context,
+    fid: usize,
+) -> Option<(&'p str, &'p ast::Ast, &'p [ast::Annotation])> {
     use dartforge_elements::model::FunctionRef;
     let f = &ctx.program.functions[fid];
-    let FunctionRef::Function { unit, function } = f.node else { return None };
+    let FunctionRef::Function { unit, function } = f.node else {
+        return None;
+    };
     let u = ctx.program.unit(unit);
     let a = &u.ast;
     let meta = a
@@ -1275,7 +1639,12 @@ fn function_metadata<'p>(ctx: &'p Context, fid: usize) -> Option<(&'p str, &'p a
         .iter()
         .find(|m| matches!(m.kind, ast::MemberKind::Method(id) if id == function))
         .map(|m| &*m.metadata)
-        .or_else(|| a.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(id) if id == function)).map(|d| &*d.metadata))?;
+        .or_else(|| {
+            a.decls
+                .iter()
+                .find(|d| matches!(d.kind, ast::DeclKind::Function(id) if id == function))
+                .map(|d| &*d.metadata)
+        })?;
     Some((&u.source, a, meta))
 }
 
@@ -1296,8 +1665,12 @@ impl NativeTypes {
         match self.annotation_c_type(ctx, ast, t) {
             Ok(tc) => Ok((NativeType::Prim(tc), None)),
             Err(m) if m == COMPOSITE_IN_ANNOTATION => {
-                let ast::TypeKind::Named { name, .. } = &ast.ty(t).kind else { return Err(m) };
-                let name_str = ctx.interner.resolve(name.last().ok_or("type without a name")?.sym);
+                let ast::TypeKind::Named { name, .. } = &ast.ty(t).kind else {
+                    return Err(m);
+                };
+                let name_str = ctx
+                    .interner
+                    .resolve(name.last().ok_or("type without a name")?.sym);
                 let mut candidates: Vec<ClassId> = self
                     .composites
                     .iter()
@@ -1306,7 +1679,8 @@ impl NativeTypes {
                     .collect();
                 candidates.sort_by_key(|c| (ctx.program.classes[c.0 as usize].library != lib, c.0));
                 let c = *candidates.first().ok_or(m)?;
-                let layout = layout_c(ctx, c).ok_or_else(|| format!("struct `{name_str}` without a layout"))?;
+                let layout = layout_c(ctx, c)
+                    .ok_or_else(|| format!("struct `{name_str}` without a layout"))?;
                 Ok((NativeType::Composite(layout), Some(c)))
             }
             Err(m) => Err(m),
@@ -1315,24 +1689,41 @@ impl NativeTypes {
 
     /// The C type of a native type written in the annotation (`Pointer<Utf8>`,
     /// `Size`, `Int32`), by the class name.
-    fn annotation_c_type(&self, ctx: &Context, ast: &ast::Ast, t: ast::TypeId) -> Result<CType, String> {
+    fn annotation_c_type(
+        &self,
+        ctx: &Context,
+        ast: &ast::Ast,
+        t: ast::TypeId,
+    ) -> Result<CType, String> {
         match &ast.ty(t).kind {
             ast::TypeKind::Void => Ok(CType::Void),
             ast::TypeKind::Named { name, .. } => {
-                let name_str = ctx.interner.resolve(name.last().ok_or("type without a name")?.sym);
+                let name_str = ctx
+                    .interner
+                    .resolve(name.last().ok_or("type without a name")?.sym);
                 if let Some(tc) = primitive(name_str) {
                     return Ok(tc);
                 }
-                if let Some((_, tc)) = self.classes.iter().find(|(c, _)| ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == name_str) {
+                if let Some((_, tc)) = self.classes.iter().find(|(c, _)| {
+                    ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == name_str
+                }) {
                     return Ok(*tc);
                 }
-                if self.composites.iter().any(|c| ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == name_str) {
+                if self
+                    .composites
+                    .iter()
+                    .any(|c| ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == name_str)
+                {
                     return Err(COMPOSITE_IN_ANNOTATION.to_string());
                 }
-                if let Some((_, m)) = self.rejected.iter().find(|(c, _)| ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == name_str) {
+                if let Some((_, m)) = self.rejected.iter().find(|(c, _)| {
+                    ctx.symbol_name(ctx.program.classes[c.0 as usize].name) == name_str
+                }) {
                     return Err(format!("{m} is not supported by the native backend yet"));
                 }
-                Err(format!("`{name_str}` is not a native type supported in @Native"))
+                Err(format!(
+                    "`{name_str}` is not a native type supported in @Native"
+                ))
             }
             _ => Err("unexpected native type in @Native".to_string()),
         }
@@ -1349,7 +1740,11 @@ fn annotation_signature(
     lib: dartforge_elements::model::LibraryId,
     depth: usize,
 ) -> Result<NativeSignature, String> {
-    let from_params = |ast: &ast::Ast, lib, ret: Option<ast::TypeId>, params: &[ast::Parameter]| -> Result<NativeSignature, String> {
+    let from_params = |ast: &ast::Ast,
+                       lib,
+                       ret: Option<ast::TypeId>,
+                       params: &[ast::Parameter]|
+     -> Result<NativeSignature, String> {
         let (r, ret_class) = match ret {
             Some(r) => types.annotation_native_type(ctx, ast, r, lib)?,
             None => (NativeType::Prim(CType::Void), None),
@@ -1357,31 +1752,55 @@ fn annotation_signature(
         let mut ps = Vec::with_capacity(params.len());
         let mut cs = Vec::with_capacity(params.len());
         for p in params {
-            let t = p.ty.ok_or_else(|| "native parameter without a type".to_string())?;
+            let t =
+                p.ty.ok_or_else(|| "native parameter without a type".to_string())?;
             let (tn, c) = types.annotation_native_type(ctx, ast, t, lib)?;
             ps.push(tn);
             cs.push(c);
         }
-        Ok(NativeSignature { ret: r, ret_class, params: ps, class_params: cs, variadic_flag: None })
+        Ok(NativeSignature {
+            ret: r,
+            ret_class,
+            params: ps,
+            class_params: cs,
+            variadic_flag: None,
+        })
     };
     match &ast.ty(t).kind {
-        ast::TypeKind::Function { return_type, parameters, .. } => from_params(ast, lib, *return_type, parameters),
+        ast::TypeKind::Function {
+            return_type,
+            parameters,
+            ..
+        } => from_params(ast, lib, *return_type, parameters),
         ast::TypeKind::Named { name, .. } if depth < 8 => {
-            let name_str = ctx.interner.resolve(name.last().ok_or("type without a name")?.sym);
+            let name_str = ctx
+                .interner
+                .resolve(name.last().ok_or("type without a name")?.sym);
             // The `typedef` with that name, preferably from the same library.
-            let mut candidates: Vec<&dartforge_elements::model::TypedefElement> =
-                ctx.program.typedefs.iter().filter(|td| ctx.symbol_name(td.name) == name_str).collect();
+            let mut candidates: Vec<&dartforge_elements::model::TypedefElement> = ctx
+                .program
+                .typedefs
+                .iter()
+                .filter(|td| ctx.symbol_name(td.name) == name_str)
+                .collect();
             candidates.sort_by_key(|td| td.library != lib);
             let Some(td) = candidates.first() else {
-                return Err("@Native variable (pointer to native data) is not supported yet".to_string());
+                return Err(
+                    "@Native variable (pointer to native data) is not supported yet".to_string(),
+                );
             };
             let u = ctx.program.unit(td.decl.unit);
             let ast::DeclKind::Typedef(decl) = &u.ast.decls[td.decl.decl.0 as usize].kind else {
                 return Err(format!("`{name_str}` is not a typedef"));
             };
             match &decl.kind {
-                ast::TypedefKind::Alias(target) => annotation_signature(ctx, types, &u.ast, *target, td.library, depth + 1),
-                ast::TypedefKind::Legacy { return_type, parameters } => from_params(&u.ast, td.library, *return_type, parameters),
+                ast::TypedefKind::Alias(target) => {
+                    annotation_signature(ctx, types, &u.ast, *target, td.library, depth + 1)
+                }
+                ast::TypedefKind::Legacy {
+                    return_type,
+                    parameters,
+                } => from_params(&u.ast, td.library, *return_type, parameters),
             }
         }
         _ => Err("unexpected native signature in @Native".to_string()),
@@ -1390,15 +1809,25 @@ fn annotation_signature(
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The body of an `external` with `@Native` (`None`: it does not have the annotation).
-    pub fn call_annotated_native(&mut self, fid: usize, args: &[Operand], span: dartforge_diagnostics::Span) -> Option<Operand> {
+    pub fn call_annotated_native(
+        &mut self,
+        fid: usize,
+        args: &[Operand],
+        span: dartforge_diagnostics::Span,
+    ) -> Option<Operand> {
         let (source, ast, meta) = function_metadata(self.ctx, fid)?;
-        let an = meta.iter().find(|an| an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native"))?;
+        let an = meta.iter().find(|an| {
+            an.name.last().map(|n| self.ctx.interner.resolve(n.sym)) == Some("Native")
+        })?;
         let Some(types) = NativeTypes::of_program(self.ctx) else {
             return Some(self.unsupported("@Native without dart:ffi", span));
         };
         // The signature: `NF` of the annotation.
         let Some(&nf) = an.type_args.first() else {
-            return Some(self.unsupported("@Native without the type argument of the native signature", span));
+            return Some(self.unsupported(
+                "@Native without the type argument of the native signature",
+                span,
+            ));
         };
         let lib = self.ctx.program.functions[fid].library;
         let signature = annotation_signature(self.ctx, &types, ast, nf, lib, 0);
@@ -1407,16 +1836,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Err(m) => return Some(self.unsupported(&m, span)),
         };
         // The symbol: `symbol: 'x'`, or the function name.
-        let symbol = annotation_symbol(self.ctx, ast, an)
-            .unwrap_or_else(|| self.ctx.symbol_name(self.ctx.program.functions[fid].name).as_bytes().to_vec());
+        let symbol = annotation_symbol(self.ctx, ast, an).unwrap_or_else(|| {
+            self.ctx
+                .symbol_name(self.ctx.program.functions[fid].name)
+                .as_bytes()
+                .to_vec()
+        });
         let _ = source;
         let target = self.symbol_address(&symbol);
         if args.len() != signature.params.len() {
-            return Some(self.unsupported("@Native with an arity different from the native signature", span));
+            return Some(self.unsupported(
+                "@Native with an arity different from the native signature",
+                span,
+            ));
         }
         let dart_ret = self.return_repr(fid);
         let r = self.signature_native_call(target, args, &signature, None);
-        Some(if dart_ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coerce(r, dart_ret) })
+        Some(if dart_ret == Type::Void {
+            Operand::Constant(Constant::Null)
+        } else {
+            self.coerce(r, dart_ret)
+        })
     }
 
     /// The native call of `target` with the Dart values `args` through the
@@ -1434,7 +1874,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let address = |b: &mut Self, name: &str, v: Operand| {
             let v = b.coerce(v, Type::Ref);
             b.emit_call_with_check(
-                Instruction::CallRuntime { name: name.to_string(), args: vec![(v, Type::Ref)], ret_ty: Type::I64 },
+                Instruction::CallRuntime {
+                    name: name.to_string(),
+                    args: vec![(v, Type::Ref)],
+                    ret_ty: Type::I64,
+                },
                 Type::I64,
             )
         };
@@ -1444,7 +1888,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // after closing it: no exceptional exit leaves cells
         // behind. Creating a cell does not throw, so the observable order of the
         // conversions of the other arguments is kept.
-        let with_handles = std::iter::once(&a.ret).chain(a.params.iter()).any(|t| matches!(t, NativeType::Prim(CType::Handle)));
+        let with_handles = std::iter::once(&a.ret)
+            .chain(a.params.iter())
+            .any(|t| matches!(t, NativeType::Prim(CType::Handle)));
         let mut natives = Vec::with_capacity(a.params.len());
         for (v, t) in args.iter().cloned().zip(a.params.iter()) {
             let x = match t {
@@ -1460,7 +1906,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let new = self.emit_call_with_check(
                     Instruction::CallRuntime {
                         name: "dartforge_ffi_compound_new".to_string(),
-                        args: vec![(Operand::Constant(Constant::Int(self.ctx.id_rti(c))), Type::I64)],
+                        args: vec![(
+                            Operand::Constant(Constant::Int(self.ctx.id_rti(c))),
+                            Type::I64,
+                        )],
                         ret_ty: Type::Ref,
                     },
                     Type::Ref,
@@ -1473,7 +1922,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let scope = with_handles.then(|| {
             self.emit(
-                Instruction::CallRuntime { name: "dartforge_ffi_handles_open".to_string(), args: Vec::new(), ret_ty: Type::I64 },
+                Instruction::CallRuntime {
+                    name: "dartforge_ffi_handles_open".to_string(),
+                    args: Vec::new(),
+                    ret_ty: Type::I64,
+                },
                 Type::I64,
             )
         });
@@ -1481,7 +1934,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if matches!(t, NativeType::Prim(CType::Handle)) {
                 let obj = std::mem::replace(x, Operand::Constant(Constant::Null));
                 *x = self.emit(
-                    Instruction::CallRuntime { name: "dartforge_ffi_handle_new".to_string(), args: vec![(obj, Type::Ref)], ret_ty: Type::I64 },
+                    Instruction::CallRuntime {
+                        name: "dartforge_ffi_handle_new".to_string(),
+                        args: vec![(obj, Type::Ref)],
+                        ret_ty: Type::I64,
+                    },
                     Type::I64,
                 );
             }
@@ -1489,21 +1946,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let close = |b: &mut Self| {
             if let Some(e) = scope.clone() {
                 b.emit(
-                    Instruction::CallRuntime { name: "dartforge_ffi_handles_close".to_string(), args: vec![(e, Type::I64)], ret_ty: Type::Void },
+                    Instruction::CallRuntime {
+                        name: "dartforge_ffi_handles_close".to_string(),
+                        args: vec![(e, Type::I64)],
+                        ret_ty: Type::Void,
+                    },
                     Type::Void,
                 );
             }
         };
         if let Some((new, dest)) = returned_struct {
             self.emit(
-                Instruction::CompositeNativeCall { target, args: natives, ret: a.ret.clone(), dest: Some(dest), variadic_flag: a.variadic_flag },
+                Instruction::CompositeNativeCall {
+                    target,
+                    args: natives,
+                    ret: a.ret.clone(),
+                    dest: Some(dest),
+                    variadic_flag: a.variadic_flag,
+                },
                 Type::Void,
             );
             close(self);
             return new;
         }
-        let NativeType::Prim(ret) = a.ret else { unreachable!("compound return handled above") };
-        let r = if a.variadic_flag.is_none() && natives.iter().all(|(_, t)| matches!(t, NativeType::Prim(_))) {
+        let NativeType::Prim(ret) = a.ret else {
+            unreachable!("compound return handled above")
+        };
+        let r = if a.variadic_flag.is_none()
+            && natives
+                .iter()
+                .all(|(_, t)| matches!(t, NativeType::Prim(_)))
+        {
             let prims = natives
                 .into_iter()
                 .map(|(x, t)| match t {
@@ -1511,10 +1984,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     NativeType::Composite(_) => unreachable!(),
                 })
                 .collect();
-            self.emit(Instruction::NativeCall { target, args: prims, ret }, ret.hir_type())
+            self.emit(
+                Instruction::NativeCall {
+                    target,
+                    args: prims,
+                    ret,
+                },
+                ret.hir_type(),
+            )
         } else {
             self.emit(
-                Instruction::CompositeNativeCall { target, args: natives, ret: a.ret.clone(), dest: None, variadic_flag: a.variadic_flag },
+                Instruction::CompositeNativeCall {
+                    target,
+                    args: natives,
+                    ret: a.ret.clone(),
+                    dest: None,
+                    variadic_flag: a.variadic_flag,
+                },
                 ret.hir_type(),
             )
         };
@@ -1544,7 +2030,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             ),
             (CType::Ptr, None) => self.emit_call_with_check(
-                Instruction::CallRuntime { name: "dartforge_ffi_pointer_new".to_string(), args: vec![(r, Type::I64)], ret_ty: Type::Ref },
+                Instruction::CallRuntime {
+                    name: "dartforge_ffi_pointer_new".to_string(),
+                    args: vec![(r, Type::I64)],
+                    ret_ty: Type::Ref,
+                },
                 Type::Ref,
             ),
             // The trampoline returns `Ref`; an `@Native`, the raw value

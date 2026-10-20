@@ -19,15 +19,16 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use super::walk::{walk, Node};
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
+use super::walk::{Node, walk};
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionKind, FunctionRef};
 use dartforge_frontend::ast::{
-    DeclId, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody, Initializer, MemberKind, Parameter, ParameterKind, StmtKind, TypeKind,
+    DeclId, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody, Initializer,
+    MemberKind, Parameter, ParameterKind, StmtKind, TypeKind,
 };
 use dartforge_intern::Interner;
 use dartforge_types::resolved::{MemberRef, Resolved};
@@ -35,7 +36,14 @@ use dartforge_types::table::{Type, TypeId};
 use std::collections::{HashMap, HashSet};
 
 fn class_of_decl(s: &super::Semantics<'_>, d: DeclId) -> Option<ClassId> {
-    (0..s.program.classes.len()).map(|i| ClassId(i as u32)).find(|c| s.program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
+    (0..s.program.classes.len())
+        .map(|i| ClassId(i as u32))
+        .find(|c| {
+            s.program
+                .class(*c)
+                .decl
+                .is_some_and(|r| r.unit == s.unit && r.decl == d)
+        })
 }
 
 fn is_private(interner: &Interner, s: dartforge_intern::SymbolId) -> bool {
@@ -53,17 +61,32 @@ fn is_double(s: &super::Semantics<'_>, t: TypeId) -> bool {
 
 /// The written type of an annotation.
 fn written_type(s: &super::Semantics<'_>, t: dartforge_frontend::ast::TypeId) -> Option<TypeId> {
-    s.body.annotation_types.get(&t).copied().or_else(|| s.outline.written_types.get(&(s.unit, t)).copied())
+    s.body
+        .annotation_types
+        .get(&t)
+        .copied()
+        .or_else(|| s.outline.written_types.get(&(s.unit, t)).copied())
 }
 
 /// The first positional `bool` (`_isBoolean`).
 fn first_bool<'a>(s: &super::Semantics<'_>, ps: &'a [Parameter]) -> Option<&'a Parameter> {
-    ps.iter().find(|p| p.kind != ParameterKind::Named && p.function_parameters.is_none() && p.ty.and_then(|t| written_type(s, t)).is_some_and(|t| is_bool(s, t)))
+    ps.iter().find(|p| {
+        p.kind != ParameterKind::Named
+            && p.function_parameters.is_none()
+            && p.ty
+                .and_then(|t| written_type(s, t))
+                .is_some_and(|t| is_bool(s, t))
+    })
 }
 
 /// `lookUpInheritedMethod` (the superclass chain with the mixins, without the
 /// class itself).
-fn has_inherited_method(s: &super::Semantics<'_>, interner: &Interner, class_id: ClassId, name: dartforge_intern::SymbolId) -> bool {
+fn has_inherited_method(
+    s: &super::Semantics<'_>,
+    interner: &Interner,
+    class_id: ClassId,
+    name: dartforge_intern::SymbolId,
+) -> bool {
     let program = s.program;
     let lib = program.unit(s.unit).library;
     let mut seen: HashSet<ClassId> = HashSet::new();
@@ -80,7 +103,10 @@ fn has_inherited_method(s: &super::Semantics<'_>, interner: &Interner, class_id:
             let k = program.class(cc);
             if let Some(&g) = k.instance_members.get(&name) {
                 let ge = program.function(g);
-                if matches!(ge.kind, FunctionKind::Function | FunctionKind::Operator) && !ge.static_ && (!is_private(interner, name) || k.library == lib) {
+                if matches!(ge.kind, FunctionKind::Function | FunctionKind::Operator)
+                    && !ge.static_
+                    && (!is_private(interner, name) || k.library == lib)
+                {
                     return true;
                 }
             }
@@ -91,7 +117,12 @@ fn has_inherited_method(s: &super::Semantics<'_>, interner: &Interner, class_id:
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     let a = u.ast;
@@ -99,7 +130,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     let program = s.program;
     let table = s.table;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
 
     // `avoid_positional_boolean_parameters`.
@@ -116,7 +151,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 DeclKind::ExtensionType(x) => &x.members,
                 _ => continue,
             };
-            let class_id = if matches!(d.kind, DeclKind::Extension(_)) { None } else { class_of_decl(s, DeclId(k as u32)) };
+            let class_id = if matches!(d.kind, DeclKind::Extension(_)) {
+                None
+            } else {
+                class_of_decl(s, DeclId(k as u32))
+            };
             let is_class = matches!(d.kind, DeclKind::Class(_));
             for &mid in members {
                 let m = a.member(mid);
@@ -136,7 +175,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                         methods.insert(*fid);
                         let f = a.function(*fid);
                         let Some(n) = f.name else { continue };
-                        if matches!(f.kind, dartforge_frontend::ast::FunctionKind::Setter | dartforge_frontend::ast::FunctionKind::Operator) || is_private(interner, n.sym) {
+                        if matches!(
+                            f.kind,
+                            dartforge_frontend::ast::FunctionKind::Setter
+                                | dartforge_frontend::ast::FunctionKind::Operator
+                        ) || is_private(interner, n.sym)
+                        {
                             continue;
                         }
                         if class_id.is_some_and(|cl| has_inherited_method(s, interner, cl, n.sym)) {
@@ -146,8 +190,13 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                         // same name (only in classes).
                         let overrides = is_class
                             && class_id.is_some_and(|cl| {
-                                s.outline.hierarchy.get(cl).is_some_and(|h| h.supertypes.keys().any(|sc| program.class(*sc).instance_members.contains_key(&n.sym)))
-                                    || s.core.object_class.is_some_and(|o| program.class(o).instance_members.contains_key(&n.sym))
+                                s.outline.hierarchy.get(cl).is_some_and(|h| {
+                                    h.supertypes.keys().any(|sc| {
+                                        program.class(*sc).instance_members.contains_key(&n.sym)
+                                    })
+                                }) || s.core.object_class.is_some_and(|o| {
+                                    program.class(o).instance_members.contains_key(&n.sym)
+                                })
                             });
                         if overrides {
                             continue;
@@ -208,17 +257,30 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         for st in a.stmts.iter() {
             match &st.kind {
                 StmtKind::Variables(l) => lists.push(l),
-                StmtKind::For { init: Some(ForInit::Variables(l)), .. } => lists.push(l),
-                StmtKind::ForIn { target: ForInTarget::Declared { ty: Some(ty), .. }, iterable, .. } => {
-                    let Some(tl) = written_type(s, *ty) else { continue };
+                StmtKind::For {
+                    init: Some(ForInit::Variables(l)),
+                    ..
+                } => lists.push(l),
+                StmtKind::ForIn {
+                    target: ForInTarget::Declared { ty: Some(ty), .. },
+                    iterable,
+                    ..
+                } => {
+                    let Some(tl) = written_type(s, *ty) else {
+                        continue;
+                    };
                     if matches!(table.get(tl), Type::Dynamic) {
                         continue;
                     }
-                    let Some(ti) = s.body.get_type(*iterable) else { continue };
+                    let Some(ti) = s.body.get_type(*iterable) else {
+                        continue;
+                    };
                     if !matches!(table.get(ti), Type::Interface { .. }) {
                         continue;
                     }
-                    let Some(iterable_class) = s.core.iterable_class else { continue };
+                    let Some(iterable_class) = s.core.iterable_class else {
+                        continue;
+                    };
                     if super::obvious::argument_as_instance(s, ti, iterable_class, 0) == Some(tl) {
                         report(&c::OMIT_LOCAL_VARIABLE_TYPES, a.ty(*ty).span, &[]);
                     }
@@ -228,7 +290,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         }
         for l in lists {
             let Some(ty) = l.ty else { continue };
-            let Some(tl) = written_type(s, ty) else { continue };
+            let Some(tl) = written_type(s, ty) else {
+                continue;
+            };
             if matches!(table.get(tl), Type::Dynamic | Type::Null) {
                 continue;
             }
@@ -261,11 +325,16 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     if matches!(s.body.get_resolved(*target), Some(Resolved::Local(_)))
                         && let Some(decl) = s.body.local_declaration(*target)
                         && let Some(g) = a.stmts.iter().find_map(|x| match &x.kind {
-                            StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == decl) => Some(*g),
+                            StmtKind::Function(g)
+                                if a.function(*g).name.is_some_and(|n| n.span.start == decl) =>
+                            {
+                                Some(*g)
+                            }
                             _ => None,
                         })
                         && let Some(rt) = a.function(g).return_type
-                        && written_type(s, rt).is_some_and(|t| matches!(table.get(t), Type::TypeParameter { .. }))
+                        && written_type(s, rt)
+                            .is_some_and(|t| matches!(table.get(t), Type::TypeParameter { .. }))
                     {
                         return false;
                     }
@@ -283,38 +352,80 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let is_key = |t: TypeId| -> bool {
             let f = |k: ClassId| {
                 let x = program.class(k);
-                interner.resolve(x.name) == "Key" && program.library(x.library).name.as_ref().is_none_or(|n| n.is_empty())
+                interner.resolve(x.name) == "Key"
+                    && program
+                        .library(x.library)
+                        .name
+                        .as_ref()
+                        .is_none_or(|n| n.is_empty())
             };
             match table.get(t) {
-                Type::Interface { class, .. } => f(*class) || (program.class(*class).decl.is_some() && s.outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.keys().any(|k| f(*k)))),
+                Type::Interface { class, .. } => {
+                    f(*class)
+                        || (program.class(*class).decl.is_some()
+                            && s.outline
+                                .hierarchy
+                                .get(*class)
+                                .is_some_and(|d| d.supertypes.keys().any(|k| f(*k))))
+                }
                 _ => false,
             }
         };
         // The constructor has a `key` parameter of type `Key`.
         let define_key = |f: dartforge_elements::model::FunctionElementId| -> bool {
-            let FunctionRef::Constructor { unit, member } = program.function(f).node else { return false };
-            let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else { return false };
-            let Some(data) = s.outline.functions.get(f.0 as usize) else { return false };
-            let Type::Function { positional, optional, named, .. } = table.get(data.signature) else { return false };
+            let FunctionRef::Constructor { unit, member } = program.function(f).node else {
+                return false;
+            };
+            let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else {
+                return false;
+            };
+            let Some(data) = s.outline.functions.get(f.0 as usize) else {
+                return false;
+            };
+            let Type::Function {
+                positional,
+                optional,
+                named,
+                ..
+            } = table.get(data.signature)
+            else {
+                return false;
+            };
             let mut position = 0usize;
             for p in k.parameters.iter() {
                 let t = match p.kind {
-                    ParameterKind::Named => p.name.and_then(|n| named.iter().find(|(x, _, _)| *x == n.sym).map(|(_, t, _)| *t)),
+                    ParameterKind::Named => p.name.and_then(|n| {
+                        named
+                            .iter()
+                            .find(|(x, _, _)| *x == n.sym)
+                            .map(|(_, t, _)| *t)
+                    }),
                     _ => {
                         position += 1;
-                        positional.iter().chain(optional.iter()).nth(position - 1).copied()
+                        positional
+                            .iter()
+                            .chain(optional.iter())
+                            .nth(position - 1)
+                            .copied()
                     }
                 };
-                if p.name.is_some_and(|n| interner.resolve(n.sym) == "key") && t.is_some_and(is_key) {
+                if p.name.is_some_and(|n| interner.resolve(n.sym) == "key") && t.is_some_and(is_key)
+                {
                     return true;
                 }
             }
             false
         };
         for (k, d) in a.decls.iter().enumerate() {
-            let DeclKind::Class(x) = &d.kind else { continue };
-            let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else { continue };
-            if is_private(interner, x.name.sym) || !super::flutter::has_widget_as_ascendant(s, interner, class_id) {
+            let DeclKind::Class(x) = &d.kind else {
+                continue;
+            };
+            let Some(class_id) = class_of_decl(s, DeclId(k as u32)) else {
+                continue;
+            };
+            if is_private(interner, x.name.sym)
+                || !super::flutter::has_widget_as_ascendant(s, interner, class_id)
+            {
                 continue;
             }
             let constructors: Vec<&dartforge_frontend::ast::Constructor> = x
@@ -334,25 +445,45 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
             for &mid in &x.members {
                 let m = a.member(mid);
-                let MemberKind::Constructor(kc) = &m.kind else { continue };
+                let MemberKind::Constructor(kc) = &m.kind else {
+                    continue;
+                };
                 if m.augment || kc.factory || kc.name.is_some_and(|n| is_private(interner, n.sym)) {
                     continue;
                 }
-                if kc.parameters.iter().any(|p| p.super_ && p.name.is_some_and(|n| interner.resolve(n.sym) == "key")) {
+                if kc
+                    .parameters
+                    .iter()
+                    .any(|p| p.super_ && p.name.is_some_and(|n| interner.resolve(n.sym) == "key"))
+                {
                     continue;
                 }
                 let sup = program.class(class_id).supertype_class;
                 let silenced = kc.initializers.iter().any(|i| {
                     let (owner, name, args) = match i {
-                        Initializer::Super { constructor, arguments, .. } => (sup, *constructor, arguments),
-                        Initializer::Redirect { constructor, arguments, .. } => (Some(class_id), *constructor, arguments),
+                        Initializer::Super {
+                            constructor,
+                            arguments,
+                            ..
+                        } => (sup, *constructor, arguments),
+                        Initializer::Redirect {
+                            constructor,
+                            arguments,
+                            ..
+                        } => (Some(class_id), *constructor, arguments),
                         _ => return false,
                     };
                     let Some(owner) = owner else { return false };
                     let key = name.map(|n| n.sym).or_else(|| interner.lookup(""));
-                    let Some(&f) = key.and_then(|ch| program.class(owner).constructors.get(&ch)) else { return false };
+                    let Some(&f) = key.and_then(|ch| program.class(owner).constructors.get(&ch))
+                    else {
+                        return false;
+                    };
                     // `_defineKeyArgument`: an argument for a `key` parameter.
-                    let passes_key = args.args.iter().any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == "key"));
+                    let passes_key = args
+                        .args
+                        .iter()
+                        .any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == "key"));
                     !define_key(f) || passes_key
                 });
                 if silenced {
@@ -371,8 +502,18 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             _ => None,
         };
         let is_type_subtype = |t: TypeId| match table.get(t) {
-            Type::Interface { class, nullable: false, .. } => {
-                Some(*class) == type_class || type_class.is_some_and(|ty| s.outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.contains_key(&ty)))
+            Type::Interface {
+                class,
+                nullable: false,
+                ..
+            } => {
+                Some(*class) == type_class
+                    || type_class.is_some_and(|ty| {
+                        s.outline
+                            .hierarchy
+                            .get(*class)
+                            .is_some_and(|d| d.supertypes.contains_key(&ty))
+                    })
             }
             _ => false,
         };
@@ -381,42 +522,85 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let mut this_types: Vec<(usize, Option<TypeId>)> = Vec::new();
         for (k, d) in a.decls.iter().enumerate() {
             let t = match &d.kind {
-                DeclKind::Class(_) | DeclKind::Mixin(_) => class_of_decl(s, DeclId(k as u32)).and_then(|cl| {
-                    let x = Type::Interface {
-                        class: cl,
-                        args: s.outline.classes.get(cl.0 as usize).map(|c| c.type_params.iter().filter_map(|p| table.intern_lookup(Type::TypeParameter { param: *p, nullable: false })).collect()).unwrap_or_default(),
-                        nullable: false,
-                    };
-                    table.intern_lookup(x)
-                }),
-                DeclKind::Extension(x) => s.outline.written_types.get(&(s.unit, x.on)).copied().filter(|t| matches!(table.get(*t), Type::Interface { .. })),
+                DeclKind::Class(_) | DeclKind::Mixin(_) => class_of_decl(s, DeclId(k as u32))
+                    .and_then(|cl| {
+                        let x = Type::Interface {
+                            class: cl,
+                            args: s
+                                .outline
+                                .classes
+                                .get(cl.0 as usize)
+                                .map(|c| {
+                                    c.type_params
+                                        .iter()
+                                        .filter_map(|p| {
+                                            table.intern_lookup(Type::TypeParameter {
+                                                param: *p,
+                                                nullable: false,
+                                            })
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                            nullable: false,
+                        };
+                        table.intern_lookup(x)
+                    }),
+                DeclKind::Extension(x) => s
+                    .outline
+                    .written_types
+                    .get(&(s.unit, x.on))
+                    .copied()
+                    .filter(|t| matches!(table.get(*t), Type::Interface { .. })),
                 _ => continue,
             };
             this_types.push((d.span.start, t));
         }
         this_types.sort_by_key(|x| x.0);
-        let this_at = |pos: usize| this_types.iter().rev().find(|(p, _)| *p <= pos).and_then(|(_, t)| *t);
+        let this_at = |pos: usize| {
+            this_types
+                .iter()
+                .rev()
+                .find(|(p, _)| *p <= pos)
+                .and_then(|(_, t)| *t)
+        };
         let is_object_to_string = |e: ExprId| -> bool {
             match s.body.get_resolved(e) {
-                Some(Resolved::Member { member: MemberRef::Function(f), .. }) => program.function(*f).class == s.core.object_class,
+                Some(Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                }) => program.function(*f).class == s.core.object_class,
                 _ => false,
             }
         };
-        let check = |recv_type: Option<TypeId>, name: dartforge_frontend::ast::Name, e: ExprId, findings: &mut Vec<Span>| {
-            if interner.resolve(name.sym) == "toString" && is_object_to_string(e) && recv_type.is_some_and(is_type_subtype) {
+        let check = |recv_type: Option<TypeId>,
+                     name: dartforge_frontend::ast::Name,
+                     e: ExprId,
+                     findings: &mut Vec<Span>| {
+            if interner.resolve(name.sym) == "toString"
+                && is_object_to_string(e)
+                && recv_type.is_some_and(is_type_subtype)
+            {
                 findings.push(name.span);
             }
         };
         let mut findings: Vec<Span> = Vec::new();
-        let interface_type = |e: ExprId| s.body.get_type(e).filter(|t| matches!(table.get(*t), Type::Interface { .. }));
+        let interface_type = |e: ExprId| {
+            s.body
+                .get_type(e)
+                .filter(|t| matches!(table.get(*t), Type::Interface { .. }))
+        };
         for e in a.exprs.iter() {
             let args = match &e.kind {
-                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => &**arguments,
+                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
+                    &**arguments
+                }
                 _ => continue,
             };
             let check_arg = |x: ExprId, findings: &mut Vec<Span>| match &a.expr(x).kind {
                 ExprKind::Property { target, name, .. } => {
-                    let recv_type = interface_type(*target).or_else(|| this_at(a.expr(x).span.start));
+                    let recv_type =
+                        interface_type(*target).or_else(|| this_at(a.expr(x).span.start));
                     check(recv_type, *name, x, findings);
                 }
                 ExprKind::Identifier(n) => check(this_at(a.expr(x).span.start), *n, x, findings),
@@ -427,11 +611,15 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
             if let ExprKind::Call { target, .. } = &e.kind {
                 match &a.expr(*target).kind {
-                    ExprKind::Property { target: t, name, .. } => {
+                    ExprKind::Property {
+                        target: t, name, ..
+                    } => {
                         let recv_type = interface_type(*t).or_else(|| this_at(e.span.start));
                         check(recv_type, *name, *target, &mut findings);
                     }
-                    ExprKind::Identifier(n) => check(this_at(e.span.start), *n, *target, &mut findings),
+                    ExprKind::Identifier(n) => {
+                        check(this_at(e.span.start), *n, *target, &mut findings)
+                    }
                     _ => {}
                 }
             }
@@ -459,24 +647,44 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         });
         // The written return type is `double` (declared function or method).
         let returns_double = |f: dartforge_frontend::ast::FunctionId| -> bool {
-            let is_literal = a.exprs.iter().any(|e| matches!(e.kind, ExprKind::FunctionExpression(g) if g == f));
+            let is_literal = a
+                .exprs
+                .iter()
+                .any(|e| matches!(e.kind, ExprKind::FunctionExpression(g) if g == f));
             if is_literal {
                 return false;
             }
-            a.function(f).return_type.and_then(|t| written_type(s, t)).is_some_and(|t| is_double(s, t))
+            a.function(f)
+                .return_type
+                .and_then(|t| written_type(s, t))
+                .is_some_and(|t| is_double(s, t))
         };
         let mut lits: Vec<(&ExprId, &Vec<Node>)> = ancestors_of.iter().collect();
         lits.sort_by_key(|(e, _)| a.expr(**e).span.start);
         for (&e, anc) in lits {
-            let ExprKind::Double(sp) = &a.expr(e).kind else { continue };
-            let text: String = source[sp.start..sp.end].chars().filter(|c| *c != '_').collect();
+            let ExprKind::Double(sp) = &a.expr(e).kind else {
+                continue;
+            };
+            let text: String = source[sp.start..sp.end]
+                .chars()
+                .filter(|c| *c != '_')
+                .collect();
             let negative = text.starts_with('-');
             let body = text.trim_start_matches('-').trim_start();
             let Ok(v) = body.parse::<f64>() else { continue };
             if !v.is_finite() || v != v.trunc() {
                 continue;
             }
-            let start = if negative { sp.start + (source[sp.start..sp.end].len() - source[sp.start..sp.end].trim_start_matches('-').trim_start().len()) } else { sp.start };
+            let start = if negative {
+                sp.start
+                    + (source[sp.start..sp.end].len()
+                        - source[sp.start..sp.end]
+                            .trim_start_matches('-')
+                            .trim_start()
+                            .len())
+            } else {
+                sp.start
+            };
             // The node's `hasTypeDouble` (the literal, or the `-` that contains it).
             let has_double_type = match parent.get(&e).copied() {
                 Some(Node::Expr(p)) => match &a.expr(p).kind {

@@ -26,8 +26,14 @@
 //! the rti recipes).
 
 use crate::Engine;
-use dartforge_elements::model::{ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, FunctionRef, LibraryId, UnitId, VariableId};
-use dartforge_frontend::ast::{self, AssignOp, CollectionElement, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody, Initializer, PatternId, PatternKind, StmtId, StmtKind, StringPart, TypeKind, UnaryOp};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, FunctionRef,
+    LibraryId, UnitId, VariableId,
+};
+use dartforge_frontend::ast::{
+    self, AssignOp, CollectionElement, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody,
+    Initializer, PatternId, PatternKind, StmtId, StmtKind, StringPart, TypeKind, UnaryOp,
+};
 use dartforge_types::resolved::{MemberRef, Resolved};
 
 /// Where the body being traversed is.
@@ -59,37 +65,65 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
     }
     match m.function_node(f) {
         FunctionRef::Function { unit, function } => {
-            let ctx = Context { unit, library: func.library, class: func.class, extension: func.extension, no_this: func.static_ };
+            let ctx = Context {
+                unit,
+                library: func.library,
+                class: func.class,
+                extension: func.extension,
+                no_this: func.static_,
+            };
             walk_function(m, &ctx, function);
         }
         FunctionRef::Constructor { unit, member } => {
-            let ctx = Context { unit, library: func.library, class: func.class, extension: None, no_this: false };
+            let ctx = Context {
+                unit,
+                library: func.library,
+                class: func.class,
+                extension: None,
+                no_this: false,
+            };
             let ast = &p.unit(unit).ast;
-            let ast::MemberKind::Constructor(c) = &ast.member(member).kind else { return };
+            let ast::MemberKind::Constructor(c) = &ast.member(member).kind else {
+                return;
+            };
             let Some(k) = func.class else { return };
             walk_parameters(m, &ctx, &c.parameters);
             let mut explicit = false;
             for ini in c.initializers.iter() {
                 match ini {
                     Initializer::Field { value, .. } => expr(m, &ctx, *value),
-                    Initializer::Super { constructor, arguments, .. } => {
+                    Initializer::Super {
+                        constructor,
+                        arguments,
+                        ..
+                    } => {
                         explicit = true;
-                        let ctor_name = constructor.map(|n| m.e.interner.resolve(n.sym)).unwrap_or("");
+                        let ctor_name = constructor
+                            .map(|n| m.e.interner.resolve(n.sym))
+                            .unwrap_or("");
                         if let Some(sc) = m.super_constructor(k, ctor_name) {
                             m.use_constructor_from_initializer(sc);
                         }
                         walk_arguments(m, &ctx, arguments);
                     }
-                    Initializer::Redirect { constructor, arguments, .. } => {
+                    Initializer::Redirect {
+                        constructor,
+                        arguments,
+                        ..
+                    } => {
                         explicit = true;
-                        let ctor_name = constructor.map(|n| m.e.interner.resolve(n.sym)).unwrap_or("");
+                        let ctor_name = constructor
+                            .map(|n| m.e.interner.resolve(n.sym))
+                            .unwrap_or("");
                         if let Some(rc) = m.constructor(k, ctor_name) {
                             m.use_constructor_from_initializer(rc);
                         }
                         walk_arguments(m, &ctx, arguments);
                     }
                     Initializer::Assert { .. } if no_asserts(m) => {}
-                    Initializer::Assert { condition, message, .. } => {
+                    Initializer::Assert {
+                        condition, message, ..
+                    } => {
                         expr(m, &ctx, *condition);
                         if let Some(x) = message {
                             expr(m, &ctx, *x);
@@ -115,22 +149,31 @@ pub(crate) fn of_function(m: &mut Engine<'_>, f: FunctionElementId) {
         }
         FunctionRef::None => {
             // The synthetic `values` of an enum lists every constant.
-            if func.static_ && func.kind == FunctionKind::Getter
-                && let Some(k) = func.class.filter(|k| p.class(*k).kind == ClassKind::Enum && e.interner.resolve(func.name) == "values") {
-                    for &vid in &p.class(k).enum_constants {
-                        m.use_variable(vid);
-                    }
+            if func.static_
+                && func.kind == FunctionKind::Getter
+                && let Some(k) = func.class.filter(|k| {
+                    p.class(*k).kind == ClassKind::Enum && e.interner.resolve(func.name) == "values"
+                })
+            {
+                for &vid in &p.class(k).enum_constants {
+                    m.use_variable(vid);
                 }
+            }
             if func.kind == FunctionKind::SyntheticConstructor
-                && let Some(k) = func.class {
-                    // A synthetic mixin application forwards to the
-                    // superclass constructor of the same name; a regular
-                    // class, to the unnamed one.
-                    let ctor_name = if p.class(k).decl.is_none() { m.e.interner.resolve(func.name) } else { "" };
-                    if let Some(sc) = m.super_constructor(k, ctor_name) {
-                        m.use_constructor_from_initializer(sc);
-                    }
+                && let Some(k) = func.class
+            {
+                // A synthetic mixin application forwards to the
+                // superclass constructor of the same name; a regular
+                // class, to the unnamed one.
+                let ctor_name = if p.class(k).decl.is_none() {
+                    m.e.interner.resolve(func.name)
+                } else {
+                    ""
+                };
+                if let Some(sc) = m.super_constructor(k, ctor_name) {
+                    m.use_constructor_from_initializer(sc);
                 }
+            }
         }
     }
 }
@@ -143,11 +186,18 @@ pub(crate) fn of_variable(m: &mut Engine<'_>, v: VariableId) {
         return;
     }
     if let Some(vt) = e.outline.variables.get(v.0 as usize)
-        && let Some(t) = vt.declared_type.or(vt.inferred) {
-            m.visit_type(t);
-        }
+        && let Some(t) = vt.declared_type.or(vt.inferred)
+    {
+        m.visit_type(t);
+    }
     if let Some((unit, Some(init))) = m.variable_node(v) {
-        let ctx = Context { unit, library: var.library, class: var.class, extension: var.extension, no_this: var.static_ || var.class.is_none() };
+        let ctx = Context {
+            unit,
+            library: var.library,
+            class: var.class,
+            extension: var.extension,
+            no_this: var.static_ || var.class.is_none(),
+        };
         expr(m, &ctx, init);
     }
 }
@@ -165,11 +215,18 @@ pub(crate) fn of_fields(m: &mut Engine<'_>, c: ClassId) {
             continue;
         }
         if let Some(vt) = e.outline.variables.get(vid.0 as usize)
-            && let Some(t) = vt.declared_type.or(vt.inferred) {
-                m.visit_type(t);
-            }
+            && let Some(t) = vt.declared_type.or(vt.inferred)
+        {
+            m.visit_type(t);
+        }
         if let Some((unit, Some(init))) = m.variable_node(vid) {
-            let ctx = Context { unit, library: var.library, class: Some(c), extension: None, no_this: false };
+            let ctx = Context {
+                unit,
+                library: var.library,
+                class: Some(c),
+                extension: None,
+                no_this: false,
+            };
             expr(m, &ctx, init);
         }
     }
@@ -182,13 +239,29 @@ pub(crate) fn of_fields(m: &mut Engine<'_>, c: ClassId) {
 fn enum_constant(m: &mut Engine<'_>, v: VariableId) {
     let p = m.e.program;
     let var = p.variable(v);
-    let dartforge_elements::model::VariableRef::EnumConstant { unit, decl, index } = var.node else { return };
+    let dartforge_elements::model::VariableRef::EnumConstant { unit, decl, index } = var.node
+    else {
+        return;
+    };
     let Some(c) = var.class else { return };
     let ast = &p.unit(unit).ast;
-    let ast::DeclKind::Enum(ed) = &ast.decl(decl).kind else { return };
-    let Some(k) = ed.constants.get(index) else { return };
-    let ctx = Context { unit, library: p.class(c).library, class: Some(c), extension: None, no_this: false };
-    let ctor_name = k.constructor.map(|n| m.e.interner.resolve(n.sym)).unwrap_or("");
+    let ast::DeclKind::Enum(ed) = &ast.decl(decl).kind else {
+        return;
+    };
+    let Some(k) = ed.constants.get(index) else {
+        return;
+    };
+    let ctx = Context {
+        unit,
+        library: p.class(c).library,
+        class: Some(c),
+        extension: None,
+        no_this: false,
+    };
+    let ctor_name = k
+        .constructor
+        .map(|n| m.e.interner.resolve(n.sym))
+        .unwrap_or("");
     m.create(c, ctor_name, false);
     for t in k.type_args.iter() {
         ast_type(m, &ctx, *t);
@@ -206,12 +279,23 @@ fn enum_constant(m: &mut Engine<'_>, v: VariableId) {
 /// runtime alive).
 fn compared_class_refs(m: &mut Engine<'_>, ctx: &Context, arguments: &ast::Arguments) {
     let ast = &m.e.program.unit(ctx.unit).ast;
-    let Some(t) = arguments.args.get(1) else { return };
-    let ExprKind::String(lit) = &ast.expr(t.value).kind else { return };
-    let Some(template) = lit.constant_value().map(|v| v.to_string_lossy().to_string()) else { return };
+    let Some(t) = arguments.args.get(1) else {
+        return;
+    };
+    let ExprKind::String(lit) = &ast.expr(t.value).kind else {
+        return;
+    };
+    let Some(template) = lit
+        .constant_value()
+        .map(|v| v.to_string_lossy().to_string())
+    else {
+        return;
+    };
     let holes: Vec<usize> = template.match_indices('#').map(|(p, _)| p).collect();
     for (k, a) in arguments.args.iter().skip(2).enumerate() {
-        let ExprKind::Call { target, .. } = &ast.expr(a.value).kind else { continue };
+        let ExprKind::Call { target, .. } = &ast.expr(a.value).kind else {
+            continue;
+        };
         let is_ref = match &ast.expr(*target).kind {
             ExprKind::Identifier(n) => m.e.interner.resolve(n.sym) == "JS_CLASS_REF",
             _ => false,
@@ -239,14 +323,32 @@ fn compared_class_refs(m: &mut Engine<'_>, ctx: &Context, arguments: &ast::Argum
 /// `Intrinsic::Builtin`): its index, when the member is one the emitter
 /// knows. Reading it would instantiate `JsGetName`/`JsBuiltin` with all their
 /// constants for nothing.
-fn folded_enum_argument(m: &Engine<'_>, ctx: &Context, target: ExprId, arguments: &ast::Arguments) -> Option<usize> {
+fn folded_enum_argument(
+    m: &Engine<'_>,
+    ctx: &Context,
+    target: ExprId,
+    arguments: &ast::Arguments,
+) -> Option<usize> {
     if !m.include_sdk || !m.e.program.library(ctx.library).is_sdk {
         return None;
     }
     let ast = &m.e.program.unit(ctx.unit).ast;
-    let ExprKind::Identifier(n) = &ast.expr(target).kind else { return None };
+    let ExprKind::Identifier(n) = &ast.expr(target).kind else {
+        return None;
+    };
     let (index, known): (usize, &[&str]) = match m.e.interner.resolve(n.sym) {
-        "JS_GET_NAME" => (0, &["OPERATOR_IS_PREFIX", "SIGNATURE_NAME", "RTI_NAME", "FUTURE_CLASS_TYPE_NAME", "LIST_CLASS_TYPE_NAME", "RTI_FIELD_AS", "RTI_FIELD_IS"]),
+        "JS_GET_NAME" => (
+            0,
+            &[
+                "OPERATOR_IS_PREFIX",
+                "SIGNATURE_NAME",
+                "RTI_NAME",
+                "FUTURE_CLASS_TYPE_NAME",
+                "LIST_CLASS_TYPE_NAME",
+                "RTI_FIELD_AS",
+                "RTI_FIELD_IS",
+            ],
+        ),
         "JS_BUILTIN" => (1, &["dartClosureConstructor", "dartObjectConstructor"]),
         _ => return None,
     };
@@ -256,7 +358,9 @@ fn folded_enum_argument(m: &Engine<'_>, ctx: &Context, target: ExprId, arguments
         ExprKind::Identifier(i) => i.sym,
         _ => return None,
     };
-    known.contains(&m.e.interner.resolve(member)).then_some(index)
+    known
+        .contains(&m.e.interner.resolve(member))
+        .then_some(index)
 }
 
 // ---------------------------------------------------------------- functions
@@ -320,7 +424,9 @@ fn walk_arguments(m: &mut Engine<'_>, ctx: &Context, a: &ast::Arguments) {
 fn class_of_ast_type(m: &Engine<'_>, ctx: &Context, t: ast::TypeId) -> Option<ClassId> {
     let e = m.e;
     let p = e.program;
-    let TypeKind::Named { name, .. } = &p.unit(ctx.unit).ast.ty(t).kind else { return None };
+    let TypeKind::Named { name, .. } = &p.unit(ctx.unit).ast.ty(t).kind else {
+        return None;
+    };
     let b = match name.len() {
         1 => p.lookup(ctx.library, name[0].sym)?,
         2 => p.lookup_prefixed(ctx.library, name[0].sym, name[1].sym)?,
@@ -342,15 +448,21 @@ fn class_of_ast_type(m: &Engine<'_>, ctx: &Context, t: ast::TypeId) -> Option<Cl
 /// `C`, `p.C` or `C.name` (the parser does not tell an import prefix from a
 /// named constructor in `new C.name()` / `factory X() = C.name`): the class
 /// and the constructor name.
-fn class_and_constructor<'n>(m: &Engine<'n>, ctx: &Context, t: ast::TypeId, constructor: Option<ast::Name>) -> Option<(ClassId, &'n str)> {
+fn class_and_constructor<'n>(
+    m: &Engine<'n>,
+    ctx: &Context,
+    t: ast::TypeId,
+    constructor: Option<ast::Name>,
+) -> Option<(ClassId, &'n str)> {
     let e = m.e;
     let p = e.program;
     let ctor_name = constructor.map(|n| e.interner.resolve(n.sym)).unwrap_or("");
     if let TypeKind::Named { name, .. } = &p.unit(ctx.unit).ast.ty(t).kind
         && name.len() == 2
-            && let Some(Element::Class(c)) = p.lookup(ctx.library, name[0].sym).and_then(|b| b.getter) {
-                return Some((c, e.interner.resolve(name[1].sym)));
-            }
+        && let Some(Element::Class(c)) = p.lookup(ctx.library, name[0].sym).and_then(|b| b.getter)
+    {
+        return Some((c, e.interner.resolve(name[1].sym)));
+    }
     class_of_ast_type(m, ctx, t).map(|c| (c, ctor_name))
 }
 
@@ -366,15 +478,20 @@ fn ast_type(m: &mut Engine<'_>, ctx: &Context, t: ast::TypeId) {
                 _ => None,
             };
             if let Some(el) = b.and_then(|b| b.getter)
-                && matches!(el, Element::Class(_) | Element::Typedef(_)) {
-                    m.use_element(el);
-                }
+                && matches!(el, Element::Class(_) | Element::Typedef(_))
+            {
+                m.use_element(el);
+            }
             for a in args.iter() {
                 ast_type(m, ctx, *a);
             }
         }
         TypeKind::Void => {}
-        TypeKind::Function { return_type, type_params, parameters } => {
+        TypeKind::Function {
+            return_type,
+            type_params,
+            parameters,
+        } => {
             if let Some(r) = return_type {
                 ast_type(m, ctx, *r);
             }
@@ -472,7 +589,11 @@ fn use_receiver(m: &Engine<'_>, ctx: &Context, id: ExprId) -> Option<ClassId> {
             receiver_class(m, ctx, *target)
         }
         ExprKind::Identifier(_) => {
-            if ctx.no_this { None } else { ctx.class }
+            if ctx.no_this {
+                None
+            } else {
+                ctx.class
+            }
         }
         _ => None,
     }
@@ -504,7 +625,11 @@ fn is_instance_member(m: &Engine<'_>, member: &MemberRef) -> bool {
 }
 
 fn name_target(m: &Engine<'_>, ctx: &Context, id: ExprId) -> NameTarget {
-    let res = m.e.bodies.units.get(ctx.unit.0 as usize).and_then(|u| u.get_resolved(id));
+    let res =
+        m.e.bodies
+            .units
+            .get(ctx.unit.0 as usize)
+            .and_then(|u| u.get_resolved(id));
     match res {
         None => NameTarget::Register(if ctx.no_this { None } else { ctx.class }),
         Some(Resolved::Dynamic) => NameTarget::Register(None),
@@ -588,7 +713,13 @@ fn binary_operator_name(op: ast::BinaryOp) -> Option<&'static str> {
 /// Whether `c` is `int`, `double` or `num` of `dart:core`.
 fn num_like(m: &Engine<'_>, c: Option<ClassId>) -> bool {
     let p = m.e.program;
-    c.is_some_and(|c| Some(p.class(c).library) == p.core && matches!(m.e.interner.resolve(p.class(c).name), "int" | "double" | "num"))
+    c.is_some_and(|c| {
+        Some(p.class(c).library) == p.core
+            && matches!(
+                m.e.interner.resolve(p.class(c).name),
+                "int" | "double" | "num"
+            )
+    })
 }
 
 /// The selector of a binary operator applied to `left` (the receiver), with
@@ -598,20 +729,47 @@ fn num_like(m: &Engine<'_>, c: Option<ClassId>) -> bool {
 /// call no member and register nothing; `right` is `None` for `x++`/`x--`
 /// (the `1` is an `int`). A use the analysis misses is still caught by the
 /// text verifier.
-fn operator_selector(m: &mut Engine<'_>, ctx: &Context, op: ast::BinaryOp, left: ExprId, right: Option<ExprId>) {
+fn operator_selector(
+    m: &mut Engine<'_>,
+    ctx: &Context,
+    op: ast::BinaryOp,
+    left: ExprId,
+    right: Option<ExprId>,
+) {
     if !m.operators_by_selector() {
         return;
     }
-    let Some(name) = binary_operator_name(op) else { return };
+    let Some(name) = binary_operator_name(op) else {
+        return;
+    };
     use ast::BinaryOp as B;
     let receiver = receiver_class(m, ctx, left);
-    let inlined = matches!(op, B::Add | B::Sub | B::Mul | B::Div | B::BitAnd | B::BitOr | B::BitXor | B::Lt | B::Gt | B::LtEq | B::GtEq);
+    let inlined = matches!(
+        op,
+        B::Add
+            | B::Sub
+            | B::Mul
+            | B::Div
+            | B::BitAnd
+            | B::BitOr
+            | B::BitXor
+            | B::Lt
+            | B::Gt
+            | B::LtEq
+            | B::GtEq
+    );
     if inlined && num_like(m, receiver) {
         let right_ok = match right {
             None => true,
             Some(r) => {
-                let ty = m.e.bodies.units.get(ctx.unit.0 as usize).and_then(|u| u.get_type(r));
-                ty.is_some_and(|t| matches!(m.e.table.get(t), dartforge_types::table::Type::Dynamic)) || num_like(m, receiver_class(m, ctx, r))
+                let ty =
+                    m.e.bodies
+                        .units
+                        .get(ctx.unit.0 as usize)
+                        .and_then(|u| u.get_type(r));
+                ty.is_some_and(|t| {
+                    matches!(m.e.table.get(t), dartforge_types::table::Type::Dynamic)
+                }) || num_like(m, receiver_class(m, ctx, r))
             }
         };
         if right_ok {
@@ -648,7 +806,13 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
         }
         StmtKind::Function(f) => walk_function(m, ctx, *f),
         StmtKind::Expression(x) => expr(m, ctx, *x),
-        StmtKind::If { condition, case_pattern: None, guard: None, then, else_ } if constant_condition(m, ctx, *condition).is_some() => {
+        StmtKind::If {
+            condition,
+            case_pattern: None,
+            guard: None,
+            then,
+            else_,
+        } if constant_condition(m, ctx, *condition).is_some() => {
             // Dead branch by a constant condition: the emitter does not write it either.
             if constant_condition(m, ctx, *condition) == Some(true) {
                 stmt(m, ctx, *then);
@@ -656,7 +820,13 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
                 stmt(m, ctx, *x);
             }
         }
-        StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+        StmtKind::If {
+            condition,
+            case_pattern,
+            guard,
+            then,
+            else_,
+        } => {
             expr(m, ctx, *condition);
             if let Some(pp) = case_pattern {
                 walk_pattern(m, ctx, *pp);
@@ -669,7 +839,13 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
                 stmt(m, ctx, *x);
             }
         }
-        StmtKind::For { init, condition, updates, body, .. } => {
+        StmtKind::For {
+            init,
+            condition,
+            updates,
+            body,
+            ..
+        } => {
             if let Some(i) = init {
                 for_init(m, ctx, i);
             }
@@ -681,7 +857,12 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
             }
             stmt(m, ctx, *body);
         }
-        StmtKind::ForIn { target, iterable, body, await_ } => {
+        StmtKind::ForIn {
+            target,
+            iterable,
+            body,
+            await_,
+        } => {
             // `await for`: the emitter walks through a `StreamIterator`
             // (`moveNext`/`current`/`cancel`), calls that the AST does not have.
             if *await_ && m.include_sdk {
@@ -718,7 +899,11 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
             }
         }
         StmtKind::Yield { value, .. } => expr(m, ctx, *value),
-        StmtKind::Try { body, catches, finally_ } => {
+        StmtKind::Try {
+            body,
+            catches,
+            finally_,
+        } => {
             stmt(m, ctx, *body);
             for c in catches.iter() {
                 if let Some(t) = c.on_type {
@@ -748,12 +933,21 @@ fn stmt(m: &mut Engine<'_>, ctx: &Context, id: StmtId) {
 fn variable_names(ast: &ast::Ast, p: PatternId, out: &mut Vec<dartforge_intern::SymbolId>) {
     match &ast.pattern(p).kind {
         PatternKind::Variable { name, .. } => out.push(name.sym),
-        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => variable_names(ast, *x, out),
+        PatternKind::NullCheck(x)
+        | PatternKind::NullAssert(x)
+        | PatternKind::Parenthesized(x)
+        | PatternKind::Cast { pattern: x, .. } => variable_names(ast, *x, out),
         PatternKind::Or(a, b) | PatternKind::And(a, b) => {
             variable_names(ast, *a, out);
             variable_names(ast, *b, out);
         }
-        PatternKind::Wildcard { .. } | PatternKind::Constant(_) | PatternKind::Relational { .. } | PatternKind::List { .. } | PatternKind::Map { .. } | PatternKind::Record { .. } | PatternKind::Object { .. } => {}
+        PatternKind::Wildcard { .. }
+        | PatternKind::Constant(_)
+        | PatternKind::Relational { .. }
+        | PatternKind::List { .. }
+        | PatternKind::Map { .. }
+        | PatternKind::Record { .. }
+        | PatternKind::Object { .. } => {}
     }
 }
 
@@ -766,7 +960,12 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
                 ast_type(m, ctx, *t);
             }
         }
-        PatternKind::Variable { ty, name, var_, final_ } => {
+        PatternKind::Variable {
+            ty,
+            name,
+            var_,
+            final_,
+        } => {
             if let Some(t) = ty {
                 ast_type(m, ctx, *t);
             }
@@ -793,12 +992,17 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
             walk_pattern(m, ctx, *a);
             walk_pattern(m, ctx, *b);
         }
-        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => walk_pattern(m, ctx, *x),
+        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => {
+            walk_pattern(m, ctx, *x)
+        }
         PatternKind::Cast { pattern, ty } => {
             ast_type(m, ctx, *ty);
             walk_pattern(m, ctx, *pattern);
         }
-        PatternKind::List { type_args, elements } => {
+        PatternKind::List {
+            type_args,
+            elements,
+        } => {
             if m.operators_by_selector() {
                 m.new_selector("[]");
             }
@@ -816,7 +1020,9 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
                 }
             }
         }
-        PatternKind::Map { type_args, entries, .. } => {
+        PatternKind::Map {
+            type_args, entries, ..
+        } => {
             if m.operators_by_selector() {
                 m.new_selector("[]");
             }
@@ -860,7 +1066,9 @@ fn walk_pattern(m: &mut Engine<'_>, ctx: &Context, id: PatternId) {
 
 fn walk_element(m: &mut Engine<'_>, ctx: &Context, el: &CollectionElement) {
     match el {
-        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => expr(m, ctx, *x),
+        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
+            expr(m, ctx, *x)
+        }
         CollectionElement::MapEntry { key, value, .. } => {
             expr(m, ctx, *key);
             expr(m, ctx, *value);
@@ -871,7 +1079,13 @@ fn walk_element(m: &mut Engine<'_>, ctx: &Context, el: &CollectionElement) {
                 m.new_selector(s);
             }
         }
-        CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+        CollectionElement::If {
+            condition,
+            case_pattern,
+            guard,
+            then,
+            else_,
+        } => {
             expr(m, ctx, *condition);
             if let Some(pp) = case_pattern {
                 walk_pattern(m, ctx, *pp);
@@ -884,7 +1098,13 @@ fn walk_element(m: &mut Engine<'_>, ctx: &Context, el: &CollectionElement) {
                 walk_element(m, ctx, x);
             }
         }
-        CollectionElement::For { init, condition, updates, body, .. } => {
+        CollectionElement::For {
+            init,
+            condition,
+            updates,
+            body,
+            ..
+        } => {
             if let Some(i) = init {
                 for_init(m, ctx, i);
             }
@@ -896,7 +1116,12 @@ fn walk_element(m: &mut Engine<'_>, ctx: &Context, el: &CollectionElement) {
             }
             walk_element(m, ctx, body);
         }
-        CollectionElement::ForIn { target, iterable, body, .. } => {
+        CollectionElement::ForIn {
+            target,
+            iterable,
+            body,
+            ..
+        } => {
             for_in_target(m, ctx, target);
             expr(m, ctx, *iterable);
             walk_element(m, ctx, body);
@@ -913,7 +1138,11 @@ fn apply_resolved(m: &mut Engine<'_>, r: &Resolved, receiver: Option<ClassId>) {
         },
         Resolved::ExtensionMember { member, .. } => m.use_function(*member),
         Resolved::Constructor(f) => m.use_constructor(*f, false),
-        Resolved::Local(_) | Resolved::Parameter { .. } | Resolved::TypeParameter(_) | Resolved::Prefix(_) | Resolved::Dynamic => {}
+        Resolved::Local(_)
+        | Resolved::Parameter { .. }
+        | Resolved::TypeParameter(_)
+        | Resolved::Prefix(_)
+        | Resolved::Dynamic => {}
     }
 }
 
@@ -929,7 +1158,9 @@ fn static_target(m: &Engine<'_>, ctx: &Context, prefix: ExprId) -> Option<Static
             match body_unit.and_then(|u| u.get_resolved(prefix)) {
                 Some(Resolved::Local(_)) | Some(Resolved::Parameter { .. }) => return None,
                 Some(Resolved::Element(Element::Class(c))) => return Some(StaticTarget::Class(*c)),
-                Some(Resolved::Element(Element::Extension(x))) => return Some(StaticTarget::Extension(*x)),
+                Some(Resolved::Element(Element::Extension(x))) => {
+                    return Some(StaticTarget::Extension(*x));
+                }
                 Some(Resolved::Prefix(_)) => return Some(StaticTarget::Prefix(n.sym)),
                 _ => {}
             }
@@ -940,7 +1171,9 @@ fn static_target(m: &Engine<'_>, ctx: &Context, prefix: ExprId) -> Option<Static
                 Element::Typedef(td) => {
                     let tt = e.outline.typedefs.get(td.0 as usize)?.target_type;
                     match e.table.get(tt) {
-                        dartforge_types::table::Type::Interface { class, .. } => Some(StaticTarget::Class(*class)),
+                        dartforge_types::table::Type::Interface { class, .. } => {
+                            Some(StaticTarget::Class(*class))
+                        }
                         _ => None,
                     }
                 }
@@ -950,8 +1183,13 @@ fn static_target(m: &Engine<'_>, ctx: &Context, prefix: ExprId) -> Option<Static
         // `C<int>.new`, `p.C<T>.name`
         ExprKind::TypeArguments { target, .. } => static_target(m, ctx, *target),
         ExprKind::Property { target, name, .. } => {
-            let ExprKind::Identifier(pre) = &ast.expr(*target).kind else { return None };
-            match p.lookup_prefixed(ctx.library, pre.sym, name.sym).and_then(|b| b.getter)? {
+            let ExprKind::Identifier(pre) = &ast.expr(*target).kind else {
+                return None;
+            };
+            match p
+                .lookup_prefixed(ctx.library, pre.sym, name.sym)
+                .and_then(|b| b.getter)?
+            {
                 Element::Class(c) => Some(StaticTarget::Class(c)),
                 Element::Extension(x) => Some(StaticTarget::Extension(x)),
                 _ => None,
@@ -962,7 +1200,13 @@ fn static_target(m: &Engine<'_>, ctx: &Context, prefix: ExprId) -> Option<Static
 }
 
 /// `target.name` with a static target.
-fn static_member(m: &mut Engine<'_>, ctx: &Context, target: StaticTarget, name: dartforge_intern::SymbolId, tearoff: bool) {
+fn static_member(
+    m: &mut Engine<'_>,
+    ctx: &Context,
+    target: StaticTarget,
+    name: dartforge_intern::SymbolId,
+    tearoff: bool,
+) {
     let e = m.e;
     let p = e.program;
     let text = e.interner.resolve(name);
@@ -980,7 +1224,12 @@ fn static_member(m: &mut Engine<'_>, ctx: &Context, target: StaticTarget, name: 
                 m.use_function(f);
             }
             // An enum constant (`.azul` as a dot shorthand) lives one by one.
-            let constants: Vec<VariableId> = class.enum_constants.iter().copied().filter(|v| p.variable(*v).name == name).collect();
+            let constants: Vec<VariableId> = class
+                .enum_constants
+                .iter()
+                .copied()
+                .filter(|v| p.variable(*v).name == name)
+                .collect();
             for v in constants {
                 m.use_variable(v);
             }
@@ -1010,7 +1259,11 @@ fn no_asserts(m: &Engine<'_>) -> bool {
 pub(crate) fn constant_condition(m: &Engine<'_>, ctx: &Context, x: ExprId) -> Option<bool> {
     let c = m.constants.as_ref()?;
     match &m.e.program.unit(ctx.unit).ast.expr(x).kind {
-        ExprKind::Identifier(_) | ExprKind::Property { .. } | ExprKind::Unary { .. } | ExprKind::Binary { .. } | ExprKind::Parenthesized(_) => c.bool_of(ctx.unit, x),
+        ExprKind::Identifier(_)
+        | ExprKind::Property { .. }
+        | ExprKind::Unary { .. }
+        | ExprKind::Binary { .. }
+        | ExprKind::Parenthesized(_) => c.bool_of(ctx.unit, x),
         _ => None,
     }
 }
@@ -1037,7 +1290,15 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
         }
     }
     match &ast.expr(id).kind {
-        ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::Bool(_) | ExprKind::Null | ExprKind::Symbol(_) | ExprKind::This | ExprKind::Super | ExprKind::CascadeTarget | ExprKind::Rethrow => {}
+        ExprKind::Int(_)
+        | ExprKind::Double(_)
+        | ExprKind::Bool(_)
+        | ExprKind::Null
+        | ExprKind::Symbol(_)
+        | ExprKind::This
+        | ExprKind::Super
+        | ExprKind::CascadeTarget
+        | ExprKind::Rethrow => {}
         ExprKind::String(lit) => {
             for part in lit.parts.iter() {
                 match part {
@@ -1060,7 +1321,11 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 false
             };
             let s = e.interner.resolve(n.sym);
-            let key = if write { format!("{s}_=") } else { s.to_string() };
+            let key = if write {
+                format!("{s}_=")
+            } else {
+                s.to_string()
+            };
             match name_target(m, ctx, id) {
                 NameTarget::Register(r) => m.new_selector_with_receiver(&key, r),
                 NameTarget::Skip => {}
@@ -1068,7 +1333,16 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             m.use_name(ctx, n.sym);
         }
         ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => expr(m, ctx, *x),
-        ExprKind::List { type_args, elements, .. } | ExprKind::SetOrMap { type_args, elements, .. } => {
+        ExprKind::List {
+            type_args,
+            elements,
+            ..
+        }
+        | ExprKind::SetOrMap {
+            type_args,
+            elements,
+            ..
+        } => {
             for t in type_args.iter() {
                 ast_type(m, ctx, *t);
             }
@@ -1078,12 +1352,22 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             // With the SDK in the world: a literal with `if`/`for`/`...` is
             // built by the emitter with `set.add(v)` and `map[$_set](k, v)` over
             // the implementation (`LinkedHashSet`/`LinkedMap`), with no AST node.
-            if m.include_sdk && matches!(&ast.expr(id).kind, ExprKind::SetOrMap { .. }) && elements.iter().any(|x| !matches!(x, CollectionElement::Expression(_) | CollectionElement::MapEntry { .. })) {
+            if m.include_sdk
+                && matches!(&ast.expr(id).kind, ExprKind::SetOrMap { .. })
+                && elements.iter().any(|x| {
+                    !matches!(
+                        x,
+                        CollectionElement::Expression(_) | CollectionElement::MapEntry { .. }
+                    )
+                })
+            {
                 m.new_external_selector("add");
                 m.new_external_selector("[]=");
             }
         }
-        ExprKind::Record { positional, named, .. } => {
+        ExprKind::Record {
+            positional, named, ..
+        } => {
             for x in positional.iter() {
                 expr(m, ctx, *x);
             }
@@ -1091,7 +1375,12 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 expr(m, ctx, *x);
             }
         }
-        ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
+        ExprKind::InstanceCreation {
+            ty,
+            constructor,
+            arguments,
+            ..
+        } => {
             ast_type(m, ctx, *ty);
             if let Some((c, ctor_name)) = class_and_constructor(m, ctx, *ty, *constructor) {
                 m.create(c, ctor_name, false);
@@ -1140,21 +1429,32 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
         // has a static, an enum constant or a constructor with that name
         // counts: more live, never less.
         ExprKind::DotShorthand { name, .. } => {
-            let resolved = e.bodies.units.get(ctx.unit.0 as usize).and_then(|u| u.get_resolved(id)).and_then(|r| match r {
-                Resolved::Element(Element::Class(c)) => Some(*c),
-                _ => None,
-            });
+            let resolved = e
+                .bodies
+                .units
+                .get(ctx.unit.0 as usize)
+                .and_then(|u| u.get_resolved(id))
+                .and_then(|r| match r {
+                    Resolved::Element(Element::Class(c)) => Some(*c),
+                    _ => None,
+                });
             let classes: Vec<ClassId> = match resolved {
                 Some(c) => vec![c],
                 None => {
                     let text = e.interner.resolve(name.sym);
-                    let ctor_key = if text == "new" { e.interner.lookup("") } else { Some(name.sym) };
+                    let ctor_key = if text == "new" {
+                        e.interner.lookup("")
+                    } else {
+                        Some(name.sym)
+                    };
                     (0..p.classes.len() as u32)
                         .map(ClassId)
                         .filter(|&c| {
                             let k = p.class(c);
                             k.static_members.contains_key(&name.sym)
-                                || k.enum_constants.iter().any(|v| p.variable(*v).name == name.sym)
+                                || k.enum_constants
+                                    .iter()
+                                    .any(|v| p.variable(*v).name == name.sym)
                                 || ctor_key.is_some_and(|s| k.constructors.contains_key(&s))
                         })
                         .collect()
@@ -1185,31 +1485,36 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 if m.include_sdk && callee.is_some_and(|s| m.e.interner.resolve(s) == "JS") {
                     compared_class_refs(m, ctx, arguments);
                     if let Some(a) = arguments.args.get(1)
-                        && let ExprKind::String(lit) = &ast.expr(a.value).kind {
-                            let mut names: Vec<String> = Vec::new();
-                            for part in lit.parts.iter() {
-                                if let StringPart::Text(t) = part {
-                                    let t = t.to_string_lossy();
-                                    // Every word of the *template* is a JS name (property, object
-                                    // key, global): property renaming does not touch it.
-                                    m.record_js_words(&t);
-                                    let b = t.as_bytes();
-                                    for (i, _) in t.match_indices('.') {
-                                        let start = i + 1;
-                                        let mut f = start;
-                                        while f < b.len() && (b[f].is_ascii_alphanumeric() || b[f] == b'_' || b[f] == b'$') {
-                                            f += 1;
-                                        }
-                                        if f > start && !b[start].is_ascii_digit() {
-                                            names.push(t[start..f].to_string());
-                                        }
+                        && let ExprKind::String(lit) = &ast.expr(a.value).kind
+                    {
+                        let mut names: Vec<String> = Vec::new();
+                        for part in lit.parts.iter() {
+                            if let StringPart::Text(t) = part {
+                                let t = t.to_string_lossy();
+                                // Every word of the *template* is a JS name (property, object
+                                // key, global): property renaming does not touch it.
+                                m.record_js_words(&t);
+                                let b = t.as_bytes();
+                                for (i, _) in t.match_indices('.') {
+                                    let start = i + 1;
+                                    let mut f = start;
+                                    while f < b.len()
+                                        && (b[f].is_ascii_alphanumeric()
+                                            || b[f] == b'_'
+                                            || b[f] == b'$')
+                                    {
+                                        f += 1;
+                                    }
+                                    if f > start && !b[start].is_ascii_digit() {
+                                        names.push(t[start..f].to_string());
                                     }
                                 }
                             }
-                            for n in names {
-                                m.new_template_selector(&n);
-                            }
                         }
+                        for n in names {
+                            m.new_template_selector(&n);
+                        }
+                    }
                 }
             }
             // `x.isA<T>()` from `dart:js_interop` is lowered by the emitter to
@@ -1221,9 +1526,10 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                     _ => *target,
                 };
                 if let ExprKind::Property { name, .. } = &target_ast.expr(real_target).kind
-                    && m.e.interner.resolve(name.sym) == "isA" {
-                        m.new_external_selector("instanceOfString");
-                    }
+                    && m.e.interner.resolve(name.sym) == "isA"
+                {
+                    m.new_external_selector("instanceOfString");
+                }
             }
             if m.e.program.library(ctx.library).is_sdk {
                 let ast = &m.e.program.unit(ctx.unit).ast;
@@ -1239,11 +1545,18 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                             if let Some(StaticTarget::Class(c)) = static_target(m, ctx, a.value) {
                                 m.mark_type(c);
                             }
-                        } else if let Some(StaticTarget::Class(c)) = static_target(m, ctx, a.value) {
+                        } else if let Some(StaticTarget::Class(c)) = static_target(m, ctx, a.value)
+                        {
                             m.instantiate(c);
                             // The constructor is called by the *template*
                             // (`Object.getPrototypeOf(#).new.call(…)`).
-                            let ctors: Vec<FunctionElementId> = m.e.program.class(c).constructors.values().copied().collect();
+                            let ctors: Vec<FunctionElementId> =
+                                m.e.program
+                                    .class(c)
+                                    .constructors
+                                    .values()
+                                    .copied()
+                                    .collect();
                             for k in ctors {
                                 m.use_constructor(k, false);
                             }
@@ -1277,16 +1590,26 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
         }
         ExprKind::Unary { op, operand } => {
             // `++`/`--` reads and writes (`x++` calls the getter and the setter).
-            if matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec) {
+            if matches!(
+                op,
+                UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec
+            ) {
                 write_to_target(m, ctx, *operand);
-                let bop = if matches!(op, UnaryOp::PrefixInc | UnaryOp::PostfixInc) { ast::BinaryOp::Add } else { ast::BinaryOp::Sub };
+                let bop = if matches!(op, UnaryOp::PrefixInc | UnaryOp::PostfixInc) {
+                    ast::BinaryOp::Add
+                } else {
+                    ast::BinaryOp::Sub
+                };
                 operator_selector(m, ctx, bop, *operand, None);
             }
             if m.operators_by_selector() && matches!(op, UnaryOp::Neg | UnaryOp::BitNot) {
                 let receiver = receiver_class(m, ctx, *operand);
                 // The emitter writes `-x` and `~x >>> 0` for numbers.
                 if !num_like(m, receiver) {
-                    m.new_selector_with_receiver(if *op == UnaryOp::Neg { "unary-" } else { "~" }, receiver);
+                    m.new_selector_with_receiver(
+                        if *op == UnaryOp::Neg { "unary-" } else { "~" },
+                        receiver,
+                    );
                 }
             }
             expr(m, ctx, *operand);
@@ -1296,7 +1619,11 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             expr(m, ctx, *left);
             expr(m, ctx, *right);
         }
-        ExprKind::Conditional { condition, then, else_ } => match constant_condition(m, ctx, *condition) {
+        ExprKind::Conditional {
+            condition,
+            then,
+            else_,
+        } => match constant_condition(m, ctx, *condition) {
             Some(true) => expr(m, ctx, *then),
             Some(false) => expr(m, ctx, *else_),
             None => {
@@ -1317,7 +1644,9 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
                 AssignOp::Assign => {
                     // `(x.w) = v`: the real target is inside the parentheses.
                     let mut lhs = *target;
-                    while let ExprKind::Parenthesized(x) = &e.program.unit(ctx.unit).ast.expr(lhs).kind {
+                    while let ExprKind::Parenthesized(x) =
+                        &e.program.unit(ctx.unit).ast.expr(lhs).kind
+                    {
                         lhs = *x;
                     }
                     m.write_target = Some(lhs);
@@ -1338,7 +1667,9 @@ fn expr(m: &mut Engine<'_>, ctx: &Context, id: ExprId) {
             walk_pattern(m, ctx, *pattern);
             expr(m, ctx, *value);
         }
-        ExprKind::Cascade { target, sections, .. } => {
+        ExprKind::Cascade {
+            target, sections, ..
+        } => {
             expr(m, ctx, *target);
             for s in sections.iter() {
                 expr(m, ctx, *s);

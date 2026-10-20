@@ -37,7 +37,7 @@
 
 use crate::{Analyzer, SyntacticAnalyzer};
 use dartforge_diagnostics::Diagnostic;
-use dartforge_parity::analysis::{Engine, key, is_part};
+use dartforge_parity::analysis::{Engine, is_part, key};
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
@@ -134,7 +134,10 @@ impl std::fmt::Debug for Typed {
 /// folder (the context of the included root).
 fn package_root(file: &Path, folders: &[PathBuf]) -> PathBuf {
     let mut current = file.parent();
-    let folder = folders.iter().filter(|p| file.starts_with(p)).max_by_key(|p| p.components().count());
+    let folder = folders
+        .iter()
+        .filter(|p| file.starts_with(p))
+        .max_by_key(|p| p.components().count());
     while let Some(dir) = current {
         if dir.join("pubspec.yaml").is_file() {
             return dir.to_path_buf();
@@ -151,8 +154,18 @@ impl Typed {
     /// Starts the worker with the SDK at `sdk_lib` (the SDK's `lib/`). With
     /// `process` (the server's own executable), each analysis runs in a child
     /// process (see [`run_in_child`]); without it, in the worker thread.
-    pub(crate) fn start(sdk_lib: PathBuf, wake: Option<Wake>, process: Option<PathBuf>) -> Option<Self> {
-        let shared: Shared = Arc::new((Mutex::new(State { process, ..State::default() }), Condvar::new()));
+    pub(crate) fn start(
+        sdk_lib: PathBuf,
+        wake: Option<Wake>,
+        process: Option<PathBuf>,
+    ) -> Option<Self> {
+        let shared: Shared = Arc::new((
+            Mutex::new(State {
+                process,
+                ..State::default()
+            }),
+            Condvar::new(),
+        ));
         let (tx, rx) = mpsc::channel();
         let p = Arc::clone(&shared);
         // Deep bodies recurse deeply: a dedicated stack, as in `analyze`.
@@ -191,7 +204,10 @@ impl Typed {
         let mut e = self.state();
         let root = package_root(&path, &e.folders);
         e.dirty.insert(root.clone());
-        e.changed.entry(root.clone()).or_default().insert(key(&path));
+        e.changed
+            .entry(root.clone())
+            .or_default()
+            .insert(key(&path));
         e.documents.insert(
             uri.to_string(),
             Document {
@@ -236,12 +252,16 @@ impl Typed {
     pub(crate) fn file_on_disk(&self, path: &Path) {
         let mut e = self.state();
         let root = package_root(path, &e.folders);
-        let inside = e.folders.iter().any(|p| path.starts_with(p)) || e.documents.values().any(|o| o.root == root);
+        let inside = e.folders.iter().any(|p| path.starts_with(p))
+            || e.documents.values().any(|o| o.root == root);
         if !inside {
             return;
         }
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if matches!(name, "analysis_options.yaml" | "pubspec.yaml" | "package_config.json") {
+        if matches!(
+            name,
+            "analysis_options.yaml" | "pubspec.yaml" | "package_config.json"
+        ) {
             e.publish_all.insert(root.clone());
             e.changed.entry(root.clone()).or_default().insert(key(path));
             e.dirty.insert(root);
@@ -269,7 +289,10 @@ impl Typed {
             // analysis (Dart's `removeOverlay`), and so did those that depend on it.
             let inside = e.folders.iter().any(|p| d.path.starts_with(p));
             if inside || e.documents.values().any(|o| o.root == d.root) {
-                e.changed.entry(d.root.clone()).or_default().insert(key(&d.path));
+                e.changed
+                    .entry(d.root.clone())
+                    .or_default()
+                    .insert(key(&d.path));
                 e.dirty.insert(d.root);
                 self.shared.1.notify_all();
             }
@@ -332,16 +355,10 @@ impl Drop for Typed {
 }
 
 /// Worker loop: one package at a time, the oldest marked first.
-fn work(
-    p: &Shared,
-    sdk_lib: &Path,
-    tx: &mpsc::Sender<Result>,
-    wake: Option<Wake>,
-) {
+fn work(p: &Shared, sdk_lib: &Path, tx: &mpsc::Sender<Result>, wake: Option<Wake>) {
     let (lock, sinal) = &**p;
     let block = || {
-        lock
-            .lock()
+        lock.lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     };
     let mut engine: Option<Engine> = None;
@@ -386,13 +403,27 @@ fn work(
                 .map(|d| (key(&d.path), d.text.clone()))
                 .collect();
             e.running = Some(root.clone());
-            let config = AnalysisConfiguration { all: e.all, all_types: e.all_types.clone(), excluded: e.excluded.clone() };
+            let config = AnalysisConfiguration {
+                all: e.all,
+                all_types: e.all_types.clone(),
+                excluded: e.excluded.clone(),
+            };
             // Files that are not open only come in with the package in a workspace
             // folder.
-            let in_workspace = e.folders.iter().any(|p| root.starts_with(p) || p.starts_with(&root));
+            let in_workspace = e
+                .folders
+                .iter()
+                .any(|p| root.starts_with(p) || p.starts_with(&root));
             let all = in_workspace && e.publish_all.remove(&root);
             let changed_ = e.changed.remove(&root).unwrap_or_default();
-            (root, open, texts, config, (in_workspace, all, changed_), e.process.clone())
+            (
+                root,
+                open,
+                texts,
+                config,
+                (in_workspace, all, changed_),
+                e.process.clone(),
+            )
         };
         if engine.is_none() {
             match Engine::new(sdk_lib) {
@@ -416,8 +447,20 @@ fn work(
             e.shutdown || e.dirty.contains(&root)
         };
         let (in_workspace, all, changed) = changed;
-        let job = Arc::new(Job { sdk_lib: sdk_lib.to_path_buf(), root: root.clone(), open, texts, config, in_workspace, all, changed });
-        let results = match process.as_deref().and_then(|exe| run_in_child(exe, &job, &cancelled)) {
+        let job = Arc::new(Job {
+            sdk_lib: sdk_lib.to_path_buf(),
+            root: root.clone(),
+            open,
+            texts,
+            config,
+            in_workspace,
+            all,
+            changed,
+        });
+        let results = match process
+            .as_deref()
+            .and_then(|exe| run_in_child(exe, &job, &cancelled))
+        {
             Some(results) => results,
             None => run_in_process(engine_ref, &job, &cancelled),
         };
@@ -425,7 +468,10 @@ fn work(
         if results.is_empty() && changed.0 {
             let mut e = block();
             if e.dirty.contains(&root) {
-                e.changed.entry(root.clone()).or_default().extend(changed.2.iter().cloned());
+                e.changed
+                    .entry(root.clone())
+                    .or_default()
+                    .extend(changed.2.iter().cloned());
                 if changed.1 {
                     e.publish_all.insert(root.clone());
                 }
@@ -498,7 +544,9 @@ fn run_in_process(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> V
         }
         cancelled()
     };
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| analyze_package(engine, job, &sampling))) {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        analyze_package(engine, job, &sampling)
+    })) {
         Ok(r) => r,
         Err(_) => {
             eprintln!(
@@ -530,7 +578,13 @@ fn run_in_child(exe: &Path, job: &Arc<Job>, cancelled: &dyn Fn() -> bool) -> Opt
     use std::process::{Command, Stdio};
     // A path that is not UTF-8 does not go into JSON: such a job stays in the
     // thread.
-    if job.root.to_str().is_none() || job.texts.keys().chain(job.open.iter().map(|o| &o.2)).any(|p| p.to_str().is_none()) {
+    if job.root.to_str().is_none()
+        || job
+            .texts
+            .keys()
+            .chain(job.open.iter().map(|o| &o.2))
+            .any(|p| p.to_str().is_none())
+    {
         return None;
     }
     let mut child = Command::new(exe)
@@ -553,7 +607,8 @@ fn run_in_child(exe: &Path, job: &Arc<Job>, cancelled: &dyn Fn() -> bool) -> Opt
     });
     let (sent, output) = mpsc::channel();
     std::thread::spawn(move || {
-        let results: Option<Vec<Result>> = serde_json::from_reader(std::io::BufReader::new(stdout)).ok();
+        let results: Option<Vec<Result>> =
+            serde_json::from_reader(std::io::BufReader::new(stdout)).ok();
         let _ = sent.send(results);
     });
     let results = loop {
@@ -570,7 +625,9 @@ fn run_in_child(exe: &Path, job: &Arc<Job>, cancelled: &dyn Fn() -> bool) -> Opt
     };
     let status = child.wait();
     let _ = writer.join();
-    let Some(results) = results else { return Some(Vec::new()) };
+    let Some(results) = results else {
+        return Some(Vec::new());
+    };
     if !status.is_ok_and(|s| s.success()) {
         eprintln!(
             "[dartforge-lsp] the typed analysis of {} failed in its process; the syntactic diagnostics remain",
@@ -600,25 +657,30 @@ pub fn typed_analysis_child() -> i32 {
     if std::io::stdin().lock().read_to_end(&mut input).is_err() {
         return 2;
     }
-    let Ok(job) = serde_json::from_slice::<Job>(&input) else { return 2 };
+    let Ok(job) = serde_json::from_slice::<Job>(&input) else {
+        return 2;
+    };
     drop(input);
     // Deep bodies recurse deeply: a dedicated stack, as in the worker thread.
-    let run = std::thread::Builder::new().name("dartforge-lsp-typed".into()).stack_size(1 << 30).spawn(move || {
-        let engine = match Engine::new(&job.sdk_lib) {
-            Ok(engine) => engine,
-            Err(error) => {
-                eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
-                return 2;
+    let run = std::thread::Builder::new()
+        .name("dartforge-lsp-typed".into())
+        .stack_size(1 << 30)
+        .spawn(move || {
+            let engine = match Engine::new(&job.sdk_lib) {
+                Ok(engine) => engine,
+                Err(error) => {
+                    eprintln!("[dartforge-lsp] typed diagnostics disabled: {error}");
+                    return 2;
+                }
+            };
+            let results = analyze_package(&engine, &job, &|| false);
+            crate::memory::log("after the analysis, in the child");
+            let mut out = std::io::BufWriter::new(std::io::stdout().lock());
+            if serde_json::to_writer(&mut out, &results).is_err() || out.flush().is_err() {
+                return 1;
             }
-        };
-        let results = analyze_package(&engine, &job, &|| false);
-        crate::memory::log("after the analysis, in the child");
-        let mut out = std::io::BufWriter::new(std::io::stdout().lock());
-        if serde_json::to_writer(&mut out, &results).is_err() || out.flush().is_err() {
-            return 1;
-        }
-        0
-    });
+            0
+        });
     match run.map(std::thread::JoinHandle::join) {
         Ok(Ok(code)) => code,
         _ => 101,
@@ -639,7 +701,11 @@ fn folder_packages(folders: &[PathBuf]) -> Vec<PathBuf> {
 /// The files `affected` by a change in `changed`: they and, through the
 /// directives (`import`, `export`, `part`, `part of`), those that depend on
 /// them, transitively (those that Dart's driver reanalyzes and republishes).
-fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analysis::FileAnalysis>, changed: &BTreeSet<PathBuf>, packages: Option<&dartforge_elements::PackageConfig>) -> BTreeSet<PathBuf> {
+fn affected(
+    files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analysis::FileAnalysis>,
+    changed: &BTreeSet<PathBuf>,
+    packages: Option<&dartforge_elements::PackageConfig>,
+) -> BTreeSet<PathBuf> {
     let mut dependents: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
     for (path, a) in files {
         let mut names = dartforge_intern::Interner::new();
@@ -652,17 +718,31 @@ fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analys
                 K::PartOf { uri: Some(uri), .. } => Some(uri),
                 _ => None,
             };
-            let Some(text) = lit.and_then(dartforge_elements::load::string_lit_value) else { continue };
+            let Some(text) = lit.and_then(dartforge_elements::load::string_lit_value) else {
+                continue;
+            };
             let target = if let Some(rest) = text.strip_prefix("package:") {
-                let Some((package, rel)) = rest.split_once('/') else { continue };
-                let Some(dir) = packages.and_then(|c| c.package_dirs.iter().find(|(n, _)| n == package).map(|(_, d)| d.clone())) else { continue };
+                let Some((package, rel)) = rest.split_once('/') else {
+                    continue;
+                };
+                let Some(dir) = packages.and_then(|c| {
+                    c.package_dirs
+                        .iter()
+                        .find(|(n, _)| n == package)
+                        .map(|(_, d)| d.clone())
+                }) else {
+                    continue;
+                };
                 dir.join(rel)
             } else if text.contains(':') {
                 continue;
             } else {
                 base.join(&*text)
             };
-            dependents.entry(key(&target)).or_default().push(path.clone());
+            dependents
+                .entry(key(&target))
+                .or_default()
+                .push(path.clone());
         }
     }
     let mut output: BTreeSet<PathBuf> = changed.iter().cloned().collect();
@@ -684,22 +764,44 @@ fn affected(files: &std::collections::BTreeMap<PathBuf, dartforge_parity::analys
 /// changes), and afterwards those affected by the changed files. Empty when
 /// cancelled.
 fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> Vec<Result> {
-    let Job { root, open, texts, config, in_workspace, all, changed, .. } = job;
+    let Job {
+        root,
+        open,
+        texts,
+        config,
+        in_workspace,
+        all,
+        changed,
+        ..
+    } = job;
     let (root, in_workspace, all) = (root.as_path(), *in_workspace, *all);
     // Documents in excluded folders are not analyzed: their publication is empty.
     let excluded = |c: &Path| config.excluded.iter().any(|e| c.starts_with(e));
     let mut excluded_output: Vec<Result> = open
         .iter()
         .filter(|(_, _, c, _)| excluded(c))
-        .map(|(u, v, _, _)| Result { uri: u.clone(), version: Some(*v), text: None, diagnostics: Vec::new(), yaml: Vec::new() })
+        .map(|(u, v, _, _)| Result {
+            uri: u.clone(),
+            version: Some(*v),
+            text: None,
+            diagnostics: Vec::new(),
+            yaml: Vec::new(),
+        })
         .collect();
-    let open: Vec<(String, i32, PathBuf, Arc<str>)> = open.iter().filter(|(_, _, c, _)| !excluded(c)).cloned().collect();
+    let open: Vec<(String, i32, PathBuf, Arc<str>)> = open
+        .iter()
+        .filter(|(_, _, c, _)| !excluded(c))
+        .cloned()
+        .collect();
     let open = &open[..];
     let options = dartforge_parity::filters::AnalysisOptions::read(root);
     // The package's `.dart` files that `dart analyze` would see (outside the
     // exclusions of `analysis_options.yaml` and of `analysisExcludedFolders`).
     let of_package: Vec<PathBuf> = if in_workspace {
-        dartforge_parity::projects::files(root, &options).into_iter().filter(|a| !excluded(a)).collect()
+        dartforge_parity::projects::files(root, &options)
+            .into_iter()
+            .filter(|a| !excluded(a))
+            .collect()
     } else {
         Vec::new()
     };
@@ -720,13 +822,22 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> 
     files.dedup_by_key(|a| key(a));
     let package_config = root.join(".dart_tool").join("package_config.json");
     let package_config = package_config.is_file().then_some(package_config);
-    let packages = package_config.as_deref().and_then(|c| dartforge_elements::PackageConfig::load(c).ok());
-    let texts: HashMap<PathBuf, String> = texts.iter().map(|(k, t)| (k.clone(), t.to_string())).collect();
-    let Some(analysis) = engine.analyze_with(root, &files, package_config.as_deref(), &texts, cancelled)
+    let packages = package_config
+        .as_deref()
+        .and_then(|c| dartforge_elements::PackageConfig::load(c).ok());
+    let texts: HashMap<PathBuf, String> = texts
+        .iter()
+        .map(|(k, t)| (k.clone(), t.to_string()))
+        .collect();
+    let Some(analysis) =
+        engine.analyze_with(root, &files, package_config.as_deref(), &texts, cancelled)
     else {
         return Vec::new();
     };
-    crate::memory::log(&format!("after the engine ({} files kept)", analysis.files.len()));
+    crate::memory::log(&format!(
+        "after the engine ({} files kept)",
+        analysis.files.len()
+    ));
     let mut syntactic = SyntacticAnalyzer::new();
     let mut output = Vec::new();
     // The files not open to publish.
@@ -736,14 +847,21 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> 
     } else {
         affected(&analysis.files, changed, packages.as_ref())
     };
-    let mut targets: Vec<(String, Option<i32>, PathBuf, &str)> = open.iter().map(|(u, v, c, t)| (u.clone(), Some(*v), c.clone(), &**t)).collect();
+    let mut targets: Vec<(String, Option<i32>, PathBuf, &str)> = open
+        .iter()
+        .map(|(u, v, c, t)| (u.clone(), Some(*v), c.clone(), &**t))
+        .collect();
     for a in &of_package {
         let k = key(a);
         if open_keys.contains(&k) || !publish.contains(&k) {
             continue;
         }
-        let Some(file_) = analysis.files.get(&k) else { continue };
-        let Ok(u) = url::Url::from_file_path(a) else { continue };
+        let Some(file_) = analysis.files.get(&k) else {
+            continue;
+        };
+        let Ok(u) = url::Url::from_file_path(a) else {
+            continue;
+        };
         targets.push((u.to_string(), None, a.clone(), file_.text.as_str()));
     }
     for (uri, version, path, text) in &targets {
@@ -762,32 +880,43 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> 
         // (all, or the requested kinds; always when the severity was promoted above
         // INFO by `analysis_options.yaml`), each at the position where the analyzer
         // reported it.
-        let published: Vec<Diagnostic> =
-            dartforge_parity::publishable(file, &options, true)
-                .into_iter()
-                .filter(|(_, syntax)| !syntax)
-                .map(|(d, _)| d)
-                .collect();
+        let published: Vec<Diagnostic> = dartforge_parity::publishable(file, &options, true)
+            .into_iter()
+            .filter(|(_, syntax)| !syntax)
+            .map(|(d, _)| d)
+            .collect();
         let mut semantic: Vec<Diagnostic> = Vec::new();
         for (d, syntax) in dartforge_parity::publishable(file, &options, false) {
             if syntax {
                 continue;
             }
-            let published_ = published.iter().any(|x| x.span == d.span && x.code == d.code && x.message == d.message);
+            let published_ = published
+                .iter()
+                .any(|x| x.span == d.span && x.code == d.code && x.message == d.message);
             let todo = d.code.is_some_and(|c| {
                 c.info().error_type == dartforge_diagnostics::ErrorType::Todo
                     && (d.severity != dartforge_diagnostics::Severity::Info
                         || config.all
-                        || config.all_types.iter().any(|t| *t == c.info().name.to_uppercase()))
+                        || config
+                            .all_types
+                            .iter()
+                            .any(|t| *t == c.info().name.to_uppercase()))
             });
-            if (published_ || todo) && !semantic.iter().any(|x: &Diagnostic| x.span == d.span && x.code == d.code && x.message == d.message) {
+            if (published_ || todo)
+                && !semantic.iter().any(|x: &Diagnostic| {
+                    x.span == d.span && x.code == d.code && x.message == d.message
+                })
+            {
                 semantic.push(d);
             }
         }
         // A published one that the unfiltered list does not bring (the
         // `IgnoreValidator` reports separately) goes at the end, as in the analyzer.
         for d in published {
-            if !semantic.iter().any(|x| x.span == d.span && x.code == d.code && x.message == d.message) {
+            if !semantic
+                .iter()
+                .any(|x| x.span == d.span && x.code == d.code && x.message == d.message)
+            {
                 semantic.push(d);
             }
         }
@@ -813,15 +942,31 @@ fn analyze_package(engine: &Engine, job: &Job, cancelled: &dyn Fn() -> bool) -> 
         let changed_ = |p: &Path| all || changed.contains(&key(p));
         let mut yaml: Vec<(PathBuf, Vec<dartforge_parity::json::DiagJson>)> = Vec::new();
         if options_yaml.is_file() && changed_(&options_yaml) {
-            yaml.push((options_yaml.clone(), dartforge_parity::options_diagnostics(root)));
+            yaml.push((
+                options_yaml.clone(),
+                dartforge_parity::options_diagnostics(root),
+            ));
         }
         if pubspec_yaml.is_file() && (changed_(&pubspec_yaml) || changed_(&options_yaml)) {
-            yaml.push((pubspec_yaml.clone(), dartforge_parity::pubspec_diagnostics(root, &options)));
+            yaml.push((
+                pubspec_yaml.clone(),
+                dartforge_parity::pubspec_diagnostics(root, &options),
+            ));
         }
         for (path, diagnostics) in yaml {
-            let Ok(text) = std::fs::read_to_string(&path) else { continue };
-            let Ok(u) = url::Url::from_file_path(&path) else { continue };
-            output.push(Result { uri: u.to_string(), version: None, text: Some(text), diagnostics: Vec::new(), yaml: diagnostics });
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let Ok(u) = url::Url::from_file_path(&path) else {
+                continue;
+            };
+            output.push(Result {
+                uri: u.to_string(),
+                version: None,
+                text: Some(text),
+                diagnostics: Vec::new(),
+                yaml: diagnostics,
+            });
         }
     }
     output.append(&mut excluded_output);

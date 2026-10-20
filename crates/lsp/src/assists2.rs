@@ -10,9 +10,9 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
+use crate::Edit;
 use crate::actions::CodeAction;
 use crate::project::Project;
-use crate::Edit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::UnitId;
 use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, UnaryOp};
@@ -21,9 +21,17 @@ fn action(uri: &str, title: &str, kind: &str, edits: Vec<(Span, String)>) -> Cod
     CodeAction {
         title: title.into(),
         kind: kind.into(),
-        edits: edits.into_iter().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+        edits: edits
+            .into_iter()
+            .map(|(span, text)| Edit {
+                uri: uri.to_string(),
+                span,
+                text,
+            })
+            .collect(),
         diagnostic: None,
-        create_file: None, linked: Default::default(),
+        create_file: None,
+        linked: Default::default(),
     }
 }
 
@@ -95,13 +103,16 @@ fn with_separators(lexeme: &str, floating_point: bool) -> Option<String> {
 /// relational operator.
 fn relational_parent_or_higher(a: &ast::Ast, child: ExprId) -> bool {
     a.exprs.iter().any(|e| match &e.kind {
-        ExprKind::Binary { op, left, right } if *left == child || *right == child => {
-            !matches!(op, BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull)
-        }
+        ExprKind::Binary { op, left, right } if *left == child || *right == child => !matches!(
+            op,
+            BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull
+        ),
         ExprKind::Is { value, .. } | ExprKind::As { value, .. } => *value == child,
         ExprKind::Unary { operand, .. } => *operand == child,
         ExprKind::Await(x) => *x == child,
-        ExprKind::Property { target, .. } | ExprKind::Call { target, .. } | ExprKind::TypeArguments { target, .. } => *target == child,
+        ExprKind::Property { target, .. }
+        | ExprKind::Call { target, .. }
+        | ExprKind::TypeArguments { target, .. } => *target == child,
         // The target of an index is postfix; the index itself counts as an
         // assignment.
         ExprKind::Index { target, .. } => *target == child,
@@ -111,7 +122,12 @@ fn relational_parent_or_higher(a: &ast::Ast, child: ExprId) -> bool {
 
 impl Project {
     /// The assists of this list with the cursor at `offset` of `unit`.
-    pub(crate) fn syntactic_assists(&self, uri: &str, unit: UnitId, offset: usize) -> Vec<CodeAction> {
+    pub(crate) fn syntactic_assists(
+        &self,
+        uri: &str,
+        unit: UnitId,
+        offset: usize,
+    ) -> Vec<CodeAction> {
         let mut output = Vec::new();
         let u = self.program().unit(unit);
         let a = &u.ast;
@@ -128,13 +144,25 @@ impl Project {
             if !contains(span) {
                 continue;
             }
-            let Some(lexeme) = source.get(span.start..span.end) else { continue };
+            let Some(lexeme) = source.get(span.start..span.end) else {
+                continue;
+            };
             if let Some(new) = with_separators(lexeme, floating) {
-                output.push(action(uri, "Add digit separators", "refactor.add.digitSeparators", vec![(span, new)]));
+                output.push(action(
+                    uri,
+                    "Add digit separators",
+                    "refactor.add.digitSeparators",
+                    vec![(span, new)],
+                ));
             }
             if lexeme.contains('_') {
                 let without: String = lexeme.chars().filter(|c| *c != '_').collect();
-                output.push(action(uri, "Remove digit separators", "refactor.remove.digitSeparators", vec![(span, without)]));
+                output.push(action(
+                    uri,
+                    "Remove digit separators",
+                    "refactor.remove.digitSeparators",
+                    vec![(span, without)],
+                ));
             }
             break;
         }
@@ -142,31 +170,82 @@ impl Project {
         // `Convert to is!`: `!(x is T)` with the cursor on the `!`, on a
         // parenthesis or inside the `is`.
         for (i, e) in a.exprs.iter().enumerate() {
-            let ExprKind::Unary { op: UnaryOp::Not, operand } = &e.kind else { continue };
+            let ExprKind::Unary {
+                op: UnaryOp::Not,
+                operand,
+            } = &e.kind
+            else {
+                continue;
+            };
             let between = a.expr(*operand);
-            let ExprKind::Parenthesized(inside) = &between.kind else { continue };
+            let ExprKind::Parenthesized(inside) = &between.kind else {
+                continue;
+            };
             let test_ = a.expr(*inside);
-            let ExprKind::Is { value, negated: false, .. } = &test_.kind else { continue };
+            let ExprKind::Is {
+                value,
+                negated: false,
+                ..
+            } = &test_.kind
+            else {
+                continue;
+            };
             let test_node = contains(test_.span);
-            let prefix_node = offset == e.span.start || offset == between.span.start || offset == between.span.end;
+            let prefix_node = offset == e.span.start
+                || offset == between.span.start
+                || offset == between.span.end;
             if !(test_node || prefix_node) {
                 continue;
             }
             // The `is` comes after the value: the keyword, and the point right after it.
             let after_value = a.expr(*value).span.end;
-            let Some(k) = source.get(after_value..test_.span.end).and_then(|t| t.find("is")) else { continue };
+            let Some(k) = source
+                .get(after_value..test_.span.end)
+                .and_then(|t| t.find("is"))
+            else {
+                continue;
+            };
             let is_end = after_value + k + 2;
             let mut edits: Vec<(Span, String)> = Vec::new();
             if relational_parent_or_higher(a, ExprId(i as u32)) {
                 // The parentheses stay: only the `!` goes.
-                edits.push((Span { start: e.span.start, end: e.span.start + 1 }, String::new()));
+                edits.push((
+                    Span {
+                        start: e.span.start,
+                        end: e.span.start + 1,
+                    },
+                    String::new(),
+                ));
             } else {
                 // The `!(` and the `)` go.
-                edits.push((Span { start: e.span.start, end: between.span.start + 1 }, String::new()));
-                edits.push((Span { start: between.span.end.saturating_sub(1), end: e.span.end }, String::new()));
+                edits.push((
+                    Span {
+                        start: e.span.start,
+                        end: between.span.start + 1,
+                    },
+                    String::new(),
+                ));
+                edits.push((
+                    Span {
+                        start: between.span.end.saturating_sub(1),
+                        end: e.span.end,
+                    },
+                    String::new(),
+                ));
             }
-            edits.push((Span { start: is_end, end: is_end }, "!".to_string()));
-            output.push(action(uri, "Convert to is!", "refactor.convert.isNot", edits));
+            edits.push((
+                Span {
+                    start: is_end,
+                    end: is_end,
+                },
+                "!".to_string(),
+            ));
+            output.push(action(
+                uri,
+                "Convert to is!",
+                "refactor.convert.isNot",
+                edits,
+            ));
             break;
         }
 
@@ -177,7 +256,13 @@ impl Project {
                 let text = source.get(from..until)?;
                 let start = from + (text.len() - text.trim_start().len());
                 let end = from + text.trim_end().len();
-                (start <= offset && offset <= end).then_some((ExprId(i as u32), *op, *left, *right, Span { start, end }))
+                (start <= offset && offset <= end).then_some((
+                    ExprId(i as u32),
+                    *op,
+                    *left,
+                    *right,
+                    Span { start, end },
+                ))
             }
             _ => None,
         });
@@ -193,10 +278,25 @@ impl Project {
             }
             let wide = a.expr(wide).span;
             let (left_end, right_start) = (a.expr(left_).span.end, a.expr(right_).span.start);
-            if let (Some(left_text), Some(right_text)) = (source.get(wide.start..left_end), source.get(right_start..wide.end)) {
+            if let (Some(left_text), Some(right_text)) = (
+                source.get(wide.start..left_end),
+                source.get(right_start..wide.end),
+            ) {
                 let mut edits = vec![
-                    (Span { start: wide.start, end: left_end }, right_text.to_string()),
-                    (Span { start: right_start, end: wide.end }, left_text.to_string()),
+                    (
+                        Span {
+                            start: wide.start,
+                            end: left_end,
+                        },
+                        right_text.to_string(),
+                    ),
+                    (
+                        Span {
+                            start: right_start,
+                            end: wide.end,
+                        },
+                        left_text.to_string(),
+                    ),
                 ];
                 // A relational operator flips direction.
                 let inverted = match op {
@@ -210,7 +310,12 @@ impl Project {
                     edits.push((operator, new.to_string()));
                 }
                 edits.sort_by_key(|(s, _)| s.start);
-                output.push(action(uri, "Exchange operands", "refactor.exchangeOperands", edits));
+                output.push(action(
+                    uri,
+                    "Exchange operands",
+                    "refactor.exchangeOperands",
+                    edits,
+                ));
             }
         }
         output
@@ -224,12 +329,24 @@ mod tests {
     /// The examples from the spec (§13.8.2).
     #[test]
     fn digit_separators() {
-        assert_eq!(with_separators("1234567", false).as_deref(), Some("1_234_567"));
+        assert_eq!(
+            with_separators("1234567", false).as_deref(),
+            Some("1_234_567")
+        );
         assert_eq!(with_separators("1234", false), None);
-        assert_eq!(with_separators("12_34567", false).as_deref(), Some("1_234_567"));
-        assert_eq!(with_separators("0xFFFFFF", false).as_deref(), Some("0xFF_FF_FF"));
+        assert_eq!(
+            with_separators("12_34567", false).as_deref(),
+            Some("1_234_567")
+        );
+        assert_eq!(
+            with_separators("0xFFFFFF", false).as_deref(),
+            Some("0xFF_FF_FF")
+        );
         assert_eq!(with_separators("0xFFF", false), None);
-        assert_eq!(with_separators("12345.67891", true).as_deref(), Some("12_345.678_91"));
+        assert_eq!(
+            with_separators("12345.67891", true).as_deref(),
+            Some("12_345.678_91")
+        );
         assert_eq!(with_separators("1_000_000", false), None);
     }
 }

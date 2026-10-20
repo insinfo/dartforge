@@ -26,32 +26,32 @@
 //!   (`ErrorVerifier`).
 
 pub mod a_context;
-pub mod analyzer_tree;
-pub mod exit_detector;
 pub mod a_doc;
+pub mod analyzer_tree;
 pub mod c2_syntactic;
 pub mod clauses;
-pub mod simple_bounds;
-pub mod records;
 pub mod constructors;
 pub mod duplicates;
 pub mod enums;
+pub mod exit_detector;
 pub mod externals;
-pub mod phases;
 pub mod imports;
 pub mod initialization;
+pub mod language_version;
 pub mod lints;
 pub mod locals;
 pub mod members;
 pub mod meta;
 pub mod modifiers;
-pub mod non_dart;
 pub mod natives;
+pub mod non_dart;
 pub mod operators;
+pub mod phases;
 pub mod private_decls;
 pub mod publication;
+pub mod records;
+pub mod simple_bounds;
 pub mod todos;
-pub mod language_version;
 
 use dartforge_frontend::ast::{Ast, CompilationUnit};
 
@@ -83,13 +83,17 @@ impl Skipped<'_> {
 
     /// Does range `s` touch any skipped fragment?
     pub fn intersects(&self, s: dartforge_diagnostics::Span) -> bool {
-        self.spans.iter().any(|t| t.start < s.end && s.start < t.end)
+        self.spans
+            .iter()
+            .any(|t| t.start < s.end && s.start < t.end)
     }
 
     /// Does identifier `name` appear, as a whole word, in any skipped
     /// fragment?
     pub fn mentions(&self, name: &str) -> bool {
-        self.spans.iter().any(|t| mentioned_in_fragment(self.source, *t, name))
+        self.spans
+            .iter()
+            .any(|t| mentioned_in_fragment(self.source, *t, name))
     }
 
     /// Like [`Skipped::mentions`], only in the fragments that touch `within`
@@ -97,25 +101,33 @@ impl Skipped<'_> {
     /// `within` counts (the declared name itself, in a skipped fragment that
     /// contains it, is not a use: `var enum;`).
     pub fn mentions_within(&self, name: &str, within: dartforge_diagnostics::Span) -> bool {
-        self.spans.iter().filter(|t| t.start < within.end && within.start < t.end).any(|t| {
-            let start = t.start.max(within.start);
-            let end = t.end.min(within.end);
-            // The whole fragment decides the word boundary; the position, the cut.
-            mentions(self.source, *t, name).any(|p| p >= start && p < end)
-        })
+        self.spans
+            .iter()
+            .filter(|t| t.start < within.end && within.start < t.end)
+            .any(|t| {
+                let start = t.start.max(within.start);
+                let end = t.end.min(within.end);
+                // The whole fragment decides the word boundary; the position, the cut.
+                mentions(self.source, *t, name).any(|p| p >= start && p < end)
+            })
     }
 }
 
 /// The positions (in the unit) of the whole-word mentions of `name` in fragment `t`.
-fn mentions<'a>(source: &'a str, t: dartforge_diagnostics::Span, name: &'a str) -> impl Iterator<Item = usize> + 'a {
+fn mentions<'a>(
+    source: &'a str,
+    t: dartforge_diagnostics::Span,
+    name: &'a str,
+) -> impl Iterator<Item = usize> + 'a {
     let text = source.get(t.start..t.end.min(source.len())).unwrap_or("");
     let bytes = text.as_bytes();
     let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
-    text
-        .match_indices(name)
+    text.match_indices(name)
         .filter(move |(start, _)| {
             let end = start + name.len();
-            !name.is_empty() && (*start == 0 || !is_word(bytes[start - 1])) && (end >= bytes.len() || !is_word(bytes[end]))
+            !name.is_empty()
+                && (*start == 0 || !is_word(bytes[start - 1]))
+                && (end >= bytes.len() || !is_word(bytes[end]))
         })
         .map(move |(start, _)| t.start + start)
 }
@@ -124,7 +136,9 @@ fn mentioned_in_fragment(source: &str, t: dartforge_diagnostics::Span, name: &st
     if name.is_empty() {
         return false;
     }
-    let Some(text) = source.get(t.start..t.end.min(source.len())) else { return false };
+    let Some(text) = source.get(t.start..t.end.min(source.len())) else {
+        return false;
+    };
     let bytes = text.as_bytes();
     let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b'$';
     let mut from = 0;

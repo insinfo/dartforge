@@ -24,7 +24,7 @@
 //! Written without compiling or running (2026-10-05).
 
 use super::BodyInferrer;
-use crate::inheritance::{Kind, InterfaceMember, MemberName};
+use crate::inheritance::{InterfaceMember, Kind, MemberName};
 use crate::table::{Type, TypeId, TypeParamId};
 use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, FunctionRef};
 use dartforge_frontend::ast;
@@ -48,7 +48,14 @@ impl<'a> BodyInferrer<'a> {
             .map(ClassId)
             .filter(|&c| {
                 let k = self.program.class(c);
-                k.decl.is_some() && matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication | ClassKind::Enum | ClassKind::Mixin)
+                k.decl.is_some()
+                    && matches!(
+                        k.kind,
+                        ClassKind::Class
+                            | ClassKind::MixinApplication
+                            | ClassKind::Enum
+                            | ClassKind::Mixin
+                    )
             })
             .collect();
         classes.sort_by_key(|&c| {
@@ -69,7 +76,12 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// `_inferClass`.
-    fn infer_class(&mut self, c: ClassId, done: &mut HashSet<ClassId>, in_progress: &mut HashSet<ClassId>) -> Result<(), Cycle> {
+    fn infer_class(
+        &mut self,
+        c: ClassId,
+        done: &mut HashSet<ClassId>,
+        in_progress: &mut HashSet<ClassId>,
+    ) -> Result<(), Cycle> {
         if done.contains(&c) {
             return Ok(());
         }
@@ -90,15 +102,27 @@ impl<'a> BodyInferrer<'a> {
                 }
             }
             // The explicit accessors, then the methods.
-            let mut members: Vec<FunctionElementId> = self.program.class(c).instance_members.values().copied().collect();
+            let mut members: Vec<FunctionElementId> = self
+                .program
+                .class(c)
+                .instance_members
+                .values()
+                .copied()
+                .collect();
             members.sort();
             for &f in &members {
-                if matches!(self.program.function(f).kind, FunctionKind::Getter | FunctionKind::Setter) {
+                if matches!(
+                    self.program.function(f).kind,
+                    FunctionKind::Getter | FunctionKind::Setter
+                ) {
                     self.infer_accessor(c, f);
                 }
             }
             for &f in &members {
-                if matches!(self.program.function(f).kind, FunctionKind::Function | FunctionKind::Operator) {
+                if matches!(
+                    self.program.function(f).kind,
+                    FunctionKind::Function | FunctionKind::Operator
+                ) {
                     self.infer_method(c, f);
                 }
             }
@@ -120,7 +144,9 @@ impl<'a> BodyInferrer<'a> {
         match self.program.function(f).node {
             FunctionRef::Function { unit, function } => {
                 let a = &self.program.unit(unit).ast;
-                if a.members.iter().any(|m| m.augment && matches!(m.kind, ast::MemberKind::Method(g) if g == function)) {
+                if a.members.iter().any(|m| {
+                    m.augment && matches!(m.kind, ast::MemberKind::Method(g) if g == function)
+                }) {
                     return None;
                 }
                 Some(a.function(function))
@@ -130,12 +156,21 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// `getOverridden2` by the `Name` of the member's library.
-    fn member_overridden(&mut self, c: ClassId, f: FunctionElementId, setter: bool) -> Option<Vec<InterfaceMember>> {
+    fn member_overridden(
+        &mut self,
+        c: ClassId,
+        f: FunctionElementId,
+        setter: bool,
+    ) -> Option<Vec<InterfaceMember>> {
         let e = self.program.function(f);
         let lib = e.library;
         let text = self.interner.resolve(e.name);
         let base = text.strip_suffix("_=").unwrap_or(text).to_string();
-        let key = if setter { self.interner.lookup(&format!("{base}_="))? } else { self.interner.lookup(&base)? };
+        let key = if setter {
+            self.interner.lookup(&format!("{base}_="))?
+        } else {
+            self.interner.lookup(&base)?
+        };
         let name = MemberName::new(self.interner, lib, key);
         let mut h = std::mem::take(&mut self.inheritance);
         let r = h.overridden(self, c, name);
@@ -144,7 +179,12 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// `combineSignatures(..., doTopMerge: true)`.
-    fn combined(&mut self, c: ClassId, candidates: &[InterfaceMember], name: MemberName) -> Option<InterfaceMember> {
+    fn combined(
+        &mut self,
+        c: ClassId,
+        candidates: &[InterfaceMember],
+        name: MemberName,
+    ) -> Option<InterfaceMember> {
         if candidates.is_empty() {
             return None;
         }
@@ -152,7 +192,12 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// `combinedGetterType`.
-    pub(crate) fn combined_getter_type(&mut self, c: ClassId, getters: &[InterfaceMember], name: MemberName) -> TypeId {
+    pub(crate) fn combined_getter_type(
+        &mut self,
+        c: ClassId,
+        getters: &[InterfaceMember],
+        name: MemberName,
+    ) -> TypeId {
         match self.combined(c, getters, name) {
             Some(m) => match self.table.get(m.ty) {
                 Type::Function { ret, .. } => *ret,
@@ -163,10 +208,17 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// `combinedSetterType`.
-    pub(crate) fn combined_setter_type(&mut self, c: ClassId, setters: &[InterfaceMember], name: MemberName) -> TypeId {
+    pub(crate) fn combined_setter_type(
+        &mut self,
+        c: ClassId,
+        setters: &[InterfaceMember],
+        name: MemberName,
+    ) -> TypeId {
         match self.combined(c, setters, name) {
             Some(m) => match self.table.get(m.ty) {
-                Type::Function { positional, .. } => positional.first().copied().unwrap_or(self.core.dynamic_),
+                Type::Function { positional, .. } => {
+                    positional.first().copied().unwrap_or(self.core.dynamic_)
+                }
                 _ => self.core.dynamic_,
             },
             None => self.core.dynamic_,
@@ -174,11 +226,28 @@ impl<'a> BodyInferrer<'a> {
     }
 
     /// The overridden getters and setters of a name (`_inferAccessorOrField`).
-    pub(crate) fn overridden_getters_and_setters(&mut self, c: ClassId, lib: dartforge_elements::model::LibraryId, name: dartforge_intern::SymbolId) -> (Vec<InterfaceMember>, Vec<InterfaceMember>, MemberName, Option<MemberName>) {
+    pub(crate) fn overridden_getters_and_setters(
+        &mut self,
+        c: ClassId,
+        lib: dartforge_elements::model::LibraryId,
+        name: dartforge_intern::SymbolId,
+    ) -> (
+        Vec<InterfaceMember>,
+        Vec<InterfaceMember>,
+        MemberName,
+        Option<MemberName>,
+    ) {
         let n_getter = MemberName::new(self.interner, lib, name);
-        let n_setter = self.setter_key(name).map(|k| MemberName::new(self.interner, lib, k));
+        let n_setter = self
+            .setter_key(name)
+            .map(|k| MemberName::new(self.interner, lib, k));
         let mut h = std::mem::take(&mut self.inheritance);
-        let getters: Vec<InterfaceMember> = h.overridden(self, c, n_getter).unwrap_or_default().into_iter().filter(|m| m.kind == Kind::Getter).collect();
+        let getters: Vec<InterfaceMember> = h
+            .overridden(self, c, n_getter)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|m| m.kind == Kind::Getter)
+            .collect();
         let setters: Vec<InterfaceMember> = match n_setter {
             Some(n) => h.overridden(self, c, n).unwrap_or_default(),
             None => Vec::new(),
@@ -193,11 +262,17 @@ impl<'a> BodyInferrer<'a> {
         if e.static_ {
             return;
         }
-        let Some(no) = self.function_node(f) else { return };
+        let Some(no) = self.function_node(f) else {
+            return;
+        };
         // Only an omitted type asks for the lookup.
         let omitted = match e.kind {
             FunctionKind::Getter => no.return_type.is_none(),
-            FunctionKind::Setter => no.parameters.as_ref().and_then(|ps| ps.first()).is_some_and(implicit_parameter),
+            FunctionKind::Setter => no
+                .parameters
+                .as_ref()
+                .and_then(|ps| ps.first())
+                .is_some_and(implicit_parameter),
             _ => false,
         };
         if !omitted {
@@ -205,8 +280,11 @@ impl<'a> BodyInferrer<'a> {
         }
         let text = self.interner.resolve(e.name);
         let base = text.strip_suffix("_=").unwrap_or(text);
-        let Some(name) = self.interner.lookup(base) else { return };
-        let (getters, setters, n_getter, n_setter) = self.overridden_getters_and_setters(c, e.library, name);
+        let Some(name) = self.interner.lookup(base) else {
+            return;
+        };
+        let (getters, setters, n_getter, n_setter) =
+            self.overridden_getters_and_setters(c, e.library, name);
         match e.kind {
             FunctionKind::Getter => {
                 if no.return_type.is_some() {
@@ -222,7 +300,9 @@ impl<'a> BodyInferrer<'a> {
                 self.define_return(f, t);
             }
             FunctionKind::Setter => {
-                let Some(p) = no.parameters.as_ref().and_then(|ps| ps.first()) else { return };
+                let Some(p) = no.parameters.as_ref().and_then(|ps| ps.first()) else {
+                    return;
+                };
                 if !implicit_parameter(p) {
                     return;
                 }
@@ -245,7 +325,9 @@ impl<'a> BodyInferrer<'a> {
         if e.static_ {
             return;
         }
-        let Some(no) = self.function_node(f) else { return };
+        let Some(no) = self.function_node(f) else {
+            return;
+        };
         let parameters: &'a [ast::Parameter] = no.parameters.as_deref().unwrap_or(&[]);
         let implicit_return = no.return_type.is_none();
         let some_implicit = implicit_return || parameters.iter().any(implicit_parameter);
@@ -288,12 +370,25 @@ impl<'a> BodyInferrer<'a> {
             let positional_one = p.kind != ast::ParameterKind::Named;
             if implicit_parameter(p) {
                 let t = match combined.map(|t| self.table.get(t).clone()) {
-                    Some(Type::Function { positional, optional, named, .. }) => {
+                    Some(Type::Function {
+                        positional,
+                        optional,
+                        named,
+                        ..
+                    }) => {
                         if positional_one {
-                            positional.iter().chain(optional.iter()).nth(position).copied().unwrap_or(self.core.dynamic_)
+                            positional
+                                .iter()
+                                .chain(optional.iter())
+                                .nth(position)
+                                .copied()
+                                .unwrap_or(self.core.dynamic_)
                         } else {
                             let n = p.external_name().map(|n| n.sym);
-                            named.iter().find(|(s, _, _)| Some(*s) == n).map_or(self.core.dynamic_, |x| x.1)
+                            named
+                                .iter()
+                                .find(|(s, _, _)| Some(*s) == n)
+                                .map_or(self.core.dynamic_, |x| x.1)
                         }
                     }
                     _ => self.core.dynamic_,
@@ -309,8 +404,15 @@ impl<'a> BodyInferrer<'a> {
     /// `_toOverriddenFunctionType`: the combined type with the method's own type
     /// parameters; null if the count differs.
     fn for_overridden_type(&mut self, f: FunctionElementId, t: TypeId) -> Option<TypeId> {
-        let own: Vec<TypeParamId> = self.outline.functions.get(f.0 as usize).map(|d| d.type_params.to_vec()).unwrap_or_default();
-        let Type::Function { type_params, .. } = self.table.get(t).clone() else { return None };
+        let own: Vec<TypeParamId> = self
+            .outline
+            .functions
+            .get(f.0 as usize)
+            .map(|d| d.type_params.to_vec())
+            .unwrap_or_default();
+        let Type::Function { type_params, .. } = self.table.get(t).clone() else {
+            return None;
+        };
         if own.len() != type_params.len() {
             return None;
         }
@@ -319,7 +421,10 @@ impl<'a> BodyInferrer<'a> {
         }
         let mut s: HashMap<TypeParamId, TypeId> = HashMap::new();
         for (o, p) in type_params.iter().zip(own.iter()) {
-            let tp = self.table.intern(Type::TypeParameter { param: *p, nullable: false });
+            let tp = self.table.intern(Type::TypeParameter {
+                param: *p,
+                nullable: false,
+            });
             s.insert(*o, tp);
         }
         // The type's body with its own parameters; the type parameter list
@@ -327,14 +432,33 @@ impl<'a> BodyInferrer<'a> {
         // the formals: in the generic one, they shadow the mapping and nothing
         // changes (`R bar<R>(R x)` inherited by `bar<Q>(x)` left `x: R`).
         let without_formals = match self.table.get(t).clone() {
-            Type::Function { ret, positional, optional, named, nullable, .. } => {
-                self.table.intern(Type::Function { type_params: Box::new([]), ret, positional, optional, named, nullable })
-            }
+            Type::Function {
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+                ..
+            } => self.table.intern(Type::Function {
+                type_params: Box::new([]),
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+            }),
             _ => return None,
         };
         let body = crate::ops::substitute(without_formals, &s, self.table);
         match self.table.get(body).clone() {
-            Type::Function { ret, positional, optional, named, nullable, .. } => Some(self.table.intern(Type::Function {
+            Type::Function {
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+                ..
+            } => Some(self.table.intern(Type::Function {
                 type_params: own.into_boxed_slice(),
                 ret,
                 positional,
@@ -348,9 +472,18 @@ impl<'a> BodyInferrer<'a> {
 
     /// The omitted ones as `TypesBuilder` leaves them: `dynamic`, and the return
     /// of `[]=` `void`.
-    fn omitted_default(&mut self, f: FunctionElementId, parameters: &[ast::Parameter], implicit_return: bool) {
+    fn omitted_default(
+        &mut self,
+        f: FunctionElementId,
+        parameters: &[ast::Parameter],
+        implicit_return: bool,
+    ) {
         if implicit_return {
-            let t = if self.interner.resolve(self.program.function(f).name) == "[]=" { self.core.void_ } else { self.core.dynamic_ };
+            let t = if self.interner.resolve(self.program.function(f).name) == "[]=" {
+                self.core.void_
+            } else {
+                self.core.dynamic_
+            };
             self.define_return(f, t);
         }
         for (i, p) in parameters.iter().enumerate() {
@@ -368,7 +501,12 @@ impl<'a> BodyInferrer<'a> {
     }
 
     fn define_parameter(&mut self, f: FunctionElementId, i: usize, t: TypeId) {
-        if let Some(p) = self.outline.functions.get_mut(f.0 as usize).and_then(|d| d.parameters.get_mut(i)) {
+        if let Some(p) = self
+            .outline
+            .functions
+            .get_mut(f.0 as usize)
+            .and_then(|d| d.parameters.get_mut(i))
+        {
             p.ty = t;
         }
         self.redo_signature(f);
@@ -376,7 +514,9 @@ impl<'a> BodyInferrer<'a> {
 
     /// The signature by return and parameters.
     fn redo_signature(&mut self, f: FunctionElementId) {
-        let Some(fd) = self.outline.functions.get(f.0 as usize) else { return };
+        let Some(fd) = self.outline.functions.get(f.0 as usize) else {
+            return;
+        };
         let (mut pos, mut opt, mut the_named) = (Vec::new(), Vec::new(), Vec::new());
         for par in fd.parameters.iter() {
             match par.kind {

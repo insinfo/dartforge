@@ -25,7 +25,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let saved = self.current_cascade_target.replace(target.clone());
         if null_aware && self.operand_type(&target) == Type::Ref {
             let null = self.emit(
-                Instruction::ICmp(ICmpOp::Eq, target.clone(), Operand::Constant(Constant::Int(0))),
+                Instruction::ICmp(
+                    ICmpOp::Eq,
+                    target.clone(),
+                    Operand::Constant(Constant::Int(0)),
+                ),
                 Type::I1,
             );
             let b_sections = self.new_block();

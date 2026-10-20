@@ -135,9 +135,17 @@ pub struct AsyncState {
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Top-level function `name` of `dart:async` (the supports of `async_patch`).
     pub fn async_support(&self, name_str: &str) -> Option<usize> {
-        let lib = self.ctx.program.libraries.iter().position(|l| l.uri == "dart:async")?;
+        let lib = self
+            .ctx
+            .program
+            .libraries
+            .iter()
+            .position(|l| l.uri == "dart:async")?;
         let sym = self.ctx.interner.lookup(name_str)?;
-        let b = self.ctx.program.lookup(dartforge_elements::model::LibraryId(lib as u32), sym)?;
+        let b = self
+            .ctx
+            .program
+            .lookup(dartforge_elements::model::LibraryId(lib as u32), sym)?;
         match b.getter? {
             dartforge_elements::model::Element::Function(f) => Some(f.0 as usize),
             _ => None,
@@ -145,11 +153,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Calls the `dart:async` support `name` with the already evaluated arguments.
-    pub(super) fn call_support(&mut self, name_str: &str, args: Vec<Operand>, span: Span) -> Operand {
+    pub(super) fn call_support(
+        &mut self,
+        name_str: &str,
+        args: Vec<Operand>,
+        span: Span,
+    ) -> Operand {
         let Some(fid) = self.async_support(name_str) else {
             return self.unsupported(&format!("missing dart:async helper `{name_str}`"), span);
         };
-        let evaluated: Vec<super::members::Evaluated> = args.into_iter().map(|a| (None, a)).collect();
+        let evaluated: Vec<super::members::Evaluated> =
+            args.into_iter().map(|a| (None, a)).collect();
         let args = self.match_args(fid, &evaluated);
         self.call_direct(fid, None, args)
     }
@@ -173,12 +187,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Scalar bits keep the conversion of representation `ty`.
     fn read_position(&mut self, obj: Operand, idx: usize, ty: Type) -> Operand {
         if ty == Type::Ref {
-            return self.emit(Instruction::GetField { object: obj, index: idx }, Type::Ref);
+            return self.emit(
+                Instruction::GetField {
+                    object: obj,
+                    index: idx,
+                },
+                Type::Ref,
+            );
         }
         let bits = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_object_get".to_string(),
-                args: vec![(obj, Type::Ref), (Operand::Constant(Constant::Int(idx as i64)), Type::I64)],
+                args: vec![
+                    (obj, Type::Ref),
+                    (Operand::Constant(Constant::Int(idx as i64)), Type::I64),
+                ],
                 ret_ty: Type::I64,
             },
             Type::I64,
@@ -196,7 +219,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     (obj, Type::Ref),
                     (Operand::Constant(Constant::Int(idx as i64)), Type::I64),
                     (bits, Type::I64),
-                    (Operand::Constant(Constant::Int(i64::from(is_ref))), Type::I8),
+                    (
+                        Operand::Constant(Constant::Int(i64::from(is_ref))),
+                        Type::I8,
+                    ),
                 ],
                 ret_ty: Type::Void,
             },
@@ -225,7 +251,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         }
         env.sort_by_key(|(_, l)| match l.mode {
-            Mode::Environment { index: idx_value, .. } => idx_value,
+            Mode::Environment {
+                index: idx_value, ..
+            } => idx_value,
             _ => 0,
         });
         others.sort_by_key(|(s, l)| (l.offset, self.ctx.symbol_name(*s).to_string()));
@@ -237,8 +265,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `<symbol>$async` and its uniform entry. Finishes the stub.
     /// The type of the value/element from the return annotation of a local function
     /// (`Future<T> f() async`, `Iterable<T> g() sync*`, `FutureOr<T>`).
-    fn async_annotation_value(&self, ast: &ast::Ast, a: ast::TypeId, ty: BodyType) -> Option<super::rti::Recipe> {
-        let ast::TypeKind::Named { name, args } = &ast.ty(a).kind else { return None };
+    fn async_annotation_value(
+        &self,
+        ast: &ast::Ast,
+        a: ast::TypeId,
+        ty: BodyType,
+    ) -> Option<super::rti::Recipe> {
+        let ast::TypeKind::Named { name, args } = &ast.ty(a).kind else {
+            return None;
+        };
         let name_str = self.ctx.symbol_name(name.last()?.sym);
         let expected = match ty {
             BodyType::Async => name_str == "Future" || name_str == "FutureOr",
@@ -266,7 +301,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let readable = self.func.name.clone();
 
         // --- corpo ------------------------------------------------------
-        let mut b = FnBuilder::new(self.ctx, self.unit_id, body_symbol.clone(), readable.clone(), Type::Ref);
+        let mut b = FnBuilder::new(
+            self.ctx,
+            self.unit_id,
+            body_symbol.clone(),
+            readable.clone(),
+            Type::Ref,
+        );
         let env = Operand::Val(b.add_param("env".to_string(), Type::Ref));
         let iterator = if ty == BodyType::SyncStar {
             Operand::Val(b.add_param("iterador".to_string(), Type::Ref))
@@ -288,7 +329,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !captures.is_empty() {
             let from_outside = b.read_position(frame.clone(), Q_ENV, Type::Ref);
             for (sym, l) in &captures {
-                if let Mode::Environment { index: idx_value, cell, .. } = l.mode {
+                if let Mode::Environment {
+                    index: idx_value,
+                    cell,
+                    ..
+                } = l.mode
+                {
                     b.bind_env(*sym, from_outside.clone(), idx_value, cell, l.ty, l);
                 }
             }
@@ -412,7 +458,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         // The jump on the state, at the end of the entry block.
         let st = b.async_state.take().expect("estado async");
-        let idx0 = b.func.blocks.iter().position(|x| x.id == entry).expect("entry");
+        let idx0 = b
+            .func
+            .blocks
+            .iter()
+            .position(|x| x.id == entry)
+            .expect("entry");
         b.func.blocks[idx0].terminator = Terminator::Switch {
             val: state,
             default: start,
@@ -425,7 +476,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut next = b.next_value;
         let locals_base = Q_PARAMS + parameters.len();
         let n_locals = convert_allocas(&mut b.func, &frame, locals_base, &mut next);
-        let n_temp = save_live(&mut b.func, &frame, locals_base + n_locals, &st.suspensions, entry, &mut next);
+        let n_temp = save_live(
+            &mut b.func,
+            &frame,
+            locals_base + n_locals,
+            &st.suspensions,
+            entry,
+            &mut next,
+        );
         b.next_value = next;
         let size = locals_base + n_locals + n_temp;
         // The name of the body carries its fingerprint: a frame suspended
@@ -439,14 +497,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         b.func.symbol = body_symbol.clone();
         if self.ctx.stack_trace && matches!(ty, BodyType::Async | BodyType::AsyncStar) {
-            let n = st.resumptions.iter().map(|(k, _)| *k).max().unwrap_or(0).max(0) as usize;
+            let n = st
+                .resumptions
+                .iter()
+                .map(|(k, _)| *k)
+                .max()
+                .unwrap_or(0)
+                .max(0) as usize;
             let mut waits = vec![(0u32, 0u32); n];
             for (k, p) in &st.waits {
-                if let Some(x) = usize::try_from(*k).ok().and_then(|k| k.checked_sub(1)).and_then(|i| waits.get_mut(i)) {
+                if let Some(x) = usize::try_from(*k)
+                    .ok()
+                    .and_then(|k| k.checked_sub(1))
+                    .and_then(|i| waits.get_mut(i))
+                {
                     *x = *p;
                 }
             }
-            b.stack_trace.async_body = Some(crate::hir::TraceAsyncBody { entry: format!("{body_symbol}$ent"), waits });
+            b.stack_trace.async_body = Some(crate::hir::TraceAsyncBody {
+                entry: format!("{body_symbol}$ent"),
+                waits,
+            });
         }
         if self.ctx.arc_memory {
             // A Dart body called by the entry: the Ref return is Owned.
@@ -479,7 +550,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
         ]);
         let symbol_ent = format!("{body_symbol}$ent");
-        let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), readable, Type::Ref);
+        let mut e = FnBuilder::new(
+            self.ctx,
+            self.unit_id,
+            symbol_ent.clone(),
+            readable,
+            Type::Ref,
+        );
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
         let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
@@ -504,7 +581,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut fields: Vec<Operand> = vec![Operand::Constant(Constant::Int(0)); size];
         fields[Q_COMPLETER] = Operand::Constant(Constant::Null);
         fields[Q_BODY] = Operand::Constant(Constant::Null);
-        fields[Q_THIS] = self.this_param.clone().map_or(Operand::Constant(Constant::Null), |t| self.coerce(t, Type::Ref));
+        fields[Q_THIS] = self
+            .this_param
+            .clone()
+            .map_or(Operand::Constant(Constant::Null), |t| {
+                self.coerce(t, Type::Ref)
+            });
         fields[Q_ENV] = captures
             .iter()
             .find_map(|(_, l)| match &l.mode {
@@ -527,7 +609,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::Ref,
         );
         if let Operand::Val(site) = frame_s {
-            self.async_frame_layouts.push((self.func.symbol.clone(), site, symbol_ent.clone(), size));
+            self.async_frame_layouts.push((
+                self.func.symbol.clone(),
+                site,
+                symbol_ent.clone(),
+                size,
+            ));
         }
         // The `T` of the `Completer<T>`, of the `Iterable<T>` or of the `Stream<T>`: for
         // `async`, the value type of the declared `Future` (specification §9
@@ -541,7 +628,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let val_ref: Option<super::rti::Recipe> = match ret {
             Some(AsyncReturn::Typed(t)) => match self.ctx.table.get(t) {
-                dartforge_types::table::Type::Interface { class, args, .. } if Some(*class) == expected_class => {
+                dartforge_types::table::Type::Interface { class, args, .. }
+                    if Some(*class) == expected_class =>
+                {
                     args.first().map(|a| self.type_recipe(*a))
                 }
                 dartforge_types::table::Type::FutureOr { arg, .. } if ty == BodyType::Async => {
@@ -555,7 +644,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let arm_tuple = |b: &mut Self| {
             let saved = b.armed_tuple.take();
             if let Some(v) = &val_ref {
-                let t = b.recipe_rti(&super::rti::Recipe { text: format!("L<{}>", v.text), variables: v.variables });
+                let t = b.recipe_rti(&super::rti::Recipe {
+                    text: format!("L<{}>", v.text),
+                    variables: v.variables,
+                });
                 b.armed_tuple = Some(t);
             }
             saved
@@ -586,7 +678,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // in a new frame, with its parameters (`$new`).
                 let new_symbol = format!("{symbol_ent}$new");
                 self.new_frame_function(&new_symbol, &symbol_ent, &parameters, size);
-                let env_s = self.emit(Instruction::AllocEnv { values: vec![frame_s] }, Type::Ref);
+                let env_s = self.emit(
+                    Instruction::AllocEnv {
+                        values: vec![frame_s],
+                    },
+                    Type::Ref,
+                );
                 let new = self.emit(
                     Instruction::AllocClosure {
                         code_symbol: format!("{new_symbol}$ent"),
@@ -605,7 +702,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The body closure over the frame, registered in the zone
     /// (`_wrapBody`) and kept in the frame.
     fn close_body(&mut self, frame: Operand, symbol_ent: String, span: Span) -> Operand {
-        let env = self.emit(Instruction::AllocEnv { values: vec![frame.clone()] }, Type::Ref);
+        let env = self.emit(
+            Instruction::AllocEnv {
+                values: vec![frame.clone()],
+            },
+            Type::Ref,
+        );
         let clo = self.emit(
             Instruction::AllocClosure {
                 code_symbol: symbol_ent,
@@ -632,7 +734,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         size: usize,
     ) {
         let readable = self.func.name.clone();
-        let mut e = FnBuilder::new(self.ctx, self.unit_id, format!("{new_symbol}$ent"), readable, Type::Ref);
+        let mut e = FnBuilder::new(
+            self.ctx,
+            self.unit_id,
+            format!("{new_symbol}$ent"),
+            readable,
+            Type::Ref,
+        );
         let clo = Operand::Val(e.add_param("closure".to_string(), Type::Ref));
         let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
         let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
@@ -659,9 +767,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::Ref,
             );
             if let Operand::Val(site) = frame {
-                e.async_frame_layouts.push((e.func.symbol.clone(), site, body_symbol_ent.to_string(), size));
+                e.async_frame_layouts.push((
+                    e.func.symbol.clone(),
+                    site,
+                    body_symbol_ent.to_string(),
+                    size,
+                ));
             }
-            let env_q = e.emit(Instruction::AllocEnv { values: vec![frame] }, Type::Ref);
+            let env_q = e.emit(
+                Instruction::AllocEnv {
+                    values: vec![frame],
+                },
+                Type::Ref,
+            );
             let fn_body = e.emit(
                 Instruction::AllocClosure {
                     code_symbol: body_symbol_ent.to_string(),
@@ -677,7 +795,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `async*`: ends the body (through the `finally`s) if the resumption value says
     /// that the subscription was cancelled.
     fn exit_if_cancelled(&mut self) {
-        let result = self.async_state.as_ref().expect("async* body").result.clone();
+        let result = self
+            .async_state
+            .as_ref()
+            .expect("async* body")
+            .result
+            .clone();
         let cancelled = self.coerce(result, Type::I1);
         let exit = self.new_block();
         let follow = self.new_block();
@@ -709,10 +832,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         }
         let st = self.async_state.as_ref().expect("generator body");
-        let (frame, iterator, controller) = (st.frame.clone(), st.iterator.clone(), st.completer.clone());
+        let (frame, iterator, controller) =
+            (st.frame.clone(), st.iterator.clone(), st.completer.clone());
         let k = st.resumptions.len() as i64 + 1;
         if ty == Some(BodyType::SyncStar) {
-            let support = if star { "_syncStarYieldStar" } else { "_syncStarYield" };
+            let support = if star {
+                "_syncStarYieldStar"
+            } else {
+                "_syncStarYield"
+            };
             self.call_support(support, vec![iterator, v], span);
             if self.is_terminated() {
                 return;
@@ -727,7 +855,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.set_block(resumption);
             self.throw_if_error(code, result, span);
         } else {
-            let support = if star { "_asyncStarAddStream" } else { "_asyncStarAdd" };
+            let support = if star {
+                "_asyncStarAddStream"
+            } else {
+                "_asyncStarAdd"
+            };
             let stop = self.call_support(support, vec![controller, v], span);
             if self.is_terminated() {
                 return;
@@ -771,7 +903,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         body: ast::StmtId,
         span: Span,
     ) {
-        if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
+        if !self
+            .async_state
+            .as_ref()
+            .is_some_and(|e| e.ty != BodyType::SyncStar)
+        {
             self.unsupported("await for outside an async function", span);
             return;
         }
@@ -797,7 +933,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let next_item = b.call_by_selector(it_c.clone(), "c:moveNext".to_string(), &[]);
             let ok = b.await_value(next_item, span);
             let ok = b.coerce(ok, Type::I1);
-            b.terminate(Terminator::CondBranch { cond: ok, then_block: fn_body, else_block: end });
+            b.terminate(Terminator::CondBranch {
+                cond: ok,
+                then_block: fn_body,
+                else_block: end,
+            });
             b.set_block(fn_body);
             b.emit_safepoint();
             b.break_targets.push(end);
@@ -821,7 +961,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let active = b.coerce(active, Type::I1);
             let yes = b.new_block();
             let after = b.new_block();
-            b.terminate(Terminator::CondBranch { cond: active, then_block: yes, else_block: after });
+            b.terminate(Terminator::CondBranch {
+                cond: active,
+                then_block: yes,
+                else_block: after,
+            });
             b.set_block(yes);
             let f = b.call_by_selector(it.clone(), "c:cancel".to_string(), &[]);
             b.await_value(f, span);
@@ -904,7 +1048,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `await e` (specification §17.34): suspends until the `Future` completes.
     pub fn lower_await(&mut self, ast: &ast::Ast, e: ast::ExprId, span: Span) -> Operand {
-        if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
+        if !self
+            .async_state
+            .as_ref()
+            .is_some_and(|e| e.ty != BodyType::SyncStar)
+        {
             return self.unsupported("await outside an async function", span);
         }
         let v = self.lower_expr(ast, e);
@@ -914,7 +1062,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `await` of an already evaluated value (that of `lower_await`, and those of
     /// `await for`).
     pub fn await_value(&mut self, v: Operand, span: Span) -> Operand {
-        if !self.async_state.as_ref().is_some_and(|e| e.ty != BodyType::SyncStar) {
+        if !self
+            .async_state
+            .as_ref()
+            .is_some_and(|e| e.ty != BodyType::SyncStar)
+        {
             return self.unsupported("await outside an async function", span);
         }
         let v = if matches!(self.operand_type(&v), Type::Void) {
@@ -975,20 +1127,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The `error` and `stack_trace` fields of `_DfAsyncError`.
     fn async_error_fields(
         &self,
-    ) -> Option<(dartforge_elements::model::VariableId, dartforge_elements::model::VariableId)> {
-        let lib = self.ctx.program.libraries.iter().position(|l| l.uri == "dart:async")?;
+    ) -> Option<(
+        dartforge_elements::model::VariableId,
+        dartforge_elements::model::VariableId,
+    )> {
+        let lib = self
+            .ctx
+            .program
+            .libraries
+            .iter()
+            .position(|l| l.uri == "dart:async")?;
         let sym = self.ctx.interner.lookup("_DfAsyncError")?;
-        let b = self.ctx.program.lookup(dartforge_elements::model::LibraryId(lib as u32), sym)?;
+        let b = self
+            .ctx
+            .program
+            .lookup(dartforge_elements::model::LibraryId(lib as u32), sym)?;
         let dartforge_elements::model::Element::Class(c) = b.getter? else {
             return None;
         };
         let class = &self.ctx.program.classes[c.0 as usize];
         let field = |n: &str| {
-            class
-                .fields
-                .iter()
-                .copied()
-                .find(|v| self.ctx.symbol_name(self.ctx.program.variables[v.0 as usize].name) == n)
+            class.fields.iter().copied().find(|v| {
+                self.ctx
+                    .symbol_name(self.ctx.program.variables[v.0 as usize].name)
+                    == n
+            })
         };
         Some((field("err")?, field("trace")?))
     }
@@ -1038,43 +1201,84 @@ fn new_value(next: &mut u32) -> ValueId {
 
 /// Instructions that read position `slot` of the frame into value `dest`
 /// in representation `ty`.
-fn read_from_frame(frame: &Operand, slot: usize, ty: Type, dest: ValueId, next: &mut u32) -> Vec<(ValueId, Instruction, Type)> {
+fn read_from_frame(
+    frame: &Operand,
+    slot: usize,
+    ty: Type,
+    dest: ValueId,
+    next: &mut u32,
+) -> Vec<(ValueId, Instruction, Type)> {
     let get = |ret: Type| Instruction::CallRuntime {
         name: "dartforge_object_get".to_string(),
-        args: vec![(frame.clone(), Type::Ref), (Operand::Constant(Constant::Int(slot as i64)), Type::I64)],
+        args: vec![
+            (frame.clone(), Type::Ref),
+            (Operand::Constant(Constant::Int(slot as i64)), Type::I64),
+        ],
         ret_ty: ret,
     };
     match ty {
         // Restoring locals and SSA values uses the same explicit representation
         // as the header reads. Only the ARC preparation chooses the audited
         // borrow; tracing keeps its physical access through the emitter.
-        Type::Ref => vec![(dest, Instruction::GetField { object: frame.clone(), index: slot }, Type::Ref)],
+        Type::Ref => vec![(
+            dest,
+            Instruction::GetField {
+                object: frame.clone(),
+                index: slot,
+            },
+            Type::Ref,
+        )],
         Type::I64 => vec![(dest, get(ty), ty)],
         Type::F64 => {
             let t = new_value(next);
             vec![
                 (t, get(Type::I64), Type::I64),
-                (dest, Instruction::Bitcast { op: Operand::Val(t), to: Type::F64 }, Type::F64),
+                (
+                    dest,
+                    Instruction::Bitcast {
+                        op: Operand::Val(t),
+                        to: Type::F64,
+                    },
+                    Type::F64,
+                ),
             ]
         }
         Type::I1 => {
             let t = new_value(next);
             vec![
                 (t, get(Type::I64), Type::I64),
-                (dest, Instruction::ICmp(ICmpOp::Ne, Operand::Val(t), Operand::Constant(Constant::Int(0))), Type::I1),
+                (
+                    dest,
+                    Instruction::ICmp(
+                        ICmpOp::Ne,
+                        Operand::Val(t),
+                        Operand::Constant(Constant::Int(0)),
+                    ),
+                    Type::I1,
+                ),
             ]
         }
         Type::I8 => {
             let t = new_value(next);
             vec![
                 (t, get(Type::I64), Type::I64),
-                (dest, Instruction::Trunc { op: Operand::Val(t), from: Type::I64, to: Type::I8 }, Type::I8),
+                (
+                    dest,
+                    Instruction::Trunc {
+                        op: Operand::Val(t),
+                        from: Type::I64,
+                        to: Type::I8,
+                    },
+                    Type::I8,
+                ),
             ]
         }
         Type::Void | Type::Ptr => Vec::new(),
         // Unboxed SIMD vectors only exist in synchronous functions
         // (`lower/simd.rs` does not produce them in an asynchronous body).
-        Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("unboxed SIMD vector in an asynchronous frame"),
+        Type::V4F32 | Type::V4I32 | Type::V2F64 => {
+            unreachable!("unboxed SIMD vector in an asynchronous frame")
+        }
     }
 }
 
@@ -1086,34 +1290,67 @@ mod ref_restoration_tests {
     #[test]
     fn ref_restored_from_frame_gets_keepalive_before_mutating_child() {
         let mut next = 2;
-        let mut instructions = read_from_frame(&Operand::Val(ValueId(0)), 40, Type::Ref, ValueId(1), &mut next);
-        instructions.push((ValueId(2), Instruction::SetField {
-            object: Operand::Val(ValueId(1)), index: 2, value: Operand::Constant(Constant::Int(42)),
-        }, Type::Void));
-        let f = Function { symbol: "restaurar".into(), name: "restaurar".into(), debug_info: None,
-            params: vec![(ValueId(0), "quadro".into(), Type::Ref)], return_ty: Type::Ref,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions,
-                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }] };
+        let mut instructions = read_from_frame(
+            &Operand::Val(ValueId(0)),
+            40,
+            Type::Ref,
+            ValueId(1),
+            &mut next,
+        );
+        instructions.push((
+            ValueId(2),
+            Instruction::SetField {
+                object: Operand::Val(ValueId(1)),
+                index: 2,
+                value: Operand::Constant(Constant::Int(42)),
+            },
+            Type::Void,
+        ));
+        let f = Function {
+            symbol: "restaurar".into(),
+            name: "restaurar".into(),
+            debug_info: None,
+            params: vec![(ValueId(0), "quadro".into(), Type::Ref)],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions,
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+            }],
+        };
         let mut m = Module::new();
         m.arc_memory = true;
         m.functions.push(f.clone());
-        m.arc_field_layouts.insert(123, vec![Type::Ref, Type::I64, Type::I64]);
-        m.classes.push(ClassDef { id: 123, name: "Filho".into(), field_count: 3,
-            vtable: vec![], to_string_symbol: None });
+        m.arc_field_layouts
+            .insert(123, vec![Type::Ref, Type::I64, Type::I64]);
+        m.classes.push(ClassDef {
+            id: 123,
+            name: "Filho".into(),
+            field_count: 3,
+            vtable: vec![],
+            to_string_symbol: None,
+        });
         let mut p = DartFunctionPlan::default();
         p.tokens.ret = TokenReturn::Owned;
         let mut plans = HashMap::from([("restaurar".into(), p)]);
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 0));
         let reader = m.functions[0].blocks.iter().flat_map(|b| &b.instructions).find_map(|(v, i, _)|
             matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_read_field_ref_v1").then_some(*v)).unwrap();
-        assert_eq!(plans["restaurar"].classes[&reader], Ownership::Borrowed {
-            owner: OwnerOrigin::Value(ValueId(0)), scope: 0,
-        });
+        assert_eq!(
+            plans["restaurar"].classes[&reader],
+            Ownership::Borrowed {
+                owner: OwnerOrigin::Value(ValueId(0)),
+                scope: 0,
+            }
+        );
         assert_eq!(plans["restaurar"].classes[&ValueId(1)], Ownership::Owned);
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
         assert!(ir.contains("i64 %v0, i64 40)"));
-        assert!(ir.find("call void @dartforge_arc_retain").unwrap()
-            < ir.find("call void @dartforge_arc_write_field_scalar_checked_v1").unwrap());
+        assert!(
+            ir.find("call void @dartforge_arc_retain").unwrap()
+                < ir.find("call void @dartforge_arc_write_field_scalar_checked_v1")
+                    .unwrap()
+        );
         assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         // The same typed access can be emitted under tracing; the ARC tokens appear
         // only in the explicitly selected preparation above.
@@ -1121,7 +1358,10 @@ mod ref_restoration_tests {
         tracing.functions.push(f);
         let mut without_plans = HashMap::new();
         let before = format!("{tracing:?}");
-        assert_eq!(prepare_arc_dart_module(&mut tracing, &mut without_plans).unwrap(), (0, 0));
+        assert_eq!(
+            prepare_arc_dart_module(&mut tracing, &mut without_plans).unwrap(),
+            (0, 0)
+        );
         assert_eq!(format!("{tracing:?}"), before);
         let ir = crate::llvm::LlvmEmitter::new(&tracing).emit_all();
         assert!(!ir.contains("call i64 @dartforge_arc_read_field_ref_v1"));
@@ -1129,23 +1369,46 @@ mod ref_restoration_tests {
 }
 
 /// Instructions that write `value` (in representation `ty`) into position `slot`.
-fn store_in_frame(frame: &Operand, slot: usize, val_ref: Operand, ty: Type, next: &mut u32) -> Vec<(ValueId, Instruction, Type)> {
+fn store_in_frame(
+    frame: &Operand,
+    slot: usize,
+    val_ref: Operand,
+    ty: Type,
+    next: &mut u32,
+) -> Vec<(ValueId, Instruction, Type)> {
     let mut exit = Vec::new();
     let (bits, is_ref) = match ty {
         Type::Ref => (val_ref, 1),
         Type::I64 => (val_ref, 0),
         Type::F64 => {
             let t = new_value(next);
-            exit.push((t, Instruction::Bitcast { op: val_ref, to: Type::I64 }, Type::I64));
+            exit.push((
+                t,
+                Instruction::Bitcast {
+                    op: val_ref,
+                    to: Type::I64,
+                },
+                Type::I64,
+            ));
             (Operand::Val(t), 0)
         }
         Type::I1 | Type::I8 => {
             let t = new_value(next);
-            exit.push((t, Instruction::ZExt { op: val_ref, from: ty, to: Type::I64 }, Type::I64));
+            exit.push((
+                t,
+                Instruction::ZExt {
+                    op: val_ref,
+                    from: ty,
+                    to: Type::I64,
+                },
+                Type::I64,
+            ));
             (Operand::Val(t), 0)
         }
         Type::Void | Type::Ptr => return exit,
-        Type::V4F32 | Type::V4I32 | Type::V2F64 => unreachable!("unboxed SIMD vector in an asynchronous frame"),
+        Type::V4F32 | Type::V4I32 | Type::V2F64 => {
+            unreachable!("unboxed SIMD vector in an asynchronous frame")
+        }
     };
     exit.push((
         new_value(next),
@@ -1192,16 +1455,28 @@ fn convert_allocas(func: &mut Function, frame: &Operand, base: usize, next: &mut
         for (v, inst, ty) in old_ones {
             match &inst {
                 Instruction::Alloca(_) if position.contains_key(&v) => {}
-                Instruction::Load { ptr: Operand::Val(p), ty: t } if position.contains_key(p) => {
+                Instruction::Load {
+                    ptr: Operand::Val(p),
+                    ty: t,
+                } if position.contains_key(p) => {
                     let (s, _) = position[p];
-                    b.instructions.extend(read_from_frame(frame, s, *t, v, next));
+                    b.instructions
+                        .extend(read_from_frame(frame, s, *t, v, next));
                 }
-                Instruction::Store { ptr: Operand::Val(p), val } if position.contains_key(p) => {
+                Instruction::Store {
+                    ptr: Operand::Val(p),
+                    val,
+                } if position.contains_key(p) => {
                     let (s, t) = position[p];
                     // The value arrives in the representation of the local (R6, already
                     // coerced by the lowering); only the width may differ.
-                    let store_ty = if t == Type::Ref { Type::Ref } else { type_of(val) };
-                    b.instructions.extend(store_in_frame(frame, s, val.clone(), store_ty, next));
+                    let store_ty = if t == Type::Ref {
+                        Type::Ref
+                    } else {
+                        type_of(val)
+                    };
+                    b.instructions
+                        .extend(store_in_frame(frame, s, val.clone(), store_ty, next));
                 }
                 _ => b.instructions.push((v, inst, ty)),
             }
@@ -1219,7 +1494,12 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
         }
     };
     match inst {
-        Instruction::Const(_) | Instruction::Alloca(_) | Instruction::LoadGlobal { .. } | Instruction::TearOff { .. } | Instruction::ConstArray(_) | Instruction::FunctionTable(_) => {}
+        Instruction::Const(_)
+        | Instruction::Alloca(_)
+        | Instruction::LoadGlobal { .. }
+        | Instruction::TearOff { .. }
+        | Instruction::ConstArray(_)
+        | Instruction::FunctionTable(_) => {}
         Instruction::Add(a, b)
         | Instruction::Sub(a, b)
         | Instruction::Mul(a, b)
@@ -1259,17 +1539,31 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
         Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
             elements.iter().for_each(|(a, _)| op(a))
         }
-        Instruction::ArcLoadStrong { slot: StrongSlot::Frame { frame, .. } } => op(frame),
-        Instruction::ArcLoadStrong { slot: StrongSlot::Global { .. } } => {},
-        Instruction::ArcStoreStrong { slot: StrongSlot::Global { .. }, value, .. } => op(value),
-        Instruction::ArcStoreStrong { slot: StrongSlot::Frame { frame, .. }, value, .. } => {
+        Instruction::ArcLoadStrong {
+            slot: StrongSlot::Frame { frame, .. },
+        } => op(frame),
+        Instruction::ArcLoadStrong {
+            slot: StrongSlot::Global { .. },
+        } => {}
+        Instruction::ArcStoreStrong {
+            slot: StrongSlot::Global { .. },
+            value,
+            ..
+        } => op(value),
+        Instruction::ArcStoreStrong {
+            slot: StrongSlot::Frame { frame, .. },
+            value,
+            ..
+        } => {
             op(frame);
             op(value);
         }
         Instruction::AllocCell { value } => op(value),
         Instruction::AllocEnv { values } => values.iter().for_each(&mut op),
         Instruction::ConcatStrings { parts } => parts.iter().for_each(&mut op),
-        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTyped { env, .. } => op(env),
+        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTyped { env, .. } => {
+            op(env)
+        }
         Instruction::TypedCall { target, args, .. } => {
             op(target);
             args.iter().for_each(|(a, _)| op(a));
@@ -1300,16 +1594,24 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
         }
         Instruction::EnvGet { env, .. } => op(env),
         Instruction::CallStatic { args, .. } => args.iter().for_each(&mut op),
-        Instruction::CallInterface { receiver, args, .. } | Instruction::CallDynamic { receiver, args, .. } => {
+        Instruction::CallInterface { receiver, args, .. }
+        | Instruction::CallDynamic { receiver, args, .. } => {
             op(receiver);
             args.iter().for_each(&mut op);
         }
-        Instruction::CallClosure { closure, args, tuple_types, .. } => {
+        Instruction::CallClosure {
+            closure,
+            args,
+            tuple_types,
+            ..
+        } => {
             op(closure);
             args.iter().for_each(&mut op);
             op(tuple_types);
         }
-        Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } => args.iter().for_each(|(a, _)| op(a)),
+        Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } => {
+            args.iter().for_each(|(a, _)| op(a))
+        }
         Instruction::IsClass { object, .. } => op(object),
         Instruction::StoreGlobal { val, .. } => op(val),
         Instruction::Phi { .. } => {}
@@ -1317,17 +1619,29 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
             op(base);
             op(index);
         }
-        Instruction::CallSelector { recv, args, tuple_types, .. } => {
+        Instruction::CallSelector {
+            recv,
+            args,
+            tuple_types,
+            ..
+        } => {
             op(recv);
             args.iter().for_each(&mut op);
             op(tuple_types);
         }
-        Instruction::CallClosureForward { closure, args, desc, .. } => {
+        Instruction::CallClosureForward {
+            closure,
+            args,
+            desc,
+            ..
+        } => {
             op(closure);
             op(args);
             op(desc);
         }
-        Instruction::CallSelectorForward { recv, args, desc, .. } => {
+        Instruction::CallSelectorForward {
+            recv, args, desc, ..
+        } => {
             op(recv);
             op(args);
             op(desc);
@@ -1336,16 +1650,27 @@ pub(crate) fn uses_of(inst: &Instruction) -> Vec<ValueId> {
             op(target);
             args.iter().for_each(|(a, _)| op(a));
         }
-        Instruction::NativeLoad { address, index: idx_value, .. } => {
+        Instruction::NativeLoad {
+            address,
+            index: idx_value,
+            ..
+        } => {
             op(address);
             op(idx_value);
         }
-        Instruction::NativeWrite { address, index: idx_value, value: val_ref, .. } => {
+        Instruction::NativeWrite {
+            address,
+            index: idx_value,
+            value: val_ref,
+            ..
+        } => {
             op(address);
             op(idx_value);
             op(val_ref);
         }
-        Instruction::CompositeNativeCall { target, args, dest, .. } => {
+        Instruction::CompositeNativeCall {
+            target, args, dest, ..
+        } => {
             op(target);
             args.iter().for_each(|(a, _)| op(a));
             dest.iter().for_each(&mut op);
@@ -1365,7 +1690,13 @@ fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId
         }
     };
     match inst {
-        Instruction::Const(_) | Instruction::Alloca(_) | Instruction::LoadGlobal { .. } | Instruction::TearOff { .. } | Instruction::ConstArray(_) | Instruction::FunctionTable(_) | Instruction::Phi { .. } => {}
+        Instruction::Const(_)
+        | Instruction::Alloca(_)
+        | Instruction::LoadGlobal { .. }
+        | Instruction::TearOff { .. }
+        | Instruction::ConstArray(_)
+        | Instruction::FunctionTable(_)
+        | Instruction::Phi { .. } => {}
         Instruction::Add(a, b)
         | Instruction::Sub(a, b)
         | Instruction::Mul(a, b)
@@ -1405,17 +1736,31 @@ fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId
         Instruction::AllocList { elements } | Instruction::AllocRecord { elements } => {
             elements.iter_mut().for_each(|(a, _)| t(a))
         }
-        Instruction::ArcLoadStrong { slot: StrongSlot::Frame { frame, .. } } => t(frame),
-        Instruction::ArcLoadStrong { slot: StrongSlot::Global { .. } } => {},
-        Instruction::ArcStoreStrong { slot: StrongSlot::Global { .. }, value, .. } => t(value),
-        Instruction::ArcStoreStrong { slot: StrongSlot::Frame { frame, .. }, value, .. } => {
+        Instruction::ArcLoadStrong {
+            slot: StrongSlot::Frame { frame, .. },
+        } => t(frame),
+        Instruction::ArcLoadStrong {
+            slot: StrongSlot::Global { .. },
+        } => {}
+        Instruction::ArcStoreStrong {
+            slot: StrongSlot::Global { .. },
+            value,
+            ..
+        } => t(value),
+        Instruction::ArcStoreStrong {
+            slot: StrongSlot::Frame { frame, .. },
+            value,
+            ..
+        } => {
             t(frame);
             t(value);
         }
         Instruction::AllocCell { value } => t(value),
         Instruction::AllocEnv { values } => values.iter_mut().for_each(t),
         Instruction::ConcatStrings { parts } => parts.iter_mut().for_each(t),
-        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTyped { env, .. } => t(env),
+        Instruction::AllocClosure { env, .. } | Instruction::AllocClosureTyped { env, .. } => {
+            t(env)
+        }
         Instruction::TypedCall { target, args, .. } => {
             t(target);
             args.iter_mut().for_each(|(a, _)| t(a));
@@ -1446,33 +1791,53 @@ fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId
         }
         Instruction::EnvGet { env, .. } => t(env),
         Instruction::CallStatic { args, .. } => args.iter_mut().for_each(t),
-        Instruction::CallInterface { receiver, args, .. } | Instruction::CallDynamic { receiver, args, .. } => {
+        Instruction::CallInterface { receiver, args, .. }
+        | Instruction::CallDynamic { receiver, args, .. } => {
             t(receiver);
             args.iter_mut().for_each(t);
         }
-        Instruction::CallClosure { closure, args, tuple_types, .. } => {
+        Instruction::CallClosure {
+            closure,
+            args,
+            tuple_types,
+            ..
+        } => {
             t(closure);
             args.iter_mut().for_each(t);
             t(tuple_types);
         }
-        Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } => args.iter_mut().for_each(|(a, _)| t(a)),
+        Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } => {
+            args.iter_mut().for_each(|(a, _)| t(a))
+        }
         Instruction::IsClass { object, .. } => t(object),
         Instruction::StoreGlobal { val, .. } => t(val),
         Instruction::LoadIndexed { base, index } => {
             t(base);
             t(index);
         }
-        Instruction::CallSelector { recv, args, tuple_types, .. } => {
+        Instruction::CallSelector {
+            recv,
+            args,
+            tuple_types,
+            ..
+        } => {
             t(recv);
             args.iter_mut().for_each(t);
             t(tuple_types);
         }
-        Instruction::CallClosureForward { closure, args, desc, .. } => {
+        Instruction::CallClosureForward {
+            closure,
+            args,
+            desc,
+            ..
+        } => {
             t(closure);
             t(args);
             t(desc);
         }
-        Instruction::CallSelectorForward { recv, args, desc, .. } => {
+        Instruction::CallSelectorForward {
+            recv, args, desc, ..
+        } => {
             t(recv);
             t(args);
             t(desc);
@@ -1481,19 +1846,32 @@ fn replace_uses(inst: &mut Instruction, swap: &dyn Fn(ValueId) -> Option<ValueId
             t(target);
             args.iter_mut().for_each(|(a, _)| t(a));
         }
-        Instruction::NativeLoad { address, index: idx_value, .. } => {
+        Instruction::NativeLoad {
+            address,
+            index: idx_value,
+            ..
+        } => {
             t(address);
             t(idx_value);
         }
-        Instruction::NativeWrite { address, index: idx_value, value: val_ref, .. } => {
+        Instruction::NativeWrite {
+            address,
+            index: idx_value,
+            value: val_ref,
+            ..
+        } => {
             t(address);
             t(idx_value);
             t(val_ref);
         }
-        Instruction::CompositeNativeCall { target, args, dest, .. } => {
+        Instruction::CompositeNativeCall {
+            target, args, dest, ..
+        } => {
             t(target);
             args.iter_mut().for_each(|(a, _)| t(a));
-            if let Some(d) = dest { t(d) }
+            if let Some(d) = dest {
+                t(d)
+            }
         }
         Instruction::Simd { args, .. } => args.iter_mut().for_each(t),
     }
@@ -1531,7 +1909,11 @@ fn replace_in_terminator(term: &mut Terminator, swap: &dyn Fn(ValueId) -> Option
 pub(crate) fn successors(term: &Terminator) -> Vec<BlockId> {
     match term {
         Terminator::Branch(b) => vec![*b],
-        Terminator::CondBranch { then_block, else_block, .. } => vec![*then_block, *else_block],
+        Terminator::CondBranch {
+            then_block,
+            else_block,
+            ..
+        } => vec![*then_block, *else_block],
         Terminator::Switch { default, cases, .. } => {
             let mut v = vec![*default];
             v.extend(cases.iter().map(|(_, b)| *b));
@@ -1555,7 +1937,12 @@ fn save_live(
     if suspensions.is_empty() {
         return 0;
     }
-    let idx: HashMap<BlockId, usize> = func.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
+    let idx: HashMap<BlockId, usize> = func
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.id, i))
+        .collect();
     let n = func.blocks.len();
     let mut defs: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
     let mut uses: Vec<HashSet<ValueId>> = vec![HashSet::new(); n];
@@ -1587,7 +1974,12 @@ fn save_live(
     let mut succ: Vec<Vec<usize>> = func
         .blocks
         .iter()
-        .map(|b| successors(&b.terminator).iter().filter_map(|s| idx.get(s).copied()).collect())
+        .map(|b| {
+            successors(&b.terminator)
+                .iter()
+                .filter_map(|s| idx.get(s).copied())
+                .collect()
+        })
         .collect();
     for (a, r) in suspensions {
         if let (Some(&ia), Some(&ir)) = (idx.get(a), idx.get(r)) {
@@ -1616,7 +2008,10 @@ fn save_live(
         }
     }
     let params: HashSet<ValueId> = func.params.iter().map(|p| p.0).collect();
-    let from_entry = idx.get(&entry).map(|&i| defs[i].clone()).unwrap_or_default();
+    let from_entry = idx
+        .get(&entry)
+        .map(|&i| defs[i].clone())
+        .unwrap_or_default();
     let mut save: Vec<ValueId> = suspensions
         .iter()
         .filter_map(|(_, r)| idx.get(r))
@@ -1641,10 +2036,23 @@ fn save_live(
     // recognizes. Nothing goes between the call and the branch.
     fn guard(b: &BasicBlock) -> Option<(usize, BlockId)> {
         let n = b.instructions.len();
-        let Terminator::CondBranch { cond: Operand::Val(c), else_block, .. } = &b.terminator else { return None };
-        let [(p, Instruction::CallRuntime { name, .. }, _), (ic, Instruction::ICmp(ICmpOp::Ne, Operand::Val(pv), _), _)] =
-            b.instructions.get(n.checked_sub(2)?..)? else { return None };
-        (name == "dartforge_exception_pending" && pv == p && ic == c && n >= 3).then(|| (n - 3, *else_block))
+        let Terminator::CondBranch {
+            cond: Operand::Val(c),
+            else_block,
+            ..
+        } = &b.terminator
+        else {
+            return None;
+        };
+        let [
+            (p, Instruction::CallRuntime { name, .. }, _),
+            (ic, Instruction::ICmp(ICmpOp::Ne, Operand::Val(pv), _), _),
+        ] = b.instructions.get(n.checked_sub(2)?..)?
+        else {
+            return None;
+        };
+        (name == "dartforge_exception_pending" && pv == p && ic == c && n >= 3)
+            .then(|| (n - 3, *else_block))
     }
     // Writes of the result of a guarded call: they go to the success
     // edge (a new block), after the guard.
@@ -1654,7 +2062,10 @@ fn save_live(
         // Rereads at the end of the block for the `phi` entries of the successors
         // are done in a second round (below).
         let old_ones = std::mem::take(&mut b.instructions);
-        let n_phis = old_ones.iter().take_while(|(_, i, _)| matches!(i, Instruction::Phi { .. })).count();
+        let n_phis = old_ones
+            .iter()
+            .take_while(|(_, i, _)| matches!(i, Instruction::Phi { .. }))
+            .count();
         let mut new_ones: Vec<(ValueId, Instruction, Type)> = Vec::with_capacity(old_ones.len());
         let mut after_phis: Vec<(ValueId, Instruction, Type)> = Vec::new();
         for (k, (v, mut inst, ty)) in old_ones.into_iter().enumerate() {
@@ -1709,7 +2120,12 @@ fn save_live(
         }
         b.instructions = new_ones;
     }
-    let next_block = func.blocks.iter().map(|b| b.id.0).max().map_or(0, |m| m + 1);
+    let next_block = func
+        .blocks
+        .iter()
+        .map(|b| b.id.0)
+        .max()
+        .map_or(0, |m| m + 1);
     // Advance IDs only for existing edges, including at the u32 boundary.
     for ((origin, success, writes), next_block) in on_edges.into_iter().zip(next_block..) {
         let edge = BlockId(next_block);
@@ -1729,7 +2145,11 @@ fn save_live(
                 }
             }
         }
-        func.blocks.push(BasicBlock { id: edge, instructions: writes, terminator: Terminator::Branch(success) });
+        func.blocks.push(BasicBlock {
+            id: edge,
+            instructions: writes,
+            terminator: Terminator::Branch(success),
+        });
     }
     // `phi` entries with a saved value: reread at the end of the origin
     // block (before its terminator; before the guarded call, which does not

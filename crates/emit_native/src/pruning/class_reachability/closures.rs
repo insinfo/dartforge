@@ -53,9 +53,9 @@ fn field_read(instruction: &Instruction, result: Type) -> Option<(&Operand, usiz
     match instruction {
         Instruction::GetField { object, index } => Some((object, *index)),
         Instruction::CallRuntime { name, args, ret_ty }
-        | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
-            if name == "dartforge_object_get" && *ret_ty == result =>
-        {
+        | Instruction::DeclaredFieldCall {
+            name, args, ret_ty, ..
+        } if name == "dartforge_object_get" && *ret_ty == result => {
             let [
                 (object, Type::Ref),
                 (Operand::Constant(Constant::Int(index)), Type::I64),
@@ -167,9 +167,18 @@ pub(super) fn prove(
                 && matches!(object, Operand::Val(id) if handles.contains(id) || Some(*id) == implicit_receiver)
             {
                 match index {
-                    CONTEXT_FIELD if *result == Type::Ref => { reads.insert(*value); continue; }
-                    ABI_FIELD if *result == Type::I64 => { reads.insert(*value); continue; }
-                    TYPED_FIELD if code.contains_key(value) => { reads.insert(*value); continue; }
+                    CONTEXT_FIELD if *result == Type::Ref => {
+                        reads.insert(*value);
+                        continue;
+                    }
+                    ABI_FIELD if *result == Type::I64 => {
+                        reads.insert(*value);
+                        continue;
+                    }
+                    TYPED_FIELD if code.contains_key(value) => {
+                        reads.insert(*value);
+                        continue;
+                    }
                     _ => return None,
                 }
             }
@@ -244,5 +253,9 @@ pub(super) fn prove(
             return None;
         }
     }
-    Some(Proof { handles, calls, reads })
+    Some(Proof {
+        handles,
+        calls,
+        reads,
+    })
 }

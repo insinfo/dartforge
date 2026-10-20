@@ -46,23 +46,37 @@ fn suffix(mut n: usize) -> String {
 
 /// The name → short key map, or `None` when the program needs the source
 /// names at run time.
-pub fn compute(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World) -> Option<NamedArgs> {
+pub fn compute(
+    a: &dartforge_emit_js::Analysis<'_>,
+    world: &dartforge_world::World,
+) -> Option<NamedArgs> {
     let p = a.program;
     let i = a.interner;
     let mut table = false;
     // `Function.apply` live.
     if let (Some(core), Some(fsym), Some(asym)) = (p.core, i.lookup("Function"), i.lookup("apply"))
         && let Some(Element::Class(fc)) = p.library(core).declared.get(&fsym).and_then(|b| b.getter)
-            && p.class(fc).static_members.get(&asym).is_some_and(|f| world.is_live_function(*f)) {
-                // `Function.apply` translates the names at run time
-                // (`dart.nomeadoJS`, emitted with the table).
-                table = true;
-            }
+        && p.class(fc)
+            .static_members
+            .get(&asym)
+            .is_some_and(|f| world.is_live_function(*f))
+    {
+        // `Function.apply` translates the names at run time
+        // (`dart.nomeadoJS`, emitted with the table).
+        table = true;
+    }
     // The program's own `noSuchMethod`, live outside the SDK.
     for (k, f) in p.functions.iter().enumerate() {
-        if f.class.is_some() && !p.library(f.library).is_sdk && i.resolve(f.name) == "noSuchMethod" && world.is_live_function(FunctionElementId(k as u32)) {
+        if f.class.is_some()
+            && !p.library(f.library).is_sdk
+            && i.resolve(f.name) == "noSuchMethod"
+            && world.is_live_function(FunctionElementId(k as u32))
+        {
             if std::env::var("DARTFORGE_JSPROD_TRACE").is_ok() {
-                eprintln!("[jsprod] named args: noSuchMethod live in {}; source names", p.library(f.library).uri);
+                eprintln!(
+                    "[jsprod] named args: noSuchMethod live in {}; source names",
+                    p.library(f.library).uri
+                );
             }
             return None;
         }
@@ -74,8 +88,12 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Wor
     let mut frequency: HashMap<String, usize> = HashMap::new();
     let mut fixed: HashSet<String> = world.js_names.clone();
     for (k, f) in p.functions.iter().enumerate() {
-        let Some(ft) = a.outline.functions.get(k) else { continue };
-        let interop = f.external || f.class.is_some_and(|c| ctx.is_js_class(c) || p.class(c).kind == ClassKind::ExtensionType);
+        let Some(ft) = a.outline.functions.get(k) else {
+            continue;
+        };
+        let interop = f.external
+            || f.class
+                .is_some_and(|c| ctx.is_js_class(c) || p.class(c).kind == ClassKind::ExtensionType);
         for par in ft.parameters.iter() {
             if par.kind != dartforge_frontend::ast::ParameterKind::Named {
                 continue;
@@ -101,7 +119,13 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Wor
     let mut k = 0usize;
     let existing: HashSet<String> = all.iter().cloned().collect();
     let mut order: Vec<String> = all.into_iter().collect();
-    order.sort_by(|x, y| frequency.get(y).unwrap_or(&0).cmp(frequency.get(x).unwrap_or(&0)).then_with(|| x.cmp(y)));
+    order.sort_by(|x, y| {
+        frequency
+            .get(y)
+            .unwrap_or(&0)
+            .cmp(frequency.get(x).unwrap_or(&0))
+            .then_with(|| x.cmp(y))
+    });
     for n in order {
         if fixed.contains(&n) {
             continue;
@@ -133,7 +157,10 @@ impl NamedArgs {
     pub fn json(&self) -> String {
         let mut v: Vec<(&String, &String)> = self.map.iter().collect();
         v.sort();
-        let items: Vec<String> = v.iter().map(|(k, c)| format!("{}:{}", json_str(k), json_str(c))).collect();
+        let items: Vec<String> = v
+            .iter()
+            .map(|(k, c)| format!("{}:{}", json_str(k), json_str(c)))
+            .collect();
         format!("{{{}}}", items.join(","))
     }
 }

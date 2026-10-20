@@ -157,11 +157,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
             .collect::<HashSet<_>>()
             != imports
         || r.locals.keys().map(String::as_str).collect::<HashSet<_>>() != locals
-        || r.symbols
-            .keys()
-            .map(String::as_str)
-            .collect::<HashSet<_>>()
-            != renamed
+        || r.symbols.keys().map(String::as_str).collect::<HashSet<_>>() != renamed
     {
         return Err("ARC slots: inventory of bodies/roles incompatible with the origin".into());
     }
@@ -189,8 +185,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
         for b in &f.blocks {
             let mut open = false;
             let mut constant = |o: &Operand| {
-                open |=
-                    matches!(o, Operand::Constant(Constant::Function(s)) if targets.contains_key(s));
+                open |= matches!(o, Operand::Constant(Constant::Function(s)) if targets.contains_key(s));
             };
             for (_, i, _) in &b.instructions {
                 match i {
@@ -202,9 +197,7 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                         }
                     }
                     Instruction::AllocClosureTyped {
-                        code_symbol,
-                        typed,
-                        ..
+                        code_symbol, typed, ..
                     } if targets.contains_key(code_symbol) || targets.contains_key(typed) => {
                         return Err("ARC slots: materialized borrowed entry".into());
                     }
@@ -280,9 +273,10 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                             allow(&args[0].0);
                             if let Operand::Val(q) = args[0].0
                                 && let Some(i) = pairs.get(&q)
-                                && args.get(1).is_some_and(|a| a.0 == Operand::Val(*i)) {
-                                    allow(&args[1].0);
-                                }
+                                && args.get(1).is_some_and(|a| a.0 == Operand::Val(*i))
+                            {
+                                allow(&args[1].0);
+                            }
                             if name == "dartforge_arc_frame_move_v1" {
                                 allow(&args[2].0);
                             }
@@ -301,7 +295,10 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                         ret_ty,
                     } if targets.contains_key(symbol) => {
                         if !entries.contains_key(&b.id) {
-                            return Err("ARC slots: forwarding in a block without a reachable origin".into());
+                            return Err(
+                                "ARC slots: forwarding in a block without a reachable origin"
+                                    .into(),
+                            );
                         }
                         let callee = new_ones[symbol.as_str()];
                         if args.len() != callee.params.len()
@@ -325,14 +322,13 @@ pub fn verify_cfg_ref_slot_lives(m: &Module, r: &ArcRefSlotsDraft) -> Result<(),
                                 return Err("ARC slots: non-SSA call frame".into());
                             };
                             if pairs.contains_key(&q) {
-                                edges
-                                    .entry((f.symbol.clone(), q))
-                                    .or_default()
-                                    .push(dest);
+                                edges.entry((f.symbol.clone(), q)).or_default().push(dest);
                             } else if own_set.contains(&q) && entries.contains_key(&b.id) {
                                 anchored.insert(dest);
                             } else {
-                                return Err("ARC slots: forwarding without a reachable local origin".into());
+                                return Err(
+                                    "ARC slots: forwarding without a reachable local origin".into(),
+                                );
                             }
                         }
                     }
@@ -397,7 +393,11 @@ pub(super) mod tests {
             ret_ty: Type::Void,
         }
     }
-    fn f(name_str: &str, params: bool, instructions: Vec<(ValueId, Instruction, Type)>) -> Function {
+    fn f(
+        name_str: &str,
+        params: bool,
+        instructions: Vec<(ValueId, Instruction, Type)>,
+    ) -> Function {
         Function {
             symbol: name_str.into(),
             name: name_str.into(),
@@ -496,8 +496,7 @@ pub(super) mod tests {
             .unwrap();
         let targets = HashMap::new();
         let stacks =
-            super::super::frames::analyze_shared(a, &r.borrowed_set[&a.symbol], &targets)
-                .unwrap();
+            super::super::frames::analyze_shared(a, &r.borrowed_set[&a.symbol], &targets).unwrap();
         assert!(stacks.values().all(Vec::is_empty));
     }
 
@@ -534,10 +533,7 @@ pub(super) mod tests {
                 }
             }
             let before = format!("{r:?}");
-            assert!(
-                verify_cfg_ref_slot_lives(&m, &r).is_err(),
-                "caso {case}"
-            );
+            assert!(verify_cfg_ref_slot_lives(&m, &r).is_err(), "caso {case}");
             assert_eq!(format!("{r:?}"), before);
         }
     }
@@ -574,10 +570,7 @@ pub(super) mod tests {
                     args[1].0 = Operand::Constant(Constant::Int(0));
                 }
             }
-            assert!(
-                verify_cfg_ref_slot_lives(&m, &r).is_err(),
-                "caso {case}"
-            );
+            assert!(verify_cfg_ref_slot_lives(&m, &r).is_err(), "caso {case}");
         }
     }
 
@@ -613,10 +606,7 @@ pub(super) mod tests {
                     Type::Ptr,
                 )),
             }
-            assert!(
-                verify_cfg_ref_slot_lives(&m, &r).is_err(),
-                "caso {case}"
-            );
+            assert!(verify_cfg_ref_slot_lives(&m, &r).is_err(), "caso {case}");
         }
     }
 
@@ -654,10 +644,7 @@ pub(super) mod tests {
                         .remove(&ValueId(0));
                 }
             }
-            assert!(
-                verify_cfg_ref_slot_lives(&m, &r).is_err(),
-                "caso {case}"
-            );
+            assert!(verify_cfg_ref_slot_lives(&m, &r).is_err(), "caso {case}");
         }
         let mut m = origin();
         m.arc_memory = false;

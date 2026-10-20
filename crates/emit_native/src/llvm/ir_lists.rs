@@ -16,7 +16,7 @@
 
 use super::LlvmEmitter;
 use crate::hir::*;
-use dartforge_runtime::layout::{self, cid, offsets, flags};
+use dartforge_runtime::layout::{self, cid, flags, offsets};
 use std::fmt::Write;
 
 /// The `@df.list_*` helpers (§3.5), printed in the prelude of each module by
@@ -135,11 +135,16 @@ pub(super) fn helpers(arc: bool) -> std::borrow::Cow<'static, str> {
         return std::borrow::Cow::Borrowed(HELPERS);
     }
     let element = "%e = call ptr @df.list_element(i64 %a, i64 %i)\nstore i64 %v, ptr %e, align 8\ncall void @df.element_barrier(i64 %a, i64 %i, i64 %v)\n";
-    let arc_element = "%p = add i64 %i, 1\ncall void @dartforge_arc_write_ref(i64 %a, i64 %p, i64 %v)\n";
+    let arc_element =
+        "%p = add i64 %i, 1\ncall void @dartforge_arc_write_ref(i64 %a, i64 %p, i64 %v)\n";
     let data = "%p = inttoptr i64 %l to ptr\n%q = getelementptr inbounds i8, ptr %p, i64 22\nstore i64 %d, ptr %q, align 8\ncall void @df.barrier(i64 %l, i64 %d)\n";
     let arc_data = "call void @dartforge_object_set(i64 %l, i64 1, i64 %d, i8 1)\n";
     assert!(HELPERS.matches(element).count() == 1 && HELPERS.matches(data).count() == 1);
-    std::borrow::Cow::Owned(HELPERS.replace(element, arc_element).replace(data, arc_data))
+    std::borrow::Cow::Owned(
+        HELPERS
+            .replace(element, arc_element)
+            .replace(data, arc_data),
+    )
 }
 
 /// The effects of each `@df.*` helper of this file called by
@@ -194,8 +199,16 @@ impl LlvmEmitter<'_> {
         for (k, (elem, _)) in elements.iter().enumerate() {
             // The word in the representation of the element: the `Ref`, the `i64`, the bits
             // of the `double` (`bitcast`) or 0/1 (`zext`).
-            let word = if tags[k] == TAG_REF { self.coerce(elem, Type::Ref) } else { self.coerce(elem, Type::I64) };
-            writeln!(self.out, "  %lp{v}_{k} = getelementptr [{width} x i64], ptr %list_buf_{v}, i64 0, i64 {k}").unwrap();
+            let word = if tags[k] == TAG_REF {
+                self.coerce(elem, Type::Ref)
+            } else {
+                self.coerce(elem, Type::I64)
+            };
+            writeln!(
+                self.out,
+                "  %lp{v}_{k} = getelementptr [{width} x i64], ptr %list_buf_{v}, i64 0, i64 {k}"
+            )
+            .unwrap();
             writeln!(self.out, "  store i64 {word}, ptr %lp{v}_{k}, align 8").unwrap();
             if shape.is_none() {
                 writeln!(self.out, "  %lt{v}_{k} = getelementptr [{width} x i8], ptr %list_tags_{v}, i64 0, i64 {k}").unwrap();
@@ -212,7 +225,11 @@ impl LlvmEmitter<'_> {
         writeln!(
             self.out,
             "  %v{v} = call i64 @{}(ptr %list_buf_{v}, i64 {n}, i64 {}, i64 {shape})",
-            if self.arc_owned_factories() { "dartforge_arc_list_new_owned_v1" } else { "dartforge_list_new" },
+            if self.arc_owned_factories() {
+                "dartforge_arc_list_new_owned_v1"
+            } else {
+                "dartforge_list_new"
+            },
             cid::GROWABLE_LIST
         )
         .unwrap();

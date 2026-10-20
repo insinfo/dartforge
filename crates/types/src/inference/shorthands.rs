@@ -45,12 +45,7 @@ pub(crate) fn record_chain(inf: &BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx
 }
 
 /// `e == .x` / `e != .x`: the shorthand on the right uses the type of `e`.
-pub(crate) fn record_equality(
-    inf: &BodyInferrer<'_>,
-    cx: &mut Body,
-    right: ExprId,
-    left: TypeId,
-) {
+pub(crate) fn record_equality(inf: &BodyInferrer<'_>, cx: &mut Body, right: ExprId, left: TypeId) {
     if let Some(r) = inf.program.unit(cx.unit).ast.shorthand_root(right) {
         cx.shorthand_context.insert(r.0, left);
     }
@@ -71,7 +66,8 @@ fn display(inf: &mut BodyInferrer<'_>, t: TypeId) -> String {
     let base = inf.non_null(base);
     // The analyzer passes the text ready-made (`getDisplayString()`, without
     // the alias).
-    inf.table.format_without_alias(base, inf.interner, inf.program)
+    inf.table
+        .format_without_alias(base, inf.interner, inf.program)
 }
 
 /// The declaration `D` that the context denotes (spec 3.10, "Declaration
@@ -82,13 +78,20 @@ fn display(inf: &mut BodyInferrer<'_>, t: TypeId) -> String {
 ///
 /// A private declaration from another library is not denoted (analyzer
 /// 3.13.4 treats the context as absent).
-fn declaration(inf: &BodyInferrer<'_>, cx: &Body, ctx: TypeId, the_name: SymbolId) -> Option<ClassId> {
+fn declaration(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    ctx: TypeId,
+    the_name: SymbolId,
+) -> Option<ClassId> {
     let mut t = ctx;
     let d = loop {
         match inf.table.get(t) {
             Type::Interface { class, args, .. } => {
                 let c = *class;
-                if Some(c) == inf.core.future_class && args.len() == 1 && !has_member(inf, c, the_name)
+                if Some(c) == inf.core.future_class
+                    && args.len() == 1
+                    && !has_member(inf, c, the_name)
                 {
                     t = args[0];
                     continue;
@@ -189,11 +192,15 @@ pub(crate) fn value_(
             // generative constructor (declared, or the implicit one of `.new`
             // without constructors) of an abstract class, at the node.
             let k = inf.program.class(d);
-            if !reported && k.kind == dartforge_elements::model::ClassKind::Class && k.modifiers.abstract_ {
-                let generator = match constructor_key(inf, the_name).and_then(|c| k.constructors.get(&c)) {
-                    Some(&f) => !inf.program.function(f).factory,
-                    None => Some(the_name) == inf.sym.new_ && k.constructors.is_empty(),
-                };
+            if !reported
+                && k.kind == dartforge_elements::model::ClassKind::Class
+                && k.modifiers.abstract_
+            {
+                let generator =
+                    match constructor_key(inf, the_name).and_then(|c| k.constructors.get(&c)) {
+                        Some(&f) => !inf.program.function(f).factory,
+                        None => Some(the_name) == inf.sym.new_ && k.constructors.is_empty(),
+                    };
                 if generator {
                     let span = inf.program.unit(cx.unit).ast.expr(e).span;
                     inf.warning_with_code(
@@ -209,7 +216,12 @@ pub(crate) fn value_(
                     if !reported {
                         let (text, span) = name_and_span(inf, cx, e);
                         let ty = display(inf, ctx);
-                        report(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_GETTER", span, &[&text, &ty]);
+                        report(
+                            inf,
+                            "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_GETTER",
+                            span,
+                            &[&text, &ty],
+                        );
                     }
                     inf.core.dynamic_
                 }
@@ -218,7 +230,12 @@ pub(crate) fn value_(
         None => {
             if !reported {
                 let span = inf.program.unit(cx.unit).ast.expr(e).span;
-                report(inf, "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", span, &[]);
+                report(
+                    inf,
+                    "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT",
+                    span,
+                    &[],
+                );
             }
             inf.core.dynamic_
         }
@@ -227,16 +244,27 @@ pub(crate) fn value_(
 
 /// Reports by the code's unique name (all three are from the 3.13.4
 /// supplement of `dartforge_diagnostics`' table).
-fn report(inf: &mut BodyInferrer<'_>, unique: &str, span: dartforge_diagnostics::Span, args: &[&str]) {
+fn report(
+    inf: &mut BodyInferrer<'_>,
+    unique: &str,
+    span: dartforge_diagnostics::Span,
+    args: &[&str],
+) {
     if let Some(code) = dartforge_diagnostics::Code::by_unique(unique) {
         inf.warning_with_code(code, span, args);
     }
 }
 
 /// The text and the range of the name of a `DotShorthand`.
-fn name_and_span(inf: &BodyInferrer<'_>, cx: &Body, e: ExprId) -> (String, dartforge_diagnostics::Span) {
+fn name_and_span(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    e: ExprId,
+) -> (String, dartforge_diagnostics::Span) {
     match &inf.program.unit(cx.unit).ast.expr(e).kind {
-        ExprKind::DotShorthand { name, .. } => (inf.interner.resolve(name.sym).to_string(), name.span),
+        ExprKind::DotShorthand { name, .. } => {
+            (inf.interner.resolve(name.sym).to_string(), name.span)
+        }
         _ => (String::new(), inf.program.unit(cx.unit).ast.expr(e).span),
     }
 }
@@ -266,11 +294,21 @@ pub(crate) fn construction(
         // no context; the invocation `.id(…)` does not find the member in `_`.
         if const_ {
             let span = inf.program.unit(cx.unit).ast.expr(e).span;
-            report(inf, "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT", span, &[]);
+            report(
+                inf,
+                "CompileTimeErrorCode.DOT_SHORTHAND_MISSING_CONTEXT",
+                span,
+                &[],
+            );
         } else {
             let (text, span) = name_and_span(inf, cx, tgt);
             let ty = display(inf, ctx_chain);
-            report(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", span, &[&text, &ty]);
+            report(
+                inf,
+                "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION",
+                span,
+                &[&text, &ty],
+            );
         }
         cx.reported_shorthands.insert(tgt.0);
         return None;
@@ -287,8 +325,14 @@ pub(crate) fn construction(
         let fe = inf.program.function(f);
         !inf.interner.resolve(fe.name).starts_with('_') || fe.library == cx.lib
     };
-    let finding = constructor_key(inf, the_name).and_then(|k| class.constructors.get(&k)).copied();
-    let finding = if const_ { finding.filter(|&f| accessible(inf, f)) } else { finding };
+    let finding = constructor_key(inf, the_name)
+        .and_then(|k| class.constructors.get(&k))
+        .copied();
+    let finding = if const_ {
+        finding.filter(|&f| accessible(inf, f))
+    } else {
+        finding
+    };
     let Some(fid) = finding else {
         // `.new()` of an abstract class without a declared constructor: the
         // implicit constructor is generative (`resolveDotShorthand`,
@@ -301,7 +345,11 @@ pub(crate) fn construction(
             && k.constructors.is_empty()
         {
             let span = inf.program.unit(cx.unit).ast.expr(e).span;
-            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
+            inf.warning_with_code(
+                dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_ABSTRACT_CLASS,
+                span,
+                &[],
+            );
             // The target goes through the common path (`value`), which is not a
             // tear-off.
             cx.reported_shorthands.insert(tgt.0);
@@ -309,12 +357,22 @@ pub(crate) fn construction(
         if const_ {
             let (text, span) = name_and_span(inf, cx, tgt);
             let cls = inf.interner.resolve(inf.program.class(d).name).to_string();
-            report(inf, "CompileTimeErrorCode.CONST_WITH_UNDEFINED_CONSTRUCTOR", span, &[&cls, &text]);
+            report(
+                inf,
+                "CompileTimeErrorCode.CONST_WITH_UNDEFINED_CONSTRUCTOR",
+                span,
+                &[&cls, &text],
+            );
             cx.reported_shorthands.insert(tgt.0);
         } else if !has_member(inf, d, the_name) {
             let (text, span) = name_and_span(inf, cx, tgt);
             let ty = display(inf, ctx_chain);
-            report(inf, "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION", span, &[&text, &ty]);
+            report(
+                inf,
+                "CompileTimeErrorCode.DOT_SHORTHAND_UNDEFINED_INVOCATION",
+                span,
+                &[&text, &ty],
+            );
             cx.reported_shorthands.insert(tgt.0);
         }
         return None;
@@ -330,13 +388,25 @@ pub(crate) fn construction(
             return None;
         };
         let k = inf.program.class(d);
-        if k.kind == dartforge_elements::model::ClassKind::Class && k.modifiers.abstract_ && !inf.program.function(fid).factory {
+        if k.kind == dartforge_elements::model::ClassKind::Class
+            && k.modifiers.abstract_
+            && !inf.program.function(fid).factory
+        {
             let span = program.unit(cx.unit).ast.expr(e).span;
-            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_ABSTRACT_CLASS, span, &[]);
+            inf.warning_with_code(
+                dartforge_diagnostics::codes::compile_time_error::INSTANTIATE_ABSTRACT_CLASS,
+                span,
+                &[],
+            );
         } else if let Some(sp) = super::calls::type_list_range(inf, cx.unit, &arguments.type_args) {
             let (text, _) = name_and_span(inf, cx, tgt);
             let cls = inf.interner.resolve(k.name).to_string();
-            report(inf, "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR", sp, &[&cls, &text]);
+            report(
+                inf,
+                "CompileTimeErrorCode.WRONG_NUMBER_OF_TYPE_ARGUMENTS_DOT_SHORTHAND_CONSTRUCTOR",
+                sp,
+                &[&cls, &text],
+            );
         }
     }
     // The constructor invocation through the creation's common path

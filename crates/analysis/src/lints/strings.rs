@@ -33,7 +33,10 @@ impl Literal {
 
     /// The text of the parts, as written (escapes not decoded).
     pub fn text(&self, source: &str) -> String {
-        self.parts.iter().filter_map(|t| source.get(t.start..t.end)).collect()
+        self.parts
+            .iter()
+            .filter_map(|t| source.get(t.start..t.end))
+            .collect()
     }
 }
 
@@ -139,7 +142,10 @@ fn literal(b: &[u8], start: usize, end: usize) -> Option<(Literal, usize)> {
     while i < end {
         let ch = b[i];
         if ch == quote && (!triple || (i + 2 < end && b[i + 1] == quote && b[i + 2] == quote)) {
-            parts.push(Span { start: part_start, end: i });
+            parts.push(Span {
+                start: part_start,
+                end: i,
+            });
             return Some((build(parts, interpolations, i + n), i + n));
         }
         if !raw && ch == b'\\' {
@@ -149,15 +155,24 @@ fn literal(b: &[u8], start: usize, end: usize) -> Option<(Literal, usize)> {
         if !raw && ch == b'$' {
             let next = b.get(i + 1).copied().filter(|_| i + 1 < end);
             if next == Some(b'{') {
-                parts.push(Span { start: part_start, end: i });
+                parts.push(Span {
+                    start: part_start,
+                    end: i,
+                });
                 let after = closing_brace(b, i + 2, end);
-                interpolations.push(Span { start: i, end: after });
+                interpolations.push(Span {
+                    start: i,
+                    end: after,
+                });
                 i = after;
                 part_start = i;
                 continue;
             }
             if next.is_some_and(|c| c == b'_' || c.is_ascii_alphabetic()) {
-                parts.push(Span { start: part_start, end: i });
+                parts.push(Span {
+                    start: part_start,
+                    end: i,
+                });
                 let mut j = i + 1;
                 while j < end && (b[j] == b'_' || b[j].is_ascii_alphanumeric()) {
                     j += 1;
@@ -170,7 +185,10 @@ fn literal(b: &[u8], start: usize, end: usize) -> Option<(Literal, usize)> {
         }
         i += 1;
     }
-    parts.push(Span { start: part_start.min(end), end });
+    parts.push(Span {
+        start: part_start.min(end),
+        end,
+    });
     Some((build(parts, interpolations, end), end))
 }
 
@@ -308,7 +326,13 @@ mod tests {
     use super::*;
 
     fn read(source: &str) -> Vec<Literal> {
-        literals(source, Span { start: 0, end: source.len() })
+        literals(
+            source,
+            Span {
+                start: 0,
+                end: source.len(),
+            },
+        )
     }
 
     #[test]
@@ -319,7 +343,11 @@ mod tests {
         assert_eq!(&source[v[0].span.start..v[0].span.end], "'a'");
         assert!(v[0].single_quoted && !v[0].is_interpolated() && !v[0].raw && !v[0].multiline);
         assert_eq!(v[1].text(source), "b df");
-        let interpolations: Vec<&str> = v[1].interpolations.iter().map(|s| &source[s.start..s.end]).collect();
+        let interpolations: Vec<&str> = v[1]
+            .interpolations
+            .iter()
+            .map(|s| &source[s.start..s.end])
+            .collect();
         assert_eq!(interpolations, vec!["$c", "${e ? 'x}' : \"y\"}"]);
         assert!(v[2].raw && v[2].multiline && v[2].single_quoted);
         assert_eq!(v[2].text(source), "g'h");
@@ -328,7 +356,10 @@ mod tests {
     #[test]
     fn comments_outside_strings() {
         let source = "var a = '// no'; // yes\n/* b /* c */ d */ var e = \"/* no */\";\n";
-        let v: Vec<&str> = comments(source).iter().map(|s| &source[s.start..s.end]).collect();
+        let v: Vec<&str> = comments(source)
+            .iter()
+            .map(|s| &source[s.start..s.end])
+            .collect();
         assert_eq!(v, vec!["// yes", "/* b /* c */ d */"]);
     }
 }

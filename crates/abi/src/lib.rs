@@ -154,7 +154,9 @@ impl Signature {
     /// WebAssembly requires imports/exports and linear memory, not dlopen/LoadLibrary.
     pub fn validate_dynamic_target(&self, target: Target) -> Result<(), AbiError> {
         if !target.supports_dynamic_libraries() {
-            return Err(AbiError("dynamic FFI unavailable in the WebAssembly profile"));
+            return Err(AbiError(
+                "dynamic FFI unavailable in the WebAssembly profile",
+            ));
         }
         Ok(())
     }

@@ -409,9 +409,16 @@ pub fn apply(source: &str) -> Result<(String, usize), String> {
             for (x, _, _) in &ns.accesses {
                 *uses.entry(x.as_str()).or_default() += 1;
             }
-            let dead: Vec<&&str> = members.iter().filter(|x| uses.get(**x).copied().unwrap_or(0) <= 1).collect();
+            let dead: Vec<&&str> = members
+                .iter()
+                .filter(|x| uses.get(**x).copied().unwrap_or(0) <= 1)
+                .collect();
             if !dead.is_empty() {
-                eprintln!("[jsprod] flatten {n}: {} member(s) only written: {:?}", dead.len(), dead.iter().take(8).collect::<Vec<_>>());
+                eprintln!(
+                    "[jsprod] flatten {n}: {} member(s) only written: {:?}",
+                    dead.len(),
+                    dead.iter().take(8).collect::<Vec<_>>()
+                );
             }
         }
         let mut sorted: Vec<&&str> = members.iter().collect();

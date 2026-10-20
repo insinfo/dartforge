@@ -25,7 +25,10 @@ const CASES: &[AnalyzerCase] = &[
     (
         "dup.dart",
         "class A {\n  static void foo() {}\n}\nclass A {\n  void foo() {}\n}\n",
-        &[("conflicting_static_and_instance", 2, 15, 3), ("duplicate_definition", 4, 7, 1)],
+        &[
+            ("conflicting_static_and_instance", 2, 15, 3),
+            ("duplicate_definition", 4, 7, 1),
+        ],
     ),
     (
         "tipos.dart",
@@ -56,34 +59,73 @@ const CASES: &[AnalyzerCase] = &[
     (
         "anot.dart",
         "class A {\n  const A.named();\n}\n@A\nvoid f() {}\n@Undef\nvoid g() {}\n",
-        &[("invalid_annotation", 4, 1, 2), ("undefined_annotation", 6, 1, 6)],
+        &[
+            ("invalid_annotation", 4, 1, 2),
+            ("undefined_annotation", 6, 1, 6),
+        ],
     ),
     (
         "padrao.dart",
         "final class A {}\nclass R {}\nvoid f(A x, int y) {\n  if (x case R _) {}\n  if (y case <int>[]) {}\n}\n",
-        &[("pattern_never_matches_value_type", 4, 14, 1), ("pattern_never_matches_value_type", 5, 14, 7)],
+        &[
+            ("pattern_never_matches_value_type", 4, 14, 1),
+            ("pattern_never_matches_value_type", 5, 14, 7),
+        ],
     ),
     (
         "sup.dart",
         "abstract class A {\n  void foo();\n}\nclass B extends A {\n  void foo() => super.foo();\n  void bar() => super.baz();\n}\n",
-        &[("abstract_super_member_reference", 5, 23, 3), ("undefined_super_member", 6, 23, 3)],
+        &[
+            ("abstract_super_member_reference", 5, 23, 3),
+            ("undefined_super_member", 6, 23, 3),
+        ],
     ),
     // Second round (§7): exhaustiveness, `could_not_infer`, inferred bounds,
     // `typedef`/`Never?` aliases (C9) and unused optional parameters.
     (
         "exaustividade.dart",
         "enum E { a, b, c }\nsealed class S {}\nclass A extends S {}\nclass B extends S { final int x; B(this.x); }\nfinal class C implements S {}\nsealed class T<X> {}\nclass TI extends T<int> {}\nclass TG<X> extends T<X> {}\n\nint f1(E e) => switch (e) { E.a => 0, E.b => 1 };\nint f2(E? e) => switch (e) { E.a => 0, E.b => 1, E.c => 2 };\nint f3(bool b) => switch (b) { true => 0 };\nint f4(S s) => switch (s) { A() => 0, B(x: 1) => 1 };\nint f5(S s) => switch (s) { A() => 0, B() => 1, C() => 2, _ => 3 };\nint f6((bool, E) r) => switch (r) { (true, _) => 0, (false, E.a) => 1 };\nint f7(List<int> l) => switch (l) { [] => 0, [_] => 1 };\nint f8(S s) => switch (s) { A() => 0, A() => 1, B() => 2, C() => 3 };\nvoid f9(E e) {\n  switch (e) {\n    case E.a:\n      break;\n    case E.b:\n    case E.c:\n      break;\n    default:\n  }\n}\nvoid f10(S s) {\n  switch (s) {\n    case A():\n      print(1);\n  }\n}\nint f11(T<int> t) => switch (t) { TI() => 0 };\nint f12(Object o) => switch (o) { int() => 0 };\nint f13(Map<String, int> m) => switch (m) { {'a': 1} => 0 };\nint f14(int? i) => switch (i) { int() => 0 };\nint f15(S s) => switch (s) { A() || B() => 0 };\nint f16(bool? b) => switch (b) { true => 0, false => 1 };\nint f17((int, {String n}) r) => switch (r) { (1, n: 'x') => 0 };\nvoid main() {}\n",
-        &[("non_exhaustive_switch_expression", 10, 16, 6), ("non_exhaustive_switch_expression", 11, 17, 6), ("non_exhaustive_switch_expression", 12, 19, 6), ("non_exhaustive_switch_expression", 13, 16, 6), ("unreachable_switch_case", 14, 61, 2), ("non_exhaustive_switch_expression", 15, 24, 6), ("non_exhaustive_switch_expression", 16, 24, 6), ("unreachable_switch_case", 17, 43, 2), ("unreachable_switch_default", 25, 5, 7), ("non_exhaustive_switch_statement", 29, 3, 6), ("non_exhaustive_switch_expression", 34, 22, 6), ("non_exhaustive_switch_expression", 35, 22, 6), ("non_exhaustive_switch_expression", 36, 32, 6), ("non_exhaustive_switch_expression", 37, 20, 6), ("non_exhaustive_switch_expression", 38, 17, 6), ("non_exhaustive_switch_expression", 39, 21, 6), ("non_exhaustive_switch_expression", 40, 33, 6)],
+        &[
+            ("non_exhaustive_switch_expression", 10, 16, 6),
+            ("non_exhaustive_switch_expression", 11, 17, 6),
+            ("non_exhaustive_switch_expression", 12, 19, 6),
+            ("non_exhaustive_switch_expression", 13, 16, 6),
+            ("unreachable_switch_case", 14, 61, 2),
+            ("non_exhaustive_switch_expression", 15, 24, 6),
+            ("non_exhaustive_switch_expression", 16, 24, 6),
+            ("unreachable_switch_case", 17, 43, 2),
+            ("unreachable_switch_default", 25, 5, 7),
+            ("non_exhaustive_switch_statement", 29, 3, 6),
+            ("non_exhaustive_switch_expression", 34, 22, 6),
+            ("non_exhaustive_switch_expression", 35, 22, 6),
+            ("non_exhaustive_switch_expression", 36, 32, 6),
+            ("non_exhaustive_switch_expression", 37, 20, 6),
+            ("non_exhaustive_switch_expression", 38, 17, 6),
+            ("non_exhaustive_switch_expression", 39, 21, 6),
+            ("non_exhaustive_switch_expression", 40, 33, 6),
+        ],
     ),
     (
         "inferencia.dart",
         "class A {}\nclass NotA {}\nclass C<T extends A> { C(T Function() f); }\nNotA myF() => NotA();\nT max2<T extends num>(T a, T b) => a;\nclass Foo<T> { U method<U extends T>(U u) => u; }\nvoid staticErrorIfNotNever<T extends Never>(T t) {}\ntypedef Fcon<X> = Function(X);\nclass CFcon<X extends Fcon<X>> {}\ntypedef F<T> = T Function();\nvoid g(F<int> a) { F<String> b = a; print(b); }\nvoid main() {\n  var x = C(myF);\n  print(x);\n  dynamic d = 1;\n  print(max2(d, 2.0));\n  new Foo<String>().method(42);\n  staticErrorIfNotNever(3);\n  CFcon<Fcon<Never?>>? x4;\n  print(x4);\n}\n",
-        &[("invalid_assignment", 11, 34, 1), ("could_not_infer", 13, 11, 1), ("type_argument_not_matching_bounds", 13, 11, 1), ("could_not_infer", 17, 21, 6), ("could_not_infer", 18, 3, 21), ("type_argument_not_matching_bounds", 19, 9, 12)],
+        &[
+            ("invalid_assignment", 11, 34, 1),
+            ("could_not_infer", 13, 11, 1),
+            ("type_argument_not_matching_bounds", 13, 11, 1),
+            ("could_not_infer", 17, 21, 6),
+            ("could_not_infer", 18, 3, 21),
+            ("type_argument_not_matching_bounds", 19, 9, 12),
+        ],
     ),
     (
         "parametros.dart",
         "class _A {\n  _A([int? x]);\n  void _m({int? y, int? z}) {}\n  void pub([int? w]) {}\n  static void s([int? q]) {}\n}\nvoid _f([int? a, int? b]) {}\nvoid main() {\n  _f(1);\n  _A()._m(y: 2);\n  _A.s();\n  _A().pub();\n}\n",
-        &[("unused_element", 2, 12, 1), ("unused_element", 3, 25, 1), ("unused_element", 5, 23, 1), ("unused_element", 7, 23, 1)],
+        &[
+            ("unused_element", 2, 12, 1),
+            ("unused_element", 3, 25, 1),
+            ("unused_element", 5, 23, 1),
+            ("unused_element", 7, 23, 1),
+        ],
     ),
     (
         "parametros_usados.dart",
@@ -96,7 +138,22 @@ const CASES: &[AnalyzerCase] = &[
     (
         "metodo_modificador.dart",
         "class C {\n  const m1();\n  final m2();\n  abstract void m3();\n  covariant void m4();\n  var get m5;\n  late void m6();\n  required void m7();\n}\n",
-        &[("const_method", 2, 3, 5), ("concrete_class_with_abstract_member", 2, 9, 5), ("extraneous_modifier", 3, 3, 5), ("concrete_class_with_abstract_member", 3, 9, 5), ("abstract_class_member", 4, 3, 8), ("concrete_class_with_abstract_member", 4, 12, 10), ("covariant_member", 5, 3, 9), ("concrete_class_with_abstract_member", 5, 13, 10), ("var_return_type", 6, 3, 3), ("concrete_class_with_abstract_member", 6, 7, 7), ("extraneous_modifier", 7, 3, 4), ("concrete_class_with_abstract_member", 7, 8, 10), ("extraneous_modifier", 8, 3, 8), ("concrete_class_with_abstract_member", 8, 12, 10)],
+        &[
+            ("const_method", 2, 3, 5),
+            ("concrete_class_with_abstract_member", 2, 9, 5),
+            ("extraneous_modifier", 3, 3, 5),
+            ("concrete_class_with_abstract_member", 3, 9, 5),
+            ("abstract_class_member", 4, 3, 8),
+            ("concrete_class_with_abstract_member", 4, 12, 10),
+            ("covariant_member", 5, 3, 9),
+            ("concrete_class_with_abstract_member", 5, 13, 10),
+            ("var_return_type", 6, 3, 3),
+            ("concrete_class_with_abstract_member", 6, 7, 7),
+            ("extraneous_modifier", 7, 3, 4),
+            ("concrete_class_with_abstract_member", 7, 8, 10),
+            ("extraneous_modifier", 8, 3, 8),
+            ("concrete_class_with_abstract_member", 8, 12, 10),
+        ],
     ),
     (
         "padrao_privado.dart",
@@ -106,12 +163,21 @@ const CASES: &[AnalyzerCase] = &[
     (
         "ffi_alias.dart",
         "import 'dart:ffi';\ntypedef DWORD = Uint32;\ntypedef P = Packed;\nfinal class F extends Struct {\n  @DWORD()\n  external int x;\n  @Int8()\n  @DWORD()\n  external int y;\n  external int z;\n}\n",
-        &[("extra_annotation_on_struct_field", 8, 3, 8), ("missing_annotation_on_struct_field", 10, 12, 3)],
+        &[
+            ("extra_annotation_on_struct_field", 8, 3, 8),
+            ("missing_annotation_on_struct_field", 10, 12, 3),
+        ],
     ),
     (
         "anotacao_diretiva.dart",
         "@A(Duratio(seconds: 180))\n@A(1 + 'a')\n@B()\nlibrary;\n\nclass A { final Object o; const A(this.o); }\n",
-        &[("undefined_function", 1, 4, 7), ("const_with_non_constant_argument", 1, 4, 21), ("const_eval_type_num", 2, 4, 7), ("argument_type_not_assignable", 2, 8, 3), ("undefined_annotation", 3, 1, 4)],
+        &[
+            ("undefined_function", 1, 4, 7),
+            ("const_with_non_constant_argument", 1, 4, 21),
+            ("const_eval_type_num", 2, 4, 7),
+            ("argument_type_not_assignable", 2, 8, 3),
+            ("undefined_annotation", 3, 1, 4),
+        ],
     ),
     (
         "anotacao_import.dart",
@@ -129,7 +195,10 @@ const CASES: &[AnalyzerCase] = &[
     (
         "campo_padrao.dart",
         "void f(x) {\n  switch (x) {\n    case (foo: 0, :var foo):\n      break;\n  }\n}\n",
-        &[("duplicate_pattern_field", 3, 19, 1), ("unused_local_variable", 3, 24, 3)],
+        &[
+            ("duplicate_pattern_field", 3, 19, 1),
+            ("unused_local_variable", 3, 24, 3),
+        ],
     ),
     (
         "cascata_completer.dart",
@@ -139,7 +208,20 @@ const CASES: &[AnalyzerCase] = &[
     (
         "for_in_fluxo.dart",
         "void use(Object? o) {}\nvoid f(bool b) {\n  if (b) {\n    int x;\n    late int y;\n    for (x in []) {}\n    for (y in []) {}\n    use(x);\n    use(y);\n  }\n  if (b) {\n    int x;\n    late int y;\n    [for (x in []) 0];\n    [for (y in []) 0];\n    use(x);\n    use(y);\n  }\n}\n",
-        &[("not_assigned_potentially_non_nullable_local_variable", 8, 9, 1), ("not_assigned_potentially_non_nullable_local_variable", 16, 9, 1)],
+        &[
+            (
+                "not_assigned_potentially_non_nullable_local_variable",
+                8,
+                9,
+                1,
+            ),
+            (
+                "not_assigned_potentially_non_nullable_local_variable",
+                16,
+                9,
+                1,
+            ),
+        ],
     ),
     (
         "main_funcao.dart",
@@ -149,7 +231,12 @@ const CASES: &[AnalyzerCase] = &[
     (
         "morto_record.dart",
         "void f(({int x, int y}) p) {\n  true ? p.x : p.y;\n}\nvoid g(({bool b, }) r) {\n  if (true || r.b) {}\n}\nf2() => [for (var (i) = throw 0; true; 1) 0];\n",
-        &[("dead_code", 2, 16, 4), ("dead_code", 5, 12, 6), ("unused_local_variable", 7, 20, 1), ("dead_code", 7, 34, 7)],
+        &[
+            ("dead_code", 2, 16, 4),
+            ("dead_code", 5, 12, 6),
+            ("unused_local_variable", 7, 20, 1),
+            ("dead_code", 7, 34, 7),
+        ],
     ),
     // Corpus messages (2026-10-12): an alias in the extension type's `implements`,
     // `?` in a clause through an alias that is not a class, `p.f<T>` with `p`
@@ -157,34 +244,98 @@ const CASES: &[AnalyzerCase] = &[
     (
         "clausula_anulavel.dart",
         "typedef X1 = void Function();\ntypedef X2 = (int, String);\ntypedef X3 = Object;\nclass I {}\nextension type A1(int it) implements X1? {}\nextension type A2(int it) implements X2? {}\nextension type A3(int it) implements X3? {}\nextension type A4(int it) implements dynamic {}\nextension type A5(int it) implements Function? {}\nclass C1 implements X1? {}\nclass C2 implements X3? {}\nclass C3 extends X1? {}\nmixin M1 on X1? {}\nclass G<T> implements T? {}\nclass N1 implements Never? {}\nclass D1 implements dynamic? {}\nvar v = 1;\nclass V1 implements v? {}\n",
-        &[("extension_type_implements_disallowed_type", 5, 38, 3), ("nullable_type_in_implements_clause", 5, 38, 3), ("extension_type_implements_disallowed_type", 6, 38, 3), ("nullable_type_in_implements_clause", 6, 38, 3), ("nullable_type_in_implements_clause", 7, 38, 3), ("extension_type_implements_disallowed_type", 8, 38, 7), ("extension_type_implements_disallowed_type", 9, 38, 9), ("nullable_type_in_implements_clause", 9, 38, 9), ("implements_non_class", 10, 21, 2), ("nullable_type_in_implements_clause", 10, 21, 3), ("implements_super_class", 11, 21, 3), ("nullable_type_in_implements_clause", 11, 21, 3), ("extends_non_class", 12, 18, 2), ("nullable_type_in_extends_clause", 12, 18, 3), ("mixin_super_class_constraint_non_interface", 13, 13, 2), ("nullable_type_in_on_clause", 13, 13, 3), ("implements_non_class", 14, 23, 1), ("nullable_type_in_implements_clause", 14, 23, 2), ("implements_non_class", 15, 21, 5), ("nullable_type_in_implements_clause", 15, 21, 6), ("implements_non_class", 16, 21, 7), ("unnecessary_question_mark", 16, 28, 1), ("implements_non_class", 18, 21, 1)],
+        &[
+            ("extension_type_implements_disallowed_type", 5, 38, 3),
+            ("nullable_type_in_implements_clause", 5, 38, 3),
+            ("extension_type_implements_disallowed_type", 6, 38, 3),
+            ("nullable_type_in_implements_clause", 6, 38, 3),
+            ("nullable_type_in_implements_clause", 7, 38, 3),
+            ("extension_type_implements_disallowed_type", 8, 38, 7),
+            ("extension_type_implements_disallowed_type", 9, 38, 9),
+            ("nullable_type_in_implements_clause", 9, 38, 9),
+            ("implements_non_class", 10, 21, 2),
+            ("nullable_type_in_implements_clause", 10, 21, 3),
+            ("implements_super_class", 11, 21, 3),
+            ("nullable_type_in_implements_clause", 11, 21, 3),
+            ("extends_non_class", 12, 18, 2),
+            ("nullable_type_in_extends_clause", 12, 18, 3),
+            ("mixin_super_class_constraint_non_interface", 13, 13, 2),
+            ("nullable_type_in_on_clause", 13, 13, 3),
+            ("implements_non_class", 14, 23, 1),
+            ("nullable_type_in_implements_clause", 14, 23, 2),
+            ("implements_non_class", 15, 21, 5),
+            ("nullable_type_in_implements_clause", 15, 21, 6),
+            ("implements_non_class", 16, 21, 7),
+            ("unnecessary_question_mark", 16, 28, 1),
+            ("implements_non_class", 18, 21, 1),
+        ],
     ),
     (
         "ffi_contagem.dart",
         "import 'dart:ffi';\nimport 'dart:math' as prefix;\nint f(int x) => x;\nvoid main() {\n  Pointer.fromFunction<Int32 Function(Int32), Int8>(f, 0);\n  Pointer.fromFunction<Void Function()>(prefix);\n}\n",
-        &[("wrong_number_of_type_arguments_method", 5, 23, 29), ("must_be_a_native_function_type", 5, 24, 21), ("must_be_a_subtype", 6, 41, 6), ("prefix_identifier_not_followed_by_dot", 6, 41, 6)],
+        &[
+            ("wrong_number_of_type_arguments_method", 5, 23, 29),
+            ("must_be_a_native_function_type", 5, 24, 21),
+            ("must_be_a_subtype", 6, 41, 6),
+            ("prefix_identifier_not_followed_by_dot", 6, 41, 6),
+        ],
     ),
     (
         "implementa_alias.dart",
         "typedef X1 = void Function();\ntypedef X2 = (int, String);\ntypedef X3 = Function;\ntypedef X4 = Null;\ntypedef X5 = dynamic;\ntypedef X6 = Record;\ntypedef X7<T> = List<T> Function();\nextension type A1(int it) implements X1 {}\nextension type A2(int it) implements X2 {}\nextension type A3(int it) implements X3 {}\nextension type A4(int it) implements X4 {}\nextension type A5(int it) implements X5 {}\nextension type A6(int it) implements X6 {}\nextension type A7(int it) implements X7<int> {}\nextension type A8(int it) implements X1? {}\n",
-        &[("extension_type_implements_disallowed_type", 8, 38, 2), ("extension_type_implements_disallowed_type", 9, 38, 2), ("extension_type_implements_disallowed_type", 10, 38, 2), ("extension_type_implements_disallowed_type", 11, 38, 2), ("extension_type_implements_disallowed_type", 12, 38, 2), ("extension_type_implements_disallowed_type", 13, 38, 2), ("extension_type_implements_disallowed_type", 14, 38, 7), ("extension_type_implements_disallowed_type", 15, 38, 3), ("nullable_type_in_implements_clause", 15, 38, 3)],
+        &[
+            ("extension_type_implements_disallowed_type", 8, 38, 2),
+            ("extension_type_implements_disallowed_type", 9, 38, 2),
+            ("extension_type_implements_disallowed_type", 10, 38, 2),
+            ("extension_type_implements_disallowed_type", 11, 38, 2),
+            ("extension_type_implements_disallowed_type", 12, 38, 2),
+            ("extension_type_implements_disallowed_type", 13, 38, 2),
+            ("extension_type_implements_disallowed_type", 14, 38, 7),
+            ("extension_type_implements_disallowed_type", 15, 38, 3),
+            ("nullable_type_in_implements_clause", 15, 38, 3),
+        ],
     ),
     (
         "referencia_prefixada.dart",
         "import 'dart:math' as m;\nf() {\n  unresolved.Class<int>.named();\n  unresolved.foo<int>;\n  var x = unresolved.bar<int>();\n  m.max<int>;\n  m.zzz<int>;\n}\nclass C {\n  void g() {\n    other.h<int>;\n  }\n}\nclass B { List<int> Function<T>() get foo => throw 0; }\nclass D extends B {\n  void g() {\n    foo.call<int>;\n    print(foo.call<int>);\n  }\n}\n",
-        &[("undefined_identifier", 3, 3, 10), ("undefined_identifier", 4, 3, 10), ("unused_local_variable", 5, 7, 1), ("undefined_identifier", 5, 11, 10), ("undefined_prefixed_name", 7, 5, 3), ("undefined_identifier", 11, 5, 5), ("undefined_identifier", 17, 5, 3), ("undefined_identifier", 18, 11, 3)],
+        &[
+            ("undefined_identifier", 3, 3, 10),
+            ("undefined_identifier", 4, 3, 10),
+            ("unused_local_variable", 5, 7, 1),
+            ("undefined_identifier", 5, 11, 10),
+            ("undefined_prefixed_name", 7, 5, 3),
+            ("undefined_identifier", 11, 5, 5),
+            ("undefined_identifier", 17, 5, 3),
+            ("undefined_identifier", 18, 11, 3),
+        ],
     ),
     (
         "this_anulavel_escrita.dart",
         "class A {\n  int foo = 0;\n  int get g => 0;\n  set s(int _) {}\n  void m() {}\n}\nextension E on A? {\n  void baz() {\n    foo = 0;\n    foo += 1;\n    foo++;\n    s = 1;\n    print(g);\n    m();\n    m;\n    foo ??= 1;\n  }\n}\n",
-        &[("unchecked_use_of_nullable_value", 9, 5, 3), ("unchecked_use_of_nullable_value", 10, 5, 3), ("unchecked_use_of_nullable_value", 11, 5, 3), ("unchecked_use_of_nullable_value", 12, 5, 1), ("unchecked_use_of_nullable_value", 13, 11, 1), ("unchecked_use_of_nullable_value", 14, 5, 1), ("unchecked_use_of_nullable_value", 15, 5, 1), ("unchecked_use_of_nullable_value", 16, 5, 3), ("dead_null_aware_expression", 16, 13, 1)],
+        &[
+            ("unchecked_use_of_nullable_value", 9, 5, 3),
+            ("unchecked_use_of_nullable_value", 10, 5, 3),
+            ("unchecked_use_of_nullable_value", 11, 5, 3),
+            ("unchecked_use_of_nullable_value", 12, 5, 1),
+            ("unchecked_use_of_nullable_value", 13, 11, 1),
+            ("unchecked_use_of_nullable_value", 14, 5, 1),
+            ("unchecked_use_of_nullable_value", 15, 5, 1),
+            ("unchecked_use_of_nullable_value", 16, 5, 3),
+            ("dead_null_aware_expression", 16, 13, 1),
+        ],
     ),
     // Corpus FNs (2026-10-12): `Enum` through a supertype, `Fn<int>.foo`,
     // `dart:_wasm`, interpolated `@docImport`, negative hexadecimal and `is Never?`.
     (
         "alias_funcao_acesso.dart",
         "import 'dart:core' as c;\ntypedef Fn<T> = void Function(T);\nvoid bar() {\n  Fn<c.int>.foo;\n  Fn<c.int>.foo = 7;\n  Fn<c.int>.foo += 1;\n  Fn<c.int>.foo();\n  (Fn<c.int>).foo;\n  Fn<c.int>.hashCode;\n}\nextension E on c.Type {\n  c.int get foo => 1;\n  set foo(c.int v) {}\n}\n",
-        &[("undefined_getter", 4, 13, 3), ("undefined_setter", 5, 13, 3), ("undefined_getter", 6, 13, 3), ("undefined_method", 7, 13, 3), ("undefined_getter", 9, 13, 8)],
+        &[
+            ("undefined_getter", 4, 13, 3),
+            ("undefined_setter", 5, 13, 3),
+            ("undefined_getter", 6, 13, 3),
+            ("undefined_method", 7, 13, 3),
+            ("undefined_getter", 9, 13, 8),
+        ],
     ),
     (
         "doc_import_interpolado.dart",
@@ -194,34 +345,60 @@ const CASES: &[AnalyzerCase] = &[
     (
         "enum_transitivo.dart",
         "mixin M {}\nabstract class A implements Enum {}\nclass B = Object with M implements A;\nclass C implements A {}\nclass D extends C {}\nabstract class E2 implements A {}\nmixin M2 implements A {}\nclass F with M2 {}\n",
-        &[("concrete_class_has_enum_superinterface", 3, 7, 1), ("concrete_class_has_enum_superinterface", 4, 7, 1), ("concrete_class_has_enum_superinterface", 5, 7, 1), ("concrete_class_has_enum_superinterface", 8, 7, 1)],
+        &[
+            ("concrete_class_has_enum_superinterface", 3, 7, 1),
+            ("concrete_class_has_enum_superinterface", 4, 7, 1),
+            ("concrete_class_has_enum_superinterface", 5, 7, 1),
+            ("concrete_class_has_enum_superinterface", 8, 7, 1),
+        ],
     ),
     (
         "hex_negativo.dart",
         "var a = -0x8000000000000001;\nvar b = -0x8000000000000000;\nvar c = 0xFFFFFFFFFFFFFFFF;\nvar d = -0xFFFFFFFFFFFFFFFF;\nvoid f(Object? y) {\n  if (y is Never?) {}\n}\n",
-        &[("integer_literal_out_of_range", 1, 10, 18), ("integer_literal_out_of_range", 4, 10, 18), ("type_check_with_null", 6, 7, 11)],
+        &[
+            ("integer_literal_out_of_range", 1, 10, 18),
+            ("integer_literal_out_of_range", 4, 10, 18),
+            ("type_check_with_null", 6, 7, 11),
+        ],
     ),
     (
         "wasm_interna.dart",
         "import 'dart:_wasm';\n",
-        &[("import_internal_library", 1, 8, 12), ("unused_import", 1, 8, 12)],
+        &[
+            ("import_internal_library", 1, 8, 12),
+            ("unused_import", 1, 8, 12),
+        ],
     ),
     // Corpus FNs (2026-10-12, 2): `for (constant in …)`, `(_) && p`, inherited static
     // `m<T>`, repeated `[super._]` and the scope of each `if`/`while`/`do` branch.
     (
         "escopo_de_ramo.dart",
         "var x = 1;\nvoid f() {\n  while (false) var x = 0;\n  print(x);\n}\nvoid g(bool b) {\n  if (b) {} else var x = 0;\n  print(x);\n  do var x = 0; while (x > 0);\n  print(x);\n}\n",
-        &[("dead_code", 3, 17, 10), ("unused_local_variable", 3, 21, 1), ("unused_local_variable", 7, 22, 1), ("unused_local_variable", 9, 10, 1)],
+        &[
+            ("dead_code", 3, 17, 10),
+            ("unused_local_variable", 3, 21, 1),
+            ("unused_local_variable", 7, 22, 1),
+            ("unused_local_variable", 9, 10, 1),
+        ],
     ),
     (
         "estatico_instanciado.dart",
         "class A {\n  static void a<T>() {}\n  static T g<T>(T x) => x;\n}\nclass B extends A {\n  void b() {\n    a<int>;\n    a;\n    print(g<int>);\n  }\n  static void s() {\n    a<int>;\n  }\n}\n",
-        &[("unqualified_reference_to_non_local_static_member", 7, 5, 1), ("unqualified_reference_to_non_local_static_member", 9, 11, 1), ("unqualified_reference_to_non_local_static_member", 12, 5, 1)],
+        &[
+            ("unqualified_reference_to_non_local_static_member", 7, 5, 1),
+            ("unqualified_reference_to_non_local_static_member", 9, 11, 1),
+            ("unqualified_reference_to_non_local_static_member", 12, 5, 1),
+        ],
     ),
     (
         "for_in_const.dart",
         "f(Object? o) {\n  const x = 0;\n  for (x in <int>[1, 2]) {\n    print(x);\n  }\n  if (o case (_) && 0) {}\n}\nclass A {\n  final int x, y;\n  A(this.x, [this.y = 0]);\n}\nclass C extends A {\n  final int c;\n  C(this.c, super._, [super._]);\n}\n",
-        &[("assignment_to_const", 3, 8, 1), ("unnecessary_wildcard_pattern", 6, 15, 1), ("duplicate_definition", 14, 29, 1), ("missing_default_value_for_parameter", 14, 29, 1)],
+        &[
+            ("assignment_to_const", 3, 8, 1),
+            ("unnecessary_wildcard_pattern", 6, 15, 1),
+            ("duplicate_definition", 14, 29, 1),
+            ("missing_default_value_for_parameter", 14, 29, 1),
+        ],
     ),
     (
         "super_curinga.dart",
@@ -246,11 +423,7 @@ const CASES: &[AnalyzerCase] = &[
         "import '/z.dart';\nimport '/nao.dart';\nvoid f() {}\n",
         &[("unused_import", 1, 8, 9), ("uri_does_not_exist", 2, 8, 11)],
     ),
-    (
-        "lib/z.dart",
-        "class Z {}\n",
-        &[],
-    ),
+    ("lib/z.dart", "class Z {}\n", &[]),
     (
         "privado_lib.dart",
         "class Class {\n  Class._constructor();\n  Class();\n}\n",
@@ -259,7 +432,10 @@ const CASES: &[AnalyzerCase] = &[
     (
         "privado_uso.dart",
         "import 'privado_lib.dart';\nimport 'privado_lib.dart' as p;\nmain() {\n  new Class._constructor();\n  new p.Class._constructor();\n  Class();\n}\n",
-        &[("new_with_undefined_constructor", 4, 13, 12), ("new_with_undefined_constructor", 5, 15, 12)],
+        &[
+            ("new_with_undefined_constructor", 4, 13, 12),
+            ("new_with_undefined_constructor", 5, 15, 12),
+        ],
     ),
     // Private static member of another library (2026-10-12).
     (
@@ -270,24 +446,48 @@ const CASES: &[AnalyzerCase] = &[
     (
         "privado_estatico_uso.dart",
         "import 'privado_estatico_lib.dart';\nvoid f() {\n  print(E2._A);\n  print(C._s);\n  C._m();\n  C._s = 1;\n  print(C.pub);\n}\nvoid g() {\n  C._s += 1;\n  C._s++;\n}\n",
-        &[("undefined_enum_constant", 3, 12, 2), ("undefined_getter", 4, 11, 2), ("undefined_method", 5, 5, 2), ("private_setter", 6, 5, 2), ("private_setter", 10, 5, 2), ("undefined_getter", 10, 5, 2), ("private_setter", 11, 5, 2), ("undefined_getter", 11, 5, 2)],
+        &[
+            ("undefined_enum_constant", 3, 12, 2),
+            ("undefined_getter", 4, 11, 2),
+            ("undefined_method", 5, 5, 2),
+            ("private_setter", 6, 5, 2),
+            ("private_setter", 10, 5, 2),
+            ("undefined_getter", 10, 5, 2),
+            ("private_setter", 11, 5, 2),
+            ("undefined_getter", 11, 5, 2),
+        ],
     ),
     // `f.call` read with `f: Function` and the invocation of `Null`/`Never?` (2026-10-12).
     (
         "call_de_function.dart",
         "void f(Function a, void Function(int) b) {\n  var x = a.call;\n  var y = (a).call;\n  var z = b.call;\n  int i = x;\n  int j = y;\n  int k = z;\n  print([i, j, k]);\n}\nvoid g(Function a) {\n  var r = a.call();\n  int i = r;\n  a.call;\n  print(i);\n}\n",
-        &[("invalid_assignment", 5, 11, 1), ("invalid_assignment", 6, 11, 1), ("invalid_assignment", 7, 11, 1)],
+        &[
+            ("invalid_assignment", 5, 11, 1),
+            ("invalid_assignment", 6, 11, 1),
+            ("invalid_assignment", 7, 11, 1),
+        ],
     ),
     (
         "invocacao_de_null.dart",
         "void f(Never? x, Null y, void Function()? z) {\n  x();\n  y();\n  z();\n  null();\n  y(1, 2);\n  print(1);\n}\n",
-        &[("unchecked_use_of_nullable_value", 2, 3, 1), ("invalid_use_of_null_value", 3, 3, 1), ("unchecked_use_of_nullable_value", 4, 3, 1), ("invalid_use_of_null_value", 5, 3, 4), ("invalid_use_of_null_value", 6, 3, 1)],
+        &[
+            ("unchecked_use_of_nullable_value", 2, 3, 1),
+            ("invalid_use_of_null_value", 3, 3, 1),
+            ("unchecked_use_of_nullable_value", 4, 3, 1),
+            ("invalid_use_of_null_value", 5, 3, 4),
+            ("invalid_use_of_null_value", 6, 3, 1),
+        ],
     ),
     // `values` and the named primary constructor as members; unnamed `A.new(…)` (2026-10-12).
     (
         "conflito_variavel_de_tipo.dart",
         "enum E<values> { a }\nenum F<a> { a }\nextension type A<T>.T(int it) {}\nextension type B<U>.named(int it) {}\nextension type C<it>(int it) {}\n",
-        &[("conflicting_type_variable_and_member", 1, 8, 6), ("conflicting_type_variable_and_member", 2, 8, 1), ("conflicting_type_variable_and_member", 3, 18, 1), ("conflicting_type_variable_and_member", 5, 18, 2)],
+        &[
+            ("conflicting_type_variable_and_member", 1, 8, 6),
+            ("conflicting_type_variable_and_member", 2, 8, 1),
+            ("conflicting_type_variable_and_member", 3, 18, 1),
+            ("conflicting_type_variable_and_member", 5, 18, 2),
+        ],
     ),
     (
         "primario_new.dart",
@@ -299,7 +499,11 @@ const CASES: &[AnalyzerCase] = &[
     (
         "await_sintetico.dart",
         "import 'dart:async';\nget await => 4;\ntest1() async {\n  var y = await;\n}\n",
-        &[("unused_import", 1, 8, 12), ("unused_local_variable", 4, 7, 1), ("missing_identifier", 4, 16, 1)],
+        &[
+            ("unused_import", 1, 8, 12),
+            ("unused_local_variable", 4, 7, 1),
+            ("missing_identifier", 4, 16, 1),
+        ],
     ),
     // `this` in an initializer has the class's type; `this?.m()` is read as
     // `this.<synthetic>?.m()` (2026-10-13).
@@ -325,7 +529,10 @@ const CASES: &[AnalyzerCase] = &[
     (
         "nulos_pub_cache.dart",
         "class R {\n  int get h => 1;\n  int Function() w(int x) => () => x;\n}\nvoid f<T>(T? d, R? r, String? s) {\n  if (d is R) print(d.h);\n  var x = r?.w(1)();\n  int y = r?.w(1)();\n  assert(s == null || s.isEmpty, s.length);\n  assert(true, s.length);\n  print([x, y]);\n}\n",
-        &[("invalid_assignment", 8, 11, 9), ("unchecked_use_of_nullable_value", 10, 18, 6)],
+        &[
+            ("invalid_assignment", 8, 11, 9),
+            ("unchecked_use_of_nullable_value", 10, 18, 6),
+        ],
     ),
     // `[m]` in a type's comment resolves `m` on the type, through the imported
     // extensions that apply to it (stream_transform; 2026-10-13).
@@ -376,14 +583,20 @@ const CASES: &[AnalyzerCase] = &[
     (
         "late_final_setter.dart",
         "abstract class A {\n  late final String name;\n  late final int x = 1;\n  final int y = 2;\n}\nclass B extends A {\n  @override\n  set name(String v) {}\n  @override\n  set x(int v) {}\n  @override\n  set y(int v) {}\n}\nvoid f(A a) {\n  a.name = 's';\n}\nabstract class I { late final String q; }\nclass J implements I {\n  @override\n  String get q => '';\n  @override\n  set q(String v) {}\n}\nmixin M { late final int r; }\nclass K with M {\n  @override\n  set r(int v) {}\n}\n",
-        &[("override_on_non_overriding_member", 10, 7, 1), ("override_on_non_overriding_member", 12, 7, 1)],
+        &[
+            ("override_on_non_overriding_member", 10, 7, 1),
+            ("override_on_non_overriding_member", 12, 7, 1),
+        ],
     ),
     // UP of an extension type that implements `Object` and a class is `Object`
     // (limitless_ui with package:web; 2026-10-13).
     (
         "up_tipo_de_extensao.dart",
         "class A {}\nclass B {}\nextension type E(B b) implements Object {}\nextension type G(B b) {}\nvoid f(E? x, A a, G? z) {\n  int i = x ?? a;\n  int l = z ?? a;\n  print([i, l]);\n}\n",
-        &[("invalid_assignment", 6, 11, 6), ("invalid_assignment", 7, 11, 6)],
+        &[
+            ("invalid_assignment", 6, 11, 6),
+            ("invalid_assignment", 7, 11, 6),
+        ],
     ),
     // `List<int>? <# List<T>` constrains `T :> int`: the analyzer's gatherer
     // goes on after the `P0?` rule fails, and the interface rule ignores the
@@ -391,7 +604,11 @@ const CASES: &[AnalyzerCase] = &[
     (
         "argumento_anulavel_inferencia.dart",
         "class C5 {\n  List<int>? bad;\n  f<T>(List<T> x) {}\n}\nT? g<T>(List<T> x) => null;\nvoid h(C5 c, List<int>? l) {\n  c.f(c.bad);\n  List<int> y = g(l);\n  print(y);\n}\n",
-        &[("argument_type_not_assignable", 7, 7, 5), ("invalid_assignment", 8, 17, 4), ("argument_type_not_assignable", 8, 19, 1)],
+        &[
+            ("argument_type_not_assignable", 7, 7, 5),
+            ("invalid_assignment", 8, 17, 4),
+            ("argument_type_not_assignable", 8, 19, 1),
+        ],
     ),
     // A plain `=` has no `readElement`: a deprecated getter does not count
     // when only the setter is written (analyzer's resolve_file.dart; 2026-10-13).
@@ -424,13 +641,21 @@ const CASES: &[AnalyzerCase] = &[
     (
         "operador_de_extensao_generica.dart",
         "extension<T> on T Function(T) {\n  T Function(T) operator*(T Function(T) other) {\n    return (value) => this(other(value));\n  }\n}\nextension on int {\n  int operator %(int o) => 0;\n}\nextension<T> on List<T> {\n  List<T> operator -(int o) => this;\n}\nextension<T> on Set<T> {\n  Set<T> operator ~/(int o) => this;\n}\nvoid f() {\n  var g = (int i) => i + 1;\n  g *= (i) => i + 10;\n  print(g(0));\n  var x = 1;\n  x %= 2;\n  var l = [1];\n  l -= 1;\n  l = l - 1;\n  var s = {1};\n  s ~/= 2;\n  print([x, l, s]);\n}\n",
-        &[("unused_element", 2, 25, 1), ("unused_element", 7, 16, 1), ("unused_element", 13, 19, 2)],
+        &[
+            ("unused_element", 2, 25, 1),
+            ("unused_element", 7, 16, 1),
+            ("unused_element", 13, 19, 2),
+        ],
     ),
     // Only a non-nullable interface type tears off its `call` (2026-10-13).
     (
         "call_implicito_anulavel.dart",
         "class C {\n  void call(int a) {}\n}\nvoid f(C? c, Iterable<C?> cs) {\n  void Function(int) g = c;\n  print(g);\n  for (void Function(int) h in cs) { h; }\n  for (var h in cs) { void Function(int) k = h; print(k); }\n}\n",
-        &[("invalid_assignment", 5, 26, 1), ("for_in_of_invalid_element_type", 7, 32, 2), ("invalid_assignment", 8, 46, 1)],
+        &[
+            ("invalid_assignment", 5, 26, 1),
+            ("for_in_of_invalid_element_type", 7, 32, 2),
+            ("invalid_assignment", 8, 46, 1),
+        ],
     ),
     // The `for-in` element passes by the tear-off of its `call` only when the
     // tear-off's type is assignable (2026-10-13).
@@ -570,10 +795,20 @@ const CASES: &[AnalyzerCase] = &[
         "const_tearoff_type_parameter.dart",
         "void f<T>(T a) {}\nclass A<U> {\n  const A();\n  final x = f<U>;\n}\nclass B<U> {\n  const B();\n  final x = f<List<U>>;\n}\nclass C<U> {\n  final Object x;\n  const C() : x = f<U>;\n}\nconst c = C<int>();\nclass D<U> {\n  const D();\n  final x = f<U?>;\n}\n",
         &[
-            ("const_constructor_with_field_initialized_by_non_const", 3, 3, 5),
+            (
+                "const_constructor_with_field_initialized_by_non_const",
+                3,
+                3,
+                5,
+            ),
             ("const_with_type_parameters", 4, 15, 1),
             ("const_with_type_parameters", 8, 20, 1),
-            ("const_constructor_with_field_initialized_by_non_const", 16, 3, 5),
+            (
+                "const_constructor_with_field_initialized_by_non_const",
+                16,
+                3,
+                5,
+            ),
             ("const_with_type_parameters", 17, 15, 2),
         ],
     ),
@@ -667,9 +902,7 @@ const CASES: &[AnalyzerCase] = &[
     (
         "dead_interpolation.dart",
         "void f(int x) {\n  print('a ${throw ''} b');\n  print(1);\n}\nvoid g(int x) {\n  assert(x > 0, throw '');\n  print(2);\n}\nvoid h(int x) {\n  assert(x > 0, 'a' + (throw ''));\n  print(2);\n}\n",
-        &[
-            ("dead_code", 2, 23, 17),
-        ],
+        &[("dead_code", 2, 23, 17)],
     ),
     (
         "dead_for_element.dart",
@@ -680,7 +913,12 @@ const CASES: &[AnalyzerCase] = &[
             ("dead_code", 8, 24, 15),
             ("dead_code", 13, 3, 9),
             ("unused_local_variable", 19, 9, 1),
-            ("not_assigned_potentially_non_nullable_local_variable", 20, 11, 1),
+            (
+                "not_assigned_potentially_non_nullable_local_variable",
+                20,
+                11,
+                1,
+            ),
             ("definitely_unassigned_late_local_variable", 21, 11, 1),
         ],
     ),
@@ -705,7 +943,12 @@ const CASES: &[AnalyzerCase] = &[
         &[
             ("unnecessary_null_check_pattern", 4, 11, 1),
             ("unnecessary_null_check_pattern", 10, 11, 1),
-            ("not_assigned_potentially_non_nullable_local_variable", 13, 9, 1),
+            (
+                "not_assigned_potentially_non_nullable_local_variable",
+                13,
+                9,
+                1,
+            ),
         ],
     ),
     (
@@ -776,11 +1019,22 @@ const CASES: &[AnalyzerCase] = &[
 #[test]
 fn ported_rules_give_what_analyzer_3_6_2_gives() {
     let engine = engine();
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/tmp-agent/regras-{}", std::process::id()));
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp-agent/regras-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).unwrap();
-    std::fs::write(root.join("pubspec.yaml"), "name: regras\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
-    let g = Group { sdk: OracleSdk::V362, packages: Vec::new(), origin: String::new() };
+    std::fs::write(
+        root.join("pubspec.yaml"),
+        "name: regras\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n",
+    )
+    .unwrap();
+    let g = Group {
+        sdk: OracleSdk::V362,
+        packages: Vec::new(),
+        origin: String::new(),
+    };
     let cfg = corpus::prepare(&root, "regras", &g).unwrap();
     let mut sources = Vec::new();
     for (name, text, _) in CASES {
@@ -795,11 +1049,26 @@ fn ported_rules_give_what_analyzer_3_6_2_gives() {
         isolate: None,
         max_time: std::time::Duration::from_secs(600),
     };
-    let r = run_ours(&engine, &root, &sources, Some(&cfg), &filters::AnalysisOptions::default(), &ex);
+    let r = run_ours(
+        &engine,
+        &root,
+        &sources,
+        Some(&cfg),
+        &filters::AnalysisOptions::default(),
+        &ex,
+    );
     let _ = std::fs::remove_dir_all(&root);
-    assert!(r.panics.is_empty(), "analyzer parity panics: {:?}", r.panics);
+    assert!(
+        r.panics.is_empty(),
+        "analyzer parity panics: {:?}",
+        r.panics
+    );
     let expected_total: usize = CASES.iter().map(|(_, _, records)| records.len()).sum();
-    assert_eq!(r.records.len(), expected_total, "unexpected diagnostic count");
+    assert_eq!(
+        r.records.len(),
+        expected_total,
+        "unexpected diagnostic count"
+    );
     for (name, _, expected) in CASES {
         let mut found: Vec<(String, usize, usize, usize)> = r
             .records
@@ -808,7 +1077,10 @@ fn ported_rules_give_what_analyzer_3_6_2_gives() {
             .map(|x| (x.code.clone(), x.line, x.column, x.length))
             .collect();
         found.sort();
-        let mut exp: Vec<(String, usize, usize, usize)> = expected.iter().map(|&(c, l, k, n)| (c.to_string(), l, k, n)).collect();
+        let mut exp: Vec<(String, usize, usize, usize)> = expected
+            .iter()
+            .map(|&(c, l, k, n)| (c.to_string(), l, k, n))
+            .collect();
         exp.sort();
         assert_eq!(found, exp, "{name}");
     }
@@ -824,25 +1096,68 @@ fn ported_rules_give_what_analyzer_3_6_2_gives() {
 #[test]
 fn root_spelled_differently_from_the_file_system() {
     let engine = engine();
-    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/tmp-agent/grafia-{}", std::process::id()));
+    let base = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp-agent/grafia-{}",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&base);
     let real = base.join("real");
     std::fs::create_dir_all(real.join("lib")).unwrap();
     std::fs::create_dir_all(real.join("bin")).unwrap();
-    std::fs::write(real.join("pubspec.yaml"), "name: grafia\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
-    std::fs::write(real.join("lib/a.dart"), "@Deprecated('no')\nvoid old() {}\n").unwrap();
-    std::fs::write(real.join("bin/main.dart"), "import 'package:corpus_grafia/a.dart';\nvoid main() => old();\n").unwrap();
-    let g = Group { sdk: OracleSdk::V362, packages: Vec::new(), origin: String::new() };
+    std::fs::write(
+        real.join("pubspec.yaml"),
+        "name: grafia\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n",
+    )
+    .unwrap();
+    std::fs::write(
+        real.join("lib/a.dart"),
+        "@Deprecated('no')\nvoid old() {}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        real.join("bin/main.dart"),
+        "import 'package:corpus_grafia/a.dart';\nvoid main() => old();\n",
+    )
+    .unwrap();
+    let g = Group {
+        sdk: OracleSdk::V362,
+        packages: Vec::new(),
+        origin: String::new(),
+    };
     let cfg = corpus::prepare(&real, "grafia", &g).unwrap();
     let link = base.join("link");
     std::os::unix::fs::symlink(&real, &link).unwrap();
     let sources = vec![link.join("bin/main.dart")];
-    let ex = Execution { workers: 1, batch_size: 1, progress: false, isolate: None, max_time: std::time::Duration::from_secs(600) };
+    let ex = Execution {
+        workers: 1,
+        batch_size: 1,
+        progress: false,
+        isolate: None,
+        max_time: std::time::Duration::from_secs(600),
+    };
     let cfg_link = link.join(cfg.strip_prefix(&real).unwrap());
-    let r = run_ours(&engine, &link, &sources, Some(&cfg_link), &filters::AnalysisOptions::default(), &ex);
+    let r = run_ours(
+        &engine,
+        &link,
+        &sources,
+        Some(&cfg_link),
+        &filters::AnalysisOptions::default(),
+        &ex,
+    );
     let _ = std::fs::remove_dir_all(&base);
-    let found: Vec<(String, String, usize)> = r.records.iter().map(|x| (x.file.clone(), x.code.clone(), x.line)).collect();
-    assert_eq!(found, vec![("bin/main.dart".to_string(), "deprecated_member_use_from_same_package".to_string(), 2)]);
+    let found: Vec<(String, String, usize)> = r
+        .records
+        .iter()
+        .map(|x| (x.file.clone(), x.code.clone(), x.line))
+        .collect();
+    assert_eq!(
+        found,
+        vec![(
+            "bin/main.dart".to_string(),
+            "deprecated_member_use_from_same_package".to_string(),
+            2
+        )]
+    );
 }
 
 /// `@internal` is the getter of `package:meta`: a package's own
@@ -856,13 +1171,21 @@ fn internal_is_the_meta_getter() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("lib/src")).unwrap();
     std::fs::create_dir_all(root.join(".dart_tool")).unwrap();
-    std::fs::write(root.join("pubspec.yaml"), "name: interno\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    std::fs::write(
+        root.join("pubspec.yaml"),
+        "name: interno\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n",
+    )
+    .unwrap();
     let cfg = serde_json::json!({ "configVersion": 2, "packages": [
         { "name": "interno", "rootUri": "../", "packageUri": "lib/", "languageVersion": "3.6" },
         { "name": "meta", "rootUri": "../../../../corpus/diagnostics/pacotes/meta/", "packageUri": "lib/", "languageVersion": "2.12" },
     ]});
     std::fs::write(root.join(".dart_tool/package_config.json"), cfg.to_string()).unwrap();
-    std::fs::write(root.join("lib/src/i.dart"), "class _I { const _I(); }\nconst internal = _I();\n").unwrap();
+    std::fs::write(
+        root.join("lib/src/i.dart"),
+        "class _I { const _I(); }\nconst internal = _I();\n",
+    )
+    .unwrap();
     std::fs::write(
         root.join("lib/src/a.dart"),
         "import 'i.dart';\nimport 'package:meta/meta.dart' as meta;\n@internal\nclass A {}\n@meta.internal\nclass B {}\n",
@@ -870,12 +1193,40 @@ fn internal_is_the_meta_getter() {
     .unwrap();
     std::fs::write(root.join("lib/p.dart"), "export 'src/a.dart';\n").unwrap();
     let sources = vec![root.join("lib/p.dart")];
-    let ex = Execution { workers: 1, batch_size: 1, progress: false, isolate: None, max_time: std::time::Duration::from_secs(600) };
-    let r = run_ours(&engine, &root, &sources, Some(&root.join(".dart_tool/package_config.json")), &filters::AnalysisOptions::default(), &ex);
+    let ex = Execution {
+        workers: 1,
+        batch_size: 1,
+        progress: false,
+        isolate: None,
+        max_time: std::time::Duration::from_secs(600),
+    };
+    let r = run_ours(
+        &engine,
+        &root,
+        &sources,
+        Some(&root.join(".dart_tool/package_config.json")),
+        &filters::AnalysisOptions::default(),
+        &ex,
+    );
     let _ = std::fs::remove_dir_all(&root);
-    let found: Vec<(String, String, usize)> = r.records.iter().map(|x| (x.file.clone(), x.code.clone(), x.line)).collect();
-    assert_eq!(found, vec![("lib/p.dart".to_string(), "invalid_export_of_internal_element".to_string(), 1)]);
-    assert!(r.records[0].problem_message.contains("'B'"), "{}", r.records[0].problem_message);
+    let found: Vec<(String, String, usize)> = r
+        .records
+        .iter()
+        .map(|x| (x.file.clone(), x.code.clone(), x.line))
+        .collect();
+    assert_eq!(
+        found,
+        vec![(
+            "lib/p.dart".to_string(),
+            "invalid_export_of_internal_element".to_string(),
+            1
+        )]
+    );
+    assert!(
+        r.records[0].problem_message.contains("'B'"),
+        "{}",
+        r.records[0].problem_message
+    );
 }
 
 /// A `@literal` constructor called without `const` in a constant context is
@@ -890,7 +1241,11 @@ fn literal_constructor_in_a_constant_context() {
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("lib")).unwrap();
     std::fs::create_dir_all(root.join(".dart_tool")).unwrap();
-    std::fs::write(root.join("pubspec.yaml"), "name: literal\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n").unwrap();
+    std::fs::write(
+        root.join("pubspec.yaml"),
+        "name: literal\npublish_to: none\nenvironment:\n  sdk: ^3.6.0\n",
+    )
+    .unwrap();
     let cfg = serde_json::json!({ "configVersion": 2, "packages": [
         { "name": "literal", "rootUri": "../", "packageUri": "lib/", "languageVersion": "3.6" },
         { "name": "meta", "rootUri": "../../../../corpus/diagnostics/pacotes/meta/", "packageUri": "lib/", "languageVersion": "2.12" },
@@ -902,10 +1257,27 @@ fn literal_constructor_in_a_constant_context() {
     )
     .unwrap();
     let sources = vec![root.join("lib/a.dart")];
-    let ex = Execution { workers: 1, batch_size: 1, progress: false, isolate: None, max_time: std::time::Duration::from_secs(600) };
-    let r = run_ours(&engine, &root, &sources, Some(&root.join(".dart_tool/package_config.json")), &filters::AnalysisOptions::default(), &ex);
+    let ex = Execution {
+        workers: 1,
+        batch_size: 1,
+        progress: false,
+        isolate: None,
+        max_time: std::time::Duration::from_secs(600),
+    };
+    let r = run_ours(
+        &engine,
+        &root,
+        &sources,
+        Some(&root.join(".dart_tool/package_config.json")),
+        &filters::AnalysisOptions::default(),
+        &ex,
+    );
     let _ = std::fs::remove_dir_all(&root);
-    let found: Vec<(String, usize, usize)> = r.records.iter().map(|x| (x.code.clone(), x.line, x.column)).collect();
+    let found: Vec<(String, usize, usize)> = r
+        .records
+        .iter()
+        .map(|x| (x.code.clone(), x.line, x.column))
+        .collect();
     let code = "non_const_call_to_literal_constructor".to_string();
     assert_eq!(found, vec![(code.clone(), 7, 11), (code, 9, 12)]);
 }

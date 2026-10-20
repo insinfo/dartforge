@@ -94,7 +94,8 @@ pub fn failure_key(s: &Output) -> String {
     // `thread '<unnamed>' (11220) panicked at <path>:346:14:`, which only
     // names the runtime cache file. Grouping by it puts 89 programs in a
     // single group and hides which defect it is.
-    if first.starts_with("thread '") && first.contains("panicked at")
+    if first.starts_with("thread '")
+        && first.contains("panicked at")
         && let Some(msg) = lines.next()
     {
         return format!("runtime panic: {}", stabilize_key(msg));
@@ -134,7 +135,10 @@ pub fn stabilize_key(line: &str) -> String {
 /// `None` when stdout and exit code are identical.
 pub fn compare(expected: &Output, actual: &Output) -> Option<Divergence> {
     if expected.stdout != actual.stdout {
-        return Some(Divergence::Line(first_differing_line(&expected.stdout, &actual.stdout)));
+        return Some(Divergence::Line(first_differing_line(
+            &expected.stdout,
+            &actual.stdout,
+        )));
     }
     if expected.code != actual.code {
         return Some(Divergence::ExitCode);
@@ -157,7 +161,11 @@ fn first_differing_line(a: &str, b: &str) -> usize {
 impl ProgramResult {
     /// DartForge's reference output (the VM, or DDC if the header declares a divergence).
     pub fn reference(&self) -> &Output {
-        if !self.native && self.program.reference_is_ddc() { &self.ddc } else { &self.dart }
+        if !self.native && self.program.reference_is_ddc() {
+            &self.ddc
+        } else {
+            &self.dart
+        }
     }
 
     /// DDC × VM divergence (only relevant when the header does not declare it).
@@ -167,7 +175,9 @@ impl ProgramResult {
 
     /// DartForge × reference divergence; also `None` when DartForge was not run.
     pub fn forge_vs_reference(&self) -> Option<Divergence> {
-        self.forge.as_ref().and_then(|f| compare(self.reference(), f))
+        self.forge
+            .as_ref()
+            .and_then(|f| compare(self.reference(), f))
     }
 
     /// The production profile's reference: the reference with the one
@@ -182,14 +192,20 @@ impl ProgramResult {
             return std::borrow::Cow::Borrowed(r);
         }
         match omit_late_names(&r.stdout) {
-            Some(stdout) => std::borrow::Cow::Owned(Output { stdout, stderr: r.stderr.clone(), code: r.code }),
+            Some(stdout) => std::borrow::Cow::Owned(Output {
+                stdout,
+                stderr: r.stderr.clone(),
+                code: r.code,
+            }),
             None => std::borrow::Cow::Borrowed(r),
         }
     }
 
     /// Production × reference divergence.
     pub fn production_vs_reference(&self) -> Option<Divergence> {
-        self.production.as_ref().and_then(|f| compare(&self.production_reference(), f))
+        self.production
+            .as_ref()
+            .and_then(|f| compare(&self.production_reference(), f))
     }
 
     /// Production × development divergence. This is the one the production
@@ -207,7 +223,10 @@ impl ProgramResult {
     pub fn ok(&self) -> bool {
         self.forge.is_some()
             && self.forge_vs_reference().is_none()
-            && self.production.as_ref().is_none_or(|_| self.production_vs_reference().is_none())
+            && self
+                .production
+                .as_ref()
+                .is_none_or(|_| self.production_vs_reference().is_none())
     }
 }
 
@@ -220,13 +239,18 @@ pub fn omit_late_names(text: &str) -> Option<String> {
     let mut changed = false;
     while let Some(i) = rest.find("LateInitializationError: ") {
         let after = &rest[i + "LateInitializationError: ".len()..];
-        let Some(kind) = ["Field '", "Local '"].into_iter().find(|k| after.starts_with(k)) else {
+        let Some(kind) = ["Field '", "Local '"]
+            .into_iter()
+            .find(|k| after.starts_with(k))
+        else {
             out.push_str(&rest[..i + 1]);
             rest = &rest[i + 1..];
             continue;
         };
         let name_start = i + "LateInitializationError: ".len() + kind.len();
-        let line_end = rest[name_start..].find('\n').map_or(rest.len(), |e| name_start + e);
+        let line_end = rest[name_start..]
+            .find('\n')
+            .map_or(rest.len(), |e| name_start + e);
         match rest[name_start..line_end].find("' has ") {
             Some(q) => {
                 out.push_str(&rest[..name_start]);
@@ -263,13 +287,22 @@ pub fn side_by_side(columns: &[(&str, &str)], focus: usize) -> String {
     let start = focus.saturating_sub(1).saturating_sub(LINES_BEFORE);
     let end = (focus + LINES_AFTER).min(max);
     let mut out = String::new();
-    let head: Vec<String> = columns.iter().map(|(n, _)| format!("{:<w$}", truncate(n, COLUMN_WIDTH), w = COLUMN_WIDTH)).collect();
+    let head: Vec<String> = columns
+        .iter()
+        .map(|(n, _)| format!("{:<w$}", truncate(n, COLUMN_WIDTH), w = COLUMN_WIDTH))
+        .collect();
     let _ = writeln!(out, "         {}", head.join(" | "));
     for i in start..end {
         let mark = if i + 1 == focus { ">" } else { " " };
         let cells: Vec<String> = lines
             .iter()
-            .map(|l| format!("{:<w$}", truncate(l.get(i).copied().unwrap_or("∅"), COLUMN_WIDTH), w = COLUMN_WIDTH))
+            .map(|l| {
+                format!(
+                    "{:<w$}",
+                    truncate(l.get(i).copied().unwrap_or("∅"), COLUMN_WIDTH),
+                    w = COLUMN_WIDTH
+                )
+            })
             .collect();
         let _ = writeln!(out, "  {mark}{:>4}  {}", i + 1, cells.join(" | "));
     }
@@ -297,22 +330,45 @@ pub fn format_report(results: &[ProgramResult]) -> String {
     let mut constructs: Vec<(&str, Vec<String>)> = Vec::new();
     for r in results {
         let name = &r.program.name;
-        if r.forge.is_none() && let Some(failure) = r.oracle_failure() {
+        if r.forge.is_none()
+            && let Some(failure) = r.oracle_failure()
+        {
             let _ = writeln!(out, "ORACLE! {name} ({failure})");
         }
         if r.dart.code != 0 {
-            let _ = writeln!(out, "DART!  {name}  (dart run exited with {}: {})", r.dart.code, truncate(r.dart.first_stderr_line(), 90));
+            let _ = writeln!(
+                out,
+                "DART!  {name}  (dart run exited with {}: {})",
+                r.dart.code,
+                truncate(r.dart.first_stderr_line(), 90)
+            );
         }
         if !native {
             match (r.ddc_vs_dart(), &r.program.diverge_ddc) {
                 (Some(d), None) => {
                     ddc_warnings += 1;
                     let _ = writeln!(out, "DDC≠VM {name}  ({})", describe(d));
-                    let _ = write!(out, "{}", side_by_side(&[("dart run", &r.dart.stdout), ("ddc+node", &r.ddc.stdout)], focus(d)));
-                    let _ = writeln!(out, "       exit codes: dart={} ddc={}  ddc stderr: {}", r.dart.code, r.ddc.code, truncate(r.ddc.first_stderr_line(), 80));
+                    let _ = write!(
+                        out,
+                        "{}",
+                        side_by_side(
+                            &[("dart run", &r.dart.stdout), ("ddc+node", &r.ddc.stdout)],
+                            focus(d)
+                        )
+                    );
+                    let _ = writeln!(
+                        out,
+                        "       exit codes: dart={} ddc={}  ddc stderr: {}",
+                        r.dart.code,
+                        r.ddc.code,
+                        truncate(r.ddc.first_stderr_line(), 80)
+                    );
                 }
                 (None, Some(reason)) => {
-                    let _ = writeln!(out, "WARN   {name}  header declares a DDC divergence but the outputs match: {reason}");
+                    let _ = writeln!(
+                        out,
+                        "WARN   {name}  header declares a DDC divergence but the outputs match: {reason}"
+                    );
                 }
                 _ => {}
             }
@@ -325,7 +381,10 @@ pub fn format_report(results: &[ProgramResult]) -> String {
             if r.ok() {
                 ok += 1;
                 pending_passed.push(name.clone());
-                let _ = writeln!(out, "PASSED {name}  (listed in PENDENTES: remove it from the list)");
+                let _ = writeln!(
+                    out,
+                    "PASSED {name}  (listed in PENDENTES: remove it from the list)"
+                );
             } else {
                 pending_failing += 1;
                 let _ = writeln!(out, "PEND   {name}");
@@ -342,15 +401,25 @@ pub fn format_report(results: &[ProgramResult]) -> String {
             Some(d) => {
                 let _ = writeln!(out, "FAIL   {name}  ({})", describe(d));
                 let columns: Vec<(&str, &str)> = if native {
-                    vec![("dart run", &r.dart.stdout), ("dartforge native", &forge.stdout)]
+                    vec![
+                        ("dart run", &r.dart.stdout),
+                        ("dartforge native", &forge.stdout),
+                    ]
                 } else {
-                    vec![("dart run", &r.dart.stdout), ("ddc+node", &r.ddc.stdout), ("dartforge", &forge.stdout)]
+                    vec![
+                        ("dart run", &r.dart.stdout),
+                        ("ddc+node", &r.ddc.stdout),
+                        ("dartforge", &forge.stdout),
+                    ]
                 };
                 let _ = write!(out, "{}", side_by_side(&columns, focus(d)));
                 let codes = if native {
                     format!("exit codes: dart={} forge={}", r.dart.code, forge.code)
                 } else {
-                    format!("exit codes: dart={} ddc={} forge={}", r.dart.code, r.ddc.code, forge.code)
+                    format!(
+                        "exit codes: dart={} ddc={} forge={}",
+                        r.dart.code, r.ddc.code, forge.code
+                    )
                 };
                 let _ = writeln!(out, "       {codes}");
                 let key = truncate(&failure_key(forge), 120);
@@ -370,7 +439,10 @@ pub fn format_report(results: &[ProgramResult]) -> String {
             None => {
                 ok_prod += 1;
                 if !std::ptr::eq(&*r.production_reference(), r.reference()) {
-                    let _ = writeln!(out, "ok     {name}  (late names omitted in production, as dart2js -O2)");
+                    let _ = writeln!(
+                        out,
+                        "ok     {name}  (late names omitted in production, as dart2js -O2)"
+                    );
                 } else {
                     let _ = writeln!(out, "ok     {name}");
                 }
@@ -380,11 +452,34 @@ pub fn format_report(results: &[ProgramResult]) -> String {
                 // from the other executor is a **pruning** defect; production
                 // differing only from the VM, with the other one equal, is
                 // too — but grouping is done by the failure key.
-                let blame = if r.production_vs_forge().is_some() { "production≠executor" } else { "production≠VM" };
+                let blame = if r.production_vs_forge().is_some() {
+                    "production≠executor"
+                } else {
+                    "production≠VM"
+                };
                 let _ = writeln!(out, "PROD!  {name}  ({}, {blame})", describe(d));
-                let label = if native { "dartforge native" } else { "dartforge dev" };
-                let _ = write!(out, "{}", side_by_side(&[("dart run", &r.dart.stdout), (label, &forge.stdout), ("dartforge prod", &prod.stdout)], focus(d)));
-                let _ = writeln!(out, "       exit codes: dart={} other={} prod={}", r.dart.code, forge.code, prod.code);
+                let label = if native {
+                    "dartforge native"
+                } else {
+                    "dartforge dev"
+                };
+                let _ = write!(
+                    out,
+                    "{}",
+                    side_by_side(
+                        &[
+                            ("dart run", &r.dart.stdout),
+                            (label, &forge.stdout),
+                            ("dartforge prod", &prod.stdout)
+                        ],
+                        focus(d)
+                    )
+                );
+                let _ = writeln!(
+                    out,
+                    "       exit codes: dart={} other={} prod={}",
+                    r.dart.code, forge.code, prod.code
+                );
                 // The same key as the main executor, and for the same reason:
                 // a `dartforge-jsprod` that panics carries the thread id on
                 // the first line, which would split one defect into several
@@ -418,11 +513,28 @@ pub fn format_report(results: &[ProgramResult]) -> String {
             "Pending (PENDENTES): {} still fail, {} passed{}",
             pending_failing,
             pending_passed.len(),
-            if pending_passed.is_empty() { String::new() } else { format!(" — remove from the list: {}", pending_passed.join(", ")) }
+            if pending_passed.is_empty() {
+                String::new()
+            } else {
+                format!(" — remove from the list: {}", pending_passed.join(", "))
+            }
         );
     }
     if !native {
-        let _ = writeln!(out, "DDC×VM: {}/{total} match (not counting {} with a declared divergence)", total - ddc_warnings - results.iter().filter(|r| r.program.diverge_ddc.is_some()).count(), results.iter().filter(|r| r.program.diverge_ddc.is_some()).count());
+        let _ = writeln!(
+            out,
+            "DDC×VM: {}/{total} match (not counting {} with a declared divergence)",
+            total
+                - ddc_warnings
+                - results
+                    .iter()
+                    .filter(|r| r.program.diverge_ddc.is_some())
+                    .count(),
+            results
+                .iter()
+                .filter(|r| r.program.diverge_ddc.is_some())
+                .count()
+        );
     }
     // Two groupings, because the causes differ: a failure of the main
     // executor is a construct missing in the emitter; a production failure is
@@ -434,14 +546,20 @@ pub fn format_report(results: &[ProgramResult]) -> String {
     } else {
         "of DartForge"
     };
-    for (title, groups) in [(forge_title, groups), ("of the production profile", prod_groups)] {
+    for (title, groups) in [
+        (forge_title, groups),
+        ("of the production profile", prod_groups),
+    ] {
         if groups.is_empty() {
             continue;
         }
         let mut list: Vec<(String, Vec<String>)> = groups.into_iter().collect();
         list.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(a.0.cmp(&b.0)));
-        let _ = writeln!(out, "
-Failures by first stderr line {title} (priority = group size):");
+        let _ = writeln!(
+            out,
+            "
+Failures by first stderr line {title} (priority = group size):"
+        );
         for (key, names) in list {
             let _ = writeln!(out, "  {:>4}  {key}", names.len());
             let _ = writeln!(out, "        {}", names.join(", "));
@@ -462,8 +580,16 @@ fn describe_constructs(cs: &[String]) -> String {
             None => distinct.push((c, 1)),
         }
     }
-    let parts: Vec<String> =
-        distinct.iter().map(|(c, n)| if *n > 1 { format!("{c} ×{n}") } else { (*c).to_string() }).collect();
+    let parts: Vec<String> = distinct
+        .iter()
+        .map(|(c, n)| {
+            if *n > 1 {
+                format!("{c} ×{n}")
+            } else {
+                (*c).to_string()
+            }
+        })
+        .collect();
     parts.join(", ")
 }
 
@@ -496,8 +622,14 @@ pub fn constructs_section(programs: &[(&str, Vec<String>)]) -> String {
     if by.is_empty() {
         return String::new();
     }
-    let mut list: Vec<(&str, Vec<&str>, usize)> = by.into_iter().map(|(c, (p, n))| (c, p, n)).collect();
-    list.sort_by(|a, b| b.1.len().cmp(&a.1.len()).then(b.2.cmp(&a.2)).then(a.0.cmp(b.0)));
+    let mut list: Vec<(&str, Vec<&str>, usize)> =
+        by.into_iter().map(|(c, (p, n))| (c, p, n)).collect();
+    list.sort_by(|a, b| {
+        b.1.len()
+            .cmp(&a.1.len())
+            .then(b.2.cmp(&a.2))
+            .then(a.0.cmp(b.0))
+    });
     let mut out = String::new();
     let _ = writeln!(
         out,
@@ -509,7 +641,13 @@ pub fn constructs_section(programs: &[(&str, Vec<String>)]) -> String {
     let _ = writeln!(out, "   programs  occurrences  only it  construct");
     for (c, progs, n) in &list {
         let only_it = only.get(c).map_or(&[][..], Vec::as_slice);
-        let _ = writeln!(out, "  {:>9}  {:>11}  {:>7}  {c}", progs.len(), n, only_it.len());
+        let _ = writeln!(
+            out,
+            "  {:>9}  {:>11}  {:>7}  {c}",
+            progs.len(),
+            n,
+            only_it.len()
+        );
         if !only_it.is_empty() {
             let _ = writeln!(out, "             only it: {}", only_it.join(", "));
         }
@@ -571,11 +709,27 @@ JIT × AOT: {}/{} identical, {} divergent ({} without IR, equal by construction;
         let _ = writeln!(out, "  timed out in both: {}", both_timed_out.join(", "));
     }
     for (r, jit, aot) in &divergent {
-        let _ = writeln!(out, "JIT≠AOT {}  (exit codes: jit={} aot={})", r.program.name, jit.code, aot.code);
+        let _ = writeln!(
+            out,
+            "JIT≠AOT {}  (exit codes: jit={} aot={})",
+            r.program.name, jit.code, aot.code
+        );
         let first = first_differing_line(&jit.stdout, &aot.stdout);
-        let _ = write!(out, "{}", side_by_side(&[("jit", &jit.stdout), ("aot", &aot.stdout)], first));
-        let _ = writeln!(out, "       jit stderr: {}", truncate(&failure_key(jit), 110));
-        let _ = writeln!(out, "       aot stderr: {}", truncate(&failure_key(aot), 110));
+        let _ = write!(
+            out,
+            "{}",
+            side_by_side(&[("jit", &jit.stdout), ("aot", &aot.stdout)], first)
+        );
+        let _ = writeln!(
+            out,
+            "       jit stderr: {}",
+            truncate(&failure_key(jit), 110)
+        );
+        let _ = writeln!(
+            out,
+            "       aot stderr: {}",
+            truncate(&failure_key(aot), 110)
+        );
     }
 
     // Only the ones that finished in both and have the run measured in the executor.
@@ -596,16 +750,36 @@ JIT × AOT: {}/{} identical, {} divergent ({} without IR, equal by construction;
         v.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let sum: f64 = v.iter().sum();
         let p = |q: f64| v[((v.len() as f64 - 1.0) * q).round() as usize];
-        format!("median {:>8.1} ms  p95 {:>8.1} ms  sum {:>8.1} s", p(0.5), p(0.95), sum / 1000.0)
+        format!(
+            "median {:>8.1} ms  p95 {:>8.1} ms  sum {:>8.1} s",
+            p(0.5),
+            p(0.95),
+            sum / 1000.0
+        )
     };
     let run_time = |j: &JitRun| j.run_time.unwrap_or_default();
-    let until_run: Vec<f64> = measured.iter().map(|(_, _, j, _)| ms(j.time.saturating_sub(run_time(j)))).collect();
-    let jit_run: Vec<f64> = measured.iter().map(|(_, _, j, _)| ms(run_time(j))).collect();
+    let until_run: Vec<f64> = measured
+        .iter()
+        .map(|(_, _, j, _)| ms(j.time.saturating_sub(run_time(j))))
+        .collect();
+    let jit_run: Vec<f64> = measured
+        .iter()
+        .map(|(_, _, j, _)| ms(run_time(j)))
+        .collect();
     let jit_total: Vec<f64> = measured.iter().map(|(_, _, j, _)| ms(j.time)).collect();
-    let link: Vec<f64> = measured.iter().map(|(_, _, _, a)| ms(a.link_time)).collect();
+    let link: Vec<f64> = measured
+        .iter()
+        .map(|(_, _, _, a)| ms(a.link_time))
+        .collect();
     let aot_run: Vec<f64> = measured.iter().map(|(_, _, _, a)| ms(a.run_time)).collect();
-    let aot_total: Vec<f64> = measured.iter().map(|(_, _, _, a)| ms(a.link_time + a.run_time)).collect();
-    let from_cache = measured.iter().filter(|(_, _, _, a)| a.object_from_cache).count();
+    let aot_total: Vec<f64> = measured
+        .iter()
+        .map(|(_, _, _, a)| ms(a.link_time + a.run_time))
+        .collect();
+    let from_cache = measured
+        .iter()
+        .filter(|(_, _, _, a)| a.object_from_cache)
+        .count();
     let sum = |v: &[f64]| v.iter().sum::<f64>();
     // The heading, the `  JIT `/`  AOT ` prefixes and the `  ratio ` line are
     // matched by CI (see the module docs).
@@ -616,21 +790,58 @@ Post-IR times, {} programs that finished in both profiles ({} with an object fro
         measured.len(),
         from_cache
     );
-    let _ = writeln!(out, "  {:<51}{}", "JIT until run (DLL + session + IR + codegen)", summary(until_run.clone()));
-    let _ = writeln!(out, "  {:<51}{}", "AOT Clang + linking", summary(link.clone()));
-    let _ = writeln!(out, "  {:<51}{}", "JIT program run (inside the process)", summary(jit_run));
-    let _ = writeln!(out, "  {:<51}{}", "AOT .exe run (whole process)", summary(aot_run));
-    let _ = writeln!(out, "  {:<51}{}", "JIT total (executor process)", summary(jit_total.clone()));
-    let _ = writeln!(out, "  {:<51}{}", "AOT total (Clang + linking + run)", summary(aot_total.clone()));
+    let _ = writeln!(
+        out,
+        "  {:<51}{}",
+        "JIT until run (DLL + session + IR + codegen)",
+        summary(until_run.clone())
+    );
+    let _ = writeln!(
+        out,
+        "  {:<51}{}",
+        "AOT Clang + linking",
+        summary(link.clone())
+    );
+    let _ = writeln!(
+        out,
+        "  {:<51}{}",
+        "JIT program run (inside the process)",
+        summary(jit_run)
+    );
+    let _ = writeln!(
+        out,
+        "  {:<51}{}",
+        "AOT .exe run (whole process)",
+        summary(aot_run)
+    );
+    let _ = writeln!(
+        out,
+        "  {:<51}{}",
+        "JIT total (executor process)",
+        summary(jit_total.clone())
+    );
+    let _ = writeln!(
+        out,
+        "  {:<51}{}",
+        "AOT total (Clang + linking + run)",
+        summary(aot_total.clone())
+    );
     let _ = writeln!(
         out,
         "  ratio (sums): Clang+linking / JIT until run = {:.1}x; AOT total / JIT total = {:.1}x",
         sum(&link) / sum(&until_run).max(f64::EPSILON),
         sum(&aot_total) / sum(&jit_total).max(f64::EPSILON)
     );
-    let _ = writeln!(out, "\nPer-program times (ms): jit-until-run  jit-run  aot-link  aot-run  name");
+    let _ = writeln!(
+        out,
+        "\nPer-program times (ms): jit-until-run  jit-run  aot-link  aot-run  name"
+    );
     for (r, _, j, a) in &measured {
-        let cache = if a.object_from_cache { "  (object from cache)" } else { "" };
+        let cache = if a.object_from_cache {
+            "  (object from cache)"
+        } else {
+            ""
+        };
         let _ = writeln!(
             out,
             "  {:>10.1} {:>13.1} {:>12.1} {:>13.1}  {}{cache}",
@@ -668,7 +879,14 @@ pub fn format_ir_report(programs: &[ProgramIr]) -> String {
                 let _ = writeln!(out, "{} {:>9} {}", r.hex(), r.bytes, p.name);
             }
             Err(e) => {
-                let key = truncate(&failure_key(&Output { stdout: String::new(), stderr: e.clone(), code: 1 }), 120);
+                let key = truncate(
+                    &failure_key(&Output {
+                        stdout: String::new(),
+                        stderr: e.clone(),
+                        code: 1,
+                    }),
+                    120,
+                );
                 let _ = writeln!(out, "ERROR {}: {key}", p.name);
                 let cs = dartforge_emit_native::error_constructs(e);
                 if !cs.is_empty() {
@@ -678,8 +896,13 @@ pub fn format_ir_report(programs: &[ProgramIr]) -> String {
         }
     }
     // Parsed by CI (see the module docs).
-    let _ = writeln!(out, "
-{} programs: {with_ir} with IR, {} with an emission error", programs.len(), programs.len() - with_ir);
+    let _ = writeln!(
+        out,
+        "
+{} programs: {with_ir} with IR, {} with an emission error",
+        programs.len(),
+        programs.len() - with_ir
+    );
     out.push_str(&constructs_section(&constructs));
     out
 }
@@ -696,7 +919,12 @@ pub fn ir_differences(a: &[ProgramIr], b: &[ProgramIr]) -> Vec<String> {
         if x.name != y.name {
             out.push(format!("corpus order: {} × {}", x.name, y.name));
         } else if x.result != y.result {
-            out.push(format!("{}: {} × {}", x.name, describe_ir(&x.result), describe_ir(&y.result)));
+            out.push(format!(
+                "{}: {} × {}",
+                x.name,
+                describe_ir(&x.result),
+                describe_ir(&y.result)
+            ));
         }
     }
     out
@@ -732,32 +960,85 @@ mod tests {
         let vm = "a\nLateInitializationError: Field 'x' has not been initialized.\nLateInitializationError: Local 'it's' has already been initialized.\nField 'y' has\n";
         assert_eq!(
             omit_late_names(vm).as_deref(),
-            Some("a\nLateInitializationError: Field '' has not been initialized.\nLateInitializationError: Local '' has already been initialized.\nField 'y' has\n")
+            Some(
+                "a\nLateInitializationError: Field '' has not been initialized.\nLateInitializationError: Local '' has already been initialized.\nField 'y' has\n"
+            )
         );
-        assert_eq!(omit_late_names("LateInitializationError: Field '' has not been initialized.\n"), None);
+        assert_eq!(
+            omit_late_names("LateInitializationError: Field '' has not been initialized.\n"),
+            None
+        );
         assert_eq!(omit_late_names("nothing\n"), None);
     }
 
     fn s(stdout: &str, code: i32) -> Output {
-        Output { stdout: stdout.into(), stderr: String::new(), code }
+        Output {
+            stdout: stdout.into(),
+            stderr: String::new(),
+            code,
+        }
     }
 
     #[test]
     fn compares() {
         assert_eq!(compare(&s("a\nb\n", 0), &s("a\nb\n", 0)), None);
-        assert_eq!(compare(&s("a\nb\n", 0), &s("a\nc\n", 0)), Some(Divergence::Line(2)));
-        assert_eq!(compare(&s("a\nb\n", 0), &s("a\n", 0)), Some(Divergence::Line(2)));
-        assert_eq!(compare(&s("a\n", 0), &s("a\n", 255)), Some(Divergence::ExitCode));
-        assert_eq!(compare(&s("a\nb", 0), &s("a\nb\n", 0)), Some(Divergence::Line(2)));
+        assert_eq!(
+            compare(&s("a\nb\n", 0), &s("a\nc\n", 0)),
+            Some(Divergence::Line(2))
+        );
+        assert_eq!(
+            compare(&s("a\nb\n", 0), &s("a\n", 0)),
+            Some(Divergence::Line(2))
+        );
+        assert_eq!(
+            compare(&s("a\n", 0), &s("a\n", 255)),
+            Some(Divergence::ExitCode)
+        );
+        assert_eq!(
+            compare(&s("a\nb", 0), &s("a\nb\n", 0)),
+            Some(Divergence::Line(2))
+        );
     }
 
     #[test]
     fn report_groups() {
         let p = Program::test;
         let r = vec![
-            ProgramResult { program: p("a"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(s("1\n", 0)), native: false, production: None, jit: None },
-            ProgramResult { program: p("b"), dart: s("1\n2\n", 0), ddc: s("1\n2\n", 0), forge: Some(Output { stdout: "1\n".into(), stderr: "erro: X\n".into(), code: 1 }), native: false, production: None, jit: None },
-            ProgramResult { program: p("c"), dart: s("1\n", 0), ddc: s("1\n", 0), forge: Some(Output { stdout: String::new(), stderr: "erro: X\n".into(), code: 1 }), native: false, production: None, jit: None },
+            ProgramResult {
+                program: p("a"),
+                dart: s("1\n", 0),
+                ddc: s("1\n", 0),
+                forge: Some(s("1\n", 0)),
+                native: false,
+                production: None,
+                jit: None,
+            },
+            ProgramResult {
+                program: p("b"),
+                dart: s("1\n2\n", 0),
+                ddc: s("1\n2\n", 0),
+                forge: Some(Output {
+                    stdout: "1\n".into(),
+                    stderr: "erro: X\n".into(),
+                    code: 1,
+                }),
+                native: false,
+                production: None,
+                jit: None,
+            },
+            ProgramResult {
+                program: p("c"),
+                dart: s("1\n", 0),
+                ddc: s("1\n", 0),
+                forge: Some(Output {
+                    stdout: String::new(),
+                    stderr: "erro: X\n".into(),
+                    code: 1,
+                }),
+                native: false,
+                production: None,
+                jit: None,
+            },
         ];
         let t = format_report(&r);
         assert!(t.contains("ok     a"), "{t}");
@@ -768,21 +1049,30 @@ mod tests {
     }
 
     fn ir(name: &str, result: Result<&str, &str>) -> ProgramIr {
-        ProgramIr { name: name.into(), result: result.map(IrSummary::of).map_err(str::to_string) }
+        ProgramIr {
+            name: name.into(),
+            result: result.map(IrSummary::of).map_err(str::to_string),
+        }
     }
 
     #[test]
     fn ir_report_format() {
         let r = vec![
             ir("01_a", Ok("define void @dart_main()")),
-            ir("02_b", Err("[emit-ir] the thread aborted: index out of range\ndetail")),
+            ir(
+                "02_b",
+                Err("[emit-ir] the thread aborted: index out of range\ndetail"),
+            ),
             ir("10_c", Ok("")),
         ];
         let t = format_ir_report(&r);
         let lines: Vec<&str> = t.lines().collect();
         let a = IrSummary::of("define void @dart_main()");
         assert_eq!(lines[0], format!("{}        24 01_a", a.hex()));
-        assert_eq!(lines[1], "ERROR 02_b: [emit-ir] the thread aborted: index out of range");
+        assert_eq!(
+            lines[1],
+            "ERROR 02_b: [emit-ir] the thread aborted: index out of range"
+        );
         assert_eq!(lines[2], "6c62272e07bb014262b821756295c58d         0 10_c");
         assert_eq!(lines[4], "3 programs: 2 with IR, 1 with an emission error");
     }
@@ -793,7 +1083,10 @@ mod tests {
 
     #[test]
     fn constructs_described_in_order_with_count() {
-        assert_eq!(describe_constructs(&cs(&["closure", "cascade", "closure"])), "closure ×2, cascade");
+        assert_eq!(
+            describe_constructs(&cs(&["closure", "cascade", "closure"])),
+            "closure ×2, cascade"
+        );
     }
 
     #[test]
@@ -831,24 +1124,44 @@ mod tests {
             program: p,
             dart: s("1\n", 0),
             ddc: s("", 0),
-            forge: Some(Output { stdout: String::new(), stderr: error.into(), code: 1 }),
+            forge: Some(Output {
+                stdout: String::new(),
+                stderr: error.into(),
+                code: 1,
+            }),
             native: true,
             production: None,
             jit: None,
         }];
         let t = format_report(&r);
         assert!(t.contains("       constructs: closure, cascade"), "{t}");
-        assert!(t.contains("          1            1        0  cascade"), "{t}");
+        assert!(
+            t.contains("          1            1        0  cascade"),
+            "{t}"
+        );
     }
 
     #[test]
     fn ir_differences_lists_all() {
-        let a = vec![ir("a", Ok("x")), ir("b", Ok("y")), ir("c", Err("e\n1")), ir("d", Ok("z"))];
+        let a = vec![
+            ir("a", Ok("x")),
+            ir("b", Ok("y")),
+            ir("c", Err("e\n1")),
+            ir("d", Ok("z")),
+        ];
         assert!(ir_differences(&a, &a.clone()).is_empty());
-        let b = vec![ir("a", Ok("x")), ir("b", Ok("Y")), ir("c", Err("e\n2")), ir("d", Ok("Z"))];
+        let b = vec![
+            ir("a", Ok("x")),
+            ir("b", Ok("Y")),
+            ir("c", Err("e\n2")),
+            ir("d", Ok("Z")),
+        ];
         let d = ir_differences(&a, &b);
         assert_eq!(d.len(), 3, "{d:?}");
-        assert!(d[0].starts_with("b: ") && d[1].starts_with("c: ") && d[2].starts_with("d: "), "{d:?}");
+        assert!(
+            d[0].starts_with("b: ") && d[1].starts_with("c: ") && d[2].starts_with("d: "),
+            "{d:?}"
+        );
         assert_eq!(ir_differences(&a, &b[..3]).len(), 3);
     }
 }

@@ -38,7 +38,11 @@ impl Constructor {
     /// goes BEFORE it in the list: applied later, the new text ends up after
     /// what already existed.
     fn append(&mut self, n: Ed) {
-        let i = self.edits.iter().position(|q| q.0 <= n.0).unwrap_or(self.edits.len());
+        let i = self
+            .edits
+            .iter()
+            .position(|q| q.0 <= n.0)
+            .unwrap_or(self.edits.len());
         self.edits.insert(i, n);
     }
 
@@ -112,9 +116,17 @@ pub(crate) fn description(kind: &str) -> &'static str {
 /// The file is generated (`isGenerated`, plus `.macro.dart`): `Fix All` does
 /// not touch it.
 pub(crate) fn generated(uri: &str) -> bool {
-    [".g.dart", ".pb.dart", ".pbenum.dart", ".pbserver.dart", ".pbjson.dart", ".template.dart", ".macro.dart"]
-        .iter()
-        .any(|s| uri.ends_with(s))
+    [
+        ".g.dart",
+        ".pb.dart",
+        ".pbenum.dart",
+        ".pbserver.dart",
+        ".pbjson.dart",
+        ".template.dart",
+        ".macro.dart",
+    ]
+    .iter()
+    .any(|s| uri.ends_with(s))
 }
 
 /// `utils.getLinesRange`: the whole lines containing `start..end`, with the
@@ -128,15 +140,26 @@ fn whole_lines(text: &str, start: usize, end: usize) -> (usize, usize) {
 /// Phase B without the sorting lint: one removal (`RemoveUnusedImport`) per
 /// `duplicate_import`, `unnecessary_import` or `unused_import` error, in
 /// offset order. Only in the library's first unit (without `part of`).
-pub(crate) fn remove_imports(text: &str, unit: &CompilationUnit, diagnostics: &[Diagnostic]) -> Vec<Ed> {
-    if unit.directives.iter().any(|d| matches!(d.kind, DirectiveKind::PartOf { .. })) {
+pub(crate) fn remove_imports(
+    text: &str,
+    unit: &CompilationUnit,
+    diagnostics: &[Diagnostic],
+) -> Vec<Ed> {
+    if unit
+        .directives
+        .iter()
+        .any(|d| matches!(d.kind, DirectiveKind::PartOf { .. }))
+    {
         return Vec::new();
     }
     let mut targets: Vec<usize> = diagnostics
         .iter()
         .filter(|d| {
             d.code.is_some_and(|c| {
-                matches!(c.info().unique.rsplit('.').next(), Some("DUPLICATE_IMPORT" | "UNNECESSARY_IMPORT" | "UNUSED_IMPORT"))
+                matches!(
+                    c.info().unique.rsplit('.').next(),
+                    Some("DUPLICATE_IMPORT" | "UNNECESSARY_IMPORT" | "UNUSED_IMPORT")
+                )
             })
         })
         .map(|d| d.span.start)
@@ -194,9 +217,19 @@ pub(crate) fn merge(mut edits: Vec<Ed>) -> Vec<Ed> {
             continue;
         }
         let start = a.0.min(b.0);
-        let end = (end_a as i64).max(end_b as i64 - delta(&a)).max(start as i64) as usize;
-        let prefix = if b.0 > a.0 { a.2.get(..b.0 - a.0).unwrap_or("") } else { "" };
-        let suffix = if end_b < a.0 + a.2.len() { a.2.get(end_b - a.0..).unwrap_or("") } else { "" };
+        let end = (end_a as i64)
+            .max(end_b as i64 - delta(&a))
+            .max(start as i64) as usize;
+        let prefix = if b.0 > a.0 {
+            a.2.get(..b.0 - a.0).unwrap_or("")
+        } else {
+            ""
+        };
+        let suffix = if end_b < a.0 + a.2.len() {
+            a.2.get(end_b - a.0..).unwrap_or("")
+        } else {
+            ""
+        };
         edits[i] = (start, end - start, format!("{prefix}{}{suffix}", b.2));
         edits.remove(i + 1);
     }

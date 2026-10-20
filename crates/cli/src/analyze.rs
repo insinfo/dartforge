@@ -14,7 +14,11 @@ use std::path::{Path, PathBuf};
 
 /// The package root: the nearest directory, going up, with a `pubspec.yaml`.
 fn package_root(p: &Path) -> PathBuf {
-    let start = if p.is_dir() { p.to_path_buf() } else { p.parent().unwrap_or(Path::new(".")).to_path_buf() };
+    let start = if p.is_dir() {
+        p.to_path_buf()
+    } else {
+        p.parent().unwrap_or(Path::new(".")).to_path_buf()
+    };
     let mut d = Some(start.as_path());
     while let Some(x) = d {
         if x.join("pubspec.yaml").is_file() {
@@ -46,9 +50,24 @@ fn sort(v: &mut [DiagJson]) {
     v.sort_by(|a, b| {
         priority(&a.severity)
             .cmp(&priority(&b.severity))
-            .then_with(|| a.location.file.encode_utf16().cmp(b.location.file.encode_utf16()))
-            .then_with(|| a.location.range.start.offset.cmp(&b.location.range.start.offset))
-            .then_with(|| a.problem_message.encode_utf16().cmp(b.problem_message.encode_utf16()))
+            .then_with(|| {
+                a.location
+                    .file
+                    .encode_utf16()
+                    .cmp(b.location.file.encode_utf16())
+            })
+            .then_with(|| {
+                a.location
+                    .range
+                    .start
+                    .offset
+                    .cmp(&b.location.range.start.offset)
+            })
+            .then_with(|| {
+                a.problem_message
+                    .encode_utf16()
+                    .cmp(b.problem_message.encode_utf16())
+            })
     });
 }
 
@@ -64,7 +83,11 @@ fn relative(file: &str, base: &Path) -> String {
     match Path::new(&absolute).strip_prefix(base) {
         Ok(rel) => {
             let rel = rel.to_string_lossy().into_owned();
-            if rel.len() <= absolute.len() && !rel.is_empty() { rel } else { absolute }
+            if rel.len() <= absolute.len() && !rel.is_empty() {
+                rel
+            } else {
+                absolute
+            }
         }
         Err(_) => absolute,
     }
@@ -85,7 +108,9 @@ fn escape_for_machine(s: &str) -> String {
     out
 }
 
-pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
+pub fn run(
+    args: &[std::ffi::OsString],
+) -> Result<std::process::ExitCode, Box<dyn std::error::Error>> {
     let usage = "usage: dartforge analyze [--format=default|json|machine] [--fatal-infos] [--[no-]fatal-warnings] \
                  [--packages=<file>] [--sdk-path=<directory>] [--all] [<directory|file>...]";
     let mut format = Format::Default;
@@ -107,7 +132,9 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
             Some("--fatal-warnings") => fatal_warnings = true,
             Some("--no-fatal-warnings") => fatal_warnings = false,
             Some("--sdk-path") => {
-                let path = arguments.next().ok_or("--sdk-path requires an SDK directory")?;
+                let path = arguments
+                    .next()
+                    .ok_or("--sdk-path requires an SDK directory")?;
                 if path.is_empty() || path.to_string_lossy().starts_with('-') {
                     return Err("--sdk-path requires an SDK directory".into());
                 }
@@ -124,24 +151,37 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
             // with the SDK the engine discovers.
             Some("--memory") => {}
             Some(s) if s.starts_with("--cache=") || s.starts_with("--enable-experiment=") => {}
-            Some(s) if s.starts_with("--packages=") => requested_packages = Some(PathBuf::from(&s["--packages=".len()..])),
+            Some(s) if s.starts_with("--packages=") => {
+                requested_packages = Some(PathBuf::from(&s["--packages=".len()..]))
+            }
             Some(s) if s.starts_with('-') => return Err(usage.into()),
             _ => targets.push(PathBuf::from(a)),
         }
     }
     // No target: the current directory, whose name goes in the header.
-    let typed: Vec<PathBuf> = if targets.is_empty() { vec![std::env::current_dir()?] } else { targets };
+    let typed: Vec<PathBuf> = if targets.is_empty() {
+        vec![std::env::current_dir()?]
+    } else {
+        targets
+    };
     for d in &typed {
         if !d.exists() {
             return Err(format!("Directory or file doesn't exist: {}", d.display()).into());
         }
     }
-    let absolutes: Vec<PathBuf> = typed.iter().map(std::path::absolute).collect::<Result<_, _>>()?;
+    let absolutes: Vec<PathBuf> = typed
+        .iter()
+        .map(std::path::absolute)
+        .collect::<Result<_, _>>()?;
     // `relativeToDir`: with one target, the target folder (or the target
     // file's folder); with several, the current directory.
     let relative_base: PathBuf = if absolutes.len() == 1 {
         let single = &absolutes[0];
-        if single.is_dir() { single.clone() } else { single.parent().unwrap_or(Path::new(".")).to_path_buf() }
+        if single.is_dir() {
+            single.clone()
+        } else {
+            single.parent().unwrap_or(Path::new(".")).to_path_buf()
+        }
     } else {
         std::env::current_dir()?
     };
@@ -149,7 +189,11 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
         Some(path) => {
             // Accept the SDK root and its lib directory. An explicit path is
             // authoritative: invalid layouts must not fall back to discovery.
-            let lib = if path.join("libraries.json").is_file() { path.clone() } else { path.join("lib") };
+            let lib = if path.join("libraries.json").is_file() {
+                path.clone()
+            } else {
+                path.join("lib")
+            };
             dartforge_parity::analysis::Engine::new(&lib)
                 .map_err(|error| format!("--sdk-path {}: {error}", path.display()))?
         }
@@ -172,20 +216,31 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
                 let files: Vec<PathBuf> = if target.is_dir() {
                     dartforge_parity::corpus::dart_files(target)
                         .into_iter()
-                        .filter(|a| dartforge_parity::oracle::relative(a, &root).is_some_and(|r| !options.is_excluded(&r)))
+                        .filter(|a| {
+                            dartforge_parity::oracle::relative(a, &root)
+                                .is_some_and(|r| !options.is_excluded(&r))
+                        })
                         .collect()
                 } else {
                     // The file requested on the command line is not excluded.
                     vec![target.clone()]
                 };
                 let package_cfg = root.join(".dart_tool").join("package_config.json");
-                let default = requested_packages.clone().or_else(|| package_cfg.is_file().then_some(package_cfg));
+                let default = requested_packages
+                    .clone()
+                    .or_else(|| package_cfg.is_file().then_some(package_cfg));
                 // Nested packages (`example/`): each one with its own package_config.
                 for (pkg_root, fs) in dartforge_parity::projects::by_package(&root, &files) {
                     let c = pkg_root.join(".dart_tool").join("package_config.json");
-                    let c = if c.is_file() { Some(c) } else { default.clone() };
+                    let c = if c.is_file() {
+                        Some(c)
+                    } else {
+                        default.clone()
+                    };
                     let a = engine.analyze(&root, &fs, c.as_deref());
-                    v.extend(dartforge_parity::json_diagnostics(&a, &root, &options, !all));
+                    v.extend(dartforge_parity::json_diagnostics(
+                        &a, &root, &options, !all,
+                    ));
                 }
             }
             v
@@ -212,7 +267,12 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
         Format::Machine => {
             // No diagnostics, no output.
             for d in &diags {
-                let length = d.location.range.end.offset.saturating_sub(d.location.range.start.offset);
+                let length = d
+                    .location
+                    .range
+                    .end
+                    .offset
+                    .saturating_sub(d.location.range.start.offset);
                 println!(
                     "{}|{}|{}|{}|{}|{}|{}|{}",
                     d.severity,
@@ -231,7 +291,12 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
             // target, the name of the current directory.
             let names: Vec<String> = typed
                 .iter()
-                .map(|p| p.file_name().map_or_else(|| p.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned()))
+                .map(|p| {
+                    p.file_name().map_or_else(
+                        || p.to_string_lossy().into_owned(),
+                        |n| n.to_string_lossy().into_owned(),
+                    )
+                })
                 .collect();
             println!("Analyzing {}...", names.join(", "));
             if diags.is_empty() {
@@ -272,7 +337,11 @@ pub fn run(args: &[std::ffi::OsString]) -> Result<std::process::ExitCode, Box<dy
                     }
                 }
                 println!();
-                println!("{} issue{} found.", diags.len(), if diags.len() == 1 { "" } else { "s" });
+                println!(
+                    "{} issue{} found.",
+                    diags.len(),
+                    if diags.len() == 1 { "" } else { "s" }
+                );
             }
         }
     }

@@ -4,9 +4,11 @@
 //! `[]=` (`_checkForNonVoidReturnTypeForOperator`).
 
 use crate::Unit;
-use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
-use dartforge_frontend::ast::{Ast, DeclKind, FunctionKind, MemberKind, ParameterKind, TypeId, TypeKind, TypedefKind};
+use dartforge_diagnostics::codes::compile_time_error as c;
+use dartforge_frontend::ast::{
+    Ast, DeclKind, FunctionKind, MemberKind, ParameterKind, TypeId, TypeKind, TypedefKind,
+};
 use dartforge_intern::{Interner, SymbolId};
 
 /// Checks the operator members of classes, mixins, enums, extensions and extension types.
@@ -69,10 +71,15 @@ pub fn arity(unit: Unit<'_>, names: &Interner) -> Vec<Diagnostic> {
             // optional.
             if !wrong_arity {
                 let optional = params.iter().filter(|p| {
-                    p.kind == ParameterKind::Optional || (p.kind == ParameterKind::Named && !p.required)
+                    p.kind == ParameterKind::Optional
+                        || (p.kind == ParameterKind::Named && !p.required)
                 });
                 for p in optional {
-                    out.push(Diagnostic::with_code(c::OPTIONAL_PARAMETER_IN_OPERATOR, p.span, [] as [&str; 0]));
+                    out.push(Diagnostic::with_code(
+                        c::OPTIONAL_PARAMETER_IN_OPERATOR,
+                        p.span,
+                        [] as [&str; 0],
+                    ));
                 }
             }
             // `_checkForNonVoidReturnTypeForOperator`: `[]=` with a written
@@ -82,7 +89,11 @@ pub fn arity(unit: Unit<'_>, names: &Interner) -> Vec<Diagnostic> {
                 && let Some(t) = function.return_type
                 && !is_void(ast, &void_aliases, t)
             {
-                out.push(Diagnostic::with_code(c::NON_VOID_RETURN_FOR_OPERATOR, ast.ty(t).span, [] as [&str; 0]));
+                out.push(Diagnostic::with_code(
+                    c::NON_VOID_RETURN_FOR_OPERATOR,
+                    ast.ty(t).span,
+                    [] as [&str; 0],
+                ));
             }
         }
     }
@@ -92,13 +103,14 @@ pub fn arity(unit: Unit<'_>, names: &Interner) -> Vec<Diagnostic> {
 /// The unit's `typedef`s that are aliases of `void`.
 fn void_aliases(unit: Unit<'_>) -> Vec<SymbolId> {
     let ast = unit.ast;
-    unit
-        .unit
+    unit.unit
         .declarations
         .iter()
         .filter_map(|&id| match &ast.decl(id).kind {
             DeclKind::Typedef(d) => match d.kind {
-                TypedefKind::Alias(t) if matches!(ast.ty(t).kind, TypeKind::Void) => Some(d.name.sym),
+                TypedefKind::Alias(t) if matches!(ast.ty(t).kind, TypeKind::Void) => {
+                    Some(d.name.sym)
+                }
                 _ => None,
             },
             _ => None,
@@ -110,7 +122,9 @@ fn void_aliases(unit: Unit<'_>) -> Vec<SymbolId> {
 fn is_void(ast: &Ast, aliases: &[SymbolId], t: TypeId) -> bool {
     match &ast.ty(t).kind {
         TypeKind::Void => true,
-        TypeKind::Named { name, args } => args.is_empty() && name.len() == 1 && aliases.contains(&name[0].sym),
+        TypeKind::Named { name, args } => {
+            args.is_empty() && name.len() == 1 && aliases.contains(&name[0].sym)
+        }
         _ => false,
     }
 }
@@ -124,19 +138,28 @@ mod tests {
     fn real_operators_from_the_corpus() {
         for (source, code, operator, message) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__tri_89062d24.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__tri_89062d24.dart"
+                )),
                 c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR,
                 ">>>",
                 "Operator '>>>' should declare exactly 1 parameters, but 0 found.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__tilde_rP_rP.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__tilde_rP_rP.dart"
+                )),
                 c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR,
                 "~",
                 "Operator '~' should declare exactly 0 parameters, but 2 found.",
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__star_rP_rP.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/wrong_number_of_parameters_for_operator/WrongNumberOfParametersForOperator__star_rP_rP.dart"
+                )),
                 c::WRONG_NUMBER_OF_PARAMETERS_FOR_OPERATOR,
                 "*",
                 "Operator '*' should declare exactly 1 parameters, but 2 found.",
@@ -144,12 +167,22 @@ mod tests {
         ] {
             let mut names = Interner::new();
             let parsed = parse(source, &mut names);
-            let found = arity(Unit { ast: &parsed.ast, unit: &parsed.unit, source }, &names);
+            let found = arity(
+                Unit {
+                    ast: &parsed.ast,
+                    unit: &parsed.unit,
+                    source,
+                },
+                &names,
+            );
             let start = source.find(&format!("operator {operator}")).unwrap() + "operator ".len();
-            assert!(found.iter().any(|d|
-                d.code == Some(code) && d.span.start == start && d.span.end == start + operator.len()
-                    && d.message == message
-            ), "{source}: {found:?}");
+            assert!(
+                found.iter().any(|d| d.code == Some(code)
+                    && d.span.start == start
+                    && d.span.end == start + operator.len()
+                    && d.message == message),
+                "{source}: {found:?}"
+            );
         }
     }
 
@@ -185,10 +218,22 @@ mod tests {
         let source = "typedef V = void;\nclass A {\n  operator ==([dynamic a]) => true;\n  operator <({a = 1}) => true;\n  operator >({required a}) => true;\n  operator +([a, b]) => 0;\n  int operator []=(a, b) => 0;\n  V operator []=(a, b) {}\n}";
         let mut names = Interner::new();
         let parsed = parse(source, &mut names);
-        let found = arity(Unit { ast: &parsed.ast, unit: &parsed.unit, source }, &names);
+        let found = arity(
+            Unit {
+                ast: &parsed.ast,
+                unit: &parsed.unit,
+                source,
+            },
+            &names,
+        );
         let v: Vec<(&str, &str)> = found
             .iter()
-            .map(|d| (d.code.unwrap().info().name, &source[d.span.start..d.span.end]))
+            .map(|d| {
+                (
+                    d.code.unwrap().info().name,
+                    &source[d.span.start..d.span.end],
+                )
+            })
             .collect();
         assert_eq!(
             v,

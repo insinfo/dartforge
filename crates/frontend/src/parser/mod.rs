@@ -30,15 +30,15 @@
 //!   phases, and accepting every valid program is the acceptance criterion
 //!   here.
 pub mod declarations;
+pub mod expressions;
 pub(crate) mod fasta;
 pub(crate) mod modifiers;
-pub mod expressions;
 pub mod patterns;
 pub mod statements;
 pub mod types;
 
 use crate::ast::{Ast, CompilationUnit, ExprId, ForInTarget, ForInit, Name};
-use crate::features::{Feature, LanguageVersion, LibraryFeatures, AnalyzerReference};
+use crate::features::{AnalyzerReference, Feature, LanguageVersion, LibraryFeatures};
 use crate::lexer;
 use crate::token::{Keyword, Kind, Op, Token};
 use dartforge_diagnostics::{Code, Diagnostic, Span, codes};
@@ -153,18 +153,29 @@ pub fn parse_with(source: &str, interner: &mut Interner, features: LibraryFeatur
 fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic> {
     use crate::token::{Kind, Op};
     let mut output = Vec::new();
-    let one = |start_offset: usize| Span { start: start_offset, end: start_offset + 1 };
+    let one = |start_offset: usize| Span {
+        start: start_offset,
+        end: start_offset + 1,
+    };
     for t in tokens {
         let lexeme = &source[t.span.start..t.span.end];
         match t.kind {
             Kind::Op(Op::EqEq | Op::BangEq) if lexeme.len() == 3 => {
-                output.push(Diagnostic::with_code(dartforge_diagnostics::codes::scanner::UNSUPPORTED_OPERATOR, one(t.span.start), [lexeme]));
+                output.push(Diagnostic::with_code(
+                    dartforge_diagnostics::codes::scanner::UNSUPPORTED_OPERATOR,
+                    one(t.span.start),
+                    [lexeme],
+                ));
             }
             Kind::Double => {
                 if let Some(i) = lexeme.find(['e', 'E']) {
                     let exponent = &lexeme[i + 1..];
                     if !exponent.bytes().any(|b| b.is_ascii_digit()) {
-                        output.push(Diagnostic::with_code(dartforge_diagnostics::codes::scanner::MISSING_DIGIT, one(t.span.end - 1), Vec::<&str>::new()));
+                        output.push(Diagnostic::with_code(
+                            dartforge_diagnostics::codes::scanner::MISSING_DIGIT,
+                            one(t.span.end - 1),
+                            Vec::<&str>::new(),
+                        ));
                     }
                 }
             }
@@ -175,7 +186,11 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
                 while last > 0 && !source.is_char_boundary(last) {
                     last -= 1;
                 }
-                output.push(Diagnostic::with_code(dartforge_diagnostics::codes::scanner::UNTERMINATED_STRING_LITERAL, one(last), Vec::<&str>::new()));
+                output.push(Diagnostic::with_code(
+                    dartforge_diagnostics::codes::scanner::UNTERMINATED_STRING_LITERAL,
+                    one(last),
+                    Vec::<&str>::new(),
+                ));
             }
             // `NonAsciiIdentifierToken`: each character outside the ASCII identifier,
             // with its code point.
@@ -186,16 +201,24 @@ fn recoverable_scanner_errors(source: &str, tokens: &[Token]) -> Vec<Diagnostic>
                         let n = (ch as u32).to_string();
                         output.push(Diagnostic::with_code(
                             dartforge_diagnostics::codes::scanner::ILLEGAL_CHARACTER,
-                            Span { start: start_offset, end: start_offset + ch.len_utf8() },
+                            Span {
+                                start: start_offset,
+                                end: start_offset + ch.len_utf8(),
+                            },
                             [n.as_str()],
                         ));
                     }
                 }
             }
             Kind::Int
-                if (lexeme.starts_with("0x") || lexeme.starts_with("0X")) && !lexeme[2..].bytes().any(|b| b.is_ascii_hexdigit()) =>
+                if (lexeme.starts_with("0x") || lexeme.starts_with("0X"))
+                    && !lexeme[2..].bytes().any(|b| b.is_ascii_hexdigit()) =>
             {
-                output.push(Diagnostic::with_code(dartforge_diagnostics::codes::scanner::MISSING_HEX_DIGIT, one(t.span.end - 1), Vec::<&str>::new()));
+                output.push(Diagnostic::with_code(
+                    dartforge_diagnostics::codes::scanner::MISSING_HEX_DIGIT,
+                    one(t.span.end - 1),
+                    Vec::<&str>::new(),
+                ));
             }
             _ => {}
         }
@@ -244,18 +267,26 @@ fn gap(source: &str, from: usize, until: usize, output: &mut Vec<Diagnostic>) {
                 let end_offset = bytes.len().saturating_sub(1);
                 output.push(Diagnostic::with_code(
                     dartforge_diagnostics::codes::scanner::UNTERMINATED_MULTI_LINE_COMMENT,
-                    Span { start: end_offset, end: end_offset + 1 },
+                    Span {
+                        start: end_offset,
+                        end: end_offset + 1,
+                    },
                     Vec::<&str>::new(),
                 ));
             }
             continue;
         }
-        let Some(ch) = source[i..].chars().next() else { break };
+        let Some(ch) = source[i..].chars().next() else {
+            break;
+        };
         if !ch.is_ascii_whitespace() && crate::lexer::skipped_char(ch) {
             let n = (ch as u32).to_string();
             output.push(Diagnostic::with_code(
                 dartforge_diagnostics::codes::scanner::ILLEGAL_CHARACTER,
-                Span { start: i, end: i + ch.len_utf8() },
+                Span {
+                    start: i,
+                    end: i + ch.len_utf8(),
+                },
                 [n.as_str()],
             ));
         }
@@ -289,8 +320,15 @@ pub fn parse_lexed_with(
                 ast: Ast::default(),
                 diagnostics: vec![diagnostic],
                 // Lexical error: nothing was read, the whole source was left out.
-                skipped: vec![Span { start: 0, end: source.len() }],
-                reference: if features.version() > LanguageVersion::FLOOR { AnalyzerReference::V3_13 } else { AnalyzerReference::V3_6 },
+                skipped: vec![Span {
+                    start: 0,
+                    end: source.len(),
+                }],
+                reference: if features.version() > LanguageVersion::FLOOR {
+                    AnalyzerReference::V3_13
+                } else {
+                    AnalyzerReference::V3_6
+                },
             };
         }
     };
@@ -314,7 +352,16 @@ pub fn parse_lexed_with(
         parser.diagnostics.extend(from_scanner.iter().cloned());
         let unit = parser.parse_compilation_unit();
         let redo = !mode_313 && parser.diverged_313 && parser.new_syntax;
-        (unit, parser.ast, parser.diagnostics, parser.skipped, parser.new_syntax, parser.only_3_6, parser.only_3_13, redo)
+        (
+            unit,
+            parser.ast,
+            parser.diagnostics,
+            parser.skipped,
+            parser.new_syntax,
+            parser.only_3_6,
+            parser.only_3_13,
+            redo,
+        )
     };
     let mut reading = read(interner, features.version() > LanguageVersion::FLOOR);
     if reading.7 {
@@ -326,12 +373,19 @@ pub fn parse_lexed_with(
     // 132 MiB. One reallocation per arena here is cheaper than keeping the
     // slack for the unit's whole life.
     ast.shrink_to_fit();
-    let reference =
-        if features.version() > LanguageVersion::FLOOR || new_syntax { AnalyzerReference::V3_13 } else { AnalyzerReference::V3_6 };
+    let reference = if features.version() > LanguageVersion::FLOOR || new_syntax {
+        AnalyzerReference::V3_13
+    } else {
+        AnalyzerReference::V3_6
+    };
     // The diagnostics only the other reference reports come out now, when this
     // unit's reference is known.
     let mut diagnostics = diags;
-    let outside = if reference == AnalyzerReference::V3_13 { &only_3_6 } else { &only_3_13 };
+    let outside = if reference == AnalyzerReference::V3_13 {
+        &only_3_6
+    } else {
+        &only_3_13
+    };
     if !outside.is_empty() {
         diagnostics.retain(|d| !d.code.is_some_and(|c| outside.contains(&(c, d.span))));
     }
@@ -351,7 +405,14 @@ pub(crate) enum Splice {
     Insertion { at: usize, n: usize },
     /// The synthetic closer `closer` moved from `from` (where it was `token`, at
     /// `at`) to `to`; its error had `error_span`.
-    Move { from: usize, to: usize, token: Token, closer: usize, at: usize, error_span: Option<Span> },
+    Move {
+        from: usize,
+        to: usize,
+        token: Token,
+        closer: usize,
+        at: usize,
+        error_span: Option<Span>,
+    },
 }
 
 /// Cursor over a unit's tokens plus the arenas under construction.
@@ -695,7 +756,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// Reinserts copies of the tokens of `indices` into the cursor, in that
     /// order (fasta's `rewriter.insertToken`): they are the next to be read.
     pub(crate) fn reinject(&mut self, indices: &[usize]) {
-        let copies: Vec<Token> = indices.iter().map(|&i| Token { glued: false, ..self.tokens[i] }).collect();
+        let copies: Vec<Token> = indices
+            .iter()
+            .map(|&i| Token {
+                glued: false,
+                ..self.tokens[i]
+            })
+            .collect();
         let n = copies.len();
         self.tokens.splice(self.pos..self.pos, copies);
         self.splices.push(Splice::Insertion { at: self.pos, n });
@@ -705,12 +772,22 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// of the opener at `opener` is synthetic, it (and its scanner error) moves to
     /// the cursor, at the current token's position, and is the next to be read.
     pub(crate) fn move_synthetic_closer(&mut self, opener: usize) -> bool {
-        let Some(start_offset) = self.tokens.get(opener).map(|t| t.span.start) else { return false };
-        let Some(k) = self.synthetic_closers.iter().position(|f| f.opener == start_offset) else { return false };
-        let f = self.synthetic_closers[k];
-        let Some(j) = (self.pos..self.tokens.len())
-            .find(|&j| self.tokens[j].span.start == f.at && self.tokens[j].span.end == f.at && self.tokens[j].kind != Kind::Eof)
+        let Some(start_offset) = self.tokens.get(opener).map(|t| t.span.start) else {
+            return false;
+        };
+        let Some(k) = self
+            .synthetic_closers
+            .iter()
+            .position(|f| f.opener == start_offset)
         else {
+            return false;
+        };
+        let f = self.synthetic_closers[k];
+        let Some(j) = (self.pos..self.tokens.len()).find(|&j| {
+            self.tokens[j].span.start == f.at
+                && self.tokens[j].span.end == f.at
+                && self.tokens[j].kind != Kind::Eof
+        }) else {
             return false;
         };
         if j == self.pos {
@@ -718,13 +795,32 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let token = self.tokens.remove(j);
         let new_pos = self.tokens[self.pos].span.start;
-        self.tokens.insert(self.pos, Token { span: Span { start: new_pos, end: new_pos }, ..token });
+        self.tokens.insert(
+            self.pos,
+            Token {
+                span: Span {
+                    start: new_pos,
+                    end: new_pos,
+                },
+                ..token
+            },
+        );
         let error_span = self.diagnostics.get(f.error).map(|d| d.span);
         if let Some(d) = self.diagnostics.get_mut(f.error) {
-            d.span = Span { start: new_pos, end: new_pos + 1 };
+            d.span = Span {
+                start: new_pos,
+                end: new_pos + 1,
+            };
         }
         self.synthetic_closers[k].at = new_pos;
-        self.splices.push(Splice::Move { from: j, to: self.pos, token, closer: k, at: f.at, error_span });
+        self.splices.push(Splice::Move {
+            from: j,
+            to: self.pos,
+            token,
+            closer: k,
+            at: f.at,
+            error_span,
+        });
         true
     }
 
@@ -735,7 +831,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 Splice::Insertion { at, n } => {
                     self.tokens.drain(at..at + n);
                 }
-                Splice::Move { from, to, token, closer, at, error_span } => {
+                Splice::Move {
+                    from,
+                    to,
+                    token,
+                    closer,
+                    at,
+                    error_span,
+                } => {
                     self.tokens.remove(to);
                     self.tokens.insert(from, token);
                     self.synthetic_closers[closer].at = at;
@@ -775,7 +878,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `ParserErrorCode`/`ScannerErrorCode`, official English message) at
     /// `span` and returns the marker.
     pub(crate) fn error_at(&mut self, code: Code, span: Span, args: &[&str]) -> ParseError {
-        self.diagnostics.push(Diagnostic::with_code(code, span, args.iter().copied()));
+        self.diagnostics
+            .push(Diagnostic::with_code(code, span, args.iter().copied()));
         ParseError
     }
 
@@ -785,9 +889,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `findNonZeroLengthToken`: an error at a synthetic closer goes to the
         // first real token after it.
         let i = (self.pos..self.tokens.len())
-            .find(|&i| self.tokens[i].span.start < self.tokens[i].span.end || self.tokens[i].kind == Kind::Eof)
+            .find(|&i| {
+                self.tokens[i].span.start < self.tokens[i].span.end
+                    || self.tokens[i].kind == Kind::Eof
+            })
             .unwrap_or(self.pos);
-        let span = if i == self.pos { self.span() } else { self.tokens[i].span };
+        let span = if i == self.pos {
+            self.span()
+        } else {
+            self.tokens[i].span
+        };
         self.error_at(code, span, args)
     }
 
@@ -798,13 +909,23 @@ impl<'s, 'i> Parser<'s, 'i> {
     pub(crate) fn expected_error(&mut self, text: &str) -> ParseError {
         if text == ";" && self.pos > 0 {
             // `findPreviousNonZeroLengthToken`: synthetic tokens do not count.
-            let previous = (0..self.pos).rev().find(|&i| self.tokens[i].span.start < self.tokens[i].span.end).unwrap_or(self.pos - 1);
+            let previous = (0..self.pos)
+                .rev()
+                .find(|&i| self.tokens[i].span.start < self.tokens[i].span.end)
+                .unwrap_or(self.pos - 1);
             let span = self.tokens[previous].span;
             return self.error_at(codes::parser::EXPECTED_TOKEN, span, &[";"]);
         }
         if matches!(text, ")" | "]" | "}") && self.kind() == Kind::Eof {
             let s = self.span().start;
-            return self.error_at(codes::scanner::EXPECTED_TOKEN, Span { start: s, end: s + 1 }, &[text]);
+            return self.error_at(
+                codes::scanner::EXPECTED_TOKEN,
+                Span {
+                    start: s,
+                    end: s + 1,
+                },
+                &[text],
+            );
         }
         // A `>` that fasta's scanner reads together with the next one (`>=`, `>>`,
         // `>>=`…) is a single token there: the error covers the whole composition.
@@ -814,7 +935,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             let s = self.span().start;
             let end_offset = self.peek_at(c.len() - 1).span.end;
-            return self.error_at(codes::parser::EXPECTED_TOKEN, Span { start: s, end: end_offset }, &[text]);
+            return self.error_at(
+                codes::parser::EXPECTED_TOKEN,
+                Span {
+                    start: s,
+                    end: end_offset,
+                },
+                &[text],
+            );
         }
         self.error(codes::parser::EXPECTED_TOKEN, &[text])
     }
@@ -824,7 +952,11 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// error at the same place twice (fasta sometimes asks for it twice, like
     /// the `INVALID_CONSTANT_CONST_PREFIX` of `const 1 + 2`).
     pub(crate) fn single_error(&mut self, code: Code, span: Span, args: &[&str]) {
-        if !self.diagnostics.iter().any(|d| d.code == Some(code) && d.span == span) {
+        if !self
+            .diagnostics
+            .iter()
+            .any(|d| d.code == Some(code) && d.span == span)
+        {
             self.error_at(code, span, args);
         }
     }
@@ -862,13 +994,17 @@ impl<'s, 'i> Parser<'s, 'i> {
             return;
         }
         if let Some(last) = self.skipped.last_mut()
-            && start_offset <= last.end && last.start <= end_offset
+            && start_offset <= last.end
+            && last.start <= end_offset
         {
             last.start = last.start.min(start_offset);
             last.end = last.end.max(end_offset);
             return;
         }
-        self.skipped.push(Span { start: start_offset, end: end_offset });
+        self.skipped.push(Span {
+            start: start_offset,
+            end: end_offset,
+        });
     }
 
     /// fasta's `ensureCloseParen`: the `)` that closes the `(` at absolute
@@ -887,7 +1023,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Ok(());
         }
         match self.matching_close(opener) {
-            Some(closes) if closes >= self.pos && self.kind_of(closes) == Kind::Op(Op::RParen) && !self.at_eof() => {
+            Some(closes)
+                if closes >= self.pos
+                    && self.kind_of(closes) == Kind::Op(Op::RParen)
+                    && !self.at_eof() =>
+            {
                 self.expected_error(")");
                 let from = self.pos;
                 self.pos = closes;
@@ -907,7 +1047,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         if let Kind::Keyword(_) = self.kind() {
             let text = self.text().to_string();
             let span = self.span();
-            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, span, &[&text]);
+            self.error_at(
+                codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD,
+                span,
+                &[&text],
+            );
         }
         self.error(codes::parser::MISSING_STATEMENT, &[])
     }
@@ -938,11 +1082,21 @@ impl<'s, 'i> Parser<'s, 'i> {
             match f.enabled_in() {
                 Some(v) => {
                     let new_ = format!("{v}.0");
-                    let old = f.version_reported_in_3_6().map_or_else(|| new_.clone(), |a| format!("{a}.0"));
-                    self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &[f.name(), &old, &new_]);
+                    let old = f
+                        .version_reported_in_3_6()
+                        .map_or_else(|| new_.clone(), |a| format!("{a}.0"));
+                    self.error_at(
+                        codes::parser::EXPERIMENT_NOT_ENABLED,
+                        span,
+                        &[f.name(), &old, &new_],
+                    );
                 }
                 None => {
-                    self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT, span, &[f.name()]);
+                    self.error_at(
+                        codes::parser::EXPERIMENT_NOT_ENABLED_OFF_BY_DEFAULT,
+                        span,
+                        &[f.name()],
+                    );
                 }
             }
         }
@@ -963,8 +1117,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.new_syntax = true;
                 }
                 let new_ = v.to_string();
-                let old = f.version_reported_in_3_6().map_or_else(|| new_.clone(), |a| a.to_string());
-                self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &[f.name(), &old, &new_]);
+                let old = f
+                    .version_reported_in_3_6()
+                    .map_or_else(|| new_.clone(), |a| a.to_string());
+                self.error_at(
+                    codes::parser::EXPERIMENT_NOT_ENABLED,
+                    span,
+                    &[f.name(), &old, &new_],
+                );
             }
             None => self.require(f, span),
         }

@@ -20,7 +20,10 @@
 //! Written without compiling or running (2026-10-05).
 
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{self, Ast, DeclId, DeclKind, ForInTarget, ForInit, FunctionBody, MemberKind, PatternId, PatternKind, StmtId, StmtKind};
+use dartforge_frontend::ast::{
+    self, Ast, DeclId, DeclKind, ForInTarget, ForInit, FunctionBody, MemberKind, PatternId,
+    PatternKind, StmtId, StmtKind,
+};
 use dartforge_intern::SymbolId;
 
 /// What the name is in a region.
@@ -96,15 +99,37 @@ fn block_locals(a: &Ast, stmts: &[StmtId]) -> Vec<ast::Name> {
 impl Scopes {
     pub fn new(a: &Ast) -> Scopes {
         let mut v: Vec<Entry> = Vec::new();
-        let add = |names: &mut dyn Iterator<Item = ast::Name>, region: Span, order: u8, kind: EntryKind, v: &mut Vec<Entry>| {
+        let add = |names: &mut dyn Iterator<Item = ast::Name>,
+                   region: Span,
+                   order: u8,
+                   kind: EntryKind,
+                   v: &mut Vec<Entry>| {
             for n in names {
-                v.push(Entry { name: n.sym, region, order, kind, decl_start: n.span.start });
+                v.push(Entry {
+                    name: n.sym,
+                    region,
+                    order,
+                    kind,
+                    decl_start: n.span.start,
+                });
             }
         };
         for f in a.functions.iter() {
-            add(&mut f.type_params.iter().map(|t| t.name), f.span, 0, EntryKind::TypeParameter, &mut v);
+            add(
+                &mut f.type_params.iter().map(|t| t.name),
+                f.span,
+                0,
+                EntryKind::TypeParameter,
+                &mut v,
+            );
             if let (Some(ps), Some(body)) = (&f.parameters, body_region(a, &f.body)) {
-                add(&mut ps.iter().filter_map(|p| p.name), body, 0, EntryKind::Local, &mut v);
+                add(
+                    &mut ps.iter().filter_map(|p| p.name),
+                    body,
+                    0,
+                    EntryKind::Local,
+                    &mut v,
+                );
             }
         }
         for (k, d) in a.decls.iter().enumerate() {
@@ -117,7 +142,13 @@ impl Scopes {
                 DeclKind::ExtensionType(x) => (&x.type_params, &x.members),
                 _ => continue,
             };
-            add(&mut tps.iter().map(|t| t.name), d.span, 2, EntryKind::TypeParameter, &mut v);
+            add(
+                &mut tps.iter().map(|t| t.name),
+                d.span,
+                2,
+                EntryKind::TypeParameter,
+                &mut v,
+            );
             // The `InstanceScope`: getters (fields, getters, methods, enum
             // constants, the representation) and setters (fields that are not
             // `final`/`const`, setters).
@@ -157,8 +188,26 @@ impl Scopes {
                     MemberKind::Field(_) => None,
                 };
                 if let Some(r) = region {
-                    add(&mut getters.iter().copied(), r, 1, EntryKind::Member { owner: did, setter: false }, &mut v);
-                    add(&mut setters.iter().copied(), r, 1, EntryKind::Member { owner: did, setter: true }, &mut v);
+                    add(
+                        &mut getters.iter().copied(),
+                        r,
+                        1,
+                        EntryKind::Member {
+                            owner: did,
+                            setter: false,
+                        },
+                        &mut v,
+                    );
+                    add(
+                        &mut setters.iter().copied(),
+                        r,
+                        1,
+                        EntryKind::Member {
+                            owner: did,
+                            setter: true,
+                        },
+                        &mut v,
+                    );
                 }
             }
         }
@@ -166,24 +215,48 @@ impl Scopes {
             if let MemberKind::Constructor(k) = &m.kind
                 && let Some(body) = body_region(a, &k.body)
             {
-                add(&mut k.parameters.iter().filter_map(|p| p.name), body, 0, EntryKind::Local, &mut v);
+                add(
+                    &mut k.parameters.iter().filter_map(|p| p.name),
+                    body,
+                    0,
+                    EntryKind::Local,
+                    &mut v,
+                );
             }
         }
         for s in a.stmts.iter() {
             match &s.kind {
-                StmtKind::Block(stmts) => add(&mut block_locals(a, stmts).into_iter(), s.span, 0, EntryKind::Local, &mut v),
+                StmtKind::Block(stmts) => add(
+                    &mut block_locals(a, stmts).into_iter(),
+                    s.span,
+                    0,
+                    EntryKind::Local,
+                    &mut v,
+                ),
                 StmtKind::Switch { cases, .. } => {
                     for case in cases.iter() {
                         let mut names = block_locals(a, &case.body);
                         if let Some(p) = case.pattern {
                             names.extend(pattern_names(a, p));
                         }
-                        add(&mut names.into_iter(), case.span, 0, EntryKind::Local, &mut v);
+                        add(
+                            &mut names.into_iter(),
+                            case.span,
+                            0,
+                            EntryKind::Local,
+                            &mut v,
+                        );
                     }
                 }
                 StmtKind::Try { catches, .. } => {
                     for k in catches.iter() {
-                        add(&mut k.exception.into_iter().chain(k.stack_trace), a.stmt(k.body).span, 0, EntryKind::Local, &mut v);
+                        add(
+                            &mut k.exception.into_iter().chain(k.stack_trace),
+                            a.stmt(k.body).span,
+                            0,
+                            EntryKind::Local,
+                            &mut v,
+                        );
                     }
                 }
                 StmtKind::For { init, .. } => {
@@ -202,9 +275,22 @@ impl Scopes {
                     };
                     add(&mut names.into_iter(), s.span, 0, EntryKind::Local, &mut v);
                 }
-                StmtKind::If { case_pattern: Some(p), then, .. } => {
-                    let region = Span { start: a.pattern(*p).span.start, end: a.stmt(*then).span.end };
-                    add(&mut pattern_names(a, *p).into_iter(), region, 0, EntryKind::Local, &mut v);
+                StmtKind::If {
+                    case_pattern: Some(p),
+                    then,
+                    ..
+                } => {
+                    let region = Span {
+                        start: a.pattern(*p).span.start,
+                        end: a.stmt(*then).span.end,
+                    };
+                    add(
+                        &mut pattern_names(a, *p).into_iter(),
+                        region,
+                        0,
+                        EntryKind::Local,
+                        &mut v,
+                    );
                 }
                 _ => {}
             }
@@ -215,9 +301,25 @@ impl Scopes {
     /// The entries of the innermost scope at `pos` that has `name` (as a
     /// getter or setter); empty when no local or class scope has it.
     pub fn lookup(&self, name: SymbolId, pos: usize) -> Vec<&Entry> {
-        let point = Span { start: pos, end: pos };
-        let candidates: Vec<&Entry> = self.entries.iter().filter(|r| r.name == name && within(point, r.region)).collect();
-        let Some(best) = candidates.iter().map(|r| (r.region.end - r.region.start, r.order)).min() else { return Vec::new() };
-        candidates.into_iter().filter(|r| (r.region.end - r.region.start, r.order) == best).collect()
+        let point = Span {
+            start: pos,
+            end: pos,
+        };
+        let candidates: Vec<&Entry> = self
+            .entries
+            .iter()
+            .filter(|r| r.name == name && within(point, r.region))
+            .collect();
+        let Some(best) = candidates
+            .iter()
+            .map(|r| (r.region.end - r.region.start, r.order))
+            .min()
+        else {
+            return Vec::new();
+        };
+        candidates
+            .into_iter()
+            .filter(|r| (r.region.end - r.region.start, r.order) == best)
+            .collect()
     }
 }

@@ -131,7 +131,10 @@ impl Tokens {
             let text = &source[start_..end];
             match b.kind {
                 Kind::Ident => {
-                    if !text.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$') {
+                    if !text
+                        .bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'$')
+                    {
                         return Err(SyntaxError {
                             offset: start_,
                             length: end - start_,
@@ -151,7 +154,8 @@ impl Tokens {
                 }
                 Kind::StrBegin(_, interp) | Kind::StrMid(_, interp) => {
                     let mut i = start_;
-                    let key = matches!(b.kind, Kind::StrMid(..)) && open_groups.pop().unwrap_or(false);
+                    let key =
+                        matches!(b.kind, Kind::StrMid(..)) && open_groups.pop().unwrap_or(false);
                     open_groups.push(interp == dartforge_frontend::token::Interp::Brace);
                     if key {
                         list.push(new(TokenKind::Op(Op::RBrace), i, i + 1));
@@ -286,7 +290,11 @@ impl Tokens {
     /// longest of them (`>>>=`, `>>>`, `>>=`, `>>`, `>=`).
     pub fn composed_greater(&self, t: Tk) -> Option<&'static str> {
         let i = t as usize;
-        let e = |k: usize, op: Op| self.list.get(i + k).is_some_and(|x| x.kind_ == TokenKind::Op(op));
+        let e = |k: usize, op: Op| {
+            self.list
+                .get(i + k)
+                .is_some_and(|x| x.kind_ == TokenKind::Op(op))
+        };
         let col = |k: usize| self.list.get(i + k).is_some_and(|x| x.glued);
         if !e(0, Op::Gt) || !col(0) {
             return None;
@@ -308,7 +316,11 @@ impl Tokens {
         }
         // `>==`, `>=>` and the like do not exist; `>` followed by `==` is `>=` and
         // `=`.
-        if self.list.get(i + 1).is_some_and(|x| x.kind_ == TokenKind::Op(Op::EqEq)) {
+        if self
+            .list
+            .get(i + 1)
+            .is_some_and(|x| x.kind_ == TokenKind::Op(Op::EqEq))
+        {
             return None;
         }
         None

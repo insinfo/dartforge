@@ -257,7 +257,9 @@ impl Reader<'_> {
         if node.nullable {
             return true;
         }
-        let TypeKind::Named { name, .. } = &node.kind else { return false };
+        let TypeKind::Named { name, .. } = &node.kind else {
+            return false;
+        };
         if depth > 8 {
             return false;
         }
@@ -267,7 +269,9 @@ impl Reader<'_> {
                 let ast_td = &self.program.unit(td.decl.unit).ast;
                 match &ast_td.decl(td.decl.decl).kind {
                     DeclKind::Typedef(d) => match d.kind {
-                        TypedefKind::Alias(body) => self.is_nullable(td.decl.unit, ast_td, body, depth + 1),
+                        TypedefKind::Alias(body) => {
+                            self.is_nullable(td.decl.unit, ast_td, body, depth + 1)
+                        }
                         TypedefKind::Legacy { .. } => false,
                     },
                     _ => false,
@@ -281,11 +285,20 @@ impl Reader<'_> {
     /// class, the type parameter, the function or record alias and `Never`
     /// take the `?`; `dynamic` does not, and a name that is not a type (or does
     /// not exist) becomes `InvalidType` without a report.
-    fn nullability_checked(&self, u: UnitId, ast_: &ast::Ast, t: ast::TypeId, params: &[SymbolId], resolved: &ClauseResolution) -> bool {
+    fn nullability_checked(
+        &self,
+        u: UnitId,
+        ast_: &ast::Ast,
+        t: ast::TypeId,
+        params: &[SymbolId],
+        resolved: &ClauseResolution,
+    ) -> bool {
         match resolved {
             ClauseResolution::Class(_) => true,
             ClauseResolution::NonClass => {
-                let TypeKind::Named { name, .. } = &ast_.ty(t).kind else { return false };
+                let TypeKind::Named { name, .. } = &ast_.ty(t).kind else {
+                    return false;
+                };
                 if let [n] = &name[..]
                     && params.contains(&n.sym)
                 {
@@ -303,10 +316,15 @@ impl Reader<'_> {
 
     /// The `dart:core` class `name`.
     fn core_class(&self, name: &str) -> Option<ClassId> {
-        self.program.classes.iter().position(|c| {
-            c.decl.is_some() && self.program.library(c.library).uri == "dart:core" && self.name(c.name) == name
-        })
-        .map(|i| ClassId(i as u32))
+        self.program
+            .classes
+            .iter()
+            .position(|c| {
+                c.decl.is_some()
+                    && self.program.library(c.library).uri == "dart:core"
+                    && self.name(c.name) == name
+            })
+            .map(|i| ClassId(i as u32))
     }
 
     /// What `ResolutionVisitor._resolveType` sees in a clause type: the type's
@@ -367,7 +385,11 @@ impl Reader<'_> {
                             // written in the clause. An alias that reaches
                             // another depends on the substitution of the
                             // arguments (not decided here).
-                            return if depth == 0 { ClauseResolution::ParamAlias } else { ClauseResolution::Ignore };
+                            return if depth == 0 {
+                                ClauseResolution::ParamAlias
+                            } else {
+                                ClauseResolution::Ignore
+                            };
                         }
                         self.resolve(td.decl.unit, ast_td, body, &[], depth + 1, ignores_non_type)
                     }
@@ -391,7 +413,11 @@ impl Reader<'_> {
                     ClauseResolution::NonClass
                 }
                 [.., n] if ignores_non_type && depth == 0 => {
-                    let prefix = if name.len() == 2 { Some(name[0].sym) } else { None };
+                    let prefix = if name.len() == 2 {
+                        Some(name[0].sym)
+                    } else {
+                        None
+                    };
                     if self.ignores_undefined(u, prefix, n.sym) {
                         ClauseResolution::Ignore
                     } else {
@@ -406,21 +432,31 @@ impl Reader<'_> {
     /// `CompilationUnitElementImpl.shouldIgnoreUndefined`: the name may come
     /// from an import that does not exist (with the prefix, or in a `show`),
     /// or, if it starts with `_$`, from a generated part that does not exist yet.
-    fn ignores_undefined(&self, u: UnitId, wanted_prefix: Option<SymbolId>, name: SymbolId) -> bool {
+    fn ignores_undefined(
+        &self,
+        u: UnitId,
+        wanted_prefix: Option<SymbolId>,
+        name: SymbolId,
+    ) -> bool {
         let lib_id = self.program.unit(u).library;
         let lib = self.program.library(lib_id);
         for &uid in &lib.units {
             let unit = self.program.unit(uid);
             for (i, d) in unit.unit.directives.iter().enumerate() {
                 match &d.kind {
-                    ast::DirectiveKind::Import { prefix, combinators, .. } => {
+                    ast::DirectiveKind::Import {
+                        prefix,
+                        combinators,
+                        ..
+                    } => {
                         if prefix.map(|p| p.sym) != wanted_prefix {
                             continue;
                         }
-                        let synthetic = !lib
-                            .imports
-                            .iter()
-                            .any(|im| im.unit == uid && im.directive == i && !self.program.library(im.library).units.is_empty());
+                        let synthetic = !lib.imports.iter().any(|im| {
+                            im.unit == uid
+                                && im.directive == i
+                                && !self.program.library(im.library).units.is_empty()
+                        });
                         if !synthetic {
                             continue;
                         }
@@ -438,13 +474,28 @@ impl Reader<'_> {
                             return true;
                         }
                     }
-                    ast::DirectiveKind::Part { uri } if wanted_prefix.is_none() && self.name(name).starts_with("_$") => {
-                        let Some(text) = dartforge_elements::load::string_lit_value(uri) else { continue };
-                        let generated = [".g.dart", ".pb.dart", ".pbenum.dart", ".pbserver.dart", ".pbjson.dart", ".template.dart"]
-                            .iter()
-                            .any(|s| text.ends_with(s));
+                    ast::DirectiveKind::Part { uri }
+                        if wanted_prefix.is_none() && self.name(name).starts_with("_$") =>
+                    {
+                        let Some(text) = dartforge_elements::load::string_lit_value(uri) else {
+                            continue;
+                        };
+                        let generated = [
+                            ".g.dart",
+                            ".pb.dart",
+                            ".pbenum.dart",
+                            ".pbserver.dart",
+                            ".pbjson.dart",
+                            ".template.dart",
+                        ]
+                        .iter()
+                        .any(|s| text.ends_with(s));
                         let exists = text.contains(':')
-                            || unit.path.as_ref().and_then(|p| p.parent()).is_none_or(|d| d.join(&text).is_file());
+                            || unit
+                                .path
+                                .as_ref()
+                                .and_then(|p| p.parent())
+                                .is_none_or(|d| d.join(&text).is_file());
                         if generated && !exists {
                             return true;
                         }
@@ -466,7 +517,9 @@ impl Reader<'_> {
         }
         let decl = c.decl?;
         let ast_ = &self.program.unit(decl.unit).ast;
-        let DeclKind::Class(d) = &ast_.decl(decl.decl).kind else { return None };
+        let DeclKind::Class(d) = &ast_.decl(decl.decl).kind else {
+            return None;
+        };
         let m = c.modifiers;
         let mut s = String::new();
         if m.sealed {
@@ -508,7 +561,10 @@ impl Reader<'_> {
         }
         for (word, types) in [(" with ", &d.with), (" implements ", &d.implements)] {
             if !types.is_empty() {
-                let v: Option<Vec<String>> = types.iter().map(|&t| self.display(decl.unit, ast_, t, &params)).collect();
+                let v: Option<Vec<String>> = types
+                    .iter()
+                    .map(|&t| self.display(decl.unit, ast_, t, &params))
+                    .collect();
                 s.push_str(word);
                 s.push_str(&v?.join(", "));
             }
@@ -529,7 +585,9 @@ impl Reader<'_> {
             DeclKind::Mixin(d) => &d.members,
             _ => return false,
         };
-        members.iter().any(|&m| matches!(&ast_.member(m).kind, ast::MemberKind::Field(vl) if !vl.static_))
+        members
+            .iter()
+            .any(|&m| matches!(&ast_.member(m).kind, ast::MemberKind::Field(vl) if !vl.static_))
     }
 
     fn is_core_enum(&self, id: ClassId) -> bool {
@@ -614,7 +672,8 @@ fn evaluate(l: &Reader<'_>, lib: LibraryId, id: ClassId) -> Option<GateResult> {
     let mut uncertain = false;
     let target = |t: ast::TypeId| l.target(u, ast_, t, 0);
     // `_checkForExtendsOrImplementsDisallowedClass`: never in a `dart:` library.
-    let forbidden = |a: ClauseTarget| !sdk && matches!(a, ClauseTarget::Class(c) if l.is_forbidden(c));
+    let forbidden =
+        |a: ClauseTarget| !sdk && matches!(a, ClauseTarget::Class(c) if l.is_forbidden(c));
 
     if class.kind == ClassKind::Mixin {
         // `_checkMixinInheritance`: `on` and `implements`.
@@ -712,7 +771,10 @@ fn evaluate(l: &Reader<'_>, lib: LibraryId, id: ClassId) -> Option<GateResult> {
 /// `Err(())` the synthetic one without parameters (also that of an abstract
 /// class, which the model does not create); in a mixin application, the
 /// generative one forwarded from the base.
-fn superclass_unnamed_constructor(l: &Reader<'_>, s: ClassId) -> Option<Result<dartforge_elements::model::FunctionElementId, ()>> {
+fn superclass_unnamed_constructor(
+    l: &Reader<'_>,
+    s: ClassId,
+) -> Option<Result<dartforge_elements::model::FunctionElementId, ()>> {
     let empty = l.names.lookup("");
     let mut current = s;
     let mut forwarded = false;
@@ -755,12 +817,18 @@ fn implicit_super_of_class(
     t: ast::TypeId,
     params: &[SymbolId],
 ) -> Option<Diagnostic> {
-    let ClauseTarget::Class(s) = l.target(u, ast_, t, 0) else { return None };
+    let ClauseTarget::Class(s) = l.target(u, ast_, t, 0) else {
+        return None;
+    };
     let se = l.program.class(s);
-    if !matches!(se.kind, ClassKind::Class | ClassKind::MixinApplication) || l.is_nullable(u, ast_, t, 0) {
+    if !matches!(se.kind, ClassKind::Class | ClassKind::MixinApplication)
+        || l.is_nullable(u, ast_, t, 0)
+    {
         return None;
     }
-    if l.program.library(se.library).uri == "dart:core" && matches!(l.name(se.name), "Function" | "Null") {
+    if l.program.library(se.library).uri == "dart:core"
+        && matches!(l.name(se.name), "Function" | "Null")
+    {
         return None;
     }
     let class = l.name(name).to_string();
@@ -777,9 +845,19 @@ fn implicit_super_of_class(
         // `isDefaultConstructor`: no required parameter.
         Some(Err(())) => return None,
         Some(Ok(f)) => {
-            let dartforge_elements::model::FunctionRef::Constructor { unit, member } = l.program.function(f).node else { return None };
-            let ast::MemberKind::Constructor(k) = &l.program.unit(unit).ast.member(member).kind else { return None };
-            if !k.parameters.iter().any(|p| p.kind == ast::ParameterKind::Required || (p.kind == ast::ParameterKind::Named && p.required)) {
+            let dartforge_elements::model::FunctionRef::Constructor { unit, member } =
+                l.program.function(f).node
+            else {
+                return None;
+            };
+            let ast::MemberKind::Constructor(k) = &l.program.unit(unit).ast.member(member).kind
+            else {
+                return None;
+            };
+            if !k.parameters.iter().any(|p| {
+                p.kind == ast::ParameterKind::Required
+                    || (p.kind == ast::ParameterKind::Named && p.required)
+            }) {
                 return None;
             }
         }
@@ -789,13 +867,21 @@ fn implicit_super_of_class(
         return None;
     }
     let displayed = l.display(u, ast_, t, params)?;
-    Some(Diagnostic::with_code(c::NO_DEFAULT_SUPER_CONSTRUCTOR_IMPLICIT, name_span, [displayed.as_str(), class.as_str()]))
+    Some(Diagnostic::with_code(
+        c::NO_DEFAULT_SUPER_CONSTRUCTOR_IMPLICIT,
+        name_span,
+        [displayed.as_str(), class.as_str()],
+    ))
 }
 
 /// `ConstructorElement.getDisplayString()` of the unnamed `f` of `s` (it only
 /// goes to the correction of `non_generative_implicit_constructor`):
 /// `A A(int x)`, with the types as written.
-fn display_unnamed_constructor(l: &Reader<'_>, s: ClassId, f: dartforge_elements::model::FunctionElementId) -> String {
+fn display_unnamed_constructor(
+    l: &Reader<'_>,
+    s: ClassId,
+    f: dartforge_elements::model::FunctionElementId,
+) -> String {
     let se = l.program.class(s);
     let params_of_s: Vec<SymbolId> = se.type_params.iter().map(|p| p.name).collect();
     let mut text = l.name(se.name).to_string();
@@ -804,7 +890,8 @@ fn display_unnamed_constructor(l: &Reader<'_>, s: ClassId, f: dartforge_elements
         text = format!("{text}<{}>", names.join(", "));
     }
     let mut s_ = format!("{text} {}(", l.name(se.name));
-    if let dartforge_elements::model::FunctionRef::Constructor { unit, member } = l.program.function(f).node
+    if let dartforge_elements::model::FunctionRef::Constructor { unit, member } =
+        l.program.function(f).node
         && let ast::MemberKind::Constructor(k) = &l.program.unit(unit).ast.member(member).kind
     {
         let ast_k = &l.program.unit(unit).ast;
@@ -1057,22 +1144,35 @@ fn mixin_class(
         // `MIXIN_CLASS_DECLARES_NON_TRIVIAL_GENERATIVE_CONSTRUCTOR`.
         if d.primary_constructor == Some(mid) {
             let sp = if !k.parameters.is_empty() {
-                Some(Span { start: k.class_name.span.start, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) })
+                Some(Span {
+                    start: k.class_name.span.start,
+                    end: k.name.map_or(k.class_name.span.end, |n| n.span.end),
+                })
             } else {
                 let part = ast_.member(mid).span;
                 let text = source.get(part.start..part.end).unwrap_or("");
                 if !text.starts_with("this") {
                     None
                 } else if !k.initializers.is_empty() {
-                    text.find(':').map(|i| Span { start: part.start + i, end: part.start + i + 1 })
+                    text.find(':').map(|i| Span {
+                        start: part.start + i,
+                        end: part.start + i + 1,
+                    })
                 } else if matches!(k.body, ast::FunctionBody::Block(_)) {
-                    text.find('{').map(|i| Span { start: part.start + i, end: part.start + i + 1 })
+                    text.find('{').map(|i| Span {
+                        start: part.start + i,
+                        end: part.start + i + 1,
+                    })
                 } else {
                     None
                 }
             };
             if let Some(sp) = sp {
-                out.push(Diagnostic::with_code(c::MIXIN_CLASS_DECLARES_CONSTRUCTOR, sp, [name]));
+                out.push(Diagnostic::with_code(
+                    c::MIXIN_CLASS_DECLARES_CONSTRUCTOR,
+                    sp,
+                    [name],
+                ));
             }
             continue;
         }
@@ -1174,12 +1274,23 @@ fn constraints_satisfied(
     let augmented_lib = l.program.library(mixin.library).units.iter().any(|&u| {
         let a = &l.program.unit(u).ast;
         l.program.unit(u).unit.declarations.iter().any(|&d| {
-            a.decl(d).augment && matches!(&a.decl(d).kind, DeclKind::Mixin(x) if x.name.sym == mixin.name)
+            a.decl(d).augment
+                && matches!(&a.decl(d).kind, DeclKind::Mixin(x) if x.name.sym == mixin.name)
         })
     });
-    let repeated = l.program.classes.iter().filter(|c| c.library == mixin.library && c.name == mixin.name).count() > 1;
+    let repeated = l
+        .program
+        .classes
+        .iter()
+        .filter(|c| c.library == mixin.library && c.name == mixin.name)
+        .count()
+        > 1;
     let mut steps = 0;
-    if augmented_lib || repeated || cycle(l, id, id, &mut Vec::new(), &mut steps).is_some() || steps > 20_000 {
+    if augmented_lib
+        || repeated
+        || cycle(l, id, id, &mut Vec::new(), &mut steps).is_some()
+        || steps > 20_000
+    {
         return None;
     }
     for &(u, t) in &mixin.on {
@@ -1231,8 +1342,14 @@ fn not_implemented(
     let decl = class.decl?;
     let params: Vec<SymbolId> = clauses(&ast_.decl(decl.decl).kind)?.params;
     let mixin_text = l.display(u, ast_, t, &params)?;
-    let mixin_text = mixin_text.strip_suffix('?').unwrap_or(&mixin_text).to_string();
-    let super_txt = match (&ast_.decl(decl.decl).kind, clauses(&ast_.decl(decl.decl).kind)?.extends) {
+    let mixin_text = mixin_text
+        .strip_suffix('?')
+        .unwrap_or(&mixin_text)
+        .to_string();
+    let super_txt = match (
+        &ast_.decl(decl.decl).kind,
+        clauses(&ast_.decl(decl.decl).kind)?.extends,
+    ) {
         (_, Some(e)) => {
             let x = l.display(u, ast_, e, &params)?;
             x.strip_suffix('?').unwrap_or(&x).to_string()
@@ -1244,7 +1361,9 @@ fn not_implemented(
     let (mu, mt) = *mixin.on.get(i)?;
     let mast = &l.program.unit(mu).ast;
     let constraint = l.display(mu, mast, mt, &[])?;
-    let TypeKind::Named { name, .. } = &ast_.ty(t).kind else { return None };
+    let TypeKind::Named { name, .. } = &ast_.ty(t).kind else {
+        return None;
+    };
     let span = name.last()?.span;
     Some(Diagnostic::with_code(
         c::MIXIN_APPLICATION_NOT_IMPLEMENTED_INTERFACE,
@@ -1267,7 +1386,9 @@ pub fn clause_name_starts(program: &Program, lib: LibraryId) -> Vec<(UnitId, usi
         }
         let Some(decl) = class.decl else { continue };
         let ast_ = &program.unit(decl.unit).ast;
-        let Some(cl) = clauses(&ast_.decl(decl.decl).kind) else { continue };
+        let Some(cl) = clauses(&ast_.decl(decl.decl).kind) else {
+            continue;
+        };
         for &t in cl.extends.iter().chain(cl.with).chain(cl.implements) {
             if let TypeKind::Named { name, .. } = &ast_.ty(t).kind
                 && let Some(p) = name.first()
@@ -1282,11 +1403,18 @@ pub fn clause_name_starts(program: &Program, lib: LibraryId) -> Vec<(UnitId, usi
 /// The direct supertypes of `x` as the analyzer's element model keeps them:
 /// the superclass (a class; the `extends` of a mixin, enum or non-class type
 /// does not count), the mixins, the `on` constraints and the interfaces.
-fn direct_supertypes(l: &Reader<'_>, x: ClassId) -> (Option<ClassId>, Vec<ClassId>, Vec<ClassId>, Vec<ClassId>) {
+fn direct_supertypes(
+    l: &Reader<'_>,
+    x: ClassId,
+) -> (Option<ClassId>, Vec<ClassId>, Vec<ClassId>, Vec<ClassId>) {
     let c = l.program.class(x);
-    let Some(decl) = c.decl else { return (None, Vec::new(), Vec::new(), Vec::new()) };
+    let Some(decl) = c.decl else {
+        return (None, Vec::new(), Vec::new(), Vec::new());
+    };
     let ast_ = &l.program.unit(decl.unit).ast;
-    let Some(cl) = clauses(&ast_.decl(decl.decl).kind) else { return (None, Vec::new(), Vec::new(), Vec::new()) };
+    let Some(cl) = clauses(&ast_.decl(decl.decl).kind) else {
+        return (None, Vec::new(), Vec::new(), Vec::new());
+    };
     let class = |t: ast::TypeId, accepts_mixin: bool| match l.target(decl.unit, ast_, t, 0) {
         ClauseTarget::Class(y) => match l.program.class(y).kind {
             ClassKind::Class | ClassKind::MixinApplication => Some(y),
@@ -1298,14 +1426,24 @@ fn direct_supertypes(l: &Reader<'_>, x: ClassId) -> (Option<ClassId>, Vec<ClassI
     let sup = cl.extends.and_then(|t| class(t, false));
     let mixins = cl.with.iter().filter_map(|&t| class(t, true)).collect();
     let on = cl.on.iter().filter_map(|&t| class(t, true)).collect();
-    let interfaces = cl.implements.iter().filter_map(|&t| class(t, true)).collect();
+    let interfaces = cl
+        .implements
+        .iter()
+        .filter_map(|&t| class(t, true))
+        .collect();
     (sup, mixins, on, interfaces)
 }
 
 /// `_checkForRecursiveInterfaceInheritance`: the analyzer's depth-first search
 /// (superclass, mixins, `on`, interfaces), with the path back to `target`. A
 /// step limit avoids blowing up on large hierarchies (nothing is reported then).
-fn cycle(l: &Reader<'_>, target: ClassId, el: ClassId, path: &mut Vec<ClassId>, steps: &mut u32) -> Option<Vec<ClassId>> {
+fn cycle(
+    l: &Reader<'_>,
+    target: ClassId,
+    el: ClassId,
+    path: &mut Vec<ClassId>,
+    steps: &mut u32,
+) -> Option<Vec<ClassId>> {
     *steps += 1;
     if *steps > 20_000 {
         return None;
@@ -1313,7 +1451,8 @@ fn cycle(l: &Reader<'_>, target: ClassId, el: ClassId, path: &mut Vec<ClassId>, 
     // T1.1 c: same-named declarations of the same kind are the same element
     // for the analyzer's hierarchy; `augment class A extends A` (without the
     // experiment: the second `A` extends the first) is "A implements itself".
-    let same = el == target || l.program.class_representative(el) == l.program.class_representative(target);
+    let same = el == target
+        || l.program.class_representative(el) == l.program.class_representative(target);
     if !path.is_empty() && same {
         return Some(path.clone());
     }
@@ -1426,7 +1565,11 @@ fn component_3_13(l: &Reader<'_>, lib: LibraryId, target: ClassId) -> Option<Vec
 /// (`_checkDirectSuperTypes`, `Enum` on a concrete class, recursive
 /// inheritance) and reaches the overrides. A declaration repeated in the
 /// library or `augment` does not count.
-pub fn inheritance_verifier_proceeds(program: &Program, lib: LibraryId, names: &Interner) -> Vec<ClassId> {
+pub fn inheritance_verifier_proceeds(
+    program: &Program,
+    lib: LibraryId,
+    names: &Interner,
+) -> Vec<ClassId> {
     let l = Reader { program, names };
     let consumer = program.library(lib);
     let version = consumer.features.version();
@@ -1442,13 +1585,22 @@ pub fn inheritance_verifier_proceeds(program: &Program, lib: LibraryId, names: &
         if ast_.decl(decl.decl).augment {
             continue;
         }
-        let Some(cl) = clauses(&ast_.decl(decl.decl).kind) else { continue };
+        let Some(cl) = clauses(&ast_.decl(decl.decl).kind) else {
+            continue;
+        };
         // T1.4 step 4: each same-named declaration is checked through its own
         // clauses, with the names resolved by the scope rule (step 1).
-        let may_have_enum =
-            class.kind == ClassKind::Enum || class.kind == ClassKind::Mixin || class.modifiers.abstract_;
+        let may_have_enum = class.kind == ClassKind::Enum
+            || class.kind == ClassKind::Mixin
+            || class.modifiers.abstract_;
         let mut error = false;
-        for &t in cl.implements.iter().chain(cl.on).chain(cl.extends.as_slice()).chain(cl.with) {
+        for &t in cl
+            .implements
+            .iter()
+            .chain(cl.on)
+            .chain(cl.extends.as_slice())
+            .chain(cl.with)
+        {
             match l.target(decl.unit, ast_, t, 0) {
                 ClauseTarget::Class(a) => {
                     if !consumer.is_sdk {
@@ -1475,7 +1627,11 @@ pub fn inheritance_verifier_proceeds(program: &Program, lib: LibraryId, names: &
         }
         // `verify()`: a concrete class with `Enum` among its (transitive)
         // supertypes reports `concrete_class_has_enum_superinterface` and stops.
-        if class.kind != ClassKind::Enum && class.kind != ClassKind::Mixin && !class.modifiers.abstract_ && !class.modifiers.sealed {
+        if class.kind != ClassKind::Enum
+            && class.kind != ClassKind::Mixin
+            && !class.modifiers.abstract_
+            && !class.modifiers.sealed
+        {
             let mut all = Vec::new();
             supertypes(&l, id, &mut all);
             if all.iter().any(|&s| s != id && l.is_core_enum(s)) {
@@ -1525,11 +1681,7 @@ pub fn gate(program: &Program, lib: LibraryId, names: &Interner, id: ClassId) ->
 }
 
 /// The inheritance clause diagnostics of library `lib`.
-pub fn check(
-    program: &Program,
-    lib: LibraryId,
-    names: &Interner,
-) -> Vec<(UnitId, Diagnostic)> {
+pub fn check(program: &Program, lib: LibraryId, names: &Interner) -> Vec<(UnitId, Diagnostic)> {
     let l = Reader { program, names };
     let consumer = program.library(lib);
     let mut out = Vec::new();
@@ -1550,8 +1702,17 @@ pub fn check(
             let params: Vec<SymbolId> = x.type_params.iter().map(|p| p.name.sym).collect();
             for &t in x.implements.iter() {
                 let resolved = l.resolve(u, ast_, t, &params, 0, true);
-                if l.is_nullable(u, ast_, t, 0) && l.nullability_checked(u, ast_, t, &params, &resolved) {
-                    out.push((u, Diagnostic::with_code(c::NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE, ast_.ty(t).span, [] as [&str; 0])));
+                if l.is_nullable(u, ast_, t, 0)
+                    && l.nullability_checked(u, ast_, t, &params, &resolved)
+                {
+                    out.push((
+                        u,
+                        Diagnostic::with_code(
+                            c::NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE,
+                            ast_.ty(t).span,
+                            [] as [&str; 0],
+                        ),
+                    ));
                 }
             }
             continue;
@@ -1564,7 +1725,9 @@ pub fn check(
         // `class-modifiers` (before 3.0), `dart:core`'s `Function` in the
         // `extends`, in the first `implements` that cites it and in each `with`
         // of a class or class alias.
-        if matches!(&ast_.decl(decl.decl).kind, DeclKind::Class(_)) && consumer.features.version().major < 3 {
+        if matches!(&ast_.decl(decl.decl).kind, DeclKind::Class(_))
+            && consumer.features.version().major < 3
+        {
             let is_function = |t: ast::TypeId| {
                 matches!(l.target(u, ast_, t, 0), ClauseTarget::Class(f) if l.program.library(l.program.class(f).library).uri == "dart:core" && l.name(l.program.class(f).name) == "Function")
                     && !l.is_nullable(u, ast_, t, 0)
@@ -1573,21 +1736,43 @@ pub fn check(
             if let Some(t) = cl.extends
                 && is_function(t)
             {
-                out.push((decl.unit, Diagnostic::with_code(dartforge_diagnostics::codes::warning::DEPRECATED_EXTENDS_FUNCTION, ast_.ty(t).span, empty)));
+                out.push((
+                    decl.unit,
+                    Diagnostic::with_code(
+                        dartforge_diagnostics::codes::warning::DEPRECATED_EXTENDS_FUNCTION,
+                        ast_.ty(t).span,
+                        empty,
+                    ),
+                ));
             }
             if let Some(&t) = cl.implements.iter().find(|&&t| is_function(t)) {
-                out.push((decl.unit, Diagnostic::with_code(dartforge_diagnostics::codes::warning::DEPRECATED_IMPLEMENTS_FUNCTION, ast_.ty(t).span, empty)));
+                out.push((
+                    decl.unit,
+                    Diagnostic::with_code(
+                        dartforge_diagnostics::codes::warning::DEPRECATED_IMPLEMENTS_FUNCTION,
+                        ast_.ty(t).span,
+                        empty,
+                    ),
+                ));
             }
             for &t in cl.with {
                 if is_function(t) {
-                    out.push((decl.unit, Diagnostic::with_code(dartforge_diagnostics::codes::warning::DEPRECATED_MIXIN_FUNCTION, ast_.ty(t).span, empty)));
+                    out.push((
+                        decl.unit,
+                        Diagnostic::with_code(
+                            dartforge_diagnostics::codes::warning::DEPRECATED_MIXIN_FUNCTION,
+                            ast_.ty(t).span,
+                            empty,
+                        ),
+                    ));
                 }
             }
         }
 
         // `ResolutionVisitor._resolveType`: each clause type must name a class
         // (or a mixin, outside the `extends`).
-        let mixin_application = matches!(&ast_.decl(decl.decl).kind, DeclKind::Class(d) if d.mixin_application);
+        let mixin_application =
+            matches!(&ast_.decl(decl.decl).kind, DeclKind::Class(d) if d.mixin_application);
         let resolution_groups: [(&[ast::TypeId], Code, bool); 4] = [
             (
                 cl.extends.as_slice(),
@@ -1608,7 +1793,9 @@ pub fn check(
                 let resolved = l.resolve(u, ast_, t, &cl.params, 0, outside_on);
                 // `NamedTypeResolver._verifyNullability`: `?` written on a
                 // clause type (the whole node).
-                if l.is_nullable(u, ast_, t, 0) && l.nullability_checked(u, ast_, t, &cl.params, &resolved) {
+                if l.is_nullable(u, ast_, t, 0)
+                    && l.nullability_checked(u, ast_, t, &cl.params, &resolved)
+                {
                     let nullable_code = if code == c::IMPLEMENTS_NON_CLASS {
                         c::NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE
                     } else if code == c::MIXIN_OF_NON_CLASS {
@@ -1618,7 +1805,10 @@ pub fn check(
                     } else {
                         c::NULLABLE_TYPE_IN_EXTENDS_CLAUSE
                     };
-                    out.push((decl.unit, Diagnostic::with_code(nullable_code, ast_.ty(t).span, [] as [&str; 0])));
+                    out.push((
+                        decl.unit,
+                        Diagnostic::with_code(nullable_code, ast_.ty(t).span, [] as [&str; 0]),
+                    ));
                 }
                 // `_verifyTypeAliasForContext`: the clause's code, and the type
                 // becomes `InvalidType` (no `*_non_class`).
@@ -1635,8 +1825,14 @@ pub fn check(
                     if let TypeKind::Named { name, .. } = &ast_.ty(t).kind
                         && let (Some(p), Some(n)) = (name.first(), name.last())
                     {
-                        let span = dartforge_diagnostics::Span { start: p.span.start, end: n.span.end };
-                        out.push((decl.unit, Diagnostic::with_code(alias_code, span, [] as [&str; 0])));
+                        let span = dartforge_diagnostics::Span {
+                            start: p.span.start,
+                            end: n.span.end,
+                        };
+                        out.push((
+                            decl.unit,
+                            Diagnostic::with_code(alias_code, span, [] as [&str; 0]),
+                        ));
                     }
                     continue;
                 }
@@ -1652,17 +1848,26 @@ pub fn check(
                 if error {
                     let span = match &ast_.ty(t).kind {
                         TypeKind::Named { name, .. } => match (name.first(), name.last()) {
-                            (Some(p), Some(n)) => Some(dartforge_diagnostics::Span { start: p.span.start, end: n.span.end }),
+                            (Some(p), Some(n)) => Some(dartforge_diagnostics::Span {
+                                start: p.span.start,
+                                end: n.span.end,
+                            }),
                             _ => None,
                         },
                         TypeKind::Void => {
                             let s = ast_.ty(t).span.start;
-                            Some(dartforge_diagnostics::Span { start: s, end: s + 4 })
+                            Some(dartforge_diagnostics::Span {
+                                start: s,
+                                end: s + 4,
+                            })
                         }
                         _ => None,
                     };
                     if let Some(span) = span {
-                        out.push((decl.unit, Diagnostic::with_code(code, span, [] as [&str; 0])));
+                        out.push((
+                            decl.unit,
+                            Diagnostic::with_code(code, span, [] as [&str; 0]),
+                        ));
                     }
                 }
             }
@@ -1731,7 +1936,14 @@ pub fn check(
             let mut all = Vec::new();
             supertypes(&l, id, &mut all);
             if all.iter().any(|&x| x != id && l.is_core_enum(x)) {
-                out.push((decl.unit, Diagnostic::with_code(c::CONCRETE_CLASS_HAS_ENUM_SUPERINTERFACE, d.name.span, [] as [&str; 0])));
+                out.push((
+                    decl.unit,
+                    Diagnostic::with_code(
+                        c::CONCRETE_CLASS_HAS_ENUM_SUPERINTERFACE,
+                        d.name.span,
+                        [] as [&str; 0],
+                    ),
+                ));
                 direct_error = true;
             }
         }
@@ -1743,7 +1955,14 @@ pub fn check(
                 if let ClauseTarget::Class(m) = l.target(u, ast_, t, 0)
                     && l.has_instance_field(m)
                 {
-                    out.push((decl.unit, Diagnostic::with_code(c::ENUM_MIXIN_WITH_INSTANCE_VARIABLE, ast_.ty(t).span, [] as [&str; 0])));
+                    out.push((
+                        decl.unit,
+                        Diagnostic::with_code(
+                            c::ENUM_MIXIN_WITH_INSTANCE_VARIABLE,
+                            ast_.ty(t).span,
+                            [] as [&str; 0],
+                        ),
+                    ));
                     direct_error = true;
                 }
             }
@@ -1764,17 +1983,32 @@ pub fn check(
                     _ => ast_.decl(decl.decl).span,
                 };
                 let d = if cycle.len() > 1 {
-                    let mut text: Vec<&str> = cycle.iter().map(|&x| l.name(program.class(x).name)).collect();
+                    let mut text: Vec<&str> = cycle
+                        .iter()
+                        .map(|&x| l.name(program.class(x).name))
+                        .collect();
                     text.push(name);
                     let old = text.join(", ");
                     // The third argument is the path as 3.13.4 writes it (T2,
                     // case c21); only the 3.13 variant uses it.
                     match component_3_13(&l, lib, id) {
                         Some(component) => {
-                            let new = component.iter().map(|&x| l.name(program.class(x).name)).collect::<Vec<&str>>().join(", ");
-                            Diagnostic::with_code(c::RECURSIVE_INTERFACE_INHERITANCE, span, [name, old.as_str(), new.as_str()])
+                            let new = component
+                                .iter()
+                                .map(|&x| l.name(program.class(x).name))
+                                .collect::<Vec<&str>>()
+                                .join(", ");
+                            Diagnostic::with_code(
+                                c::RECURSIVE_INTERFACE_INHERITANCE,
+                                span,
+                                [name, old.as_str(), new.as_str()],
+                            )
                         }
-                        None => Diagnostic::with_code(c::RECURSIVE_INTERFACE_INHERITANCE, span, [name, old.as_str()]),
+                        None => Diagnostic::with_code(
+                            c::RECURSIVE_INTERFACE_INHERITANCE,
+                            span,
+                            [name, old.as_str()],
+                        ),
                     }
                 } else {
                     let (sup, mixins, on, _) = direct_supertypes(&l, id);
@@ -1832,9 +2066,13 @@ pub fn check(
         if class.kind == ClassKind::Class
             && let DeclKind::Class(x) = &ast_.decl(decl.decl).kind
             && !x.mixin_application
-            && !x.members.iter().any(|&m| matches!(ast_.member(m).kind, ast::MemberKind::Constructor(_)))
+            && !x
+                .members
+                .iter()
+                .any(|&m| matches!(ast_.member(m).kind, ast::MemberKind::Constructor(_)))
             && let Some(t) = cl.extends
-            && let Some(d) = implicit_super_of_class(&l, u, ast_, class.name, x.name.span, t, &cl.params)
+            && let Some(d) =
+                implicit_super_of_class(&l, u, ast_, class.name, x.name.span, t, &cl.params)
         {
             out.push((decl.unit, d));
         }
@@ -1847,12 +2085,18 @@ pub fn check(
             },
         };
         if let Some(s) = superclass {
-            for (types, code) in [(cl.implements, c::IMPLEMENTS_SUPER_CLASS), (cl.with, c::MIXINS_SUPER_CLASS)] {
+            for (types, code) in [
+                (cl.implements, c::IMPLEMENTS_SUPER_CLASS),
+                (cl.with, c::MIXINS_SUPER_CLASS),
+            ] {
                 for &t in types {
                     if l.target(u, ast_, t, 0) == ClauseTarget::Class(s)
                         && let Some(text) = l.display_class(s)
                     {
-                        out.push((decl.unit, Diagnostic::with_code(code, ast_.ty(t).span, [text.as_str()])));
+                        out.push((
+                            decl.unit,
+                            Diagnostic::with_code(code, ast_.ty(t).span, [text.as_str()]),
+                        ));
                     }
                 }
             }
@@ -1942,17 +2186,16 @@ mod tests {
         fs::write(&entry, source).unwrap();
         let mut names = Interner::new();
         let (program, _) = load_lenient(&entry, &sdk, None, &mut names);
-        let mut v: Vec<(String, String, String)> =
-            check(&program, program.entry.unwrap(), &names)
-                .into_iter()
-                .map(|(_, d)| {
-                    (
-                        d.code.map_or("", |c| c.info().name).to_string(),
-                        source[d.span.start..d.span.end].to_string(),
-                        d.message,
-                    )
-                })
-                .collect();
+        let mut v: Vec<(String, String, String)> = check(&program, program.entry.unwrap(), &names)
+            .into_iter()
+            .map(|(_, d)| {
+                (
+                    d.code.map_or("", |c| c.info().name).to_string(),
+                    source[d.span.start..d.span.end].to_string(),
+                    d.message,
+                )
+            })
+            .collect();
         v.sort();
         fs::remove_dir_all(&root).unwrap();
         v
@@ -2162,7 +2405,13 @@ mod tests {
             "class S {}\nmixin M on S {}\nclass N {}\nclass A extends S with M, N {}\nclass B with M, N {}\n",
         );
         let v: Vec<(&str, &str)> = v.iter().map(|(a, b, _)| (a.as_str(), b.as_str())).collect();
-        assert_eq!(v, vec![("class_used_as_mixin", "N"), ("mixin_application_not_implemented_interface", "M")]);
+        assert_eq!(
+            v,
+            vec![
+                ("class_used_as_mixin", "N"),
+                ("mixin_application_not_implemented_interface", "M")
+            ]
+        );
     }
 
     /// A class alias with a single mixin does not inherit from another class,
@@ -2210,18 +2459,56 @@ mod tests {
             "class A {}\nmixin class B {}\ntypedef TA = A;\nclass C extends A implements A, TA {}\nclass D extends B with B {}\nclass E implements Object {}\nmixin M on A, A implements B, B {}\nenum F implements A, A { v }\nextension type X(int it) implements int, int {}\n",
         );
         let expected = [
-            ("implements_repeated", "A", "'A' can only be implemented once."),
-            ("implements_repeated", "B", "'B' can only be implemented once."),
-            ("implements_repeated", "TA", "'A' can only be implemented once."),
-            ("implements_repeated", "int", "'int' can only be implemented once."),
-            ("implements_super_class", "A", "'class A' can't be used in both the 'extends' and 'implements' clauses."),
-            ("implements_super_class", "B", "'mixin class B' can't be used in both the 'extends' and 'with' clauses."),
-            ("implements_super_class", "Object", "'class Object' can't be used in both the 'extends' and 'implements' clauses."),
-            ("implements_super_class", "TA", "'class A' can't be used in both the 'extends' and 'implements' clauses."),
-            ("on_repeated", "A", "The type 'A' can be included in the superclass constraints only once."),
+            (
+                "implements_repeated",
+                "A",
+                "'A' can only be implemented once.",
+            ),
+            (
+                "implements_repeated",
+                "B",
+                "'B' can only be implemented once.",
+            ),
+            (
+                "implements_repeated",
+                "TA",
+                "'A' can only be implemented once.",
+            ),
+            (
+                "implements_repeated",
+                "int",
+                "'int' can only be implemented once.",
+            ),
+            (
+                "implements_super_class",
+                "A",
+                "'class A' can't be used in both the 'extends' and 'implements' clauses.",
+            ),
+            (
+                "implements_super_class",
+                "B",
+                "'mixin class B' can't be used in both the 'extends' and 'with' clauses.",
+            ),
+            (
+                "implements_super_class",
+                "Object",
+                "'class Object' can't be used in both the 'extends' and 'implements' clauses.",
+            ),
+            (
+                "implements_super_class",
+                "TA",
+                "'class A' can't be used in both the 'extends' and 'implements' clauses.",
+            ),
+            (
+                "on_repeated",
+                "A",
+                "The type 'A' can be included in the superclass constraints only once.",
+            ),
         ];
-        let expected: Vec<(String, String, String)> =
-            expected.iter().map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string())).collect();
+        let expected: Vec<(String, String, String)> = expected
+            .iter()
+            .map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string()))
+            .collect();
         assert_eq!(v, expected);
     }
 
@@ -2235,17 +2522,51 @@ mod tests {
             "import 'does_not_exist.dart' as p;\nint v = 0;\nenum En { a }\nmixin M {}\nclass A extends v {}\nclass B extends Undefined {}\nclass C<T> implements T, En {}\nclass D extends M {}\nclass E with dynamic {}\nclass F extends p.X {}\nclass G = v with M;\nclass H extends v with M {}\n",
         );
         let expected = [
-            ("extends_non_class", "M", "Classes can only extend other classes."),
-            ("extends_non_class", "Undefined", "Classes can only extend other classes."),
-            ("extends_non_class", "v", "Classes can only extend other classes."),
-            ("implements_non_class", "En", "Classes and mixins can only implement other classes and mixins."),
-            ("implements_non_class", "T", "Classes and mixins can only implement other classes and mixins."),
-            ("mixin_of_non_class", "dynamic", "Classes can only mix in mixins and classes."),
-            ("mixin_with_non_class_superclass", "v", "Mixin can only be applied to class."),
-            ("mixin_with_non_class_superclass", "v", "Mixin can only be applied to class."),
+            (
+                "extends_non_class",
+                "M",
+                "Classes can only extend other classes.",
+            ),
+            (
+                "extends_non_class",
+                "Undefined",
+                "Classes can only extend other classes.",
+            ),
+            (
+                "extends_non_class",
+                "v",
+                "Classes can only extend other classes.",
+            ),
+            (
+                "implements_non_class",
+                "En",
+                "Classes and mixins can only implement other classes and mixins.",
+            ),
+            (
+                "implements_non_class",
+                "T",
+                "Classes and mixins can only implement other classes and mixins.",
+            ),
+            (
+                "mixin_of_non_class",
+                "dynamic",
+                "Classes can only mix in mixins and classes.",
+            ),
+            (
+                "mixin_with_non_class_superclass",
+                "v",
+                "Mixin can only be applied to class.",
+            ),
+            (
+                "mixin_with_non_class_superclass",
+                "v",
+                "Mixin can only be applied to class.",
+            ),
         ];
-        let expected: Vec<(String, String, String)> =
-            expected.iter().map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string())).collect();
+        let expected: Vec<(String, String, String)> = expected
+            .iter()
+            .map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string()))
+            .collect();
         assert_eq!(v, expected);
     }
 
@@ -2258,17 +2579,50 @@ mod tests {
             "class A extends B {}\nclass B implements C {}\nclass C extends A {}\nclass D extends B {}\nclass E extends E {\n  var foo = 0;\n}\nmixin M on M {}\nclass F with F {}\nclass G implements G {}\n",
         );
         let expected = [
-            ("recursive_interface_inheritance", "A", "'A' can't be a superinterface of itself: A, B, C, A."),
-            ("recursive_interface_inheritance", "B", "'B' can't be a superinterface of itself: B, C, A, B."),
-            ("recursive_interface_inheritance", "C", "'C' can't be a superinterface of itself: C, A, B, C."),
-            ("recursive_interface_inheritance", "E", "'E' can't extend itself."),
-            ("recursive_interface_inheritance", "F", "'F' can't use itself as a mixin."),
-            ("recursive_interface_inheritance", "G", "'G' can't implement itself."),
-            ("recursive_interface_inheritance", "M", "'M' can't use itself as a superclass constraint."),
+            (
+                "recursive_interface_inheritance",
+                "A",
+                "'A' can't be a superinterface of itself: A, B, C, A.",
+            ),
+            (
+                "recursive_interface_inheritance",
+                "B",
+                "'B' can't be a superinterface of itself: B, C, A, B.",
+            ),
+            (
+                "recursive_interface_inheritance",
+                "C",
+                "'C' can't be a superinterface of itself: C, A, B, C.",
+            ),
+            (
+                "recursive_interface_inheritance",
+                "E",
+                "'E' can't extend itself.",
+            ),
+            (
+                "recursive_interface_inheritance",
+                "F",
+                "'F' can't use itself as a mixin.",
+            ),
+            (
+                "recursive_interface_inheritance",
+                "G",
+                "'G' can't implement itself.",
+            ),
+            (
+                "recursive_interface_inheritance",
+                "M",
+                "'M' can't use itself as a superclass constraint.",
+            ),
         ];
-        let expected: Vec<(String, String, String)> =
-            expected.iter().map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string())).collect();
-        let v: Vec<_> = v.into_iter().filter(|x| x.0 == "recursive_interface_inheritance").collect();
+        let expected: Vec<(String, String, String)> = expected
+            .iter()
+            .map(|(a, b, c)| (a.to_string(), b.to_string(), c.to_string()))
+            .collect();
+        let v: Vec<_> = v
+            .into_iter()
+            .filter(|x| x.0 == "recursive_interface_inheritance")
+            .collect();
         assert_eq!(v, expected);
     }
 
@@ -2296,13 +2650,26 @@ mod tests {
     /// the mixin's name, with the supertype (`Object` omitted) and the constraint.
     #[test]
     fn mixin_without_the_on_constraint() {
-        let v = run("restricao-on", "class A {}\nclass C {}\nmixin M on A {}\nclass B with M {}\nclass D extends C with M {}\nclass E extends A with M {}\n");
-        let v: Vec<(&str, &str)> = v.iter().filter(|x| x.0 == "mixin_application_not_implemented_interface").map(|x| (x.1.as_str(), x.2.as_str())).collect();
+        let v = run(
+            "restricao-on",
+            "class A {}\nclass C {}\nmixin M on A {}\nclass B with M {}\nclass D extends C with M {}\nclass E extends A with M {}\n",
+        );
+        let v: Vec<(&str, &str)> = v
+            .iter()
+            .filter(|x| x.0 == "mixin_application_not_implemented_interface")
+            .map(|x| (x.1.as_str(), x.2.as_str()))
+            .collect();
         assert_eq!(
             v,
             vec![
-                ("M", "'M' can't be mixed onto 'C' because 'C' doesn't implement 'A'."),
-                ("M", "'M' can't be mixed onto 'Object' because 'Object' doesn't implement 'A'."),
+                (
+                    "M",
+                    "'M' can't be mixed onto 'C' because 'C' doesn't implement 'A'."
+                ),
+                (
+                    "M",
+                    "'M' can't be mixed onto 'Object' because 'Object' doesn't implement 'A'."
+                ),
             ]
         );
     }

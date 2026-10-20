@@ -5,14 +5,29 @@ use crate::hir::*;
 
 #[test]
 fn closed_callback_returns_before_dart_or_argument_materialization() {
-    for native in [CType::Void, CType::I8, CType::U8, CType::I16, CType::U16,
-        CType::I32, CType::U32, CType::I64, CType::U64, CType::F32, CType::F64,
-        CType::Bool, CType::Ptr, CType::Handle] {
+    for native in [
+        CType::Void,
+        CType::I8,
+        CType::U8,
+        CType::I16,
+        CType::U16,
+        CType::I32,
+        CType::U32,
+        CType::I64,
+        CType::U64,
+        CType::F32,
+        CType::F64,
+        CType::Bool,
+        CType::Ptr,
+        CType::Handle,
+    ] {
         let mut module = Module::new();
         module.sdk_mode = true;
         module.ffi_callbacks.push(FfiCallback {
-            key: "test_p".into(), body: "df.callback_test".into(),
-            ret: NativeType::Prim(native), params: vec![NativeType::Prim(CType::Ptr)],
+            key: "test_p".into(),
+            body: "df.callback_test".into(),
+            ret: NativeType::Prim(native),
+            params: vec![NativeType::Prim(CType::Ptr)],
         });
         let ir = LlvmEmitter::new(&module).emit_all();
         let body = ir.split("@df.ffi.cbentry.0(").nth(1).unwrap();
@@ -155,19 +170,26 @@ fn foreign_sync_compound_arguments_share_listener_copy_addresses() {
 #[test]
 fn closed_compound_callback_zeroes_direct_and_sret_abi_results() {
     for size in [8, 24] {
-        let layout = LayoutC { size, alignment: 8,
-            leaves: (0..size / 8).map(|i| (i * 8, CType::I64)).collect() };
+        let layout = LayoutC {
+            size,
+            alignment: 8,
+            leaves: (0..size / 8).map(|i| (i * 8, CType::I64)).collect(),
+        };
         let mut module = Module::new();
         module.sdk_mode = true;
         module.ffi_callbacks.push(FfiCallback {
-            key: "test_compound".into(), body: "df.callback_test".into(),
-            ret: NativeType::Composite(layout), params: vec![],
+            key: "test_compound".into(),
+            body: "df.callback_test".into(),
+            ret: NativeType::Composite(layout),
+            params: vec![],
         });
         let ir = LlvmEmitter::new(&module).emit_all();
         let body = ir.split("@df.ffi.cbentry.0(").nth(1).unwrap();
         let closed = body.split("active_callback:").next().unwrap();
         if closed.contains("sret(") {
-            assert!(closed.contains(&format!("@llvm.memset.p0.i64(ptr %sret, i8 0, i64 {size}, i1 false)")));
+            assert!(closed.contains(&format!(
+                "@llvm.memset.p0.i64(ptr %sret, i8 0, i64 {size}, i1 false)"
+            )));
             assert!(closed.contains("ret void"));
         } else {
             assert!(closed.contains("zeroinitializer"));
@@ -180,21 +202,52 @@ fn closed_compound_callback_zeroes_direct_and_sret_abi_results() {
 #[test]
 fn owned_factory_preserves_method_table_registration() {
     for owned in [false, true] {
-        let name = if owned { "dartforge_arc_object_owned_v1" } else { "dartforge_object_new" };
+        let name = if owned {
+            "dartforge_arc_object_owned_v1"
+        } else {
+            "dartforge_object_new"
+        };
         let mut m = Module::new();
         m.arc_memory = true;
         m.table_functions.insert(32001, "df.mt.C".into());
-        m.functions.push(function("criar", vec![], Type::Ref,
-            vec![BasicBlock { id: BlockId(0), instructions: vec![
-                (ValueId(0), Instruction::CallRuntime { name: name.into(),
-                    args: vec![(Operand::Constant(Constant::Int(32001)), Type::I64),
-                        (Operand::Constant(Constant::Int(40)), Type::I64)], ret_ty: Type::Ref }, Type::Ref),
-            ], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }]));
+        m.functions.push(function(
+            "criar",
+            vec![],
+            Type::Ref,
+            vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(0),
+                    Instruction::CallRuntime {
+                        name: name.into(),
+                        args: vec![
+                            (Operand::Constant(Constant::Int(32001)), Type::I64),
+                            (Operand::Constant(Constant::Int(40)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            }],
+        ));
         let ir = LlvmEmitter::new(&m).emit_all();
         let body = body_of(&ir, "criar");
-        let expected = if owned { "dartforge_arc_object_owned_t_v1" } else { "dartforge_object_new_t" };
-        assert!(ir.contains(&format!("declare i64 @{expected}(i64, i64, ptr)")), "{ir}");
-        assert!(body.contains(&format!("call i64 @{expected}(i64 32001, i64 40, ptr @df.mt.C)")), "{body}");
+        let expected = if owned {
+            "dartforge_arc_object_owned_t_v1"
+        } else {
+            "dartforge_object_new_t"
+        };
+        assert!(
+            ir.contains(&format!("declare i64 @{expected}(i64, i64, ptr)")),
+            "{ir}"
+        );
+        assert!(
+            body.contains(&format!(
+                "call i64 @{expected}(i64 32001, i64 40, ptr @df.mt.C)"
+            )),
+            "{body}"
+        );
         assert!(ir.contains("declare ptr @df.mt.C()"), "{ir}");
     }
 }
@@ -204,26 +257,37 @@ fn typed_fields_keep_inline_llvm_type_and_extension() {
     let limit = dartforge_runtime::layout::INLINE_FIELDS;
     for index in [0, limit] {
         for (ty, llvm_ty, conversion) in [
-            (Type::Ref, "i64", None), (Type::I64, "i64", None),
+            (Type::Ref, "i64", None),
+            (Type::I64, "i64", None),
             (Type::F64, "double", Some("bitcast i64 %fb1 to double")),
             (Type::I1, "i1", Some("trunc i64 %fb1 to i1")),
             (Type::I8, "i8", Some("trunc i64 %fb1 to i8")),
         ] {
             let read = Instruction::GetField {
-                object: Operand::Val(ValueId(0)), index,
+                object: Operand::Val(ValueId(0)),
+                index,
             };
             assert_eq!(LlvmEmitter::result_type(&read, ty), ty);
-            let ir = emit(function("campo_tipado", vec![(ValueId(0), "obj".into(), Type::Ref)],
-                ty, vec![BasicBlock { id: BlockId(0), instructions: vec![
-                    (ValueId(1), read, ty),
-                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]));
+            let ir = emit(function(
+                "campo_tipado",
+                vec![(ValueId(0), "obj".into(), Type::Ref)],
+                ty,
+                vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(ValueId(1), read, ty)],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                }],
+            ));
             let body = body_of(&ir, "campo_tipado");
             assert!(body.contains(&format!("ret {llvm_ty} %v1")), "{body}");
             if let Some(conversion) = conversion {
                 assert!(body.contains(conversion), "{body}");
             }
             if index == limit {
-                assert!(body.contains(&format!("@dartforge_object_get(i64 %v0, i64 {limit})")), "{body}");
+                assert!(
+                    body.contains(&format!("@dartforge_object_get(i64 %v0, i64 {limit})")),
+                    "{body}"
+                );
             } else {
                 assert!(body.contains("load i64"), "{body}");
             }
@@ -261,13 +325,43 @@ fn body_of<'a>(ir: &'a str, symbol: &str) -> &'a str {
 
 #[test]
 fn arc_global_loads_real_bits_and_publishes_before_transferring_owner() {
-    let slot = StrongSlot::Global { symbol: "dfg.recurso".into() };
-    let f = function("arc_global", vec![(ValueId(0), "x".into(), Type::Ref)], Type::Void,
-        vec![BasicBlock { id: BlockId(0), instructions: vec![
-            (ValueId(1), Instruction::ArcStoreStrong { slot: slot.clone(), value: Operand::Val(ValueId(0)), mode: StrongStoreMode::Copy }, Type::Void),
-            (ValueId(2), Instruction::ArcLoadStrong { slot: slot.clone() }, Type::Ref),
-            (ValueId(3), Instruction::ArcStoreStrong { slot, value: Operand::Val(ValueId(2)), mode: StrongStoreMode::Move }, Type::Void),
-        ], terminator: Terminator::Return(None) }]);
+    let slot = StrongSlot::Global {
+        symbol: "dfg.recurso".into(),
+    };
+    let f = function(
+        "arc_global",
+        vec![(ValueId(0), "x".into(), Type::Ref)],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(1),
+                    Instruction::ArcStoreStrong {
+                        slot: slot.clone(),
+                        value: Operand::Val(ValueId(0)),
+                        mode: StrongStoreMode::Copy,
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(2),
+                    Instruction::ArcLoadStrong { slot: slot.clone() },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::ArcStoreStrong {
+                        slot,
+                        value: Operand::Val(ValueId(2)),
+                        mode: StrongStoreMode::Move,
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(None),
+        }],
+    );
     let mut m = Module::new();
     m.globals.push((0, Type::Ref, "dfg.recurso".into()));
     m.functions.push(f);
@@ -277,14 +371,23 @@ fn arc_global_loads_real_bits_and_publishes_before_transferring_owner() {
     let body = body_of(&ir, "arc_global");
     assert!(body.contains("%v2 = load i64, ptr %ga2"));
     assert!(body.contains("@dartforge_arc_retain(i64 %v2)"));
-    assert!(body.find("@dartforge_arc_retain(i64 %v0)").unwrap() < body.find("store i64 %v0, ptr %ga1").unwrap());
-    assert!(body.find("store i64 %v2, ptr %ga3").unwrap() < body.find("@dartforge_arc_global_receive_v1").unwrap());
+    assert!(
+        body.find("@dartforge_arc_retain(i64 %v0)").unwrap()
+            < body.find("store i64 %v0, ptr %ga1").unwrap()
+    );
+    assert!(
+        body.find("store i64 %v2, ptr %ga3").unwrap()
+            < body.find("@dartforge_arc_global_receive_v1").unwrap()
+    );
     assert!(!body.contains("@dartforge_arc_release(i64 %v2)"));
     m.globals[0].1 = Type::I64;
     assert!(!crate::lower::verifier::verify(&m).is_empty());
     m.globals.clear();
     assert!(!crate::lower::verifier::verify(&m).is_empty());
-    m.globals.extend([(0, Type::Ref, "dfg.recurso".into()), (1, Type::Ref, "dfg.recurso".into())]);
+    m.globals.extend([
+        (0, Type::Ref, "dfg.recurso".into()),
+        (1, Type::Ref, "dfg.recurso".into()),
+    ]);
     assert!(!crate::lower::verifier::verify(&m).is_empty());
 }
 
@@ -454,7 +557,11 @@ fn inlining_remaps_arc_operand_and_preserves_return_token() {
 #[test]
 fn arc_operations_reject_unevaluated_literal_scalar_and_wrong_result() {
     for operation in 0..3 {
-        let expected = if operation == 2 { Type::Void } else { Type::Ref };
+        let expected = if operation == 2 {
+            Type::Void
+        } else {
+            Type::Ref
+        };
         let wrong = if expected == Type::Void {
             Type::Ref
         } else {
@@ -504,7 +611,14 @@ fn arc_entry_rejects_incompatible_abi_before_registrations() {
             m.sdk_mode = sdk;
             m.arc_memory = arc;
             let ir = LlvmEmitter::new(&m).emit_all();
-            let body = body_of(&ir, if sdk { "df.prepare_isolate" } else { "dartforge_entry" });
+            let body = body_of(
+                &ir,
+                if sdk {
+                    "df.prepare_isolate"
+                } else {
+                    "dartforge_entry"
+                },
+            );
             if !arc {
                 assert!(!body.contains("@dartforge_arc_verify_abi"));
                 continue;
@@ -539,7 +653,10 @@ fn wtf8_literal_preserves_lone_surrogate_in_ir() {
     );
     let ir = emit(f);
     assert!(ir.contains("[3 x i8] c\"\\ED\\A0\\BD\""), "{ir}");
-    assert!(ir.contains("@dartforge_string_new(ptr @.str.0, i64 3)"), "{ir}");
+    assert!(
+        ir.contains("@dartforge_string_new(ptr @.str.0, i64 3)"),
+        "{ir}"
+    );
     assert!(!ir.contains("\\EF\\BF\\BD"), "surrogate was replaced: {ir}");
 }
 
@@ -578,7 +695,10 @@ fn static_literal_in_aot() {
         layout::string_words(1, true),
         layout::cid::TWO_BYTE_STRING,
     );
-    assert!(ir.contains(&format!("i64 {}", header as i64)), "header {header:#x}: {ir}");
+    assert!(
+        ir.contains(&format!("i64 {}", header as i64)),
+        "header {header:#x}: {ir}"
+    );
     let hash = layout::string_hash([0xD83Du16]);
     assert!(ir.contains(&format!("i64 {hash}")), "hash {hash}: {ir}");
 }
@@ -638,9 +758,18 @@ fn roots_frame_on_every_ret() {
     assert!(!body.contains("store i64 %v1, ptr"), "{body}");
     // The exit of the stack check (C22) returns before the frame is
     // linked: nothing to close there.
-    let (prologue, rest) = body.split_once("pilha.ok:").expect("stack check in the prologue");
-    assert!(prologue.contains("pilha.estouro:") && prologue.contains("call void @dartforge_stack_overflow()"), "{body}");
-    assert!(!prologue.contains("store ptr %gcq, ptr %ctxtopo"), "the frame cannot be chained on overflow: {body}");
+    let (prologue, rest) = body
+        .split_once("pilha.ok:")
+        .expect("stack check in the prologue");
+    assert!(
+        prologue.contains("pilha.estouro:")
+            && prologue.contains("call void @dartforge_stack_overflow()"),
+        "{body}"
+    );
+    assert!(
+        !prologue.contains("store ptr %gcq, ptr %ctxtopo"),
+        "the frame cannot be chained on overflow: {body}"
+    );
     assert_eq!(prologue.matches("\n  ret ").count(), 1, "{body}");
     let rets = rest.matches("\n  ret ").count();
     let pops = rest.matches("store ptr %gcvolta").count();
@@ -739,10 +868,7 @@ fn ref_local_has_own_slot() {
     let ir = emit(f);
     let body = body_of(&ir, "h");
     assert!(body.contains("store i64 %v1, ptr %v0"), "{body}");
-    assert!(
-        body.contains("store i64 %v1, ptr %gcs0"),
-        "{body}"
-    );
+    assert!(body.contains("store i64 %v1, ptr %gcs0"), "{body}");
 }
 
 /// E1: writing a `Ref` into a field carries `is_ref = 1`; a scalar, 0 — inline,
@@ -789,11 +915,20 @@ fn ref_field_carries_is_ref() {
     // The header at `h - 2`; the fields, 8-byte words after it; the
     // `is_ref` is the bit of the field in the header map.
     assert!(body.contains("%fxa2 = add i64 %v0, -2"), "{body}");
-    assert!(body.contains("%fp2 = getelementptr inbounds i8, ptr %fcb2, i64 16"), "{body}");
-    assert!(body.contains("ptr %fp2, i64 0\n  store i64 %v1, ptr %fg2"), "{body}");
+    assert!(
+        body.contains("%fp2 = getelementptr inbounds i8, ptr %fcb2, i64 16"),
+        "{body}"
+    );
+    assert!(
+        body.contains("ptr %fp2, i64 0\n  store i64 %v1, ptr %fg2"),
+        "{body}"
+    );
     assert!(body.contains("%fms2 = or i32 %fm2, 1"), "{body}");
     assert!(body.contains("store i64 7, ptr %fg3"), "{body}");
-    assert!(body.contains("%fmc3 = and i32 %fm3, -3\n  store i32 %fmc3"), "{body}");
+    assert!(
+        body.contains("%fmc3 = and i32 %fm3, -3\n  store i32 %fmc3"),
+        "{body}"
+    );
     assert!(!body.contains("@dartforge_object_set("), "{body}");
 }
 
@@ -866,10 +1001,35 @@ fn verifier_checks_captures_records_and_removed_instructions() {
         vec![BasicBlock {
             id: BlockId(0),
             instructions: vec![
-                (cel, Instruction::AllocCell { value: Operand::Val(x) }, Type::Ref),
-                (env, Instruction::AllocEnv { values: vec![Operand::Val(x), Operand::Val(cel)] }, Type::Ref),
-                (clo, Instruction::AllocClosure { code_symbol: "g".to_string(), env: Operand::Val(env) }, Type::Ref),
-                (ValueId(4), Instruction::AllocRecord { elements: vec![(Operand::Val(x), 1)] }, Type::Ref),
+                (
+                    cel,
+                    Instruction::AllocCell {
+                        value: Operand::Val(x),
+                    },
+                    Type::Ref,
+                ),
+                (
+                    env,
+                    Instruction::AllocEnv {
+                        values: vec![Operand::Val(x), Operand::Val(cel)],
+                    },
+                    Type::Ref,
+                ),
+                (
+                    clo,
+                    Instruction::AllocClosure {
+                        code_symbol: "g".to_string(),
+                        env: Operand::Val(env),
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(4),
+                    Instruction::AllocRecord {
+                        elements: vec![(Operand::Val(x), 1)],
+                    },
+                    Type::Ref,
+                ),
             ],
             terminator: Terminator::Return(None),
         }],
@@ -883,9 +1043,29 @@ fn verifier_checks_captures_records_and_removed_instructions() {
         vec![BasicBlock {
             id: BlockId(0),
             instructions: vec![
-                (c0, Instruction::EnvGet { env: Operand::Val(e), index: 0 }, Type::Ref),
-                (c1, Instruction::EnvGet { env: Operand::Val(e), index: 1 }, Type::Ref),
-                (c2, Instruction::CellGet { cell: Operand::Val(c1) }, Type::F64),
+                (
+                    c0,
+                    Instruction::EnvGet {
+                        env: Operand::Val(e),
+                        index: 0,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    c1,
+                    Instruction::EnvGet {
+                        env: Operand::Val(e),
+                        index: 1,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    c2,
+                    Instruction::CellGet {
+                        cell: Operand::Val(c1),
+                    },
+                    Type::F64,
+                ),
             ],
             terminator: Terminator::Return(None),
         }],
@@ -895,7 +1075,10 @@ fn verifier_checks_captures_records_and_removed_instructions() {
     m.functions.push(body);
     let errors = crate::lower::verifier::verify(&m);
     let has = |s: &str| errors.iter().any(|e| e.contains(s));
-    assert!(has("environment capture 0: read as Ref, written as I64"), "{errors:?}");
+    assert!(
+        has("environment capture 0: read as Ref, written as I64"),
+        "{errors:?}"
+    );
     assert!(has("cell: read as F64, written as I64"), "{errors:?}");
     assert!(has("positional record: field I64"), "{errors:?}");
     // Capture 1 (the cell, `Ref`) read as `Ref`: no error.
@@ -905,16 +1088,61 @@ fn verifier_checks_captures_records_and_removed_instructions() {
 // Tests the body emitter on a Windows host too, without pretending Unix AOT support.
 #[test]
 fn cleanup_resumes_original_pair_and_rejects_incoherent_metadata() {
-    let f = function("retoma", vec![(ValueId(0), "x".into(), Type::Ref)], Type::Void, vec![
-        BasicBlock { id: BlockId(0), instructions: vec![
-            (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref),
-            (ValueId(2), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
-        ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(2), else_block: BlockId(1) } },
-        BasicBlock { id: BlockId(1), instructions: vec![(ValueId(4), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void)], terminator: Terminator::Return(None) },
-        BasicBlock { id: BlockId(2), instructions: vec![
-            (ValueId(3), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void),
-        ], terminator: Terminator::Return(None) },
-    ]);
+    let f = function(
+        "retoma",
+        vec![(ValueId(0), "x".into(), Type::Ref)],
+        Type::Void,
+        vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(1),
+                        Instruction::ArcCopy {
+                            value: Operand::Val(ValueId(0)),
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::CallStatic {
+                            symbol: "falha".into(),
+                            args: vec![],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    ),
+                ],
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Constant(Constant::Bool(false)),
+                    then_block: BlockId(2),
+                    else_block: BlockId(1),
+                },
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![(
+                    ValueId(4),
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(1)),
+                    },
+                    Type::Void,
+                )],
+                terminator: Terminator::Return(None),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![(
+                    ValueId(3),
+                    Instruction::ArcDrop {
+                        value: Operand::Val(ValueId(1)),
+                    },
+                    Type::Void,
+                )],
+                terminator: Terminator::Return(None),
+            },
+        ],
+    );
     let t = FunctionTables {
         invocations: [(ValueId(2), BlockId(2))].into(),
         landing_pads: [BlockId(2)].into(),
@@ -934,23 +1162,51 @@ fn cleanup_resumes_original_pair_and_rejects_incoherent_metadata() {
     assert!(landing_pad.contains("%lpad2 = landingpad { ptr, i32 } cleanup"));
     assert!(landing_pad.contains("resume { ptr, i32 } %lpad2"));
     assert!(!landing_pad.contains("@df.throw"));
-    assert!(landing_pad.find("@dartforge_arc_release").unwrap() < landing_pad.find("resume").unwrap());
+    assert!(
+        landing_pad.find("@dartforge_arc_release").unwrap() < landing_pad.find("resume").unwrap()
+    );
     let mut bad = t.clone();
     bad.landing_pads.clear();
-    assert!(crate::optimize::arc::check_resumes(&f, &bad).unwrap_err().contains("landing pad"));
+    assert!(
+        crate::optimize::arc::check_resumes(&f, &bad)
+            .unwrap_err()
+            .contains("landing pad")
+    );
     bad = t.clone();
     bad.invocations.insert(ValueId(1000), BlockId(2));
-    assert!(crate::optimize::arc::check_resumes(&f, &bad).unwrap_err().contains("exactly one invoke"));
+    assert!(
+        crate::optimize::arc::check_resumes(&f, &bad)
+            .unwrap_err()
+            .contains("exactly one invoke")
+    );
     let mut body = f.clone();
     body.blocks[0].terminator = Terminator::Branch(BlockId(2));
-    assert!(crate::optimize::arc::check_resumes(&body, &t).unwrap_err().contains("without an invoke"));
+    assert!(
+        crate::optimize::arc::check_resumes(&body, &t)
+            .unwrap_err()
+            .contains("without an invoke")
+    );
     body = f.clone();
-    body.blocks[2].instructions.push((ValueId(5), Instruction::CallRuntime { name: "dartforge_exception_clear".into(), args: vec![], ret_ty: Type::Void }, Type::Void));
-    assert!(crate::optimize::arc::check_resumes(&body, &t).unwrap_err().contains("only admits ARC drops"));
+    body.blocks[2].instructions.push((
+        ValueId(5),
+        Instruction::CallRuntime {
+            name: "dartforge_exception_clear".into(),
+            args: vec![],
+            ret_ty: Type::Void,
+        },
+        Type::Void,
+    ));
+    assert!(
+        crate::optimize::arc::check_resumes(&body, &t)
+            .unwrap_err()
+            .contains("only admits ARC drops")
+    );
     let mut e = LlvmEmitter::new(&m);
     e.tab = Some(&t);
     e.maps = true;
-    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| e.emit_function(&f))).is_err());
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| e.emit_function(&f))).is_err()
+    );
 }
 
 #[cfg(windows)]
@@ -958,7 +1214,10 @@ fn cleanup_resumes_original_pair_and_rejects_incoherent_metadata() {
 #[should_panic(expected = "Windows needs SEH funclets")]
 fn resume_does_not_promise_seh_support_in_public_emitter() {
     let mut m = Module::new();
-    m.tables.push(FunctionTables { exits: [(BlockId(1), ExceptionExit::Resume)].into(), ..Default::default() });
+    m.tables.push(FunctionTables {
+        exits: [(BlockId(1), ExceptionExit::Resume)].into(),
+        ..Default::default()
+    });
     LlvmEmitter::new(&m).emit_all();
 }
 
@@ -966,8 +1225,13 @@ fn resume_does_not_promise_seh_support_in_public_emitter() {
 fn check_cleanup_objects(ir: &str) {
     // The emitted body is verified and generates Itanium code, without using the
     // Windows header nor promising cross-compilation of Dart modules.
-    let triple = if cfg!(target_arch = "aarch64") { "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" };
-    let complete = format!(r#"target triple = "{triple}"
+    let triple = if cfg!(target_arch = "aarch64") {
+        "aarch64-unknown-linux-gnu"
+    } else {
+        "x86_64-unknown-linux-gnu"
+    };
+    let complete = format!(
+        r#"target triple = "{triple}"
         declare i32 @dartforge_personality_cleanup_itanium(...)
         declare i32 @llvm.eh.typeid.for(ptr)
         declare ptr @dartforge_context()
@@ -979,46 +1243,135 @@ fn check_cleanup_objects(ir: &str) {
         declare i64 @dartforge_effects_level() nounwind
         declare void @dartforge_effects_restore(i64) nounwind
         declare void @falha()
-        {ir}"#);
+        {ir}"#
+    );
     for optimize in [false, true] {
-        let object = dartforge_llvm::generate("cleanup-retoma", &complete, &dartforge_llvm::Options {
-            optimize, format: dartforge_llvm::Format::Object, cpu: None,
-        }).unwrap_or_else(|error| panic!("{error}\n{complete}"));
+        let object = dartforge_llvm::generate(
+            "cleanup-retoma",
+            &complete,
+            &dartforge_llvm::Options {
+                optimize,
+                format: dartforge_llvm::Format::Object,
+                cpu: None,
+            },
+        )
+        .unwrap_or_else(|error| panic!("{error}\n{complete}"));
         assert!(!object.is_empty());
     }
 }
 
 #[test]
 fn catch_in_cleanup_profile_checks_selector_and_remaps_landing_pad_phi() {
-    let call = |v| (ValueId(v), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void);
-    let drop = |v| (ValueId(v), Instruction::ArcDrop { value: Operand::Val(ValueId(1)) }, Type::Void);
-    let branch = |p, n| Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(p), else_block: BlockId(n) };
-    let f = function("misto", vec![(ValueId(0), "x".into(), Type::Ref)], Type::Void, vec![
-        BasicBlock { id: BlockId(0), instructions: vec![
-            (ValueId(1), Instruction::ArcCopy { value: Operand::Val(ValueId(0)) }, Type::Ref), call(2),
-        ], terminator: branch(4, 1) },
-        BasicBlock { id: BlockId(1), instructions: vec![call(5)], terminator: branch(2, 3) },
-        BasicBlock { id: BlockId(2), instructions: vec![drop(3)], terminator: Terminator::Return(None) },
-        BasicBlock { id: BlockId(3), instructions: vec![drop(4)], terminator: Terminator::Return(None) },
-        BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Branch(BlockId(5)) },
-        BasicBlock { id: BlockId(5), instructions: vec![
-            (ValueId(6), Instruction::Phi { incoming: vec![(BlockId(4), Operand::Constant(Constant::Int(1)))], ty: Type::I64 }, Type::I64), drop(7),
-        ], terminator: Terminator::Return(None) },
-    ]);
+    let call = |v| {
+        (
+            ValueId(v),
+            Instruction::CallStatic {
+                symbol: "falha".into(),
+                args: vec![],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        )
+    };
+    let drop = |v| {
+        (
+            ValueId(v),
+            Instruction::ArcDrop {
+                value: Operand::Val(ValueId(1)),
+            },
+            Type::Void,
+        )
+    };
+    let branch = |p, n| Terminator::CondBranch {
+        cond: Operand::Constant(Constant::Bool(false)),
+        then_block: BlockId(p),
+        else_block: BlockId(n),
+    };
+    let f = function(
+        "misto",
+        vec![(ValueId(0), "x".into(), Type::Ref)],
+        Type::Void,
+        vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(1),
+                        Instruction::ArcCopy {
+                            value: Operand::Val(ValueId(0)),
+                        },
+                        Type::Ref,
+                    ),
+                    call(2),
+                ],
+                terminator: branch(4, 1),
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![call(5)],
+                terminator: branch(2, 3),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![drop(3)],
+                terminator: Terminator::Return(None),
+            },
+            BasicBlock {
+                id: BlockId(3),
+                instructions: vec![drop(4)],
+                terminator: Terminator::Return(None),
+            },
+            BasicBlock {
+                id: BlockId(4),
+                instructions: vec![],
+                terminator: Terminator::Branch(BlockId(5)),
+            },
+            BasicBlock {
+                id: BlockId(5),
+                instructions: vec![
+                    (
+                        ValueId(6),
+                        Instruction::Phi {
+                            incoming: vec![(BlockId(4), Operand::Constant(Constant::Int(1)))],
+                            ty: Type::I64,
+                        },
+                        Type::I64,
+                    ),
+                    drop(7),
+                ],
+                terminator: Terminator::Return(None),
+            },
+        ],
+    );
     let t = FunctionTables {
         invocations: [(ValueId(2), BlockId(4)), (ValueId(5), BlockId(2))].into(),
         landing_pads: [BlockId(2), BlockId(4)].into(),
-        exits: [(BlockId(2), ExceptionExit::Resume)].into(), ..Default::default()
+        exits: [(BlockId(2), ExceptionExit::Resume)].into(),
+        ..Default::default()
     };
-    let failure = function("falha", vec![], Type::Void, vec![BasicBlock {
-        id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None),
-    }]);
+    let failure = function(
+        "falha",
+        vec![],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![],
+            terminator: Terminator::Return(None),
+        }],
+    );
     let mut functions = vec![f, failure];
-    let plan = crate::optimize::arc::DartFunctionPlan { tables: t, ..Default::default() };
+    let plan = crate::optimize::arc::DartFunctionPlan {
+        tables: t,
+        ..Default::default()
+    };
     let mut leaf = crate::optimize::arc::DartFunctionPlan::default();
     leaf.tables.checks_stack = true;
-    let mut plans = std::collections::HashMap::from([("misto".into(), plan), ("falha".into(), leaf)]);
-    assert_eq!(crate::optimize::arc::insert_arc_dart_functions(&mut functions, &mut plans).unwrap(), (0, 0));
+    let mut plans =
+        std::collections::HashMap::from([("misto".into(), plan), ("falha".into(), leaf)]);
+    assert_eq!(
+        crate::optimize::arc::insert_arc_dart_functions(&mut functions, &mut plans).unwrap(),
+        (0, 0)
+    );
     let f = &functions[0];
     let t = &plans["misto"].tables;
     let certificate = t.foreign_cleanup.as_ref().unwrap();
@@ -1036,13 +1389,21 @@ fn catch_in_cleanup_profile_checks_selector_and_remaps_landing_pad_phi() {
     let ir = e.out;
     if super::externs::check_effects() {
         assert!(ir.contains("%efnivel = call i64 @dartforge_effects_level()"));
-        let restoration = ir.find("call void @dartforge_effects_restore(i64 %efnivel)").unwrap();
+        let restoration = ir
+            .find("call void @dartforge_effects_restore(i64 %efnivel)")
+            .unwrap();
         assert!(restoration < ir.find("lpad4.estrangeira:").unwrap());
     }
     assert!(ir.contains("%lpseletor4 = extractvalue { ptr, i32 } %lpad4, 1"));
     assert!(ir.contains("%lptipo4 = call i32 @llvm.eh.typeid.for(ptr null)"));
     assert!(ir.contains("lpad4.estrangeira:\n  call void @dartforge_arc_release(i64 %v1)"));
-    let foreign = ir.split("lpad4.estrangeira:\n").nth(1).unwrap().split("lpad4.dart:").next().unwrap();
+    let foreign = ir
+        .split("lpad4.estrangeira:\n")
+        .nth(1)
+        .unwrap()
+        .split("lpad4.dart:")
+        .next()
+        .unwrap();
     assert!(foreign.contains("resume { ptr, i32 } %lpad4"));
     assert_eq!(foreign.matches("@dartforge_arc_release").count(), 1);
     if ir.contains("%gcant =") {
@@ -1057,25 +1418,98 @@ fn catch_in_cleanup_profile_checks_selector_and_remaps_landing_pad_phi() {
 #[test]
 fn foreign_cleanup_closes_local_frames_in_lifo() {
     let val = |id| Operand::Val(ValueId(id));
-    let open = |id| (ValueId(id), Instruction::CallRuntime {
-        name: "dartforge_arc_frame_open_v1".into(),
-        args: vec![(Operand::Constant(Constant::Int(1)), Type::I64)], ret_ty: Type::I64,
-    }, Type::I64);
-    let close = |id, q| (ValueId(id), Instruction::CallRuntime {
-        name: "dartforge_arc_frame_close_v1".into(), args: vec![(val(q), Type::I64)], ret_ty: Type::Void,
-    }, Type::Void);
-    let f = function("quadros_estrangeiros", vec![], Type::Void, vec![
-        BasicBlock { id: BlockId(0), instructions: vec![open(0), open(1),
-            (ValueId(2), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
-        ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(1), else_block: BlockId(2) } },
-        BasicBlock { id: BlockId(1), instructions: vec![close(3, 1), close(4, 0)], terminator: Terminator::Return(None) },
-        BasicBlock { id: BlockId(2), instructions: vec![
-            (ValueId(7), Instruction::CallStatic { symbol: "falha".into(), args: vec![], ret_ty: Type::Void }, Type::Void),
-        ], terminator: Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(3), else_block: BlockId(4) } },
-        BasicBlock { id: BlockId(3), instructions: vec![close(5, 1), close(6, 0)], terminator: Terminator::Return(None) },
-        BasicBlock { id: BlockId(4), instructions: vec![close(8, 1), close(9, 0)], terminator: Terminator::Return(None) },
-    ]);
-    let failure = function("falha", vec![], Type::Void, vec![BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Return(None) }]);
+    let open = |id| {
+        (
+            ValueId(id),
+            Instruction::CallRuntime {
+                name: "dartforge_arc_frame_open_v1".into(),
+                args: vec![(Operand::Constant(Constant::Int(1)), Type::I64)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        )
+    };
+    let close = |id, q| {
+        (
+            ValueId(id),
+            Instruction::CallRuntime {
+                name: "dartforge_arc_frame_close_v1".into(),
+                args: vec![(val(q), Type::I64)],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        )
+    };
+    let f = function(
+        "quadros_estrangeiros",
+        vec![],
+        Type::Void,
+        vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    open(0),
+                    open(1),
+                    (
+                        ValueId(2),
+                        Instruction::CallStatic {
+                            symbol: "falha".into(),
+                            args: vec![],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    ),
+                ],
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Constant(Constant::Bool(false)),
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
+                },
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![close(3, 1), close(4, 0)],
+                terminator: Terminator::Return(None),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![(
+                    ValueId(7),
+                    Instruction::CallStatic {
+                        symbol: "falha".into(),
+                        args: vec![],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                )],
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Constant(Constant::Bool(false)),
+                    then_block: BlockId(3),
+                    else_block: BlockId(4),
+                },
+            },
+            BasicBlock {
+                id: BlockId(3),
+                instructions: vec![close(5, 1), close(6, 0)],
+                terminator: Terminator::Return(None),
+            },
+            BasicBlock {
+                id: BlockId(4),
+                instructions: vec![close(8, 1), close(9, 0)],
+                terminator: Terminator::Return(None),
+            },
+        ],
+    );
+    let failure = function(
+        "falha",
+        vec![],
+        Type::Void,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![],
+            terminator: Terminator::Return(None),
+        }],
+    );
     let mut plan = crate::optimize::arc::DartFunctionPlan::default();
     plan.tables.invocations.insert(ValueId(2), BlockId(1));
     plan.tables.landing_pads.insert(BlockId(1));
@@ -1085,42 +1519,107 @@ fn foreign_cleanup_closes_local_frames_in_lifo() {
     plan.tables.exits.insert(BlockId(3), ExceptionExit::Resume);
     let mut leaf = crate::optimize::arc::DartFunctionPlan::default();
     leaf.tables.checks_stack = true;
-    let mut plans = std::collections::HashMap::from([("quadros_estrangeiros".into(), plan), ("falha".into(), leaf)]);
+    let mut plans = std::collections::HashMap::from([
+        ("quadros_estrangeiros".into(), plan),
+        ("falha".into(), leaf),
+    ]);
     let mut functions = vec![f, failure];
     crate::optimize::arc::insert_arc_dart_functions(&mut functions, &mut plans).unwrap();
     let t = &plans["quadros_estrangeiros"].tables;
-    assert_eq!(t.foreign_cleanup.as_ref().unwrap().frames(BlockId(1)), &[ValueId(0), ValueId(1)]);
+    assert_eq!(
+        t.foreign_cleanup.as_ref().unwrap().frames(BlockId(1)),
+        &[ValueId(0), ValueId(1)]
+    );
     let m = Module::new();
     let mut e = LlvmEmitter::new(&m);
     e.tab = Some(t);
     e.emit_function(&functions[0]);
     let ir = e.out;
-    let excerpt = ir.split("lpad1.estrangeira:").nth(1).unwrap().split("resume ").next().unwrap();
-    let internal = excerpt.find("call void @dartforge_arc_frame_close_v1(i64 %v1)").unwrap();
-    let external = excerpt.find("call void @dartforge_arc_frame_close_v1(i64 %v0)").unwrap();
+    let excerpt = ir
+        .split("lpad1.estrangeira:")
+        .nth(1)
+        .unwrap()
+        .split("resume ")
+        .next()
+        .unwrap();
+    let internal = excerpt
+        .find("call void @dartforge_arc_frame_close_v1(i64 %v1)")
+        .unwrap();
+    let external = excerpt
+        .find("call void @dartforge_arc_frame_close_v1(i64 %v0)")
+        .unwrap();
     assert!(internal < external);
     assert_eq!(excerpt.matches("@dartforge_arc_frame_close_v1").count(), 2);
-    let resume = ir.split("b3:\n").nth(1).unwrap().split("resume ").next().unwrap();
+    let resume = ir
+        .split("b3:\n")
+        .nth(1)
+        .unwrap()
+        .split("resume ")
+        .next()
+        .unwrap();
     assert!(!resume.contains("catch ptr null"));
-    assert!(resume.find("@dartforge_arc_frame_close_v1(i64 %v1)").unwrap()
-        < resume.find("@dartforge_arc_frame_close_v1(i64 %v0)").unwrap());
+    assert!(
+        resume
+            .find("@dartforge_arc_frame_close_v1(i64 %v1)")
+            .unwrap()
+            < resume
+                .find("@dartforge_arc_frame_close_v1(i64 %v0)")
+                .unwrap()
+    );
     let mut invalidates = functions[0].clone();
-    invalidates.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.swap(0, 1);
-    assert!(crate::optimize::arc::check_resumes(&invalidates, t).unwrap_err().contains("out of LIFO order"));
+    invalidates
+        .blocks
+        .iter_mut()
+        .find(|b| b.id == BlockId(3))
+        .unwrap()
+        .instructions
+        .swap(0, 1);
+    assert!(
+        crate::optimize::arc::check_resumes(&invalidates, t)
+            .unwrap_err()
+            .contains("out of LIFO order")
+    );
     let mut without_closing = functions[0].clone();
-    without_closing.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.pop();
-    assert!(crate::optimize::arc::check_resumes(&without_closing, t).unwrap_err().contains("frames still open"));
+    without_closing
+        .blocks
+        .iter_mut()
+        .find(|b| b.id == BlockId(3))
+        .unwrap()
+        .instructions
+        .pop();
+    assert!(
+        crate::optimize::arc::check_resumes(&without_closing, t)
+            .unwrap_err()
+            .contains("frames still open")
+    );
     let mut collection = functions[0].clone();
-    collection.blocks.iter_mut().find(|b| b.id == BlockId(3)).unwrap().instructions.push((
-        ValueId(10), Instruction::CallRuntime { name: "dartforge_arc_collect".into(), args: vec![], ret_ty: Type::Void }, Type::Void,
-    ));
-    assert!(crate::optimize::arc::check_resumes(&collection, t).unwrap_err().contains("only admits ARC drops"));
+    collection
+        .blocks
+        .iter_mut()
+        .find(|b| b.id == BlockId(3))
+        .unwrap()
+        .instructions
+        .push((
+            ValueId(10),
+            Instruction::CallRuntime {
+                name: "dartforge_arc_collect".into(),
+                args: vec![],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        ));
+    assert!(
+        crate::optimize::arc::check_resumes(&collection, t)
+            .unwrap_err()
+            .contains("only admits ARC drops")
+    );
     assert!(ir.contains("resume { ptr, i32 } %lpad3"));
-
 
     #[cfg(feature = "embedded-llvm")]
     {
-        let complete = format!("declare i64 @dartforge_arc_frame_open_v1(i64) nounwind\ndeclare void @dartforge_arc_frame_close_v1(i64) nounwind\n{ir}");
+        let complete = format!(
+            "declare i64 @dartforge_arc_frame_open_v1(i64) nounwind\ndeclare void @dartforge_arc_frame_close_v1(i64) nounwind\n{ir}"
+        );
         check_cleanup_objects(&complete);
     }
 }
@@ -1130,15 +1629,29 @@ fn declaration_inline_policies_emit_preferences_and_prohibitions() {
     for dwarf in [false, true] {
         let mut m = Module::new();
         m.dwarf = dwarf;
-        for (name, policy) in [("preferred", InlinePolicy::Prefer), ("forbidden", InlinePolicy::Never)] {
+        for (name, policy) in [
+            ("preferred", InlinePolicy::Prefer),
+            ("forbidden", InlinePolicy::Never),
+        ] {
             m.inline_policies.insert(name.into(), policy);
-            m.functions.push(function(name, vec![], Type::I64, vec![BasicBlock {
-                id: BlockId(0), instructions: vec![],
-                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(1)))),
-            }]));
+            m.functions.push(function(
+                name,
+                vec![],
+                Type::I64,
+                vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(1)))),
+                }],
+            ));
         }
         let ir = LlvmEmitter::new(&m).with_optimize_size(true).emit_all();
-        let header = |name: &str| ir.lines().find(|l| l.starts_with("define ") && l.contains(&format!("@{name}("))).unwrap().to_owned();
+        let header = |name: &str| {
+            ir.lines()
+                .find(|l| l.starts_with("define ") && l.contains(&format!("@{name}(")))
+                .unwrap()
+                .to_owned()
+        };
         assert!(header("forbidden").contains(" optsize noinline"));
         assert_eq!(header("preferred").contains(" inlinehint"), !dwarf);
         assert!(!header("preferred").contains("alwaysinline"));
@@ -1151,17 +1664,36 @@ fn maps_native_declarations_follow_certified_gc_effects() {
     module.sdk_mode = true;
     for maps in [false, true] {
         let mut emitter = LlvmEmitter::new(&module).with_roots_by_maps(maps);
-        emitter.annotate_external("dartforge_native_DartForge_string_equals_object", Type::I8, &[Type::Ref, Type::Ref]);
-        emitter.annotate_external("dartforge_native_DartForge_mirrors_name", Type::Ref, &[Type::Ref]);
-        emitter.annotate_external("dartforge_native_unclassified_test", Type::Ref, &[Type::Ref]);
+        emitter.annotate_external(
+            "dartforge_native_DartForge_string_equals_object",
+            Type::I8,
+            &[Type::Ref, Type::Ref],
+        );
+        emitter.annotate_external(
+            "dartforge_native_DartForge_mirrors_name",
+            Type::Ref,
+            &[Type::Ref],
+        );
+        emitter.annotate_external(
+            "dartforge_native_unclassified_test",
+            Type::Ref,
+            &[Type::Ref],
+        );
         let ir = emitter.emit_all();
         for (name, leaf) in [
             ("dartforge_native_DartForge_string_equals_object", true),
             ("dartforge_native_DartForge_mirrors_name", false),
             ("dartforge_native_unclassified_test", false),
         ] {
-            let declaration = ir.lines().find(|line| line.starts_with("declare ") && line.contains(&format!("@{name}("))).unwrap();
-            assert_eq!(declaration.contains("\"gc-leaf-function\""), maps && leaf, "{declaration}");
+            let declaration = ir
+                .lines()
+                .find(|line| line.starts_with("declare ") && line.contains(&format!("@{name}(")))
+                .unwrap();
+            assert_eq!(
+                declaration.contains("\"gc-leaf-function\""),
+                maps && leaf,
+                "{declaration}"
+            );
         }
     }
 }
@@ -1170,25 +1702,53 @@ fn maps_native_declarations_follow_certified_gc_effects() {
 fn maps_rti_evaluation_keeps_the_source_operation_effects() {
     let mut module = Module::new();
     module.sdk_mode = true;
-    module.functions.push(function("rti_maps_effects", vec![(ValueId(0), "receiver".into(), Type::Ref)], Type::I64,
-        vec![BasicBlock { id: BlockId(0), instructions: vec![
-            (ValueId(1), Instruction::CallRuntime {
-                name: "dartforge_rti_eval".into(),
-                args: vec![(Operand::Constant(Constant::Int(1)), Type::I64),
-                    (Operand::Val(ValueId(0)), Type::Ref),
-                    (Operand::Constant(Constant::Int(1024)), Type::I64),
-                    (Operand::Constant(Constant::Int(0)), Type::I64)],
-                ret_ty: Type::I64,
-            }, Type::I64),
-        ], terminator: Terminator::Branch(BlockId(1)) },
-        BasicBlock { id: BlockId(1), instructions: vec![
-            (ValueId(2), Instruction::Phi { incoming: vec![(BlockId(0), Operand::Val(ValueId(1)))], ty: Type::I64 }, Type::I64),
-        ], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }]));
-    let ir = LlvmEmitter::new(&module).with_roots_by_maps(true).emit_all();
+    module.functions.push(function(
+        "rti_maps_effects",
+        vec![(ValueId(0), "receiver".into(), Type::Ref)],
+        Type::I64,
+        vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    ValueId(1),
+                    Instruction::CallRuntime {
+                        name: "dartforge_rti_eval".into(),
+                        args: vec![
+                            (Operand::Constant(Constant::Int(1)), Type::I64),
+                            (Operand::Val(ValueId(0)), Type::Ref),
+                            (Operand::Constant(Constant::Int(1024)), Type::I64),
+                            (Operand::Constant(Constant::Int(0)), Type::I64),
+                        ],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                )],
+                terminator: Terminator::Branch(BlockId(1)),
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![(
+                    ValueId(2),
+                    Instruction::Phi {
+                        incoming: vec![(BlockId(0), Operand::Val(ValueId(1)))],
+                        ty: Type::I64,
+                    },
+                    Type::I64,
+                )],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+            },
+        ],
+    ));
+    let ir = LlvmEmitter::new(&module)
+        .with_roots_by_maps(true)
+        .emit_all();
     let body = body_of(&ir, "rti_maps_effects");
     assert!(body.contains("call i64 @dartforge_rti_eval("), "{body}");
     assert!(!body.contains("@dartforge_rti_eval_cache("), "{body}");
-    assert!(!body.contains("%ra1.fim"), "Phi predecessor must name an emitted block: {body}");
+    assert!(
+        !body.contains("%ra1.fim"),
+        "Phi predecessor must name an emitted block: {body}"
+    );
 }
 
 /// The stack check compares the stack pointer of the entry
@@ -1197,17 +1757,48 @@ fn maps_rti_evaluation_keeps_the_source_operation_effects() {
 #[test]
 fn stack_check_reads_the_stack_pointer_register() {
     let v0 = ValueId(0);
-    let f = function("pilha", vec![(v0, "s".to_string(), Type::Ref)], Type::Ref,
-        vec![BasicBlock { id: BlockId(0), instructions: vec![(ValueId(1), concat(v0, v0), Type::Ref)],
-            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]);
+    let f = function(
+        "pilha",
+        vec![(v0, "s".to_string(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(ValueId(1), concat(v0, v0), Type::Ref)],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+        }],
+    );
     let ir = emit(f);
     let body = body_of(&ir, "pilha");
-    let register = if cfg!(target_arch = "x86_64") { "rsp" } else { "sp" };
-    assert!(body.contains(&format!("%pilhasp = call i64 @llvm.read_register.i64(metadata !{{!\"{register}\"}})")), "{body}");
-    assert!(body.contains("%pilhal = load i64, ptr %pilhalp") && body.contains("%pilhab = icmp ult i64 %pilhasp, %pilhal"), "{body}");
-    assert!(!body.contains("%pilhaq") && !body.contains("alloca i8, align 1"), "{body}");
-    assert!(ir.contains("declare i64 @llvm.read_register.i64(metadata)"), "{ir}");
-    assert!(ir.lines().any(|line| line.starts_with("define ") && line.contains("@pilha(") && line.contains("\"disable-tail-calls\"=\"true\"")), "{ir}");
+    let register = if cfg!(target_arch = "x86_64") {
+        "rsp"
+    } else {
+        "sp"
+    };
+    assert!(
+        body.contains(&format!(
+            "%pilhasp = call i64 @llvm.read_register.i64(metadata !{{!\"{register}\"}})"
+        )),
+        "{body}"
+    );
+    assert!(
+        body.contains("%pilhal = load i64, ptr %pilhalp")
+            && body.contains("%pilhab = icmp ult i64 %pilhasp, %pilhal"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("%pilhaq") && !body.contains("alloca i8, align 1"),
+        "{body}"
+    );
+    assert!(
+        ir.contains("declare i64 @llvm.read_register.i64(metadata)"),
+        "{ir}"
+    );
+    assert!(
+        ir.lines().any(|line| line.starts_with("define ")
+            && line.contains("@pilha(")
+            && line.contains("\"disable-tail-calls\"=\"true\"")),
+        "{ir}"
+    );
 }
 
 /// A module with class 32001 (`df.mt.C`; two fields: a `Ref` and an `int`,
@@ -1217,23 +1808,82 @@ fn allocation_module(declared: bool) -> Module {
     let mut m = Module::new();
     m.table_functions.insert(32001, "df.mt.C".into());
     if declared {
-        let field = |name: &str, index: usize, storage_type: Type| Some(FieldDeclaration {
-            library_uri: "package:x/x.dart".into(), owner: "C".into(), name: name.into(),
-            is_final: false, is_late: false, layout_index: index, storage_type,
-        });
-        m.declared_field_layouts.insert(32001, vec![field("r", 0, Type::Ref), field("n", 1, Type::I64)]);
+        let field = |name: &str, index: usize, storage_type: Type| {
+            Some(FieldDeclaration {
+                library_uri: "package:x/x.dart".into(),
+                owner: "C".into(),
+                name: name.into(),
+                is_final: false,
+                is_late: false,
+                layout_index: index,
+                storage_type,
+            })
+        };
+        m.declared_field_layouts.insert(
+            32001,
+            vec![field("r", 0, Type::Ref), field("n", 1, Type::I64)],
+        );
     }
     let (p, v0) = (ValueId(0), ValueId(1));
-    m.functions.push(function("alocar", vec![(p, "s".into(), Type::Ref)], Type::Ref,
-        vec![BasicBlock { id: BlockId(0), instructions: vec![
-            (v0, Instruction::CallRuntime { name: "dartforge_object_new".into(),
-                args: vec![(Operand::Constant(Constant::Int(32001)), Type::I64), (Operand::Constant(Constant::Int(2)), Type::I64)],
-                ret_ty: Type::Ref }, Type::Ref),
-            (ValueId(2), Instruction::SetField { object: Operand::Val(v0), index: 0, value: Operand::Val(p) }, Type::Void),
-            (ValueId(3), Instruction::SetField { object: Operand::Val(v0), index: 1, value: Operand::Constant(Constant::Int(7)) }, Type::Void),
-            (ValueId(4), Instruction::SetField { object: Operand::Val(v0), index: 1, value: Operand::Val(p) }, Type::Void),
-            (ValueId(5), Instruction::SetField { object: Operand::Val(v0), index: 0, value: Operand::Constant(Constant::Null) }, Type::Void),
-        ], terminator: Terminator::Return(Some(Operand::Val(v0))) }]));
+    m.functions.push(function(
+        "alocar",
+        vec![(p, "s".into(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    v0,
+                    Instruction::CallRuntime {
+                        name: "dartforge_object_new".into(),
+                        args: vec![
+                            (Operand::Constant(Constant::Int(32001)), Type::I64),
+                            (Operand::Constant(Constant::Int(2)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(2),
+                    Instruction::SetField {
+                        object: Operand::Val(v0),
+                        index: 0,
+                        value: Operand::Val(p),
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(3),
+                    Instruction::SetField {
+                        object: Operand::Val(v0),
+                        index: 1,
+                        value: Operand::Constant(Constant::Int(7)),
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(4),
+                    Instruction::SetField {
+                        object: Operand::Val(v0),
+                        index: 1,
+                        value: Operand::Val(p),
+                    },
+                    Type::Void,
+                ),
+                (
+                    ValueId(5),
+                    Instruction::SetField {
+                        object: Operand::Val(v0),
+                        index: 0,
+                        value: Operand::Constant(Constant::Null),
+                    },
+                    Type::Void,
+                ),
+            ],
+            terminator: Terminator::Return(Some(Operand::Val(v0))),
+        }],
+    ));
     m
 }
 
@@ -1246,13 +1896,27 @@ fn inline_allocation_without_registration_test_when_tables_registered_at_startup
     let m = allocation_module(false);
     let lazy = LlvmEmitter::new(&m).emit_all();
     let body = body_of(&lazy, "alocar");
-    assert!(body.contains("ao1.reg:") && body.contains("%trv1 = load i8"), "{body}");
+    assert!(
+        body.contains("ao1.reg:") && body.contains("%trv1 = load i8"),
+        "{body}"
+    );
     assert!(!body.contains("store i64 0, ptr %tpp1"), "{body}");
-    let eager = LlvmEmitter::new(&m).with_tables_registered_at_startup(true).emit_all();
+    let eager = LlvmEmitter::new(&m)
+        .with_tables_registered_at_startup(true)
+        .emit_all();
     let body = body_of(&eager, "alocar");
-    assert!(!body.contains("ao1.reg:") && !body.contains("%trv1") && !body.contains("%tn1 = load i64"), "{body}");
-    assert!(body.contains("br i1 %tx1, label %ao1.lento, label %ao1.rapido"), "{body}");
-    assert!(body.contains("%tl1 = call i64 @dartforge_object_new_t(i64 32001, i64 2, ptr @df.mt.C)"), "{body}");
+    assert!(
+        !body.contains("ao1.reg:") && !body.contains("%trv1") && !body.contains("%tn1 = load i64"),
+        "{body}"
+    );
+    assert!(
+        body.contains("br i1 %tx1, label %ao1.lento, label %ao1.rapido"),
+        "{body}"
+    );
+    assert!(
+        body.contains("%tl1 = call i64 @dartforge_object_new_t(i64 32001, i64 2, ptr @df.mt.C)"),
+        "{body}"
+    );
     assert!(!body.contains("store i64 0, ptr %tpp1"), "{body}");
 }
 
@@ -1265,28 +1929,67 @@ fn inline_allocation_without_registration_test_when_tables_registered_at_startup
 #[test]
 fn static_reference_map_at_allocation_and_fresh_stores_without_rmw() {
     let m = allocation_module(true);
-    let ir = LlvmEmitter::new(&m).with_production(true).with_tables_registered_at_startup(true).emit_all();
+    let ir = LlvmEmitter::new(&m)
+        .with_production(true)
+        .with_tables_registered_at_startup(true)
+        .emit_all();
     let body = body_of(&ir, "alocar");
-    assert!(body.contains("%tmp1 = getelementptr inbounds i8, ptr %tb1, i64 8\n  store i32 1, ptr %tmp1, align 4"), "{body}");
-    assert!(body.contains("call i64 @dartforge_object_new_mt(i64 32001, i64 2, i64 1, ptr @df.mt.C)"), "{body}");
-    assert!(body.contains("store i64 %v0, ptr %fg2") && body.contains("store i64 7, ptr %fg3"), "{body}");
-    assert!(!body.contains("%fm2 = load i32") && !body.contains("%fm3 = load i32"), "{body}");
-    assert!(body.contains("%fms4 = or i32 %fm4, 2"), "a store that disagrees with the map corrects the bit: {body}");
+    assert!(
+        body.contains(
+            "%tmp1 = getelementptr inbounds i8, ptr %tb1, i64 8\n  store i32 1, ptr %tmp1, align 4"
+        ),
+        "{body}"
+    );
+    assert!(
+        body.contains("call i64 @dartforge_object_new_mt(i64 32001, i64 2, i64 1, ptr @df.mt.C)"),
+        "{body}"
+    );
+    assert!(
+        body.contains("store i64 %v0, ptr %fg2") && body.contains("store i64 7, ptr %fg3"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("%fm2 = load i32") && !body.contains("%fm3 = load i32"),
+        "{body}"
+    );
+    assert!(
+        body.contains("%fms4 = or i32 %fm4, 2"),
+        "a store that disagrees with the map corrects the bit: {body}"
+    );
     // Null into a fresh field: the zero of the handout, nothing to store; the
     // bit agrees with the map, nothing to update.
     assert!(!body.contains("%fg5") && !body.contains("%fm5"), "{body}");
-    assert!(ir.contains("declare i64 @dartforge_object_new_mt(i64, i64, i64, ptr)"), "{ir}");
+    assert!(
+        ir.contains("declare i64 @dartforge_object_new_mt(i64, i64, i64, ptr)"),
+        "{ir}"
+    );
     // Without the declared layout: map 0 and the read-modify-write by store.
-    let unknown = LlvmEmitter::new(&allocation_module(false)).with_production(true).emit_all();
+    let unknown = LlvmEmitter::new(&allocation_module(false))
+        .with_production(true)
+        .emit_all();
     let body = body_of(&unknown, "alocar");
-    assert!(!body.contains("%tmp1") && body.contains("%fms2 = or i32 %fm2, 1") && body.contains("%fmc3 = and i32 %fm3, -3"), "{body}");
+    assert!(
+        !body.contains("%tmp1")
+            && body.contains("%fms2 = or i32 %fm2, 1")
+            && body.contains("%fmc3 = and i32 %fm3, -3"),
+        "{body}"
+    );
     // The null store into the fresh object is still not emitted, its bit is.
-    assert!(!body.contains("%fg5") && body.contains("%fms5 = or i32 %fm5, 1"), "{body}");
-    assert!(body.contains("call i64 @dartforge_object_new_t(i64 32001, i64 2, ptr @df.mt.C)"), "{body}");
+    assert!(
+        !body.contains("%fg5") && body.contains("%fms5 = or i32 %fm5, 1"),
+        "{body}"
+    );
+    assert!(
+        body.contains("call i64 @dartforge_object_new_t(i64 32001, i64 2, ptr @df.mt.C)"),
+        "{body}"
+    );
     // Development: the same, even with the layout.
     let development = LlvmEmitter::new(&m).emit_all();
     let body = body_of(&development, "alocar");
-    assert!(!body.contains("%tmp1") && body.contains("%fms2 = or i32 %fm2, 1"), "{body}");
+    assert!(
+        !body.contains("%tmp1") && body.contains("%fms2 = or i32 %fm2, 1"),
+        "{body}"
+    );
     assert!(!body.contains("dartforge_object_new_m"), "{body}");
 }
 
@@ -1296,18 +1999,41 @@ fn static_reference_map_at_allocation_and_fresh_stores_without_rmw() {
 fn alloc_object_writes_the_map_once_in_production() {
     let p = ValueId(0);
     let mut m = Module::new();
-    m.functions.push(function("quadro", vec![(p, "s".into(), Type::Ref)], Type::Ref,
-        vec![BasicBlock { id: BlockId(0), instructions: vec![
-            (ValueId(1), Instruction::AllocObject { class_id: 32001,
-                fields: vec![Operand::Val(p), Operand::Constant(Constant::Int(7)), Operand::Val(p)] }, Type::Ref),
-        ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]));
+    m.functions.push(function(
+        "quadro",
+        vec![(p, "s".into(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(1),
+                Instruction::AllocObject {
+                    class_id: 32001,
+                    fields: vec![
+                        Operand::Val(p),
+                        Operand::Constant(Constant::Int(7)),
+                        Operand::Val(p),
+                    ],
+                },
+                Type::Ref,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+        }],
+    ));
     let production = LlvmEmitter::new(&m).with_production(true).emit_all();
     let body = body_of(&production, "quadro");
-    assert!(body.contains("call i64 @dartforge_object_new_m(i64 32001, i64 3, i64 5)"), "{body}");
+    assert!(
+        body.contains("call i64 @dartforge_object_new_m(i64 32001, i64 3, i64 5)"),
+        "{body}"
+    );
     assert!(!body.contains("load i32"), "{body}");
     let development = LlvmEmitter::new(&m).emit_all();
     let body = body_of(&development, "quadro");
-    assert!(body.contains("call i64 @dartforge_object_new(i64 32001, i64 3)") && body.contains("%fms1.0 = or i32 %fm1.0, 1"), "{body}");
+    assert!(
+        body.contains("call i64 @dartforge_object_new(i64 32001, i64 3)")
+            && body.contains("%fms1.0 = or i32 %fm1.0, 1"),
+        "{body}"
+    );
 }
 
 /// Without outside bodies (AOT, the production SDK) the address of a field keeps
@@ -1316,18 +2042,46 @@ fn alloc_object_writes_the_map_once_in_production() {
 fn field_address_without_outside_body() {
     let p = ValueId(0);
     let mut m = Module::new();
-    m.functions.push(function("ler", vec![(p, "o".into(), Type::Ref)], Type::Ref,
-        vec![BasicBlock { id: BlockId(0), instructions: vec![
-            (ValueId(1), Instruction::GetField { object: Operand::Val(p), index: 0 }, Type::Ref),
-        ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]));
+    m.functions.push(function(
+        "ler",
+        vec![(p, "o".into(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(1),
+                Instruction::GetField {
+                    object: Operand::Val(p),
+                    index: 0,
+                },
+                Type::Ref,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+        }],
+    ));
     let with_outside = LlvmEmitter::new(&m).emit_all();
     let body = body_of(&with_outside, "ler");
-    assert!(body.contains("%fxh1 = select i1 %fxo1, ptr %fxq1, ptr %fxv1") && body.contains("%fcb1 = select i1 %fxfo1, ptr %fxc1, ptr %fxh1"), "{body}");
-    let without = LlvmEmitter::new(&m).with_body_without_outside(true).emit_all();
+    assert!(
+        body.contains("%fxh1 = select i1 %fxo1, ptr %fxq1, ptr %fxv1")
+            && body.contains("%fcb1 = select i1 %fxfo1, ptr %fxc1, ptr %fxh1"),
+        "{body}"
+    );
+    let without = LlvmEmitter::new(&m)
+        .with_body_without_outside(true)
+        .emit_all();
     let body = body_of(&without, "ler");
-    assert!(body.contains("%fcb1 = select i1 %fxo1, ptr %fxq1, ptr %fxv1"), "{body}");
-    assert!(!body.contains("%fxf1") && !body.contains("%fxc1") && !body.contains("%fxh1"), "{body}");
-    assert!(body.contains("%fp1 = getelementptr inbounds i8, ptr %fcb1, i64 16"), "{body}");
+    assert!(
+        body.contains("%fcb1 = select i1 %fxo1, ptr %fxq1, ptr %fxv1"),
+        "{body}"
+    );
+    assert!(
+        !body.contains("%fxf1") && !body.contains("%fxc1") && !body.contains("%fxh1"),
+        "{body}"
+    );
+    assert!(
+        body.contains("%fp1 = getelementptr inbounds i8, ptr %fcb1, i64 16"),
+        "{body}"
+    );
 }
 
 /// The call of a function value reads the entry of a `_Closure` inline (class
@@ -1336,20 +2090,53 @@ fn field_address_without_outside_body() {
 #[test]
 fn closure_call_reads_the_entry_inline() {
     let p = ValueId(0);
-    let f = function("chamar", vec![(p, "f".into(), Type::Ref)], Type::Ref,
-        vec![BasicBlock { id: BlockId(0), instructions: vec![
-            (ValueId(1), Instruction::CallClosure { closure: Operand::Val(p), args: vec![], names: vec![],
-                ret_ty: Type::Ref, tuple_types: Operand::Constant(Constant::Int(0)) }, Type::Ref),
-        ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }]);
+    let f = function(
+        "chamar",
+        vec![(p, "f".into(), Type::Ref)],
+        Type::Ref,
+        vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![(
+                ValueId(1),
+                Instruction::CallClosure {
+                    closure: Operand::Val(p),
+                    args: vec![],
+                    names: vec![],
+                    ret_ty: Type::Ref,
+                    tuple_types: Operand::Constant(Constant::Int(0)),
+                },
+                Type::Ref,
+            )],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+        }],
+    );
     let ir = emit(f);
     let body = body_of(&ir, "chamar");
     let closure = dartforge_runtime::layout::cid::CLOSURE;
-    assert!(body.contains("%cek1 = and i64 %v0, -9223372036854775801") && body.contains("br i1 %ceo1, label %ce1.obj, label %ce1.lento"), "{body}");
-    assert!(body.contains("%ceca1 = add i64 %v0, 2") && body.contains(&format!("%ceq1 = icmp eq i32 %cec1, {closure}")), "{body}");
+    assert!(
+        body.contains("%cek1 = and i64 %v0, -9223372036854775801")
+            && body.contains("br i1 %ceo1, label %ce1.obj, label %ce1.lento"),
+        "{body}"
+    );
+    assert!(
+        body.contains("%ceca1 = add i64 %v0, 2")
+            && body.contains(&format!("%ceq1 = icmp eq i32 %cec1, {closure}")),
+        "{body}"
+    );
     assert!(body.contains("%cefa1 = add i64 %v0, 14\n  %cefp1 = inttoptr i64 %cefa1 to ptr\n  %cer1 = load i64, ptr %cefp1, align 8"), "{body}");
-    assert!(body.contains("ce1.lento:\n  %cel1 = call i64 @dartforge_closure_entry(i64 %v0)"), "{body}");
-    assert!(body.contains("ce1.fim:\n  %cc1 = phi i64 [ %cer1, %ce1.rapido ], [ %cel1, %ce1.lento ]"), "{body}");
-    assert!(body.contains("@df_clo_invalido") && body.contains("call i64 %cf1(i64 %v0, ptr %cargs1, ptr @"), "{body}");
+    assert!(
+        body.contains("ce1.lento:\n  %cel1 = call i64 @dartforge_closure_entry(i64 %v0)"),
+        "{body}"
+    );
+    assert!(
+        body.contains("ce1.fim:\n  %cc1 = phi i64 [ %cer1, %ce1.rapido ], [ %cel1, %ce1.lento ]"),
+        "{body}"
+    );
+    assert!(
+        body.contains("@df_clo_invalido")
+            && body.contains("call i64 %cf1(i64 %v0, ptr %cargs1, ptr @"),
+        "{body}"
+    );
 }
 
 #[path = "tests/static_image_registration.rs"]

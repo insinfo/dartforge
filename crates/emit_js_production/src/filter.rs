@@ -2,8 +2,8 @@
 //! (`emit_js::filter`).
 
 use dartforge_elements::model::{ClassId, FunctionElementId, Program, VariableId};
-use dartforge_emit_js::filter::{State, Level, Liveness};
-use dartforge_world::{World, ClassLevel};
+use dartforge_emit_js::filter::{Level, Liveness, State};
+use dartforge_world::{ClassLevel, World};
 
 pub struct Adapter<'m> {
     pub world: &'m World,
@@ -76,12 +76,18 @@ impl Liveness for Adapter<'_> {
         // The text cites the JS name (`dload(o, "_constructor")`,
         // `dsend(o, "_get")`); the emitter asks with the Dart name of fields
         // and accessors.
-        self.signatures.is_none_or(|s| s.contains(name) || s.contains(dartforge_emit_js::body::js_member_name(name).as_str()))
+        self.signatures.is_none_or(|s| {
+            s.contains(name) || s.contains(dartforge_emit_js::body::js_member_name(name).as_str())
+        })
     }
     fn keep_asserts(&self) -> bool {
         self.constants.is_none_or(|c| !c.without_asserts())
     }
-    fn const_bool(&self, u: dartforge_elements::model::UnitId, x: dartforge_frontend::ast::ExprId) -> Option<bool> {
+    fn const_bool(
+        &self,
+        u: dartforge_elements::model::UnitId,
+        x: dartforge_frontend::ast::ExprId,
+    ) -> Option<bool> {
         self.constants?.bool_of(u, x)
     }
     fn named_key_of(&self, name: &str) -> Option<&str> {

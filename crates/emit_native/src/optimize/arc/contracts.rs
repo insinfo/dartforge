@@ -4,9 +4,7 @@
 mod trivial_phis;
 
 use super::OwnerOrigin;
-use super::{
-    TokenEffect, Ownership, ScopePlan, TokenPlan, verify_scopes, verify_tokens,
-};
+use super::{Ownership, ScopePlan, TokenEffect, TokenPlan, verify_scopes, verify_tokens};
 use crate::hir::*;
 use dartforge_runtime::ownership::{Contract, ParamMode, ResultMode};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -24,30 +22,206 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// `@df.keep_alive(list)`; `@df.word_ref` (a `Ref` read from the
 /// storage) stays out: under ARC the lowering uses the Owned read.
 pub const HELPER_CONTRACTS: &[Contract] = &[
-    Contract { name: "df.bit_smi", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.smi_value", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.identical", parameters: &[ParamMode::Borrow, ParamMode::Borrow], result: ResultMode::ScalarI1, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.core_len", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.core_len_writable", parameters: &[ParamMode::Borrow, ParamMode::Scalar], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.string_write", parameters: &[ParamMode::Borrow, ParamMode::Scalar, ParamMode::Scalar], result: ResultMode::Void, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.string_hash", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.string_equals", parameters: &[ParamMode::Borrow, ParamMode::Borrow], result: ResultMode::ScalarI1, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.string_equals_object", parameters: &[ParamMode::Borrow, ParamMode::Borrow], result: ResultMode::ScalarI1, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.string_len", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.string_code_unit", parameters: &[ParamMode::Borrow, ParamMode::Scalar], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract {
+        name: "df.bit_smi",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.smi_value",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.identical",
+        parameters: &[ParamMode::Borrow, ParamMode::Borrow],
+        result: ResultMode::ScalarI1,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.core_len",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.core_len_writable",
+        parameters: &[ParamMode::Borrow, ParamMode::Scalar],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.string_write",
+        parameters: &[ParamMode::Borrow, ParamMode::Scalar, ParamMode::Scalar],
+        result: ResultMode::Void,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.string_hash",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.string_equals",
+        parameters: &[ParamMode::Borrow, ParamMode::Borrow],
+        result: ResultMode::ScalarI1,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.string_equals_object",
+        parameters: &[ParamMode::Borrow, ParamMode::Borrow],
+        result: ResultMode::ScalarI1,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.string_len",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.string_code_unit",
+        parameters: &[ParamMode::Borrow, ParamMode::Scalar],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
     // `num` in Ref as double: the path that is not Smi/Mint unboxes through the
     // runtime (a pending TypeError), as the marks of the helper say.
-    Contract { name: "df.num_to_double", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarF64, persistent_retention: false, invalidates_borrows: true, may_fail: true, calls_dart: false },
-    Contract { name: "df.typed_base", parameters: &[ParamMode::Borrow], result: ResultMode::BorrowArg(0), persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.typed_bytes", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.typed_cid", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.typed_offset", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.typed_len", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.typed_data", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.core_storage", parameters: &[ParamMode::Borrow], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.core_shape", parameters: &[ParamMode::Scalar], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.keep_alive", parameters: &[ParamMode::Borrow], result: ResultMode::Void, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
-    Contract { name: "df.typed_len_writable", parameters: &[ParamMode::Borrow, ParamMode::Scalar], result: ResultMode::ScalarI64, persistent_retention: false, invalidates_borrows: false, may_fail: false, calls_dart: false },
+    Contract {
+        name: "df.num_to_double",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarF64,
+        persistent_retention: false,
+        invalidates_borrows: true,
+        may_fail: true,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.typed_base",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::BorrowArg(0),
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.typed_bytes",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.typed_cid",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.typed_offset",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.typed_len",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.typed_data",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.core_storage",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.core_shape",
+        parameters: &[ParamMode::Scalar],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.keep_alive",
+        parameters: &[ParamMode::Borrow],
+        result: ResultMode::Void,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
+    Contract {
+        name: "df.typed_len_writable",
+        parameters: &[ParamMode::Borrow, ParamMode::Scalar],
+        result: ResultMode::ScalarI64,
+        persistent_retention: false,
+        invalidates_borrows: false,
+        may_fail: false,
+        calls_dart: false,
+    },
 ];
 
 /// The ownership contract of `name`: that of an IR helper
@@ -70,7 +244,9 @@ pub fn contract(name_str: &str) -> Result<&'static Contract, &'static str> {
         // Only the marks matter here; the parameters come from the types of the call
         // (`runtime_call_contract`).
         let e = crate::llvm::externs::effects_of(base);
-        return Ok(&GENERIC_OWNED[usize::from(e.throws || e.calls_dart) * 2 + usize::from(e.calls_dart)]);
+        return Ok(
+            &GENERIC_OWNED[usize::from(e.throws || e.calls_dart) * 2 + usize::from(e.calls_dart)]
+        );
     }
     #[cfg(test)]
     if let Some(c) = TEST_CONTRACTS.iter().find(|c| c.name == name_str) {
@@ -99,16 +275,31 @@ pub(super) const TEST_CONTRACTS: &[Contract] = &[Contract {
 /// The marks of the generic Owned thunks, by (may fail, calls Dart).
 const GENERIC_OWNED: [Contract; 4] = {
     const fn c(may_fail: bool, calls_dart: bool) -> Contract {
-        Contract { name: "df.arc.owned.*", parameters: &[], result: ResultMode::Owned,
-            persistent_retention: true, invalidates_borrows: true, may_fail, calls_dart }
+        Contract {
+            name: "df.arc.owned.*",
+            parameters: &[],
+            result: ResultMode::Owned,
+            persistent_retention: true,
+            invalidates_borrows: true,
+            may_fail,
+            calls_dart,
+        }
     }
-    [c(false, false), c(false, true), c(true, false), c(true, true)]
+    [
+        c(false, false),
+        c(false, true),
+        c(true, false),
+        c(true, true),
+    ]
 };
 
 /// The contract of the generic Owned thunk of `base` with the arguments of the
 /// call: each borrowed `Ref` (SSA or null), the scalars by value; the
 /// result is an owner; failure and reentry are those of the base (`effects.tsv`).
-fn generic_owned_contract(base: &str, args: &[(Operand, Type)]) -> Result<RuntimeCallContract, String> {
+fn generic_owned_contract(
+    base: &str,
+    args: &[(Operand, Type)],
+) -> Result<RuntimeCallContract, String> {
     let e = crate::llvm::externs::effects_of(base);
     for (n, (op, ty)) in args.iter().enumerate() {
         match (ty, op) {
@@ -120,11 +311,18 @@ fn generic_owned_contract(base: &str, args: &[(Operand, Type)]) -> Result<Runtim
             (Type::I64 | Type::I8, Operand::Constant(Constant::Int(_) | Constant::Bool(_))) => {}
             (Type::I1, Operand::Constant(Constant::Bool(_))) => {}
             (Type::F64, Operand::Constant(Constant::Double(_))) => {}
-            _ => return Err(format!("{base}: argument {n} without a representation of the Owned thunk")),
+            _ => {
+                return Err(format!(
+                    "{base}: argument {n} without a representation of the Owned thunk"
+                ));
+            }
         }
     }
     Ok(RuntimeCallContract {
-        effect: TokenEffect { may_fail: e.throws || e.calls_dart, ..Default::default() },
+        effect: TokenEffect {
+            may_fail: e.throws || e.calls_dart,
+            ..Default::default()
+        },
         result: Ownership::Owned,
         persistent_retention: true,
         invalidates_borrows: true,
@@ -281,7 +479,8 @@ fn insert_dart_exits(
         .iter()
         .map(|(v, _, _)| v.0)
         .chain(
-            new_one.blocks
+            new_one
+                .blocks
                 .iter()
                 .flat_map(|b| &b.instructions)
                 .map(|(v, _, _)| v.0),
@@ -293,7 +492,8 @@ fn insert_dart_exits(
         .max()
         .map_or(0, |v| u64::from(v) + 1);
     let mut id = || -> Result<ValueId, String> {
-        let v = u32::try_from(next_item).map_err(|_| "SSA IDs exhausted while preparing a Dart return")?;
+        let v = u32::try_from(next_item)
+            .map_err(|_| "SSA IDs exhausted while preparing a Dart return")?;
         next_item += 1;
         Ok(ValueId(v))
     };
@@ -301,8 +501,7 @@ fn insert_dart_exits(
     let mut releases = 0;
     if cleanup {
         produce_arc_contracts(&new_one, &mut new_classes, &mut new_plan)?;
-        let exits =
-            super::tokens::cleanup_exits(&new_one, &new_classes, tables, &new_plan)?;
+        let exits = super::tokens::cleanup_exits(&new_one, &new_classes, tables, &new_plan)?;
         for b in &mut new_one.blocks {
             if let Some(remaining) = exits.get(&b.id) {
                 for of in remaining {
@@ -340,8 +539,13 @@ pub(super) fn copy_returns(
             match &op {
                 Operand::Val(v) => match classes.get(v) {
                     Some(Ownership::Owned) => continue,
-                    Some(_) => {},
-                    None => return Err(format!("return in {} b{}: v{} without classification", f.symbol, b.id.0, v.0)),
+                    Some(_) => {}
+                    None => {
+                        return Err(format!(
+                            "return in {} b{}: v{} without classification",
+                            f.symbol, b.id.0, v.0
+                        ));
+                    }
                 },
                 Operand::Constant(Constant::Null) => continue,
                 Operand::Constant(c @ (Constant::String(_) | Constant::StringWtf8(_))) => {
@@ -408,8 +612,7 @@ pub fn produce_and_verify_dart_tokens(
     let mut new_classes = classes.clone();
     let mut new_plan = plan.clone();
     produce_dart_ref_parameters(f, &mut new_classes)?;
-    let contracts =
-        produce_and_verify_tokens(f, &mut new_classes, &mut new_plan, tables, scopes)?;
+    let contracts = produce_and_verify_tokens(f, &mut new_classes, &mut new_plan, tables, scopes)?;
     *classes = new_classes;
     *plan = new_plan;
     Ok(contracts)
@@ -592,8 +795,14 @@ fn check_typed_scalars(f: &Function, classes: &HashMap<ValueId, Ownership>) -> R
     for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
         if let Instruction::TypedCall { args, .. } = inst {
             for (op, t) in args {
-                if *t != Type::Ref && let Operand::Val(v) = op && classes.get(v) != Some(&Ownership::Trivial) {
-                    return Err(format!("v{}: typed scalar argument requires Trivial, without a Dart word", v.0));
+                if *t != Type::Ref
+                    && let Operand::Val(v) = op
+                    && classes.get(v) != Some(&Ownership::Trivial)
+                {
+                    return Err(format!(
+                        "v{}: typed scalar argument requires Trivial, without a Dart word",
+                        v.0
+                    ));
                 }
             }
         }
@@ -684,30 +893,48 @@ fn produce_phi(
     // A null anchor does not prove that all the still unknown Phis are
     // trivial. First it eliminates the component that depends on Owned, a borrow
     // or an origin without a contract; only then it propagates the remaining trivial anchors.
-    let free_set: HashSet<_> = f.blocks.iter().flat_map(|b| &b.instructions)
-        .filter_map(|(v, i, ty)| (*ty == Type::Ref && classes.get(v).is_none()
-            && !require_owned.contains(v) && matches!(i, Instruction::Phi { .. })).then_some(*v))
+    let free_set: HashSet<_> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter_map(|(v, i, ty)| {
+            (*ty == Type::Ref
+                && classes.get(v).is_none()
+                && !require_owned.contains(v)
+                && matches!(i, Instruction::Phi { .. }))
+            .then_some(*v)
+        })
         .collect();
     let mut trivial_parents: HashMap<ValueId, Vec<ValueId>> = HashMap::new();
     let mut invalid_set = VecDeque::new();
     let mut trivial_anchors = VecDeque::new();
     for v in &free_set {
-        let Instruction::Phi { incoming, .. } = defs[v] else { unreachable!() };
+        let Instruction::Phi { incoming, .. } = defs[v] else {
+            unreachable!()
+        };
         let mut compatible = !incoming.is_empty();
         let mut anchor = false;
         for (_, op) in incoming {
             match op {
                 Operand::Constant(Constant::Null) => anchor = true,
-                Operand::Val(of) if types.get(of) == Some(&Type::Ref)
-                    && classes.get(of) == Some(&Ownership::Trivial) => anchor = true,
+                Operand::Val(of)
+                    if types.get(of) == Some(&Type::Ref)
+                        && classes.get(of) == Some(&Ownership::Trivial) =>
+                {
+                    anchor = true
+                }
                 Operand::Val(of) if free_set.contains(of) => {
                     trivial_parents.entry(*of).or_default().push(*v);
-                },
+                }
                 _ => compatible = false,
             }
         }
-        if !compatible { invalid_set.push_back(*v); }
-        if anchor { trivial_anchors.push_back(*v); }
+        if !compatible {
+            invalid_set.push_back(*v);
+        }
+        if anchor {
+            trivial_anchors.push_back(*v);
+        }
     }
     let mut compatible_ones = free_set;
     while let Some(v) = invalid_set.pop_front() {
@@ -809,7 +1036,8 @@ fn produce_phi(
         .filter_map(|(v, i, ty)| matches!(i, Instruction::Phi { .. }).then_some((*v, *ty)))
         .filter(|(v, ty)| {
             // Unboxed SIMD vectors too: they do not keep a handle.
-            matches!(ty, Type::I1 | Type::I8 | Type::I64 | Type::F64) || ty.is_vector()
+            matches!(ty, Type::I1 | Type::I8 | Type::I64 | Type::F64)
+                || ty.is_vector()
                 || (*ty == Type::Ref && classes.get(v) == Some(&Ownership::Trivial))
         })
         .map(|(v, _)| v)
@@ -836,7 +1064,11 @@ fn produce_phi(
                     match op {
                         Operand::Constant(Constant::Null) if *ty == Type::Ref => anchor = true,
                         Operand::Constant(Constant::Bool(_)) if *ty == Type::I1 => anchor = true,
-                        Operand::Constant(Constant::Int(_)) if matches!(ty, Type::I64 | Type::I8) => anchor = true,
+                        Operand::Constant(Constant::Int(_))
+                            if matches!(ty, Type::I64 | Type::I8) =>
+                        {
+                            anchor = true
+                        }
                         Operand::Constant(Constant::Double(_)) if *ty == Type::F64 => anchor = true,
                         Operand::Val(of) if types.get(of) == Some(ty) && scalars.contains(of) => {
                             scalar_parents.entry(*of).or_default().push(*v);
@@ -870,13 +1102,17 @@ fn produce_phi(
     let mut scalar_founded = HashSet::new();
     while let Some(v) = scalar_queue.pop_front() {
         if scalar_founded.insert(v)
-            && let Some(dependents) = scalar_parents.get(&v) {
-                scalar_queue.extend(dependents);
-            }
+            && let Some(dependents) = scalar_parents.get(&v)
+        {
+            scalar_queue.extend(dependents);
+        }
     }
     for v in scalars {
         if !scalar_founded.contains(&v) {
-            return Err(format!("Phi v{} without a scalar origin outside the cycle", v.0));
+            return Err(format!(
+                "Phi v{} without a scalar origin outside the cycle",
+                v.0
+            ));
         }
         classes.insert(v, Ownership::Trivial);
     }
@@ -912,7 +1148,10 @@ fn produce_phi(
                     Operand::Val(of) if classes.get(of) == Some(&Ownership::Owned) => {
                         if let Some(Instruction::ArcMove { value }) = defs.get(of) {
                             if !moves.insert(*of) {
-                                return Err(format!("Phi v{}: cycle of moves without an origin", v.0));
+                                return Err(format!(
+                                    "Phi v{}: cycle of moves without an origin",
+                                    v.0
+                                ));
                             }
                             op = value;
                         } else {
@@ -936,13 +1175,17 @@ fn produce_phi(
     let mut founded = HashSet::new();
     while let Some(v) = queue.pop_front() {
         if founded.insert(v)
-            && let Some(dependents) = parents.get(&v) {
-                queue.extend(dependents);
-            }
+            && let Some(dependents) = parents.get(&v)
+        {
+            queue.extend(dependents);
+        }
     }
     for v in order {
         if !founded.contains(&v) {
-            return Err(format!("Phi v{} without an owned/null origin outside the cycle", v.0));
+            return Err(format!(
+                "Phi v{} without an owned/null origin outside the cycle",
+                v.0
+            ));
         }
         classes.insert(v, Ownership::Owned);
     }
@@ -996,7 +1239,9 @@ fn produce(
         }
         if include_arc {
             if let Instruction::AllocList { elements } = inst {
-                if *ty != Type::Ref { return Err(format!("v{}: list literal requires a Ref result", v.0)); }
+                if *ty != Type::Ref {
+                    return Err(format!("v{}: list literal requires a Ref result", v.0));
+                }
                 for (op, _) in elements {
                     // The tag hints do not certify representation. The emission
                     // derives the tags from the real types and builds local buffers.
@@ -1005,23 +1250,34 @@ fn produce(
                         Operand::Constant(Constant::Int(_)) => Some(Type::I64),
                         Operand::Constant(Constant::Double(_)) => Some(Type::F64),
                         Operand::Constant(Constant::Bool(_)) => Some(Type::I1),
-                        Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => Some(Type::Ref),
+                        Operand::Constant(
+                            Constant::Null | Constant::String(_) | Constant::StringWtf8(_),
+                        ) => Some(Type::Ref),
                         Operand::Constant(Constant::Function(_)) => None,
                     };
                     if !matches!(t, Some(Type::Ref | Type::I64 | Type::F64 | Type::I1)) {
-                        return Err(format!("v{}: list element without an audited Dart representation", v.0));
+                        return Err(format!(
+                            "v{}: list element without an audited Dart representation",
+                            v.0
+                        ));
                     }
                 }
                 let c = runtime_call_contract(&Instruction::CallRuntime {
                     name: "dartforge_arc_list_new_owned_v1".into(),
-                    args: vec![(Operand::Val(ValueId(0)), Type::Ptr),
-                        (Operand::Constant(Constant::Int(elements.len() as i64)), Type::I64),
+                    args: vec![
+                        (Operand::Val(ValueId(0)), Type::Ptr),
+                        (
+                            Operand::Constant(Constant::Int(elements.len() as i64)),
+                            Type::I64,
+                        ),
                         (Operand::Constant(Constant::Int(10)), Type::I64),
-                        (Operand::Constant(Constant::Int(0)), Type::I64)],
+                        (Operand::Constant(Constant::Int(0)), Type::I64),
+                    ],
                     ret_ty: Type::Ref,
                 })?;
                 if classes.get(v).is_some_and(|class| *class != c.result)
-                    || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
+                    || plan.instructions.get(v).is_some_and(|e| *e != c.effect)
+                {
                     return Err(format!("v{}: conflicting list literal contract", v.0));
                 }
                 contracts.insert(*v, c);
@@ -1035,16 +1291,25 @@ fn produce(
                     _ => false,
                 };
                 if *ty != Type::Ref || !elements.iter().all(|(op, _)| reference(op)) {
-                    return Err(format!("v{}: record literal requires Ref fields in SSA", v.0));
+                    return Err(format!(
+                        "v{}: record literal requires Ref fields in SSA",
+                        v.0
+                    ));
                 }
                 let c = runtime_call_contract(&Instruction::CallRuntime {
                     name: "dartforge_arc_record_from_refs_owned_v1".into(),
-                    args: vec![(Operand::Val(ValueId(0)), Type::Ptr),
-                        (Operand::Constant(Constant::Int(elements.len() as i64)), Type::I64)],
+                    args: vec![
+                        (Operand::Val(ValueId(0)), Type::Ptr),
+                        (
+                            Operand::Constant(Constant::Int(elements.len() as i64)),
+                            Type::I64,
+                        ),
+                    ],
                     ret_ty: Type::Ref,
                 })?;
                 if classes.get(v).is_some_and(|class| *class != c.result)
-                    || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
+                    || plan.instructions.get(v).is_some_and(|e| *e != c.effect)
+                {
                     return Err(format!("v{}: conflicting record literal contract", v.0));
                 }
                 contracts.insert(*v, c);
@@ -1059,23 +1324,38 @@ fn produce(
                     _ => false,
                 };
                 if *ty != Type::Ref || !parts.iter().all(representable) {
-                    return Err(format!("v{}: interpolation without audited text/int parts", v.0));
+                    return Err(format!(
+                        "v{}: interpolation without audited text/int parts",
+                        v.0
+                    ));
                 }
                 let c = runtime_call_contract(&Instruction::CallRuntime {
                     name: "dartforge_arc_string_join_owned_v1".into(),
-                    args: vec![(Operand::Val(ValueId(0)), Type::Ptr),
-                        (Operand::Constant(Constant::Int(parts.len() as i64)), Type::I64)],
+                    args: vec![
+                        (Operand::Val(ValueId(0)), Type::Ptr),
+                        (
+                            Operand::Constant(Constant::Int(parts.len() as i64)),
+                            Type::I64,
+                        ),
+                    ],
                     ret_ty: Type::Ref,
                 })?;
                 if classes.get(v).is_some_and(|class| *class != c.result)
-                    || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
+                    || plan.instructions.get(v).is_some_and(|e| *e != c.effect)
+                {
                     return Err(format!("v{}: conflicting interpolation contract", v.0));
                 }
                 contracts.insert(*v, c);
             }
-            if let Instruction::Box { op, from } = inst && from.is_vector() {
-                if *ty != Type::Ref || !matches!(op, Operand::Val(v) if types.get(v) == Some(from)) {
-                    return Err(format!("v{}: SIMD box requires a vector of the same type", v.0));
+            if let Instruction::Box { op, from } = inst
+                && from.is_vector()
+            {
+                if *ty != Type::Ref || !matches!(op, Operand::Val(v) if types.get(v) == Some(from))
+                {
+                    return Err(format!(
+                        "v{}: SIMD box requires a vector of the same type",
+                        v.0
+                    ));
                 }
                 // The emission splits the bits into native words; the factory
                 // has the same effects regardless of the hints.
@@ -1085,7 +1365,8 @@ fn produce(
                     ret_ty: Type::Ref,
                 })?;
                 if classes.get(v).is_some_and(|class| *class != c.result)
-                    || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
+                    || plan.instructions.get(v).is_some_and(|e| *e != c.effect)
+                {
                     return Err(format!("v{}: conflicting SIMD box contract", v.0));
                 }
                 contracts.insert(*v, c);
@@ -1117,47 +1398,90 @@ fn produce(
                     || classes.get(v).is_some_and(|c| *c != class)
                     || plan.instructions.contains_key(v)
                 {
-                    return Err(format!("v{}: contract incompatible with ARC operation", v.0));
+                    return Err(format!(
+                        "v{}: contract incompatible with ARC operation",
+                        v.0
+                    ));
                 }
                 fixed_set.insert(*v, class);
             }
         }
-        if include_arc && (super::typed_set::check(f, inst, *ty)?
-            || super::selectors::check_local_vector(f, inst, *ty, None)?) {
+        if include_arc
+            && (super::typed_set::check(f, inst, *ty)?
+                || super::selectors::check_local_vector(f, inst, *ty, None)?)
+        {
             let c = RuntimeCallContract {
-                effect: TokenEffect { may_fail: true, ..Default::default() },
-                result: if *ty == Type::Ref { Ownership::Owned } else { Ownership::Trivial }, persistent_retention: true,
-                invalidates_borrows: true, calls_dart: true,
+                effect: TokenEffect {
+                    may_fail: true,
+                    ..Default::default()
+                },
+                result: if *ty == Type::Ref {
+                    Ownership::Owned
+                } else {
+                    Ownership::Trivial
+                },
+                persistent_retention: true,
+                invalidates_borrows: true,
+                calls_dart: true,
             };
             if classes.get(v).is_some_and(|class| *class != c.result)
-                || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
-                return Err(format!("v{}: conflicting contract of the ARC typed call", v.0));
+                || plan.instructions.get(v).is_some_and(|e| *e != c.effect)
+            {
+                return Err(format!(
+                    "v{}: conflicting contract of the ARC typed call",
+                    v.0
+                ));
             }
             contracts.insert(*v, c);
         }
         // The C call with a compound by value: the compounds go and come back by
         // address (the destination), a scalar like the other arguments.
-        if include_arc && let Instruction::CompositeNativeCall { target, args, ret, dest, .. } = inst {
+        if include_arc
+            && let Instruction::CompositeNativeCall {
+                target,
+                args,
+                ret,
+                dest,
+                ..
+            } = inst
+        {
             let scalar = |op: &Operand| match op {
-                Operand::Val(arg) => types.get(arg).is_some_and(|t| *t != Type::Ref && *t != Type::Void),
-                Operand::Constant(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)) => true,
+                Operand::Val(arg) => types
+                    .get(arg)
+                    .is_some_and(|t| *t != Type::Ref && *t != Type::Void),
+                Operand::Constant(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)) => {
+                    true
+                }
                 _ => false,
             };
             let expected = match ret {
                 crate::hir::NativeType::Prim(tc) => tc.hir_type(),
                 _ => Type::Void,
             };
-            if *ty != expected || !scalar(target) || !args.iter().all(|(op, _)| scalar(op))
-                || dest.as_ref().is_some_and(|d| !scalar(d)) {
-                return Err(format!("v{}: compound native call without an audited scalar ABI", v.0));
+            if *ty != expected
+                || !scalar(target)
+                || !args.iter().all(|(op, _)| scalar(op))
+                || dest.as_ref().is_some_and(|d| !scalar(d))
+            {
+                return Err(format!(
+                    "v{}: compound native call without an audited scalar ABI",
+                    v.0
+                ));
             }
             let c = RuntimeCallContract {
-                effect: TokenEffect::default(), result: Ownership::Trivial,
-                persistent_retention: false, invalidates_borrows: true, calls_dart: true,
+                effect: TokenEffect::default(),
+                result: Ownership::Trivial,
+                persistent_retention: false,
+                invalidates_borrows: true,
+                calls_dart: true,
             };
             if classes.get(v).is_some_and(|class| *class != c.result)
-                || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
-                return Err(format!("v{}: conflicting contract of compound native call", v.0));
+                || plan.instructions.get(v).is_some_and(|e| *e != c.effect)
+            {
+                return Err(format!(
+                    "v{}: conflicting contract of compound native call",
+                    v.0
+                ));
             }
             contracts.insert(*v, c);
         }
@@ -1166,28 +1490,60 @@ fn produce(
             // address). A Dart callback may reenter, but the C exit clears
             // the pending flag (`dartforge_ffi_callback_exit`): nothing stays pending.
             let scalar = |op: &Operand| match op {
-                Operand::Val(arg) => types.get(arg).is_some_and(|t| *t != Type::Ref && *t != Type::Void),
-                Operand::Constant(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)) => true,
+                Operand::Val(arg) => types
+                    .get(arg)
+                    .is_some_and(|t| *t != Type::Ref && *t != Type::Void),
+                Operand::Constant(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_)) => {
+                    true
+                }
                 _ => false,
             };
-            if *ty != ret.hir_type() || *ty == Type::Ref || !scalar(target)
-                || !args.iter().all(|(op, _)| scalar(op)) {
-                return Err(format!("v{}: native call without an audited scalar ABI", v.0));
+            if *ty != ret.hir_type()
+                || *ty == Type::Ref
+                || !scalar(target)
+                || !args.iter().all(|(op, _)| scalar(op))
+            {
+                return Err(format!(
+                    "v{}: native call without an audited scalar ABI",
+                    v.0
+                ));
             }
             let c = RuntimeCallContract {
-                effect: TokenEffect::default(), result: Ownership::Trivial,
-                persistent_retention: false, invalidates_borrows: true, calls_dart: true,
+                effect: TokenEffect::default(),
+                result: Ownership::Trivial,
+                persistent_retention: false,
+                invalidates_borrows: true,
+                calls_dart: true,
             };
             if classes.get(v).is_some_and(|class| *class != c.result)
-                || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
+                || plan.instructions.get(v).is_some_and(|e| *e != c.effect)
+            {
                 return Err(format!("v{}: conflicting native call contract", v.0));
             }
             contracts.insert(*v, c);
         }
-        if include_arc && matches!(inst, Instruction::CallSelectorForward { arc_owned: true, .. } | Instruction::CallClosureForward { arc_owned: true, .. }) {
+        if include_arc
+            && matches!(
+                inst,
+                Instruction::CallSelectorForward {
+                    arc_owned: true,
+                    ..
+                } | Instruction::CallClosureForward {
+                    arc_owned: true,
+                    ..
+                }
+            )
+        {
             let (recv, args, desc) = match inst {
-                Instruction::CallSelectorForward { recv, args, desc, .. }
-                | Instruction::CallClosureForward { closure: recv, args, desc, .. } => (recv, args, desc),
+                Instruction::CallSelectorForward {
+                    recv, args, desc, ..
+                }
+                | Instruction::CallClosureForward {
+                    closure: recv,
+                    args,
+                    desc,
+                    ..
+                } => (recv, args, desc),
                 _ => unreachable!(),
             };
             let compatible = |op: &Operand, t| match op {
@@ -1195,17 +1551,26 @@ fn produce(
                 Operand::Constant(Constant::Null) => t == Type::Ref,
                 _ => false,
             };
-            if *ty != Type::Ref || !compatible(recv, Type::Ref)
-                || !compatible(args, Type::Ptr) || !compatible(desc, Type::Ptr) {
+            if *ty != Type::Ref
+                || !compatible(recv, Type::Ref)
+                || !compatible(args, Type::Ptr)
+                || !compatible(desc, Type::Ptr)
+            {
                 return Err(format!("v{}: incompatible ARC forwarding ABI", v.0));
             }
             let c = RuntimeCallContract {
-                effect: TokenEffect { may_fail: true, ..Default::default() },
-                result: Ownership::Owned, persistent_retention: true,
-                invalidates_borrows: true, calls_dart: true,
+                effect: TokenEffect {
+                    may_fail: true,
+                    ..Default::default()
+                },
+                result: Ownership::Owned,
+                persistent_retention: true,
+                invalidates_borrows: true,
+                calls_dart: true,
             };
             if classes.get(v).is_some_and(|class| *class != c.result)
-                || plan.instructions.get(v).is_some_and(|e| *e != c.effect) {
+                || plan.instructions.get(v).is_some_and(|e| *e != c.effect)
+            {
                 return Err(format!("v{}: conflicting ARC forwarding contract", v.0));
             }
             contracts.insert(*v, c);
@@ -1267,16 +1632,30 @@ fn produce(
     if include_arc {
         // The Phis do not have a class here yet: `check_typed_scalars`
         // checks them after `produce_phi`.
-        let phis: HashSet<ValueId> = f.blocks.iter().flat_map(|b| &b.instructions)
-            .filter(|(_, i, _)| matches!(i, Instruction::Phi { .. })).map(|(v, _, _)| *v).collect();
+        let phis: HashSet<ValueId> = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .filter(|(_, i, _)| matches!(i, Instruction::Phi { .. }))
+            .map(|(v, _, _)| *v)
+            .collect();
         for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if let Instruction::TypedCall { args, .. } = inst {
                 for (op, t) in args {
-                    if *t != Type::Ref && let Operand::Val(v) = op && !phis.contains(v) {
-                        let class = contracts.get(v).map(|c| &c.result)
-                            .or_else(|| fixed_set.get(v)).or_else(|| classes.get(v));
+                    if *t != Type::Ref
+                        && let Operand::Val(v) = op
+                        && !phis.contains(v)
+                    {
+                        let class = contracts
+                            .get(v)
+                            .map(|c| &c.result)
+                            .or_else(|| fixed_set.get(v))
+                            .or_else(|| classes.get(v));
                         if class != Some(&Ownership::Trivial) {
-                            return Err(format!("v{}: typed scalar argument requires Trivial, without a Dart word", v.0));
+                            return Err(format!(
+                                "v{}: typed scalar argument requires Trivial, without a Dart word",
+                                v.0
+                            ));
                         }
                     }
                 }
@@ -1400,7 +1779,9 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
             // The LLVM selection uses only the registered thunk of the module. The
             // generic producer does not have that provenance: an arbitrary Ptr or function
             // address does not prove the absence of Dart/GC/exceptions.
-            return Err(format!("{name}: static table requires provenance from the emitter"));
+            return Err(format!(
+                "{name}: static table requires provenance from the emitter"
+            ));
         }
         let reference = matches!(
             mode,
@@ -1420,7 +1801,10 @@ pub fn runtime_call_contract(inst: &Instruction) -> Result<RuntimeCallContract, 
         } else {
             Type::I64
         };
-        if *ty != expected || (matches!(mode, ParamMode::StaticVector | ParamMode::NativeAddress) && !matches!(op, Operand::Val(_))) {
+        if *ty != expected
+            || (matches!(mode, ParamMode::StaticVector | ParamMode::NativeAddress)
+                && !matches!(op, Operand::Val(_)))
+        {
             return Err(format!("{name}: type of argument {n} incompatible"));
         }
         if reference {
@@ -1476,29 +1860,66 @@ mod tests {
         for c in HELPER_CONTRACTS {
             assert!(names.insert(c.name), "repeated {}", c.name);
             assert!(c.name.starts_with("df."), "{}", c.name);
-            assert!(dartforge_runtime::ownership::contract(c.name).is_err(), "{} also in the runtime", c.name);
+            assert!(
+                dartforge_runtime::ownership::contract(c.name).is_err(),
+                "{} also in the runtime",
+                c.name
+            );
             // The contract follows the marks of the helper: fails if it throws, invalidates
             // borrows if it allocates, never retains.
             let e = crate::llvm::externs::effects_of(c.name);
-            assert_eq!((c.may_fail, c.calls_dart), (e.throws || e.calls_dart, e.calls_dart), "{}: {e:?}", c.name);
+            assert_eq!(
+                (c.may_fail, c.calls_dart),
+                (e.throws || e.calls_dart, e.calls_dart),
+                "{}: {e:?}",
+                c.name
+            );
             assert!(!e.allocates || c.invalidates_borrows, "{}: {e:?}", c.name);
             assert!(!c.persistent_retention, "{}", c.name);
-            assert!(c.parameters.iter().all(|m| matches!(m, ParamMode::Borrow | ParamMode::Scalar)));
+            assert!(
+                c.parameters
+                    .iter()
+                    .all(|m| matches!(m, ParamMode::Borrow | ParamMode::Scalar))
+            );
         }
         // The Ref read from the storage and whatever allocates stay without a contract.
         for name_str in ["df.word_ref", "df.string_allocate"] {
             assert!(contract(name_str).is_err(), "{name_str}");
         }
-        let rt = |name: &str, args, ret_ty| Instruction::CallRuntime { name: name.into(), args, ret_ty };
-        let text = rt("df.string_equals_object", vec![(Operand::Val(ValueId(1)), Type::Ref), (Operand::Constant(Constant::Null), Type::Ref)], Type::I1);
+        let rt = |name: &str, args, ret_ty| Instruction::CallRuntime {
+            name: name.into(),
+            args,
+            ret_ty,
+        };
+        let text = rt(
+            "df.string_equals_object",
+            vec![
+                (Operand::Val(ValueId(1)), Type::Ref),
+                (Operand::Constant(Constant::Null), Type::Ref),
+            ],
+            Type::I1,
+        );
         let c = runtime_call_contract(&text).unwrap();
         assert_eq!(c.result, Ownership::Trivial);
         assert!(!c.effect.may_fail && !c.invalidates_borrows);
-        let base = rt("df.typed_base", vec![(Operand::Val(ValueId(1)), Type::Ref)], Type::Ref);
-        assert_eq!(runtime_call_contract(&base).unwrap().result,
-            Ownership::Borrowed { owner: OwnerOrigin::Value(ValueId(1)), scope: 0 });
+        let base = rt(
+            "df.typed_base",
+            vec![(Operand::Val(ValueId(1)), Type::Ref)],
+            Type::Ref,
+        );
+        assert_eq!(
+            runtime_call_contract(&base).unwrap().result,
+            Ownership::Borrowed {
+                owner: OwnerOrigin::Value(ValueId(1)),
+                scope: 0
+            }
+        );
         // A wrong width of the result is rejected.
-        let wrong = rt("df.string_len", vec![(Operand::Val(ValueId(1)), Type::Ref)], Type::I8);
+        let wrong = rt(
+            "df.string_len",
+            vec![(Operand::Val(ValueId(1)), Type::Ref)],
+            Type::I8,
+        );
         assert!(runtime_call_contract(&wrong).is_err());
     }
 
@@ -1988,10 +2409,7 @@ mod tests {
                 &ScopePlan::default(),
             )
             .unwrap();
-            assert_eq!(
-                quantity,
-                usize::from(!matches!(constant, Constant::Null))
-            );
+            assert_eq!(quantity, usize::from(!matches!(constant, Constant::Null)));
         }
     }
 
@@ -2772,7 +3190,10 @@ mod tests {
             assert_eq!(classes[&id], Ownership::Trivial);
             assert_eq!(plan.instructions[&id], TokenEffect::default());
         }
-        let mut module = Module { arc_memory: true, ..Module::default() };
+        let mut module = Module {
+            arc_memory: true,
+            ..Module::default()
+        };
         module.functions.push(f.clone());
         let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
         assert!(ir.contains("bitcast double %v0 to i64"));
@@ -3041,7 +3462,10 @@ mod tests {
         assert_eq!(classes.len(), 5);
         assert!(classes.values().all(|c| *c == Ownership::Trivial));
         assert!(plan.pendings.is_empty());
-        let mut module = Module { arc_memory: true, ..Module::default() };
+        let mut module = Module {
+            arc_memory: true,
+            ..Module::default()
+        };
         module.functions.push(f);
         let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
         assert!(ir.contains("zext i1 true to i8"));
@@ -3534,8 +3958,7 @@ mod tests {
         .unwrap();
         assert_eq!(classes[&ValueId(1)], Ownership::Trivial);
         assert_eq!(plan.instructions[&ValueId(1)], TokenEffect::default());
-        plan
-            .instructions
+        plan.instructions
             .get_mut(&ValueId(1))
             .unwrap()
             .always
@@ -3644,13 +4067,7 @@ mod tests {
         if let Instruction::CallRuntime { args, .. } = &mut i {
             args[1] = (Operand::Constant(Constant::Null), Type::Ref);
         }
-        assert!(
-            runtime_call_contract(&i)
-                .unwrap()
-                .effect
-                .always
-                .is_empty()
-        );
+        assert!(runtime_call_contract(&i).unwrap().effect.always.is_empty());
         for name_str in ["dartforge_arc_retain", "dartforge_allocate"] {
             let i = Instruction::CallRuntime {
                 name: name_str.into(),
@@ -3687,8 +4104,11 @@ mod tests {
         }
         assert!(runtime_call_contract(&wrong).is_err());
         let slow = runtime_call_contract(&Instruction::CallRuntime {
-            name: "dartforge_safepoint".into(), args: vec![], ret_ty: Type::Void,
-        }).unwrap();
+            name: "dartforge_safepoint".into(),
+            args: vec![],
+            ret_ty: Type::Void,
+        })
+        .unwrap();
         assert!(slow.effect.may_fail && slow.invalidates_borrows && slow.calls_dart);
     }
 
@@ -3696,8 +4116,11 @@ mod tests {
     fn rti_define_borrows_object_without_turning_type_id_into_ref() {
         let i = Instruction::CallRuntime {
             name: "dartforge_rti_set".into(),
-            args: vec![(Operand::Val(ValueId(0)), Type::Ref),
-                (Operand::Val(ValueId(1)), Type::I64)], ret_ty: Type::Void,
+            args: vec![
+                (Operand::Val(ValueId(0)), Type::Ref),
+                (Operand::Val(ValueId(1)), Type::I64),
+            ],
+            ret_ty: Type::Void,
         };
         let c = runtime_call_contract(&i).unwrap();
         assert_eq!(c.result, Ownership::Trivial);
@@ -3737,12 +4160,28 @@ mod tests {
 
     #[test]
     fn capture_borrows_env_and_rejects_incompatible_signatures() {
-        let i = Instruction::CallRuntime { name: "dartforge_arc_env_ref_v1".into(),
-            args: vec![(Operand::Val(ValueId(0)), Type::Ref),
-                (Operand::Constant(Constant::Int(39)), Type::I64)], ret_ty: Type::Ref };
+        let i = Instruction::CallRuntime {
+            name: "dartforge_arc_env_ref_v1".into(),
+            args: vec![
+                (Operand::Val(ValueId(0)), Type::Ref),
+                (Operand::Constant(Constant::Int(39)), Type::I64),
+            ],
+            ret_ty: Type::Ref,
+        };
         let c = runtime_call_contract(&i).unwrap();
-        assert_eq!(c.result, Ownership::Borrowed { owner: OwnerOrigin::Value(ValueId(0)), scope: 0 });
-        assert!(!c.persistent_retention && !c.invalidates_borrows && !c.calls_dart && !c.effect.may_fail);
+        assert_eq!(
+            c.result,
+            Ownership::Borrowed {
+                owner: OwnerOrigin::Value(ValueId(0)),
+                scope: 0
+            }
+        );
+        assert!(
+            !c.persistent_retention
+                && !c.invalidates_borrows
+                && !c.calls_dart
+                && !c.effect.may_fail
+        );
         assert!(c.effect.always.is_empty());
         for case in 0..5 {
             let mut invalidates = i.clone();
@@ -3751,7 +4190,9 @@ mod tests {
                     0 => args[0].1 = Type::I64,
                     1 => args[1].1 = Type::Ref,
                     2 => *ret_ty = Type::I64,
-                    3 => { args.pop(); },
+                    3 => {
+                        args.pop();
+                    }
                     4 => args.push((Operand::Constant(Constant::Int(0)), Type::I64)),
                     _ => unreachable!(),
                 }
@@ -3762,11 +4203,19 @@ mod tests {
 
     #[test]
     fn rti_recipe_borrows_string_and_returns_id_without_inventing_owned_ref() {
-        let i = Instruction::CallRuntime { name: "dartforge_rti_recipe".into(),
-            args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::I64 };
+        let i = Instruction::CallRuntime {
+            name: "dartforge_rti_recipe".into(),
+            args: vec![(Operand::Val(ValueId(0)), Type::Ref)],
+            ret_ty: Type::I64,
+        };
         let c = runtime_call_contract(&i).unwrap();
         assert_eq!(c.result, Ownership::Trivial);
-        assert!(!c.persistent_retention && !c.invalidates_borrows && !c.calls_dart && !c.effect.may_fail);
+        assert!(
+            !c.persistent_retention
+                && !c.invalidates_borrows
+                && !c.calls_dart
+                && !c.effect.may_fail
+        );
         assert!(c.effect.always.is_empty());
         for case in 0..4 {
             let mut invalidates = i.clone();

@@ -1002,7 +1002,10 @@ post_process_builders:
             b.defaults.release_options.canonical_text(),
             r#"{"outputStyle": "compressed", "sourceMaps": false}"#
         );
-        assert_eq!(c.post_process_builders[0].key, "sass_builder:sass_source_cleanup");
+        assert_eq!(
+            c.post_process_builders[0].key,
+            "sass_builder:sass_source_cleanup"
+        );
         assert_eq!(c.targets[0].key, "sass_builder:sass_builder");
         assert_eq!(c.targets[0].dependencies, vec!["sass:sass"]);
     }

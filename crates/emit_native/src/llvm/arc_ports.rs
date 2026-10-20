@@ -6,7 +6,10 @@ use std::fmt::Write;
 impl LlvmEmitter<'_> {
     pub(super) fn arc_ports_registration_symbol(&self) -> String {
         if self.arc_ports_at_link {
-            format!("df.arc.ports.{}", self.module.record.as_deref().unwrap_or("program"))
+            format!(
+                "df.arc.ports.{}",
+                self.module.record.as_deref().unwrap_or("program")
+            )
         } else {
             "df.arc.register_ports".into()
         }
@@ -25,16 +28,35 @@ impl LlvmEmitter<'_> {
         );
         if self.arc_ports_at_link {
             let registration = self.arc_ports_registration_symbol();
-            writeln!(self.out, "declare void @{registration}()\n; df.arc-ports {registration}").unwrap();
+            writeln!(
+                self.out,
+                "declare void @{registration}()\n; df.arc-ports {registration}"
+            )
+            .unwrap();
             let mut port = |symbol: &str, kind: &str, contract: i64| {
-                let function = self.module.functions.iter().find(|f| f.symbol == symbol)
+                let function = self
+                    .module
+                    .functions
+                    .iter()
+                    .find(|f| f.symbol == symbol)
                     .expect("certified ARC port has a body");
-                let params = function.params.iter().map(|(_, _, ty)| ty.llvm_ir()).collect::<Vec<_>>().join(", ");
+                let params = function
+                    .params
+                    .iter()
+                    .map(|(_, _, ty)| ty.llvm_ir())
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 writeln!(self.out, "; df.arc-port {registration}\t{kind}\t{contract}\tdeclare {} @{symbol}({params})", function.return_ty.llvm_ir()).unwrap();
             };
-            for symbol in certificate.uniforms() { port(symbol, "uniform", 0); }
-            for (symbol, arity) in certificate.callbacks() { port(symbol, "word", *arity as i64); }
-            for (symbol, abi) in certificate.typed_set() { port(symbol, "typed", *abi); }
+            for symbol in certificate.uniforms() {
+                port(symbol, "uniform", 0);
+            }
+            for (symbol, arity) in certificate.callbacks() {
+                port(symbol, "word", *arity as i64);
+            }
+            for (symbol, abi) in certificate.typed_set() {
+                port(symbol, "typed", *abi);
+            }
             return;
         }
         self.out
@@ -68,7 +90,12 @@ impl LlvmEmitter<'_> {
 
     pub(super) fn register_arc_aot_ports(&mut self) {
         if self.module.arc_aot_ports.is_some() {
-            writeln!(self.out, "  call void @{}()", self.arc_ports_registration_symbol()).unwrap();
+            writeln!(
+                self.out,
+                "  call void @{}()",
+                self.arc_ports_registration_symbol()
+            )
+            .unwrap();
         }
     }
 }

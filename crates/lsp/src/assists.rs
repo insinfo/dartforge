@@ -19,9 +19,9 @@
 //! `get`/`is`/`to`, created class), else the one from the type (`i`, `d`,
 //! `s`, the class in camelCase), avoiding the visible locals.
 
+use crate::Edit;
 use crate::actions::CodeAction;
 use crate::project::Project;
-use crate::Edit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::UnitId;
 use dartforge_frontend::ast::{self, ExprId, ExprKind, FunctionBody, StmtId, StmtKind};
@@ -32,21 +32,40 @@ fn action(uri: &str, title: &str, kind: &str, edits: Vec<(Span, String)>) -> Cod
     CodeAction {
         title: title.into(),
         kind: kind.into(),
-        edits: edits.into_iter().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+        edits: edits
+            .into_iter()
+            .map(|(span, text)| Edit {
+                uri: uri.to_string(),
+                span,
+                text,
+            })
+            .collect(),
         diagnostic: None,
-        create_file: None, linked: Default::default(),
+        create_file: None,
+        linked: Default::default(),
     }
 }
 
 /// The indentation of the line containing `offset`.
 fn indentation(source: &str, offset: usize) -> String {
-    let start = source[..offset.min(source.len())].rfind('\n').map_or(0, |i| i + 1);
-    source[start..].chars().take_while(|c| *c == ' ' || *c == '\t').collect()
+    let start = source[..offset.min(source.len())]
+        .rfind('\n')
+        .map_or(0, |i| i + 1);
+    source[start..]
+        .chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .collect()
 }
 
 impl Project {
     /// The assists of this list at `start..end` of `unit`.
-    pub(crate) fn rewrite_assists(&self, uri: &str, unit: UnitId, start: usize, end: usize) -> Vec<CodeAction> {
+    pub(crate) fn rewrite_assists(
+        &self,
+        uri: &str,
+        unit: UnitId,
+        start: usize,
+        end: usize,
+    ) -> Vec<CodeAction> {
         let mut output = Vec::new();
         let u = self.program().unit(unit);
         let ast = &u.ast;
@@ -65,9 +84,17 @@ impl Project {
                 .iter()
                 .find(|m| matches!(m.kind, ast::MemberKind::Method(x) if x.0 as usize == i))
                 .map(|m| m.span)
-                .or_else(|| ast.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(x) if x.0 as usize == i)).map(|d| d.span));
+                .or_else(|| {
+                    ast.decls
+                        .iter()
+                        .find(|d| matches!(d.kind, ast::DeclKind::Function(x) if x.0 as usize == i))
+                        .map(|d| d.span)
+                });
             match owner {
-                Some(s) if s.start < f.span.start => Span { start: s.start, end: f.span.end },
+                Some(s) if s.start < f.span.start => Span {
+                    start: s.start,
+                    end: f.span.end,
+                },
                 _ => f.span,
             }
         };
@@ -87,7 +114,10 @@ impl Project {
             match f.body {
                 // `Convert to block body` comes from the port of Dart's producer
                 // (`Context::convert_to_block_body`).
-                FunctionBody::Block(b) if f.modifier != ast::AsyncModifier::SyncStar && f.modifier != ast::AsyncModifier::AsyncStar => {
+                FunctionBody::Block(b)
+                    if f.modifier != ast::AsyncModifier::SyncStar
+                        && f.modifier != ast::AsyncModifier::AsyncStar =>
+                {
                     if let StmtKind::Block(cmds) = &ast.stmt(b).kind
                         && cmds.len() == 1
                     {
@@ -101,7 +131,11 @@ impl Project {
                         {
                             let es = ast.expr(e).span;
                             let bs = ast.stmt(b).span;
-                            let async_ = if f.modifier == ast::AsyncModifier::Async { "async " } else { "" };
+                            let async_ = if f.modifier == ast::AsyncModifier::Async {
+                                "async "
+                            } else {
+                                ""
+                            };
                             let semicolon = if f.name.is_some() { ";" } else { "" };
                             // An already written `async` stays; only the block is replaced.
                             let _ = async_;
@@ -123,7 +157,11 @@ impl Project {
             .stmts
             .iter()
             .enumerate()
-            .filter(|(_, s)| s.span.start <= offset && offset <= s.span.end && !matches!(s.kind, StmtKind::Block(_)))
+            .filter(|(_, s)| {
+                s.span.start <= offset
+                    && offset <= s.span.end
+                    && !matches!(s.kind, StmtKind::Block(_))
+            })
             .min_by_key(|(_, s)| s.span.end - s.span.start)
             .map(|(i, _)| StmtId(i as u32));
 
@@ -133,7 +171,8 @@ impl Project {
                 StmtKind::Variables(l) => {
                     // `Remove type annotation`: `assist_type` (Dart's producer).
                     // Split variable declaration.
-                    if !l.final_ && !l.const_
+                    if !l.final_
+                        && !l.const_
                         && l.variables.len() == 1
                         && let Some(v) = l.variables.first()
                         && v.initializer.is_some()
@@ -148,16 +187,36 @@ impl Project {
                             && let Some(k) = source[s.span.start..v.name.span.start].find("var")
                         {
                             let p = s.span.start + k;
-                            edits.push((Span { start: p, end: p + 3 }, self.query.format(t)));
+                            edits.push((
+                                Span {
+                                    start: p,
+                                    end: p + 3,
+                                },
+                                self.query.format(t),
+                            ));
                         }
-                        edits.push((Span { start: v.name.span.end, end: v.name.span.end }, format!(";\n{prefix}{name}")));
-                        output.push(action(uri, "Split variable declaration", "refactor.splitVariableDeclaration", edits));
+                        edits.push((
+                            Span {
+                                start: v.name.span.end,
+                                end: v.name.span.end,
+                            },
+                            format!(";\n{prefix}{name}"),
+                        ));
+                        output.push(action(
+                            uri,
+                            "Split variable declaration",
+                            "refactor.splitVariableDeclaration",
+                            edits,
+                        ));
                     }
                 }
                 StmtKind::Expression(e) => {
                     // Assign value to new local variable.
                     let ty = bodies.get_type(*e);
-                    let assignment = matches!(ast.expr(*e).kind, ExprKind::Assign { .. } | ExprKind::Throw(_));
+                    let assignment = matches!(
+                        ast.expr(*e).kind,
+                        ExprKind::Assign { .. } | ExprKind::Throw(_)
+                    );
                     if !assignment
                         && let Some(t) = ty
                         && !matches!(self.query.table.get(t), Type::Void)
@@ -176,9 +235,28 @@ impl Project {
                             None => vec![self.suggested_name(unit, *e, Some(t), offset)],
                         };
                         if let Some(name) = suggestions.first().cloned() {
-                            let key = if crate::refactorings_exec::enabled_rule(self, unit, "prefer_final_locals") { "final" } else { "var" };
+                            let key = if crate::refactorings_exec::enabled_rule(
+                                self,
+                                unit,
+                                "prefer_final_locals",
+                            ) {
+                                "final"
+                            } else {
+                                "var"
+                            };
                             let text = format!("{key} {name} = ");
-                            let a = action(uri, "Assign value to new local variable", "refactor.assignToVariable", vec![(Span { start: es.start, end: es.start }, text)]);
+                            let a = action(
+                                uri,
+                                "Assign value to new local variable",
+                                "refactor.assignToVariable",
+                                vec![(
+                                    Span {
+                                        start: es.start,
+                                        end: es.start,
+                                    },
+                                    text,
+                                )],
+                            );
                             output.push(a.with_group(0, &[key.len() + 1], name.len(), suggestions));
                         }
                     }
@@ -205,7 +283,18 @@ impl Project {
                     let rest = &source[ts.end..];
                     let type_end = ts.end + (rest.len() - rest.trim_start().len());
                     let replacement = String::new();
-                    output.push(action(uri, "Remove type annotation", "refactor.remove.typeAnnotation", vec![(Span { start: ts.start, end: type_end }, replacement)]));
+                    output.push(action(
+                        uri,
+                        "Remove type annotation",
+                        "refactor.remove.typeAnnotation",
+                        vec![(
+                            Span {
+                                start: ts.start,
+                                end: type_end,
+                            },
+                            replacement,
+                        )],
+                    ));
                 }
             }
         }
@@ -231,22 +320,43 @@ impl Project {
             .iter()
             .position(|s| match &s.kind {
                 StmtKind::If { then, else_, .. } => *then == cid || *else_ == Some(cid),
-                StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } | StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => *body == cid,
+                StmtKind::For { body, .. }
+                | StmtKind::ForIn { body, .. }
+                | StmtKind::While { body, .. }
+                | StmtKind::DoWhile { body, .. } => *body == cid,
                 _ => false,
             })
             .map(|i| StmtId(i as u32));
         let tokens = dartforge_frontend::lexer::lex(source).ok()?;
         // The end of the last token before `o` and the start of the first one after.
-        let before = |o: usize| tokens.iter().take_while(|t| t.span.end <= o).last().map_or(0, |t| t.span.end);
+        let before = |o: usize| {
+            tokens
+                .iter()
+                .take_while(|t| t.span.end <= o)
+                .last()
+                .map_or(0, |t| t.span.end)
+        };
         let after = |o: usize| tokens.iter().find(|t| t.span.start >= o).map(|t| t.span);
-        let eol = if source.contains("\r\n") { "\r\n" } else { "\n" };
+        let eol = if source.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
         let is_block = |s: StmtId| matches!(ast.stmt(s).kind, StmtKind::Block(_));
         let is_do = |s: StmtId| matches!(ast.stmt(s).kind, StmtKind::DoWhile { .. });
-        let is_for = |s: StmtId| matches!(ast.stmt(s).kind, StmtKind::For { .. } | StmtKind::ForIn { .. });
+        let is_for = |s: StmtId| {
+            matches!(
+                ast.stmt(s).kind,
+                StmtKind::For { .. } | StmtKind::ForIn { .. }
+            )
+        };
         let is_if = |s: StmtId| matches!(ast.stmt(s).kind, StmtKind::If { .. });
         let is_while = |s: StmtId| matches!(ast.stmt(s).kind, StmtKind::While { .. });
         let body_ = |s: StmtId| match &ast.stmt(s).kind {
-            StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } | StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => Some(*body),
+            StmtKind::For { body, .. }
+            | StmtKind::ForIn { body, .. }
+            | StmtKind::While { body, .. }
+            | StmtKind::DoWhile { body, .. } => Some(*body),
             _ => None,
         };
         // `_endAfterComments`: the end of the body, or of the comment that starts
@@ -271,7 +381,13 @@ impl Project {
             let a = before(b);
             let between = &source[a..b];
             let start = a + (between.len() - between.trim_start().len());
-            edits.push((Span { start: a, end: start.min(b) }, format!(" {{{eol}{indent}")));
+            edits.push((
+                Span {
+                    start: a,
+                    end: start.min(b),
+                },
+                format!(" {{{eol}{indent}"),
+            ));
         };
         let mut single: Option<StmtId> = None;
         let target = if is_do(cid) {
@@ -283,7 +399,11 @@ impl Project {
         } else if parent.is_some_and(is_for) {
             parent?
         } else if is_if(cid) {
-            if let StmtKind::If { then, else_: Some(e), .. } = &ast.stmt(cid).kind
+            if let StmtKind::If {
+                then,
+                else_: Some(e),
+                ..
+            } = &ast.stmt(cid).kind
                 && let Some(k) = after(ast.stmt(*then).span.end)
                 && &source[k.start..k.end] == "else"
                 && k.start <= offset
@@ -308,16 +428,28 @@ impl Project {
         match &target_stmt.kind {
             StmtKind::If { then, else_, .. } => {
                 // The `else if` of a chain does not change.
-                if ast.stmts.iter().any(|s| matches!(&s.kind, StmtKind::If { else_: Some(e), .. } if *e == target)) {
+                if ast
+                    .stmts
+                    .iter()
+                    .any(|s| matches!(&s.kind, StmtKind::If { else_: Some(e), .. } if *e == target))
+                {
                     return None;
                 }
-                let else_word = else_.and_then(|_| after(ast.stmt(*then).span.end)).filter(|k| &source[k.start..k.end] == "else");
+                let else_word = else_
+                    .and_then(|_| after(ast.stmt(*then).span.end))
+                    .filter(|k| &source[k.start..k.end] == "else");
                 if !is_block(*then) && single.is_none_or(|x| x == *then) {
                     left(&mut edits, *then, &indent);
                     let end = end_with_comment(ast.stmt(*then).span.end);
                     match else_word {
                         None => edits.push((Span { start: end, end }, format!("{eol}{prefix}}}"))),
-                        Some(k) => edits.push((Span { start: end, end: k.start }, format!("{eol}{prefix}}} "))),
+                        Some(k) => edits.push((
+                            Span {
+                                start: end,
+                                end: k.start,
+                            },
+                            format!("{eol}{prefix}}} "),
+                        )),
                     }
                 }
                 if let (Some(e), Some(_)) = (else_, else_word)
@@ -337,7 +469,13 @@ impl Project {
                 left(&mut edits, *body, &indent);
                 let end = end_with_comment(ast.stmt(*body).span.end);
                 let k = after(ast.stmt(*body).span.end)?;
-                edits.push((Span { start: end, end: k.start.max(end) }, format!("{eol}{prefix}}} ")));
+                edits.push((
+                    Span {
+                        start: end,
+                        end: k.start.max(end),
+                    },
+                    format!("{eol}{prefix}}} "),
+                ));
             }
             _ => {
                 let b = body_(target)?;
@@ -352,11 +490,22 @@ impl Project {
         if edits.is_empty() {
             return None;
         }
-        Some(action(uri, "Use curly braces", "refactor.surround.curlyBraces", edits))
+        Some(action(
+            uri,
+            "Use curly braces",
+            "refactor.surround.curlyBraces",
+            edits,
+        ))
     }
 
     /// The name Dart suggests for storing `expr`.
-    fn suggested_name(&self, unit: UnitId, expr: ExprId, ty_: Option<TypeId>, offset: usize) -> String {
+    fn suggested_name(
+        &self,
+        unit: UnitId,
+        expr: ExprId,
+        ty_: Option<TypeId>,
+        offset: usize,
+    ) -> String {
         let u = self.program().unit(unit);
         let ast = &u.ast;
         let source = u.source.as_str();
@@ -371,7 +520,11 @@ impl Project {
             ExprKind::Call { target, .. } => match &ast.expr(*target).kind {
                 ExprKind::Identifier(n) | ExprKind::Property { name: n, .. } => {
                     let n = text(n.span);
-                    let without = ["get", "is", "to"].iter().find_map(|p| n.strip_prefix(p).filter(|r| r.starts_with(char::is_uppercase)).map(str::to_string));
+                    let without = ["get", "is", "to"].iter().find_map(|p| {
+                        n.strip_prefix(p)
+                            .filter(|r| r.starts_with(char::is_uppercase))
+                            .map(str::to_string)
+                    });
                     Some(without.unwrap_or(n))
                 }
                 _ => None,
@@ -402,17 +555,27 @@ impl Project {
         };
         let base = base.or_else(by_type).unwrap_or_else(|| "value".into());
         let base = base.trim_start_matches('_').to_string();
-        let mut name: String = base.chars().next().map(|c| c.to_lowercase().collect::<String>() + &base[c.len_utf8()..]).unwrap_or(base);
+        let mut name: String = base
+            .chars()
+            .next()
+            .map(|c| c.to_lowercase().collect::<String>() + &base[c.len_utf8()..])
+            .unwrap_or(base);
         // The locals and parameters declared before cannot be repeated.
         let visible: HashSet<String> = ast
             .stmts
             .iter()
             .filter_map(|s| match &s.kind {
-                StmtKind::Variables(l) => Some(l.variables.iter().map(|v| v.name).collect::<Vec<_>>()),
+                StmtKind::Variables(l) => {
+                    Some(l.variables.iter().map(|v| v.name).collect::<Vec<_>>())
+                }
                 _ => None,
             })
             .flatten()
-            .chain(ast.functions.iter().flat_map(|f| f.parameters.iter().flatten().filter_map(|p| p.name)))
+            .chain(
+                ast.functions
+                    .iter()
+                    .flat_map(|f| f.parameters.iter().flatten().filter_map(|p| p.name)),
+            )
             .filter(|n| n.span.start < offset)
             .map(|n| text(n.span))
             .collect();

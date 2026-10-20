@@ -172,7 +172,10 @@ impl Collector<'_> {
                         // `_isReadMember`: a public one only counts if it is a
                         // static one of a private type.
                         let candidate = is_private(&name) || (list.static_ && private_type);
-                        if candidate && !annotated && !self.from_primary.contains(&(u, v.name.span.start)) {
+                        if candidate
+                            && !annotated
+                            && !self.from_primary.contains(&(u, v.name.span.start))
+                        {
                             self.candidate(u, v.name, name, Rule::Field, None);
                         }
                     }
@@ -223,7 +226,10 @@ pub fn unused_with_skipped(
     let mut out = unused(units, names);
     if skipped.iter().any(|p| !p.is_empty()) {
         out.retain(|(i, d)| {
-            let name = units.get(*i).and_then(|u| u.source.get(d.span.start..d.span.end)).unwrap_or("");
+            let name = units
+                .get(*i)
+                .and_then(|u| u.source.get(d.span.start..d.span.end))
+                .unwrap_or("");
             !skipped.iter().any(|p| p.mentions(name))
         });
     }
@@ -277,7 +283,12 @@ pub fn unused(units: &[Unit<'_>], names: &Interner) -> Vec<(usize, Diagnostic)> 
                     if let Some(k2) = k.primary_constructor
                         && let MemberKind::Constructor(k2) = &ast_.member(k2).kind
                     {
-                        c.from_primary.extend(k2.parameters.iter().filter_map(|p| p.name).map(|n| (u, n.span.start)));
+                        c.from_primary.extend(
+                            k2.parameters
+                                .iter()
+                                .filter_map(|p| p.name)
+                                .map(|n| (u, n.span.start)),
+                        );
                     }
                     c.members(u, ast_, &name, &k.members, p, false, false);
                 }

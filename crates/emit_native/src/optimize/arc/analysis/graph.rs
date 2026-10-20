@@ -158,10 +158,7 @@ fn build(f: &Function, a: HirAnalysis) -> ArcHeapGraph {
                 continue;
             };
             for dest in dests {
-                edges
-                    .entry(node.clone())
-                    .or_default()
-                    .insert(dest.clone());
+                edges.entry(node.clone()).or_default().insert(dest.clone());
                 edges.entry(dest.clone()).or_default();
                 if !a.schemas.contains_key(dest) {
                     opaque = true;
@@ -192,7 +189,11 @@ fn build(f: &Function, a: HirAnalysis) -> ArcHeapGraph {
         }
     }
     let nodes: Vec<_> = edges.keys().cloned().collect();
-    let ids: BTreeMap<_, _> = nodes.iter().enumerate().map(|(i, node)| (node, i)).collect();
+    let ids: BTreeMap<_, _> = nodes
+        .iter()
+        .enumerate()
+        .map(|(i, node)| (node, i))
+        .collect();
     let adjacent: Vec<Vec<_>> = nodes
         .iter()
         .map(|node| edges[node].iter().map(|dest| ids[dest]).collect())
@@ -241,10 +242,7 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
         }
     }
     for (node, fields) in &a.schemas {
-        let exits = g
-            .edges
-            .get(node)
-            .ok_or("ARC graph: schema node omitted")?;
+        let exits = g.edges.get(node).ok_or("ARC graph: schema node omitted")?;
         for field in fields {
             match a.points().field(node, field).and_then(|p| p.nodes()) {
                 None => require_opaque()?,
@@ -283,10 +281,7 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
         if !a.schemas.contains_key(node) {
             require_opaque()?;
         }
-        if exits
-            .iter()
-            .any(|dest| !g.edges.contains_key(dest))
-        {
+        if exits.iter().any(|dest| !g.edges.contains_key(dest)) {
             return Err("ARC graph: destination outside the graph".into());
         }
     }
@@ -305,7 +300,11 @@ fn check_projection(f: &Function, g: &ArcHeapGraph) -> Result<(), String> {
     for (members, cycle) in &g.components {
         let c: Vec<_> = members
             .iter()
-            .map(|node| ids.get(node).copied().ok_or("ARC graph: missing SCC member"))
+            .map(|node| {
+                ids.get(node)
+                    .copied()
+                    .ok_or("ARC graph: missing SCC member")
+            })
             .collect::<Result<_, _>>()?;
         if c.is_empty() {
             return Err("grafo ARC: SCC vazia".into());
@@ -440,7 +439,10 @@ mod tests {
                         .components
                         .iter()
                         .any(|(c, _)| c.contains(&nodes[v]) && c.contains(&nodes[w]));
-                    assert_eq!(together, v == w || (reachability[v][w] && reachability[w][v]));
+                    assert_eq!(
+                        together,
+                        v == w || (reachability[v][w] && reachability[w][v])
+                    );
                 }
             }
             g.check_in_module(&m, "f").unwrap();
@@ -652,18 +654,8 @@ mod tests {
     #[test]
     fn opaque_boundaries_and_budget_do_not_become_closed_graph() {
         let mut m = module(511);
-        assert!(
-            build_local_in_module(&m, "f", 1)
-                .unwrap()
-                .unwrap()
-                .opaque()
-        );
-        assert!(
-            build_local_in_module(&m, "f", 0)
-                .unwrap()
-                .unwrap()
-                .opaque()
-        );
+        assert!(build_local_in_module(&m, "f", 1).unwrap().unwrap().opaque());
+        assert!(build_local_in_module(&m, "f", 0).unwrap().unwrap().opaque());
         m.arc_field_layouts.clear();
         let g = build_local_in_module(&m, "f", 8).unwrap().unwrap();
         assert!(g.opaque());
@@ -676,10 +668,7 @@ mod tests {
     fn summarized_instances_at_same_site_do_not_prove_singleton_or_cycle_absence() {
         let mut m = module(1 << 1); // Instance 0 points to instance 1.
         let origin = m.arc_sites["f"][&ValueId(0)].clone();
-        m.arc_sites
-            .get_mut("f")
-            .unwrap()
-            .insert(ValueId(1), origin);
+        m.arc_sites.get_mut("f").unwrap().insert(ValueId(1), origin);
         let g = build_local_in_module(&m, "f", 8).unwrap().unwrap();
         assert_eq!(g.edges().len(), 2);
         assert!(g.components().any(|(_, cycle)| cycle));

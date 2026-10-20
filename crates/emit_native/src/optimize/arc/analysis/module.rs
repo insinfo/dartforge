@@ -156,7 +156,13 @@ pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, Stri
                         position: position as u32,
                     })
                     .collect();
-                facts.objects.insert(*v, ObjectOrigin { node, fields: field_list });
+                facts.objects.insert(
+                    *v,
+                    ObjectOrigin {
+                        node,
+                        fields: field_list,
+                    },
+                );
                 continue;
             }
             let (class, quantity) = match i {
@@ -188,7 +194,13 @@ pub(super) fn facts_in_module(m: &Module, f: &Function) -> Result<HirFacts, Stri
                     position: position as u32,
                 })
                 .collect();
-            facts.objects.insert(*v, ObjectOrigin { node, fields: field_list });
+            facts.objects.insert(
+                *v,
+                ObjectOrigin {
+                    node,
+                    fields: field_list,
+                },
+            );
         }
     }
     Ok(facts)
@@ -323,7 +335,7 @@ mod tests {
 
     #[test]
     fn finalizer_attachment_composes_side_edge_without_inventing_physical_field() {
-        use super::super::{writes::WriteInclusions, graph::build_local_in_module};
+        use super::super::{graph::build_local_in_module, writes::WriteInclusions};
         use std::collections::{BTreeSet, HashSet};
         let mut m = Module::new();
         m.arc_memory = true;
@@ -446,11 +458,7 @@ mod tests {
         assert!(g.edges()[&owner].is_empty());
         assert!(g.opaque());
         m.arc_memory = false;
-        assert!(
-            build_local_in_module(&m, "caller", 8)
-                .unwrap()
-                .is_none()
-        );
+        assert!(build_local_in_module(&m, "caller", 8).unwrap().is_none());
     }
 
     #[test]
@@ -532,13 +540,26 @@ mod tests {
         let a = analyze_in_module(&m, "captura", 8).unwrap().unwrap();
         assert_eq!(a.value(ValueId(4)), a.value(ValueId(2)));
         let mut expected_set = a.value(ValueId(0)).unwrap().nodes().unwrap().clone();
-        expected_set.extend(a.value(ValueId(1)).unwrap().nodes().unwrap().iter().cloned());
+        expected_set.extend(
+            a.value(ValueId(1))
+                .unwrap()
+                .nodes()
+                .unwrap()
+                .iter()
+                .cloned(),
+        );
         assert_eq!(a.value(ValueId(6)).unwrap().nodes(), Some(&expected_set));
         assert!(a.unknown_set().is_empty());
         let g = super::super::graph::build_local_in_module(&m, "captura", 8)
             .unwrap()
             .unwrap();
-        let cell = a.value(ValueId(2)).unwrap().nodes().unwrap().first().unwrap();
+        let cell = a
+            .value(ValueId(2))
+            .unwrap()
+            .nodes()
+            .unwrap()
+            .first()
+            .unwrap();
         assert_eq!(g.edges()[cell], expected_set);
         g.check_in_module(&m, "captura").unwrap();
         // Neither the scalar bit nor a missing index become a precise null reference.
@@ -706,11 +727,7 @@ mod tests {
             let g = build_local_in_module(&m, "caller", 8).unwrap().unwrap();
             assert!(g.edges()[&cell].is_empty());
             m.arc_memory = false;
-            assert!(
-                build_local_in_module(&m, "caller", 8)
-                    .unwrap()
-                    .is_none()
-            );
+            assert!(build_local_in_module(&m, "caller", 8).unwrap().is_none());
         }
     }
 
@@ -825,11 +842,7 @@ mod tests {
         assert!(g.edges()[&parent].is_empty());
         assert!(g.opaque());
         m.arc_memory = false;
-        assert!(
-            build_local_in_module(&m, "caller", 8)
-                .unwrap()
-                .is_none()
-        );
+        assert!(build_local_in_module(&m, "caller", 8).unwrap().is_none());
     }
 
     #[test]
@@ -883,10 +896,12 @@ mod tests {
         let a = analyze_in_module(&m, "caller", 8).unwrap().unwrap();
         assert_eq!(
             a.value(ValueId(0)).unwrap().nodes(),
-            Some(&std::collections::BTreeSet::from([AbstractNode::Allocation {
-                site: m.arc_sites["criar"][&ValueId(37)].clone(),
-                context: String::new(),
-            }]))
+            Some(&std::collections::BTreeSet::from([
+                AbstractNode::Allocation {
+                    site: m.arc_sites["criar"][&ValueId(37)].clone(),
+                    context: String::new(),
+                }
+            ]))
         );
         compute_in_module(&m, "caller", &a).unwrap();
         // Rebuilding tables with another order/capacity does not change premises.
@@ -990,7 +1005,10 @@ mod tests {
                 e.publications[&EscapeCause::Global("g".into())].nodes(),
                 Some(&expected)
             );
-            assert_eq!(e.publications[&EscapeCause::Exception].nodes(), Some(&expected));
+            assert_eq!(
+                e.publications[&EscapeCause::Exception].nodes(),
+                Some(&expected)
+            );
             assert!(
                 e.publications[&EscapeCause::OpaqueOperation(0)]
                     .nodes()
@@ -1300,9 +1318,7 @@ mod tests {
                     instructions: vec![(
                         ValueId(1),
                         Instruction::ArcStoreStrong {
-                            slot: StrongSlot::Global {
-                                symbol: "g".into(),
-                            },
+                            slot: StrongSlot::Global { symbol: "g".into() },
                             value: Operand::Val(ValueId(0)),
                             mode,
                         },
@@ -1398,9 +1414,7 @@ mod tests {
                 instructions: vec![(
                     ValueId(0),
                     Instruction::ArcStoreStrong {
-                        slot: StrongSlot::Global {
-                            symbol: "g".into(),
-                        },
+                        slot: StrongSlot::Global { symbol: "g".into() },
                         value: Operand::Constant(Constant::Null),
                         mode: StrongStoreMode::Copy,
                     },
@@ -1624,9 +1638,7 @@ mod tests {
         assert!(!crate::llvm::LlvmEmitter::requires_explicit_context(
             &f, None
         ));
-        assert!(crate::llvm::LlvmEmitter::may_require_context_for_roots(
-            &f
-        ));
+        assert!(crate::llvm::LlvmEmitter::may_require_context_for_roots(&f));
         assert!(!crate::llvm::LlvmEmitter::may_require_context_for_roots(
             &m.functions[0]
         ));
@@ -1679,10 +1691,7 @@ mod tests {
                 assert!(e.publications.is_empty());
             }
             assert_eq!(
-                build_local_in_module(&m, "f", 8)
-                    .unwrap()
-                    .unwrap()
-                    .opaque(),
+                build_local_in_module(&m, "f", 8).unwrap().unwrap().opaque(),
                 checks
             );
             // Checks the path really inserted at emission, besides the metadata.

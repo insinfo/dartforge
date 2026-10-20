@@ -7,8 +7,8 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
+use super::super::token::{Tk, TokenKind};
 use super::super::tree::{Node, NodeId};
-use super::super::token::{TokenKind, Tk};
 use super::lookahead::Shape;
 use super::types::MemberKind;
 use super::{Parser, R};
@@ -240,7 +240,11 @@ impl Parser<'_> {
         let text = self.txt(kw);
         if self.kw(kw, Keyword::Class) {
             Self::mark_declaration(state);
-            let m = self.top_level_modifiers(modifiers_start, modifiers_end, &["abstract", "augment", "final"])?;
+            let m = self.top_level_modifiers(
+                modifiers_start,
+                modifiers_end,
+                &["abstract", "augment", "final"],
+            )?;
             self.pos = kw;
             return Ok((false, self.class(start_, meta, m, extras, None)?));
         }
@@ -337,7 +341,11 @@ impl Parser<'_> {
                             "A mixin class can't be declared 'sealed' or 'interface'.",
                         ));
                     }
-                    let m = self.top_level_modifiers(modifiers_start, modifiers_end, &["abstract", "augment"])?;
+                    let m = self.top_level_modifiers(
+                        modifiers_start,
+                        modifiers_end,
+                        &["abstract", "augment"],
+                    )?;
                     self.pos = nv;
                     return Ok((false, self.class(start_, meta, m, extras, Some(kw))?));
                 }
@@ -825,7 +833,9 @@ impl Parser<'_> {
             let e = self.advance();
             let superclass = self.required_named_type()?;
             if self.op(self.pos, Op::Comma) {
-                return Err(self.error("Each class definition can have at most one extends clause."));
+                return Err(
+                    self.error("Each class definition can have at most one extends clause.")
+                );
             }
             Some(self.node(
                 Node::ExtendsClause {
@@ -949,7 +959,13 @@ impl Parser<'_> {
     }
 
     /// `parseMixin`; `self.pos` is at the `mixin`.
-    fn mixin(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers, base: Option<usize>) -> R<NodeId> {
+    fn mixin(
+        &mut self,
+        start_: usize,
+        metadata: Vec<NodeId>,
+        m: Modifiers,
+        base: Option<usize>,
+    ) -> R<NodeId> {
         if m.final_.is_some() {
             return Err(self.error_at(
                 m.final_.unwrap_or(start_),
@@ -1053,7 +1069,13 @@ impl Parser<'_> {
     }
 
     /// `parseExtensionTypeDeclaration`.
-    fn extension_type(&mut self, start_: usize, metadata: Vec<NodeId>, m: Modifiers, e: usize) -> R<NodeId> {
+    fn extension_type(
+        &mut self,
+        start_: usize,
+        metadata: Vec<NodeId>,
+        m: Modifiers,
+        e: usize,
+    ) -> R<NodeId> {
         if self.version < (3, 3) {
             return Err(
                 self.error("This requires the 'inline-class' language feature to be enabled.")
@@ -1634,7 +1656,9 @@ impl Parser<'_> {
                 }
             } else if v == "operator" && self.ident(nx) {
                 let n2 = nx + 1;
-                if self.user_definable_operator(n2).is_some() && self.type_args_at(nx, false).is_none() {
+                if self.user_definable_operator(n2).is_some()
+                    && self.type_args_at(nx, false).is_none()
+                {
                     return self.method(start_, metadata, m, ti, None, nx, body_, class_name);
                 } else if !self.op(n2, Op::Assign)
                     && !self.op(n2, Op::Lt)
@@ -1850,7 +1874,9 @@ impl Parser<'_> {
             if type_parameters.is_some() {
                 return Err(self.error_at(fi, "Constructors can't have type parameters."));
             }
-            if m.const_.is_some() && !matches!(self.tree_.node(body), Node::EmptyFunctionBody { .. }) {
+            if m.const_.is_some()
+                && !matches!(self.tree_.node(body), Node::EmptyFunctionBody { .. })
+            {
                 return Err(self.error_at(body_node, "Const constructors can't have a body."));
             }
             if m.external.is_some()
@@ -1867,15 +1893,19 @@ impl Parser<'_> {
                 return Err(self.error_at(name, "An external constructor can't initialize fields."));
             }
             if matches!(body_, Body::Mixin | Body::Extension) {
-                return Err(self.error_at(name, "Mixins and extensions can't declare constructors."));
+                return Err(
+                    self.error_at(name, "Mixins and extensions can't declare constructors.")
+                );
             }
             if matches!(
                 self.tree_.node(body),
                 Node::BlockFunctionBody { .. } | Node::ExpressionFunctionBody { .. }
-            ) && initializers
-                .iter()
-                .any(|&i| matches!(self.tree_.node(i), Node::RedirectingConstructorInvocation { .. }))
-            {
+            ) && initializers.iter().any(|&i| {
+                matches!(
+                    self.tree_.node(i),
+                    Node::RedirectingConstructorInvocation { .. }
+                )
+            }) {
                 return Err(self.error_at(body_node, "Redirecting constructors can't have a body."));
             }
             let return_type = self.simple(name);
@@ -1985,8 +2015,9 @@ impl Parser<'_> {
             self.function_body_(false, true)?
         } else {
             if m.const_.is_some() && !self.word(self.pos, "native") {
-                return Err(self
-                    .error("Only redirecting factory constructors can be declared to be 'const'."));
+                return Err(self.error(
+                    "Only redirecting factory constructors can be declared to be 'const'.",
+                ));
             }
             self.function_body_(false, false)?
         };

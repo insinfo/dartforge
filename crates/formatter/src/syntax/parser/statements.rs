@@ -5,8 +5,8 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
+use super::super::token::{Tk, TokenKind};
 use super::super::tree::{Node, NodeId};
-use super::super::token::{TokenKind, Tk};
 use super::lookahead::TypeInfo;
 use super::patterns::PatternCtx;
 use super::types::MemberKind;
@@ -147,7 +147,9 @@ impl Parser<'_> {
                     }
                 }
                 if t == "await" {
-                    if self.async_kind == AsyncKind::SyncKind && !self.looks_like_expression_after(i, false) {
+                    if self.async_kind == AsyncKind::SyncKind
+                        && !self.looks_like_expression_after(i, false)
+                    {
                         return self.expr_or_decl();
                     }
                     return self.expression_statement();
@@ -319,7 +321,11 @@ impl Parser<'_> {
             return self.expression_statement();
         }
         let next = ti.end_index;
-        if self.built_in(next) && d.without_prefix() && ti.could_be_expression && self.word(next, "as") {
+        if self.built_in(next)
+            && d.without_prefix()
+            && ti.could_be_expression
+            && self.word(next, "as")
+        {
             let k = next + 1;
             if !(self.op(k, Op::Assign) || self.op(k, Op::Semicolon) || self.op(k, Op::Comma)) {
                 return self.expression_statement();
@@ -682,7 +688,11 @@ impl Parser<'_> {
             return Ok(ForStart::Expression);
         }
         let next = ti.end_index;
-        if self.built_in(next) && d.without_prefix() && ti.could_be_expression && self.word(next, "as") {
+        if self.built_in(next)
+            && d.without_prefix()
+            && ti.could_be_expression
+            && self.word(next, "as")
+        {
             let k = next + 1;
             if !(self.op(k, Op::Assign) || self.op(k, Op::Semicolon) || self.op(k, Op::Comma))
                 && !self.kw(k, Keyword::In)
@@ -719,14 +729,15 @@ impl Parser<'_> {
                         },
                         start_,
                     );
-                    let parts =
-                        self.for_rest(await_keyword, start_, |l, c, r, u| Node::ForPartsWithPattern {
+                    let parts = self.for_rest(await_keyword, start_, |l, c, r, u| {
+                        Node::ForPartsWithPattern {
                             variables,
                             left_separator: l,
                             condition: c,
                             right_separator: r,
                             updaters: u,
-                        })?;
+                        }
+                    })?;
                     let rp = self.expect_op(Op::RParen)?;
                     return Ok((lp, parts, rp));
                 }
@@ -805,8 +816,10 @@ impl Parser<'_> {
                         return Err(self.error("For-in loops use 'in' rather than a colon."));
                     }
                     let Some(identifier) = initialization.filter(|&e| self.is_simple(e)) else {
-                        return Err(self
-                            .error_at(start_, "A for-in loop variable must be a simple identifier."));
+                        return Err(self.error_at(
+                            start_,
+                            "A for-in loop variable must be a simple identifier.",
+                        ));
                     };
                     let in_kw = self.advance();
                     check_await_in(self)?;
@@ -1033,7 +1046,8 @@ impl Parser<'_> {
                 catch_keyword = Some(self.advance() as Tk);
                 lp = Some(self.expect_op(Op::LParen)? as Tk);
                 let e = self.expect_declared_name()?;
-                exception_parameter = Some(self.node(Node::CatchClauseParameter { name: e as Tk }, e));
+                exception_parameter =
+                    Some(self.node(Node::CatchClauseParameter { name: e as Tk }, e));
                 if self.op(self.pos, Op::Comma) {
                     comma = Some(self.advance() as Tk);
                     let s = self.expect_declared_name()?;
@@ -1173,7 +1187,11 @@ impl Parser<'_> {
 
     /// `parseAsyncModifierOpt` and `parseFunctionBody`. `from_expression` is the
     /// body of a function expression (the `=>` has no `;`).
-    pub(super) fn function_body_(&mut self, from_expression: bool, allows_abstract: bool) -> R<NodeId> {
+    pub(super) fn function_body_(
+        &mut self,
+        from_expression: bool,
+        allows_abstract: bool,
+    ) -> R<NodeId> {
         let (async_kind, loop_) = (self.async_kind, self.loop_);
         let r = self.inner_function_body(from_expression, allows_abstract);
         self.async_kind = async_kind;

@@ -84,14 +84,21 @@ pub struct Derived(std::sync::OnceLock<Box<dyn std::any::Any + Send + Sync>>);
 impl Derived {
     /// The derived value of type `T`, built by `make` on the first call.
     /// Returns `None` when the slot already holds a value of another type.
-    pub fn get_or_init<T: std::any::Any + Send + Sync>(&self, make: impl FnOnce() -> T) -> Option<&T> {
+    pub fn get_or_init<T: std::any::Any + Send + Sync>(
+        &self,
+        make: impl FnOnce() -> T,
+    ) -> Option<&T> {
         self.0.get_or_init(|| Box::new(make())).downcast_ref::<T>()
     }
 }
 
 impl std::fmt::Debug for Derived {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(if self.0.get().is_some() { "Derived(filled)" } else { "Derived(empty)" })
+        f.write_str(if self.0.get().is_some() {
+            "Derived(filled)"
+        } else {
+            "Derived(empty)"
+        })
     }
 }
 

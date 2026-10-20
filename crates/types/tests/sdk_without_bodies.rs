@@ -98,36 +98,62 @@ fn sdk_without_bodies_and_typed_user() {
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &program, &interner);
     let (mut outline, _) = resolve_outline(&program, &interner, &mut table, &core);
-    let (bodies, diags) = infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    let (bodies, diags) =
+        infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
 
     // SDK units (library, part and patch): empty tables, no warnings.
     let mut sdk_units = 0;
     for (i, u) in program.units.iter().enumerate() {
         if program.library(u.library).is_sdk {
             sdk_units += 1;
-            assert!(!u.ast.exprs.is_empty(), "{}: the SDK unit has expressions in the AST", u.uri);
-            assert!(!bodies.units[i].has_tables(), "{}: the SDK must not have inferred bodies", u.uri);
-            assert_eq!(bodies.units[i].resolved_targets().count(), 0, "{}: the SDK must not have resolutions", u.uri);
+            assert!(
+                !u.ast.exprs.is_empty(),
+                "{}: the SDK unit has expressions in the AST",
+                u.uri
+            );
+            assert!(
+                !bodies.units[i].has_tables(),
+                "{}: the SDK must not have inferred bodies",
+                u.uri
+            );
+            assert_eq!(
+                bodies.units[i].resolved_targets().count(),
+                0,
+                "{}: the SDK must not have resolutions",
+                u.uri
+            );
         }
     }
     assert_eq!(sdk_units, 4, "core, int.dart (parte), core_patch e convert");
-    assert!(diags.is_empty(), "no warnings from the user or the SDK: {diags:?}");
+    assert!(
+        diags.is_empty(),
+        "no warnings from the user or the SDK: {diags:?}"
+    );
 
     // The user stays typed: `y` in `dobro` is `int`.
     let entry_unit = program.library(program.entry.unwrap()).units[0];
     let unit = program.unit(entry_unit);
     let the_table = &bodies.units[entry_unit.0 as usize];
     assert_eq!(the_table.expression_count(), unit.ast.exprs.len());
-    let int_class = program.classes.iter().position(|c| interner.resolve(c.name) == "int").unwrap();
+    let int_class = program
+        .classes
+        .iter()
+        .position(|c| interner.resolve(c.name) == "int")
+        .unwrap();
     let mut y_int = false;
     for (i, e) in unit.ast.exprs.iter().enumerate() {
         if let dartforge_frontend::ast::ExprKind::Identifier(n) = &e.kind
-            && interner.resolve(n.sym) == "y" {
-                let ty = table.get(the_table.get_type(dartforge_frontend::ast::ExprId(i as u32)).expect("typed"));
-                if let Type::Interface { class, .. } = ty {
-                    y_int |= class.0 as usize == int_class;
-                }
+            && interner.resolve(n.sym) == "y"
+        {
+            let ty = table.get(
+                the_table
+                    .get_type(dartforge_frontend::ast::ExprId(i as u32))
+                    .expect("typed"),
+            );
+            if let Type::Interface { class, .. } = ty {
+                y_int |= class.0 as usize == int_class;
             }
+        }
     }
     assert!(y_int, "`y` must have type `int`");
 
@@ -136,6 +162,13 @@ fn sdk_without_bodies_and_typed_user() {
     // `json.decode` in the user needs. (Today `JsonCodec()` without `new`
     // infers `dynamic` both in the SDK and in the user: a resolver gap, not one
     // of this cut.)
-    let json_var = program.variables.iter().position(|v| interner.resolve(v.name) == "json").unwrap();
-    assert!(outline.variables[json_var].inferred.is_some(), "json has an inferred type");
+    let json_var = program
+        .variables
+        .iter()
+        .position(|v| interner.resolve(v.name) == "json")
+        .unwrap();
+    assert!(
+        outline.variables[json_var].inferred.is_some(),
+        "json has an inferred type"
+    );
 }

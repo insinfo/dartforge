@@ -20,20 +20,47 @@ use std::time::{Duration, Instant};
 /// (`"olá"`, `42`, `[]`, a function) becomes a Dart instance through the tag,
 /// without any name in the program. They are roots, like the impacts of
 /// `js_backend/backend_impact.dart` in dart2js.
-const BUILTIN_TAGS: &[&str] = &["Object", "String", "Number", "Boolean", "Array", "Function", "Symbol", "BigInt", "Error", "TypeError", "RangeError"];
+const BUILTIN_TAGS: &[&str] = &[
+    "Object",
+    "String",
+    "Number",
+    "Boolean",
+    "Array",
+    "Function",
+    "Symbol",
+    "BigInt",
+    "Error",
+    "TypeError",
+    "RangeError",
+];
 
 /// Initial roots: `main`, `core.Object` and the classes of the built-in tags.
 /// The rest comes from the fixed point with the text.
-fn roots(a: &dartforge_emit_js::Analysis<'_>, e: &dartforge_world::WorldInput<'_>) -> dartforge_world::Roots {
+fn roots(
+    a: &dartforge_emit_js::Analysis<'_>,
+    e: &dartforge_world::WorldInput<'_>,
+) -> dartforge_world::Roots {
     let mut r = dartforge_world::Roots::default();
     if let (Some(lib), Some(sym)) = (a.program.entry, a.interner.lookup("main"))
-        && let Some(Element::Function(f)) = a.program.library(lib).declared.get(&sym).and_then(|b| b.getter) {
-            r.functions.push(f);
-        }
+        && let Some(Element::Function(f)) = a
+            .program
+            .library(lib)
+            .declared
+            .get(&sym)
+            .and_then(|b| b.getter)
+    {
+        r.functions.push(f);
+    }
     if let (Some(core), Some(sym)) = (a.program.core, a.interner.lookup("Object"))
-        && let Some(Element::Class(c)) = a.program.library(core).declared.get(&sym).and_then(|b| b.getter) {
-            r.instantiated_classes.push(c);
-        }
+        && let Some(Element::Class(c)) = a
+            .program
+            .library(core)
+            .declared
+            .get(&sym)
+            .and_then(|b| b.getter)
+    {
+        r.instantiated_classes.push(c);
+    }
     for (c, tags) in dartforge_world::native_tags(e) {
         if tags.iter().any(|t| BUILTIN_TAGS.contains(&t.as_str())) {
             r.instantiated_classes.push(c);
@@ -44,10 +71,15 @@ fn roots(a: &dartforge_emit_js::Analysis<'_>, e: &dartforge_world::WorldInput<'_
 
 /// JS namespace → library, for the verifier: the program's (`L$…`) and the
 /// SDK's (`core`, `dart`, `dart_rti`…).
-fn libraries(a: &dartforge_emit_js::Analysis<'_>, modules: &[(String, String)]) -> HashMap<String, LibraryId> {
+fn libraries(
+    a: &dartforge_emit_js::Analysis<'_>,
+    modules: &[(String, String)],
+) -> HashMap<String, LibraryId> {
     let mut libs = verify::libraries_from_text(modules, a.program);
     for (i, l) in a.program.libraries.iter().enumerate() {
-        let Some(n) = l.uri.strip_prefix("dart:") else { continue };
+        let Some(n) = l.uri.strip_prefix("dart:") else {
+            continue;
+        };
         let var = match n {
             "_runtime" => "dart",
             "_rti" => "dart_rti",
@@ -92,9 +124,21 @@ fn strip_unused(e: &mut EmittedWithSdk) {
 /// `polyfill` (`dartforge_world::DOM_LIBRARIES`): its call in the
 /// initializer of `dart.global` leaves the text too, so the verifier does
 /// not bring it back.
-fn strip_polyfill(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, e: &mut EmittedWithSdk) {
-    let input = dartforge_world::WorldInput { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
-    let dead = (0..a.program.functions.len()).map(|i| dartforge_elements::model::FunctionElementId(i as u32)).any(|f| dartforge_world::is_dom_polyfill(input, f) && !world.is_live_function(f));
+fn strip_polyfill(
+    a: &dartforge_emit_js::Analysis<'_>,
+    world: &dartforge_world::World,
+    e: &mut EmittedWithSdk,
+) {
+    let input = dartforge_world::WorldInput {
+        program: a.program,
+        interner: a.interner,
+        table: a.table,
+        outline: a.outline,
+        bodies: a.bodies,
+    };
+    let dead = (0..a.program.functions.len())
+        .map(|i| dartforge_elements::model::FunctionElementId(i as u32))
+        .any(|f| dartforge_world::is_dom_polyfill(input, f) && !world.is_live_function(f));
     if !dead {
         return;
     }
@@ -117,8 +161,12 @@ fn dynamic_names(texts: &[(String, String)]) -> HashSet<String> {
         out.extend(w);
         let mut privates: HashMap<&str, &str> = HashMap::new();
         for line in t.lines() {
-            let Some(r) = line.strip_prefix("var ") else { continue };
-            let Some((var, rest)) = r.split_once(" = dart.privateName(") else { continue };
+            let Some(r) = line.strip_prefix("var ") else {
+                continue;
+            };
+            let Some((var, rest)) = r.split_once(" = dart.privateName(") else {
+                continue;
+            };
             let Some(q) = rest.find('"') else { continue };
             let rest = &rest[q + 1..];
             let Some(end) = rest.find('"') else { continue };
@@ -127,7 +175,9 @@ fn dynamic_names(texts: &[(String, String)]) -> HashSet<String> {
         let b = t.as_bytes();
         for (p, _) in t.match_indices('(') {
             let mut i = p;
-            while i > 0 && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] == b'$') {
+            while i > 0
+                && (b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] == b'$')
+            {
                 i -= 1;
             }
             let position = match &t[i..p] {
@@ -161,12 +211,19 @@ fn dynamic_names(texts: &[(String, String)]) -> HashSet<String> {
                 let a = t[start..j].trim();
                 if let Some(n) = privates.get(a) {
                     out.insert(n.to_string());
-                } else if a.len() >= 2 && (a.starts_with('"') && a.ends_with('"') || a.starts_with('\'') && a.ends_with('\'')) {
+                } else if a.len() >= 2
+                    && (a.starts_with('"') && a.ends_with('"')
+                        || a.starts_with('\'') && a.ends_with('\''))
+                {
                     // Operators (`dsend(a, "+", [b])`), which extraction by
                     // identifier does not accept, and the program's private
                     // names (`"_n$1c"` → `_n`).
                     let s = &a[1..a.len() - 1];
-                    out.insert(dartforge_emit_js::dart_name_of_private(s).unwrap_or(s).to_string());
+                    out.insert(
+                        dartforge_emit_js::dart_name_of_private(s)
+                            .unwrap_or(s)
+                            .to_string(),
+                    );
                 }
             }
         }
@@ -184,20 +241,47 @@ fn diagnose(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World,
             continue;
         }
         let fid = dartforge_elements::model::FunctionElementId(i as u32);
-        let owner = f.class.map(|c| format!("{} [{:?}] selector={}", a.interner.resolve(p.class(c).name), world.class_level(c), world.selector_live_for(p, target, c))).unwrap_or_default();
-        eprintln!("[jsprod] {}::{target} live={} {owner} cause={:?}", p.library(f.library).uri, world.is_live_function(fid), world.function_cause(fid));
-        eprintln!("[jsprod]   chain: {}", cause_chain(a, world, world.function_cause(fid)));
+        let owner = f
+            .class
+            .map(|c| {
+                format!(
+                    "{} [{:?}] selector={}",
+                    a.interner.resolve(p.class(c).name),
+                    world.class_level(c),
+                    world.selector_live_for(p, target, c)
+                )
+            })
+            .unwrap_or_default();
+        eprintln!(
+            "[jsprod] {}::{target} live={} {owner} cause={:?}",
+            p.library(f.library).uri,
+            world.is_live_function(fid),
+            world.function_cause(fid)
+        );
+        eprintln!(
+            "[jsprod]   chain: {}",
+            cause_chain(a, world, world.function_cause(fid))
+        );
     }
     for (i, c) in p.classes.iter().enumerate() {
         if a.interner.resolve(c.name) == target {
             let cid = dartforge_elements::model::ClassId(i as u32);
-            eprintln!("[jsprod] class {}::{target} [{:?}] chain: {}", p.library(c.library).uri, world.class_level(cid), cause_chain(a, world, world.class_cause(cid)));
+            eprintln!(
+                "[jsprod] class {}::{target} [{:?}] chain: {}",
+                p.library(c.library).uri,
+                world.class_level(cid),
+                cause_chain(a, world, world.class_cause(cid))
+            );
         }
     }
 }
 
 /// The chain of liveness causes, from an element up to a root (diagnostics).
-fn cause_chain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::World, mut cause: Option<dartforge_world::Cause>) -> String {
+fn cause_chain(
+    a: &dartforge_emit_js::Analysis<'_>,
+    world: &dartforge_world::World,
+    mut cause: Option<dartforge_world::Cause>,
+) -> String {
     use dartforge_world::Cause;
     let p = a.program;
     let mut out = Vec::new();
@@ -211,11 +295,23 @@ fn cause_chain(a: &dartforge_emit_js::Analysis<'_>, world: &dartforge_world::Wor
             Cause::Root => ("root".to_string(), None),
             Cause::Function(f) => {
                 let e = p.function(f);
-                let owner = e.class.map(|c| format!("{}.", a.interner.resolve(p.class(c).name))).unwrap_or_default();
-                (format!("{owner}{}", a.interner.resolve(e.name)), world.function_cause(f))
+                let owner = e
+                    .class
+                    .map(|c| format!("{}.", a.interner.resolve(p.class(c).name)))
+                    .unwrap_or_default();
+                (
+                    format!("{owner}{}", a.interner.resolve(e.name)),
+                    world.function_cause(f),
+                )
             }
-            Cause::Variable(v) => (format!("var {}", a.interner.resolve(p.variable(v).name)), world.variable_cause(v)),
-            Cause::Class(k) => (format!("class {}", a.interner.resolve(p.class(k).name)), world.class_cause(k)),
+            Cause::Variable(v) => (
+                format!("var {}", a.interner.resolve(p.variable(v).name)),
+                world.variable_cause(v),
+            ),
+            Cause::Class(k) => (
+                format!("class {}", a.interner.resolve(p.class(k).name)),
+                world.class_cause(k),
+            ),
         };
         out.push(label);
         cause = next;
@@ -234,9 +330,16 @@ fn fixed_point(
     report: &mut WorldReport,
 ) -> Result<Option<EmittedWithSdk>, String> {
     let mut roots = roots(a, &input);
-    let opm = dartforge_world::Options { include_sdk: true, without_asserts: !op.asserts };
+    let opm = dartforge_world::Options {
+        include_sdk: true,
+        without_asserts: !op.asserts,
+    };
     let constants = dartforge_world::Constants::new(input, !op.asserts);
-    let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_ROUNDS").ok().and_then(|v| v.parse().ok()).unwrap_or(40).max(1);
+    let max_rounds: usize = std::env::var("DARTFORGE_JSPROD_ROUNDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(40)
+        .max(1);
     let trace = std::env::var("DARTFORGE_JSPROD_TRACE").is_ok();
     // The engine stays alive between rounds: each one only adds roots.
     let mut computation = dartforge_world::Computation::new(input, opm);
@@ -246,8 +349,20 @@ fn fixed_point(
         let world = computation.world();
         report.world_time += t.elapsed();
         // `DARTFORGE_JSPROD_NAMED=0` keeps the source names.
-        let named_args = if std::env::var("DARTFORGE_JSPROD_NAMED").map_or(true, |v| v != "0") { crate::named_args::compute(a, &world) } else { None };
-        let ad = filter::Adapter { world: &world, program: a.program, stub: op.stub, signatures, constants: Some(&constants), named_args: named_args.as_ref(), omit_checks: op.omit_checks };
+        let named_args = if std::env::var("DARTFORGE_JSPROD_NAMED").map_or(true, |v| v != "0") {
+            crate::named_args::compute(a, &world)
+        } else {
+            None
+        };
+        let ad = filter::Adapter {
+            world: &world,
+            program: a.program,
+            stub: op.stub,
+            signatures,
+            constants: Some(&constants),
+            named_args: named_args.as_ref(),
+            omit_checks: op.omit_checks,
+        };
         let t = Instant::now();
         let mut e = a.emit_with_sdk(Some(&ad))?;
         // The namespace → library map comes from `trackLibraries`, which
@@ -258,17 +373,30 @@ fn fixed_point(
         report.emit_time += t.elapsed();
         let t = Instant::now();
         let mut texts = e.emitted.modules.clone();
-        texts.push(("dart_sdk.js".to_string(), format!("{}{}", e.bootstrap, e.sdk)));
+        texts.push((
+            "dart_sdk.js".to_string(),
+            format!("{}{}", e.bootstrap, e.sdk),
+        ));
         let missing = verify::check(&texts, &libs, a.program, a.interner, &world);
         report.verify_time += t.elapsed();
         report.rounds += 1;
         report.no_element = missing.no_element.clone();
         // `DARTFORGE_JSPROD_DUMP=file`: the round's text (diagnostics).
         if let Ok(p) = std::env::var("DARTFORGE_JSPROD_DUMP") {
-            let _ = std::fs::write(p, texts.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join("\n"));
+            let _ = std::fs::write(
+                p,
+                texts
+                    .iter()
+                    .map(|(_, t)| t.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            );
         }
         if trace {
-            eprintln!("[jsprod] round {round}: {} missing", missing.description.len());
+            eprintln!(
+                "[jsprod] round {round}: {} missing",
+                missing.description.len()
+            );
             for d in missing.description.iter().take(40) {
                 eprintln!("[jsprod]   {d}");
             }
@@ -286,7 +414,9 @@ fn fixed_point(
         roots.functions.extend(missing.functions);
         roots.variables.extend(missing.variables);
         roots.type_classes.extend(missing.classes);
-        roots.instantiated_classes.extend(missing.instantiated_classes);
+        roots
+            .instantiated_classes
+            .extend(missing.instantiated_classes);
         roots.tearoffs.extend(missing.tearoffs);
         roots.selectors.extend(missing.selectors);
     }
@@ -304,17 +434,28 @@ fn fixed_point(
 /// # Errors
 ///
 /// Those of the emission.
-pub fn emit(a: &dartforge_emit_js::Analysis<'_>, op: Options) -> Result<(EmittedWithSdk, Option<WorldReport>), String> {
+pub fn emit(
+    a: &dartforge_emit_js::Analysis<'_>,
+    op: Options,
+) -> Result<(EmittedWithSdk, Option<WorldReport>), String> {
     if !op.prune_user {
         let mut e = a.emit_with_sdk(None)?;
         strip_unused(&mut e);
         return Ok((e, None));
     }
-    let input = dartforge_world::WorldInput { program: a.program, interner: a.interner, table: a.table, outline: a.outline, bodies: a.bodies };
+    let input = dartforge_world::WorldInput {
+        program: a.program,
+        interner: a.interner,
+        table: a.table,
+        outline: a.outline,
+        bodies: a.bodies,
+    };
     let mut report = WorldReport::default();
     let Some(first) = fixed_point(a, input, op, None, &mut report)? else {
         report.pruning_disabled = true;
-        report.fixes.push("fixed point not reached; pruning disabled".to_string());
+        report
+            .fixes
+            .push("fixed point not reached; pruning disabled".to_string());
         let mut e = a.emit_with_sdk(None)?;
         strip_unused(&mut e);
         return Ok((e, Some(report)));
@@ -329,7 +470,9 @@ pub fn emit(a: &dartforge_emit_js::Analysis<'_>, op: Options) -> Result<(Emitted
     };
     let mut names = dynamic_names(&texts(&first));
     for _ in 0..8 {
-        let Some(e) = fixed_point(a, input, op, Some(&names), &mut report)? else { break };
+        let Some(e) = fixed_point(a, input, op, Some(&names), &mut report)? else {
+            break;
+        };
         let new = dynamic_names(&texts(&e));
         if new.is_subset(&names) {
             return Ok((e, Some(report)));
@@ -392,7 +535,18 @@ pub fn recipe_names(a: &dartforge_emit_js::Analysis<'_>) -> HashMap<String, Stri
     dartforge_emit_js::recipe_ids(a.program, a.interner)
         .into_iter()
         .enumerate()
-        .map(|(i, id)| (id, a.interner.resolve(a.program.class(dartforge_elements::model::ClassId(i as u32)).name).to_string()))
+        .map(|(i, id)| {
+            (
+                id,
+                a.interner
+                    .resolve(
+                        a.program
+                            .class(dartforge_elements::model::ClassId(i as u32))
+                            .name,
+                    )
+                    .to_string(),
+            )
+        })
         .collect()
 }
 
@@ -408,12 +562,18 @@ const UNMANGLE: &str = "unmangleGlobalNameIfPreservedAnyways = function unmangle
 /// `t$I` converts the id into the number, like `id_number`. Without the
 /// function in the text (nobody shows types), nothing changes.
 fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
-    let Some(p) = js.find(UNMANGLE) else { return js.to_string() };
+    let Some(p) = js.find(UNMANGLE) else {
+        return js.to_string();
+    };
     let displayable = crate::rti_rules::displayable(js);
     let mut names: Vec<&str> = Vec::new();
     for k in &displayable {
-        let Some(id) = k.strip_prefix('|') else { continue };
-        let (Some(name), Some(n)) = (rti.get(id), dartforge_emit_js::id_number(id)) else { continue };
+        let Some(id) = k.strip_prefix('|') else {
+            continue;
+        };
+        let (Some(name), Some(n)) = (rti.get(id), dartforge_emit_js::id_number(id)) else {
+            continue;
+        };
         if names.len() <= n {
             names.resize(n + 1, "");
         }
@@ -424,10 +584,15 @@ fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
     // The decoder slices UTF-16 units: only for ASCII names (Dart identifiers
     // are). In a small table the gain does not pay the decoder and gzip
     // loses a little: only from 1 KB saved on.
-    let table = if front.len() + FRONT_DECODER.len() + 1024 < list.len() && names.iter().all(|n| n.is_ascii()) {
+    let table = if front.len() + FRONT_DECODER.len() + 1024 < list.len()
+        && names.iter().all(|n| n.is_ascii())
+    {
         FRONT_DECODER.replace("#", &dartforge_emit_js::js::string_literal(&front))
     } else {
-        format!("{}.split(\" \")", dartforge_emit_js::js::string_literal(&list))
+        format!(
+            "{}.split(\" \")",
+            dartforge_emit_js::js::string_literal(&list)
+        )
     };
     let first = std::str::from_utf8(dartforge_emit_js::ID_FIRST).unwrap_or_default();
     let others = std::str::from_utf8(dartforge_emit_js::ID_NEXT).unwrap_or_default();
@@ -438,7 +603,10 @@ fn name_table(js: &str, rti: &HashMap<String, String>) -> String {
         others.len(),
     ));
     out.push_str(&js[..p]);
-    out.push_str(&UNMANGLE.replace("return null;", "return name[0] === \"|\" && t$N[t$I(name)] || null;"));
+    out.push_str(&UNMANGLE.replace(
+        "return null;",
+        "return name[0] === \"|\" && t$N[t$I(name)] || null;",
+    ));
     out.push_str(&js[p + UNMANGLE.len()..]);
     out
 }
@@ -465,7 +633,12 @@ fn front_coded(names: &[&str]) -> String {
             out.push(String::new());
             continue;
         }
-        let k = prev.bytes().zip(n.bytes()).take_while(|(a, b)| a == b).count().min(digits.len() - 1);
+        let k = prev
+            .bytes()
+            .zip(n.bytes())
+            .take_while(|(a, b)| a == b)
+            .count()
+            .min(digits.len() - 1);
         let k = (0..=k).rev().find(|&i| n.is_char_boundary(i)).unwrap_or(0);
         out.push(format!("{}{}", digits[k] as char, &n[k..]));
         prev = n;
@@ -501,13 +674,21 @@ fn drop_unused_private_names(js: &str) -> String {
     }
     let mut out = String::with_capacity(js.len());
     for line in js.split_inclusive('\n') {
-        let unused = line.strip_prefix("var ").and_then(|r| r.split_once(" = dart.privateName(")).is_some_and(|(name, rest)| {
-            // `lib, "_n");` and nothing else on the line.
-            let simple = rest.trim_end().strip_suffix(");").and_then(|a| a.split_once(", \"")).is_some_and(|(lib, n)| {
-                lib.bytes().all(id) && n.strip_suffix('"').is_some_and(|n| n.bytes().all(id))
+        let unused = line
+            .strip_prefix("var ")
+            .and_then(|r| r.split_once(" = dart.privateName("))
+            .is_some_and(|(name, rest)| {
+                // `lib, "_n");` and nothing else on the line.
+                let simple = rest
+                    .trim_end()
+                    .strip_suffix(");")
+                    .and_then(|a| a.split_once(", \""))
+                    .is_some_and(|(lib, n)| {
+                        lib.bytes().all(id)
+                            && n.strip_suffix('"').is_some_and(|n| n.bytes().all(id))
+                    });
+                simple && count.get(name) == Some(&1)
             });
-            simple && count.get(name) == Some(&1)
-        });
         if !unused {
             out.push_str(line);
         }
@@ -516,7 +697,12 @@ fn drop_unused_private_names(js: &str) -> String {
 }
 
 /// Assembles the single file.
-pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::properties::Names>, rti: Option<&HashMap<String, String>>) -> Production {
+pub fn assemble(
+    e: &EmittedWithSdk,
+    op: Options,
+    names: Option<&crate::properties::Names>,
+    rti: Option<&HashMap<String, String>>,
+) -> Production {
     let modules: Vec<bundle::Module> = e
         .emitted
         .modules
@@ -525,7 +711,8 @@ pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::propertie
         .map(|(p, t)| bundle::split(p, t))
         .collect();
     let (modules, cycles) = bundle::order(modules);
-    let entry = bundle::entry_from_mjs(&e.emitted.entry, &modules).unwrap_or_else(|| "L$main".to_string());
+    let entry =
+        bundle::entry_from_mjs(&e.emitted.entry, &modules).unwrap_or_else(|| "L$main".to_string());
     // The SDK module in an IIFE, like the program's: the `var`s of its
     // prelude (`dartx` aliases, private names) are locals; what is shared
     // (`dart`, the namespaces, `dartx`) is in the *bootstrap*.
@@ -534,31 +721,53 @@ pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::propertie
     // when that renaming is going to run, and compression deletes it.
     let names_ok = std::env::var("DARTFORGE_JSPROD_NAMES").map_or(true, |v| v != "0");
     let props = names_ok && std::env::var("DARTFORGE_JSPROD_PROPS").map_or(true, |v| v != "0");
-    let marker = if op.minify && props && names.is_some() { format!("\"{}\";\n", minify::SDK_END_MARKER) } else { String::new() };
-    let sdk = format!("{}const t$R = r => {RTI_PREFIX}r, true);\n(function () {{\n{}}})();\n{marker}", e.bootstrap, e.sdk);
-    let user = modules.iter().map(|m| m.body.len() + m.namespaces.iter().map(|n| n.len() + 1).sum::<usize>()).sum();
+    let marker = if op.minify && props && names.is_some() {
+        format!("\"{}\";\n", minify::SDK_END_MARKER)
+    } else {
+        String::new()
+    };
+    let sdk = format!(
+        "{}const t$R = r => {RTI_PREFIX}r, true);\n(function () {{\n{}}})();\n{marker}",
+        e.bootstrap, e.sdk
+    );
+    let user = modules
+        .iter()
+        .map(|m| m.body.len() + m.namespaces.iter().map(|n| n.len() + 1).sum::<usize>())
+        .sum();
     let preamble = if op.stub { bundle::STUB_PREAMBLE } else { "" };
     let js = bundle::assemble(&sdk, &modules, &entry, preamble);
     // rti rules only for the supertypes that some recipe cites
     // (`rti_rules.rs`); `DARTFORGE_JSPROD_RULES=0` turns it off.
-    let js = if std::env::var("DARTFORGE_JSPROD_RULES").map_or(true, |v| v != "0") { crate::rti_rules::prune(&js) } else { js };
+    let js = if std::env::var("DARTFORGE_JSPROD_RULES").map_or(true, |v| v != "0") {
+        crate::rti_rules::prune(&js)
+    } else {
+        js
+    };
     // The program's rules in one call (`rti_rules::merge_program_rules`):
     // the program starts at the `NodeList` bridge that `bundle::assemble`
     // writes right after the SDK.
     let js = match js.find("if (typeof NodeList !== 'undefined'") {
-        Some(start) if std::env::var("DARTFORGE_JSPROD_MERGE_RULES").map_or(true, |v| v != "0") => crate::rti_rules::merge_program_rules(&js, start),
+        Some(start) if std::env::var("DARTFORGE_JSPROD_MERGE_RULES").map_or(true, |v| v != "0") => {
+            crate::rti_rules::merge_program_rules(&js, start)
+        }
         _ => js,
     };
     // After pruning the rules: the table is not a citation.
     let js = match rti {
-        Some(r) if std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0") => name_table(&js, r),
+        Some(r) if std::env::var("DARTFORGE_JSPROD_SHORT_RECIPE").map_or(true, |v| v != "0") => {
+            name_table(&js, r)
+        }
         _ => js,
     };
     let js = alias_recipes(&js);
     let js = drop_unused_private_names(&js);
     // After the name table, which reads the resource lists.
     let js = match js.find("if (typeof NodeList !== 'undefined'") {
-        Some(start) if std::env::var("DARTFORGE_JSPROD_BATCH_RESOURCES").map_or(true, |v| v != "0") => crate::rti_rules::batch_program_resources(&js, start),
+        Some(start)
+            if std::env::var("DARTFORGE_JSPROD_BATCH_RESOURCES").map_or(true, |v| v != "0") =>
+        {
+            crate::rti_rules::batch_program_resources(&js, start)
+        }
         _ => js,
     };
     let before_compaction = js.len();
@@ -566,7 +775,10 @@ pub fn assemble(e: &EmittedWithSdk, op: Options, names: Option<&crate::propertie
     // stays with whitespace compaction only, and `DARTFORGE_JSPROD_PROPS=0`
     // turns off property renaming (`names_ok` and `props`, above).
     let js = if op.minify && props && names.is_some() {
-        match minify::minify_with_properties(&js, names.unwrap_or(&crate::properties::Names::default())) {
+        match minify::minify_with_properties(
+            &js,
+            names.unwrap_or(&crate::properties::Names::default()),
+        ) {
             Ok(m) => m,
             Err(e) => {
                 eprintln!("warning: {e}; the file goes out only compacted");
@@ -623,9 +835,20 @@ mod front_coding_tests {
 
     #[test]
     fn front_coding_round_trips() {
-        let names = ["int", "", "_ViewLiAccordionComponent0", "_ViewLiAccordionComponent1", "", "ViewLiAccordionComponentHost0", "int"];
+        let names = [
+            "int",
+            "",
+            "_ViewLiAccordionComponent0",
+            "_ViewLiAccordionComponent1",
+            "",
+            "ViewLiAccordionComponentHost0",
+            "int",
+        ];
         let enc = front_coded(&names);
-        assert_eq!(decode(&enc), names.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(
+            decode(&enc),
+            names.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        );
         assert!(enc.contains(" p1 "), "{enc}");
     }
 }

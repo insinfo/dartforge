@@ -22,7 +22,9 @@
 use crate::analyzer_tree::{self, AnalyzerTree, Mark};
 use crate::project::Project;
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, Element, FunctionElementId, FunctionKind, FunctionRef, UnitId};
+use dartforge_elements::model::{
+    ClassId, Element, FunctionElementId, FunctionKind, FunctionRef, UnitId,
+};
 use dartforge_frontend::ast::{self, Ast, AsyncModifier, DeclKind, ExprId, ExprKind, UnaryOp};
 use dartforge_frontend::token::{Kind, Token};
 use dartforge_types::{MemberRef, Resolved, Type, UnitBodyTypes};
@@ -76,7 +78,10 @@ pub enum RefactoringResult {
     /// The validation passed.
     Valid,
     /// The change: the edits and the created file (URI and content).
-    Change { edits: Vec<crate::Edit>, create: Option<(String, String)> },
+    Change {
+        edits: Vec<crate::Edit>,
+        create: Option<(String, String)>,
+    },
 }
 
 /// The element of a node, in the kinds the rules distinguish.
@@ -106,15 +111,28 @@ const DIRECTIVES: &[&str] = &[
     "AugmentationImportDirective",
 ];
 
-const FOR_PARTS: &[&str] = &["ForPartsWithDeclarations", "ForPartsWithExpression", "ForPartsWithPattern"];
+const FOR_PARTS: &[&str] = &[
+    "ForPartsWithDeclarations",
+    "ForPartsWithExpression",
+    "ForPartsWithPattern",
+];
 
-use dartforge_analysis::analyzer_tree::{STATEMENTS, EXPRESSIONS};
+use dartforge_analysis::analyzer_tree::{EXPRESSIONS, STATEMENTS};
 
 /// The subclasses of `FunctionBody`.
-const BODIES: &[&str] = &["BlockFunctionBody", "ExpressionFunctionBody", "EmptyFunctionBody", "NativeFunctionBody"];
+const BODIES: &[&str] = &[
+    "BlockFunctionBody",
+    "ExpressionFunctionBody",
+    "EmptyFunctionBody",
+    "NativeFunctionBody",
+];
 
 /// The subclasses of `StringLiteral`.
-const STRINGS: &[&str] = &["SimpleStringLiteral", "StringInterpolation", "AdjacentStrings"];
+const STRINGS: &[&str] = &[
+    "SimpleStringLiteral",
+    "StringInterpolation",
+    "AdjacentStrings",
+];
 
 /// The subclasses of `CompilationUnitMember`.
 const UNIT_MEMBERS: &[&str] = &[
@@ -223,16 +241,22 @@ impl<'p> Context<'p> {
                         constructors_by_target.insert(target_, *f);
                     }
                 }
-                ExprKind::InstanceCreation { keyword: None, constructor: None, .. } => {
+                ExprKind::InstanceCreation {
+                    keyword: None,
+                    constructor: None,
+                    ..
+                } => {
                     // `A<T>()`: the parser already gives it as a creation; it is a generic
                     // function call only when it resolves to something else.
-                    if !matches!(bodies.get_resolved(id), Some(r) if !matches!(r, Resolved::Constructor(_))) {
+                    if !matches!(bodies.get_resolved(id), Some(r) if !matches!(r, Resolved::Constructor(_)))
+                    {
                         constructors.insert(id);
                     }
                 }
                 ExprKind::Identifier(n) => {
                     let prefix = match bodies.get_resolved(id) {
-                        Some(Resolved::Prefix(_)) | Some(Resolved::Element(Element::Prefix(..))) => true,
+                        Some(Resolved::Prefix(_))
+                        | Some(Resolved::Element(Element::Prefix(..))) => true,
                         None => crate::project::is_prefix(prog, library, n.sym),
                         _ => false,
                     };
@@ -243,14 +267,22 @@ impl<'p> Context<'p> {
                 ExprKind::Assign { target, .. } => {
                     writes.insert(*target);
                 }
-                ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } => {
+                ExprKind::Unary {
+                    op:
+                        UnaryOp::PrefixInc
+                        | UnaryOp::PrefixDec
+                        | UnaryOp::PostfixInc
+                        | UnaryOp::PostfixDec,
+                    operand,
+                } => {
                     writes.insert(*operand);
                 }
                 _ => {}
             }
         }
         let before_3 = prog.library(library).features.version().major < 3;
-        let tree = analyzer_tree::build_resolved(source, ast, &u.unit, before_3, &constructors, &prefixes);
+        let tree =
+            analyzer_tree::build_resolved(source, ast, &u.unit, before_3, &constructors, &prefixes);
         Context {
             p,
             unit,
@@ -258,7 +290,9 @@ impl<'p> Context<'p> {
             ast,
             bodies,
             tree,
-            comments: dartforge_frontend::comments::Comments::scan(source).all().to_vec(),
+            comments: dartforge_frontend::comments::Comments::scan(source)
+                .all()
+                .to_vec(),
             tokens: dartforge_frontend::lexer::lex(source).unwrap_or_default(),
             writes,
             constructors_by_target,
@@ -295,7 +329,11 @@ impl<'p> Context<'p> {
 
     /// The `methodName` of a `MethodInvocation`: the last `SimpleIdentifier` child.
     pub(crate) fn method_name(&self, n: usize) -> Option<usize> {
-        self.children(n).iter().rev().copied().find(|&f| self.kind(f) == "SimpleIdentifier")
+        self.children(n)
+            .iter()
+            .rev()
+            .copied()
+            .find(|&f| self.kind(f) == "SimpleIdentifier")
     }
 
     // -- The elements -------------------------------------------------------------
@@ -309,7 +347,11 @@ impl<'p> Context<'p> {
         if let Some(&f) = self.constructors_by_target.get(&x) {
             // `A.n(…)`: the constructor name; `A(…)`, `p.A(…)`: the type.
             return match &self.ast.expr(x).kind {
-                ExprKind::Property { target, name, .. } if !self.prefixes.contains(target) && prog.function(f).name == name.sym => Elem::Function(f),
+                ExprKind::Property { target, name, .. }
+                    if !self.prefixes.contains(target) && prog.function(f).name == name.sym =>
+                {
+                    Elem::Function(f)
+                }
                 _ => Elem::Other,
             };
         }
@@ -317,35 +359,54 @@ impl<'p> Context<'p> {
         let r = match self.bodies.get_resolved(x) {
             Some(r) => r,
             None => {
-                return if self.prefixes.contains(&x) { Elem::Prefix } else { Elem::None };
+                return if self.prefixes.contains(&x) {
+                    Elem::Prefix
+                } else {
+                    Elem::None
+                };
             }
         };
         match r {
-            Resolved::Local(_) | Resolved::Parameter { .. } => match self.bodies.local_declaration(x) {
-                Some(d) => self.local_element(d),
-                None if matches!(r, Resolved::Parameter { .. }) => Elem::Parameter,
-                None => Elem::LocalVariable,
-            },
+            Resolved::Local(_) | Resolved::Parameter { .. } => {
+                match self.bodies.local_declaration(x) {
+                    Some(d) => self.local_element(d),
+                    None if matches!(r, Resolved::Parameter { .. }) => Elem::Parameter,
+                    None => Elem::LocalVariable,
+                }
+            }
             Resolved::Element(Element::Function(f))
-            | Resolved::Member { member: MemberRef::Function(f), .. }
+            | Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            }
             | Resolved::ExtensionMember { member: f, .. } => {
                 let fe = prog.function(*f);
                 if fe.kind == FunctionKind::ImplicitAccessor {
-                    return if write && is_static { Elem::None } else { Elem::Variable };
+                    return if write && is_static {
+                        Elem::None
+                    } else {
+                        Elem::Variable
+                    };
                 }
                 if write {
                     if is_static {
                         return Elem::None;
                     }
                     return match self.setter_of(*f) {
-                        Some(s) if prog.function(s).kind == FunctionKind::ImplicitAccessor => Elem::Variable,
+                        Some(s) if prog.function(s).kind == FunctionKind::ImplicitAccessor => {
+                            Elem::Variable
+                        }
                         Some(s) => Elem::Function(s),
                         None => Elem::None,
                     };
                 }
                 Elem::Function(*f)
             }
-            Resolved::Element(Element::Variable(_)) | Resolved::Member { member: MemberRef::Variable(_), .. } => {
+            Resolved::Element(Element::Variable(_))
+            | Resolved::Member {
+                member: MemberRef::Variable(_),
+                ..
+            } => {
                 if write && is_static {
                     Elem::None
                 } else {
@@ -364,7 +425,12 @@ impl<'p> Context<'p> {
         if crate::project::parameter_in(self.ast, d).is_some() {
             return Elem::Parameter;
         }
-        if let Some(i) = self.ast.functions.iter().position(|f| f.name.is_some_and(|n| n.span.start == d)) {
+        if let Some(i) = self
+            .ast
+            .functions
+            .iter()
+            .position(|f| f.name.is_some_and(|n| n.span.start == d))
+        {
             return Elem::LocalFunction(ast::FunctionId(i as u32));
         }
         Elem::LocalVariable
@@ -380,10 +446,18 @@ impl<'p> Context<'p> {
         let base = self.p.name(fe.name).trim_end_matches('=');
         let members: Vec<FunctionElementId> = if let Some(c) = fe.class {
             let c = prog.class(c);
-            c.instance_members.values().chain(c.static_members.values()).copied().collect()
+            c.instance_members
+                .values()
+                .chain(c.static_members.values())
+                .copied()
+                .collect()
         } else if let Some(x) = fe.extension {
             let x = prog.extension(x);
-            x.instance_members.values().chain(x.static_members.values()).copied().collect()
+            x.instance_members
+                .values()
+                .chain(x.static_members.values())
+                .copied()
+                .collect()
         } else {
             return match prog.lookup(fe.library, fe.name).and_then(|b| b.setter) {
                 Some(Element::Function(s)) => Some(s),
@@ -392,8 +466,10 @@ impl<'p> Context<'p> {
         };
         members.into_iter().find(|&m| {
             let me = prog.function(m);
-            matches!(me.kind, FunctionKind::Setter | FunctionKind::ImplicitAccessor)
-                && self.p.name(me.name).trim_end_matches('=') == base
+            matches!(
+                me.kind,
+                FunctionKind::Setter | FunctionKind::ImplicitAccessor
+            ) && self.p.name(me.name).trim_end_matches('=') == base
                 && (me.kind == FunctionKind::Setter || self.p.name(me.name).ends_with('='))
         })
     }
@@ -410,25 +486,38 @@ impl<'p> Context<'p> {
     /// the combinator's identifier): the name in the exported namespace of the
     /// library the directive imports or exports.
     fn combinator_element(&self, n: usize) -> Option<Elem> {
-        let c = self.parent(n).filter(|&p| matches!(self.kind(p), "ShowCombinator" | "HideCombinator"))?;
+        let c = self
+            .parent(n)
+            .filter(|&p| matches!(self.kind(p), "ShowCombinator" | "HideCombinator"))?;
         self.parent(c)?;
         let prog = self.p.program();
         let u = prog.unit(self.unit);
         let (start, end) = (self.tree.nodes[n].start, self.tree.nodes[n].end);
         // The directive that contains the name.
-        let d = u.unit.directives.iter().position(|x| x.span.start <= start && end <= x.span.end)?;
+        let d = u
+            .unit
+            .directives
+            .iter()
+            .position(|x| x.span.start <= start && end <= x.span.end)?;
         let lib = prog.library(u.library);
         let target = lib
             .imports
             .iter()
             .filter(|i| i.unit == self.unit && i.directive == d)
             .map(|i| i.library)
-            .chain(lib.exports.iter().filter(|e| e.unit == self.unit && e.directive == d).map(|e| e.library))
+            .chain(
+                lib.exports
+                    .iter()
+                    .filter(|e| e.unit == self.unit && e.directive == d)
+                    .map(|e| e.library),
+            )
             .next()?;
         let sym = self.p.query.names.lookup(self.node_text(n))?;
         let b = prog.library(target).exported.get(&sym)?;
         Some(match b.getter.or(b.setter)? {
-            Element::Function(f) if prog.function(f).kind == FunctionKind::ImplicitAccessor => Elem::Variable,
+            Element::Function(f) if prog.function(f).kind == FunctionKind::ImplicitAccessor => {
+                Elem::Variable
+            }
             Element::Function(f) => Elem::Function(f),
             Element::Variable(_) => Elem::Variable,
             _ => Elem::Other,
@@ -437,8 +526,14 @@ impl<'p> Context<'p> {
 
     /// The `declaredElement` of a `FunctionDeclaration`/`MethodDeclaration`.
     pub(crate) fn declared_element(&self, n: usize) -> Elem {
-        let Mark::Function(fid) = self.tree.nodes[n].mark else { return Elem::None };
-        if self.kind(n) == "FunctionDeclaration" && self.parent(n).is_some_and(|p| self.kind(p) == "FunctionDeclarationStatement") {
+        let Mark::Function(fid) = self.tree.nodes[n].mark else {
+            return Elem::None;
+        };
+        if self.kind(n) == "FunctionDeclaration"
+            && self
+                .parent(n)
+                .is_some_and(|p| self.kind(p) == "FunctionDeclarationStatement")
+        {
             return Elem::LocalFunction(fid);
         }
         match self.p.node_function(self.unit, fid) {
@@ -453,7 +548,10 @@ impl<'p> Context<'p> {
     pub(crate) fn node_element(&self, n: usize) -> Elem {
         match self.kind(n) {
             "SimpleIdentifier" => {
-                if self.parent(n).is_some_and(|p| self.kind(p) == "LibraryIdentifier") {
+                if self
+                    .parent(n)
+                    .is_some_and(|p| self.kind(p) == "LibraryIdentifier")
+                {
                     return Elem::Other;
                 }
                 self.identifier_element(n, false)
@@ -469,7 +567,11 @@ impl<'p> Context<'p> {
             },
             "PrefixExpression" => match self.tree.nodes[n].mark {
                 Mark::Operator(x) => match self.bodies.get_resolved(x) {
-                    Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => Elem::Function(*f),
+                    Some(Resolved::Member {
+                        member: MemberRef::Function(f),
+                        ..
+                    })
+                    | Some(Resolved::ExtensionMember { member: f, .. }) => Elem::Function(*f),
                     _ => Elem::None,
                 },
                 _ => Elem::None,
@@ -484,7 +586,10 @@ impl<'p> Context<'p> {
 
     pub(crate) fn synthetic(&self, e: Elem) -> bool {
         match e {
-            Elem::Function(f) => matches!(self.p.program().function(f).kind, FunctionKind::ImplicitAccessor | FunctionKind::SyntheticConstructor),
+            Elem::Function(f) => matches!(
+                self.p.program().function(f).kind,
+                FunctionKind::ImplicitAccessor | FunctionKind::SyntheticConstructor
+            ),
             _ => false,
         }
     }
@@ -498,12 +603,17 @@ impl<'p> Context<'p> {
         let modifier = match e {
             Elem::LocalFunction(fid) => Some(self.ast.function(fid).modifier),
             Elem::Function(f) => match prog.function(f).node {
-                FunctionRef::Function { unit, function } => Some(prog.unit(unit).ast.function(function).modifier),
+                FunctionRef::Function { unit, function } => {
+                    Some(prog.unit(unit).ast.function(function).modifier)
+                }
                 _ => None,
             },
             _ => None,
         };
-        matches!(modifier, Some(AsyncModifier::SyncStar | AsyncModifier::AsyncStar))
+        matches!(
+            modifier,
+            Some(AsyncModifier::SyncStar | AsyncModifier::AsyncStar)
+        )
     }
 
     /// `FunctionElement` (top-level or local function).
@@ -523,7 +633,8 @@ impl<'p> Context<'p> {
         match e {
             Elem::Function(f) => {
                 let fe = self.p.program().function(f);
-                matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator) && (fe.class.is_some() || fe.extension.is_some())
+                matches!(fe.kind, FunctionKind::Function | FunctionKind::Operator)
+                    && (fe.class.is_some() || fe.extension.is_some())
             }
             _ => false,
         }
@@ -547,8 +658,14 @@ impl<'p> Context<'p> {
                 None => return false,
             },
             Elem::LocalFunction(fid) => {
-                let Some(name) = self.ast.function(fid).name else { return false };
-                match self.bodies.local_type(name.span.start).map(|t| table.get(t)) {
+                let Some(name) = self.ast.function(fid).name else {
+                    return false;
+                };
+                match self
+                    .bodies
+                    .local_type(name.span.start)
+                    .map(|t| table.get(t))
+                {
                     Some(Type::Function { ret, .. }) => *ret,
                     _ => return false,
                 }
@@ -560,8 +677,19 @@ impl<'p> Context<'p> {
 
     pub(crate) fn without_parameters(&self, e: Elem) -> bool {
         match e {
-            Elem::Function(f) => self.p.query.outline.functions.get(f.0 as usize).is_some_and(|d| d.parameters.is_empty()),
-            Elem::LocalFunction(fid) => self.ast.function(fid).parameters.as_ref().is_none_or(|ps| ps.is_empty()),
+            Elem::Function(f) => self
+                .p
+                .query
+                .outline
+                .functions
+                .get(f.0 as usize)
+                .is_some_and(|d| d.parameters.is_empty()),
+            Elem::LocalFunction(fid) => self
+                .ast
+                .function(fid)
+                .parameters
+                .as_ref()
+                .is_none_or(|ps| ps.is_empty()),
             _ => false,
         }
     }
@@ -600,7 +728,13 @@ impl<'p> Context<'p> {
 
     /// `_ExtractMethodAnalyzer(unit, [start, end)).analyze()`.
     pub(crate) fn analyze(&self, start: usize, end: usize) -> Analysis {
-        let mut st = Analysis { start, end, fatal: None, selected: Vec::new(), coverage: None };
+        let mut st = Analysis {
+            start,
+            end,
+            fatal: None,
+            selected: Vec::new(),
+            coverage: None,
+        };
         self.visit(0, &mut st);
         st
     }
@@ -664,7 +798,10 @@ impl<'p> Context<'p> {
                 }
                 // `_checkParent`.
                 if !self.with_parents(n).any(|x| Some(x) == first_parent) {
-                    self.invalidate(st, "Not all selected statements are enclosed by the same parent statement.");
+                    self.invalidate(
+                        st,
+                        "Not all selected statements are enclosed by the same parent statement.",
+                    );
                 }
             }
             return;
@@ -808,7 +945,9 @@ impl<'p> Context<'p> {
         let updates = p.updaters.iter().any(|u| sel.contains(u));
         let body = contains(children.get(1).copied());
         if start && condition {
-            return Some("Operation not applicable to a 'for' statement's initializer and condition.");
+            return Some(
+                "Operation not applicable to a 'for' statement's initializer and condition.",
+            );
         }
         if condition && updates {
             return Some("Operation not applicable to a 'for' statement's condition and updaters.");
@@ -816,16 +955,25 @@ impl<'p> Context<'p> {
         if updates && body {
             return Some("Operation not applicable to a 'for' statement's updaters and body.");
         }
-        if self.kind(parts) == "ForPartsWithDeclarations" && p.initialization.is_some() && sel.first().copied() == p.initialization {
+        if self.kind(parts) == "ForPartsWithDeclarations"
+            && p.initialization.is_some()
+            && sel.first().copied() == p.initialization
+        {
             return Some("Cannot extract initialization part of a 'for' statement.");
         }
-        sel.last().is_some_and(|l| p.updaters.contains(l)).then_some("Cannot extract increment part of a 'for' statement.")
+        sel.last()
+            .is_some_and(|l| p.updaters.contains(l))
+            .then_some("Cannot extract increment part of a 'for' statement.")
     }
 
     // -- The rules ----------------------------------------------------------------
 
     /// `ExtractMethodRefactoringImpl._checkSelection()`.
-    pub(crate) fn method_selection(&self, o: usize, l: usize) -> Result<MethodSelection, &'static str> {
+    pub(crate) fn method_selection(
+        &self,
+        o: usize,
+        l: usize,
+    ) -> Result<MethodSelection, &'static str> {
         if o == 0 {
             return Err("The selection offset must be greater than zero.");
         }
@@ -836,7 +984,12 @@ impl<'p> Context<'p> {
             && let Some(f) = self.implicit_closure(o)
         {
             let node = &self.tree.nodes[f];
-            return Ok(MethodSelection { range: (node.start, node.end), expression: None, closure: Some(f), commands: Vec::new() });
+            return Ok(MethodSelection {
+                range: (node.start, node.end),
+                expression: None,
+                closure: Some(f),
+                commands: Vec::new(),
+            });
         }
         let st = self.analyze(o, o + l);
         if let Some(m) = st.fatal {
@@ -860,15 +1013,33 @@ impl<'p> Context<'p> {
         }
         if !selected.is_empty() {
             let single = selected[0];
-            if selected.len() == 1 && !self.includes_something_outside(range, single) && self.is_expression(single) {
+            if selected.len() == 1
+                && !self.includes_something_outside(range, single)
+                && self.is_expression(single)
+            {
                 return Ok(if self.kind(single) == "FunctionExpression" {
-                    MethodSelection { range, expression: None, closure: Some(single), commands: Vec::new() }
+                    MethodSelection {
+                        range,
+                        expression: None,
+                        closure: Some(single),
+                        commands: Vec::new(),
+                    }
                 } else {
-                    MethodSelection { range, expression: Some(single), closure: None, commands: Vec::new() }
+                    MethodSelection {
+                        range,
+                        expression: Some(single),
+                        closure: None,
+                        commands: Vec::new(),
+                    }
                 });
             }
             if selected.iter().all(|&k| self.is_command(k)) {
-                return Ok(MethodSelection { range, expression: None, closure: None, commands: selected });
+                return Ok(MethodSelection {
+                    range,
+                    expression: None,
+                    closure: None,
+                    commands: selected,
+                });
             }
         }
         Err("Can only extract a single expression or a set of statements.")
@@ -899,11 +1070,18 @@ impl<'p> Context<'p> {
     /// cursor, or that of the named argument whose label has the cursor.
     pub(crate) fn implicit_closure(&self, o: usize) -> Option<usize> {
         let n = self.tree.locate_exclusive(o)?;
-        if let Some(f) = self.with_parents(n).find(|&k| self.kind(k) == "FunctionExpression")
-            && let Some(&ps) = self.children(f).iter().find(|&&c| self.kind(c) == "FormalParameterList")
+        if let Some(f) = self
+            .with_parents(n)
+            .find(|&k| self.kind(k) == "FunctionExpression")
+            && let Some(&ps) = self
+                .children(f)
+                .iter()
+                .find(|&&c| self.kind(c) == "FormalParameterList")
             && self.tree.nodes[ps].start <= o
             && o <= self.tree.nodes[ps].end
-            && !self.parent(f).is_some_and(|p| self.kind(p) == "FunctionDeclaration")
+            && !self
+                .parent(f)
+                .is_some_and(|p| self.kind(p) == "FunctionDeclaration")
         {
             return Some(f);
         }
@@ -921,7 +1099,11 @@ impl<'p> Context<'p> {
     }
 
     /// `ExtractLocalRefactoringImpl._checkSelection()`.
-    pub(crate) fn local_selection(&self, o: usize, l: usize) -> Result<LocalSelection, &'static str> {
+    pub(crate) fn local_selection(
+        &self,
+        o: usize,
+        l: usize,
+    ) -> Result<LocalSelection, &'static str> {
         if o == 0 {
             return Err("The selection offset must be greater than zero.");
         }
@@ -936,12 +1118,21 @@ impl<'p> Context<'p> {
         let end = (o + l).saturating_sub(finals).max(o);
         let coverage = self.tree.locate(start, end).unwrap_or(0);
         // `coveringFunctionBody`: the selection must be inside a function body.
-        if !self.with_parents(coverage).any(|k| BODIES.contains(&self.kind(k))) {
-            return Err("An expression inside a function must be selected to activate this refactoring.");
+        if !self
+            .with_parents(coverage)
+            .any(|k| BODIES.contains(&self.kind(k)))
+        {
+            return Err(
+                "An expression inside a function must be selected to activate this refactoring.",
+            );
         }
         let node = &self.tree.nodes[coverage];
         if STRINGS.contains(&node.kind) && end > start && start > node.start && end < node.end {
-            return Ok(LocalSelection { range: (start, end), expression: None, string_part: Some(selection_text) });
+            return Ok(LocalSelection {
+                range: (start, end),
+                expression: None,
+                string_part: Some(selection_text),
+            });
         }
         let mut single: Option<usize> = None;
         let mut without_covered = true;
@@ -950,7 +1141,10 @@ impl<'p> Context<'p> {
             let parent = self.parent(k);
             current = parent;
             let kind = self.kind(k);
-            if matches!(kind, "ArgumentList" | "AssignmentExpression" | "NamedExpression" | "TypeArgumentList") {
+            if matches!(
+                kind,
+                "ArgumentList" | "AssignmentExpression" | "NamedExpression" | "TypeArgumentList"
+            ) {
                 continue;
             }
             if matches!(kind, "ConstructorName" | "Label" | "NamedType") {
@@ -960,7 +1154,9 @@ impl<'p> Context<'p> {
             }
             if let Some(p) = parent
                 && ((self.kind(p) == "PrefixedIdentifier" && self.children(p).get(1) == Some(&k))
-                    || (self.kind(p) == "PropertyAccess" && self.children(p).last() == Some(&k) && kind == "SimpleIdentifier"))
+                    || (self.kind(p) == "PropertyAccess"
+                        && self.children(p).last() == Some(&k)
+                        && kind == "SimpleIdentifier"))
             {
                 continue;
             }
@@ -1003,7 +1199,11 @@ impl<'p> Context<'p> {
         match single {
             Some(k) => {
                 let node = &self.tree.nodes[k];
-                Ok(LocalSelection { range: (node.start, node.end), expression: Some(k), string_part: None })
+                Ok(LocalSelection {
+                    range: (node.start, node.end),
+                    expression: Some(k),
+                    string_part: None,
+                })
             }
             None => Err("Expression must be selected to activate this refactoring."),
         }
@@ -1016,7 +1216,9 @@ impl<'p> Context<'p> {
 
     /// `InlineLocalRefactoringImpl.isAvailable()`.
     pub(crate) fn local_inline(&self, o: usize) -> bool {
-        let Some(n) = self.tree.locate(o, o) else { return false };
+        let Some(n) = self.tree.locate(o, o) else {
+            return false;
+        };
         match self.kind(n) {
             "SimpleIdentifier" => self.identifier_element(n, true) == Elem::LocalVariable,
             "VariableDeclaration" => self.tree.nodes[n].mark == Mark::LocalVariable,
@@ -1038,7 +1240,9 @@ impl<'p> Context<'p> {
 
     /// `InlineMethodRefactoringImpl.isAvailable()`.
     pub(crate) fn inline_method(&self, o: usize) -> bool {
-        let Some((e, _, _)) = self.inline_method_element(o) else { return false };
+        let Some((e, _, _)) = self.inline_method_element(o) else {
+            return false;
+        };
         self.executable(e) && !self.synthetic(e) && !self.operator(e) && !self.generator(e)
     }
 
@@ -1053,7 +1257,8 @@ impl<'p> Context<'p> {
     /// `Convert Getter to Method`: an explicit getter of the workspace.
     pub(crate) fn convert_getter(&self, o: usize) -> bool {
         let e = self.element_at_cursor(o);
-        matches!(e, Elem::Function(f) if self.p.program().function(f).kind == FunctionKind::Getter) && self.in_workspace(e)
+        matches!(e, Elem::Function(f) if self.p.program().function(f).kind == FunctionKind::Getter)
+            && self.in_workspace(e)
     }
 
     /// `ConvertMethodToGetterRefactoringImpl._checkElement`: the fatal message,
@@ -1066,14 +1271,23 @@ impl<'p> Context<'p> {
             return Some("Only top-level functions can be converted to getters.".to_string());
         }
         if !self.is_function(e) && !self.is_method(e) {
-            return Some("Only class methods or top-level functions can be converted to getters.".to_string());
+            return Some(
+                "Only class methods or top-level functions can be converted to getters."
+                    .to_string(),
+            );
         }
         if self.returns_void(e) {
-            let kind = if self.is_function(e) { "function" } else { "method" };
+            let kind = if self.is_function(e) {
+                "function"
+            } else {
+                "method"
+            };
             return Some(format!("Cannot convert {kind} returning void."));
         }
         if !self.without_parameters(e) {
-            return Some("Only methods without parameters can be converted to getters.".to_string());
+            return Some(
+                "Only methods without parameters can be converted to getters.".to_string(),
+            );
         }
         None
     }
@@ -1089,13 +1303,17 @@ impl<'p> Context<'p> {
     /// The token that ends exactly at `pos` is an identifier.
     pub(crate) fn identifier_ends_in(&self, pos: usize) -> bool {
         let i = self.tokens.partition_point(|t| t.span.end < pos);
-        self.tokens.get(i).is_some_and(|t| t.span.end == pos && t.kind == Kind::Ident)
+        self.tokens
+            .get(i)
+            .is_some_and(|t| t.span.end == pos && t.kind == Kind::Ident)
     }
 
     /// The token that starts exactly at `pos` is an identifier.
     pub(crate) fn identifier_starts_in(&self, pos: usize) -> bool {
         let i = self.tokens.partition_point(|t| t.span.start < pos);
-        self.tokens.get(i).is_some_and(|t| t.span.start == pos && t.kind == Kind::Ident && t.span.end > t.span.start)
+        self.tokens.get(i).is_some_and(|t| {
+            t.span.start == pos && t.kind == Kind::Ident && t.span.end > t.span.start
+        })
     }
 
     /// `nodeCovering(offset, length)` (`AN:src/utilities/extensions/ast.dart:86-141`).
@@ -1117,7 +1335,12 @@ impl<'p> Context<'p> {
             node.start <= o && node.end >= end
         };
         let mut current = 0usize;
-        while let Some(f) = self.children(current).iter().copied().find(|&f| contains(f)) {
+        while let Some(f) = self
+            .children(current)
+            .iter()
+            .copied()
+            .find(|&f| contains(f))
+        {
             current = f;
         }
         Some(current)
@@ -1129,7 +1352,10 @@ impl<'p> Context<'p> {
             Mark::Decl(d) => Some(d),
             Mark::Function(fid) => {
                 let unit = &self.p.program().unit(self.unit).unit;
-                unit.declarations.iter().copied().find(|&d| matches!(self.ast.decl(d).kind, DeclKind::Function(f) if f == fid))
+                unit.declarations
+                    .iter()
+                    .copied()
+                    .find(|&d| matches!(self.ast.decl(d).kind, DeclKind::Function(f) if f == fid))
             }
             _ => None,
         }
@@ -1162,7 +1388,9 @@ impl<'p> Context<'p> {
     /// `ClassElement.isSealed`.
     pub(crate) fn sealed(&self, c: ClassId) -> bool {
         let prog = self.p.program();
-        let Some(r) = prog.class(c).decl else { return false };
+        let Some(r) = prog.class(c).decl else {
+            return false;
+        };
         matches!(&prog.unit(r.unit).ast.decl(r.decl).kind, DeclKind::Class(cd) if cd.modifiers.sealed)
     }
 
@@ -1172,15 +1400,30 @@ impl<'p> Context<'p> {
     pub(crate) fn sealed_superclasses(&self, unit: UnitId, d: ast::DeclId) -> Vec<ClassId> {
         let ast = &self.p.program().unit(unit).ast;
         let types: Vec<ast::TypeId> = match &ast.decl(d).kind {
-            DeclKind::Class(c) if !c.mixin_application => c.extends.iter().chain(c.implements.iter()).chain(c.with.iter()).copied().collect(),
+            DeclKind::Class(c) if !c.mixin_application => c
+                .extends
+                .iter()
+                .chain(c.implements.iter())
+                .chain(c.with.iter())
+                .copied()
+                .collect(),
             DeclKind::Mixin(m) => m.implements.iter().chain(m.on.iter()).copied().collect(),
             _ => Vec::new(),
         };
-        types.into_iter().filter_map(|t| self.p.type_class(unit, t)).filter(|&c| self.sealed(c)).collect()
+        types
+            .into_iter()
+            .filter_map(|t| self.p.type_class(unit, t))
+            .filter(|&c| self.sealed(c))
+            .collect()
     }
 
     /// `MoveTopLevelToFile.isAvailable()`: the title and the default file.
-    pub(crate) fn move_(&self, o: usize, l: usize, create_files: bool) -> Option<(String, PathBuf)> {
+    pub(crate) fn move_(
+        &self,
+        o: usize,
+        l: usize,
+        create_files: bool,
+    ) -> Option<(String, PathBuf)> {
         if !create_files {
             return None;
         }
@@ -1211,7 +1454,11 @@ impl<'p> Context<'p> {
 
     /// `_membersToMove()`: the declarations (with the name) of the single group,
     /// in insertion order.
-    pub(crate) fn members_to_move(&self, o: usize, l: usize) -> Option<Vec<(ast::DeclId, Option<String>)>> {
+    pub(crate) fn members_to_move(
+        &self,
+        o: usize,
+        l: usize,
+    ) -> Option<Vec<(ast::DeclId, Option<String>)>> {
         let end = o + l;
         let coverage = self.coverage(o, l)?;
         // `_selectedNodes`.
@@ -1225,19 +1472,27 @@ impl<'p> Context<'p> {
                     let list: Vec<usize> = children
                         .iter()
                         .copied()
-                        .filter(|&f| DIRECTIVES.contains(&self.kind(f)) == directives && self.kind(f) != "ScriptTag")
+                        .filter(|&f| {
+                            DIRECTIVES.contains(&self.kind(f)) == directives
+                                && self.kind(f) != "ScriptTag"
+                        })
                         .collect();
                     let mut first = list.len();
                     while first > 0 && self.tree.nodes[list[first - 1]].end > o {
                         first -= 1;
                     }
-                    list[first..].iter().copied().take_while(|&k| self.tree.nodes[k].start < end).collect()
+                    list[first..]
+                        .iter()
+                        .copied()
+                        .take_while(|&k| self.tree.nodes[k].start < end)
+                        .collect()
                 };
                 let mut nodes = in_range(true);
                 if nodes.is_empty() {
                     nodes = in_range(false);
                 }
-                if nodes.is_empty() || nodes.iter().any(|&k| !UNIT_MEMBERS.contains(&self.kind(k))) {
+                if nodes.is_empty() || nodes.iter().any(|&k| !UNIT_MEMBERS.contains(&self.kind(k)))
+                {
                     return None;
                 }
                 nodes
@@ -1249,7 +1504,9 @@ impl<'p> Context<'p> {
                     return None;
                 }
                 let d = self.node_declaration(decl)?;
-                let DeclKind::Variables(vl) = &self.ast.decl(d).kind else { return None };
+                let DeclKind::Variables(vl) = &self.ast.decl(d).kind else {
+                    return None;
+                };
                 if vl.variables.len() != 1 || !in_token(vl.variables[0].name.span) {
                     return None;
                 }
@@ -1265,16 +1522,25 @@ impl<'p> Context<'p> {
         for &k in &selected {
             let d = self.node_declaration(k)?;
             let name = self.declaration_name(d);
-            let text = |n: Option<ast::Name>| n.map(|n| self.source[n.span.start..n.span.end].to_string());
+            let text =
+                |n: Option<ast::Name>| n.map(|n| self.source[n.span.start..n.span.end].to_string());
             let entry = match self.kind(k) {
-                "ClassDeclaration" | "EnumDeclaration" | "ExtensionDeclaration" | "MixinDeclaration" | "ClassTypeAlias" | "FunctionTypeAlias" | "GenericTypeAlias"
+                "ClassDeclaration"
+                | "EnumDeclaration"
+                | "ExtensionDeclaration"
+                | "MixinDeclaration"
+                | "ClassTypeAlias"
+                | "FunctionTypeAlias"
+                | "GenericTypeAlias"
                     if valid(name) =>
                 {
                     text(name)
                 }
                 "FunctionDeclaration" if self.parent(k) == Some(0) && valid(name) => text(name),
                 "TopLevelVariableDeclaration" => match &self.ast.decl(d).kind {
-                    DeclKind::Variables(vl) if vl.variables.len() == 1 => text(Some(vl.variables[0].name)),
+                    DeclKind::Variables(vl) if vl.variables.len() == 1 => {
+                        text(Some(vl.variables[0].name))
+                    }
                     _ => None,
                 },
                 _ => return None,
@@ -1282,7 +1548,10 @@ impl<'p> Context<'p> {
             candidates.push((d, entry));
         }
         // `_SealedSubclassIndex`.
-        let candidate_classes: HashSet<ClassId> = candidates.iter().filter_map(|(d, _)| self.declaration_class(self.unit, *d)).collect();
+        let candidate_classes: HashSet<ClassId> = candidates
+            .iter()
+            .filter_map(|(d, _)| self.declaration_class(self.unit, *d))
+            .collect();
         let declarations = self.p.program().unit(self.unit).unit.declarations.clone();
         let mut subclasses: HashMap<ClassId, Vec<ast::DeclId>> = HashMap::new();
         for &d in declarations.iter() {
@@ -1292,7 +1561,9 @@ impl<'p> Context<'p> {
                 if !list.contains(&d) {
                     list.push(d);
                 }
-                if class.is_some_and(|c| candidate_classes.contains(&c)) && !candidate_classes.contains(&s) {
+                if class.is_some_and(|c| candidate_classes.contains(&c))
+                    && !candidate_classes.contains(&s)
+                {
                     return None;
                 }
             }
@@ -1300,7 +1571,12 @@ impl<'p> Context<'p> {
         // `findSubclassesOfSealedRecursively`: the members and then the direct
         // subclasses of each one (the same, recursively), in the order of Dart's
         // set; new ones go at the end.
-        fn find(cx: &Context<'_>, members: &[ast::DeclId], subclasses: &HashMap<ClassId, Vec<ast::DeclId>>, stack: &mut Vec<ast::DeclId>) -> Vec<ast::DeclId> {
+        fn find(
+            cx: &Context<'_>,
+            members: &[ast::DeclId],
+            subclasses: &HashMap<ClassId, Vec<ast::DeclId>>,
+            stack: &mut Vec<ast::DeclId>,
+        ) -> Vec<ast::DeclId> {
             let mut v: Vec<ast::DeclId> = Vec::new();
             for &m in members {
                 if !v.contains(&m) {
@@ -1311,8 +1587,12 @@ impl<'p> Context<'p> {
                 if stack.contains(&m) {
                     continue;
                 }
-                let Some(c) = cx.declaration_class(cx.unit, m) else { continue };
-                let Some(subs) = subclasses.get(&c) else { continue };
+                let Some(c) = cx.declaration_class(cx.unit, m) else {
+                    continue;
+                };
+                let Some(subs) = subclasses.get(&c) else {
+                    continue;
+                };
                 stack.push(m);
                 for x in find(cx, subs, subclasses, stack) {
                     if !v.contains(&x) {
@@ -1326,7 +1606,9 @@ impl<'p> Context<'p> {
         let original: Vec<ast::DeclId> = candidates.iter().map(|(d, _)| *d).collect();
         for d in find(self, &original, &subclasses, &mut Vec::new()) {
             if !candidates.iter().any(|(x, _)| *x == d) {
-                let name = self.declaration_name(d).map(|n| self.source[n.span.start..n.span.end].to_string());
+                let name = self
+                    .declaration_name(d)
+                    .map(|n| self.source[n.span.start..n.span.end].to_string());
                 candidates.push((d, name));
             }
         }
@@ -1367,11 +1649,21 @@ impl Project {
     /// Dart's order: Move, Extract Method, Extract Local Variable, Inline Local
     /// Variable, Inline Method, Convert Getter to Method, Convert Method to
     /// Getter. `create_files` is the client's `supportsFileCreation`.
-    pub(crate) fn refactorings(&self, unit: UnitId, offset: usize, length: usize, create_files: bool) -> Vec<Refactoring> {
+    pub(crate) fn refactorings(
+        &self,
+        unit: UnitId,
+        offset: usize,
+        length: usize,
+        create_files: bool,
+    ) -> Vec<Refactoring> {
         let cx = Context::new(self, unit);
         let mut v = Vec::new();
         if let Some((title, path_pattern)) = cx.move_(offset, length, create_files) {
-            v.push(Refactoring { title, kind: "refactor.move", command: RefactoringCommand::Move { path_pattern } });
+            v.push(Refactoring {
+                title,
+                kind: "refactor.move",
+                command: RefactoringCommand::Move { path_pattern },
+            });
         }
         let legacy = |title: &str, kind_: &'static str, kind: &'static str| Refactoring {
             title: title.to_string(),
@@ -1379,22 +1671,42 @@ impl Project {
             command: RefactoringCommand::Legacy(kind),
         };
         if cx.extract_method(offset, length) {
-            v.push(legacy("Extract Method", "refactor.extract", "EXTRACT_METHOD"));
+            v.push(legacy(
+                "Extract Method",
+                "refactor.extract",
+                "EXTRACT_METHOD",
+            ));
         }
         if cx.extract_local(offset, length) {
-            v.push(legacy("Extract Local Variable", "refactor.extract", "EXTRACT_LOCAL_VARIABLE"));
+            v.push(legacy(
+                "Extract Local Variable",
+                "refactor.extract",
+                "EXTRACT_LOCAL_VARIABLE",
+            ));
         }
         if cx.local_inline(offset) {
-            v.push(legacy("Inline Local Variable", "refactor.inline", "INLINE_LOCAL_VARIABLE"));
+            v.push(legacy(
+                "Inline Local Variable",
+                "refactor.inline",
+                "INLINE_LOCAL_VARIABLE",
+            ));
         }
         if cx.inline_method(offset) {
             v.push(legacy("Inline Method", "refactor.inline", "INLINE_METHOD"));
         }
         if cx.convert_getter(offset) {
-            v.push(legacy("Convert Getter to Method", "refactor.rewrite", "CONVERT_GETTER_TO_METHOD"));
+            v.push(legacy(
+                "Convert Getter to Method",
+                "refactor.rewrite",
+                "CONVERT_GETTER_TO_METHOD",
+            ));
         }
         if cx.convert_method(offset) {
-            v.push(legacy("Convert Method to Getter", "refactor.rewrite", "CONVERT_METHOD_TO_GETTER"));
+            v.push(legacy(
+                "Convert Method to Getter",
+                "refactor.rewrite",
+                "CONVERT_METHOD_TO_GETTER",
+            ));
         }
         v
     }

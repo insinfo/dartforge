@@ -44,15 +44,15 @@ use dartforge_types::{MemberRef, Resolved, Type, TypeId};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-mod target;
 mod context;
-mod uri_paths;
 mod isp;
 mod isp_declarations;
-mod isp_not_imported;
 mod isp_helpers;
 mod isp_keywords;
+mod isp_not_imported;
 mod isp_visits;
+mod target;
+mod uri_paths;
 
 /// Identifier that takes the place of the name under the cursor in the analysis.
 const SENTINEL: &str = "dartforge__complete";
@@ -250,7 +250,17 @@ pub(crate) fn completion(
     input: CompletionInput<'_, '_>,
     retained: Option<&mut crate::project::Project>,
 ) -> Option<Completion> {
-    let CompletionInput { sdk, indices, documents, uri, text, offset, features, max, not_imported } = input;
+    let CompletionInput {
+        sdk,
+        indices,
+        documents,
+        uri,
+        text,
+        offset,
+        features,
+        max,
+        not_imported,
+    } = input;
     let bytes = text.as_bytes();
     let offset = offset.min(text.len());
     let mut start = offset;
@@ -274,7 +284,19 @@ pub(crate) fn completion(
     let prepared = prepare(text, start, end, features);
     let analyzed_text = prepared.as_deref().unwrap_or(text);
     let delta = analyzed_text.len() as isize - text.len() as isize;
-    let request = Request { sdk, indices, documents, text, start, end, offset, speculative: prepared.is_some(), max, not_imported, delta };
+    let request = Request {
+        sdk,
+        indices,
+        documents,
+        text,
+        start,
+        end,
+        offset,
+        speculative: prepared.is_some(),
+        max,
+        not_imported,
+        delta,
+    };
     // The incremental path (docs/LSP-ESPECIFICACAO.md §16.7): the retained
     // state is that of the document's text; the text with the sentinel swaps
     // the unit in place, only the sentinel's body is inferred (with the
@@ -283,13 +305,19 @@ pub(crate) fn completion(
     if let Some(project) = retained
         && let Some(unit) = project.uri_unit(uri)
         && project.program().unit(unit).source == text
-        && project.libraries.contains(&project.program().unit(unit).library)
+        && project
+            .libraries
+            .contains(&project.program().unit(unit).library)
     {
         let query = &mut project.query;
         match prepared.as_deref() {
             None => return respond(query, unit, request, empty),
             Some(speculative) => {
-                if let Some(swap) = query.swap_unit(unit, speculative, crate::query::SwapMode::Speculative { offset: start }) {
+                if let Some(swap) = query.swap_unit(
+                    unit,
+                    speculative,
+                    crate::query::SwapMode::Speculative { offset: start },
+                ) {
                     let response = respond(query, unit, request, empty);
                     query.undo(swap);
                     return response;
@@ -297,8 +325,7 @@ pub(crate) fn completion(
             }
         }
     }
-    let (program, names, unit) =
-        crate::semantic::load(sdk, uri, analyzed_text, Some(documents))?;
+    let (program, names, unit) = crate::semantic::load(sdk, uri, analyzed_text, Some(documents))?;
     let library = program.unit(unit).library;
     let probe = prepared.as_ref().map(|_| (unit, start));
     let mut query = Query::infer(program, names, &[library], false, probe);
@@ -330,20 +357,45 @@ struct Request<'a, 'i> {
 /// `NotImportedCompletionPass`, the relevance of each candidate, the
 /// collector (`matcherScore`, pruning), the suggestion map and the handler's
 /// filter and truncation.
-fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: Request<'_, '_>, empty: Completion) -> Option<Completion> {
-    let Request { sdk, indices, documents, text, start, end, offset, speculative, max, not_imported, delta } = request;
+fn respond(
+    query: &mut Query,
+    unit: dartforge_elements::model::UnitId,
+    request: Request<'_, '_>,
+    empty: Completion,
+) -> Option<Completion> {
+    let Request {
+        sdk,
+        indices,
+        documents,
+        text,
+        start,
+        end,
+        offset,
+        speculative,
+        max,
+        not_imported,
+        delta,
+    } = request;
     let features = query.program.unit(unit).features;
     let before_3 = features.version() < dartforge_frontend::LanguageVersion::new(3, 0);
     let swap = speculative.then_some((start, end, SENTINEL.len(), delta));
     // In a part, the `import` would go to the owning library (another file).
-    let part = query.program.unit(unit).unit.directives.iter().any(|d| matches!(d.kind, ast::DirectiveKind::PartOf { .. }));
+    let part = query
+        .program
+        .unit(unit)
+        .unit
+        .directives
+        .iter()
+        .any(|d| matches!(d.kind, ast::DirectiveKind::PartOf { .. }));
     // The candidate libraries for the not-imported items (`FileStateFilter`,
     // minus the request's own and those imported without combinators by the
     // defining unit, `_ImportSummary`), with the `import` URI.
     let filter = candidates_filter(query, unit);
     let Indices { known } = indices;
     let candidates = |c: &mut crate::known_libraries::LibraryIndex| -> Vec<(PathBuf, String)> {
-        let Some((file, own, imported)) = &filter else { return Vec::new() };
+        let Some((file, own, imported)) = &filter else {
+            return Vec::new();
+        };
         let root = crate::project::project_root(file);
         let package = crate::index::package_name(&root);
         let key = |x: &std::path::Path| dartforge_elements::generated::key(x);
@@ -367,26 +419,65 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
     };
     let r = {
         let mut list = || candidates(known);
-        let not_imported_: Option<&mut dyn FnMut() -> Vec<(PathBuf, String)>> = if part || !not_imported { None } else { Some(&mut list) };
-        isp::run(query, unit, text, features, offset, swap, before_3, not_imported_)
+        let not_imported_: Option<&mut dyn FnMut() -> Vec<(PathBuf, String)>> =
+            if part || !not_imported {
+                None
+            } else {
+                Some(&mut list)
+            };
+        isp::run(
+            query,
+            unit,
+            text,
+            features,
+            offset,
+            swap,
+            before_3,
+            not_imported_,
+        )
     };
     if r.comment {
         return Some(empty);
     }
     let library = query.program.unit(unit).library;
     // The sentinel belongs to the analyzed text, not to the user.
-    let mut arrival: Vec<(f64, CompletionItem)> = r.items.into_iter().filter(|(_, i)| !i.insert.contains(SENTINEL)).collect();
+    let mut arrival: Vec<(f64, CompletionItem)> = r
+        .items
+        .into_iter()
+        .filter(|(_, i)| !i.insert.contains(SENTINEL))
+        .collect();
     // `StaticMembersOperation` over the libraries the query did not load: the
     // names of the `exportNamespace` summary.
-    if r.operations.iter().any(|o| matches!(o, isp::Operation::StaticMembers)) && !r.summarized.is_empty() {
+    if r.operations
+        .iter()
+        .any(|o| matches!(o, isp::Operation::StaticMembers))
+        && !r.summarized.is_empty()
+    {
         let only_types = r.flags.as_ref().is_some_and(|f| f.ty);
-        let mut collector = Collector { items: Vec::new(), library, receiver: None, inherited: false };
+        let mut collector = Collector {
+            items: Vec::new(),
+            library,
+            receiver: None,
+            inherited: false,
+        };
         let mut names = Interner::new();
         let real = dartforge_frontend::parser::parse_with(text, &mut names, features);
         if let Some((file, _, _)) = &filter {
-            collector.not_imported_summary(text, &real.unit, only_types, sdk, file, known, documents, &r.summarized, &r.visible);
+            collector.not_imported_summary(
+                text,
+                &real.unit,
+                only_types,
+                sdk,
+                file,
+                known,
+                documents,
+                &r.summarized,
+                &r.visible,
+            );
         }
-        let mut matcher = (!r.matcher_prefix.is_empty()).then(|| crate::fuzzy_matcher::Matcher::new(&r.matcher_prefix, crate::fuzzy_matcher::Style::Text));
+        let mut matcher = (!r.matcher_prefix.is_empty()).then(|| {
+            crate::fuzzy_matcher::Matcher::new(&r.matcher_prefix, crate::fuzzy_matcher::Style::Text)
+        });
         for i in collector.items {
             let s = match matcher.as_mut() {
                 Some(c) => c.score(i.insert.as_str()),
@@ -421,7 +512,8 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
             (Some(e), Some(t)) => context_feature(query, e, t),
             _ => 0.0,
         };
-        i.relevance = crate::relevance::relevance(&i.rel, local.as_deref(), context, prefer_constants);
+        i.relevance =
+            crate::relevance::relevance(&i.rel, local.as_deref(), context, prefer_constants);
         i.sort_text = (9999 - i.relevance).to_string();
     }
     // The collector: stable insertion by `matcherScore`, and pruning.
@@ -471,7 +563,8 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
     }
     // The handler: `fuzzy.suggestionScore(item) > 0` by the request's prefix
     // (empty → 1.0).
-    let mut fuzzy = crate::fuzzy_matcher::Matcher::new(&r.request_prefix, crate::fuzzy_matcher::Style::Text);
+    let mut fuzzy =
+        crate::fuzzy_matcher::Matcher::new(&r.request_prefix, crate::fuzzy_matcher::Style::Text);
     for i in &mut order {
         i.score = fuzzy.score(scored_text(i));
     }
@@ -482,7 +575,10 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
         let prefix = r.request_prefix.to_lowercase();
         order.sort_by(|a, b| {
             if a.score != b.score {
-                return b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal);
+                return b
+                    .score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal);
             }
             if a.sort_text == b.sort_text {
                 return a.label.len().cmp(&b.label.len());
@@ -501,14 +597,23 @@ fn respond(query: &mut Query, unit: dartforge_elements::model::UnitId, request: 
     // replacementOffset, replacementLength)`).
     let (ri, rl) = r.range;
     let insertion = ri + offset.saturating_sub(ri).min(rl);
-    Some(Completion { start: ri, end: insertion, replacement_end: Some(ri + rl), items: order, incomplete })
+    Some(Completion {
+        start: ri,
+        end: insertion,
+        replacement_end: Some(ri + rl),
+        items: order,
+        incomplete,
+    })
 }
 
 /// What the filter of the not-imported candidates needs: the request's file,
 /// the units of its own library and the libraries imported without
 /// combinators by the defining unit (`_ImportSummary`).
 #[allow(clippy::type_complexity)]
-fn candidates_filter(query: &Query, unit: dartforge_elements::model::UnitId) -> Option<(PathBuf, HashSet<PathBuf>, HashSet<PathBuf>)> {
+fn candidates_filter(
+    query: &Query,
+    unit: dartforge_elements::model::UnitId,
+) -> Option<(PathBuf, HashSet<PathBuf>, HashSet<PathBuf>)> {
     let program = &query.program;
     let lib = program.library(program.unit(unit).library);
     let file = program.unit(unit).path.clone()?;
@@ -521,7 +626,11 @@ fn candidates_filter(query: &Query, unit: dartforge_elements::model::UnitId) -> 
         .filter_map(|i| program.library(i.library).units.first())
         .filter_map(|u| program.unit(*u).path.as_deref().map(key))
         .collect();
-    let own: HashSet<PathBuf> = lib.units.iter().filter_map(|u| program.unit(*u).path.as_deref().map(key)).collect();
+    let own: HashSet<PathBuf> = lib
+        .units
+        .iter()
+        .filter_map(|u| program.unit(*u).path.as_deref().map(key))
+        .collect();
     Some((file, own, imported))
 }
 
@@ -622,17 +731,26 @@ impl Collector {
         let name = query.name(fe.name).to_string();
         let enum_constant = fe.variable.is_some_and(|v| {
             let ve = query.program.variable(v);
-            ve.class.is_some_and(|c| query.program.class(c).enum_constants.contains(&v))
+            ve.class
+                .is_some_and(|c| query.program.class(c).enum_constants.contains(&v))
         });
         let (kind, item_type) = match fe.kind {
             _ if enum_constant => (Kind::NoTable, Some(ty)),
-            FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => {
-                (if member { Kind::Field } else { Kind::TopLevelVariable }, Some(ty))
+            FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => (
+                if member {
+                    Kind::Field
+                } else {
+                    Kind::TopLevelVariable
+                },
+                Some(ty),
+            ),
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => {
+                (Kind::Constructor, return_(query, ty))
             }
-            FunctionKind::Constructor | FunctionKind::SyntheticConstructor => (Kind::Constructor, return_(query, ty)),
-            FunctionKind::Function | FunctionKind::Operator => {
-                (if member { Kind::Method } else { Kind::Function }, return_(query, ty))
-            }
+            FunctionKind::Function | FunctionKind::Operator => (
+                if member { Kind::Method } else { Kind::Function },
+                return_(query, ty),
+            ),
         };
         let distance = match (self.receiver, fe.class) {
             (Some(r), Some(c)) if member => inheritance_distance(query, r, c).map(|d| d as u32),
@@ -694,14 +812,8 @@ impl Collector {
                     kind::VARIABLE
                 };
                 let origin = query.origin(query.function_start(f));
-                self.push(
-                    group,
-                    kind,
-                    name.clone(),
-                    name,
-                    Some(query.format(ty)),
-                )
-                .origin = origin;
+                self.push(group, kind, name.clone(), name, Some(query.format(ty)))
+                    .origin = origin;
                 self.function_rel(query, f, ty);
             }
             FunctionKind::Getter | FunctionKind::Setter => {
@@ -711,14 +823,8 @@ impl Collector {
                     kind::VARIABLE
                 };
                 let origin = query.origin(query.function_start(f));
-                self.push(
-                    group,
-                    kind,
-                    name.clone(),
-                    name,
-                    Some(query.format(ty)),
-                )
-                .origin = origin;
+                self.push(group, kind, name.clone(), name, Some(query.format(ty)))
+                    .origin = origin;
                 self.function_rel(query, f, ty);
             }
             FunctionKind::Function
@@ -753,13 +859,7 @@ impl Collector {
                     })
                     .collect();
                 let origin = query.origin(query.function_start(f));
-                let item = self.push(
-                    group,
-                    kind,
-                    label,
-                    name,
-                    Some(query.function_detail(f, ty)),
-                );
+                let item = self.push(group, kind, label, name, Some(query.function_detail(f, ty)));
                 item.call = Some(Call::Parameters(parameters));
                 item.origin = origin;
                 self.function_rel(query, f, ty);
@@ -785,7 +885,10 @@ impl Collector {
                 } else {
                     kind::CLASS
                 };
-                let kind_rel = match class.decl.map(|d| &program.unit(d.unit).ast.decl(d.decl).kind) {
+                let kind_rel = match class
+                    .decl
+                    .map(|d| &program.unit(d.unit).ast.decl(d.decl).kind)
+                {
                     Some(ast::DeclKind::Enum(_)) => crate::relevance::Kind::Enum,
                     Some(ast::DeclKind::Mixin(_)) => crate::relevance::Kind::Mixin,
                     Some(ast::DeclKind::ExtensionType(_)) => crate::relevance::Kind::NoTable,
@@ -803,7 +906,12 @@ impl Collector {
                 let name = query.name(program.typedef(t).name).to_string();
                 if !self.invisible(query, &name, program.typedef(t).library) {
                     let origin = query.origin(query.element_start(element));
-                    let target_function = matches!(query.table.get(query.outline.typedefs[t.0 as usize].target_type), Type::Function { .. });
+                    let target_function = matches!(
+                        query
+                            .table
+                            .get(query.outline.typedefs[t.0 as usize].target_type),
+                        Type::Function { .. }
+                    );
                     let item = self.push(group, kind::CLASS, name.clone(), name, None);
                     item.origin = origin;
                     item.rel.kind = Some(if target_function {
@@ -892,7 +1000,8 @@ impl Collector {
         use crate::known_libraries::Kind as E;
         let resolver = crate::known_libraries::Resolver {
             sdk: Some(sdk),
-            packages: dartforge_elements::config::PackageConfig::discover(file).and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()),
+            packages: dartforge_elements::config::PackageConfig::discover(file)
+                .and_then(|c| dartforge_elements::config::PackageConfig::load(&c).ok()),
         };
         for (path, uri) in candidates {
             for (name, origin, d) in known.exported(path, &resolver, documents) {
@@ -918,29 +1027,46 @@ impl Collector {
                 let (span, new) = crate::actions::insert_import(text, unit, uri);
                 // The summary's written signature is the `detail` (the `Auto import from`
                 // comes in `completionItem/resolve`).
-                let item = self.push(group::NOT_IMPORTED, lsp_kind, label, name.clone(), d.signature.as_deref().map(str::to_string));
-                item.import = Some(AutoImport { uri: uri.clone(), span, text: new });
+                let item = self.push(
+                    group::NOT_IMPORTED,
+                    lsp_kind,
+                    label,
+                    name.clone(),
+                    d.signature.as_deref().map(str::to_string),
+                );
+                item.import = Some(AutoImport {
+                    uri: uri.clone(),
+                    span,
+                    text: new,
+                });
                 item.origin = Some((origin, d.start));
                 item.rel.not_imported = true;
                 item.rel.kind = Some(rel);
                 item.from_pass = true;
                 if function {
-                    item.call = Some(if d.without_parameters { Call::Parameters(Vec::new()) } else { Call::Unknown });
+                    item.call = Some(if d.without_parameters {
+                        Call::Parameters(Vec::new())
+                    } else {
+                        Call::Unknown
+                    });
                 }
             }
         }
     }
-
 }
 
 /// The names of the annotations (the last segment) of a metadata list.
 fn annotation_names(query: &Query, ms: &[ast::Annotation]) -> Vec<String> {
-    ms.iter().filter_map(|m| m.name.last().map(|n| query.name(n.sym).to_string())).collect()
+    ms.iter()
+        .filter_map(|m| m.name.last().map(|n| query.name(n.sym).to_string()))
+        .collect()
 }
 
 /// `@deprecated`/`@Deprecated(...)` among the metadata.
 fn has_deprecated(query: &Query, ms: &[ast::Annotation]) -> bool {
-    annotation_names(query, ms).iter().any(|n| n == "deprecated" || n == "Deprecated")
+    annotation_names(query, ms)
+        .iter()
+        .any(|n| n == "deprecated" || n == "Deprecated")
 }
 
 /// `hasDeprecated` of a top-level element.
@@ -952,7 +1078,9 @@ fn element_deprecated(query: &Query, el: Element) -> bool {
         Element::Typedef(t) => Some(p.typedef(t).decl),
         Element::Function(f) => return function_deprecated(query, f),
         Element::Variable(v) => match p.variable(v).node {
-            dartforge_elements::model::VariableRef::TopLevel { unit, decl, .. } => Some(dartforge_elements::model::DeclRef { unit, decl }),
+            dartforge_elements::model::VariableRef::TopLevel { unit, decl, .. } => {
+                Some(dartforge_elements::model::DeclRef { unit, decl })
+            }
             _ => None,
         },
         Element::Prefix(..) => None,
@@ -973,19 +1101,39 @@ fn function_deprecated(query: &Query, f: FunctionElementId) -> bool {
                     .iter()
                     .find(|m| matches!(m.kind, ast::MemberKind::Method(x) if x == function))
                     .map(|m| has_deprecated(query, &m.metadata))
-                    .or_else(|| a.decls.iter().find(|d| matches!(d.kind, ast::DeclKind::Function(x) if x == function)).map(|d| has_deprecated(query, &d.metadata)))
+                    .or_else(|| {
+                        a.decls
+                            .iter()
+                            .find(|d| matches!(d.kind, ast::DeclKind::Function(x) if x == function))
+                            .map(|d| has_deprecated(query, &d.metadata))
+                    })
                     .unwrap_or(false)
             }
-            dartforge_elements::model::FunctionRef::Constructor { unit, member } => has_deprecated(query, &p.unit(unit).ast.member(member).metadata),
-            dartforge_elements::model::FunctionRef::None => match p.function(f).variable.map(|v| p.variable(v).node) {
-                Some(dartforge_elements::model::VariableRef::Field { unit, member, .. }) => has_deprecated(query, &p.unit(unit).ast.member(member).metadata),
-                Some(dartforge_elements::model::VariableRef::TopLevel { unit, decl, .. }) => has_deprecated(query, &p.unit(unit).ast.decl(decl).metadata),
-                Some(dartforge_elements::model::VariableRef::EnumConstant { unit, decl, index }) => match &p.unit(unit).ast.decl(decl).kind {
-                    ast::DeclKind::Enum(e) => e.constants.get(index).is_some_and(|k| has_deprecated(query, &k.metadata)),
+            dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
+                has_deprecated(query, &p.unit(unit).ast.member(member).metadata)
+            }
+            dartforge_elements::model::FunctionRef::None => {
+                match p.function(f).variable.map(|v| p.variable(v).node) {
+                    Some(dartforge_elements::model::VariableRef::Field {
+                        unit, member, ..
+                    }) => has_deprecated(query, &p.unit(unit).ast.member(member).metadata),
+                    Some(dartforge_elements::model::VariableRef::TopLevel {
+                        unit, decl, ..
+                    }) => has_deprecated(query, &p.unit(unit).ast.decl(decl).metadata),
+                    Some(dartforge_elements::model::VariableRef::EnumConstant {
+                        unit,
+                        decl,
+                        index,
+                    }) => match &p.unit(unit).ast.decl(decl).kind {
+                        ast::DeclKind::Enum(e) => e
+                            .constants
+                            .get(index)
+                            .is_some_and(|k| has_deprecated(query, &k.metadata)),
+                        _ => false,
+                    },
                     _ => false,
-                },
-                _ => false,
-            },
+                }
+            }
         }
     };
     if own(f) {
@@ -995,7 +1143,12 @@ fn function_deprecated(query: &Query, f: FunctionElementId) -> bool {
     // in the supertypes.
     let fe = p.function(f);
     let Some(c) = fe.class else { return false };
-    if fe.static_ || matches!(fe.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
+    if fe.static_
+        || matches!(
+            fe.kind,
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+        )
+    {
         return false;
     }
     let mut stack: Vec<ClassId> = Vec::new();
@@ -1075,7 +1228,13 @@ fn inheritance_distance(query: &Query, sub: ClassId, sup: ClassId) -> Option<usi
             continue;
         }
         let cl = query.program.class(c);
-        for s in cl.supertype_class.iter().chain(&cl.mixin_classes).chain(&cl.interface_classes).chain(&cl.on_classes) {
+        for s in cl
+            .supertype_class
+            .iter()
+            .chain(&cl.mixin_classes)
+            .chain(&cl.interface_classes)
+            .chain(&cl.on_classes)
+        {
             queue.push_back((*s, d + 1));
         }
     }
@@ -1088,7 +1247,11 @@ fn class_type(query: &mut Query, c: ClassId) -> Option<TypeId> {
     let n = query.outline.classes.get(c.0 as usize)?.type_params.len();
     let never = query.core.never;
     let args: Box<[TypeId]> = std::iter::repeat_n(never, n).collect();
-    Some(query.table.intern(Type::Interface { class: c, args, nullable: false }))
+    Some(query.table.intern(Type::Interface {
+        class: c,
+        args,
+        nullable: false,
+    }))
 }
 
 /// `contextTypeFeature`: equal 1.0; subtype 0.40; supertype 0.02; unrelated
@@ -1097,7 +1260,12 @@ fn context_feature(query: &mut Query, expected: TypeId, ty: TypeId) -> f64 {
     if expected == ty {
         return 1.0;
     }
-    let Query { table, outline, core, .. } = query;
+    let Query {
+        table,
+        outline,
+        core,
+        ..
+    } = query;
     let mut env = dartforge_types::SubtypeEnv::new(table, &outline.hierarchy, core);
     if dartforge_types::is_subtype(ty, expected, &mut env) {
         0.40
@@ -1107,4 +1275,3 @@ fn context_feature(query: &mut Query, expected: TypeId, ty: TypeId) -> f64 {
         0.13
     }
 }
-

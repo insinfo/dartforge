@@ -78,24 +78,77 @@ fn module() -> Result<Module, String> {
     // The receiver of the constructor is the physical instance of the factory above. The
     // first setter must be audited before delegating to the base body.
     m.functions.push(Function {
-        symbol: "receita".into(), name: "receita".into(), debug_info: None, params: vec![], return_ty: Type::I64,
-        blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-            (ValueId(0), Instruction::Const(Constant::String("C32001".into())), Type::Ref),
-            (ValueId(1), Instruction::CallRuntime { name: "dartforge_rti_recipe".into(),
-                args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::I64 }, Type::I64),
-        ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }],
+        symbol: "receita".into(),
+        name: "receita".into(),
+        debug_info: None,
+        params: vec![],
+        return_ty: Type::I64,
+        blocks: vec![BasicBlock {
+            id: BlockId(0),
+            instructions: vec![
+                (
+                    ValueId(0),
+                    Instruction::Const(Constant::String("C32001".into())),
+                    Type::Ref,
+                ),
+                (
+                    ValueId(1),
+                    Instruction::CallRuntime {
+                        name: "dartforge_rti_recipe".into(),
+                        args: vec![(Operand::Val(ValueId(0)), Type::Ref)],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                ),
+            ],
+            terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+        }],
     });
     m.functions[0].blocks[0].instructions.extend([
-        (ValueId(3), Instruction::CallStatic { symbol: "receita".into(), args: vec![], ret_ty: Type::I64 }, Type::I64),
-        (ValueId(4), Instruction::CallRuntime { name: "dartforge_rti_eval".into(), args: vec![
-            (Operand::Val(ValueId(3)), Type::I64), (Operand::Constant(Constant::Null), Type::Ref),
-            (Operand::Constant(Constant::Int(0)), Type::I64), (Operand::Constant(Constant::Int(0)), Type::I64),
-        ], ret_ty: Type::I64 }, Type::I64),
-        (ValueId(5), Instruction::CallRuntime { name: "dartforge_rti_set".into(), args: vec![
-            (Operand::Val(ValueId(0)), Type::Ref), (Operand::Val(ValueId(4)), Type::I64),
-        ], ret_ty: Type::Void }, Type::Void),
-        (ValueId(6), Instruction::SetField { object: Operand::Val(ValueId(0)), index: 0,
-            value: Operand::Constant(Constant::Int(42)) }, Type::Void),
+        (
+            ValueId(3),
+            Instruction::CallStatic {
+                symbol: "receita".into(),
+                args: vec![],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        ),
+        (
+            ValueId(4),
+            Instruction::CallRuntime {
+                name: "dartforge_rti_eval".into(),
+                args: vec![
+                    (Operand::Val(ValueId(3)), Type::I64),
+                    (Operand::Constant(Constant::Null), Type::Ref),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                ],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        ),
+        (
+            ValueId(5),
+            Instruction::CallRuntime {
+                name: "dartforge_rti_set".into(),
+                args: vec![
+                    (Operand::Val(ValueId(0)), Type::Ref),
+                    (Operand::Val(ValueId(4)), Type::I64),
+                ],
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        ),
+        (
+            ValueId(6),
+            Instruction::SetField {
+                object: Operand::Val(ValueId(0)),
+                index: 0,
+                value: Operand::Constant(Constant::Int(42)),
+            },
+            Type::Void,
+        ),
     ]);
     m.functions[0].blocks[0].instructions.push((
         ValueId(2),
@@ -114,19 +167,38 @@ fn module() -> Result<Module, String> {
         },
         Type::Void,
     ));
-    m.functions[0].blocks[0].instructions.push((ValueId(8), Instruction::SetField {
-        object: Operand::Val(ValueId(0)), index: 1, value: Operand::Val(ValueId(2)),
-    }, Type::Void));
+    m.functions[0].blocks[0].instructions.push((
+        ValueId(8),
+        Instruction::SetField {
+            object: Operand::Val(ValueId(0)),
+            index: 1,
+            value: Operand::Val(ValueId(2)),
+        },
+        Type::Void,
+    ));
     // The owner crosses the call and the normal successor; both fields must
     // check the current layout, instead of reusing freshness from the previous block.
-    let start = m.functions[0].blocks[0].instructions.iter().position(|(v, _, _)| *v == ValueId(6)).unwrap();
+    let start = m.functions[0].blocks[0]
+        .instructions
+        .iter()
+        .position(|(v, _, _)| *v == ValueId(6))
+        .unwrap();
     let later = m.functions[0].blocks[0].instructions.split_off(start);
-    m.functions[0].blocks[0].instructions.push((ValueId(7), Instruction::CallStatic {
-        symbol: "base".into(), args: vec![Operand::Val(ValueId(0))], ret_ty: Type::Void,
-    }, Type::Void));
+    m.functions[0].blocks[0].instructions.push((
+        ValueId(7),
+        Instruction::CallStatic {
+            symbol: "base".into(),
+            args: vec![Operand::Val(ValueId(0))],
+            ret_ty: Type::Void,
+        },
+        Type::Void,
+    ));
     m.functions[0].blocks[0].terminator = Terminator::Branch(BlockId(1));
-    m.functions[0].blocks.push(BasicBlock { id: BlockId(1), instructions: later,
-        terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) });
+    m.functions[0].blocks.push(BasicBlock {
+        id: BlockId(1),
+        instructions: later,
+        terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+    });
     m.functions.push(Function {
         symbol: "construir".into(),
         name: "construir".into(),
@@ -199,8 +271,7 @@ fn module() -> Result<Module, String> {
     ]);
     prepare_arc_dart_module(&mut m, &mut plans)?;
     let before = format!("{m:?}{plans:?}");
-    if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0)
-        || format!("{m:?}{plans:?}") != before
+    if prepare_arc_dart_module(&mut m, &mut plans)? != (0, 0) || format!("{m:?}{plans:?}") != before
     {
         return Err("non-idempotent preparation".into());
     }

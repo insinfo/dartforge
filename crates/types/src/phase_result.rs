@@ -19,8 +19,12 @@
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_elements::model::{Element, FunctionElementId, FunctionRef, Program, UnitId, VariableId, VariableRef};
-use dartforge_frontend::ast::{self, CollectionElement, DeclKind, ExprId, ExprKind, ForInit, MemberKind, StmtKind, UnaryOp};
+use dartforge_elements::model::{
+    Element, FunctionElementId, FunctionRef, Program, UnitId, VariableId, VariableRef,
+};
+use dartforge_frontend::ast::{
+    self, CollectionElement, DeclKind, ExprId, ExprKind, ForInit, MemberKind, StmtKind, UnaryOp,
+};
 use dartforge_intern::Interner;
 
 /// The annotations of a function, method or constructor declaration.
@@ -30,9 +34,17 @@ use dartforge_intern::Interner;
 /// resolved through the scopes with which the analyzer resolves the
 /// annotation (locals, parameters, members of the enclosing type, unit) to a
 /// top-level variable of a `package:meta/…` library, and without arguments.
-pub(crate) fn meta_annotation(program: &Program, interner: &Interner, unit: UnitId, m: &ast::Annotation, the_name: &str) -> bool {
+pub(crate) fn meta_annotation(
+    program: &Program,
+    interner: &Interner,
+    unit: UnitId,
+    m: &ast::Annotation,
+    the_name: &str,
+) -> bool {
     // Through the analyzer's scopes (locals, members, unit): `annotations`.
-    crate::annotations::annotation_and_variable(program, interner, unit, m, the_name, &|uri| uri.starts_with("package:meta/"))
+    crate::annotations::annotation_and_variable(program, interner, unit, m, the_name, &|uri| {
+        uri.starts_with("package:meta/")
+    })
 }
 
 /// The unit in which function `f` is written.
@@ -45,10 +57,16 @@ pub(crate) fn function_unit(program: &Program, f: FunctionElementId) -> Option<U
 
 pub(crate) fn function_annotations(program: &Program, f: FunctionElementId) -> &[ast::Annotation] {
     match program.function(f).node {
-        FunctionRef::Constructor { unit, member } => &program.unit(unit).ast.member(member).metadata[..],
+        FunctionRef::Constructor { unit, member } => {
+            &program.unit(unit).ast.member(member).metadata[..]
+        }
         FunctionRef::Function { unit, function } => {
             let a = &program.unit(unit).ast;
-            if let Some(m) = a.members.iter().find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function)) {
+            if let Some(m) = a
+                .members
+                .iter()
+                .find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function))
+            {
                 return &m.metadata[..];
             }
             a.decls
@@ -64,18 +82,25 @@ pub(crate) fn function_annotations(program: &Program, f: FunctionElementId) -> &
 fn variable_annotations(program: &Program, v: VariableId) -> &[ast::Annotation] {
     match program.variable(v).node {
         VariableRef::TopLevel { unit, decl, .. } => &program.unit(unit).ast.decl(decl).metadata[..],
-        VariableRef::Field { unit, member, .. } => &program.unit(unit).ast.member(member).metadata[..],
+        VariableRef::Field { unit, member, .. } => {
+            &program.unit(unit).ast.member(member).metadata[..]
+        }
         _ => &[],
     }
 }
 
 /// `_getUseResultMetadata`: the element's annotations; those of the field for
 /// an implicit accessor.
-pub(crate) fn element_annotations<'p>(program: &'p Program, r: &Resolved) -> (&'p [ast::Annotation], Option<UnitId>) {
+pub(crate) fn element_annotations<'p>(
+    program: &'p Program,
+    r: &Resolved,
+) -> (&'p [ast::Annotation], Option<UnitId>) {
     let of_function = |f: FunctionElementId| {
         let e = program.function(f);
         let unit_id = match e.node {
-            FunctionRef::Constructor { unit, .. } | FunctionRef::Function { unit, .. } => Some(unit),
+            FunctionRef::Constructor { unit, .. } | FunctionRef::Function { unit, .. } => {
+                Some(unit)
+            }
             FunctionRef::None => None,
         };
         match e.variable {
@@ -86,10 +111,18 @@ pub(crate) fn element_annotations<'p>(program: &'p Program, r: &Resolved) -> (&'
     match r {
         Resolved::Element(Element::Function(f)) | Resolved::Constructor(f) => of_function(*f),
         Resolved::ExtensionMember { member, .. } => of_function(*member),
-        Resolved::Member { member: MemberRef::Function(f), .. } => of_function(*f),
-        Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => {
-            (variable_annotations(program, *v), variable_unit(program, *v))
-        }
+        Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        } => of_function(*f),
+        Resolved::Element(Element::Variable(v))
+        | Resolved::Member {
+            member: MemberRef::Variable(v),
+            ..
+        } => (
+            variable_annotations(program, *v),
+            variable_unit(program, *v),
+        ),
         _ => (&[][..], None),
     }
 }
@@ -120,13 +153,28 @@ fn result_use(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -
         let names: Vec<&str> = m.name.iter().map(|n| interner.resolve(n.sym)).collect();
         match &m.arguments {
             // `@useResult`: a constant getter, without a message.
-            None if names.last() == Some(&"useResult") => return Some(Use { message: None, parameter: None }),
+            None if names.last() == Some(&"useResult") => {
+                return Some(Use {
+                    message: None,
+                    parameter: None,
+                });
+            }
             Some(args) if names.contains(&"UseResult") => {
                 let named = |the_name: &str| {
-                    args.args.iter().find(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == the_name)).and_then(|x| text_of(x.value))
+                    args.args
+                        .iter()
+                        .find(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == the_name))
+                        .and_then(|x| text_of(x.value))
                 };
-                let positional = args.args.iter().find(|x| x.name.is_none()).and_then(|x| text_of(x.value));
-                return Some(Use { message: positional.or_else(|| named("message")), parameter: named("parameterDefined") });
+                let positional = args
+                    .args
+                    .iter()
+                    .find(|x| x.name.is_none())
+                    .and_then(|x| text_of(x.value));
+                return Some(Use {
+                    message: positional.or_else(|| named("message")),
+                    parameter: named("parameterDefined"),
+                });
             }
             _ => {}
         }
@@ -138,7 +186,12 @@ fn result_use(metadata: &[ast::Annotation], a: &ast::Ast, interner: &Interner) -
 /// and the updaters are contexts that do not use the value.
 fn collection_roots(el: &CollectionElement, roots: &mut Vec<ExprId>) {
     match el {
-        CollectionElement::For { init, updates, body, .. } => {
+        CollectionElement::For {
+            init,
+            updates,
+            body,
+            ..
+        } => {
             if let Some(ForInit::Expression(e)) = init {
                 roots.push(*e);
             }
@@ -165,16 +218,29 @@ fn descend(a: &ast::Ast, root: ExprId, output: &mut Vec<ExprId>) {
         match &a.expr(e).kind {
             ExprKind::Parenthesized(x) | ExprKind::Await(x) => stack.push(*x),
             ExprKind::As { value, .. } => stack.push(*value),
-            ExprKind::Conditional { condition, then, else_ } => stack.extend([*condition, *then, *else_]),
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => stack.extend([*condition, *then, *else_]),
             // `e!` and the prefixes pass it along; `e++` and `e--` count as a use.
-            ExprKind::Unary { op, operand } if !matches!(op, UnaryOp::PostfixInc | UnaryOp::PostfixDec) => stack.push(*operand),
+            ExprKind::Unary { op, operand }
+                if !matches!(op, UnaryOp::PostfixInc | UnaryOp::PostfixDec) =>
+            {
+                stack.push(*operand)
+            }
             _ => {}
         }
     }
 }
 
 /// The `unused_result`s of unit `u`.
-pub fn unused_results(program: &Program, interner: &Interner, the_body: &UnitBodyTypes, u: UnitId) -> Vec<Diagnostic> {
+pub fn unused_results(
+    program: &Program,
+    interner: &Interner,
+    the_body: &UnitBodyTypes,
+    u: UnitId,
+) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     // Without either of the two interned annotations, nothing to do.
     if interner.lookup("useResult").is_none() && interner.lookup("UseResult").is_none() {
@@ -218,53 +284,84 @@ pub fn unused_results(program: &Program, interner: &Interner, the_body: &UnitBod
         let expr = a.expr(e);
         // The element, the node to mark, the name to show and the arguments (only
         // for a method call).
-        let (r, span, the_name, args_list): (&Resolved, Span, String, Option<&ast::Arguments>) = match &expr.kind {
-            ExprKind::Identifier(n) => match resolved(e) {
-                Some(r) => (r, n.span, interner.resolve(n.sym).to_string(), None),
-                None => continue,
-            },
-            ExprKind::Property { name, .. } => match resolved(e) {
-                Some(r) => (r, name.span, interner.resolve(name.sym).to_string(), None),
-                None => continue,
-            },
-            ExprKind::Call { target, arguments } => {
-                let Some(r) = resolved(*target).or_else(|| resolved(e)) else { continue };
-                match &a.expr(*target).kind {
-                    ExprKind::Identifier(n) | ExprKind::Property { name: n, .. } => {
-                        (r, n.span, interner.resolve(n.sym).to_string(), Some(&**arguments))
+        let (r, span, the_name, args_list): (&Resolved, Span, String, Option<&ast::Arguments>) =
+            match &expr.kind {
+                ExprKind::Identifier(n) => match resolved(e) {
+                    Some(r) => (r, n.span, interner.resolve(n.sym).to_string(), None),
+                    None => continue,
+                },
+                ExprKind::Property { name, .. } => match resolved(e) {
+                    Some(r) => (r, name.span, interner.resolve(name.sym).to_string(), None),
+                    None => continue,
+                },
+                ExprKind::Call { target, arguments } => {
+                    let Some(r) = resolved(*target).or_else(|| resolved(e)) else {
+                        continue;
+                    };
+                    match &a.expr(*target).kind {
+                        ExprKind::Identifier(n) | ExprKind::Property { name: n, .. } => (
+                            r,
+                            n.span,
+                            interner.resolve(n.sym).to_string(),
+                            Some(&**arguments),
+                        ),
+                        _ => continue,
                     }
-                    _ => continue,
                 }
-            }
-            ExprKind::InstanceCreation { .. } => match resolved(e) {
-                Some(r @ Resolved::Constructor(_)) => (r, expr.span, String::new(), None),
+                ExprKind::InstanceCreation { .. } => match resolved(e) {
+                    Some(r @ Resolved::Constructor(_)) => (r, expr.span, String::new(), None),
+                    _ => continue,
+                },
                 _ => continue,
-            },
-            _ => continue,
-        };
+            };
         let (metadata, where_) = element_annotations(program, r);
         let Some(where_) = where_ else { continue };
-        let Some(use_) = result_use(metadata, &program.unit(where_).ast, interner) else { continue };
+        let Some(use_) = result_use(metadata, &program.unit(where_).ast, interner) else {
+            continue;
+        };
         // A call without `new` that resolves to a constructor is an instance
         // creation: marks the whole node, with the constructor name.
         let (span, the_name) = match r {
             Resolved::Constructor(f) => {
                 let k = program.function(*f);
-                let class = k.class.map_or("", |c| interner.resolve(program.class(c).name));
+                let class = k
+                    .class
+                    .map_or("", |c| interner.resolve(program.class(c).name));
                 let ctor = interner.resolve(k.name);
-                (expr.span, if ctor.is_empty() { class.to_string() } else { format!("{class}.{ctor}") })
+                (
+                    expr.span,
+                    if ctor.is_empty() {
+                        class.to_string()
+                    } else {
+                        format!("{class}.{ctor}")
+                    },
+                )
             }
             _ => (span, the_name),
         };
         // `_passesUsingParam`: the call passes the `unless` parameter.
-        if let (Some(p), Some(args), false) = (&use_.parameter, args_list, matches!(r, Resolved::Constructor(_)))
-            && args.args.iter().any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == p))
+        if let (Some(p), Some(args), false) = (
+            &use_.parameter,
+            args_list,
+            matches!(r, Resolved::Constructor(_)),
+        ) && args
+            .args
+            .iter()
+            .any(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == p))
         {
             continue;
         }
         match use_.message.as_deref().filter(|m| !m.is_empty()) {
-            None => out.push(Diagnostic::with_code(w::UNUSED_RESULT, span, [the_name.as_str()])),
-            Some(m) => out.push(Diagnostic::with_code(w::UNUSED_RESULT_WITH_MESSAGE, span, [the_name.as_str(), m])),
+            None => out.push(Diagnostic::with_code(
+                w::UNUSED_RESULT,
+                span,
+                [the_name.as_str()],
+            )),
+            Some(m) => out.push(Diagnostic::with_code(
+                w::UNUSED_RESULT_WITH_MESSAGE,
+                span,
+                [the_name.as_str(), m],
+            )),
         }
     }
     out

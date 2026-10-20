@@ -6,11 +6,11 @@
 //! `try` (which silences it).
 //! Written without compiling or running (2026-10-05).
 
-use crate::typed_lints::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::UnitBodyTypes;
-use crate::subtyping::{is_subtype, SubtypeEnv};
+use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
+use crate::typed_lints::Finding;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{FunctionRef, Program, UnitId};
 use dartforge_frontend::ast::{ExprId, ExprKind, FunctionBody, StmtKind};
@@ -24,7 +24,14 @@ fn without_parentheses(a: &dartforge_frontend::ast::Ast, mut e: ExprId) -> ExprI
 }
 
 /// The findings in unit `u`.
-pub fn findings(program: &Program, table: &mut TypeTable, core: &CoreTypes, outline: &OutlineTypes, the_body: &UnitBodyTypes, u: UnitId) -> Vec<Finding> {
+pub fn findings(
+    program: &Program,
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    outline: &OutlineTypes,
+    the_body: &UnitBodyTypes,
+    u: UnitId,
+) -> Vec<Finding> {
     let mut out = Vec::new();
     let a = &program.unit(u).ast;
     let is_future = |table: &TypeTable, t: TypeId| matches!(table.get(t), Type::Interface { class, .. } if Some(*class) == core.future_class);
@@ -62,7 +69,9 @@ pub fn findings(program: &Program, table: &mut TypeTable, core: &CoreTypes, outl
             _ => None,
         })
         .collect();
-    let elements: HashMap<dartforge_frontend::ast::FunctionId, usize> = program.index().unit_functions[u.0 as usize]
+    let elements: HashMap<dartforge_frontend::ast::FunctionId, usize> = program
+        .index()
+        .unit_functions[u.0 as usize]
         .iter()
         .filter_map(|&k| match program.function(k).node {
             FunctionRef::Function { unit, function } if unit == u => Some((function, k.0 as usize)),
@@ -71,8 +80,15 @@ pub fn findings(program: &Program, table: &mut TypeTable, core: &CoreTypes, outl
         .collect();
     for (no, e) in cases {
         let x = without_parentheses(a, e);
-        let ExprKind::Await(target) = &a.expr(x).kind else { continue };
-        let Some(t) = the_body.get_type(*target).filter(|t| !core.is_unknown(table, *t)) else { continue };
+        let ExprKind::Await(target) = &a.expr(x).kind else {
+            continue;
+        };
+        let Some(t) = the_body
+            .get_type(*target)
+            .filter(|t| !core.is_unknown(table, *t))
+        else {
+            continue;
+        };
         if !is_future(table, t) {
             continue;
         }
@@ -85,9 +101,15 @@ pub fn findings(program: &Program, table: &mut TypeTable, core: &CoreTypes, outl
             .filter(|(_, f)| f.span.start <= no.start && no.end <= f.span.end)
             .min_by_key(|(_, f)| f.span.end - f.span.start)
             .map(|(k, f)| (dartforge_frontend::ast::FunctionId(k as u32), f.span));
-        let block = try_blocks.iter().filter(|b| b.start <= no.start && no.end <= b.end).min_by_key(|b| b.end - b.start).copied();
+        let block = try_blocks
+            .iter()
+            .filter(|b| b.start <= no.start && no.end <= b.end)
+            .min_by_key(|b| b.end - b.start)
+            .copied();
         let Some((fid, fspan)) = func else { continue };
-        if block.is_some_and(|b| b.end - b.start < fspan.end - fspan.start && b.start >= fspan.start) {
+        if block
+            .is_some_and(|b| b.end - b.start < fspan.end - fspan.start && b.start >= fspan.start)
+        {
             continue;
         }
         // The element's return type.
@@ -99,10 +121,13 @@ pub fn findings(program: &Program, table: &mut TypeTable, core: &CoreTypes, outl
                 _ => None,
             }
         } else {
-            a.function(fid).name.and_then(|n| the_body.local_type(n.span.start)).and_then(|t| match table.get(t) {
-                Type::Function { ret, .. } => Some(*ret),
-                _ => None,
-            })
+            a.function(fid)
+                .name
+                .and_then(|n| the_body.local_type(n.span.start))
+                .and_then(|t| match table.get(t) {
+                    Type::Function { ret, .. } => Some(*ret),
+                    _ => None,
+                })
         };
         let Some(r) = return_ else { continue };
         if !is_future(table, r) {
@@ -111,7 +136,14 @@ pub fn findings(program: &Program, table: &mut TypeTable, core: &CoreTypes, outl
         let mut env = SubtypeEnv::new(table, &outline.hierarchy, core);
         if is_subtype(t, r, &mut env) {
             let start = a.expr(x).span.start;
-            out.push((Span { start, end: start + "await".len() }, "unnecessary_await_in_return", Vec::new()));
+            out.push((
+                Span {
+                    start,
+                    end: start + "await".len(),
+                },
+                "unnecessary_await_in_return",
+                Vec::new(),
+            ));
         }
     }
     out

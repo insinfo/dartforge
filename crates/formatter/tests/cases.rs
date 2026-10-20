@@ -55,5 +55,8 @@ fn configurable_line_length() {
         ..FormatOptions::default()
     };
     let output = format("void main(){var x=[1,2,3,];print(x);}", &o).unwrap();
-    assert_eq!(output, "void main() {\n  var x = [\n    1,\n    2,\n    3,\n  ];\n  print(x);\n}\n");
+    assert_eq!(
+        output,
+        "void main() {\n  var x = [\n    1,\n    2,\n    3,\n  ];\n  print(x);\n}\n"
+    );
 }

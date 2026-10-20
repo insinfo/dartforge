@@ -49,23 +49,81 @@ struct DirectiveType {
 const DIRECTIVE_TYPES: &[DirectiveType] = &[
     DirectiveType {
         name: "animation",
-        positional: &[("width", Format::Integer), ("height", Format::Integer), ("url", Format::Uri)],
+        positional: &[
+            ("width", Format::Integer),
+            ("height", Format::Integer),
+            ("url", Format::Uri),
+        ],
         named: &["id"],
         rest: false,
     },
-    DirectiveType { name: "canonicalFor", positional: &[("element", Format::Any)], named: &[], rest: false },
-    DirectiveType { name: "category", positional: &[], named: &[], rest: true },
-    DirectiveType { name: "end-inject-html", positional: &[], named: &[], rest: false },
-    DirectiveType { name: "end-tool", positional: &[], named: &[], rest: false },
-    DirectiveType { name: "endtemplate", positional: &[], named: &[], rest: false },
-    DirectiveType { name: "inject-html", positional: &[], named: &[], rest: false },
-    DirectiveType { name: "macro", positional: &[("name", Format::Any)], named: &[], rest: false },
-    DirectiveType { name: "subCategory", positional: &[], named: &[], rest: true },
-    DirectiveType { name: "template", positional: &[("name", Format::Any)], named: &[], rest: false },
-    DirectiveType { name: "tool", positional: &[("name", Format::Any)], named: &[], rest: true },
+    DirectiveType {
+        name: "canonicalFor",
+        positional: &[("element", Format::Any)],
+        named: &[],
+        rest: false,
+    },
+    DirectiveType {
+        name: "category",
+        positional: &[],
+        named: &[],
+        rest: true,
+    },
+    DirectiveType {
+        name: "end-inject-html",
+        positional: &[],
+        named: &[],
+        rest: false,
+    },
+    DirectiveType {
+        name: "end-tool",
+        positional: &[],
+        named: &[],
+        rest: false,
+    },
+    DirectiveType {
+        name: "endtemplate",
+        positional: &[],
+        named: &[],
+        rest: false,
+    },
+    DirectiveType {
+        name: "inject-html",
+        positional: &[],
+        named: &[],
+        rest: false,
+    },
+    DirectiveType {
+        name: "macro",
+        positional: &[("name", Format::Any)],
+        named: &[],
+        rest: false,
+    },
+    DirectiveType {
+        name: "subCategory",
+        positional: &[],
+        named: &[],
+        rest: true,
+    },
+    DirectiveType {
+        name: "template",
+        positional: &[("name", Format::Any)],
+        named: &[],
+        rest: false,
+    },
+    DirectiveType {
+        name: "tool",
+        positional: &[("name", Format::Any)],
+        named: &[],
+        rest: true,
+    },
     DirectiveType {
         name: "youtube",
-        positional: &[("width", Format::Integer), ("height", Format::Integer), ("url", Format::Youtube)],
+        positional: &[
+            ("width", Format::Integer),
+            ("height", Format::Integer),
+            ("url", Format::Youtube),
+        ],
         named: &[],
         rest: false,
     },
@@ -98,7 +156,10 @@ fn is_uri(s: &str) -> bool {
     let b = s.as_bytes();
     let mut i = 0;
     while i < b.len() {
-        if b[i] == b'%' && !(b.get(i + 1).is_some_and(u8::is_ascii_hexdigit) && b.get(i + 2).is_some_and(u8::is_ascii_hexdigit)) {
+        if b[i] == b'%'
+            && !(b.get(i + 1).is_some_and(u8::is_ascii_hexdigit)
+                && b.get(i + 2).is_some_and(u8::is_ascii_hexdigit))
+        {
             return false;
         }
         i += 1;
@@ -135,7 +196,9 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
     while i < n && is_blank(b[i]) {
         i += 1;
     }
-    let Some(ty) = DIRECTIVE_TYPES.iter().find(|t| t.name == name) else { return };
+    let Some(ty) = DIRECTIVE_TYPES.iter().find(|t| t.name == name) else {
+        return;
+    };
     // `_offset + index`: the offset of the `{@` plus the index in the line contents.
     let in_analyzer = |index_in_contents: usize| base + start + before + index_in_contents;
     // `_parseArguments`.
@@ -175,12 +238,21 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
             }
             i += 1;
         }
-        let span = Span { start: base + arg_start, end: base + i };
+        let span = Span {
+            start: base + arg_start,
+            end: base + i,
+        };
         match named_arg {
-            Some((name_end, value_start)) => {
-                named.push(Argument { span, name: Some(&contents[arg_start..name_end]), value: &contents[value_start..i] })
-            }
-            None => positional.push(Argument { span, name: None, value: &contents[arg_start..i] }),
+            Some((name_end, value_start)) => named.push(Argument {
+                span,
+                name: Some(&contents[arg_start..name_end]),
+                value: &contents[value_start..i],
+            }),
+            None => positional.push(Argument {
+                span,
+                name: None,
+                value: &contents[arg_start..i],
+            }),
         }
         while i < n && is_blank(b[i]) {
             i += 1;
@@ -190,14 +262,27 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
     // `_parseArguments`: the end of the line without `}`, on the last character.
     if !closed && n > 0 {
         let p = in_analyzer(n) - 1;
-        out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_MISSING_CLOSING_BRACE, Span { start: p, end: p + 1 }, Vec::<&str>::new()));
+        out.push(Diagnostic::with_code(
+            w::DOC_DIRECTIVE_MISSING_CLOSING_BRACE,
+            Span {
+                start: p,
+                end: p + 1,
+            },
+            Vec::<&str>::new(),
+        ));
     }
-    let tag = Span { start: base + start, end: in_analyzer(end) };
+    let tag = Span {
+        start: base + start,
+        end: in_analyzer(end),
+    };
     // `validateArgumentCount`.
     let required = ty.positional.len();
     if positional.len() < required {
         let missing = required - positional.len();
-        let names: Vec<&str> = ty.positional[required - missing.min(3)..].iter().map(|p| p.0).collect();
+        let names: Vec<&str> = ty.positional[required - missing.min(3)..]
+            .iter()
+            .map(|p| p.0)
+            .collect();
         let code = match missing {
             1 => Some(w::DOC_DIRECTIVE_MISSING_ONE_ARGUMENT),
             2 => Some(w::DOC_DIRECTIVE_MISSING_TWO_ARGUMENTS),
@@ -212,14 +297,25 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
     }
     if !ty.rest {
         if positional.len() > required {
-            let span = Span { start: positional[required].span.start, end: positional[positional.len() - 1].span.end };
+            let span = Span {
+                start: positional[required].span.start,
+                end: positional[positional.len() - 1].span.end,
+            };
             let (given, expected) = (positional.len().to_string(), required.to_string());
-            out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_HAS_EXTRA_ARGUMENTS, span, [ty.name, given.as_str(), expected.as_str()]));
+            out.push(Diagnostic::with_code(
+                w::DOC_DIRECTIVE_HAS_EXTRA_ARGUMENTS,
+                span,
+                [ty.name, given.as_str(), expected.as_str()],
+            ));
         }
         for a in &named {
             let arg_name = a.name.unwrap_or("");
             if !ty.named.contains(&arg_name) {
-                out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_HAS_UNEXPECTED_NAMED_ARGUMENT, a.span, [ty.name, arg_name]));
+                out.push(Diagnostic::with_code(
+                    w::DOC_DIRECTIVE_HAS_UNEXPECTED_NAMED_ARGUMENT,
+                    a.span,
+                    [ty.name, arg_name],
+                ));
             }
         }
     }
@@ -232,7 +328,11 @@ fn directive(contents: &str, base: usize, before: usize, index: usize, out: &mut
             Format::Youtube => is_uri(a.value) && a.value.starts_with(YOUTUBE_PREFIX),
         };
         if !ok {
-            out.push(Diagnostic::with_code(w::DOC_DIRECTIVE_ARGUMENT_WRONG_FORMAT, a.span, [*param_name, format.display()]));
+            out.push(Diagnostic::with_code(
+                w::DOC_DIRECTIVE_ARGUMENT_WRONG_FORMAT,
+                a.span,
+                [*param_name, format.display()],
+            ));
         }
     }
 }
@@ -259,22 +359,47 @@ fn doc_import(contents: &str, base: usize, index: usize) -> Option<DocImport> {
     let synthetic = format!("import {}", &contents[idx..]);
     // The `sourceMap`: the start of the synthetic text is 7 before the rest.
     let shift = (base + idx) as isize - 7;
-    let map = |s: Span| Span { start: (s.start as isize + shift) as usize, end: (s.end as isize + shift) as usize };
+    let map = |s: Span| Span {
+        start: (s.start as isize + shift) as usize,
+        end: (s.end as isize + shift) as usize,
+    };
     let mut names = dartforge_intern::Interner::new();
     let parsed = dartforge_frontend::parser::parse(&synthetic, &mut names);
     let d = parsed.unit.directives.first()?;
-    let dartforge_frontend::ast::DirectiveKind::Import { uri, configurations, deferred, .. } = &d.kind else { return None };
+    let dartforge_frontend::ast::DirectiveKind::Import {
+        uri,
+        configurations,
+        deferred,
+        ..
+    } = &d.kind
+    else {
+        return None;
+    };
     let after_uris = configurations.last().map_or(uri.span.end, |c| c.span.end);
     let deferred = if *deferred {
-        synthetic.get(after_uris..).and_then(|s| s.find("deferred")).map(|k| map(Span { start: after_uris + k, end: after_uris + k + 8 }))
+        synthetic
+            .get(after_uris..)
+            .and_then(|s| s.find("deferred"))
+            .map(|k| {
+                map(Span {
+                    start: after_uris + k,
+                    end: after_uris + k + 8,
+                })
+            })
     } else {
         None
     };
     let configurations = match (configurations.first(), configurations.last()) {
-        (Some(a), Some(b)) => Some(map(Span { start: a.span.start, end: b.span.end })),
+        (Some(a), Some(b)) => Some(map(Span {
+            start: a.span.start,
+            end: b.span.end,
+        })),
         _ => None,
     };
-    let interpolated = uri.parts.iter().any(|p| matches!(p, dartforge_frontend::ast::StringPart::Interpolation(_)));
+    let interpolated = uri
+        .parts
+        .iter()
+        .any(|p| matches!(p, dartforge_frontend::ast::StringPart::Interpolation(_)));
     Some(DocImport {
         uri: dartforge_elements::load::string_lit_value(uri).map(|s| s.to_string()),
         literal: map(uri.span),
@@ -287,11 +412,23 @@ fn doc_import(contents: &str, base: usize, index: usize) -> Option<DocImport> {
 /// The `@docImport`s of the documentation comment of the `library` directive
 /// (the only ones the `LibraryAnalyzer` resolves).
 pub fn library_doc_imports(u: Unit<'_>) -> Vec<DocImport> {
-    let Some(d) = u.unit.directives.iter().find(|d| matches!(d.kind, dartforge_frontend::ast::DirectiveKind::Library { .. })) else { return Vec::new() };
+    let Some(d) = u.unit.directives.iter().find(|d| {
+        matches!(
+            d.kind,
+            dartforge_frontend::ast::DirectiveKind::Library { .. }
+        )
+    }) else {
+        return Vec::new();
+    };
     let source = u.source;
     let comments = dartforge_frontend::comments::Comments::scan(source);
-    let before = d.metadata.first().map_or(d.span.start, |m| m.span.start.min(d.span.start));
-    let Some(doc) = comments.dart_doc(source, before) else { return Vec::new() };
+    let before = d
+        .metadata
+        .first()
+        .map_or(d.span.start, |m| m.span.start.min(d.span.start));
+    let Some(doc) = comments.dart_doc(source, before) else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     let mut pos = doc.start;
     for line in source[doc.start..before].split_inclusive('\n') {
@@ -299,7 +436,9 @@ pub fn library_doc_imports(u: Unit<'_>) -> Vec<DocImport> {
         pos += line.len();
         let trimmed = line.trim_end_matches(['\n', '\r']);
         let indent = trimmed.len() - trimmed.trim_start().len();
-        let Some(contents) = trimmed[indent..].strip_prefix("///") else { continue };
+        let Some(contents) = trimmed[indent..].strip_prefix("///") else {
+            continue;
+        };
         let (contents, base) = match contents.strip_prefix(' ') {
             Some(c) => (c, start + indent + 4),
             None => (contents, start + indent + 3),
@@ -348,10 +487,19 @@ fn references_with_new(contents: &str, base: usize, out: &mut Vec<Diagnostic>) {
                         let rest = &text[leading..];
                         if let Some(after) = rest.strip_prefix("new")
                             && after.starts_with([' ', '\t'])
-                            && after.trim_start().starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
+                            && after.trim_start().starts_with(|c: char| {
+                                c.is_ascii_alphabetic() || c == '_' || c == '$'
+                            })
                         {
                             let start = base + start + leading;
-                            out.push(Diagnostic::with_code(w::DEPRECATED_NEW_IN_COMMENT_REFERENCE, Span { start, end: start + 3 }, Vec::<&str>::new()));
+                            out.push(Diagnostic::with_code(
+                                w::DEPRECATED_NEW_IN_COMMENT_REFERENCE,
+                                Span {
+                                    start,
+                                    end: start + 3,
+                                },
+                                Vec::<&str>::new(),
+                            ));
                         }
                     }
                     i = end;
@@ -427,17 +575,31 @@ pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
             continue;
         }
         if text.starts_with("{@") {
-            directive(contents, base, base - (line_start + indent + 3), blanks, &mut out);
+            directive(
+                contents,
+                base,
+                base - (line_start + indent + 3),
+                blanks,
+                &mut out,
+            );
             previous_empty = false;
             continue;
         }
         // `DocCommentVerifier.docImport` (`doc_comment_verifier.dart:35-51`).
         if let Some(i) = doc_import(contents, base, blanks) {
             if let Some(s) = i.deferred {
-                out.push(Diagnostic::with_code(w::DOC_IMPORT_CANNOT_BE_DEFERRED, s, Vec::<&str>::new()));
+                out.push(Diagnostic::with_code(
+                    w::DOC_IMPORT_CANNOT_BE_DEFERRED,
+                    s,
+                    Vec::<&str>::new(),
+                ));
             }
             if let Some(s) = i.configurations {
-                out.push(Diagnostic::with_code(w::DOC_IMPORT_CANNOT_HAVE_CONFIGURATIONS, s, Vec::<&str>::new()));
+                out.push(Diagnostic::with_code(
+                    w::DOC_IMPORT_CANNOT_HAVE_CONFIGURATIONS,
+                    s,
+                    Vec::<&str>::new(),
+                ));
             }
             previous_empty = false;
             continue;
@@ -453,7 +615,11 @@ pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
         if !text.starts_with("/**") || text.starts_with("/***") || text == "/**/" {
             continue;
         }
-        let inner_end = if text.ends_with("*/") { c.end - 2 } else { c.end };
+        let inner_end = if text.ends_with("*/") {
+            c.end - 2
+        } else {
+            c.end
+        };
         let mut line_start = c.start + 3;
         for line in source[line_start..inner_end].split_inclusive('\n') {
             let base_line = line_start;
@@ -477,19 +643,36 @@ mod tests {
     fn reports(source: &str) -> Vec<(&'static str, usize, usize)> {
         let mut names = dartforge_intern::Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
-        check(u).into_iter().map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end - d.span.start)).collect()
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
+        check(u)
+            .into_iter()
+            .map(|d| {
+                (
+                    d.code.map_or("", |c| c.info().name),
+                    d.span.start,
+                    d.span.end - d.span.start,
+                )
+            })
+            .collect()
     }
 
     /// `[new A.b]` in a `/** … */` comment, on one line and on the next ones
     /// (checked against `dart analyze` 3.6.2, 2026-10-13).
     #[test]
     fn new_in_a_block_comment_reference() {
-        let source = "/** [m] xxx [new B.c] */\nclass A {}\n/**\n * See [new A].\n */\nclass B {}\n";
+        let source =
+            "/** [m] xxx [new B.c] */\nclass A {}\n/**\n * See [new A].\n */\nclass B {}\n";
         let new_ = |at: &str| source.find(at).unwrap() + 1;
         assert_eq!(
             reports(source),
-            vec![("deprecated_new_in_comment_reference", new_("[new B"), 3), ("deprecated_new_in_comment_reference", new_("[new A"), 3)]
+            vec![
+                ("deprecated_new_in_comment_reference", new_("[new B"), 3),
+                ("deprecated_new_in_comment_reference", new_("[new A"), 3)
+            ]
         );
     }
 

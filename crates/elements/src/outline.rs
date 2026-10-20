@@ -162,7 +162,9 @@ pub fn build_outline(
         // (name, is it the setter slot?, kind, element). With a repeated name, what
         // it designates comes out of `resolve_homonyms`.
         let mut candidates: Vec<(SymbolId, bool, Species, Element, u32)> = Vec::new();
-        let has_patch = unit_ids.iter().any(|u| program.units[u.0 as usize].role == UnitRole::Patch);
+        let has_patch = unit_ids
+            .iter()
+            .any(|u| program.units[u.0 as usize].role == UnitRole::Patch);
         for (unit_order, unit_id) in unit_ids.into_iter().enumerate() {
             let unit_order = unit_order as u32;
             let role = program.units[unit_id.0 as usize].role;
@@ -230,7 +232,13 @@ pub fn build_outline(
                                 .entry(class_name)
                                 .or_default();
                             entry.getter = Some(Element::Class(class_id));
-                            candidates.push((class_name, false, Species::Class, Element::Class(class_id), unit_order));
+                            candidates.push((
+                                class_name,
+                                false,
+                                Species::Class,
+                                Element::Class(class_id),
+                                unit_order,
+                            ));
                         }
                     }
                     DeclKind::Mixin(m) => {
@@ -242,7 +250,13 @@ pub fn build_outline(
                             .entry(m.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Class(mixin_id));
-                        candidates.push((m.name.sym, false, Species::Mixin, Element::Class(mixin_id), unit_order));
+                        candidates.push((
+                            m.name.sym,
+                            false,
+                            Species::Mixin,
+                            Element::Class(mixin_id),
+                            unit_order,
+                        ));
                     }
                     DeclKind::Enum(e) => {
                         let enum_id = create_enum_element(
@@ -253,23 +267,33 @@ pub fn build_outline(
                             .entry(e.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Class(enum_id));
-                        candidates.push((e.name.sym, false, Species::Enum, Element::Class(enum_id), unit_order));
+                        candidates.push((
+                            e.name.sym,
+                            false,
+                            Species::Enum,
+                            Element::Class(enum_id),
+                            unit_order,
+                        ));
                     }
                     DeclKind::Extension(ext) => {
                         // `@patch extension E` merges the members into the library's extension `E`
                         // (like `merge_class_patch`).
                         let existing_one = if role == UnitRole::Patch {
                             ext.name.and_then(|n| {
-                                program.libraries[lib_idx].declared.get(&n.sym).and_then(|b| match b.getter {
-                                    Some(Element::Extension(e)) => Some(e),
-                                    _ => None,
-                                })
+                                program.libraries[lib_idx].declared.get(&n.sym).and_then(
+                                    |b| match b.getter {
+                                        Some(Element::Extension(e)) => Some(e),
+                                        _ => None,
+                                    },
+                                )
                             })
                         } else {
                             None
                         };
                         if let Some(e) = existing_one {
-                            merge_extension_patch(&mut pools, ast, e, unit_id, ext, is_patch, interner);
+                            merge_extension_patch(
+                                &mut pools, ast, e, unit_id, ext, is_patch, interner,
+                            );
                             continue;
                         }
                         let ext_id = create_extension_element(
@@ -281,7 +305,13 @@ pub fn build_outline(
                                 .entry(name.sym)
                                 .or_default();
                             entry.getter = Some(Element::Extension(ext_id));
-                            candidates.push((name.sym, false, Species::Extension, Element::Extension(ext_id), unit_order));
+                            candidates.push((
+                                name.sym,
+                                false,
+                                Species::Extension,
+                                Element::Extension(ext_id),
+                                unit_order,
+                            ));
                         }
                     }
                     DeclKind::ExtensionType(et) => {
@@ -293,7 +323,13 @@ pub fn build_outline(
                             .entry(et.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Class(ext_type_id));
-                        candidates.push((et.name.sym, false, Species::ExtensionType, Element::Class(ext_type_id), unit_order));
+                        candidates.push((
+                            et.name.sym,
+                            false,
+                            Species::ExtensionType,
+                            Element::Class(ext_type_id),
+                            unit_order,
+                        ));
                     }
                     DeclKind::Typedef(td) => {
                         let td_id = TypedefId(program.typedefs.len() as u32);
@@ -319,7 +355,13 @@ pub fn build_outline(
                             .entry(td.name.sym)
                             .or_default();
                         entry.getter = Some(Element::Typedef(td_id));
-                        candidates.push((td.name.sym, false, Species::Typedef, Element::Typedef(td_id), unit_order));
+                        candidates.push((
+                            td.name.sym,
+                            false,
+                            Species::Typedef,
+                            Element::Typedef(td_id),
+                            unit_order,
+                        ));
                     }
                     DeclKind::Function(fid) => {
                         let ast_fn = ast.function(*fid);
@@ -353,9 +395,27 @@ pub fn build_outline(
                             });
 
                             candidates.push(match fn_kind {
-                                FunctionKind::Getter => (fn_sym, false, Species::Getter, Element::Function(fn_id), unit_order),
-                                FunctionKind::Setter => (fn_sym, true, Species::Setter, Element::Function(fn_id), unit_order),
-                                _ => (fn_sym, false, Species::Function, Element::Function(fn_id), unit_order),
+                                FunctionKind::Getter => (
+                                    fn_sym,
+                                    false,
+                                    Species::Getter,
+                                    Element::Function(fn_id),
+                                    unit_order,
+                                ),
+                                FunctionKind::Setter => (
+                                    fn_sym,
+                                    true,
+                                    Species::Setter,
+                                    Element::Function(fn_id),
+                                    unit_order,
+                                ),
+                                _ => (
+                                    fn_sym,
+                                    false,
+                                    Species::Function,
+                                    Element::Function(fn_id),
+                                    unit_order,
+                                ),
                             });
                             let entry = program.libraries[lib_idx]
                                 .declared
@@ -367,7 +427,12 @@ pub fn build_outline(
                                         if let Some(Element::Function(old_id)) = entry.getter {
                                             pools.functions[old_id.0 as usize].patched_by =
                                                 Some(fn_id);
-                                            pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[old_id.0 as usize].public_declaration.unwrap_or(old_id));
+                                            pools.functions[fn_id.0 as usize].public_declaration =
+                                                Some(
+                                                    pools.functions[old_id.0 as usize]
+                                                        .public_declaration
+                                                        .unwrap_or(old_id),
+                                                );
                                         }
                                     }
                                     entry.getter = Some(Element::Function(fn_id));
@@ -377,7 +442,12 @@ pub fn build_outline(
                                         if let Some(Element::Function(old_id)) = entry.setter {
                                             pools.functions[old_id.0 as usize].patched_by =
                                                 Some(fn_id);
-                                            pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[old_id.0 as usize].public_declaration.unwrap_or(old_id));
+                                            pools.functions[fn_id.0 as usize].public_declaration =
+                                                Some(
+                                                    pools.functions[old_id.0 as usize]
+                                                        .public_declaration
+                                                        .unwrap_or(old_id),
+                                                );
                                         }
                                     }
                                     entry.setter = Some(Element::Function(fn_id));
@@ -387,7 +457,12 @@ pub fn build_outline(
                                         if let Some(Element::Function(old_id)) = entry.getter {
                                             pools.functions[old_id.0 as usize].patched_by =
                                                 Some(fn_id);
-                                            pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[old_id.0 as usize].public_declaration.unwrap_or(old_id));
+                                            pools.functions[fn_id.0 as usize].public_declaration =
+                                                Some(
+                                                    pools.functions[old_id.0 as usize]
+                                                        .public_declaration
+                                                        .unwrap_or(old_id),
+                                                );
                                         }
                                     }
                                     entry.getter = Some(Element::Function(fn_id));
@@ -467,10 +542,22 @@ pub fn build_outline(
                                 .entry(var_sym)
                                 .or_default();
                             entry.getter = Some(Element::Variable(var_id));
-                            candidates.push((var_sym, false, Species::Variable, Element::Variable(var_id), unit_order));
+                            candidates.push((
+                                var_sym,
+                                false,
+                                Species::Variable,
+                                Element::Variable(var_id),
+                                unit_order,
+                            ));
                             if setter_id.is_some() {
                                 entry.setter = Some(Element::Variable(var_id));
-                                candidates.push((var_sym, true, Species::Variable, Element::Variable(var_id), unit_order));
+                                candidates.push((
+                                    var_sym,
+                                    true,
+                                    Species::Variable,
+                                    Element::Variable(var_id),
+                                    unit_order,
+                                ));
                             }
                         }
                     }
@@ -722,7 +809,11 @@ fn compute_homonym_owners(program: &mut Program) {
         let mut owners: HashMap<ClassId, ClassId> = HashMap::new();
         for (rep, members_) in groups {
             let name_ = program.classes[rep.0 as usize].name;
-            let designated = match program.libraries[li].declared.get(&name_).and_then(|d| d.getter) {
+            let designated = match program.libraries[li]
+                .declared
+                .get(&name_)
+                .and_then(|d| d.getter)
+            {
                 Some(Element::Class(c)) if members_.contains(&c) => Some(c),
                 _ => None,
             };
@@ -732,23 +823,26 @@ fn compute_homonym_owners(program: &mut Program) {
                 let a = &unit.ast;
                 for &d in &unit.unit.declarations {
                     let span = a.decl(d).span;
-                    let of_group = members_
-                        .iter()
-                        .copied()
-                        .find(|&c| program.classes[c.0 as usize].decl.is_some_and(|r| r.unit == u && r.decl == d));
+                    let of_group = members_.iter().copied().find(|&c| {
+                        program.classes[c.0 as usize]
+                            .decl
+                            .is_some_and(|r| r.unit == u && r.decl == d)
+                    });
                     match of_group {
                         Some(c) => {
-                            let asks = a
-                                .exprs
-                                .iter()
-                                .any(|e| matches!(e.kind, ast::ExprKind::This | ast::ExprKind::Super) && inside(e.span, span));
+                            let asks = a.exprs.iter().any(|e| {
+                                matches!(e.kind, ast::ExprKind::This | ast::ExprKind::Super)
+                                    && inside(e.span, span)
+                            });
                             if asks {
                                 owner = Some(c);
                                 break 'unidades;
                             }
                         }
                         None => {
-                            let Some(designated) = designated else { continue };
+                            let Some(designated) = designated else {
+                                continue;
+                            };
                             let quote_char = a
                                 .exprs
                                 .iter()
@@ -801,13 +895,18 @@ fn unit_scopes(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, UnitScop
     }
     // Each file's imports, filtered by the combinators.
     let mut without_prefix: HashMap<UnitId, Namespace> = HashMap::new();
-    let mut with_prefix: HashMap<UnitId, HashMap<SymbolId, (Namespace, LibraryId)>> = HashMap::new();
+    let mut with_prefix: HashMap<UnitId, HashMap<SymbolId, (Namespace, LibraryId)>> =
+        HashMap::new();
     for import in &lib.imports {
         let exported_ = &program.libraries[import.library.0 as usize].exported;
         let filtered_ = filter_namespace(exported_, &import.combinators);
         match import.prefix {
             Some(p) => {
-                let (ns, owner) = with_prefix.entry(import.unit).or_default().entry(p).or_insert_with(|| (Namespace::new(), import.library));
+                let (ns, owner) = with_prefix
+                    .entry(import.unit)
+                    .or_default()
+                    .entry(p)
+                    .or_insert_with(|| (Namespace::new(), import.library));
                 *owner = import.library;
                 for (sym, b) in filtered_ {
                     merge_binding_with(ns.entry(sym).or_default(), b, &|e| sdk_element(program, e));
@@ -836,7 +935,10 @@ fn unit_scopes(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, UnitScop
             current = parent;
         }
         chain.reverse();
-        let mut scope_ = UnitScope { scope: lib.declared.clone(), prefixes: HashMap::new() };
+        let mut scope_ = UnitScope {
+            scope: lib.declared.clone(),
+            prefixes: HashMap::new(),
+        };
         for file in &chain {
             if let Some(ns) = without_prefix.get(file) {
                 for (sym, b) in ns {
@@ -849,7 +951,14 @@ fn unit_scopes(program: &Program, lib_id: LibraryId) -> HashMap<UnitId, UnitScop
             if let Some(ps) = with_prefix.get(file) {
                 for (p, (ns, owner)) in ps {
                     scope_.prefixes.insert(*p, ns.clone());
-                    scope_.scope.insert(*p, Binding { getter: Some(Element::Prefix(*owner, *p)), setter: None, ambiguous: false });
+                    scope_.scope.insert(
+                        *p,
+                        Binding {
+                            getter: Some(Element::Prefix(*owner, *p)),
+                            setter: None,
+                            ambiguous: false,
+                        },
+                    );
                 }
             }
         }
@@ -878,9 +987,10 @@ fn patch_scopes(program: &Program, lib: &crate::model::Library) -> HashMap<UnitI
         if program.units[import.unit.0 as usize].role != UnitRole::Patch {
             continue;
         }
-        let scope_ = output
-            .entry(import.unit)
-            .or_insert_with(|| UnitScope { scope: HashMap::new(), prefixes: HashMap::new() });
+        let scope_ = output.entry(import.unit).or_insert_with(|| UnitScope {
+            scope: HashMap::new(),
+            prefixes: HashMap::new(),
+        });
         let exported_ = &program.libraries[import.library.0 as usize].exported;
         let filtered_ = filter_namespace(exported_, &import.combinators);
         match import.prefix {
@@ -889,14 +999,23 @@ fn patch_scopes(program: &Program, lib: &crate::model::Library) -> HashMap<UnitI
                 for (sym, b) in filtered_ {
                     merge_binding_with(ns.entry(sym).or_default(), b, &|e| sdk_element(program, e));
                 }
-                scope_.scope.insert(p, Binding { getter: Some(Element::Prefix(import.library, p)), setter: None, ambiguous: false });
+                scope_.scope.insert(
+                    p,
+                    Binding {
+                        getter: Some(Element::Prefix(import.library, p)),
+                        setter: None,
+                        ambiguous: false,
+                    },
+                );
             }
             None => {
                 for (sym, b) in filtered_ {
                     if lib.declared.contains_key(&sym) {
                         continue;
                     }
-                    merge_binding_with(scope_.scope.entry(sym).or_default(), b, &|e| sdk_element(program, e));
+                    merge_binding_with(scope_.scope.entry(sym).or_default(), b, &|e| {
+                        sdk_element(program, e)
+                    });
                 }
             }
         }
@@ -1207,7 +1326,17 @@ fn create_extension_element(
         fields: Vec::new(),
     };
 
-    extension_members(pools, ast, ext_id, lib_id, unit_id, ext, &mut ext_elem, false, interner);
+    extension_members(
+        pools,
+        ast,
+        ext_id,
+        lib_id,
+        unit_id,
+        ext,
+        &mut ext_elem,
+        false,
+        interner,
+    );
     pools.extensions.push(ext_elem);
     ext_id
 }
@@ -1229,7 +1358,10 @@ fn merge_extension_patch(
         ExtensionElement {
             name: None,
             library: LibraryId(0),
-            decl: DeclRef { unit: unit_id, decl: ast::DeclId(0) },
+            decl: DeclRef {
+                unit: unit_id,
+                decl: ast::DeclId(0),
+            },
             type_params: Vec::new(),
             on: (unit_id, ext.on),
             instance_members: HashMap::new(),
@@ -1238,7 +1370,9 @@ fn merge_extension_patch(
         },
     );
     let lib_id = elem.library;
-    extension_members(pools, ast, ext_id, lib_id, unit_id, ext, &mut elem, is_patch, interner);
+    extension_members(
+        pools, ast, ext_id, lib_id, unit_id, ext, &mut elem, is_patch, interner,
+    );
     pools.extensions[ext_id.0 as usize] = elem;
 }
 
@@ -1309,7 +1443,11 @@ fn extension_members(
                     let old_ = members_.insert(key, fn_id);
                     if is_patch && let Some(old_) = old_ {
                         pools.functions[old_.0 as usize].patched_by = Some(fn_id);
-                        pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[old_.0 as usize].public_declaration.unwrap_or(old_));
+                        pools.functions[fn_id.0 as usize].public_declaration = Some(
+                            pools.functions[old_.0 as usize]
+                                .public_declaration
+                                .unwrap_or(old_),
+                        );
                     }
                 }
             }
@@ -1348,7 +1486,8 @@ fn extension_members(
                         ext_elem.instance_members.insert(var.name.sym, g);
                         let s = if !vars.final_ && !vars.const_ {
                             let s = accessor(pools);
-                            let key = interner.intern(&format!("{}_=", interner.resolve(var.name.sym)));
+                            let key =
+                                interner.intern(&format!("{}_=", interner.resolve(var.name.sym)));
                             ext_elem.instance_members.insert(key, s);
                             Some(s)
                         } else {
@@ -1380,7 +1519,6 @@ fn extension_members(
             _ => {}
         }
     }
-
 }
 
 fn create_extension_type_element(
@@ -1543,7 +1681,11 @@ pub(crate) fn extract_members(
             MemberKind::Constructor(ctor) => {
                 // `C.new(…)` declares the unnamed constructor (the name `new` is the
                 // element's `''`).
-                let ctor_sym = ctor.name.map(|n| n.sym).filter(|s| interner.resolve(*s) != "new").unwrap_or(empty_sym);
+                let ctor_sym = ctor
+                    .name
+                    .map(|n| n.sym)
+                    .filter(|s| interner.resolve(*s) != "new")
+                    .unwrap_or(empty_sym);
                 let fn_id = FunctionElementId(pools.functions.len() as u32);
                 pools.functions.push(FunctionElement {
                     name: ctor_sym,
@@ -1730,7 +1872,11 @@ fn merge_class_patch(
                     if let Some(&existing_fn_id) = target_map.get(&key) {
                         // A member replaces an external member
                         pools.functions[existing_fn_id.0 as usize].patched_by = Some(fn_id);
-                        pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[existing_fn_id.0 as usize].public_declaration.unwrap_or(existing_fn_id));
+                        pools.functions[fn_id.0 as usize].public_declaration = Some(
+                            pools.functions[existing_fn_id.0 as usize]
+                                .public_declaration
+                                .unwrap_or(existing_fn_id),
+                        );
                         target_map.insert(key, fn_id);
                     } else {
                         // A new member is added
@@ -1741,7 +1887,11 @@ fn merge_class_patch(
             MemberKind::Constructor(ctor) => {
                 // `C.new(…)` declares the unnamed constructor (the name `new` is the
                 // element's `''`).
-                let ctor_sym = ctor.name.map(|n| n.sym).filter(|s| interner.resolve(*s) != "new").unwrap_or(empty_sym);
+                let ctor_sym = ctor
+                    .name
+                    .map(|n| n.sym)
+                    .filter(|s| interner.resolve(*s) != "new")
+                    .unwrap_or(empty_sym);
                 let fn_id = FunctionElementId(pools.functions.len() as u32);
                 pools.functions.push(FunctionElement {
                     name: ctor_sym,
@@ -1765,7 +1915,11 @@ fn merge_class_patch(
                 let constructors = &mut pools.classes[class_id.0 as usize].constructors;
                 if let Some(&existing_ctor_id) = constructors.get(&ctor_sym) {
                     pools.functions[existing_ctor_id.0 as usize].patched_by = Some(fn_id);
-                    pools.functions[fn_id.0 as usize].public_declaration = Some(pools.functions[existing_ctor_id.0 as usize].public_declaration.unwrap_or(existing_ctor_id));
+                    pools.functions[fn_id.0 as usize].public_declaration = Some(
+                        pools.functions[existing_ctor_id.0 as usize]
+                            .public_declaration
+                            .unwrap_or(existing_ctor_id),
+                    );
                 }
                 constructors.insert(ctor_sym, fn_id);
             }
@@ -1798,7 +1952,16 @@ fn merge_class_patch(
                     enum_constants: Vec::new(),
                     representation: None,
                 };
-                extract_members(pools, ast, &mut tmp, class_id, unit_id, &[mid], empty_sym, interner);
+                extract_members(
+                    pools,
+                    ast,
+                    &mut tmp,
+                    class_id,
+                    unit_id,
+                    &[mid],
+                    empty_sym,
+                    interner,
+                );
                 let c = &mut pools.classes[idx];
                 c.instance_members = tmp.instance_members;
                 c.shadowed_instance_members = tmp.shadowed_instance_members;
@@ -1848,7 +2011,9 @@ fn sdk_element(program: &Program, el: Element) -> bool {
 /// "Imports"): if one comes from a system library (`dart:`) and the other
 /// does not, the system one is hidden — there is no ambiguity.
 fn merge_binding_with(entry: &mut Binding, incoming: Binding, from_sdk: &dyn Fn(Element) -> bool) {
-    let join = |current: &mut Option<Element>, new_: Option<Element>, ambiguous: &mut bool| match (*current, new_) {
+    let join = |current: &mut Option<Element>, new_: Option<Element>, ambiguous: &mut bool| match (
+        *current, new_,
+    ) {
         (None, n) => *current = n,
         (Some(a), Some(n)) if a != n => match (from_sdk(a), from_sdk(n)) {
             (true, false) => *current = Some(n),
@@ -1925,9 +2090,15 @@ fn typedef_class(program: &Program, tid: TypedefId, depth: u32) -> Option<ClassI
     }
     let t = program.typedef(tid);
     let ast = &program.unit(t.decl.unit).ast;
-    let ast::DeclKind::Typedef(d) = &ast.decl(t.decl.decl).kind else { return None };
-    let ast::TypedefKind::Alias(ty) = d.kind else { return None };
-    let ast::TypeKind::Named { name, .. } = &ast.ty(ty).kind else { return None };
+    let ast::DeclKind::Typedef(d) = &ast.decl(t.decl.decl).kind else {
+        return None;
+    };
+    let ast::TypedefKind::Alias(ty) = d.kind else {
+        return None;
+    };
+    let ast::TypeKind::Named { name, .. } = &ast.ty(ty).kind else {
+        return None;
+    };
     let b = match &name[..] {
         [n] => program.lookup_in_unit(t.decl.unit, n.sym),
         [p, n] => program.lookup_prefixed_in_unit(t.decl.unit, p.sym, n.sym),

@@ -13,7 +13,9 @@ pub(super) fn produce(
     for cache in &module.arc_rti_caches {
         let declarations: Vec<_> = module.globals.iter().filter(|g| &g.2 == cache).collect();
         if declarations.len() != 1 || declarations[0].0 != 0 || declarations[0].1 != Type::I64 {
-            return Err(format!("RTI cache without a single native declaration: {cache}"));
+            return Err(format!(
+                "RTI cache without a single native declaration: {cache}"
+            ));
         }
         let flag = format!("{cache}$ok");
         if module.globals.iter().any(|g| g.2 == flag)
@@ -36,8 +38,7 @@ pub(super) fn produce(
             // to use its symbol as a function address/opaque publication.
             let mut address = false;
             super::super::operands::operands(inst, &mut |o| {
-                address |=
-                    matches!(o, Operand::Constant(Constant::Function(s)) if globals.contains_key(s));
+                address |= matches!(o, Operand::Constant(Constant::Function(s)) if globals.contains_key(s));
             });
             if matches!(inst, Instruction::Const(Constant::Function(s)) if globals.contains_key(s))
                 || address
@@ -70,10 +71,7 @@ pub(super) fn produce(
                         }
                         _ => false,
                     };
-                    if *dest != globals[sym_name]
-                        || *ty != Type::Void
-                        || root.is_some()
-                        || !native
+                    if *dest != globals[sym_name] || *ty != Type::Void || root.is_some() || !native
                     {
                         return Err(format!(
                             "RTI cache with a write without a native origin: {sym_name}"
@@ -106,12 +104,14 @@ pub(super) fn produce(
         let mut address = false;
         for b in &f.blocks {
             super::super::operands::terminator_operands(&b.terminator, &mut |o| {
-                address |=
-                    matches!(o, Operand::Constant(Constant::Function(s)) if globals.contains_key(s));
+                address |= matches!(o, Operand::Constant(Constant::Function(s)) if globals.contains_key(s));
             });
         }
         if address {
-            return Err(format!("RTI cache published in the terminator in {}", f.symbol));
+            return Err(format!(
+                "RTI cache published in the terminator in {}",
+                f.symbol
+            ));
         }
     }
     *plans = new_set;
@@ -120,7 +120,10 @@ pub(super) fn produce(
 
 // Current bodies and already audited caches, without assuming a symbol prefix.
 // The conclusion does not cover reload nor functions with implicit Dart context/exit.
-pub(super) fn preserve_fields(m: &Module, plans: &HashMap<String, DartFunctionPlan>) -> HashSet<String> {
+pub(super) fn preserve_fields(
+    m: &Module,
+    plans: &HashMap<String, DartFunctionPlan>,
+) -> HashSet<String> {
     let mut globals = HashMap::new();
     for name_str in &m.arc_rti_caches {
         globals.insert(name_str.clone(), Type::I64);
@@ -130,11 +133,21 @@ pub(super) fn preserve_fields(m: &Module, plans: &HashMap<String, DartFunctionPl
     let mut parents: HashMap<String, Vec<String>> = HashMap::new();
     let mut queue = std::collections::VecDeque::new();
     for f in &m.functions {
-        if !f.params.is_empty() || f.return_ty != Type::I64
-            || crate::llvm::LlvmEmitter::requires_explicit_context(f, plans.get(&f.symbol).map(|p| &p.tables)) {
+        if !f.params.is_empty()
+            || f.return_ty != Type::I64
+            || crate::llvm::LlvmEmitter::requires_explicit_context(
+                f,
+                plans.get(&f.symbol).map(|p| &p.tables),
+            )
+        {
             continue;
         }
-        let types: HashMap<_, _> = f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t)).collect();
+        let types: HashMap<_, _> = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .map(|(v, _, t)| (*v, *t))
+            .collect();
         let numeric = |o: &Operand| match o {
             Operand::Val(v) => matches!(types.get(v), Some(Type::I64 | Type::I8 | Type::I1)),
             Operand::Constant(Constant::Int(_) | Constant::Bool(_)) => true,
@@ -151,35 +164,70 @@ pub(super) fn preserve_fields(m: &Module, plans: &HashMap<String, DartFunctionPl
             exit && b.instructions.iter().all(|(_, inst, ty)| match inst {
                 Instruction::Const(Constant::Int(_)) => *ty == Type::I64,
                 Instruction::Const(Constant::Bool(_)) => *ty == Type::I1,
-                Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => *ty == Type::Ref,
+                Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => {
+                    *ty == Type::Ref
+                }
                 Instruction::ICmp(_, a, b) => *ty == Type::I1 && numeric(a) && numeric(b),
-                Instruction::Phi { incoming, .. } => matches!(ty, Type::I64 | Type::I8 | Type::I1)
-                    && incoming.iter().all(|(_, o)| numeric(o)),
-                Instruction::LoadGlobal { symbol: sym_name, ty: read_done } => globals.get(sym_name) == Some(read_done) && ty == read_done,
-                Instruction::StoreGlobal { symbol: sym_name, ty: stored, root, val } => globals.get(sym_name) == Some(stored)
-                    && *ty == Type::Void && root.is_none() && numeric(val),
-                Instruction::CallRuntime { name, args, ret_ty } => name == "dartforge_rti_recipe"
-                    && *ty == Type::I64 && *ret_ty == Type::I64 && args.len() == 1 && args[0].1 == Type::Ref,
-                Instruction::CallStatic { symbol, args, ret_ty } => {
+                Instruction::Phi { incoming, .. } => {
+                    matches!(ty, Type::I64 | Type::I8 | Type::I1)
+                        && incoming.iter().all(|(_, o)| numeric(o))
+                }
+                Instruction::LoadGlobal {
+                    symbol: sym_name,
+                    ty: read_done,
+                } => globals.get(sym_name) == Some(read_done) && ty == read_done,
+                Instruction::StoreGlobal {
+                    symbol: sym_name,
+                    ty: stored,
+                    root,
+                    val,
+                } => {
+                    globals.get(sym_name) == Some(stored)
+                        && *ty == Type::Void
+                        && root.is_none()
+                        && numeric(val)
+                }
+                Instruction::CallRuntime { name, args, ret_ty } => {
+                    name == "dartforge_rti_recipe"
+                        && *ty == Type::I64
+                        && *ret_ty == Type::I64
+                        && args.len() == 1
+                        && args[0].1 == Type::Ref
+                }
+                Instruction::CallStatic {
+                    symbol,
+                    args,
+                    ret_ty,
+                } => {
                     dependencies.insert(symbol.clone());
                     args.is_empty() && *ty == Type::I64 && *ret_ty == Type::I64
                 }
                 _ => false,
             })
         });
-        if !closed { continue; }
-        if dependencies.is_empty() { queue.push_back(f.symbol.clone()); }
+        if !closed {
+            continue;
+        }
+        if dependencies.is_empty() {
+            queue.push_back(f.symbol.clone());
+        }
         pending_set.insert(f.symbol.clone(), dependencies.len());
-        for dep in dependencies { parents.entry(dep).or_default().push(f.symbol.clone()); }
+        for dep in dependencies {
+            parents.entry(dep).or_default().push(f.symbol.clone());
+        }
     }
     let mut safe_set = HashSet::new();
     while let Some(s) = queue.pop_front() {
-        if !safe_set.insert(s.clone()) { continue; }
+        if !safe_set.insert(s.clone()) {
+            continue;
+        }
         if let Some(callers) = parents.get(&s) {
             for caller in callers {
                 let n = pending_set.get_mut(caller).unwrap();
                 *n -= 1;
-                if *n == 0 { queue.push_back(caller.clone()); }
+                if *n == 0 {
+                    queue.push_back(caller.clone());
+                }
             }
         }
     }
@@ -192,7 +240,10 @@ pub(super) fn preserve_fields(m: &Module, plans: &HashMap<String, DartFunctionPl
 // A constant or arithmetic is not enough: preserving fields does not prove the
 // origin of the ID. Every I64 cache write in the module must come from the recipe;
 // without that, no getter is accepted. Does not cover JIT reload.
-pub(super) fn getters_rti(m: &Module, plans: &HashMap<String, DartFunctionPlan>) -> HashSet<String> {
+pub(super) fn getters_rti(
+    m: &Module,
+    plans: &HashMap<String, DartFunctionPlan>,
+) -> HashSet<String> {
     let caches: HashSet<_> = m.arc_rti_caches.iter().collect();
     let native_writes = m.functions.iter().all(|f| {
         let definitions: HashMap<_, _> = f.blocks.iter().flat_map(|b| &b.instructions)
@@ -211,21 +262,34 @@ pub(super) fn getters_rti(m: &Module, plans: &HashMap<String, DartFunctionPlan>)
     let functions: HashMap<_, _> = m.functions.iter().map(|f| (f.symbol.as_str(), f)).collect();
     let mut accepted = preserve_fields(m, plans);
     loop {
-        let rejected: Vec<String> = accepted.iter().filter(|s| {
-            let Some(f) = functions.get(s.as_str()) else { return true };
-            let definitions: HashMap<_, _> = f.blocks.iter().flat_map(|b| &b.instructions)
-                .map(|(v, i, t)| (*v, (i, *t))).collect();
-            !f.blocks.iter().all(|b| match &b.terminator {
-                Terminator::Return(Some(Operand::Val(v))) =>
-                    rti_origin(*v, &definitions, &caches, &accepted, &mut HashSet::new()),
-                Terminator::Return(_) => false,
-                _ => true,
+        let rejected: Vec<String> = accepted
+            .iter()
+            .filter(|s| {
+                let Some(f) = functions.get(s.as_str()) else {
+                    return true;
+                };
+                let definitions: HashMap<_, _> = f
+                    .blocks
+                    .iter()
+                    .flat_map(|b| &b.instructions)
+                    .map(|(v, i, t)| (*v, (i, *t)))
+                    .collect();
+                !f.blocks.iter().all(|b| match &b.terminator {
+                    Terminator::Return(Some(Operand::Val(v))) => {
+                        rti_origin(*v, &definitions, &caches, &accepted, &mut HashSet::new())
+                    }
+                    Terminator::Return(_) => false,
+                    _ => true,
+                })
             })
-        }).cloned().collect();
+            .cloned()
+            .collect();
         if rejected.is_empty() {
             return accepted;
         }
-        for s in rejected { accepted.remove(&s); }
+        for s in rejected {
+            accepted.remove(&s);
+        }
     }
 }
 
@@ -333,24 +397,64 @@ mod tests {
         let base = module();
         for case in 0..7 {
             let mut m = module();
-            m.functions.push(Function { symbol: "ponte".into(), name: "ponte".into(), debug_info: None,
-                params: vec![], return_ty: Type::I64, blocks: vec![BasicBlock { id: BlockId(0),
-                    instructions: vec![(ValueId(0), Instruction::CallStatic { symbol: "getter".into(), args: vec![], ret_ty: Type::I64 }, Type::I64)],
-                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] });
-            let mut plans = HashMap::from([("getter".into(), DartFunctionPlan::default()), ("ponte".into(), DartFunctionPlan::default())]);
+            m.functions.push(Function {
+                symbol: "ponte".into(),
+                name: "ponte".into(),
+                debug_info: None,
+                params: vec![],
+                return_ty: Type::I64,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(0),
+                        Instruction::CallStatic {
+                            symbol: "getter".into(),
+                            args: vec![],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+                }],
+            });
+            let mut plans = HashMap::from([
+                ("getter".into(), DartFunctionPlan::default()),
+                ("ponte".into(), DartFunctionPlan::default()),
+            ]);
             match case {
-                1 => m.functions[0].blocks[0].instructions.push((ValueId(9), Instruction::CallRuntime {
-                    name: "dartforge_print_handle".into(), args: vec![(Operand::Val(ValueId(0)), Type::Ref)], ret_ty: Type::Void,
-                }, Type::Void)),
-                2 => m.functions[0].params.push((ValueId(9), "receiver".into(), Type::Ref)),
+                1 => m.functions[0].blocks[0].instructions.push((
+                    ValueId(9),
+                    Instruction::CallRuntime {
+                        name: "dartforge_print_handle".into(),
+                        args: vec![(Operand::Val(ValueId(0)), Type::Ref)],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                )),
+                2 => m.functions[0]
+                    .params
+                    .push((ValueId(9), "receiver".into(), Type::Ref)),
                 3 => plans.get_mut("getter").unwrap().tables.checks_stack = true,
                 4 => m.arc_rti_caches.clear(),
-                5 => m.functions[0].blocks[0].instructions.push((ValueId(9), Instruction::CallStatic {
-                    symbol: "ponte".into(), args: vec![], ret_ty: Type::I64,
-                }, Type::I64)),
-                6 => m.functions[0].blocks[0].instructions.push((ValueId(9), Instruction::StoreGlobal {
-                    symbol: "objeto_global".into(), val: Operand::Val(ValueId(0)), ty: Type::Ref, root: Some(1),
-                }, Type::Void)),
+                5 => m.functions[0].blocks[0].instructions.push((
+                    ValueId(9),
+                    Instruction::CallStatic {
+                        symbol: "ponte".into(),
+                        args: vec![],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                )),
+                6 => m.functions[0].blocks[0].instructions.push((
+                    ValueId(9),
+                    Instruction::StoreGlobal {
+                        symbol: "objeto_global".into(),
+                        val: Operand::Val(ValueId(0)),
+                        ty: Type::Ref,
+                        root: Some(1),
+                    },
+                    Type::Void,
+                )),
                 _ => {}
             }
             let safe_set = super::preserve_fields(&m, &plans);
@@ -364,43 +468,109 @@ mod tests {
     fn rti_getters_require_cache_or_recipe_return_and_native_writers() {
         for case in 0..8 {
             let mut m = module();
-            m.functions.push(Function { symbol: "ponte".into(), name: "ponte".into(), debug_info: None,
-                params: vec![], return_ty: Type::I64, blocks: vec![BasicBlock { id: BlockId(0),
-                    instructions: vec![(ValueId(0), Instruction::CallStatic { symbol: "getter".into(), args: vec![], ret_ty: Type::I64 }, Type::I64)],
-                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }] });
-            let plans = HashMap::from([("getter".into(), DartFunctionPlan::default()), ("ponte".into(), DartFunctionPlan::default())]);
+            m.functions.push(Function {
+                symbol: "ponte".into(),
+                name: "ponte".into(),
+                debug_info: None,
+                params: vec![],
+                return_ty: Type::I64,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(0),
+                        Instruction::CallStatic {
+                            symbol: "getter".into(),
+                            args: vec![],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+                }],
+            });
+            let plans = HashMap::from([
+                ("getter".into(), DartFunctionPlan::default()),
+                ("ponte".into(), DartFunctionPlan::default()),
+            ]);
             let getter = &mut m.functions[0];
             let fixed = |v: u32| (ValueId(v), Instruction::Const(Constant::Int(42)), Type::I64);
-            let phi = |a: Operand| (ValueId(8), Instruction::Phi { incoming: vec![(BlockId(0), Operand::Val(ValueId(4))), (BlockId(0), a)], ty: Type::I64 }, Type::I64);
+            let phi = |a: Operand| {
+                (
+                    ValueId(8),
+                    Instruction::Phi {
+                        incoming: vec![(BlockId(0), Operand::Val(ValueId(4))), (BlockId(0), a)],
+                        ty: Type::I64,
+                    },
+                    Type::I64,
+                )
+            };
             match case {
                 1 => {
                     getter.blocks[0].instructions.push(fixed(9));
-                    getter.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(9))));
+                    getter.blocks[0].terminator =
+                        Terminator::Return(Some(Operand::Val(ValueId(9))));
                 }
-                2 => getter.blocks[0].terminator = Terminator::Return(Some(Operand::Constant(Constant::Int(42)))),
+                2 => {
+                    getter.blocks[0].terminator =
+                        Terminator::Return(Some(Operand::Constant(Constant::Int(42))))
+                }
                 3 => {
                     getter.blocks[0].instructions.push(fixed(9));
-                    getter.blocks[0].instructions.push(phi(Operand::Val(ValueId(9))));
-                    getter.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(8))));
+                    getter.blocks[0]
+                        .instructions
+                        .push(phi(Operand::Val(ValueId(9))));
+                    getter.blocks[0].terminator =
+                        Terminator::Return(Some(Operand::Val(ValueId(8))));
                 }
                 4 => {
-                    getter.blocks[0].instructions.push(phi(Operand::Val(ValueId(1))));
-                    getter.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(8))));
+                    getter.blocks[0]
+                        .instructions
+                        .push(phi(Operand::Val(ValueId(1))));
+                    getter.blocks[0].terminator =
+                        Terminator::Return(Some(Operand::Val(ValueId(8))));
                 }
-                5 => m.functions.push(Function { symbol: "estranho".into(), name: "estranho".into(), debug_info: None,
-                    params: vec![], return_ty: Type::Void, blocks: vec![BasicBlock { id: BlockId(0),
-                        instructions: vec![(ValueId(0), Instruction::StoreGlobal { symbol: "cache_sem_prefixo".into(),
-                            val: Operand::Constant(Constant::Int(42)), ty: Type::I64, root: None }, Type::Void)],
-                        terminator: Terminator::Return(None) }] }),
+                5 => m.functions.push(Function {
+                    symbol: "estranho".into(),
+                    name: "estranho".into(),
+                    debug_info: None,
+                    params: vec![],
+                    return_ty: Type::Void,
+                    blocks: vec![BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![(
+                            ValueId(0),
+                            Instruction::StoreGlobal {
+                                symbol: "cache_sem_prefixo".into(),
+                                val: Operand::Constant(Constant::Int(42)),
+                                ty: Type::I64,
+                                root: None,
+                            },
+                            Type::Void,
+                        )],
+                        terminator: Terminator::Return(None),
+                    }],
+                }),
                 6 => m.arc_rti_caches.clear(),
-                7 => if let Instruction::CallStatic { args, .. } = &mut m.functions[1].blocks[0].instructions[0].1 {
-                    args.push(Operand::Constant(Constant::Int(0)));
-                },
+                7 => {
+                    if let Instruction::CallStatic { args, .. } =
+                        &mut m.functions[1].blocks[0].instructions[0].1
+                    {
+                        args.push(Operand::Constant(Constant::Int(0)));
+                    }
+                }
                 _ => {}
             }
             let accepted = super::getters_rti(&m, &plans);
-            assert_eq!(accepted.contains("getter"), matches!(case, 0 | 4 | 7), "caso {case}");
-            assert_eq!(accepted.contains("ponte"), matches!(case, 0 | 4), "caso {case}");
+            assert_eq!(
+                accepted.contains("getter"),
+                matches!(case, 0 | 4 | 7),
+                "caso {case}"
+            );
+            assert_eq!(
+                accepted.contains("ponte"),
+                matches!(case, 0 | 4),
+                "caso {case}"
+            );
         }
     }
 

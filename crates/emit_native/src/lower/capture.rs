@@ -126,10 +126,7 @@ impl<'x, 'a> Walk<'x, 'a> {
             offset: name.span.start,
             prof: self.prof,
         };
-        self.scopes
-            .last_mut()
-            .expect("scope")
-            .insert(name.sym, d);
+        self.scopes.last_mut().expect("scope").insert(name.sym, d);
     }
 
     fn lookup(&self, sym: SymbolId) -> Option<Decl> {
@@ -160,7 +157,8 @@ impl<'x, 'a> Walk<'x, 'a> {
             }
             None => {
                 if self.outside_lates.contains(&sym) {
-                    self.discarded_set.extend(self.stack.iter().flatten().copied());
+                    self.discarded_set
+                        .extend(self.stack.iter().flatten().copied());
                 }
                 if !self.free_set.contains(&sym) {
                     self.free_set.push(sym);
@@ -283,7 +281,9 @@ impl<'x, 'a> Walk<'x, 'a> {
                 let params = f.parameters.as_deref().unwrap_or(&[]);
                 if !f.type_params.is_empty()
                     || f.modifier != ast::AsyncModifier::None
-                    || params.iter().any(|p| p.kind != ast::ParameterKind::Required || p.default_value.is_some())
+                    || params.iter().any(|p| {
+                        p.kind != ast::ParameterKind::Required || p.default_value.is_some()
+                    })
                     || !matches!(f.body, FunctionBody::Block(_) | FunctionBody::Expression(_))
                 {
                     self.discarded_set.insert(*fid);
@@ -442,7 +442,8 @@ impl<'x, 'a> Walk<'x, 'a> {
                 } else {
                     match self.lookup(name.sym) {
                         Some(d) => {
-                            let crossed = self.stack[(d.prof as usize).min(self.stack.len())..].to_vec();
+                            let crossed =
+                                self.stack[(d.prof as usize).min(self.stack.len())..].to_vec();
                             if self.lates.contains(&d.offset) {
                                 self.discarded_set.extend(crossed.iter().flatten().copied());
                             }
@@ -720,13 +721,20 @@ pub fn analyze_with(
         let mut p = Walk::new(ctx, unit, ast);
         p.outside_lates = outside_lates.clone();
         p.walk(&root);
-        let mut directs: HashSet<FunctionId> =
-            p.local_functions.values().copied().filter(|f| !p.discarded_set.contains(f)).collect();
+        let mut directs: HashSet<FunctionId> = p
+            .local_functions
+            .values()
+            .copied()
+            .filter(|f| !p.discarded_set.contains(f))
+            .collect();
         loop {
             let before = directs.len();
             for (f, target, crossed) in &p.refs {
                 if directs.contains(f)
-                    && !(*target && crossed.iter().all(|g| g.is_some_and(|g| directs.contains(&g))))
+                    && !(*target
+                        && crossed
+                            .iter()
+                            .all(|g| g.is_some_and(|g| directs.contains(&g))))
                 {
                     directs.remove(f);
                 }
@@ -743,7 +751,11 @@ pub fn analyze_with(
     p.directs = Some(directs.clone());
     p.walk(&root);
     let cells: HashSet<usize> = p.captured.intersection(&p.assigned).copied().collect();
-    Captures { cells, assigned: p.assigned, directs }
+    Captures {
+        cells,
+        assigned: p.assigned,
+        directs,
+    }
 }
 
 impl Walk<'_, '_> {
@@ -754,9 +766,8 @@ impl Walk<'_, '_> {
         for i in root.initializers {
             match i {
                 ast::Initializer::Field { value, .. } => self.expr(*value),
-                ast::Initializer::Super { arguments, .. } | ast::Initializer::Redirect { arguments, .. } => {
-                    self.arguments(arguments)
-                }
+                ast::Initializer::Super { arguments, .. }
+                | ast::Initializer::Redirect { arguments, .. } => self.arguments(arguments),
                 ast::Initializer::Assert {
                     condition, message, ..
                 } => {
@@ -775,7 +786,12 @@ impl Walk<'_, '_> {
 
 /// The free variables of the nested function `fid` (in order of first
 /// reference) and whether it uses `this` explicitly.
-pub fn free_set(ctx: &Context, unit: UnitId, ast: &ast::Ast, fid: FunctionId) -> (Vec<SymbolId>, bool) {
+pub fn free_set(
+    ctx: &Context,
+    unit: UnitId,
+    ast: &ast::Ast,
+    fid: FunctionId,
+) -> (Vec<SymbolId>, bool) {
     let mut p = Walk::new(ctx, unit, ast);
     let f = ast.function(fid);
     if let Some(params) = &f.parameters {
@@ -789,7 +805,13 @@ pub fn free_set(ctx: &Context, unit: UnitId, ast: &ast::Ast, fid: FunctionId) ->
 /// (assignment, `++`/`--`, compound assignment, pattern; also from inside
 /// nested closures): what decides whether a `for` loop is counted
 /// (`statements.rs`).
-pub fn stored_from_outside(ctx: &Context, unit: UnitId, ast: &ast::Ast, body: StmtId, exprs: &[ExprId]) -> HashSet<SymbolId> {
+pub fn stored_from_outside(
+    ctx: &Context,
+    unit: UnitId,
+    ast: &ast::Ast,
+    body: StmtId,
+    exprs: &[ExprId],
+) -> HashSet<SymbolId> {
     let mut p = Walk::new(ctx, unit, ast);
     p.stmt(body);
     for &e in exprs {

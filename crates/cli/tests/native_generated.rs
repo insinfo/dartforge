@@ -13,19 +13,27 @@ use std::process::Command;
 fn case() -> Option<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/builders/i18n");
     if !root.join(".dart_tool/package_config.json").is_file() {
-        eprintln!("no package_config.json in {}: run `dart pub get` in the case", root.display());
+        eprintln!(
+            "no package_config.json in {}: run `dart pub get` in the case",
+            root.display()
+        );
         return None;
     }
     // Nothing materialized beforehand: neither the `.i18n.dart` in `lib/`, nor
     // the `build_runner` tree.
     for p in ["lib/mensagens.i18n.dart", ".dart_tool/build"] {
-        assert!(!root.join(p).exists(), "{p} exists: the test requires generation in memory only");
+        assert!(
+            !root.join(p).exists(),
+            "{p} exists: the test requires generation in memory only"
+        );
     }
     Some(root)
 }
 
 fn expected(root: &Path) -> String {
-    std::fs::read_to_string(root.join("oraculo/saida.txt")).unwrap().replace("\r\n", "\n")
+    std::fs::read_to_string(root.join("oraculo/saida.txt"))
+        .unwrap()
+        .replace("\r\n", "\n")
 }
 
 #[test]
@@ -41,10 +49,17 @@ fn compile_native_generates_the_sources_through_the_engine() {
         .arg(&exe)
         .output()
         .expect("CLI");
-    assert!(c.status.success(), "compile-native: {}", String::from_utf8_lossy(&c.stderr));
+    assert!(
+        c.status.success(),
+        "compile-native: {}",
+        String::from_utf8_lossy(&c.stderr)
+    );
     let s = Command::new(&exe).output().expect("executable");
     let _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(String::from_utf8_lossy(&s.stdout).replace("\r\n", "\n"), expected(&root));
+    assert_eq!(
+        String::from_utf8_lossy(&s.stdout).replace("\r\n", "\n"),
+        expected(&root)
+    );
 }
 
 #[cfg(feature = "jit")]
@@ -56,6 +71,13 @@ fn run_generates_the_sources_through_the_engine() {
         .arg(root.join("bin/main.dart"))
         .output()
         .expect("CLI");
-    assert!(s.status.success(), "run: {}", String::from_utf8_lossy(&s.stderr));
-    assert_eq!(String::from_utf8_lossy(&s.stdout).replace("\r\n", "\n"), expected(&root));
+    assert!(
+        s.status.success(),
+        "run: {}",
+        String::from_utf8_lossy(&s.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&s.stdout).replace("\r\n", "\n"),
+        expected(&root)
+    );
 }

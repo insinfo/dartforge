@@ -48,20 +48,39 @@ pub(super) fn provisional_summary(f: &Function, may_fail: bool) -> DartFunctionC
 /// The summary of a Dart function of another prepared image, from the
 /// `CallStatic` call of `f`: the representation of each operand (as the emitter
 /// declares it), the return of the call and possible failure.
-pub(super) fn external_summary(f: &Function, symbol: &str, args: &[Operand], ret: Type) -> DartFunctionContract {
-    let types: HashMap<ValueId, Type> = f.params.iter().map(|(v, _, t)| (*v, *t))
-        .chain(f.blocks.iter().flat_map(|b| &b.instructions).map(|(v, _, t)| (*v, *t)))
+pub(super) fn external_summary(
+    f: &Function,
+    symbol: &str,
+    args: &[Operand],
+    ret: Type,
+) -> DartFunctionContract {
+    let types: HashMap<ValueId, Type> = f
+        .params
+        .iter()
+        .map(|(v, _, t)| (*v, *t))
+        .chain(
+            f.blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .map(|(v, _, t)| (*v, *t)),
+        )
         .collect();
     let ty = |o: &Operand| match o {
         Operand::Val(v) => types.get(v).copied().unwrap_or(Type::I64),
         Operand::Constant(Constant::Int(_) | Constant::Function(_)) => Type::I64,
         Operand::Constant(Constant::Double(_)) => Type::F64,
         Operand::Constant(Constant::Bool(_)) => Type::I1,
-        Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
+        Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => {
+            Type::Ref
+        }
     };
     DartFunctionContract {
         symbol: symbol.to_string(),
-        parameters: args.iter().map(ty).map(|t| if t == Type::Void { Type::I64 } else { t }).collect(),
+        parameters: args
+            .iter()
+            .map(ty)
+            .map(|t| if t == Type::Void { Type::I64 } else { t })
+            .collect(),
         ret,
         may_fail: true,
     }
@@ -70,18 +89,32 @@ pub(super) fn external_summary(f: &Function, symbol: &str, args: &[Operand], ret
 /// The external summaries ([`external_summary`]) of the direct calls of
 /// `functions` to symbols outside `locals`; calls of the same symbol with
 /// different signatures are an error.
-pub(super) fn external_summaries(functions: &[Function], locals: &HashSet<String>) -> Result<Vec<DartFunctionContract>, String> {
+pub(super) fn external_summaries(
+    functions: &[Function],
+    locals: &HashSet<String>,
+) -> Result<Vec<DartFunctionContract>, String> {
     let mut by_symbol: HashMap<String, DartFunctionContract> = HashMap::new();
     for f in functions {
         for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            let Instruction::CallStatic { symbol, args, ret_ty } = inst else { continue };
+            let Instruction::CallStatic {
+                symbol,
+                args,
+                ret_ty,
+            } = inst
+            else {
+                continue;
+            };
             if locals.contains(symbol) {
                 continue;
             }
             let r = external_summary(f, symbol, args, *ret_ty);
             match by_symbol.get(symbol) {
-                Some(previous) if (&previous.parameters, previous.ret) != (&r.parameters, r.ret) => {
-                    return Err(format!("external callee with divergent signatures: {symbol}"));
+                Some(previous)
+                    if (&previous.parameters, previous.ret) != (&r.parameters, r.ret) =>
+                {
+                    return Err(format!(
+                        "external callee with divergent signatures: {symbol}"
+                    ));
                 }
                 Some(_) => {}
                 None => {
@@ -359,8 +392,7 @@ fn produce_calls(
             let compatible = operand_has_type(op, *expected, &types)
                 && match op {
                     Operand::Val(arg) => {
-                        *expected == Type::Ref
-                            || new_classes.get(arg) == Some(&Ownership::Trivial)
+                        *expected == Type::Ref || new_classes.get(arg) == Some(&Ownership::Trivial)
                     }
                     Operand::Constant(_) => true,
                 };
@@ -739,7 +771,13 @@ mod tests {
             ret_ty: Type::Ref,
         };
         let mut classes = HashMap::new();
-        produce_dart_calls(&caller, std::slice::from_ref(&summary), &mut classes, &mut plan).unwrap();
+        produce_dart_calls(
+            &caller,
+            std::slice::from_ref(&summary),
+            &mut classes,
+            &mut plan,
+        )
+        .unwrap();
         assert_eq!(classes[&ValueId(1)], Ownership::Owned);
         assert_eq!(
             insert_arc_dart_exits(

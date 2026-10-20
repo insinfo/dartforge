@@ -2,11 +2,13 @@
 //! parameters, function stack (for `return`/`yield`), cascade receivers and
 //! the current flow model.
 
-use super::flow::Flow;
 use super::BodyInferrer;
+use super::flow::Flow;
 use crate::resolved::LocalId;
 use crate::table::{TypeId, TypeParamId};
-use dartforge_elements::model::{ClassId, ExtensionId, FunctionElementId, LibraryId, UnitId, VariableId};
+use dartforge_elements::model::{
+    ClassId, ExtensionId, FunctionElementId, LibraryId, UnitId, VariableId,
+};
 use dartforge_frontend::ast;
 use dartforge_intern::SymbolId;
 use std::collections::{HashMap, HashSet};
@@ -267,7 +269,13 @@ pub(crate) struct JumpTarget {
 }
 
 impl Body {
-    pub fn new(inf: &mut BodyInferrer<'_>, unit: UnitId, class: Option<ClassId>, extension: Option<ExtensionId>, static_: bool) -> Self {
+    pub fn new(
+        inf: &mut BodyInferrer<'_>,
+        unit: UnitId,
+        class: Option<ClassId>,
+        extension: Option<ExtensionId>,
+        static_: bool,
+    ) -> Self {
         let lib = inf.program.unit(unit).library;
         inf.current_unit = Some(unit);
         let mut cx = Body {
@@ -320,7 +328,12 @@ impl Body {
             dead_origin: None,
             annotation_access: None,
         };
-        if inf.program.library(lib).features.has(dartforge_frontend::Feature::WildcardVariables) {
+        if inf
+            .program
+            .library(lib)
+            .features
+            .has(dartforge_frontend::Feature::WildcardVariables)
+        {
             cx.wildcard = inf.interner.lookup("_");
         }
         // The class/extension's type parameters are always in scope (even in
@@ -356,7 +369,8 @@ impl Body {
         let static_ = v.static_ || (class.is_none() && extension.is_none()) || !v.late;
         let mut cx = Body::new(inf, unit, class, extension, static_);
         cx.static_member = v.static_ && (class.is_some() || extension.is_some());
-        cx.variable_initializer = (class.is_some() || extension.is_some()) && (v.static_ || !v.late);
+        cx.variable_initializer =
+            (class.is_some() || extension.is_some()) && (v.static_ || !v.late);
         if !v.static_ && v.late {
             cx.the_static = false;
             if let Some(c) = class {
@@ -365,7 +379,8 @@ impl Body {
         }
         // A non-`late` instance field sees the primary constructor's
         // parameters.
-        if !v.static_ && !v.late
+        if !v.static_
+            && !v.late
             && let Some(c) = class
         {
             inf.declare_primary_parameters(&mut cx, c);
@@ -377,11 +392,19 @@ impl Body {
     pub fn to_function(inf: &mut BodyInferrer<'_>, f: FunctionElementId, unit: UnitId) -> Self {
         let fe = inf.program.function(f);
         let (class, extension) = (fe.class, fe.extension);
-        let static_ = fe.static_ && !matches!(fe.kind, dartforge_elements::model::FunctionKind::Constructor) || fe.factory;
+        let static_ = fe.static_
+            && !matches!(
+                fe.kind,
+                dartforge_elements::model::FunctionKind::Constructor
+            )
+            || fe.factory;
         let static_ = static_ || (class.is_none() && extension.is_none());
         let static_member = fe.static_
             && !fe.factory
-            && !matches!(fe.kind, dartforge_elements::model::FunctionKind::Constructor)
+            && !matches!(
+                fe.kind,
+                dartforge_elements::model::FunctionKind::Constructor
+            )
             && (class.is_some() || extension.is_some());
         let mut cx = Body::new(inf, unit, class, extension, static_);
         cx.static_member = static_member;
@@ -438,13 +461,23 @@ impl Body {
     pub fn forget_fields_of(&mut self, base: LocalId) {
         // In a cascade on this local, the target's temporary keeps the old SSA
         // node: the fields of the previous version are kept for the sections.
-        if self.cascade_bases.iter().any(|x| matches!(x, Some((Base::Local(b), _)) if *b == base)) {
+        if self
+            .cascade_bases
+            .iter()
+            .any(|x| matches!(x, Some((Base::Local(b), _)) if *b == base))
+        {
             let current = self.base_version(Base::Local(base));
-            let stored: Vec<u32> = self.cascade_bases.iter().filter_map(|x| match x {
-                Some((Base::Local(b), v)) if *b == base => Some(*v),
-                _ => None,
-            }).collect();
-            self.fields.retain(|(b, v, _), _| *b != Base::Local(base) || (stored.contains(v) && *v != current));
+            let stored: Vec<u32> = self
+                .cascade_bases
+                .iter()
+                .filter_map(|x| match x {
+                    Some((Base::Local(b), v)) if *b == base => Some(*v),
+                    _ => None,
+                })
+                .collect();
+            self.fields.retain(|(b, v, _), _| {
+                *b != Base::Local(base) || (stored.contains(v) && *v != current)
+            });
             return;
         }
         self.fields.retain(|(b, _, _), _| *b != Base::Local(base));
@@ -504,7 +537,10 @@ impl Body {
     /// declaration's name and whether it has not been declared yet (hidden): a written type that names one of them is
     /// `REFERENCED_BEFORE_DECLARATION` (`NamedTypeResolver`,
     /// `named_type_resolver.dart:611-621`).
-    pub fn visible_locals(&self, interner: &dartforge_intern::Interner) -> HashMap<SymbolId, (dartforge_diagnostics::Span, bool)> {
+    pub fn visible_locals(
+        &self,
+        interner: &dartforge_intern::Interner,
+    ) -> HashMap<SymbolId, (dartforge_diagnostics::Span, bool)> {
         let mut m = HashMap::new();
         for e in self.scopes.iter() {
             for (n, r) in e.iter() {
@@ -515,7 +551,16 @@ impl Body {
                     MemberName::Local(id) => {
                         let l = &self.locals[id.0 as usize];
                         let start = l.offset;
-                        m.insert(*n, (dartforge_diagnostics::Span { start, end: start + interner.resolve(*n).len() }, false));
+                        m.insert(
+                            *n,
+                            (
+                                dartforge_diagnostics::Span {
+                                    start,
+                                    end: start + interner.resolve(*n).len(),
+                                },
+                                false,
+                            ),
+                        );
                     }
                     MemberName::Forward(s) => {
                         m.insert(*n, (*s, true));

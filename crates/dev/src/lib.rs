@@ -21,7 +21,7 @@ use dartforge_elements::sdk::SdkLayout;
 use dartforge_elements::{AnalyzedUnitCache, SdkCache};
 use dartforge_intern::Interner;
 use dartforge_types::table::{CoreTypes, TypeTable};
-use hashes::{library_hashes, LibraryHashes};
+use hashes::{LibraryHashes, library_hashes};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -200,7 +200,9 @@ impl Session {
     ) -> Result<Session, String> {
         let dir = match sdk_lib {
             Some(p) => p.to_path_buf(),
-            None => SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib")),
+            None => {
+                SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"))
+            }
         };
         let sdk = SdkLayout::load(&dir, "dartdevc")?;
         Ok(Session {
@@ -299,20 +301,28 @@ impl Session {
 
     /// Performs one attempt; compile invalidates reusable state on any error.
     fn compile_attempt(&mut self) -> Result<Report, String> {
-        let mut rel = Report { first: self.first, ..Default::default() };
+        let mut rel = Report {
+            first: self.first,
+            ..Default::default()
+        };
 
         let t = Instant::now();
         // The SDK comes from the artifact in `target/dartforge` on the first
         // compilation; afterwards its units are already in the session cache.
         let sdk_cache = if self.units.is_empty() {
-            SdkCache::open_or_build(&self.sdk, "dartdevc").ok().map(|(c, _)| c)
+            SdkCache::open_or_build(&self.sdk, "dartdevc")
+                .ok()
+                .map(|(c, _)| c)
         } else {
             None
         };
         // What changed since the previous compilation, for the generation
         // stages.
-        let changed: Vec<PathBuf> =
-            if self.stages.is_empty() { Vec::new() } else { self.dirty.iter().cloned().collect() };
+        let changed: Vec<PathBuf> = if self.stages.is_empty() {
+            Vec::new()
+        } else {
+            self.dirty.iter().cloned().collect()
+        };
         // The input and, with the engine, the ngdart inputs: a component
         // reachable only from its own `.template.dart` (which does not exist
         // yet) also enters the program, and the generator sees it.
@@ -337,14 +347,19 @@ impl Session {
             // message of `dartforge_elements` for an unreadable file.
             let stages = &self.stages;
             diags.retain(|d| {
-                let Some(rest) = d.message.strip_prefix("could not read ") else { return true };
+                let Some(rest) = d.message.strip_prefix("could not read ") else {
+                    return true;
+                };
                 let path = rest.rsplit_once(": ").map(|(c, _)| c).unwrap_or(rest);
                 !stages.iter().any(|e| e.expects(Path::new(path)))
             });
             let mut altered: Vec<PathBuf> = Vec::new();
             let mut new_generation = None;
             for stage in &mut self.stages {
-                let ctx = generation::SessionCtx { program: &program, interner: &self.interner };
+                let ctx = generation::SessionCtx {
+                    program: &program,
+                    interner: &self.interner,
+                };
                 match stage.update(&ctx, &changed) {
                     Ok(up) => {
                         altered.extend(up.changed);
@@ -358,7 +373,8 @@ impl Session {
                     }
                 }
             }
-            let generation_changed = new_generation.as_ref().map(|g| g.id) != self.generated.as_ref().map(|g| g.id);
+            let generation_changed =
+                new_generation.as_ref().map(|g| g.id) != self.generated.as_ref().map(|g| g.id);
             let t_reload = Instant::now();
             if generation_changed || !altered.is_empty() {
                 self.generated = new_generation;
@@ -416,16 +432,32 @@ impl Session {
 
         let t = Instant::now();
         let (bodies, body_diags) = match &affected {
-            None => dartforge_types::infer_program_bodies(&program, &self.interner, &mut table, &core, &mut outline),
+            None => dartforge_types::infer_program_bodies(
+                &program,
+                &self.interner,
+                &mut table,
+                &core,
+                &mut outline,
+            ),
             Some(libs) => dartforge_types::infer_library_bodies(
-                &program, &self.interner, &mut table, &core, &mut outline, libs,
+                &program,
+                &self.interner,
+                &mut table,
+                &core,
+                &mut outline,
+                libs,
             ),
         };
         rel.bodies = t.elapsed();
-        let mut compile_errors = outline_diags.iter().chain(body_diags.iter())
+        let mut compile_errors = outline_diags
+            .iter()
+            .chain(body_diags.iter())
             .filter(|diagnostic| dartforge_types::codes::is_compile_error(&diagnostic.message));
         if let Some(first_error) = compile_errors.next() {
-            let message = format!("{} compilation error(s): {first_error}", 1 + compile_errors.count());
+            let message = format!(
+                "{} compilation error(s): {first_error}",
+                1 + compile_errors.count()
+            );
             self.units.reclaim(program);
             return Err(message);
         }
@@ -436,8 +468,20 @@ impl Session {
             // First compilation (or a graph change): emit everything.
             None => {
                 self.fragments.borrow_mut().clear();
-                let e = dartforge_emit_js::emit_program_with_cache(&program, &self.interner, &table, &core, &outline, &bodies, Some(&self.fragments))
-                    .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emission failed".into()))?;
+                let e = dartforge_emit_js::emit_program_with_cache(
+                    &program,
+                    &self.interner,
+                    &table,
+                    &core,
+                    &outline,
+                    &bodies,
+                    Some(&self.fragments),
+                )
+                .map_err(|ds| {
+                    ds.first()
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|| "emission failed".into())
+                })?;
                 rel.reemitted_libraries = usize::MAX;
                 e
             }
@@ -446,13 +490,31 @@ impl Session {
                 // The fragments of the changed libraries leave the cache; the
                 // rest of the module is reused as text.
                 {
-                    let ctx_tmp = dartforge_emit_js::ctx::Ctx::new(&program, &self.interner, &table, &core, &outline, &bodies);
+                    let ctx_tmp = dartforge_emit_js::ctx::Ctx::new(
+                        &program,
+                        &self.interner,
+                        &table,
+                        &core,
+                        &outline,
+                        &bodies,
+                    );
                     self.fragments.borrow_mut().invalidate(&ctx_tmp, &libs);
                 }
                 let (e, context) = dartforge_emit_js::emit_modules_with_cache(
-                    &program, &self.interner, &table, &core, &outline, &bodies, &libs, Some(&self.fragments),
+                    &program,
+                    &self.interner,
+                    &table,
+                    &core,
+                    &outline,
+                    &bodies,
+                    &libs,
+                    Some(&self.fragments),
                 )
-                .map_err(|ds| ds.first().map(|d| d.to_string()).unwrap_or_else(|| "emission failed".into()))?;
+                .map_err(|ds| {
+                    ds.first()
+                        .map(|d| d.to_string())
+                        .unwrap_or_else(|| "emission failed".into())
+                })?;
                 rel.emit_context = context;
                 e
             }
@@ -489,8 +551,12 @@ impl Session {
         // session already knows the text changed (it compared it with the
         // previous compilation's, in memory).
         let compare = rel.first;
-        rel.written_modules =
-            dartforge_emit_js::write_with_options(&emitted, &self.output, &self.dart_sdk_js, compare)?;
+        rel.written_modules = dartforge_emit_js::write_with_options(
+            &emitted,
+            &self.output,
+            &self.dart_sdk_js,
+            compare,
+        )?;
         rel.write = t.elapsed();
 
         // The units go back to the cache; the rest of the compilation dies here.
@@ -510,7 +576,8 @@ impl Session {
     fn compare_hashes(&mut self, program: &Program, rel: &mut Report) -> Option<Vec<LibraryId>> {
         let first = self.hashes.is_empty();
         let mut ids: HashMap<String, LibraryId> = HashMap::with_capacity(program.libraries.len());
-        let mut new_hashes: HashMap<String, LibraryHashes> = HashMap::with_capacity(program.libraries.len());
+        let mut new_hashes: HashMap<String, LibraryHashes> =
+            HashMap::with_capacity(program.libraries.len());
         let mut api_changed: Vec<String> = Vec::new();
         let mut content_changed: Vec<String> = Vec::new();
         let mut added_or_lost = false;
@@ -525,14 +592,17 @@ impl Session {
             // everything cost 26 ms per edit on `new_sali/core`.)
             let dirty = first
                 || l.units.iter().any(|&u| {
-                    program.unit(u).path.as_ref().is_some_and(|p| self.dirty.contains(p))
+                    program
+                        .unit(u)
+                        .path
+                        .as_ref()
+                        .is_some_and(|p| self.dirty.contains(p))
                 });
-            if !dirty
-                && let Some(&old) = self.hashes.get(&l.uri) {
-                    ids.insert(l.uri.clone(), lib);
-                    new_hashes.insert(l.uri.clone(), old);
-                    continue;
-                }
+            if !dirty && let Some(&old) = self.hashes.get(&l.uri) {
+                ids.insert(l.uri.clone(), lib);
+                new_hashes.insert(l.uri.clone(), old);
+                continue;
+            }
             let h = library_hashes(program, lib);
             match self.hashes.get(&l.uri) {
                 Some(old) => {
@@ -561,7 +631,12 @@ impl Session {
             if l.is_sdk {
                 continue;
             }
-            for target in l.imports.iter().map(|x| x.library).chain(l.exports.iter().map(|x| x.library)) {
+            for target in l
+                .imports
+                .iter()
+                .map(|x| x.library)
+                .chain(l.exports.iter().map(|x| x.library))
+            {
                 let target_uri = &program.libraries[target.0 as usize].uri;
                 if program.libraries[target.0 as usize].is_sdk {
                     continue;
@@ -595,11 +670,16 @@ impl Session {
             None
         } else {
             let mut libs: Vec<LibraryId> = Vec::new();
-            for uri in content_changed.iter().chain(api_changed.iter()).chain(invalidated.iter()) {
+            for uri in content_changed
+                .iter()
+                .chain(api_changed.iter())
+                .chain(invalidated.iter())
+            {
                 if let Some(&id) = ids.get(uri)
-                    && !libs.contains(&id) {
-                        libs.push(id);
-                    }
+                    && !libs.contains(&id)
+                {
+                    libs.push(id);
+                }
             }
             Some(libs)
         };

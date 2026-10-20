@@ -120,10 +120,7 @@ impl Session {
                         self.pending
                     )
                 }
-                Err(_) => panic!(
-                    "timed out waiting for {what}; pending: {:?}",
-                    self.pending
-                ),
+                Err(_) => panic!("timed out waiting for {what}; pending: {:?}", self.pending),
             }
         }
     }
@@ -236,11 +233,7 @@ fn complete_session() {
         "void main() { int x = ; x; }\nvoid outra() { int y = ; y; }\n",
     ));
     let first = session.diagnostics(uri);
-    assert_eq!(
-        items(&first).len(),
-        2,
-        "two syntax errors: {first}"
-    );
+    assert_eq!(items(&first).len(), 2, "two syntax errors: {first}");
     assert_eq!(first["params"]["diagnostics"][0]["source"], "dartforge");
     assert_eq!(
         first["params"]["diagnostics"][0]["range"]["start"],
@@ -375,11 +368,7 @@ fn cancellation() {
     }));
 
     let sleep = session.response(2);
-    assert_eq!(
-        sleep["result"],
-        Value::Null,
-        "a primeira termina: {sleep}"
-    );
+    assert_eq!(sleep["result"], Value::Null, "a primeira termina: {sleep}");
     let cancelled = session.response(3);
     assert_eq!(
         cancelled["error"]["code"], -32800,

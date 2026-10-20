@@ -21,10 +21,10 @@
 
 use crate::inheritance::{Conflict, InheritanceManager, OutlineProvider};
 use crate::resolve::OutlineTypes;
-use crate::subtyping::{is_subtype, SubtypeEnv};
+use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
-use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_elements::model::{ClassId, ClassKind, LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind};
 use dartforge_intern::Interner;
@@ -51,7 +51,14 @@ fn cited(table: &TypeTable, t: TypeId, output: &mut Vec<ClassId>, prof: u32) {
             }
         }
         Type::FutureOr { arg, .. } => cited(table, arg, output, prof + 1),
-        Type::Function { type_params, ret, positional, optional, named, .. } => {
+        Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
             cited(table, ret, output, prof + 1);
             for p in type_params.iter() {
                 let b = table.param(*p).bound;
@@ -66,7 +73,9 @@ fn cited(table: &TypeTable, t: TypeId, output: &mut Vec<ClassId>, prof: u32) {
                 cited(table, *x, output, prof + 1);
             }
         }
-        Type::Record { positional, named, .. } => {
+        Type::Record {
+            positional, named, ..
+        } => {
             for x in positional.iter() {
                 cited(table, *x, output, prof + 1);
             }
@@ -131,7 +140,15 @@ fn in_cycle(nodes: &[ClassId], deps: &HashMap<ClassId, Vec<ClassId>>) -> HashSet
             }
         }
     }
-    let mut e = State { deps, index: HashMap::new(), low: HashMap::new(), stack: Vec::new(), on_stack: HashSet::new(), next: 1, marked: HashSet::new() };
+    let mut e = State {
+        deps,
+        index: HashMap::new(),
+        low: HashMap::new(),
+        stack: Vec::new(),
+        on_stack: HashSet::new(),
+        next: 1,
+        marked: HashSet::new(),
+    };
     for &v in nodes {
         if !e.index.contains_key(&v) {
             connect(&mut e, v);
@@ -148,7 +165,10 @@ fn is_bottom(table: &TypeTable, t: TypeId, prof: u32) -> bool {
     }
     match table.get(t) {
         Type::Never => true,
-        Type::TypeParameter { param, nullable: false } => is_bottom(table, table.param(*param).bound, prof + 1),
+        Type::TypeParameter {
+            param,
+            nullable: false,
+        } => is_bottom(table, table.param(*param).bound, prof + 1),
         Type::Intersection { bound, .. } => is_bottom(table, *bound, prof + 1),
         _ => false,
     }
@@ -161,7 +181,13 @@ fn written_dynamic(interner: &Interner, a: &ast::Ast, t: ast::TypeId) -> bool {
 }
 
 /// The type of the declared representation (`InvalidType` becomes `None`).
-fn the_representation(program: &Program, outline: &OutlineTypes, table: &TypeTable, interner: &Interner, c: ClassId) -> Option<TypeId> {
+fn the_representation(
+    program: &Program,
+    outline: &OutlineTypes,
+    table: &TypeTable,
+    interner: &Interner,
+    c: ClassId,
+) -> Option<TypeId> {
     let v = program.class(c).representation?;
     let t = outline.variables[v.0 as usize].declared_type?;
     if table.is_invalid(t) {
@@ -170,7 +196,9 @@ fn the_representation(program: &Program, outline: &OutlineTypes, table: &TypeTab
     if matches!(table.get(t), Type::Dynamic) {
         let d = program.class(c).decl?;
         let a = &program.unit(d.unit).ast;
-        let DeclKind::ExtensionType(et) = &a.decl(d.decl).kind else { return None };
+        let DeclKind::ExtensionType(et) = &a.decl(d.decl).kind else {
+            return None;
+        };
         if !written_dynamic(interner, a, et.representation_type) {
             return None;
         }
@@ -191,7 +219,12 @@ pub fn verify(
         .classes
         .iter()
         .enumerate()
-        .filter(|(_, ce)| ce.kind == ClassKind::ExtensionType && ce.decl.is_some_and(|d| !program.unit(d.unit).ast.decl(d.decl).augment))
+        .filter(|(_, ce)| {
+            ce.kind == ClassKind::ExtensionType
+                && ce
+                    .decl
+                    .is_some_and(|d| !program.unit(d.unit).ast.decl(d.decl).augment)
+        })
         .map(|(i, _)| ClassId(i as u32))
         .collect();
     if !types.iter().any(|&t| program.class(t).library == lib) {
@@ -212,7 +245,12 @@ pub fn verify(
         let interfaces = outline.classes[t.0 as usize].interfaces.clone();
         let mut w = Vec::new();
         for i in interfaces.iter() {
-            if let Type::ExtensionType { decl, nullable: false, .. } = table.get(*i) {
+            if let Type::ExtensionType {
+                decl,
+                nullable: false,
+                ..
+            } = table.get(*i)
+            {
                 w.push(*decl);
             }
         }
@@ -226,16 +264,24 @@ pub fn verify(
         let ce = program.class(t);
         let Some(d) = ce.decl else { continue };
         let a = &program.unit(d.unit).ast;
-        let DeclKind::ExtensionType(et) = &a.decl(d.decl).kind else { continue };
+        let DeclKind::ExtensionType(et) = &a.decl(d.decl).kind else {
+            continue;
+        };
         let u = d.unit;
         let the_name = interner.resolve(et.name.sym).to_string();
-        let rep = if rep_in_cycle.contains(&t) { None } else { the_representation(program, outline, table, interner, t) };
+        let rep = if rep_in_cycle.contains(&t) {
+            None
+        } else {
+            the_representation(program, outline, table, interner, t)
+        };
 
         // `ResolutionVisitor` (before `ErrorVerifier`): the `implements`.
         if let Some(r) = rep {
             let interfaces = outline.classes[t.0 as usize].interfaces.clone();
             for (k, &written) in et.implements.iter().enumerate() {
-                let Some(&ty) = interfaces.get(k) else { continue };
+                let Some(&ty) = interfaces.get(k) else {
+                    continue;
+                };
                 // `_verifyNullability` (`named_type_resolver.dart:388-414`): the
                 // hierarchy type loses the `?` after
                 // `NULLABLE_TYPE_IN_IMPLEMENTS_CLAUSE`. `hasErrorReported` only
@@ -243,14 +289,26 @@ pub fn verify(
                 // name is `InvalidType`, and `isValidExtensionTypeSuperinterface`
                 // (`type_system.dart:1361-1378`) rejects it.
                 let invalid = table.is_invalid(ty);
-                let ty = if invalid { ty } else { crate::ops::non_nullable(ty, table) };
+                let ty = if invalid {
+                    ty
+                } else {
+                    crate::ops::non_nullable(ty, table)
+                };
                 let sp = a.ty(written).span;
                 let valid = !invalid
                     && match table.get(ty).clone() {
-                        Type::Interface { class, nullable: false, .. } => {
-                            Some(class) != core.function_class && Some(class) != core.null_class && Some(class) != core.record_class
+                        Type::Interface {
+                            class,
+                            nullable: false,
+                            ..
+                        } => {
+                            Some(class) != core.function_class
+                                && Some(class) != core.null_class
+                                && Some(class) != core.record_class
                         }
-                        Type::ExtensionType { nullable: false, .. } => true,
+                        Type::ExtensionType {
+                            nullable: false, ..
+                        } => true,
                         _ => false,
                     };
                 if !valid {
@@ -266,7 +324,14 @@ pub fn verify(
                     } else {
                         table.format(ty, interner, program)
                     };
-                    output.push((u, Diagnostic::with_code(c::EXTENSION_TYPE_IMPLEMENTS_DISALLOWED_TYPE, sp, [text.as_str()])));
+                    output.push((
+                        u,
+                        Diagnostic::with_code(
+                            c::EXTENSION_TYPE_IMPLEMENTS_DISALLOWED_TYPE,
+                            sp,
+                            [text.as_str()],
+                        ),
+                    ));
                     continue;
                 }
                 let fits = {
@@ -277,10 +342,15 @@ pub fn verify(
                     continue;
                 }
                 if let Type::ExtensionType { decl, args, .. } = table.get(ty).clone() {
-                    let Some(rep_impl) = the_representation(program, outline, table, interner, decl) else { continue };
+                    let Some(rep_impl) =
+                        the_representation(program, outline, table, interner, decl)
+                    else {
+                        continue;
+                    };
                     let params = outline.classes[decl.0 as usize].type_params.clone();
                     let rep_impl = if params.len() == args.len() {
-                        let map: HashMap<_, _> = params.iter().copied().zip(args.iter().copied()).collect();
+                        let map: HashMap<_, _> =
+                            params.iter().copied().zip(args.iter().copied()).collect();
                         crate::ops::substitute(rep_impl, &map, table)
                     } else {
                         rep_impl
@@ -306,24 +376,58 @@ pub fn verify(
                 }
                 let ti = table.format(ty, interner, program);
                 let rd = table.format(r, interner, program);
-                output.push((u, Diagnostic::with_code(c::EXTENSION_TYPE_IMPLEMENTS_NOT_SUPERTYPE, sp, [ti.as_str(), rd.as_str()])));
+                output.push((
+                    u,
+                    Diagnostic::with_code(
+                        c::EXTENSION_TYPE_IMPLEMENTS_NOT_SUPERTYPE,
+                        sp,
+                        [ti.as_str(), rd.as_str()],
+                    ),
+                ));
             }
         }
 
         // `ErrorVerifier.visitExtensionTypeDeclaration`, in order.
         if rep_in_cycle.contains(&t) {
-            output.push((u, Diagnostic::with_code(c::EXTENSION_TYPE_REPRESENTATION_DEPENDS_ON_ITSELF, et.name.span, empty.iter().copied())));
+            output.push((
+                u,
+                Diagnostic::with_code(
+                    c::EXTENSION_TYPE_REPRESENTATION_DEPENDS_ON_ITSELF,
+                    et.name.span,
+                    empty.iter().copied(),
+                ),
+            ));
         } else if let Some(r) = rep
             && is_bottom(table, r, 0)
         {
             let sp = a.ty(et.representation_type).span;
-            output.push((u, Diagnostic::with_code(c::EXTENSION_TYPE_REPRESENTATION_TYPE_BOTTOM, sp, empty.iter().copied())));
+            output.push((
+                u,
+                Diagnostic::with_code(
+                    c::EXTENSION_TYPE_REPRESENTATION_TYPE_BOTTOM,
+                    sp,
+                    empty.iter().copied(),
+                ),
+            ));
         }
         if impl_in_cycle.contains(&t) {
-            output.push((u, Diagnostic::with_code(c::EXTENSION_TYPE_IMPLEMENTS_ITSELF, et.name.span, empty.iter().copied())));
+            output.push((
+                u,
+                Diagnostic::with_code(
+                    c::EXTENSION_TYPE_IMPLEMENTS_ITSELF,
+                    et.name.span,
+                    empty.iter().copied(),
+                ),
+            ));
         }
         let interface = {
-            let mut p = OutlineProvider { program, interner, core, outline, table: &mut *table };
+            let mut p = OutlineProvider {
+                program,
+                interner,
+                core,
+                outline,
+                table: &mut *table,
+            };
             inheritance.interface(&mut p, t)
         };
         for conflict in interface.conflicts.iter() {
@@ -331,19 +435,48 @@ pub fn verify(
             // non-extension ones before the extension ones) become the context
             // messages.
             let (n, candidates): (_, Vec<&crate::inheritance::InterfaceMember>) = match conflict {
-                Conflict::Candidates { name: the_name, candidates } | Conflict::NonUniqueExtension { name: the_name, candidates } => (the_name, candidates.iter().collect()),
-                Conflict::ExtensionAndNonExtension { name: the_name, non_extension, extension } => (the_name, non_extension.iter().chain(extension.iter()).collect()),
+                Conflict::Candidates {
+                    name: the_name,
+                    candidates,
+                }
+                | Conflict::NonUniqueExtension {
+                    name: the_name,
+                    candidates,
+                } => (the_name, candidates.iter().collect()),
+                Conflict::ExtensionAndNonExtension {
+                    name: the_name,
+                    non_extension,
+                    extension,
+                } => (
+                    the_name,
+                    non_extension.iter().chain(extension.iter()).collect(),
+                ),
                 Conflict::GetterMethod { .. } => continue,
             };
             // The setter's `Name.name` is `x=`; the model key, `x_=`.
             let text = interner.resolve(n.key);
-            let member = text.strip_suffix("_=").map_or_else(|| text.to_string(), |s| format!("{s}="));
-            let mut d = Diagnostic::with_code(c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT, et.name.span, [the_name.as_str(), member.as_str()]);
+            let member = text
+                .strip_suffix("_=")
+                .map_or_else(|| text.to_string(), |s| format!("{s}="));
+            let mut d = Diagnostic::with_code(
+                c::EXTENSION_TYPE_INHERITED_MEMBER_CONFLICT,
+                et.name.span,
+                [the_name.as_str(), member.as_str()],
+            );
             for m in candidates {
-                let Some((mu, span)) = program.non_synthetic_function_name(m.function) else { continue };
+                let Some((mu, span)) = program.non_synthetic_function_name(m.function) else {
+                    continue;
+                };
                 let file = (mu != u).then(|| program.unit_path(mu).into());
-                let message = format!("Inherited from '{}'", interner.resolve(program.class(m.class).name));
-                d.context.push(dartforge_diagnostics::ContextMessage { file, span, message: message.into() });
+                let message = format!(
+                    "Inherited from '{}'",
+                    interner.resolve(program.class(m.class).name)
+                );
+                d.context.push(dartforge_diagnostics::ContextMessage {
+                    file,
+                    span,
+                    message: message.into(),
+                });
             }
             output.push((u, d));
         }

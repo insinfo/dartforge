@@ -33,7 +33,7 @@
 //! * `>` always arrives isolated from the lexer, so the `<` … `>` of types
 //!   never needs backtracking; `in_type_args` is incremented while reading so
 //!   that expressions inside metadata do not compose `>>`.
-use super::modifiers::{ParameterOwner, ModifierTokens};
+use super::modifiers::{ModifierTokens, ParameterOwner};
 use super::{MAX_DEPTH, PResult, Parser};
 use crate::ast::{
     Annotation, Name, Parameter, ParameterKind, TypeAnnotation, TypeId, TypeKind, TypeParameter,
@@ -242,7 +242,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                         // `parseRecordTypeNamedFields` (`:1743-1745`): an empty group, at the `}`.
                         if fields_ == 0 {
                             let closes = self.span();
-                            self.error_at(codes::parser::EMPTY_RECORD_TYPE_NAMED_FIELDS_LIST, closes, &[]);
+                            self.error_at(
+                                codes::parser::EMPTY_RECORD_TYPE_NAMED_FIELDS_LIST,
+                                closes,
+                                &[],
+                            );
                         }
                         self.advance();
                         break;
@@ -277,7 +281,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `)` (`parser_impl.dart:1677-1680`).
         if positional.len() == 1 && !with_named && !saw_comma {
             let closes = self.tokens[self.pos - 1].span;
-            self.error_at(codes::parser::RECORD_TYPE_ONE_POSITIONAL_NO_TRAILING_COMMA, closes, &[]);
+            self.error_at(
+                codes::parser::RECORD_TYPE_ONE_POSITIONAL_NO_TRAILING_COMMA,
+                closes,
+                &[],
+            );
         }
         let span = self.span_from(start);
         Ok(self.ast.push_type(TypeAnnotation {
@@ -401,14 +409,20 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             // `NoType.ensureTypeOrVoid`: what does not start a type is
             // `EXPECTED_TYPE_NAME` at it and an empty synthetic type.
-            if !matches!(self.kind(), Kind::Ident | Kind::Keyword(Keyword::Void) | Kind::Op(Op::LParen)) {
+            if !matches!(
+                self.kind(),
+                Kind::Ident | Kind::Keyword(Keyword::Void) | Kind::Op(Op::LParen)
+            ) {
                 self.error(codes::parser::EXPECTED_TYPE_NAME, &[]);
                 let s = self.span().start;
                 let name = self.name_from("", Span { start: s, end: s });
                 args.push(self.ast.push_type(TypeAnnotation {
                     span: Span { start: s, end: s },
                     nullable: false,
-                    kind: TypeKind::Named { name: vec![name].into_boxed_slice(), args: Box::default() },
+                    kind: TypeKind::Named {
+                        name: vec![name].into_boxed_slice(),
+                        args: Box::default(),
+                    },
                 }));
             } else {
                 args.push(self.parse_type()?);
@@ -565,10 +579,7 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         if let Kind::Keyword(_) = self.kind() {
             let text = self.text().to_string();
-            self.error(
-                codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD,
-                &[&text],
-            );
+            self.error(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&text]);
             return (self.identifier(), false);
         }
         self.error(codes::parser::MISSING_IDENTIFIER, &[]);
@@ -582,11 +593,7 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// type, a nested `<…>` list, `(…)`, or the `>` the scanner matched with the
     /// opening `<`. Without any `>`, the list ends there (fasta inserts a
     /// synthetic `>`).
-    fn unexpected_end_of_type_parameters(
-        &mut self,
-        opener: usize,
-        synthetic: bool,
-    ) -> PResult<()> {
+    fn unexpected_end_of_type_parameters(&mut self, opener: usize, synthetic: bool) -> PResult<()> {
         let last = self.tokens[self.pos.saturating_sub(1)].span;
         let mut reported = synthetic;
         let report = |p: &mut Self, reported: &mut bool, where_: Span| {
@@ -739,7 +746,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.check_required_default(&params);
                 return Ok(params);
             }
-            params.push(self.parse_formal_parameter(ParameterKind::Required, in_function_type, owner)?);
+            params.push(self.parse_formal_parameter(
+                ParameterKind::Required,
+                in_function_type,
+                owner,
+            )?);
             if !self.eat_op(Op::Comma) {
                 // `parseFormalParametersRest`: the misplaced synthetic `)` comes here; two
                 // identifiers in a row are the missing comma (`EXPECTED_TOKEN` at the
@@ -747,7 +758,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 if !self.at_op(Op::RParen) {
                     if self.move_synthetic_closer(opener) {
                         // The `)` is now the current token.
-                    } else if self.is_plain_identifier(self.pos) && self.is_plain_identifier(self.pos + 1) {
+                    } else if self.is_plain_identifier(self.pos)
+                        && self.is_plain_identifier(self.pos + 1)
+                    {
                         self.error(codes::parser::EXPECTED_TOKEN, &[","]);
                         continue;
                     } else {
@@ -767,7 +780,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// untyped, with an empty name at the current token.
     fn synthetic_parameter(&mut self, kind: ParameterKind) -> Parameter {
         let here = self.span().start;
-        let s = Span { start: here, end: here };
+        let s = Span {
+            start: here,
+            end: here,
+        };
         let name = self.name_from("", s);
         Parameter {
             span: s,
@@ -827,7 +843,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         // The primary header without the feature: the 3.6.2 oracle reads its
         // `required covariant` without recovery.
         let takes_covariant = match owner {
-            ParameterOwner::TopLevelOrStatic | ParameterOwner::Extension | ParameterOwner::ExtensionType => false,
+            ParameterOwner::TopLevelOrStatic
+            | ParameterOwner::Extension
+            | ParameterOwner::ExtensionType => false,
             ParameterOwner::PrimaryConstructor => !self.features.has(Feature::PrimaryConstructors),
             _ => true,
         };
@@ -838,7 +856,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             fast += 1;
         }
         let recovery = fast < self.pos && self.is_fasta_modifier(fast);
-        self.report_parameter_modifiers(&f, kind == ParameterKind::Named && !(fast_required && recovery), owner);
+        self.report_parameter_modifiers(
+            &f,
+            kind == ParameterKind::Named && !(fast_required && recovery),
+            owner,
+        );
         // A named parameter is required only through the `required` that starts
         // its modifiers (`parameterKind` becomes `requiredNamed` there); one the
         // recovery reads later leaves it optional (`{covariant required int i}`
@@ -880,7 +902,12 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             self.advance();
             self.advance();
-            if !self.at_identifier() && matches!(self.kind(), Kind::Op(Op::Comma | Op::RParen | Op::RBracket | Op::RBrace | Op::Assign)) {
+            if !self.at_identifier()
+                && matches!(
+                    self.kind(),
+                    Kind::Op(Op::Comma | Op::RParen | Op::RBracket | Op::RBrace | Op::Assign)
+                )
+            {
                 // `this.` without a name (`{this.}`): `MISSING_IDENTIFIER` at the
                 // next token and a synthetic name; the parameter stays (the
                 // verifier reports the field that does not exist, with `''`).
@@ -901,7 +928,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             Some(self.name_from("", Span { start: s, end: s }))
         } else if in_function_type && ty.is_some() {
             None
-        } else if matches!(self.kind(), Kind::Op(Op::Comma | Op::RParen | Op::RBracket | Op::RBrace)) {
+        } else if matches!(
+            self.kind(),
+            Kind::Op(Op::Comma | Op::RParen | Op::RBracket | Op::RBrace)
+        ) {
             // Unnamed parameter before `,` or the closer (`f(,[])`):
             // `MISSING_IDENTIFIER` at it and a synthetic name; the list goes on.
             self.error(codes::parser::MISSING_IDENTIFIER, &[]);
@@ -946,7 +976,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `var`/`final`/`const` of a function-form parameter, and `var` followed by
         // a type, are the disabled feature (outside the primary one, they are
         // `FUNCTION_TYPED_PARAMETER_VAR` and `VAR_AND_TYPE`).
-        if owner == ParameterOwner::PrimaryConstructor && !self.in_representation && !self.features.has(Feature::PrimaryConstructors) {
+        if owner == ParameterOwner::PrimaryConstructor
+            && !self.in_representation
+            && !self.features.has(Feature::PrimaryConstructors)
+        {
             let word = if function_parameters.is_some() {
                 f.var_final_or_const()
             } else if ty.is_some() {
@@ -973,7 +1006,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                     self.error_at(codes::parser::NAMED_PARAMETER_OUTSIDE_GROUP, equals_, &[]);
                 } else if matches!(
                     owner,
-                    ParameterOwner::FunctionTypeKind | ParameterOwner::TypeAlias | ParameterOwner::FunctionParameter
+                    ParameterOwner::FunctionTypeKind
+                        | ParameterOwner::TypeAlias
+                        | ParameterOwner::FunctionParameter
                 ) {
                     self.error_at(codes::parser::DEFAULT_VALUE_IN_FUNCTION_TYPE, equals_, &[]);
                 }
@@ -1154,7 +1189,9 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `typedef` followed by an identifier is not (it is another declaration).
     pub(crate) fn looks_like_name(&self, pos: usize) -> bool {
         match self.kind_of(pos) {
-            Kind::Ident => !(self.text_of(pos) == "typedef" && self.kind_of(pos + 1) == Kind::Ident),
+            Kind::Ident => {
+                !(self.text_of(pos) == "typedef" && self.kind_of(pos + 1) == Kind::Ident)
+            }
             Kind::Keyword(Keyword::This | Keyword::Super) => true,
             _ => false,
         }
@@ -1181,7 +1218,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // (recovery, `import<int> x = [];`).
                 if is_builtin_identifier(self.text_of(pos))
                     && self.kind_of(pos + 1) != Kind::Op(Op::Dot)
-                    && !self.skip_type_arguments_at(pos + 1, depth).is_some_and(|d| self.looks_like_name(d))
+                    && !self
+                        .skip_type_arguments_at(pos + 1, depth)
+                        .is_some_and(|d| self.looks_like_name(d))
                 {
                     return None;
                 }
@@ -1330,7 +1369,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             // the first position, only before the `>`.
             p = match self.skip_type_at(p, depth + 1) {
                 Some(d) => d,
-                None if self.kind_of(p) == Kind::Op(Op::Gt) || (!first && self.kind_of(p) == Kind::Op(Op::Comma)) => p,
+                None if self.kind_of(p) == Kind::Op(Op::Gt)
+                    || (!first && self.kind_of(p) == Kind::Op(Op::Comma)) =>
+                {
+                    p
+                }
                 None => return None,
             };
             first = false;

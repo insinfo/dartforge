@@ -23,8 +23,8 @@
 //! the lock versions and the mode (`--release`). For an action of the Dart
 //! executor, the builder code — the bootstrap depfile's files outside the
 //! `hosted` packages, by content.
-use crate::query::{Query, Digest};
 use crate::graph::AssetId;
+use crate::query::{Digest, Query};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -386,15 +386,16 @@ mod tests {
         assert_eq!(read.actions[0].queries, e.actions[0].queries);
         assert_eq!(read.actions[0].outputs, e.actions[0].outputs);
         assert_eq!(read.actions[0].origin, e.actions[0].origin);
-        assert_eq!(read.actions[0].deleted_outputs, e.actions[0].deleted_outputs);
+        assert_eq!(
+            read.actions[0].deleted_outputs,
+            e.actions[0].deleted_outputs
+        );
         assert_eq!(read_blob(dir.path(), &d).as_deref(), Some(&b"output"[..]));
         // A tampered blob is not accepted.
         std::fs::write(dir.path().join("blobs").join(hex(&d)), b"other").unwrap();
         assert!(read_blob(dir.path(), &d).is_none());
         // A semantic query cannot be persisted.
-        assert!(!persistable(&Query::LibraryApi(
-            "package:p/a.dart".into()
-        )));
+        assert!(!persistable(&Query::LibraryApi("package:p/a.dart".into())));
         // An unreferenced blob goes away on the next write.
         write_state(
             dir.path(),

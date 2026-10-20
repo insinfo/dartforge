@@ -10,7 +10,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// JS condition that tests `value_js` (of type `vty`) against the pattern,
     /// binding variables (`(x = v, true)`); `binds` receives the (symbol, type)
     /// pairs to declare.
-    pub fn pattern_cond(&mut self, p: ast::PatternId, value_js: &str, vty: &Ty, binds: &mut Vec<(SymbolId, Ty, String)>, irrefutable: bool) -> String {
+    pub fn pattern_cond(
+        &mut self,
+        p: ast::PatternId,
+        value_js: &str,
+        vty: &Ty,
+        binds: &mut Vec<(SymbolId, Ty, String)>,
+        irrefutable: bool,
+    ) -> String {
         let pat = self.ast().pattern(p);
         let v = Js::prim(value_js.to_string());
         match &pat.kind {
@@ -25,7 +32,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 None => "true".into(),
             },
-            PatternKind::Variable { ty, name, final_, var_ } if !irrefutable && ty.is_none() && !*final_ && !*var_ && !matches!(self.resolve_ident(name.sym), crate::expr::IdentTarget::Unknown) => {
+            PatternKind::Variable {
+                ty,
+                name,
+                final_,
+                var_,
+            } if !irrefutable
+                && ty.is_none()
+                && !*final_
+                && !*var_
+                && !matches!(
+                    self.resolve_ident(name.sym),
+                    crate::expr::IdentTarget::Unknown
+                ) =>
+            {
                 // Bare identifier in a matching context: a constant pattern.
                 let (c, cty) = self.emit_identifier_value(name.sym);
                 self.emit_equals(&c, &cty, &v, vty).code
@@ -78,14 +98,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 };
                 match op {
                     BinaryOp::Eq => self.emit_equals(&v, vty, &c, &cty).code,
-                    BinaryOp::NotEq => format!("!{}", self.emit_equals(&v, vty, &c, &cty).paren().code),
+                    BinaryOp::NotEq => {
+                        format!("!{}", self.emit_equals(&v, vty, &c, &cty).paren().code)
+                    }
                     _ => self.emit_binop_values(*op, v, vty, c, &cty, None).0.code,
                 }
             }
             PatternKind::Or(a, b) => {
                 let ca = self.pattern_cond(*a, value_js, vty, binds, irrefutable);
                 let cb = self.pattern_cond(*b, value_js, vty, binds, irrefutable);
-                format!("{} || {}", Js::new(ca, P_PRIMARY).at(P_OR), Js::new(cb, P_PRIMARY).at(P_OR + 1))
+                format!(
+                    "{} || {}",
+                    Js::new(ca, P_PRIMARY).at(P_OR),
+                    Js::new(cb, P_PRIMARY).at(P_OR + 1)
+                )
             }
             PatternKind::And(a, b) => {
                 let ca = self.pattern_cond(*a, value_js, vty, binds, irrefutable);
@@ -98,15 +124,23 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             PatternKind::NullAssert(inner) => {
                 let c = self.pattern_cond(*inner, value_js, &vty.non_null(), binds, irrefutable);
-                and(&format!("({value_js} != null || dart.nullCheck({value_js}))"), &c)
+                and(
+                    &format!("({value_js} != null || dart.nullCheck({value_js}))"),
+                    &c,
+                )
             }
             PatternKind::Cast { pattern, ty } => {
                 let t = self.resolve_type(*ty);
                 let cast = self.as_cast(&v, &t);
                 self.pattern_cond(*pattern, &cast.code, &t, binds, irrefutable)
             }
-            PatternKind::Parenthesized(inner) => self.pattern_cond(*inner, value_js, vty, binds, irrefutable),
-            PatternKind::List { type_args, elements } => {
+            PatternKind::Parenthesized(inner) => {
+                self.pattern_cond(*inner, value_js, vty, binds, irrefutable)
+            }
+            PatternKind::List {
+                type_args,
+                elements,
+            } => {
                 let elem_ty = if let Some(t) = type_args.first() {
                     self.resolve_type(*t)
                 } else {
@@ -114,14 +148,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         .list_
                         .and_then(|l| self.ctx.as_super(&vty.non_null(), l))
                         .and_then(|t| t.args().first().cloned())
-                        .unwrap_or_else(|| if vty.is_dynamic() { Ty::Dynamic } else { self.ctx.t_object_q() })
+                        .unwrap_or_else(|| {
+                            if vty.is_dynamic() {
+                                Ty::Dynamic
+                            } else {
+                                self.ctx.t_object_q()
+                            }
+                        })
                 };
                 let list_ty = self.ctx.t_list(elem_ty.clone());
                 let mut conds = Vec::new();
                 if !(self.ctx.is_subtype(vty, &list_ty) && !vty.is_dynamic()) {
                     conds.push(self.is_test(&v, &list_ty).code);
                 }
-                let rest_idx = elements.iter().position(|e| matches!(e, ast::ListPatternElement::Rest(_)));
+                let rest_idx = elements
+                    .iter()
+                    .position(|e| matches!(e, ast::ListPatternElement::Rest(_)));
                 let n = elements.len();
                 let len_access = self.member_access(&list_ty, "length", false);
                 let get = self.member_access(&list_ty, "[]", false);
@@ -152,7 +194,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             let sub = if after == 0 {
                                 format!("{value_js}{sublist}({i})")
                             } else {
-                                format!("{value_js}{sublist}({i}, {value_js}{len_access} - {after})")
+                                format!(
+                                    "{value_js}{sublist}({i}, {value_js}{len_access} - {after})"
+                                )
                             };
                             let c = self.pattern_cond(*p, &sub, &list_ty, binds, irrefutable);
                             if c != "true" {
@@ -164,12 +208,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 join_and(conds)
             }
-            PatternKind::Map { type_args, entries, .. } => {
+            PatternKind::Map {
+                type_args, entries, ..
+            } => {
                 let (kt, vt) = if type_args.len() == 2 {
-                    (self.resolve_type(type_args[0]), self.resolve_type(type_args[1]))
+                    (
+                        self.resolve_type(type_args[0]),
+                        self.resolve_type(type_args[1]),
+                    )
                 } else {
-                    match self.ctx.map_.and_then(|m| self.ctx.as_super(&vty.non_null(), m)) {
-                        Some(t) => (t.args().first().cloned().unwrap_or(Ty::Dynamic), t.args().get(1).cloned().unwrap_or(Ty::Dynamic)),
+                    match self
+                        .ctx
+                        .map_
+                        .and_then(|m| self.ctx.as_super(&vty.non_null(), m))
+                    {
+                        Some(t) => (
+                            t.args().first().cloned().unwrap_or(Ty::Dynamic),
+                            t.args().get(1).cloned().unwrap_or(Ty::Dynamic),
+                        ),
                         None => {
                             if vty.is_dynamic() {
                                 (Ty::Dynamic, Ty::Dynamic)
@@ -202,15 +258,37 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (pos_tys, named_tys): (Vec<Ty>, Vec<(String, Ty)>) = match &vty.non_null() {
                     Ty::Record { pos, named, .. } => (pos.clone(), named.clone()),
                     _ => {
-                        let npos = fields.iter().filter(|f| f.name.is_none() && !is_inferred_named(self, f)).count();
-                        let mut names: Vec<String> = fields.iter().filter_map(|f| self.pattern_field_name(f)).collect();
+                        let npos = fields
+                            .iter()
+                            .filter(|f| f.name.is_none() && !is_inferred_named(self, f))
+                            .count();
+                        let mut names: Vec<String> = fields
+                            .iter()
+                            .filter_map(|f| self.pattern_field_name(f))
+                            .collect();
                         names.sort();
-                        (vec![self.ctx.t_object_q(); npos], names.into_iter().map(|n| (n, self.ctx.t_object_q())).collect())
+                        (
+                            vec![self.ctx.t_object_q(); npos],
+                            names
+                                .into_iter()
+                                .map(|n| (n, self.ctx.t_object_q()))
+                                .collect(),
+                        )
                     }
                 };
-                let rec_ty = Ty::Record { pos: pos_tys.clone(), named: named_tys.clone(), nullable: false };
+                let rec_ty = Ty::Record {
+                    pos: pos_tys.clone(),
+                    named: named_tys.clone(),
+                    nullable: false,
+                };
                 let mut conds = Vec::new();
-                if !matches!(vty, Ty::Record { nullable: false, .. }) {
+                if !matches!(
+                    vty,
+                    Ty::Record {
+                        nullable: false,
+                        ..
+                    }
+                ) {
                     conds.push(self.is_test(&v, &rec_ty).code);
                 }
                 let mut pi = 0;
@@ -218,7 +296,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     match self.pattern_field_name(f) {
                         Some(n) => {
                             let sub = format!("{value_js}{}", js::prop_access(&n));
-                            let fty = named_tys.iter().find(|(x, _)| *x == n).map(|(_, t)| t.clone()).unwrap_or(Ty::Dynamic);
+                            let fty = named_tys
+                                .iter()
+                                .find(|(x, _)| *x == n)
+                                .map(|(_, t)| t.clone())
+                                .unwrap_or(Ty::Dynamic);
                             let c = self.pattern_cond(f.pattern, &sub, &fty, binds, irrefutable);
                             if c != "true" {
                                 conds.push(c);
@@ -244,7 +326,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     conds.push(self.is_test(&v, &t).code);
                 }
                 for f in fields.iter() {
-                    let Some(n) = self.pattern_field_name(f) else { continue };
+                    let Some(n) = self.pattern_field_name(f) else {
+                        continue;
+                    };
                     let (g, gty) = self.emit_member_get(&v, &t, &n, None);
                     let c = self.pattern_cond(f.pattern, &g.code, &gty, binds, irrefutable);
                     if c != "true" {
@@ -269,7 +353,6 @@ fn is_inferred_named(_s: &FnEmitter, _f: &ast::PatternField) -> bool {
     false
 }
 
-
 fn and(a: &str, b: &str) -> String {
     if a == "true" {
         return b.to_string();
@@ -277,7 +360,11 @@ fn and(a: &str, b: &str) -> String {
     if b == "true" {
         return a.to_string();
     }
-    format!("{} && {}", Js::new(a.to_string(), P_PRIMARY).at(P_AND), Js::new(b.to_string(), P_PRIMARY).at(P_AND + 1))
+    format!(
+        "{} && {}",
+        Js::new(a.to_string(), P_PRIMARY).at(P_AND),
+        Js::new(b.to_string(), P_PRIMARY).at(P_AND + 1)
+    )
 }
 
 fn join_and(conds: Vec<String>) -> String {
@@ -285,7 +372,11 @@ fn join_and(conds: Vec<String>) -> String {
     if conds.is_empty() {
         return "true".into();
     }
-    conds.iter().map(|c| paren_cond(c)).collect::<Vec<_>>().join(" && ")
+    conds
+        .iter()
+        .map(|c| paren_cond(c))
+        .collect::<Vec<_>>()
+        .join(" && ")
 }
 
 fn paren_cond(c: &str) -> String {

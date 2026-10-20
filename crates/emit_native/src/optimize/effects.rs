@@ -22,7 +22,9 @@ use std::collections::HashSet;
 pub fn instruction_throws(inst: &Instruction, do_not_throw: &HashSet<String>) -> bool {
     match inst {
         Instruction::CallStatic { symbol, .. } => !do_not_throw.contains(symbol),
-        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => effects_of(name).throws,
+        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => {
+            effects_of(name).throws
+        }
         Instruction::CallInterface { .. }
         | Instruction::CallDynamic { .. }
         | Instruction::CallClosure { .. }
@@ -35,7 +37,10 @@ pub fn instruction_throws(inst: &Instruction, do_not_throw: &HashSet<String>) ->
         // A box of the wrong type or null, null, division by zero, `toInt` of
         // NaN or infinity.
         Instruction::Unbox { to, .. } => !to.is_vector(),
-        Instruction::CheckNotNull(_) | Instruction::SDiv(..) | Instruction::SRem(..) | Instruction::DoubleToInt(_) => true,
+        Instruction::CheckNotNull(_)
+        | Instruction::SDiv(..)
+        | Instruction::SRem(..)
+        | Instruction::DoubleToInt(_) => true,
         _ => false,
     }
 }
@@ -43,7 +48,10 @@ pub fn instruction_throws(inst: &Instruction, do_not_throw: &HashSet<String>) ->
 /// May the function throw, given the current set of functions that do not throw?
 fn function_throws(func: &Function, do_not_throw: &HashSet<String>) -> bool {
     func.blocks.iter().any(|b| {
-        matches!(b.terminator, Terminator::Throw(_)) || b.instructions.iter().any(|(_, i, _)| instruction_throws(i, do_not_throw))
+        matches!(b.terminator, Terminator::Throw(_))
+            || b.instructions
+                .iter()
+                .any(|(_, i, _)| instruction_throws(i, do_not_throw))
     })
 }
 
@@ -74,10 +82,13 @@ pub fn do_not_throw(module: &Module) -> HashSet<String> {
         .functions
         .iter()
         .enumerate()
-        .filter(|(k, f)| recursive[*k] || canonical_cache_getter(f)
-            || super::constant_specialize::is_specialized_symbol(&f.symbol)
-            || module.simple_enum_constants.contains_key(&f.symbol)
-            || function_throws(f, &all))
+        .filter(|(k, f)| {
+            recursive[*k]
+                || canonical_cache_getter(f)
+                || super::constant_specialize::is_specialized_symbol(&f.symbol)
+                || module.simple_enum_constants.contains_key(&f.symbol)
+                || function_throws(f, &all)
+        })
         .map(|(k, _)| k)
         .collect();
     while let Some(k) = queue.pop() {
@@ -86,10 +97,16 @@ pub fn do_not_throw(module: &Module) -> HashSet<String> {
             continue;
         }
         if let Some(cs) = callers.get(s) {
-            queue.extend(cs.iter().copied().filter(|&c| !throws.contains(module.functions[c].symbol.as_str())));
+            queue.extend(
+                cs.iter()
+                    .copied()
+                    .filter(|&c| !throws.contains(module.functions[c].symbol.as_str())),
+            );
         }
     }
-    all.into_iter().filter(|s| !throws.contains(s.as_str())).collect()
+    all.into_iter()
+        .filter(|s| !throws.contains(s.as_str()))
+        .collect()
 }
 
 /// Generated constant getters can fail their emitted stack guard even without
@@ -109,7 +126,12 @@ fn canonical_cache_getter(function: &Function) -> bool {
 fn in_cycle(module: &Module) -> Vec<bool> {
     use std::collections::HashMap;
     let n = module.functions.len();
-    let index: HashMap<&str, usize> = module.functions.iter().enumerate().map(|(k, f)| (f.symbol.as_str(), k)).collect();
+    let index: HashMap<&str, usize> = module
+        .functions
+        .iter()
+        .enumerate()
+        .map(|(k, f)| (f.symbol.as_str(), k))
+        .collect();
     let edges: Vec<Vec<usize>> = module
         .functions
         .iter()
@@ -161,20 +183,36 @@ mod scc_tests {
     fn recursion_requires_stack_and_propagates_failure_without_contaminating_leaf() {
         let mut m = Module::new();
         for (symbol, dests) in [
-            ("folha", vec![]), ("auto", vec!["auto"]),
-            ("a", vec!["b", "folha"]), ("b", vec!["a"]),
-            ("chamador", vec!["a"]), ("externo", vec!["ausente"]),
+            ("folha", vec![]),
+            ("auto", vec!["auto"]),
+            ("a", vec!["b", "folha"]),
+            ("b", vec!["a"]),
+            ("chamador", vec!["a"]),
+            ("externo", vec!["ausente"]),
         ] {
             m.functions.push(Function {
-                symbol: symbol.into(), name: symbol.into(), debug_info: None,
-                params: vec![], return_ty: Type::Void,
+                symbol: symbol.into(),
+                name: symbol.into(),
+                debug_info: None,
+                params: vec![],
+                return_ty: Type::Void,
                 blocks: vec![BasicBlock {
                     id: BlockId(0),
-                    instructions: dests.into_iter().enumerate().map(|(i, dest)| (
-                        ValueId(i as u32), Instruction::CallStatic {
-                            symbol: dest.into(), args: vec![], ret_ty: Type::Void,
-                        }, Type::Void,
-                    )).collect(),
+                    instructions: dests
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, dest)| {
+                            (
+                                ValueId(i as u32),
+                                Instruction::CallStatic {
+                                    symbol: dest.into(),
+                                    args: vec![],
+                                    ret_ty: Type::Void,
+                                },
+                                Type::Void,
+                            )
+                        })
+                        .collect(),
                     terminator: Terminator::Return(None),
                 }],
             });
@@ -191,21 +229,45 @@ mod declared_field_effect_tests {
     #[test]
     fn declaration_metadata_preserves_runtime_exception_effects() {
         for (name, args, ret_ty) in [
-            ("dartforge_object_get", vec![(Operand::Constant(Constant::Null), Type::Ref),
-                (Operand::Constant(Constant::Int(0)), Type::I64)], Type::Ref),
-            ("dartforge_object_set", vec![(Operand::Constant(Constant::Null), Type::Ref),
-                (Operand::Constant(Constant::Int(0)), Type::I64),
-                (Operand::Constant(Constant::Null), Type::I64),
-                (Operand::Constant(Constant::Int(1)), Type::I8)], Type::Void),
+            (
+                "dartforge_object_get",
+                vec![
+                    (Operand::Constant(Constant::Null), Type::Ref),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                ],
+                Type::Ref,
+            ),
+            (
+                "dartforge_object_set",
+                vec![
+                    (Operand::Constant(Constant::Null), Type::Ref),
+                    (Operand::Constant(Constant::Int(0)), Type::I64),
+                    (Operand::Constant(Constant::Null), Type::I64),
+                    (Operand::Constant(Constant::Int(1)), Type::I8),
+                ],
+                Type::Void,
+            ),
         ] {
-            let call = Instruction::CallRuntime { name: name.into(), args, ret_ty };
-            let field = FieldDeclaration { library_uri: "package:fixture/base.dart".into(),
-                owner: "Base".into(), name: "_encoder".into(), is_final: true, is_late: false,
-                layout_index: 0, storage_type: Type::Ref };
+            let call = Instruction::CallRuntime {
+                name: name.into(),
+                args,
+                ret_ty,
+            };
+            let field = FieldDeclaration {
+                library_uri: "package:fixture/base.dart".into(),
+                owner: "Base".into(),
+                name: "_encoder".into(),
+                is_final: true,
+                is_late: false,
+                layout_index: 0,
+                storage_type: Type::Ref,
+            };
             let annotated = call.clone().with_field_declaration(Some(field));
             assert!(matches!(annotated, Instruction::DeclaredFieldCall { .. }));
-            assert_eq!(instruction_throws(&call, &HashSet::new()),
-                instruction_throws(&annotated, &HashSet::new()));
+            assert_eq!(
+                instruction_throws(&call, &HashSet::new()),
+                instruction_throws(&annotated, &HashSet::new())
+            );
         }
     }
 }

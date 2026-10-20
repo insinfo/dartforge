@@ -66,19 +66,20 @@ fn assert_canonical_certificate(ctx: &Context) {
         selected_sdk::canonical_hash_binding(ctx)
     );
     if selected_sdk::core_fingerprint(ctx).as_deref() != manifest["core_fingerprint"].as_str()
-        && let Some(core) = ctx.program.core {
-            let library = ctx.program.library(core);
-            for (ordinal, id) in library.units.iter().enumerate() {
-                let unit = ctx.program.unit(*id);
-                eprintln!(
-                    "selected core graph: ordinal={ordinal} unit={id:?} role={:?} uri={} logical_path={:?} parent={:?}",
-                    unit.role,
-                    unit.uri,
-                    unit.path,
-                    library.unit_parents.get(id)
-                );
-            }
+        && let Some(core) = ctx.program.core
+    {
+        let library = ctx.program.library(core);
+        for (ordinal, id) in library.units.iter().enumerate() {
+            let unit = ctx.program.unit(*id);
+            eprintln!(
+                "selected core graph: ordinal={ordinal} unit={id:?} role={:?} uri={} logical_path={:?} parent={:?}",
+                unit.role,
+                unit.uri,
+                unit.path,
+                library.unit_parents.get(id)
+            );
         }
+    }
     let expected: std::collections::HashSet<_> = manifest["units"]
         .as_array()
         .unwrap()

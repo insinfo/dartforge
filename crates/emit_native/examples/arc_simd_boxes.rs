@@ -60,14 +60,32 @@ fn main() -> Result<(), String> {
     prepare_arc_dart_module(&mut m, &mut plans)?;
     let mut ir = LlvmEmitter::new(&m).emit_all();
     for (name, decl) in [
-        ("dartforge_arc_observe_heap_v1", "declare i8 @dartforge_arc_observe_heap_v1(i64)"),
-        ("dartforge_arc_collect", "declare void @dartforge_arc_collect()"),
-        ("dartforge_print_handle", "declare void @dartforge_print_handle(i64)"),
-        ("dartforge_arc_retain", "declare void @dartforge_arc_retain(i64)"),
-        ("dartforge_arc_release", "declare void @dartforge_arc_release(i64)"),
+        (
+            "dartforge_arc_observe_heap_v1",
+            "declare i8 @dartforge_arc_observe_heap_v1(i64)",
+        ),
+        (
+            "dartforge_arc_collect",
+            "declare void @dartforge_arc_collect()",
+        ),
+        (
+            "dartforge_print_handle",
+            "declare void @dartforge_print_handle(i64)",
+        ),
+        (
+            "dartforge_arc_retain",
+            "declare void @dartforge_arc_retain(i64)",
+        ),
+        (
+            "dartforge_arc_release",
+            "declare void @dartforge_arc_release(i64)",
+        ),
         ("llvm.trap", "declare void @llvm.trap()"),
     ] {
-        if !ir.lines().any(|l| l.starts_with("declare ") && l.contains(&format!("@{name}("))) {
+        if !ir
+            .lines()
+            .any(|l| l.starts_with("declare ") && l.contains(&format!("@{name}(")))
+        {
             writeln!(ir, "{decl}").unwrap();
         }
     }

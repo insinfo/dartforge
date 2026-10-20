@@ -27,14 +27,19 @@
 //! missing inference data, not an `InvalidType`.
 //! Written without compiling or running (2026-10-05).
 
-use crate::typed_lints::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
+use crate::typed_lints::Finding;
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionKind, LibraryId, Program, UnitId};
-use dartforge_frontend::ast::{self, AssignOp, BinaryOp, DeclKind, ExprId, ExprKind, Initializer, MemberKind, PatternId, PatternKind, StmtKind, StringPart, UnaryOp};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, FunctionKind, LibraryId, Program, UnitId,
+};
+use dartforge_frontend::ast::{
+    self, AssignOp, BinaryOp, DeclKind, ExprId, ExprKind, Initializer, MemberKind, PatternId,
+    PatternKind, StmtKind, StringPart, UnaryOp,
+};
 use dartforge_intern::Interner;
 use std::collections::HashMap;
 
@@ -50,7 +55,12 @@ fn inside(a: Span, b: Span) -> bool {
 }
 
 /// The class `the_name` declared in library `lib`.
-fn class_of(program: &Program, interner: &Interner, lib: Option<LibraryId>, the_name: &str) -> Option<ClassId> {
+fn class_of(
+    program: &Program,
+    interner: &Interner,
+    lib: Option<LibraryId>,
+    the_name: &str,
+) -> Option<ClassId> {
     let sym = interner.lookup(the_name)?;
     match program.library(lib?).declared.get(&sym)?.getter? {
         Element::Class(c) => Some(c),
@@ -74,7 +84,12 @@ fn is_of_class(table: &TypeTable, t: TypeId, c: Option<ClassId>) -> bool {
 fn cascade_targets(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
     let mut m = HashMap::new();
     for e in a.exprs.iter() {
-        let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
+        let ExprKind::Cascade {
+            target, sections, ..
+        } = &e.kind
+        else {
+            continue;
+        };
         for &s in sections.iter() {
             // Goes down the section's receiver chain to the marker.
             let mut x = s;
@@ -112,12 +127,20 @@ pub fn findings(
     let mut out: Vec<Finding> = Vec::new();
     let a = &program.unit(u).ast;
     let cascades = cascade_targets(a);
-    let real = |x: ExprId| if matches!(a.expr(x).kind, ExprKind::CascadeTarget) { cascades.get(&x).copied() } else { Some(x) };
+    let real = |x: ExprId| {
+        if matches!(a.expr(x).kind, ExprKind::CascadeTarget) {
+            cascades.get(&x).copied()
+        } else {
+            Some(x)
+        }
+    };
 
     truncating_divide(interner, table, core, body, a, &mut out);
     double_and_int(table, core, body, a, &mut out);
     only_throw_errors(program, interner, table, core, outline, body, a, &mut out);
-    runtime_type_to_string(program, interner, table, outline, body, u, a, &real, &mut out);
+    runtime_type_to_string(
+        program, interner, table, outline, body, u, a, &real, &mut out,
+    );
     dynamic_calls(interner, table, core, body, a, &real, &mut out);
     unrelated_equality(program, interner, table, core, outline, body, u, &mut out);
     out
@@ -125,18 +148,43 @@ pub fn findings(
 
 /// `use_truncating_division`: `(a / b).toInt()` with `a` and `b` `int` and
 /// the `/` from `dart:core`.
-fn truncating_divide(interner: &Interner, table: &TypeTable, core: &CoreTypes, body: &UnitBodyTypes, a: &ast::Ast, out: &mut Vec<Finding>) {
+fn truncating_divide(
+    interner: &Interner,
+    table: &TypeTable,
+    core: &CoreTypes,
+    body: &UnitBodyTypes,
+    a: &ast::Ast,
+    out: &mut Vec<Finding>,
+) {
     for e in a.exprs.iter() {
-        let ExprKind::Call { target, arguments } = &e.kind else { continue };
+        let ExprKind::Call { target, arguments } = &e.kind else {
+            continue;
+        };
         if !arguments.args.is_empty() {
             continue;
         }
-        let ExprKind::Property { target: tgt, name, .. } = &a.expr(*target).kind else { continue };
-        if interner.resolve(name.sym) != "toInt" || !matches!(a.expr(*tgt).kind, ExprKind::Parenthesized(_)) {
+        let ExprKind::Property {
+            target: tgt, name, ..
+        } = &a.expr(*target).kind
+        else {
+            continue;
+        };
+        if interner.resolve(name.sym) != "toInt"
+            || !matches!(a.expr(*tgt).kind, ExprKind::Parenthesized(_))
+        {
             continue;
         }
-        let ExprKind::Binary { op: BinaryOp::Div, left, right } = &a.expr(without_parentheses(a, *tgt)).kind else { continue };
-        let int = |x: ExprId| typ(body, core, table, x).is_some_and(|t| is_of_class(table, t, core.int_class));
+        let ExprKind::Binary {
+            op: BinaryOp::Div,
+            left,
+            right,
+        } = &a.expr(without_parentheses(a, *tgt)).kind
+        else {
+            continue;
+        };
+        let int = |x: ExprId| {
+            typ(body, core, table, x).is_some_and(|t| is_of_class(table, t, core.int_class))
+        };
         if int(*left) && int(*right) {
             out.push((e.span, "use_truncating_division", Vec::new()));
         }
@@ -147,19 +195,53 @@ fn truncating_divide(interner: &Interner, table: &TypeTable, core: &CoreTypes, b
 /// with `x` a parameter or local variable, the resolved types equal to
 /// `double` and `int` (`is!` also counts: the emitter does not look at the
 /// `!`).
-fn double_and_int(table: &mut TypeTable, core: &CoreTypes, body: &UnitBodyTypes, a: &ast::Ast, out: &mut Vec<Finding>) {
+fn double_and_int(
+    table: &mut TypeTable,
+    core: &CoreTypes,
+    body: &UnitBodyTypes,
+    a: &ast::Ast,
+    out: &mut Vec<Finding>,
+) {
     for s in a.stmts.iter() {
-        let StmtKind::If { condition, else_: Some(otherwise), .. } = &s.kind else { continue };
-        let StmtKind::If { condition: c2, .. } = &a.stmt(*otherwise).kind else { continue };
-        let (ExprKind::Is { value: v1, ty: t1, .. }, ExprKind::Is { value: v2, ty: t2, .. }) = (&a.expr(*condition).kind, &a.expr(*c2).kind) else {
+        let StmtKind::If {
+            condition,
+            else_: Some(otherwise),
+            ..
+        } = &s.kind
+        else {
             continue;
         };
-        let (ExprKind::Identifier(n1), ExprKind::Identifier(n2)) = (&a.expr(*v1).kind, &a.expr(*v2).kind) else { continue };
+        let StmtKind::If { condition: c2, .. } = &a.stmt(*otherwise).kind else {
+            continue;
+        };
+        let (
+            ExprKind::Is {
+                value: v1, ty: t1, ..
+            },
+            ExprKind::Is {
+                value: v2, ty: t2, ..
+            },
+        ) = (&a.expr(*condition).kind, &a.expr(*c2).kind)
+        else {
+            continue;
+        };
+        let (ExprKind::Identifier(n1), ExprKind::Identifier(n2)) =
+            (&a.expr(*v1).kind, &a.expr(*v2).kind)
+        else {
+            continue;
+        };
         if n1.sym != n2.sym {
             continue;
         }
-        let local = matches!(body.get_resolved(*v1), Some(Resolved::Local(_) | Resolved::Parameter { .. }));
-        let mut resolved = |t: ast::TypeId| body.annotation_types.get(&t).map(|&x| crate::ops::without_display(x, table));
+        let local = matches!(
+            body.get_resolved(*v1),
+            Some(Resolved::Local(_) | Resolved::Parameter { .. })
+        );
+        let mut resolved = |t: ast::TypeId| {
+            body.annotation_types
+                .get(&t)
+                .map(|&x| crate::ops::without_display(x, table))
+        };
         if local && resolved(*t1) == Some(core.double) && resolved(*t2) == Some(core.int) {
             out.push((a.expr(*c2).span, "avoid_double_and_int_checks", Vec::new()));
         }
@@ -175,7 +257,11 @@ pub(crate) fn to_interface(table: &TypeTable, core: &CoreTypes, mut t: TypeId) -
             Type::TypeParameter { param, .. } => {
                 let p = table.param(*param);
                 // Without a written bound, the bound is `Object?`.
-                t = if p.explicit { p.bound } else { core.object_nullable };
+                t = if p.explicit {
+                    p.bound
+                } else {
+                    core.object_nullable
+                };
             }
             _ => return t,
         }
@@ -200,13 +286,19 @@ fn only_throw_errors(
     let error = class_of(program, interner, core.core_library, "Error");
     // `implementsAnyInterface`: itself or some supertype.
     let implements = |c: ClassId| {
-        [exception, error]
-            .into_iter()
-            .flatten()
-            .any(|k| c == k || (program.class(c).decl.is_some() && outline.hierarchy.get(c).is_some_and(|d| d.supertypes.contains_key(&k))))
+        [exception, error].into_iter().flatten().any(|k| {
+            c == k
+                || (program.class(c).decl.is_some()
+                    && outline
+                        .hierarchy
+                        .get(c)
+                        .is_some_and(|d| d.supertypes.contains_key(&k)))
+        })
     };
     for e in a.exprs.iter() {
-        let ExprKind::Throw(x) = &e.kind else { continue };
+        let ExprKind::Throw(x) = &e.kind else {
+            continue;
+        };
         let thrown = a.expr(*x);
         // `Literal`: boolean, number, `null`, string, symbol, collection, record.
         let literal = matches!(
@@ -229,7 +321,9 @@ fn only_throw_errors(
                 } else {
                     match table.get(to_interface(table, core, t)) {
                         Type::Dynamic => true,
-                        Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => implements(*class),
+                        Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
+                            implements(*class)
+                        }
                         _ => false,
                     }
                 }
@@ -285,12 +379,22 @@ fn runtime_type_to_string(
             // The extension whose extended type is an interface that is not
             // a concrete class.
             DeclKind::Extension(_) => {
-                let Some(i) = program.extension_of_decl(u, ast::DeclId(di as u32)).map(|e| e.0 as usize) else { continue };
-                let Some(data) = outline.extensions.get(i) else { continue };
+                let Some(i) = program
+                    .extension_of_decl(u, ast::DeclId(di as u32))
+                    .map(|e| e.0 as usize)
+                else {
+                    continue;
+                };
+                let Some(data) = outline.extensions.get(i) else {
+                    continue;
+                };
                 let skips = match table.get(data.on) {
                     Type::Interface { class, .. } => {
                         let c = program.class(*class);
-                        let concrete = matches!(c.kind, ClassKind::Class | ClassKind::MixinApplication) && !c.modifiers.abstract_ && !c.modifiers.sealed;
+                        let concrete =
+                            matches!(c.kind, ClassKind::Class | ClassKind::MixinApplication)
+                                && !c.modifiers.abstract_
+                                && !c.modifiers.sealed;
                         !concrete
                     }
                     // `Null` is a concrete class; `FutureOr` is abstract; an extension
@@ -310,16 +414,32 @@ fn runtime_type_to_string(
     // `_isRuntimeTypeAccess`: `this.runtimeType`, `super.runtimeType`, or the
     // identifier `runtimeType` whose element is a getter.
     let is_getter = |r: Option<&Resolved>| match r {
-        Some(Resolved::Member { member: MemberRef::Variable(_), .. }) | Some(Resolved::Element(Element::Variable(_))) => true,
-        Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::Element(Element::Function(f))) => {
-            program.function(*f).kind == FunctionKind::Getter || program.function(*f).variable.is_some()
+        Some(Resolved::Member {
+            member: MemberRef::Variable(_),
+            ..
+        })
+        | Some(Resolved::Element(Element::Variable(_))) => true,
+        Some(Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        })
+        | Some(Resolved::Element(Element::Function(f))) => {
+            program.function(*f).kind == FunctionKind::Getter
+                || program.function(*f).variable.is_some()
         }
-        Some(Resolved::ExtensionMember { member, .. }) => program.function(*member).kind == FunctionKind::Getter,
+        Some(Resolved::ExtensionMember { member, .. }) => {
+            program.function(*member).kind == FunctionKind::Getter
+        }
         _ => false,
     };
     let is_runtime_type = |x: ExprId| match &a.expr(x).kind {
-        ExprKind::Property { target, name, .. } => the_name(name.sym) == "runtimeType" && matches!(a.expr(*target).kind, ExprKind::This | ExprKind::Super),
-        ExprKind::Identifier(n) => the_name(n.sym) == "runtimeType" && is_getter(body.get_resolved(x)),
+        ExprKind::Property { target, name, .. } => {
+            the_name(name.sym) == "runtimeType"
+                && matches!(a.expr(*target).kind, ExprKind::This | ExprKind::Super)
+        }
+        ExprKind::Identifier(n) => {
+            the_name(n.sym) == "runtimeType" && is_getter(body.get_resolved(x))
+        }
         _ => false,
     };
     for e in a.exprs.iter() {
@@ -335,7 +455,9 @@ fn runtime_type_to_string(
                 }
             }
             ExprKind::Call { target, .. } => {
-                if let ExprKind::Property { target: tgt, name, .. } = &a.expr(*target).kind
+                if let ExprKind::Property {
+                    target: tgt, name, ..
+                } = &a.expr(*target).kind
                     && the_name(name.sym) == "toString"
                     && real(*tgt).is_some_and(&is_runtime_type)
                     && !skips(e.span)
@@ -373,15 +495,16 @@ fn dynamic_calls(
         false
     };
     // `_reportIfDynamicOrFunction`.
-    let dynamic_or_function = |no: ExprId, static_type: Option<TypeId>, findings: &mut Vec<Span>| {
-        let Some(t) = static_type else { return };
-        if as_(no) {
-            return;
-        }
-        if matches!(table.get(t), Type::Dynamic) || is_of_class(table, t, core.function_class) {
-            findings.push(a.expr(no).span);
-        }
-    };
+    let dynamic_or_function =
+        |no: ExprId, static_type: Option<TypeId>, findings: &mut Vec<Span>| {
+            let Some(t) = static_type else { return };
+            if as_(no) {
+                return;
+            }
+            if matches!(table.get(t), Type::Dynamic) || is_of_class(table, t, core.function_class) {
+                findings.push(a.expr(no).span);
+            }
+        };
     let allowed = |n: &str| matches!(n, "hashCode" | "noSuchMethod" | "runtimeType" | "toString");
     // Call targets are not property accesses.
     let mut called: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
@@ -394,15 +517,21 @@ fn dynamic_calls(
         let id = ExprId(k as u32);
         match &e.kind {
             // An instance creation without `new` is not a call.
-            ExprKind::Call { .. } if matches!(body.get_resolved(id), Some(Resolved::Constructor(_))) => {}
+            ExprKind::Call { .. }
+                if matches!(body.get_resolved(id), Some(Resolved::Constructor(_))) => {}
             ExprKind::Call { target, arguments } => match &a.expr(*target).kind {
                 // `MethodInvocation` with a target (or in a cascade).
-                ExprKind::Property { target: tgt, name, .. } => {
+                ExprKind::Property {
+                    target: tgt, name, ..
+                } => {
                     let in_cascade = matches!(a.expr(*tgt).kind, ExprKind::CascadeTarget);
                     let n = the_name(name.sym);
                     if !in_cascade {
-                        let single_positional = arguments.args.len() == 1 && arguments.args[0].name.is_none();
-                        if (n == "noSuchMethod" && single_positional) || (n == "toString" && arguments.args.is_empty()) {
+                        let single_positional =
+                            arguments.args.len() == 1 && arguments.args[0].name.is_none();
+                        if (n == "noSuchMethod" && single_positional)
+                            || (n == "toString" && arguments.args.is_empty())
+                        {
                             continue;
                         }
                     }
@@ -412,11 +541,16 @@ fn dynamic_calls(
                         // on a function type.
                         let target_type = real_target.and_then(ty);
                         let static_ = match target_type {
-                            Some(t) if n == "call" && matches!(table.get(t), Type::Function { .. }) => Some(t),
+                            Some(t)
+                                if n == "call" && matches!(table.get(t), Type::Function { .. }) =>
+                            {
+                                Some(t)
+                            }
                             _ => ty(*target),
                         };
                         if let Some(t) = static_
-                            && (matches!(table.get(t), Type::Dynamic) || is_of_class(table, t, core.function_class))
+                            && (matches!(table.get(t), Type::Dynamic)
+                                || is_of_class(table, t, core.function_class))
                         {
                             findings.push(name.span);
                         }
@@ -437,7 +571,14 @@ fn dynamic_calls(
                 if_dynamic(real(*target), &mut findings);
             }
             ExprKind::Binary { op, left, .. } => {
-                let definable = !matches!(op, BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::And | BinaryOp::Or | BinaryOp::IfNull);
+                let definable = !matches!(
+                    op,
+                    BinaryOp::Eq
+                        | BinaryOp::NotEq
+                        | BinaryOp::And
+                        | BinaryOp::Or
+                        | BinaryOp::IfNull
+                );
                 if definable {
                     if_dynamic(Some(*left), &mut findings);
                 }
@@ -446,7 +587,10 @@ fn dynamic_calls(
                 UnaryOp::NullAssert => {}
                 // `++`/`--`: the operand is a write position (no static
                 // type in the analyzer); the read type counts.
-                UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec => {
+                UnaryOp::PrefixInc
+                | UnaryOp::PrefixDec
+                | UnaryOp::PostfixInc
+                | UnaryOp::PostfixDec => {
                     if dynamic(*operand) {
                         findings.push(e.span);
                     }
@@ -457,15 +601,21 @@ fn dynamic_calls(
             },
             // An assignment with a `dynamic` read (not `=`, not `??=`).
             ExprKind::Assign { op, target, .. }
-                if !matches!(op, AssignOp::Assign | AssignOp::Compound(BinaryOp::IfNull)) && dynamic(*target) => {
-                    findings.push(e.span);
-                }
+                if !matches!(op, AssignOp::Assign | AssignOp::Compound(BinaryOp::IfNull))
+                    && dynamic(*target) =>
+            {
+                findings.push(e.span);
+            }
             _ => {}
         }
     }
     findings.sort_by_key(|s| (s.start, s.end));
     findings.dedup();
-    out.extend(findings.into_iter().map(|s| (s, "avoid_dynamic_calls", Vec::new())));
+    out.extend(
+        findings
+            .into_iter()
+            .map(|s| (s, "avoid_dynamic_calls", Vec::new())),
+    );
 }
 
 /// `unrelated_type_equality_checks`: the expression `a == b`/`a != b` of type
@@ -489,7 +639,11 @@ fn unrelated_equality(
         let l_fixnum = match table.get(l) {
             Type::Interface { class, .. } => {
                 let c = program.class(*class);
-                matches!(interner.resolve(c.name), "Int32" | "Int64") && program.library(c.library).uri.starts_with("package:fixnum/")
+                matches!(interner.resolve(c.name), "Int32" | "Int64")
+                    && program
+                        .library(c.library)
+                        .uri
+                        .starts_with("package:fixnum/")
             }
             _ => false,
         };
@@ -497,33 +651,85 @@ fn unrelated_equality(
     };
     let mut cases: Vec<(Span, &'static str, TypeId, TypeId)> = Vec::new();
     for (k, e) in a.exprs.iter().enumerate() {
-        let ExprKind::Binary { op: BinaryOp::Eq | BinaryOp::NotEq, left, right } = &e.kind else { continue };
-        if matches!(a.expr(*left).kind, ExprKind::Null) || matches!(a.expr(*right).kind, ExprKind::Null) {
+        let ExprKind::Binary {
+            op: BinaryOp::Eq | BinaryOp::NotEq,
+            left,
+            right,
+        } = &e.kind
+        else {
+            continue;
+        };
+        if matches!(a.expr(*left).kind, ExprKind::Null)
+            || matches!(a.expr(*right).kind, ExprKind::Null)
+        {
             continue;
         }
         // `node.staticType?.isDartCoreBool`.
-        let Some(tb) = typ(body, core, table, ExprId(k as u32)) else { continue };
+        let Some(tb) = typ(body, core, table, ExprId(k as u32)) else {
+            continue;
+        };
         if !is_of_class(table, tb, core.bool_class) {
             continue;
         }
-        let (Some(te), Some(td)) = (typ(body, core, table, *left), typ(body, core, table, *right)) else { continue };
+        let (Some(te), Some(td)) = (
+            typ(body, core, table, *left),
+            typ(body, core, table, *right),
+        ) else {
+            continue;
+        };
         // The operator token: the first one after the left operand.
-        let i = dartforge_frontend::source::skip_whitespace(unit.source.as_bytes(), a.expr(*left).span.end);
-        cases.push((Span { start: i, end: i + 2 }, "unrelated_type_equality_checks_in_expression", te, td));
+        let i = dartforge_frontend::source::skip_whitespace(
+            unit.source.as_bytes(),
+            a.expr(*left).span.end,
+        );
+        cases.push((
+            Span {
+                start: i,
+                end: i + 2,
+            },
+            "unrelated_type_equality_checks_in_expression",
+            te,
+            td,
+        ));
     }
     for (k, p) in a.patterns.iter().enumerate() {
-        let PatternKind::Relational { op: BinaryOp::Eq | BinaryOp::NotEq, value } = &p.kind else { continue };
-        let Some(&the_value) = body.matched_types.get(&PatternId(k as u32)) else { continue };
-        let Some(the_operand) = typ(body, core, table, *value) else { continue };
-        cases.push((p.span, "unrelated_type_equality_checks_in_pattern", the_value, the_operand));
+        let PatternKind::Relational {
+            op: BinaryOp::Eq | BinaryOp::NotEq,
+            value,
+        } = &p.kind
+        else {
+            continue;
+        };
+        let Some(&the_value) = body.matched_types.get(&PatternId(k as u32)) else {
+            continue;
+        };
+        let Some(the_operand) = typ(body, core, table, *value) else {
+            continue;
+        };
+        cases.push((
+            p.span,
+            "unrelated_type_equality_checks_in_pattern",
+            the_value,
+            the_operand,
+        ));
     }
     for (span, code, l, r) in cases {
-        let mut rel = Relation { program, table: &mut *table, core, outline, future_or, call: interner.lookup("call") };
+        let mut rel = Relation {
+            program,
+            table: &mut *table,
+            core,
+            outline,
+            future_or,
+            call: interner.lookup("call"),
+        };
         if !rel.unrelated(l, r) || fixnum(table, l, r) {
             continue;
         }
         // `[rightType, leftType]` (in the pattern form: `[operand, value]`).
-        let args = vec![crate::dump::display_string(table, r, interner, program), crate::dump::display_string(table, l, interner, program)];
+        let args = vec![
+            crate::dump::display_string(table, r, interner, program),
+            crate::dump::display_string(table, l, interner, program),
+        ];
         out.push((span, code, args));
     }
 }
@@ -551,7 +757,10 @@ impl Relation<'_> {
         match self.table.get(t) {
             Type::Never => true,
             Type::Intersection { bound, .. } => self.bottom(*bound),
-            Type::TypeParameter { param, nullable: false } => {
+            Type::TypeParameter {
+                param,
+                nullable: false,
+            } => {
                 let p = self.table.param(*param);
                 p.explicit && self.bottom(p.bound)
             }
@@ -583,21 +792,35 @@ impl Relation<'_> {
     /// The element's `supertype` (null for `Object`, mixins and extension
     /// types).
     fn the_supertype(&mut self, c: ClassId) -> Option<TypeId> {
-        if matches!(self.program.class(c).kind, ClassKind::Mixin | ClassKind::ExtensionType) {
+        if matches!(
+            self.program.class(c).kind,
+            ClassKind::Mixin | ClassKind::ExtensionType
+        ) {
             return None;
         }
-        let s = self.outline.classes.get(c.0 as usize).and_then(|x| x.supertype)?;
+        let s = self
+            .outline
+            .classes
+            .get(c.0 as usize)
+            .and_then(|x| x.supertype)?;
         Some(crate::ops::without_display(s, self.table))
     }
 
     pub(crate) fn unrelated(&mut self, l: TypeId, r: TypeId) -> bool {
         let dynamic = |t: &Type| matches!(t, Type::Dynamic);
-        if self.bottom(l) || dynamic(self.table.get(l)) || self.bottom(r) || dynamic(self.table.get(r)) {
+        if self.bottom(l)
+            || dynamic(self.table.get(l))
+            || self.bottom(r)
+            || dynamic(self.table.get(r))
+        {
             return false;
         }
         let pl = crate::ops::non_nullable(l, self.table);
         let pr = crate::ops::non_nullable(r, self.table);
-        let (cl, cr) = (crate::ops::without_display(pl, self.table), crate::ops::without_display(pr, self.table));
+        let (cl, cr) = (
+            crate::ops::without_display(pl, self.table),
+            crate::ops::without_display(pr, self.table),
+        );
         if cl == cr || self.sub(pl, pr) || self.sub(pr, pl) {
             return false;
         }
@@ -616,7 +839,9 @@ impl Relation<'_> {
         if matches!(self.table.get(pr), Type::Function { .. }) {
             return self.unrelated_function(pl);
         }
-        if matches!(self.table.get(pl), Type::Record { .. }) || matches!(self.table.get(pr), Type::Record { .. }) {
+        if matches!(self.table.get(pl), Type::Record { .. })
+            || matches!(self.table.get(pr), Type::Record { .. })
+        {
             // `isAssignableTo` between non-`dynamic` types: subtyping.
             return !self.sub(pl, pr) && !self.sub(pr, pl);
         }
@@ -624,12 +849,21 @@ impl Relation<'_> {
     }
 
     /// `interfaceTypesAreUnrelated`.
-    fn unrelated_interfaces(&mut self, el: ClassId, al: &[TypeId], er: ClassId, ar: &[TypeId]) -> bool {
+    fn unrelated_interfaces(
+        &mut self,
+        el: ClassId,
+        al: &[TypeId],
+        er: ClassId,
+        ar: &[TypeId],
+    ) -> bool {
         if el == er {
             if al.len() != ar.len() {
                 return false;
             }
-            return al.iter().zip(ar.iter()).any(|(x, y)| self.unrelated(*x, *y));
+            return al
+                .iter()
+                .zip(ar.iter())
+                .any(|(x, y)| self.unrelated(*x, *y));
         }
         let (sl, sr) = (self.the_supertype(el), self.the_supertype(er));
         let same = sl == sr;
@@ -649,7 +883,15 @@ impl Relation<'_> {
                 let c = self.program.class(*class);
                 if matches!(c.kind, ClassKind::Class | ClassKind::MixinApplication)
                     && let Some(call) = self.call
-                    && crate::phase_super::the_concrete(self.program, *class, true, call, c.library, false, true)
+                    && crate::phase_super::the_concrete(
+                        self.program,
+                        *class,
+                        true,
+                        call,
+                        c.library,
+                        false,
+                        true,
+                    )
                 {
                     return false;
                 }

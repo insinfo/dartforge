@@ -21,8 +21,7 @@ fn module(entry: &Path) -> Result<Module, String> {
     let lib = std::env::var_os("DARTFORGE_SDK_LIB").ok_or("defina DARTFORGE_SDK_LIB")?;
     let sdk = dartforge_emit_native::sdk_module::load_native_sdk(Path::new(&lib))?;
     let mut interner = Interner::new();
-    let (program, diags) =
-        dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
+    let (program, diags) = dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
     if !diags.is_empty() {
         return Err(format!("carga: {diags:?}"));
     }
@@ -30,13 +29,8 @@ fn module(entry: &Path) -> Result<Module, String> {
     let core = CoreTypes::init(&mut types, &program, &interner);
     let (mut outline, diags) =
         dartforge_types::resolve_outline(&program, &interner, &mut types, &core);
-    let (bodies, body_diags) = dartforge_types::infer_program_bodies(
-        &program,
-        &interner,
-        &mut types,
-        &core,
-        &mut outline,
-    );
+    let (bodies, body_diags) =
+        dartforge_types::infer_program_bodies(&program, &interner, &mut types, &core, &mut outline);
     for d in diags.iter().chain(&body_diags) {
         if dartforge_types::codes::is_compile_error(&d.message) {
             return Err(format!("tipagem: {d:?}"));

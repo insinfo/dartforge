@@ -1,14 +1,13 @@
 //! Compilation context of the `dartforge-emit-native` crate.
 
-mod layout_type_identity;
 mod constant_strings;
+mod layout_type_identity;
 
 use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::resolve::OutlineTypes;
 use dartforge_types::resolved::{BodyTypes, Resolved};
 use dartforge_types::table::{CoreTypes, Type, TypeId, TypeTable};
-
 
 /// Semantic member identity used by immutable dispatch caches.
 type DispatchKey = (dartforge_elements::model::ClassId, SymbolId);
@@ -25,7 +24,9 @@ pub struct Context<'a> {
     pub outline: &'a OutlineTypes,
     pub bodies: &'a BodyTypes,
     /// Proven interpolated strings for this module, evaluated once during lowering.
-    constant_strings: std::sync::OnceLock<std::collections::HashMap<(UnitId, dartforge_frontend::ast::ExprId), Vec<u8>>>,
+    constant_strings: std::sync::OnceLock<
+        std::collections::HashMap<(UnitId, dartforge_frontend::ast::ExprId), Vec<u8>>,
+    >,
     /// Identity of the SDK marker, never of a same-named user class.
     finalizable_class: Option<dartforge_elements::model::ClassId>,
     pub entry_lib: Option<LibraryId>,
@@ -120,8 +121,12 @@ pub struct Context<'a> {
         std::sync::RwLock<std::collections::HashMap<DispatchKey, Implementations>>,
     /// The subtypes of each class (`Context::subtypes`), computed on the
     /// first query.
-    pub subtypes_memo:
-        std::sync::RwLock<std::collections::HashMap<dartforge_elements::model::ClassId, std::sync::Arc<Vec<dartforge_elements::model::ClassId>>>>,
+    pub subtypes_memo: std::sync::RwLock<
+        std::collections::HashMap<
+            dartforge_elements::model::ClassId,
+            std::sync::Arc<Vec<dartforge_elements::model::ClassId>>,
+        >,
+    >,
     /// Likewise for `sdk_source::implementations_by_class`.
     pub implementations_by_class_memo:
         std::sync::RwLock<std::collections::HashMap<DispatchKey, Option<ClassImplementations>>>,
@@ -142,7 +147,9 @@ pub fn pattern_variable_name(
     loop {
         match &ast.pattern(p).kind {
             PatternKind::Variable { name, .. } => return Some(name.sym),
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Cast { pattern: x, .. } => p = *x,
+            PatternKind::NullCheck(x)
+            | PatternKind::NullAssert(x)
+            | PatternKind::Cast { pattern: x, .. } => p = *x,
             _ => return None,
         }
     }
@@ -175,7 +182,10 @@ impl<'a> Context<'a> {
         let Some(m) = &self.world else { return false };
         let func = &self.program.functions[f];
         !self.program.library(func.library).is_sdk
-            && matches!(func.node, dartforge_elements::model::FunctionRef::Function { .. })
+            && matches!(
+                func.node,
+                dartforge_elements::model::FunctionRef::Function { .. }
+            )
             && !m.is_live_function(dartforge_elements::model::FunctionElementId(f as u32))
     }
 
@@ -209,12 +219,16 @@ impl<'a> Context<'a> {
         // that the CFE would create) do not go through the world, and without an
         // entry in the table the call fell into `NoSuchMethodError`
         // (corpus/js/223_nosuchmethod_argumentos).
-        let with_node = matches!(func.node, dartforge_elements::model::FunctionRef::Function { .. }) || func.variable.is_some();
+        let with_node = matches!(
+            func.node,
+            dartforge_elements::model::FunctionRef::Function { .. }
+        ) || func.variable.is_some();
         with_node
             && !self.program.library(func.library).is_sdk
             && !matches!(
                 func.kind,
-                dartforge_elements::model::FunctionKind::Constructor | dartforge_elements::model::FunctionKind::SyntheticConstructor
+                dartforge_elements::model::FunctionKind::Constructor
+                    | dartforge_elements::model::FunctionKind::SyntheticConstructor
             )
             && !m.is_live_function(dartforge_elements::model::FunctionElementId(f as u32))
     }
@@ -233,8 +247,16 @@ impl<'a> Context<'a> {
     /// The program classes that are subtypes of `cid` (itself included), in
     /// element id order — what the implementation lookups used to
     /// walk by scanning ALL the classes at each member access.
-    pub fn subtypes(&self, cid: dartforge_elements::model::ClassId) -> std::sync::Arc<Vec<dartforge_elements::model::ClassId>> {
-        if let Some(r) = self.subtypes_memo.read().unwrap_or_else(|e| e.into_inner()).get(&cid) {
+    pub fn subtypes(
+        &self,
+        cid: dartforge_elements::model::ClassId,
+    ) -> std::sync::Arc<Vec<dartforge_elements::model::ClassId>> {
+        if let Some(r) = self
+            .subtypes_memo
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&cid)
+        {
             return r.clone();
         }
         let r: std::sync::Arc<Vec<_>> = std::sync::Arc::new(
@@ -243,7 +265,10 @@ impl<'a> Context<'a> {
                 .filter(|&k| crate::lower::members::subclass_of(self, k, cid))
                 .collect(),
         );
-        self.subtypes_memo.write().unwrap_or_else(|e| e.into_inner()).insert(cid, r.clone());
+        self.subtypes_memo
+            .write()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(cid, r.clone());
         r
     }
 
@@ -255,7 +280,13 @@ impl<'a> Context<'a> {
             .iter()
             .map(|u| {
                 std::iter::once(0)
-                    .chain(u.source.bytes().enumerate().filter(|&(_, b)| b == b'\n').map(|(i, _)| i as u32 + 1))
+                    .chain(
+                        u.source
+                            .bytes()
+                            .enumerate()
+                            .filter(|&(_, b)| b == b'\n')
+                            .map(|(i, _)| i as u32 + 1),
+                    )
                     .collect()
             })
             .collect();
@@ -271,7 +302,9 @@ impl<'a> Context<'a> {
     pub fn stack_trace_url(&self, unit: dartforge_elements::model::UnitId) -> String {
         let u = self.program.unit(unit);
         let library = &self.program.library(u.library).uri;
-        let Some(name) = library.strip_prefix("dart:") else { return u.uri.clone() };
+        let Some(name) = library.strip_prefix("dart:") else {
+            return u.uri.clone();
+        };
         if u.uri == *library {
             return library.clone();
         }
@@ -281,16 +314,24 @@ impl<'a> Context<'a> {
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| u.uri.rsplit('/').next().unwrap_or_default().to_string());
-        let patch = u
-            .path
-            .as_ref()
-            .is_some_and(|p| p.components().any(|c| matches!(c.as_os_str().to_str(), Some("_internal" | "native_sdk"))));
-        if patch { format!("dart:{name}-patch/{file}") } else { format!("dart:{name}/{file}") }
+        let patch = u.path.as_ref().is_some_and(|p| {
+            p.components()
+                .any(|c| matches!(c.as_os_str().to_str(), Some("_internal" | "native_sdk")))
+        });
+        if patch {
+            format!("dart:{name}-patch/{file}")
+        } else {
+            format!("dart:{name}/{file}")
+        }
     }
 
     /// `(line, column)`, starting from 1, of byte `offset` of unit `unit`,
     /// with debug info on.
-    pub fn line_and_column(&self, unit: dartforge_elements::model::UnitId, offset: usize) -> Option<(u32, u32)> {
+    pub fn line_and_column(
+        &self,
+        unit: dartforge_elements::model::UnitId,
+        offset: usize,
+    ) -> Option<(u32, u32)> {
         let starts = self.debug_info.as_ref()?.get(unit.0 as usize)?;
         let offset = u32::try_from(offset).ok()?;
         let line = starts.partition_point(|&i| i <= offset);
@@ -308,7 +349,12 @@ impl<'a> Context<'a> {
     ) -> Self {
         let root = program.entry.and_then(|l| {
             let u = *program.library(l).units.first()?;
-            program.unit(u).path.as_ref()?.parent().map(|p| p.to_path_buf())
+            program
+                .unit(u)
+                .path
+                .as_ref()?
+                .parent()
+                .map(|p| p.to_path_buf())
         });
         let mut ctx = Self {
             program,
@@ -319,7 +365,8 @@ impl<'a> Context<'a> {
             bodies,
             constant_strings: std::sync::OnceLock::new(),
             finalizable_class: program.classes.iter().enumerate().find_map(|(i, c)| {
-                (program.library(c.library).uri == "dart:ffi" && interner.resolve(c.name) == "Finalizable")
+                (program.library(c.library).uri == "dart:ffi"
+                    && interner.resolve(c.name) == "Finalizable")
                     .then_some(dartforge_elements::model::ClassId(i as u32))
             }),
             entry_lib: program.entry,
@@ -328,7 +375,9 @@ impl<'a> Context<'a> {
             record_shapes: Vec::new(),
             root,
             sdk_library: false,
-            enum_pattern_identity_enabled: std::env::var("DARTFORGE_NO_ENUM_PATTERN_IDENTITY").as_deref() != Ok("1"),
+            enum_pattern_identity_enabled: std::env::var("DARTFORGE_NO_ENUM_PATTERN_IDENTITY")
+                .as_deref()
+                != Ok("1"),
             arc_memory: false,
             enable_asserts: true,
             product: false,
@@ -345,8 +394,10 @@ impl<'a> Context<'a> {
             subtypes_memo: Default::default(),
             implementations_by_class_memo: Default::default(),
             primitive_multiply_certificate: Default::default(),
-            primitive_multiply_enabled: std::env::var("DARTFORGE_PRIMITIVE_MULTIPLY").as_deref() == Ok("1"),
-            primitive_clamp_enabled: std::env::var("DARTFORGE_PRIMITIVE_CLAMP").as_deref() == Ok("1"),
+            primitive_multiply_enabled: std::env::var("DARTFORGE_PRIMITIVE_MULTIPLY").as_deref()
+                == Ok("1"),
+            primitive_clamp_enabled: std::env::var("DARTFORGE_PRIMITIVE_CLAMP").as_deref()
+                == Ok("1"),
             te: crate::erasure::ExtensionTypes::default(),
             previous_ids: None,
             debug_info: None,
@@ -362,10 +413,15 @@ impl<'a> Context<'a> {
                 continue;
             }
             for e in &u.ast.exprs {
-                if let dartforge_frontend::ast::ExprKind::Record { positional, named, .. } = &e.kind
+                if let dartforge_frontend::ast::ExprKind::Record {
+                    positional, named, ..
+                } = &e.kind
                     && !named.is_empty()
                 {
-                    let mut n: Vec<String> = named.iter().map(|(k, _)| interner.resolve(k.sym).to_string()).collect();
+                    let mut n: Vec<String> = named
+                        .iter()
+                        .map(|(k, _)| interner.resolve(k.sym).to_string())
+                        .collect();
                     n.sort();
                     shapes.insert((positional.len(), n));
                 }
@@ -400,7 +456,10 @@ impl<'a> Context<'a> {
                 if let dartforge_frontend::ast::TypeKind::Record { positional, named } = &t.kind
                     && !named.is_empty()
                 {
-                    let mut n: Vec<String> = named.iter().map(|(k, _)| interner.resolve(k.sym).to_string()).collect();
+                    let mut n: Vec<String> = named
+                        .iter()
+                        .map(|(k, _)| interner.resolve(k.sym).to_string())
+                        .collect();
                     n.sort();
                     shapes.insert((positional.len(), n));
                 }
@@ -443,7 +502,10 @@ impl<'a> Context<'a> {
 
     /// JIT reload (J03): numbers the program classes keeping the ids
     /// of the live generation (`ids`, from [`ir_ids`]).
-    pub fn with_previous_ids(mut self, ids: std::collections::HashMap<(String, String), u32>) -> Self {
+    pub fn with_previous_ids(
+        mut self,
+        ids: std::collections::HashMap<(String, String), u32>,
+    ) -> Self {
         self.previous_ids = Some(ids);
         self.number_classes();
         self
@@ -462,7 +524,11 @@ impl<'a> Context<'a> {
             .filter(|(_, c)| !self.program.library(c.library).is_sdk)
             .filter_map(|(i, c)| {
                 let id = self.class_ids.get(i).copied().flatten()?;
-                Some((id, self.library_name(c.library), self.interner.resolve(c.name).to_string()))
+                Some((
+                    id,
+                    self.library_name(c.library),
+                    self.interner.resolve(c.name).to_string(),
+                ))
             })
             .collect();
         if let Some(previous_ones) = &self.previous_ids {
@@ -492,13 +558,18 @@ impl<'a> Context<'a> {
                     .map(|v| {
                         let var = &self.program.variables[v.0 as usize];
                         let t = crate::lower::members::variable_type(self, v);
-                        let nullable = matches!(self.table.get(t), Type::Dynamic | Type::Void | Type::Null)
-                            || self.table.get(t).is_declared_nullable();
+                        let nullable =
+                            matches!(self.table.get(t), Type::Dynamic | Type::Void | Type::Null)
+                                || self.table.get(t).is_declared_nullable();
                         crate::hir::LayoutField {
                             name: self.symbol_name(var.name).to_string(),
-                            owner: var.class.map(|class| format!("{}:{}",
-                                escape_str(&self.library_name(var.library)),
-                                escape_str(self.symbol_name(self.program.class(class).name)))),
+                            owner: var.class.map(|class| {
+                                format!(
+                                    "{}:{}",
+                                    escape_str(&self.library_name(var.library)),
+                                    escape_str(self.symbol_name(self.program.class(class).name))
+                                )
+                            }),
                             nullable,
                             late: var.late,
                             ty: self.table.format(t, self.interner, self.program),
@@ -576,9 +647,19 @@ impl<'a> Context<'a> {
                         continue;
                     }
                     if program.library(c.library).is_sdk {
-                        ids[i] = sdk.ids.get(&(self.library_name(c.library), self.interner.resolve(c.name).to_string())).copied();
+                        ids[i] = sdk
+                            .ids
+                            .get(&(
+                                self.library_name(c.library),
+                                self.interner.resolve(c.name).to_string(),
+                            ))
+                            .copied();
                     } else if c.kind != dartforge_elements::model::ClassKind::ExtensionType {
-                        keys.push((self.library_name(c.library), self.interner.resolve(c.name).to_string(), i));
+                        keys.push((
+                            self.library_name(c.library),
+                            self.interner.resolve(c.name).to_string(),
+                            i,
+                        ));
                     }
                 }
                 next = next.max(sdk.next_item);
@@ -592,13 +673,15 @@ impl<'a> Context<'a> {
             if let Some(&larger) = previous_ones.values().max() {
                 next = next.max(larger + 1);
             }
-            keys.retain(|(lib, name, i)| match previous_ones.get(&(lib.clone(), name.clone())) {
-                Some(&id) => {
-                    ids[*i] = Some(id);
-                    false
-                }
-                None => true,
-            });
+            keys.retain(
+                |(lib, name, i)| match previous_ones.get(&(lib.clone(), name.clone())) {
+                    Some(&id) => {
+                        ids[*i] = Some(id);
+                        false
+                    }
+                    None => true,
+                },
+            );
         }
         for (_, _, i) in keys {
             if (1000..=1012).contains(&next) {
@@ -614,8 +697,16 @@ impl<'a> Context<'a> {
             .classes
             .iter()
             .enumerate()
-            .filter(|(_, c)| program.library(c.library).is_sdk && !self.compiled[c.library.0 as usize])
-            .map(|(i, c)| (self.library_name(c.library), self.interner.resolve(c.name).to_string(), i))
+            .filter(|(_, c)| {
+                program.library(c.library).is_sdk && !self.compiled[c.library.0 as usize]
+            })
+            .map(|(i, c)| {
+                (
+                    self.library_name(c.library),
+                    self.interner.resolve(c.name).to_string(),
+                    i,
+                )
+            })
             .collect();
         sdk.sort();
         self.sdk_rti_ids = sdk
@@ -673,7 +764,11 @@ impl<'a> Context<'a> {
     /// The static type of `expr` as inference gave it, with extension
     /// types: only the route of their members and the type arguments of those
     /// members use it.
-    pub fn get_type_raw(&self, unit: UnitId, expr: dartforge_frontend::ast::ExprId) -> Option<TypeId> {
+    pub fn get_type_raw(
+        &self,
+        unit: UnitId,
+        expr: dartforge_frontend::ast::ExprId,
+    ) -> Option<TypeId> {
         let u_idx = unit.0 as usize;
         if u_idx < self.bodies.units.len() {
             self.bodies.units[u_idx].get_type(expr)
@@ -689,10 +784,15 @@ impl<'a> Context<'a> {
 
     /// `c` is an extension type (erased at run time).
     pub fn is_extension_type(&self, c: dartforge_elements::model::ClassId) -> bool {
-        self.program.classes[c.0 as usize].kind == dartforge_elements::model::ClassKind::ExtensionType
+        self.program.classes[c.0 as usize].kind
+            == dartforge_elements::model::ClassKind::ExtensionType
     }
 
-    pub fn get_resolved(&self, unit: UnitId, expr: dartforge_frontend::ast::ExprId) -> Option<&Resolved> {
+    pub fn get_resolved(
+        &self,
+        unit: UnitId,
+        expr: dartforge_frontend::ast::ExprId,
+    ) -> Option<&Resolved> {
         let u_idx = unit.0 as usize;
         if u_idx < self.bodies.units.len() {
             self.bodies.units[u_idx].get_resolved(expr)
@@ -788,9 +888,15 @@ impl<'a> Context<'a> {
     /// to write the result; docs/NATIVO-PROJETOS-REAIS.md C23). Direct
     /// callers ignore the value.
     pub fn hir_return(&self, fid: usize) -> crate::hir::Type {
-        let Some(d) = self.outline.functions.get(fid) else { return crate::hir::Type::Ref };
+        let Some(d) = self.outline.functions.get(fid) else {
+            return crate::hir::Type::Ref;
+        };
         let t = self.to_hir_type(d.return_type);
-        if t == crate::hir::Type::Void && self.arrow_void(fid) { crate::hir::Type::Ref } else { t }
+        if t == crate::hir::Type::Void && self.arrow_void(fid) {
+            crate::hir::Type::Ref
+        } else {
+            t
+        }
     }
 
     /// A synchronous `void f() => e;`, an ordinary function or method (not a getter, setter,
@@ -803,10 +909,14 @@ impl<'a> Context<'a> {
         {
             return false;
         }
-        let dartforge_elements::model::FunctionRef::Function { unit, function } = f.node else { return false };
+        let dartforge_elements::model::FunctionRef::Function { unit, function } = f.node else {
+            return false;
+        };
         let func_decl = self.program.unit(unit).ast.function(function);
-        matches!(func_decl.body, dartforge_frontend::ast::FunctionBody::Expression(_))
-            && func_decl.modifier == dartforge_frontend::ast::AsyncModifier::None
+        matches!(
+            func_decl.body,
+            dartforge_frontend::ast::FunctionBody::Expression(_)
+        ) && func_decl.modifier == dartforge_frontend::ast::AsyncModifier::None
     }
 
     pub fn to_hir_type(&self, ty: TypeId) -> crate::hir::Type {
@@ -814,7 +924,10 @@ impl<'a> Context<'a> {
         if self.is_void(ty) {
             return crate::hir::Type::Void;
         }
-        let Type::Interface { class, nullable, .. } = self.table.get(ty) else {
+        let Type::Interface {
+            class, nullable, ..
+        } = self.table.get(ty)
+        else {
             return crate::hir::Type::Ref;
         };
         let cls = &self.program.classes[class.0 as usize];
@@ -832,16 +945,25 @@ impl<'a> Context<'a> {
     /// Declared (or inferred) type of the local variable whose name starts at
     /// `offset` (R6).
     pub fn local_type(&self, unit: UnitId, offset: usize) -> Option<TypeId> {
-        self.semantic_local_type(unit, offset).map(|t| self.erase(t))
+        self.semantic_local_type(unit, offset)
+            .map(|t| self.erase(t))
     }
 
     /// Classifies the static obligation; None still requires proof in the lowering.
     pub(crate) fn classify_finalizable(&self, ty: TypeId) -> Option<bool> {
-        crate::finalizables::classify(self.table, &self.outline.hierarchy, self.finalizable_class, ty)
+        crate::finalizables::classify(
+            self.table,
+            &self.outline.hierarchy,
+            self.finalizable_class,
+            ty,
+        )
     }
 
     /// Obligation of a receiver whose class identity is already known.
-    pub(crate) fn classify_finalizable_class(&self, cls: dartforge_elements::model::ClassId) -> Option<bool> {
+    pub(crate) fn classify_finalizable_class(
+        &self,
+        cls: dartforge_elements::model::ClassId,
+    ) -> Option<bool> {
         crate::finalizables::classify_class(&self.outline.hierarchy, self.finalizable_class, cls)
     }
 
@@ -913,7 +1035,12 @@ pub fn sdk_class_ids(program: &Program, interner: &Interner, compiled: &[bool]) 
         .classes
         .iter()
         .filter(|c| compiled[c.library.0 as usize] && program.library(c.library).is_sdk)
-        .map(|c| (program.library(c.library).uri.clone(), interner.resolve(c.name).to_string()))
+        .map(|c| {
+            (
+                program.library(c.library).uri.clone(),
+                interner.resolve(c.name).to_string(),
+            )
+        })
         .collect();
     keys.sort();
     let mut table = IdTable::default();
@@ -922,7 +1049,10 @@ pub fn sdk_class_ids(program: &Program, interner: &Interner, compiled: &[bool]) 
     // reserved (those that do not exist in the loaded SDK have no instances) and the
     // others start at `FIRST_FREE_CID`, skipping 1000–1012.
     let fixed_set: std::collections::HashMap<(&str, &str), u32> =
-        dartforge_runtime::layout::cid::SDK_CLASSES.iter().map(|&(c, lib, name)| ((lib, name), c as u32)).collect();
+        dartforge_runtime::layout::cid::SDK_CLASSES
+            .iter()
+            .map(|&(c, lib, name)| ((lib, name), c as u32))
+            .collect();
     let mut next = dartforge_runtime::layout::FIRST_FREE_CID as u32;
     for k in keys {
         if let Some(&c) = fixed_set.get(&(k.0.as_str(), k.1.as_str())) {

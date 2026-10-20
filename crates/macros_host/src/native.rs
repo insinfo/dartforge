@@ -42,7 +42,9 @@ pub fn start(
     project_package_config: Option<&Path>,
 ) -> Result<DfexecExecutor<ProcessChannel>, String> {
     let exe = compile(cfg, apps, project_package_config)?;
-    Ok(DfexecExecutor::new(ProcessChannel::start(std::process::Command::new(&exe))?))
+    Ok(DfexecExecutor::new(ProcessChannel::start(
+        std::process::Command::new(&exe),
+    )?))
 }
 
 /// The native executable of the bootstrap for `apps` (compiled now or taken
@@ -64,17 +66,25 @@ pub fn compile(
         std::fs::write(&main, &text).map_err(|e| error(&main, e))?;
     }
     let pc = cfg.work_dir.join("package_config.json");
-    let json = serde_json::to_string_pretty(&crate::vm::package_config(project_package_config, &cfg.api)?)
-        .unwrap_or_default();
+    let json = serde_json::to_string_pretty(&crate::vm::package_config(
+        project_package_config,
+        &cfg.api,
+    )?)
+    .unwrap_or_default();
     if std::fs::read_to_string(&pc).ok().as_deref() != Some(json.as_str()) {
         std::fs::write(&pc, &json).map_err(|e| error(&pc, e))?;
     }
     let key = cache_key(cfg, &main, &pc)?;
-    let exe = cfg.work_dir.join(format!("executor-{key}{}", std::env::consts::EXE_SUFFIX));
+    let exe = cfg
+        .work_dir
+        .join(format!("executor-{key}{}", std::env::consts::EXE_SUFFIX));
     if exe.is_file() {
         return Ok(exe);
     }
-    let provisional = cfg.work_dir.join(format!("executor-{key}.tmp{}", std::env::consts::EXE_SUFFIX));
+    let provisional = cfg.work_dir.join(format!(
+        "executor-{key}.tmp{}",
+        std::env::consts::EXE_SUFFIX
+    ));
     let output = std::process::Command::new(&cfg.compiler)
         .arg("compile-native")
         .arg(&main)
@@ -118,7 +128,8 @@ pub fn compile(
 /// does).
 fn cache_key(cfg: &NativeConfig, main: &Path, pc: &Path) -> Result<String, String> {
     let mut h = blake3::Hasher::new();
-    let meta = std::fs::metadata(&cfg.compiler).map_err(|e| format!("{}: {e}", cfg.compiler.display()))?;
+    let meta =
+        std::fs::metadata(&cfg.compiler).map_err(|e| format!("{}: {e}", cfg.compiler.display()))?;
     let date = meta
         .modified()
         .ok()

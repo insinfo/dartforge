@@ -75,7 +75,11 @@ impl SdkCache {
             if cab.format != FORMAT {
                 return None;
             }
-            let symbols = cab.symbols.iter().map(|s| range(s.as_ptr(), s.len())).collect();
+            let symbols = cab
+                .symbols
+                .iter()
+                .map(|s| range(s.as_ptr(), s.len()))
+                .collect();
             let blobs = cab
                 .libraries
                 .iter()
@@ -84,11 +88,22 @@ impl SdkCache {
             let dependencies = cab
                 .libraries
                 .iter()
-                .map(|(name_, _, deps)| (name_.to_string(), deps.iter().map(|d| d.to_string()).collect()))
+                .map(|(name_, _, deps)| {
+                    (
+                        name_.to_string(),
+                        deps.iter().map(|d| d.to_string()).collect(),
+                    )
+                })
                 .collect();
             (symbols, blobs, dependencies)
         };
-        Some(SdkCache { bytes, symbols, blobs, dependencies, decoded_units: 0 })
+        Some(SdkCache {
+            bytes,
+            symbols,
+            blobs,
+            dependencies,
+            decoded_units: 0,
+        })
     }
     /// FNV-1a hash of everything that invalidates the cache.
     pub fn hash(sdk: &SdkLayout, target: &str) -> String {
@@ -181,7 +196,8 @@ impl SdkCache {
             let lib = &sdk.libraries[name_];
             let uri = format!("dart:{name_}");
             let mut units = Vec::new();
-            let Some(principal) = parse(sdk, &lib.path, &uri, UnitRole::Library, &mut interner)? else {
+            let Some(principal) = parse(sdk, &lib.path, &uri, UnitRole::Library, &mut interner)?
+            else {
                 // A library without a source file: it does not go into the cache; the
                 // normal load emits the diagnostic.
                 continue;
@@ -205,15 +221,20 @@ impl SdkCache {
                 units.extend(new_ones);
                 i += 1;
             }
-            let blob = postcard::to_allocvec(&units).map_err(|e| format!("serializing dart:{name_}: {e}"))?;
+            let blob = postcard::to_allocvec(&units)
+                .map_err(|e| format!("serializing dart:{name_}: {e}"))?;
             let mut deps: Vec<String> = Vec::new();
             for u in &units {
                 for d in &u.unit.directives {
                     let uri = match &d.kind {
-                        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => uri,
+                        DirectiveKind::Import { uri, .. } | DirectiveKind::Export { uri, .. } => {
+                            uri
+                        }
                         _ => continue,
                     };
-                    if let Some(dep) = string_lit_value(uri).and_then(|v| v.strip_prefix("dart:").map(str::to_string)) {
+                    if let Some(dep) = string_lit_value(uri)
+                        .and_then(|v| v.strip_prefix("dart:").map(str::to_string))
+                    {
                         if !deps.contains(&dep) {
                             deps.push(dep);
                         }
@@ -228,7 +249,13 @@ impl SdkCache {
                 symbols: interner.texts().collect(),
                 libraries: libraries
                     .iter()
-                    .map(|(n, b, d)| (n.as_str(), b.as_slice(), d.iter().map(String::as_str).collect()))
+                    .map(|(n, b, d)| {
+                        (
+                            n.as_str(),
+                            b.as_slice(),
+                            d.iter().map(String::as_str).collect(),
+                        )
+                    })
                     .collect(),
             };
             postcard::to_allocvec(&cab).map_err(|e| format!("serializing the SDK cache: {e}"))?
@@ -242,7 +269,8 @@ impl SdkCache {
         if std::fs::rename(&tmp, path).is_err() {
             let _ = std::fs::remove_file(&tmp);
         }
-        Self::from_bytes_(bytes).ok_or_else(|| "freshly written SDK cache does not decode".to_string())
+        Self::from_bytes_(bytes)
+            .ok_or_else(|| "freshly written SDK cache does not decode".to_string())
     }
 
     /// Opens the cache of `sdk` (at [`SdkCache::path`]) or builds and writes
@@ -294,7 +322,9 @@ impl SdkCache {
         let mut requests: Vec<(String, (usize, usize))> = Vec::new();
         let mut pending: Vec<String> = names_.iter().map(|n| n.to_string()).collect();
         while let Some(name_) = pending.pop() {
-            let Some(r) = self.blobs.remove(&name_) else { continue };
+            let Some(r) = self.blobs.remove(&name_) else {
+                continue;
+            };
             if let Some(deps) = self.dependencies.get(&name_) {
                 pending.extend(deps.iter().filter(|d| self.blobs.contains_key(*d)).cloned());
             }
@@ -303,8 +333,13 @@ impl SdkCache {
         // Largest first: the largest blob (`dart:core`) is not left for last.
         requests.sort_by_key(|(_, (a, b))| std::cmp::Reverse(b - a));
         let bytes = &self.bytes;
-        let decode = |(a, b): (usize, usize)| postcard::from_bytes::<Vec<UnitCache>>(&bytes[a..b]).ok();
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8).min(requests.len());
+        let decode =
+            |(a, b): (usize, usize)| postcard::from_bytes::<Vec<UnitCache>>(&bytes[a..b]).ok();
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(8)
+            .min(requests.len());
         let mut output = HashMap::new();
         if threads < 2 {
             for (name_, r) in requests {
@@ -320,8 +355,11 @@ impl SdkCache {
                         s.spawn(|| {
                             let mut mine = Vec::new();
                             loop {
-                                let i = next_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                let Some((name_, r)) = requests.get(i) else { break };
+                                let i =
+                                    next_index.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                let Some((name_, r)) = requests.get(i) else {
+                                    break;
+                                };
                                 if let Some(u) = decode(*r) {
                                     mine.push((name_.clone(), u));
                                 }
@@ -330,7 +368,10 @@ impl SdkCache {
                         })
                     })
                     .collect();
-                handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+                handles
+                    .into_iter()
+                    .map(|h| h.join().unwrap_or_default())
+                    .collect()
             });
             output.extend(batches.into_iter().flatten());
         }
@@ -354,28 +395,58 @@ impl SdkCache {
 /// Reads and parses a file; `Ok(None)` if it does not exist, `Err` if it has
 /// a syntax error (the official SDK has none: an error here is a parser gap
 /// and does not go into the cache).
-fn parse(sdk: &SdkLayout, path: &Path, uri: &str, role: UnitRole, interner: &mut Interner) -> Result<Option<UnitCache>, String> {
+fn parse(
+    sdk: &SdkLayout,
+    path: &Path,
+    uri: &str,
+    role: UnitRole,
+    interner: &mut Interner,
+) -> Result<Option<UnitCache>, String> {
     // The overlay swaps the content, not the path (`SdkLayout::replacement`).
     let Ok(source) = std::fs::read_to_string(sdk.replacement(path).unwrap_or(path)) else {
         return Ok(None);
     };
     // `dart:*` is always analyzed at the floor (docs/VERSOES-LINGUAGEM.md, D1).
-    let parsed = dartforge_frontend::parser::parse_with(&source, interner, dartforge_frontend::LibraryFeatures::floor());
+    let parsed = dartforge_frontend::parser::parse_with(
+        &source,
+        interner,
+        dartforge_frontend::LibraryFeatures::floor(),
+    );
     if let Some(d) = parsed.diagnostics.first() {
-        return Err(format!("{}:{}: {}", path.display(), d.span.start, d.message));
+        return Err(format!(
+            "{}:{}: {}",
+            path.display(),
+            d.span.start,
+            d.message
+        ));
     }
     // The same `path` `load_lenient` stores: the `libraries.json` one for a
     // library and a patch, the canonical one for parts (the caller already
     // canonicalized it).
-    Ok(Some(UnitCache { uri: uri.to_string(), path: path.to_path_buf(), source, ast: parsed.ast, unit: parsed.unit, role }))
+    Ok(Some(UnitCache {
+        uri: uri.to_string(),
+        path: path.to_path_buf(),
+        source,
+        ast: parsed.ast,
+        unit: parsed.unit,
+        role,
+    }))
 }
 
 /// The parts declared by `part 'x.dart';` in `unit`, parsed.
-fn parts_of(sdk: &SdkLayout, unit: &UnitCache, interner: &mut Interner) -> Result<Vec<UnitCache>, String> {
+fn parts_of(
+    sdk: &SdkLayout,
+    unit: &UnitCache,
+    interner: &mut Interner,
+) -> Result<Vec<UnitCache>, String> {
     let mut output = Vec::new();
     for d in &unit.unit.directives {
-        let DirectiveKind::Part { uri } = &d.kind else { continue };
-        let Some(rel) = string_lit_value(uri) else { continue };
+        let DirectiveKind::Part { uri } = &d.kind else {
+            continue;
+        };
+        let Some(rel) = string_lit_value(uri) else {
+            continue;
+        };
         let path = unit.path.parent().unwrap_or(Path::new(".")).join(&rel);
         // The same lexical normalization as the loader: the path is the key of the
         // resident session's cache and has to match what `load.rs` builds.
@@ -384,7 +455,11 @@ fn parts_of(sdk: &SdkLayout, unit: &UnitCache, interner: &mut Interner) -> Resul
             .map(|u| u.to_string())
             .unwrap_or_else(|_| canonical.to_string_lossy().to_string());
         // A patch part is a patch (see `load.rs`).
-        let role_ = if unit.role == UnitRole::Patch { UnitRole::Patch } else { UnitRole::Part };
+        let role_ = if unit.role == UnitRole::Patch {
+            UnitRole::Patch
+        } else {
+            UnitRole::Part
+        };
         if let Some(p) = parse(sdk, &canonical, &part_uri, role_, interner)? {
             output.push(p);
         }

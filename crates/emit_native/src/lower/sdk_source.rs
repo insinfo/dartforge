@@ -101,7 +101,9 @@ pub fn class_closed_by_modifier(ctx: &Context, cid: ClassId) -> bool {
     ctx.subtypes(cid).iter().all(|&k| {
         let c = &ctx.program.classes[k.0 as usize];
         c.library == class.library
-            && (c.modifiers.final_ || c.modifiers.sealed || ctx.symbol_name(c.name).starts_with('_'))
+            && (c.modifiers.final_
+                || c.modifiers.sealed
+                || ctx.symbol_name(c.name).starts_with('_'))
     })
 }
 
@@ -126,7 +128,9 @@ pub fn fixed_subtype_cids(ctx: &Context, cid: ClassId) -> (Vec<i64>, bool) {
             continue;
         }
         match ctx.class_id_of(k) {
-            Some(id) if i64::from(id) < dartforge_runtime::layout::FIRST_FREE_CID => fixed.push(i64::from(id)),
+            Some(id) if i64::from(id) < dartforge_runtime::layout::FIRST_FREE_CID => {
+                fixed.push(i64::from(id))
+            }
             _ => all = false,
         }
     }
@@ -178,7 +182,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let b_fast = self.current_block;
         let b_slow = self.new_block();
         let b_join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: fast, then_block: b_join, else_block: b_slow });
+        self.terminate(Terminator::CondBranch {
+            cond: fast,
+            then_block: b_join,
+            else_block: b_slow,
+        });
         self.set_block(b_slow);
         let slow = self.subclass_bitmap(cls, id);
         let b_slow_end = self.current_block;
@@ -186,7 +194,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(b_join);
         self.emit(
             Instruction::Phi {
-                incoming: vec![(b_fast, Operand::Constant(Constant::Bool(true))), (b_slow_end, slow)],
+                incoming: vec![
+                    (b_fast, Operand::Constant(Constant::Bool(true))),
+                    (b_slow_end, slow),
+                ],
                 ty: Type::I1,
             },
             Type::I1,
@@ -198,12 +209,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let sub = self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_is_subclass".to_string(),
-                args: vec![(cls, Type::I64), (Operand::Constant(Constant::Int(i64::from(id))), Type::I64)],
+                args: vec![
+                    (cls, Type::I64),
+                    (Operand::Constant(Constant::Int(i64::from(id))), Type::I64),
+                ],
                 ret_ty: Type::I8,
             },
             Type::I8,
         );
-        self.emit(Instruction::ICmp(ICmpOp::Ne, sub, Operand::Constant(Constant::Int(0))), Type::I1)
+        self.emit(
+            Instruction::ICmp(ICmpOp::Ne, sub, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        )
     }
 
     /// `cls` is in some of the `ranges` of cids: `cls == low` for a single one,
@@ -212,10 +229,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut result: Option<Operand> = None;
         for &(low, high) in ranges {
             let test = if low == high {
-                self.emit(Instruction::ICmp(ICmpOp::Eq, cls.clone(), Operand::Constant(Constant::Int(low))), Type::I1)
+                self.emit(
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        cls.clone(),
+                        Operand::Constant(Constant::Int(low)),
+                    ),
+                    Type::I1,
+                )
             } else {
-                let shifted = self.emit(Instruction::Sub(cls.clone(), Operand::Constant(Constant::Int(low))), Type::I64);
-                self.emit(Instruction::ICmp(ICmpOp::Ult, shifted, Operand::Constant(Constant::Int(high - low + 1))), Type::I1)
+                let shifted = self.emit(
+                    Instruction::Sub(cls.clone(), Operand::Constant(Constant::Int(low))),
+                    Type::I64,
+                );
+                self.emit(
+                    Instruction::ICmp(
+                        ICmpOp::Ult,
+                        shifted,
+                        Operand::Constant(Constant::Int(high - low + 1)),
+                    ),
+                    Type::I1,
+                )
             };
             result = Some(match result {
                 None => test,
@@ -227,8 +261,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `recv.<selector>(evaluated)` through the uniform convention; the result is
     /// `Ref`.
-    pub fn call_by_selector(&mut self, recv: Operand, selector: String, evaluated: &[Evaluated]) -> Operand {
-        self.call_by_selector_with_tuple(recv, selector, evaluated, Operand::Constant(Constant::Int(0)))
+    pub fn call_by_selector(
+        &mut self,
+        recv: Operand,
+        selector: String,
+        evaluated: &[Evaluated],
+    ) -> Operand {
+        self.call_by_selector_with_tuple(
+            recv,
+            selector,
+            evaluated,
+            Operand::Constant(Constant::Int(0)),
+        )
     }
 
     pub(super) fn call_by_selector_with_tuple(
@@ -257,12 +301,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             args.push(v);
             names.push(n);
         }
-        self.emit_call_with_check(Instruction::CallSelector { selector, recv, args, names, tuple_types }, Type::Ref)
+        self.emit_call_with_check(
+            Instruction::CallSelector {
+                selector,
+                recv,
+                args,
+                names,
+                tuple_types,
+            },
+            Type::Ref,
+        )
     }
 
     /// `recv.name(evaluated)` through the selector, with the private name of the library
     /// of the current unit.
-    pub fn call_by_name(&mut self, recv: Operand, ty: AccessKind, name_str: &str, evaluated: &[Evaluated]) -> Operand {
+    pub fn call_by_name(
+        &mut self,
+        recv: Operand,
+        ty: AccessKind,
+        name_str: &str,
+        evaluated: &[Evaluated],
+    ) -> Operand {
         let lib = self.ctx.program.unit(self.unit_id).library;
         let s = selector_string(self.ctx, ty, name_str, lib);
         self.call_by_selector(recv, s, evaluated)
@@ -279,7 +338,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         name_str: &str,
         evaluated: &[Evaluated],
     ) -> Operand {
-        let typed = self.ctx.get_type(self.unit_id, target).is_some_and(|t| t != self.ctx.core.dynamic_);
+        let typed = self
+            .ctx
+            .get_type(self.unit_id, target)
+            .is_some_and(|t| t != self.ctx.core.dynamic_);
         self.call_by_name_with_typed_receiver(recv, typed, ty, name_str, evaluated)
     }
 
@@ -295,7 +357,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Operand {
         let lib = self.ctx.program.unit(self.unit_id).library;
         let s = selector_string(self.ctx, ty, name_str, lib);
-        let s = if typed_receiver && matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated) {
+        let s = if typed_receiver
+            && matches!(ty, AccessKind::Call | AccessKind::Write)
+            && self.all_checked(evaluated)
+        {
             super::typed_entry::typed_selector(&s)
         } else {
             s
@@ -309,7 +374,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// (a direct call). An interface getter of the program also uses the
     /// selector when some concrete implementation is a field: the dispatch
     /// through functions of `members.rs` cannot represent that implicit getter.
-    pub fn call_source_member(&mut self, recv: Operand, decl_fid: usize, evaluated: &[Evaluated]) -> Option<Operand> {
+    pub fn call_source_member(
+        &mut self,
+        recv: Operand,
+        decl_fid: usize,
+        evaluated: &[Evaluated],
+    ) -> Option<Operand> {
         if self.in_adapter {
             return None;
         }
@@ -319,14 +389,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         }
         let name_str = self.ctx.symbol_name(f.name).to_string();
-        let key = if f.kind == FunctionKind::Setter { format!("{name_str}_=") } else { name_str.clone() };
-        let is_sdk = self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk;
-        if !is_sdk && (!matches!(f.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor)
-            || !implementations(self.ctx, cid, &key).iter().any(|i| matches!(i, Implementation::Field(_))))
+        let key = if f.kind == FunctionKind::Setter {
+            format!("{name_str}_=")
+        } else {
+            name_str.clone()
+        };
+        let is_sdk = self
+            .ctx
+            .program
+            .library(self.ctx.program.classes[cid.0 as usize].library)
+            .is_sdk;
+        if !is_sdk
+            && (!matches!(
+                f.kind,
+                FunctionKind::Getter | FunctionKind::ImplicitAccessor
+            ) || !implementations(self.ctx, cid, &key)
+                .iter()
+                .any(|i| matches!(i, Implementation::Field(_))))
         {
             return None;
         }
-        if is_sdk && closed_member(self.ctx, cid, &name_str)
+        if is_sdk
+            && closed_member(self.ctx, cid, &name_str)
             && let [Implementation::Function(target)] = implementations(self.ctx, cid, &key)[..]
         {
             // The `this` of an SDK member is always `Ref`: a scalar `int`
@@ -337,7 +421,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let args = self.match_args(target, evaluated);
             let r = self.call_direct(target, Some(recv), args);
             let ret = self.return_repr(decl_fid);
-            return Some(if matches!(ret, Type::Void) { Operand::Constant(Constant::Null) } else { self.coerce(r, ret) });
+            return Some(if matches!(ret, Type::Void) {
+                Operand::Constant(Constant::Null)
+            } else {
+                self.coerce(r, ret)
+            });
         }
         let ty = match f.kind {
             FunctionKind::Getter => AccessKind::Read,
@@ -353,25 +441,36 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             if let Some(r) = self.class_dispatch(&recv, cid, &key, ty, f.library, evaluated, ret) {
                 let void = matches!(self.return_repr(decl_fid), Type::Void);
-                return Some(if void { Operand::Constant(Constant::Null) } else { r });
+                return Some(if void {
+                    Operand::Constant(Constant::Null)
+                } else {
+                    r
+                });
             }
         }
         let s = selector_string(self.ctx, ty, &name_str, f.library);
         // Typed receiver and guaranteed arguments: the entry that only checks
         // the covariant ones (`typed_entry.rs`).
-        let s = if matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated) {
+        let s = if matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated)
+        {
             super::typed_entry::typed_selector(&s)
         } else {
             s
         };
         let tuple = if self.generic_function(decl_fid) {
-            self.armed_tuple.clone().unwrap_or(Operand::Constant(Constant::Int(0)))
+            self.armed_tuple
+                .clone()
+                .unwrap_or(Operand::Constant(Constant::Int(0)))
         } else {
             Operand::Constant(Constant::Int(0))
         };
         let r = self.call_by_selector_with_tuple(recv, s, evaluated, tuple);
         let ret = self.return_repr(decl_fid);
-        Some(if matches!(ret, Type::Void) { Operand::Constant(Constant::Null) } else { self.coerce(r, ret) })
+        Some(if matches!(ret, Type::Void) {
+            Operand::Constant(Constant::Null)
+        } else {
+            self.coerce(r, ret)
+        })
     }
 
     /// Few-target dispatch (P2) of a closed member (only its library
@@ -407,7 +506,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         }
         // Calling a field (a stored closure) stays with the selector.
-        if ty == AccessKind::Call && distinct.iter().any(|i| matches!(i, Implementation::Field(_))) {
+        if ty == AccessKind::Call
+            && distinct
+                .iter()
+                .any(|i| matches!(i, Implementation::Field(_)))
+        {
             return None;
         }
         let recv = self.coerce(recv.clone(), Type::Ref);
@@ -424,25 +527,46 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let join = self.new_block();
         let cases = by_class
             .iter()
-            .map(|(id, i)| (*id, blocks[distinct.iter().position(|d| d == i).expect("listed implementation")]))
+            .map(|(id, i)| {
+                (
+                    *id,
+                    blocks[distinct
+                        .iter()
+                        .position(|d| d == i)
+                        .expect("listed implementation")],
+                )
+            })
             .collect();
-        self.terminate(Terminator::Switch { val: cls, default: pattern, cases });
+        self.terminate(Terminator::Switch {
+            val: cls,
+            default: pattern,
+            cases,
+        });
         let span = dartforge_diagnostics::Span { start: 0, end: 0 };
         let mut entries = Vec::new();
         for (i, &b) in distinct.iter().zip(&blocks) {
             self.set_block(b);
             let r = match (*i, ty) {
                 (Implementation::Field(vid), AccessKind::Write) => {
-                    let v = evaluated.first().map(|(_, v)| v.clone()).unwrap_or(Operand::Constant(Constant::Null));
+                    let v = evaluated
+                        .first()
+                        .map(|(_, v)| v.clone())
+                        .unwrap_or(Operand::Constant(Constant::Null));
                     let v = self.coerce(v, self.field_repr(vid));
                     self.store_field(recv.clone(), vid, v, span);
                     Operand::Constant(Constant::Null)
                 }
-                (Implementation::Field(vid), _) => self.read_field_with_late_direct(recv.clone(), vid, span),
+                (Implementation::Field(vid), _) => {
+                    self.read_field_with_late_direct(recv.clone(), vid, span)
+                }
                 (Implementation::Function(target), _) => {
                     let args = self.match_args(target, evaluated);
                     let r = self.call_direct(target, Some(recv.clone()), args);
-                    if matches!(self.return_repr(target), Type::Void) { Operand::Constant(Constant::Null) } else { r }
+                    if matches!(self.return_repr(target), Type::Void) {
+                        Operand::Constant(Constant::Null)
+                    } else {
+                        r
+                    }
                 }
             };
             if self.is_terminated() {
@@ -455,7 +579,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(pattern);
         let name_str = key.strip_suffix("_=").unwrap_or(key);
         let s = selector_string(self.ctx, ty, name_str, library);
-        let s = if matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated) {
+        let s = if matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated)
+        {
             super::typed_entry::typed_selector(&s)
         } else {
             s
@@ -471,7 +596,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // Every path throws: the join is unreachable.
             return Some(Self::zero_value(ret));
         }
-        Some(self.emit(Instruction::Phi { incoming: entries, ty: ret }, ret))
+        Some(self.emit(
+            Instruction::Phi {
+                incoming: entries,
+                ty: ret,
+            },
+            ret,
+        ))
     }
 
     /// Hook of the field read: a subclass getter may override
@@ -483,27 +614,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let v = &self.ctx.program.variables[vid.0 as usize];
         let cid = v.class?;
         let name_str = self.ctx.symbol_name(v.name).to_string();
-        let is_sdk = self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk;
+        let is_sdk = self
+            .ctx
+            .program
+            .library(self.ctx.program.classes[cid.0 as usize].library)
+            .is_sdk;
         if !is_sdk {
             // The direct read of the field only holds if every concrete class of the
             // type has THIS field: a getter that overrides it, or another
             // field with the same name in a class that only implements the interface
             // (`class ScalarToken implements Token { final FileSpan span; }`
             // of `package:yaml`, at another position of the object), go through the selector.
-            let only_this_field =
-                implementations(self.ctx, cid, &name_str).iter().all(|i| *i == Implementation::Field(vid));
+            let only_this_field = implementations(self.ctx, cid, &name_str)
+                .iter()
+                .all(|i| *i == Implementation::Field(vid));
             if only_this_field {
                 return None;
             }
         }
-        if is_sdk && closed_member(self.ctx, cid, &name_str)
-            && implementations(self.ctx, cid, &name_str).iter().all(|i| *i == Implementation::Field(vid))
+        if is_sdk
+            && closed_member(self.ctx, cid, &name_str)
+            && implementations(self.ctx, cid, &name_str)
+                .iter()
+                .all(|i| *i == Implementation::Field(vid))
         {
             return None;
         }
         let repr = self.field_repr(vid);
-        if is_sdk && closed_member(self.ctx, cid, &name_str)
-            && let Some(r) = self.class_dispatch(&obj, cid, &name_str, AccessKind::Read, v.library, &[], repr)
+        if is_sdk
+            && closed_member(self.ctx, cid, &name_str)
+            && let Some(r) =
+                self.class_dispatch(&obj, cid, &name_str, AccessKind::Read, v.library, &[], repr)
         {
             return Some(r);
         }
@@ -522,18 +663,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let v = &self.ctx.program.variables[vid.0 as usize];
         let Some(cid) = v.class else { return false };
-        let is_sdk = self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk;
+        let is_sdk = self
+            .ctx
+            .program
+            .library(self.ctx.program.classes[cid.0 as usize].library)
+            .is_sdk;
         let name_str = self.ctx.symbol_name(v.name).to_string();
         // As in the read: direct only if every concrete class writes THIS
         // field (in the SDK, also if the member is closed).
-        let only_this_field =
-            implementations(self.ctx, cid, &format!("{name_str}_=")).iter().all(|i| *i == Implementation::Field(vid));
+        let only_this_field = implementations(self.ctx, cid, &format!("{name_str}_="))
+            .iter()
+            .all(|i| *i == Implementation::Field(vid));
         if only_this_field && (!is_sdk || closed_member(self.ctx, cid, &name_str)) {
             return false;
         }
-        if is_sdk && closed_member(self.ctx, cid, &name_str)
+        if is_sdk
+            && closed_member(self.ctx, cid, &name_str)
             && self
-                .class_dispatch(&obj, cid, &format!("{name_str}_="), AccessKind::Write, v.library, &[(None, value.clone())], Type::Ref)
+                .class_dispatch(
+                    &obj,
+                    cid,
+                    &format!("{name_str}_="),
+                    AccessKind::Write,
+                    v.library,
+                    &[(None, value.clone())],
+                    Type::Ref,
+                )
                 .is_some()
         {
             return true;
@@ -547,16 +702,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `identical(a, b)`; otherwise `a.==(b)` by the dynamic class of `a`.
     pub fn source_equality(&mut self, a: Operand, b: Operand) -> Operand {
         let zero = Operand::Constant(Constant::Int(0));
-        let na = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), zero.clone()), Type::I1);
+        let na = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, a.clone(), zero.clone()),
+            Type::I1,
+        );
         let nb = self.emit(Instruction::ICmp(ICmpOp::Eq, b.clone(), zero), Type::I1);
         let any = self.emit(Instruction::Or(na, nb), Type::I1);
-        let any = self.emit(Instruction::ICmp(ICmpOp::Ne, any, Operand::Constant(Constant::Int(0))), Type::I1);
+        let any = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, any, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
         let b_id = self.new_block();
         let b_din = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: any, then_block: b_id, else_block: b_din });
+        self.terminate(Terminator::CondBranch {
+            cond: any,
+            then_block: b_id,
+            else_block: b_din,
+        });
         self.set_block(b_id);
-        let r1 = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), b.clone()), Type::I1);
+        let r1 = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, a.clone(), b.clone()),
+            Type::I1,
+        );
         let end1 = self.current_block;
         self.terminate(Terminator::Branch(join));
         self.set_block(b_din);
@@ -565,7 +733,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let end2 = self.current_block;
         self.terminate(Terminator::Branch(join));
         self.set_block(join);
-        self.emit(Instruction::Phi { incoming: vec![(end1, r1), (end2, r2)], ty: Type::I1 }, Type::I1)
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(end1, r1), (end2, r2)],
+                ty: Type::I1,
+            },
+            Type::I1,
+        )
     }
 
     /// `a == b` (or `a != b`, with `negate`) when the static type of `a` is
@@ -586,12 +760,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.in_adapter || self.operand_type(a) != Type::Ref {
             return None;
         }
-        let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(type_of_a?) else {
+        let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(type_of_a?)
+        else {
             return None;
         };
         let fid = self.member_in_class(*class, "==")?;
         let owner = self.ctx.program.functions[fid].class?;
-        if !self.ctx.program.library(self.ctx.program.classes[owner.0 as usize].library).is_sdk
+        if !self
+            .ctx
+            .program
+            .library(self.ctx.program.classes[owner.0 as usize].library)
+            .is_sdk
             || !closed_member(self.ctx, owner, "==")
         {
             return None;
@@ -612,19 +791,36 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::I8,
             );
             let e = self.coerce(r, Type::I1);
-            return Some(if negate { self.emit(Instruction::LNot(e), Type::I1) } else { e });
+            return Some(if negate {
+                self.emit(Instruction::LNot(e), Type::I1)
+            } else {
+                e
+            });
         }
         let zero = Operand::Constant(Constant::Int(0));
-        let na = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), zero.clone()), Type::I1);
+        let na = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, a.clone(), zero.clone()),
+            Type::I1,
+        );
         let nb = self.emit(Instruction::ICmp(ICmpOp::Eq, b.clone(), zero), Type::I1);
         let any = self.emit(Instruction::Or(na, nb), Type::I1);
-        let any = self.emit(Instruction::ICmp(ICmpOp::Ne, any, Operand::Constant(Constant::Int(0))), Type::I1);
+        let any = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, any, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
         let b_id = self.new_block();
         let b_din = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: any, then_block: b_id, else_block: b_din });
+        self.terminate(Terminator::CondBranch {
+            cond: any,
+            then_block: b_id,
+            else_block: b_din,
+        });
         self.set_block(b_id);
-        let r1 = self.emit(Instruction::ICmp(ICmpOp::Eq, a.clone(), b.clone()), Type::I1);
+        let r1 = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, a.clone(), b.clone()),
+            Type::I1,
+        );
         let end1 = self.current_block;
         self.terminate(Terminator::Branch(join));
         self.set_block(b_din);
@@ -642,8 +838,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.terminate(Terminator::Branch(join));
         }
         self.set_block(join);
-        let e = self.emit(Instruction::Phi { incoming: entries, ty: Type::I1 }, Type::I1);
-        Some(if negate { self.emit(Instruction::LNot(e), Type::I1) } else { e })
+        let e = self.emit(
+            Instruction::Phi {
+                incoming: entries,
+                ty: Type::I1,
+            },
+            Type::I1,
+        );
+        Some(if negate {
+            self.emit(Instruction::LNot(e), Type::I1)
+        } else {
+            e
+        })
     }
 
     /// `op is T` with the source SDK (hook of `test_type`): every class
@@ -661,14 +867,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // (`ListBase.setRange`, `List.from`, `ListQueue.addAll`…): until the RTI,
         // they check the class. In the program, only the cast (`as`) checks the
         // class; `is` with arguments stays a diagnostic.
-        let in_sdk = self.ctx.program.library(self.ctx.program.unit(self.unit_id).library).is_sdk;
+        let in_sdk = self
+            .ctx
+            .program
+            .library(self.ctx.program.unit(self.unit_id).library)
+            .is_sdk;
         let only_class = self.cast_by_class_only || in_sdk;
         // Types without a class that have no resolved recipe stay rejected.
         let without_class = |b: &mut Self| -> Option<Operand> {
             if b.cast_by_class_only {
                 Some(Operand::Constant(Constant::Bool(true)))
             } else if in_sdk {
-                Some(b.unsupported("type test without a class in SDK code (RTI through the selector)", ast_ty.span))
+                Some(b.unsupported(
+                    "type test without a class in SDK code (RTI through the selector)",
+                    ast_ty.span,
+                ))
             } else {
                 None
             }
@@ -685,10 +898,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let unit_ast = &self.ctx.program.unit(self.unit_id).ast;
         let trivial = |t: &dartforge_frontend::ast::TypeAnnotation| match &t.kind {
-            dartforge_frontend::ast::TypeKind::Named { name, args } if args.is_empty() => name.last().is_some_and(|n| {
-                let s = self.ctx.symbol_name(n.sym);
-                s == "dynamic" || (s == "Object" && t.nullable)
-            }),
+            dartforge_frontend::ast::TypeKind::Named { name, args } if args.is_empty() => {
+                name.last().is_some_and(|n| {
+                    let s = self.ctx.symbol_name(n.sym);
+                    s == "dynamic" || (s == "Object" && t.nullable)
+                })
+            }
             _ => false,
         };
         let arguments = !args.is_empty() && !args.iter().all(|a| trivial(unit_ast.ty(*a)));
@@ -758,14 +973,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let _ = only_class;
         let zero = Operand::Constant(Constant::Int(0));
-        let null = self.emit(Instruction::ICmp(ICmpOp::Eq, op.clone(), zero.clone()), Type::I1);
+        let null = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, op.clone(), zero.clone()),
+            Type::I1,
+        );
         if name_str == "Null"
-            && cid.is_some_and(|c| self.ctx.program.library(self.ctx.program.classes[c.0 as usize].library).uri == "dart:core")
+            && cid.is_some_and(|c| {
+                self.ctx
+                    .program
+                    .library(self.ctx.program.classes[c.0 as usize].library)
+                    .uri
+                    == "dart:core"
+            })
         {
             return Some(null);
         }
         let cls = self.emit(
-            Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(op, Type::Ref)], ret_ty: Type::I64 },
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(op, Type::Ref)],
+                ret_ty: Type::I64,
+            },
             Type::I64,
         );
         let sub = self.subclass_test(cls, class, id);
@@ -778,19 +1006,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(base);
         }
         let r = self.emit(Instruction::Or(base, null), Type::I64);
-        Some(self.emit(Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))), Type::I1))
+        Some(self.emit(
+            Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        ))
     }
 
     /// `toString()` of a value through the selector (interpolation with the source
     /// SDK): the text of null is `"null"` (the `toString` of `Null`).
     pub fn string_by_selector(&mut self, op: Operand) -> Operand {
-
         self.call_by_selector(op, "c:toString".to_string(), &[])
     }
 
     /// Hook of `call_direct`: the call to an `external` of the source SDK.
     /// `None` when the function has a body (the usual direct call).
-    pub fn call_external(&mut self, fid: usize, this: Option<Operand>, args: &[Operand]) -> Option<Operand> {
+    pub fn call_external(
+        &mut self,
+        fid: usize,
+        this: Option<Operand>,
+        args: &[Operand],
+    ) -> Option<Operand> {
         let f = &self.ctx.program.functions[fid];
         if !f.external || f.variable.is_some() {
             return None;
@@ -804,7 +1039,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let span = Span { start: 0, end: 0 };
         let owner = f
             .class
-            .map(|c| format!("{}.", self.ctx.symbol_name(self.ctx.program.classes[c.0 as usize].name)))
+            .map(|c| {
+                format!(
+                    "{}.",
+                    self.ctx
+                        .symbol_name(self.ctx.program.classes[c.0 as usize].name)
+                )
+            })
             .unwrap_or_default();
         let member = format!("{owner}{}", self.ctx.symbol_name(f.name));
         if let Some(r) = self.inline_string(&member, native.as_deref(), this.as_ref(), args) {
@@ -826,15 +1067,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Some(n) => {
                 match crate::natives::native(&n).map(|x| x.state) {
                     Some(crate::natives::State::Runtime) => {}
-                    Some(crate::natives::State::Builtin) => return Some(self.embedded_native(&n, fid, this.as_ref(), args)),
-                    Some(crate::natives::State::Pending) => {
-                        return Some(self.unsupported(&format!("pending native `{n}` ({member})"), span));
+                    Some(crate::natives::State::Builtin) => {
+                        return Some(self.embedded_native(&n, fid, this.as_ref(), args));
                     }
-                    None => return Some(self.unsupported(&format!("unknown native `{n}` ({member})"), span)),
+                    Some(crate::natives::State::Pending) => {
+                        return Some(
+                            self.unsupported(&format!("pending native `{n}` ({member})"), span),
+                        );
+                    }
+                    None => {
+                        return Some(
+                            self.unsupported(&format!("unknown native `{n}` ({member})"), span),
+                        );
+                    }
                 }
                 n
             }
-            None if recognized && let Some(op) = self.typed_factory(&member, args) => return Some(op),
+            None if recognized && let Some(op) = self.typed_factory(&member, args) => {
+                return Some(op);
+            }
             None if recognized => match crate::natives::intrinsic(&member) {
                 Some(n) => n.to_string(),
                 None => return Some(self.unsupported(&format!("VM intrinsic `{member}`"), span)),
@@ -843,7 +1094,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(r) = self.call_annotated_native(fid, args, span) {
                     return Some(r);
                 }
-                return Some(self.unsupported(&format!("external without an implementation `{member}`"), span));
+                return Some(self.unsupported(
+                    &format!("external without an implementation `{member}`"),
+                    span,
+                ));
             }
         };
         // The signature of the native is the representation of the declared types;
@@ -856,7 +1110,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let r = f.class.map_or(Type::Ref, |c| self.receiver_repr(c));
             let t = self.coerce(t, r);
             if r == Type::I1 {
-                let b = self.emit(Instruction::ZExt { op: t, from: Type::I1, to: Type::I8 }, Type::I8);
+                let b = self.emit(
+                    Instruction::ZExt {
+                        op: t,
+                        from: Type::I1,
+                        to: Type::I8,
+                    },
+                    Type::I8,
+                );
                 a.push((b, Type::I8));
             } else {
                 a.push((t, r));
@@ -870,14 +1131,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             .outline
             .functions
             .get(fid)
-            .map(|d| d.parameters.iter().map(|p| self.native_repr(p.ty)).collect())
+            .map(|d| {
+                d.parameters
+                    .iter()
+                    .map(|p| self.native_repr(p.ty))
+                    .collect()
+            })
             .unwrap_or_default();
         for (i, v) in args.iter().enumerate() {
-            let t = types.get(i).copied().unwrap_or_else(|| self.operand_type(v));
+            let t = types
+                .get(i)
+                .copied()
+                .unwrap_or_else(|| self.operand_type(v));
             let t = if t == Type::Void { Type::Ref } else { t };
             let v = self.coerce(v.clone(), t);
             if t == Type::I1 {
-                let b = self.emit(Instruction::ZExt { op: v, from: Type::I1, to: Type::I8 }, Type::I8);
+                let b = self.emit(
+                    Instruction::ZExt {
+                        op: v,
+                        from: Type::I1,
+                        to: Type::I8,
+                    },
+                    Type::I8,
+                );
                 a.push((b, Type::I8));
             } else {
                 a.push((v, t));
@@ -887,26 +1163,46 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let ret_value = if super::generative_constructor(self.ctx, fid) {
             Type::Void
         } else {
-            self.ctx.outline.functions.get(fid).map_or(ret, |d| self.native_repr(d.return_type))
+            self.ctx
+                .outline
+                .functions
+                .get(fid)
+                .map_or(ret, |d| self.native_repr(d.return_type))
         };
         // `RETURN_REF`: the runtime returns the box, and the declared value comes out
         // of the coercion (natives.rs).
-        let ret_value = if crate::natives::RETURN_REF.contains(&name_str.as_str()) && ret_value != Type::Void {
-            Type::Ref
+        let ret_value =
+            if crate::natives::RETURN_REF.contains(&name_str.as_str()) && ret_value != Type::Void {
+                Type::Ref
+            } else {
+                ret_value
+            };
+        let native_ret = if ret_value == Type::I1 {
+            Type::I8
         } else {
             ret_value
         };
-        let native_ret = if ret_value == Type::I1 { Type::I8 } else { ret_value };
         let r = self.emit_call_with_check(
-            Instruction::CallRuntime { name: crate::natives::symbol(&name_str), args: a, ret_ty: native_ret },
+            Instruction::CallRuntime {
+                name: crate::natives::symbol(&name_str),
+                args: a,
+                ret_ty: native_ret,
+            },
             native_ret,
         );
         let r = match ret_value {
             Type::Void => return Some(Operand::Constant(Constant::Null)),
-            Type::I1 => self.emit(Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))), Type::I1),
+            Type::I1 => self.emit(
+                Instruction::ICmp(ICmpOp::Ne, r, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            ),
             _ => r,
         };
-        Some(if ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coerce(r, ret) })
+        Some(if ret == Type::Void {
+            Operand::Constant(Constant::Null)
+        } else {
+            self.coerce(r, ret)
+        })
     }
 
     /// The `vm:recognized` factories of the VM's `typed_data_patch.dart`: the
@@ -949,7 +1245,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ("_ByteDataView", 14),
         ];
         let id_of = |b: &Self, name: &str| -> Option<i64> {
-            b.ctx.sdk_class("typed_data", name).and_then(|c| b.ctx.class_id_of(c)).map(i64::from)
+            b.ctx
+                .sdk_class("typed_data", name)
+                .and_then(|c| b.ctx.class_id_of(c))
+                .map(i64::from)
         };
         if let Some(&(_, internal, ty)) = LISTS.iter().find(|(m, _, _)| *m == member) {
             let cid = id_of(self, internal)?;
@@ -1038,7 +1337,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.is_void(ty) {
             return Type::Void;
         }
-        if let dartforge_types::table::Type::Interface { class, nullable: false, .. } = self.ctx.table.get(ty) {
+        if let dartforge_types::table::Type::Interface {
+            class,
+            nullable: false,
+            ..
+        } = self.ctx.table.get(ty)
+        {
             let r = self.receiver_repr(*class);
             if r != Type::Ref {
                 return r;
@@ -1069,29 +1373,60 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// A native that the lowering generates in place of the call
     /// (`natives::State::Builtin`). `this` is the receiver of an instance
     /// native, in whatever representation it arrived.
-    fn embedded_native(&mut self, name_str: &str, fid: usize, this: Option<&Operand>, args: &[Operand]) -> Operand {
+    fn embedded_native(
+        &mut self,
+        name_str: &str,
+        fid: usize,
+        this: Option<&Operand>,
+        args: &[Operand],
+    ) -> Operand {
         let ret = self.return_repr(fid);
         if let Some(r) = self.embedded_numeric_native(name_str, this, args) {
-            return if ret == Type::Void { r } else { self.coerce(r, ret) };
+            return if ret == Type::Void {
+                r
+            } else {
+                self.coerce(r, ret)
+            };
         }
         match name_str {
             // `unsafeCast<T>(v)`: the value itself, without a check.
             "Internal_unsafeCast" => {
-                let v = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
-                if ret == Type::Void { v } else { self.coerce(v, ret) }
+                let v = args
+                    .first()
+                    .cloned()
+                    .unwrap_or(Operand::Constant(Constant::Null));
+                if ret == Type::Void {
+                    v
+                } else {
+                    self.coerce(v, ret)
+                }
             }
             // `ClassID.getID(o)`: the class of the value inline (`@df.class`,
             // docs/NATIVO-ESPACO-UNIFICADO.md §3.8), without calling the runtime.
             "ClassID_getID" => {
-                let o = args.first().cloned().unwrap_or(Operand::Constant(Constant::Null));
+                let o = args
+                    .first()
+                    .cloned()
+                    .unwrap_or(Operand::Constant(Constant::Null));
                 let o = self.coerce(o, Type::Ref);
                 let c = self.emit(
-                    Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(o, Type::Ref)], ret_ty: Type::I64 },
+                    Instruction::CallRuntime {
+                        name: "dartforge_value_class".to_string(),
+                        args: vec![(o, Type::Ref)],
+                        ret_ty: Type::I64,
+                    },
                     Type::I64,
                 );
-                if ret == Type::Void { c } else { self.coerce(c, ret) }
+                if ret == Type::Void {
+                    c
+                } else {
+                    self.coerce(c, ret)
+                }
             }
-            _ => self.unsupported(&format!("embedded native `{name_str}`"), Span { start: 0, end: 0 }),
+            _ => self.unsupported(
+                &format!("embedded native `{name_str}`"),
+                Span { start: 0, end: 0 },
+            ),
         }
     }
 
@@ -1104,10 +1439,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// is the right operand). Nothing here allocates, throws or runs Dart, so
     /// the call site keeps no roots and no exception check. `None`: not one
     /// of them.
-    fn embedded_numeric_native(&mut self, name_str: &str, this: Option<&Operand>, args: &[Operand]) -> Option<Operand> {
-        let receiver = |b: &mut Self, t: Type| b.coerce(this.cloned().unwrap_or(Operand::Constant(Constant::Null)), t);
-        let argument = |b: &mut Self, i: usize, t: Type| b.coerce(args.get(i).cloned().unwrap_or(Operand::Constant(Constant::Null)), t);
-        let bits = |b: &mut Self, x: Operand| b.emit(Instruction::Bitcast { op: x, to: Type::I64 }, Type::I64);
+    fn embedded_numeric_native(
+        &mut self,
+        name_str: &str,
+        this: Option<&Operand>,
+        args: &[Operand],
+    ) -> Option<Operand> {
+        let receiver = |b: &mut Self, t: Type| {
+            b.coerce(
+                this.cloned().unwrap_or(Operand::Constant(Constant::Null)),
+                t,
+            )
+        };
+        let argument = |b: &mut Self, i: usize, t: Type| {
+            b.coerce(
+                args.get(i)
+                    .cloned()
+                    .unwrap_or(Operand::Constant(Constant::Null)),
+                t,
+            )
+        };
+        let bits = |b: &mut Self, x: Operand| {
+            b.emit(
+                Instruction::Bitcast {
+                    op: x,
+                    to: Type::I64,
+                },
+                Type::I64,
+            )
+        };
         let int = |n: i64| Operand::Constant(Constant::Int(n));
         Some(match name_str {
             "Double_add" | "Double_sub" | "Double_mul" | "Double_div" => {
@@ -1161,7 +1521,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let a = receiver(self, Type::F64);
                 let b = bits(self, a);
                 let m = self.emit(Instruction::And(b, int(i64::MAX)), Type::I64);
-                self.emit(Instruction::ICmp(ICmpOp::Eq, m, int(0x7FF0_0000_0000_0000)), Type::I1)
+                self.emit(
+                    Instruction::ICmp(ICmpOp::Eq, m, int(0x7FF0_0000_0000_0000)),
+                    Type::I1,
+                )
             }
             // The sign bit, except for NaN (`-0.0` is negative).
             "Double_getIsNegative" => {
@@ -1169,21 +1532,49 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let b = bits(self, a.clone());
                 let sign = self.emit(Instruction::ICmp(ICmpOp::Slt, b, int(0)), Type::I1);
                 let not_nan = self.emit(Instruction::FCmp(FCmpOp::Eq, a.clone(), a), Type::I1);
-                let s = self.emit(Instruction::ZExt { op: sign, from: Type::I1, to: Type::I64 }, Type::I64);
-                let n = self.emit(Instruction::ZExt { op: not_nan, from: Type::I1, to: Type::I64 }, Type::I64);
+                let s = self.emit(
+                    Instruction::ZExt {
+                        op: sign,
+                        from: Type::I1,
+                        to: Type::I64,
+                    },
+                    Type::I64,
+                );
+                let n = self.emit(
+                    Instruction::ZExt {
+                        op: not_nan,
+                        from: Type::I1,
+                        to: Type::I64,
+                    },
+                    Type::I64,
+                );
                 let e = self.emit(Instruction::And(s, n), Type::I64);
                 self.emit(Instruction::ICmp(ICmpOp::Ne, e, int(0)), Type::I1)
             }
             // `other op this`, with Dart's 64-bit wraparound.
-            "Integer_addFromInteger" | "Integer_subFromInteger" | "Integer_mulFromInteger"
-            | "Integer_bitAndFromInteger" | "Integer_bitOrFromInteger" | "Integer_bitXorFromInteger" => {
+            "Integer_addFromInteger"
+            | "Integer_subFromInteger"
+            | "Integer_mulFromInteger"
+            | "Integer_bitAndFromInteger"
+            | "Integer_bitOrFromInteger"
+            | "Integer_bitXorFromInteger" => {
                 let (this_value, other) = (receiver(self, Type::I64), argument(self, 0, Type::I64));
                 match name_str {
-                    "Integer_addFromInteger" => self.emit(Instruction::Add(other, this_value), Type::I64),
-                    "Integer_subFromInteger" => self.emit(Instruction::Sub(other, this_value), Type::I64),
-                    "Integer_mulFromInteger" => self.emit(Instruction::Mul(other, this_value), Type::I64),
-                    "Integer_bitAndFromInteger" => self.emit(Instruction::And(other, this_value), Type::I64),
-                    "Integer_bitOrFromInteger" => self.emit(Instruction::Or(other, this_value), Type::I64),
+                    "Integer_addFromInteger" => {
+                        self.emit(Instruction::Add(other, this_value), Type::I64)
+                    }
+                    "Integer_subFromInteger" => {
+                        self.emit(Instruction::Sub(other, this_value), Type::I64)
+                    }
+                    "Integer_mulFromInteger" => {
+                        self.emit(Instruction::Mul(other, this_value), Type::I64)
+                    }
+                    "Integer_bitAndFromInteger" => {
+                        self.emit(Instruction::And(other, this_value), Type::I64)
+                    }
+                    "Integer_bitOrFromInteger" => {
+                        self.emit(Instruction::Or(other, this_value), Type::I64)
+                    }
                     _ => self.emit(Instruction::Xor(other, this_value), Type::I64),
                 }
             }
@@ -1214,16 +1605,30 @@ pub enum Implementation {
 /// in the compiled concrete classes that are subtypes of `cid`, each one
 /// found by the linearization of the class (the first that implements it).
 pub fn implementations(ctx: &Context, cid: ClassId, key: &str) -> Vec<Implementation> {
-    let Some(sym) = ctx.interner.lookup(key) else { return Vec::new() };
-    if let Some(r) = ctx.implementations_memo.read().unwrap_or_else(|e| e.into_inner()).get(&(cid, sym)) {
+    let Some(sym) = ctx.interner.lookup(key) else {
+        return Vec::new();
+    };
+    if let Some(r) = ctx
+        .implementations_memo
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&(cid, sym))
+    {
         return r.as_ref().clone();
     }
     let r = implementations_without_memo(ctx, cid, sym);
-    ctx.implementations_memo.write().unwrap_or_else(|e| e.into_inner()).insert((cid, sym), std::sync::Arc::new(r.clone()));
+    ctx.implementations_memo
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert((cid, sym), std::sync::Arc::new(r.clone()));
     r
 }
 
-fn implementations_without_memo(ctx: &Context, cid: ClassId, sym: dartforge_intern::SymbolId) -> Vec<Implementation> {
+fn implementations_without_memo(
+    ctx: &Context,
+    cid: ClassId,
+    sym: dartforge_intern::SymbolId,
+) -> Vec<Implementation> {
     let mut exit = Vec::new();
     for &kid in ctx.subtypes(cid).iter() {
         let class = &ctx.program.classes[kid.0 as usize];
@@ -1234,7 +1639,9 @@ fn implementations_without_memo(ctx: &Context, cid: ClassId, sym: dartforge_inte
             continue;
         }
         for c in linearization(ctx, kid) {
-            let Some(&f) = ctx.program.classes[c.0 as usize].instance_members.get(&sym) else { continue };
+            let Some(&f) = ctx.program.classes[c.0 as usize].instance_members.get(&sym) else {
+                continue;
+            };
             let f = f.0 as usize;
             if !implemented(ctx, f) {
                 continue;
@@ -1255,13 +1662,25 @@ fn implementations_without_memo(ctx: &Context, cid: ClassId, sym: dartforge_inte
 /// Each compiled concrete class, a subtype of `cid`, with the implementation
 /// of `key` that its linearization finds (as in [`implementations`]), by the
 /// runtime class id; `None` if some of them has no id.
-pub fn implementations_by_class(ctx: &Context, cid: ClassId, key: &str) -> Option<Vec<(i64, Implementation)>> {
+pub fn implementations_by_class(
+    ctx: &Context,
+    cid: ClassId,
+    key: &str,
+) -> Option<Vec<(i64, Implementation)>> {
     let sym = ctx.interner.lookup(key)?;
-    if let Some(r) = ctx.implementations_by_class_memo.read().unwrap_or_else(|e| e.into_inner()).get(&(cid, sym)) {
+    if let Some(r) = ctx
+        .implementations_by_class_memo
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&(cid, sym))
+    {
         return r.as_ref().map(|v| v.as_ref().clone());
     }
     let r = implementations_by_class_without_memo(ctx, cid, sym);
-    ctx.implementations_by_class_memo.write().unwrap_or_else(|e| e.into_inner()).insert((cid, sym), r.clone().map(std::sync::Arc::new));
+    ctx.implementations_by_class_memo
+        .write()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert((cid, sym), r.clone().map(std::sync::Arc::new));
     r
 }
 
@@ -1280,7 +1699,9 @@ fn implementations_by_class_without_memo(
             continue;
         }
         for c in linearization(ctx, kid) {
-            let Some(&f) = ctx.program.classes[c.0 as usize].instance_members.get(&sym) else { continue };
+            let Some(&f) = ctx.program.classes[c.0 as usize].instance_members.get(&sym) else {
+                continue;
+            };
             let f = f.0 as usize;
             if !implemented(ctx, f) {
                 continue;
@@ -1324,7 +1745,13 @@ impl Adapter {
 /// The base symbol of an instance field: `df.<lib>.<Class>.<field>`.
 fn field_symbol(ctx: &Context, vid: VariableId) -> String {
     let v = &ctx.program.variables[vid.0 as usize];
-    let owner = v.class.map(|c| ctx.symbol_name(ctx.program.classes[c.0 as usize].name).to_string()).unwrap_or_default();
+    let owner = v
+        .class
+        .map(|c| {
+            ctx.symbol_name(ctx.program.classes[c.0 as usize].name)
+                .to_string()
+        })
+        .unwrap_or_default();
     format!(
         "df.{}.{}.{}",
         crate::context::escape_str(&ctx.library_name(v.library)),
@@ -1356,7 +1783,9 @@ pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
     // The hierarchy of certain synthetic elements (notably enums) does not
     // include `Object` in `supertype_class`. Their members keep inheriting
     // `Object.==`, `hashCode` and the other accessors in Dart semantics.
-    if let Some(object) = ctx.core.object_class && !chain.contains(&object) {
+    if let Some(object) = ctx.core.object_class
+        && !chain.contains(&object)
+    {
         chain.push(object);
     }
     for c in chain {
@@ -1389,7 +1818,10 @@ pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
                 let s = selector_string(ctx, ty, name_str, f.library);
                 if seen_set.insert(s.clone()) && live {
                     if typed && a != Adapter::Read {
-                        exit.push((super::typed_entry::typed_selector(&s), format!("{base}$t{}", &a.suffix()[1..])));
+                        exit.push((
+                            super::typed_entry::typed_selector(&s),
+                            format!("{base}$t{}", &a.suffix()[1..]),
+                        ));
                     }
                     exit.push((s, format!("{base}{}", a.suffix())));
                 }
@@ -1425,7 +1857,9 @@ pub fn method_table(ctx: &Context, cid: ClassId) -> Vec<(String, String)> {
 /// The class (or a superclass of the program) declares `noSuchMethod`: that of
 /// `Object` does not count.
 fn has_own_no_such_method(ctx: &Context, cid: ClassId) -> bool {
-    let Some(nsm) = ctx.interner.lookup("noSuchMethod") else { return false };
+    let Some(nsm) = ctx.interner.lookup("noSuchMethod") else {
+        return false;
+    };
     for c in linearization(ctx, cid) {
         if Some(c) == ctx.core.object_class {
             return false;
@@ -1442,8 +1876,13 @@ fn has_own_no_such_method(ctx: &Context, cid: ClassId) -> bool {
 /// The instance members of the superinterfaces of `cid` (superclasses,
 /// mixins, `implements`, `on`, transitively) whose selector the table does not
 /// have: (selector, use, declared member).
-fn members_to_forward(ctx: &Context, cid: ClassId, table: &[(String, String)]) -> Vec<(String, AccessKind, usize)> {
-    let mut seen_set: std::collections::HashSet<String> = table.iter().map(|(s, _)| s.clone()).collect();
+fn members_to_forward(
+    ctx: &Context,
+    cid: ClassId,
+    table: &[(String, String)],
+) -> Vec<(String, AccessKind, usize)> {
+    let mut seen_set: std::collections::HashSet<String> =
+        table.iter().map(|(s, _)| s.clone()).collect();
     let mut exit = Vec::new();
     let mut stack = vec![cid];
     let mut classes = std::collections::HashSet::new();
@@ -1456,12 +1895,20 @@ fn members_to_forward(ctx: &Context, cid: ClassId, table: &[(String, String)]) -
         stack.extend(class.mixin_classes.iter().copied());
         stack.extend(class.interface_classes.iter().copied());
         stack.extend(class.on_classes.iter().copied());
-        let mut members: Vec<(&str, usize)> =
-            class.instance_members.iter().map(|(k, f)| (ctx.symbol_name(*k), f.0 as usize)).collect();
+        let mut members: Vec<(&str, usize)> = class
+            .instance_members
+            .iter()
+            .map(|(k, f)| (ctx.symbol_name(*k), f.0 as usize))
+            .collect();
         members.sort();
         for (key, fid) in members {
             let f = &ctx.program.functions[fid];
-            if f.static_ || matches!(f.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
+            if f.static_
+                || matches!(
+                    f.kind,
+                    FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+                )
+            {
                 continue;
             }
             let name_str = key.strip_suffix("_=").unwrap_or(key);
@@ -1487,7 +1934,14 @@ fn members_to_forward(ctx: &Context, cid: ClassId, table: &[(String, String)]) -
 /// unpacks the arguments as the member declares them (the defaults of the
 /// omitted optional ones), and the runtime builds the `Invocation` in declaration
 /// order and calls the `noSuchMethod` of the receiver.
-fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symbol: &str, fid: usize, ty: AccessKind) {
+fn generate_nsm_forwarder(
+    ctx: &Context,
+    module: &mut Module,
+    unit: UnitId,
+    symbol: &str,
+    fid: usize,
+    ty: AccessKind,
+) {
     let f = &ctx.program.functions[fid];
     let name_str = ctx.symbol_name(f.name).to_string();
     let mut b = FnBuilder::new(ctx, unit, symbol.to_string(), name_str.clone(), Type::Ref);
@@ -1509,18 +1963,47 @@ fn generate_nsm_forwarder(ctx: &Context, module: &mut Module, unit: UnitId, symb
                 .collect();
             // The tuple of the generic method comes after the arguments.
             let tuple = if b.generic_function(fid) {
-                let npos = b.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::I64);
-                let n_named = b.emit(Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) }, Type::I64);
+                let npos = b.emit(
+                    Instruction::LoadIndexed {
+                        base: desc.clone(),
+                        index: Operand::Constant(Constant::Int(0)),
+                    },
+                    Type::I64,
+                );
+                let n_named = b.emit(
+                    Instruction::LoadIndexed {
+                        base: desc.clone(),
+                        index: Operand::Constant(Constant::Int(1)),
+                    },
+                    Type::I64,
+                );
                 let i = b.emit(Instruction::Add(npos, n_named), Type::I64);
-                b.emit(Instruction::LoadIndexed { base: args.clone(), index: i }, Type::I64)
+                b.emit(
+                    Instruction::LoadIndexed {
+                        base: args.clone(),
+                        index: i,
+                    },
+                    Type::I64,
+                )
             } else {
                 Operand::Constant(Constant::Int(0))
             };
             (0, vals, names, tuple)
         }
-        AccessKind::Read => (1, Vec::new(), Vec::new(), Operand::Constant(Constant::Int(0))),
+        AccessKind::Read => (
+            1,
+            Vec::new(),
+            Vec::new(),
+            Operand::Constant(Constant::Int(0)),
+        ),
         AccessKind::Write => {
-            let v = b.emit(Instruction::LoadIndexed { base: args.clone(), index: Operand::Constant(Constant::Int(0)) }, Type::Ref);
+            let v = b.emit(
+                Instruction::LoadIndexed {
+                    base: args.clone(),
+                    index: Operand::Constant(Constant::Int(0)),
+                },
+                Type::Ref,
+            );
             (2, vec![v], Vec::new(), Operand::Constant(Constant::Int(0)))
         }
     };
@@ -1560,7 +2043,11 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
     if f.static_ || f.class.is_none() || !implemented(ctx, fid) {
         return;
     }
-    if matches!(f.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) || f.factory {
+    if matches!(
+        f.kind,
+        FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+    ) || f.factory
+    {
         return;
     }
     if f.variable.is_some() {
@@ -1576,13 +2063,28 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
     // (`typed_entry.rs`), and only exists when it skips some check.
     let mut list: Vec<(Adapter, bool)> = adapters.iter().map(|&a| (a, false)).collect();
     if !matches!(f.kind, FunctionKind::Getter) && super::typed_entry::needs_typed_entry(ctx, fid) {
-        list.extend(adapters.iter().filter(|a| **a != Adapter::Read).map(|&a| (a, true)));
+        list.extend(
+            adapters
+                .iter()
+                .filter(|a| **a != Adapter::Read)
+                .map(|&a| (a, true)),
+        );
     }
     for (a, typed) in list {
-        let symbol = if typed { format!("{base}$t{}", &a.suffix()[1..]) } else { format!("{base}{}", a.suffix()) };
+        let symbol = if typed {
+            format!("{base}$t{}", &a.suffix()[1..])
+        } else {
+            format!("{base}{}", a.suffix())
+        };
         let unit = unit_of(ctx, f.class.expect("class member"));
         let Some(unit) = unit else { continue };
-        let mut b = FnBuilder::new(ctx, unit, symbol, ctx.symbol_name(f.name).to_string(), Type::Ref);
+        let mut b = FnBuilder::new(
+            ctx,
+            unit,
+            symbol,
+            ctx.symbol_name(f.name).to_string(),
+            Type::Ref,
+        );
         b.in_adapter = true;
         b.guaranteed_arity = typed;
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
@@ -1605,7 +2107,15 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
             (Adapter::Call, FunctionKind::Getter) => {
                 let v = b.call_direct(fid, Some(recv), Vec::new());
                 let v = b.coerce(v, Type::Ref);
-                b.emit_call_with_check(Instruction::CallClosureForward { arc_owned: false, closure: v, args, desc }, Type::Ref)
+                b.emit_call_with_check(
+                    Instruction::CallClosureForward {
+                        arc_owned: false,
+                        closure: v,
+                        args,
+                        desc,
+                    },
+                    Type::Ref,
+                )
             }
             (Adapter::Read, _) => {
                 if b.unpack(&[], args, desc).is_none() {
@@ -1627,24 +2137,48 @@ pub fn lower_function_adapters(ctx: &Context, module: &mut Module, fid: usize) {
                 // " of 'name'" — before converting each one to the representation.
                 b.finalizable_this = ctx.classify_this(fid);
                 b.check_entry_arguments_with(fid, &vals, typed);
-                let reprs: Vec<Type> = ctx.outline.functions[fid].parameters.iter().map(|p| b.repr(p.ty)).collect();
-                let vals: Vec<Operand> = vals.into_iter().zip(reprs).map(|(v, r)| b.coerce(v, r)).collect();
+                let reprs: Vec<Type> = ctx.outline.functions[fid]
+                    .parameters
+                    .iter()
+                    .map(|p| b.repr(p.ty))
+                    .collect();
+                let vals: Vec<Operand> = vals
+                    .into_iter()
+                    .zip(reprs)
+                    .map(|(v, r)| b.coerce(v, r))
+                    .collect();
                 if b.generic_function(fid) {
                     let npos = b.emit(
-                        Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(0)) },
+                        Instruction::LoadIndexed {
+                            base: desc.clone(),
+                            index: Operand::Constant(Constant::Int(0)),
+                        },
                         Type::I64,
                     );
                     let n_named = b.emit(
-                        Instruction::LoadIndexed { base: desc.clone(), index: Operand::Constant(Constant::Int(1)) },
+                        Instruction::LoadIndexed {
+                            base: desc.clone(),
+                            index: Operand::Constant(Constant::Int(1)),
+                        },
                         Type::I64,
                     );
                     let index = b.emit(Instruction::Add(npos, n_named), Type::I64);
-                    b.armed_tuple = Some(b.emit(Instruction::LoadIndexed { base: args.clone(), index }, Type::I64));
+                    b.armed_tuple = Some(b.emit(
+                        Instruction::LoadIndexed {
+                            base: args.clone(),
+                            index,
+                        },
+                        Type::I64,
+                    ));
                 }
                 b.call_direct(fid, Some(recv), vals)
             }
         };
-        let r = if matches!(b.operand_type(&r), Type::Void) { Operand::Constant(Constant::Null) } else { b.coerce(r, Type::Ref) };
+        let r = if matches!(b.operand_type(&r), Type::Void) {
+            Operand::Constant(Constant::Null)
+        } else {
+            b.coerce(r, Type::Ref)
+        };
         b.terminate(Terminator::Return(Some(r)));
         b.finish(module);
     }
@@ -1658,7 +2192,9 @@ pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId)
     if v.static_ {
         return;
     }
-    let Some(unit) = unit_of(ctx, cid) else { return };
+    let Some(unit) = unit_of(ctx, cid) else {
+        return;
+    };
     let base = field_symbol(ctx, vid);
     let span = Span { start: 0, end: 0 };
     let mut types = vec![Adapter::Read, Adapter::Call];
@@ -1666,7 +2202,13 @@ pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId)
         types.push(Adapter::Write);
     }
     for a in types {
-        let mut b = FnBuilder::new(ctx, unit, format!("{base}{}", a.suffix()), ctx.symbol_name(v.name).to_string(), Type::Ref);
+        let mut b = FnBuilder::new(
+            ctx,
+            unit,
+            format!("{base}{}", a.suffix()),
+            ctx.symbol_name(v.name).to_string(),
+            Type::Ref,
+        );
         b.in_adapter = true;
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         let args = Operand::Val(b.add_param_vector(DartEntryVector::Arguments));
@@ -1683,7 +2225,15 @@ pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId)
             Adapter::Call => {
                 let x = b.read_field_with_late(recv, vid, span);
                 let x = b.coerce(x, Type::Ref);
-                b.emit_call_with_check(Instruction::CallClosureForward { arc_owned: false, closure: x, args, desc }, Type::Ref)
+                b.emit_call_with_check(
+                    Instruction::CallClosureForward {
+                        arc_owned: false,
+                        closure: x,
+                        args,
+                        desc,
+                    },
+                    Type::Ref,
+                )
             }
             Adapter::Write => {
                 let one = [super::closures::EntryParam {
@@ -1709,7 +2259,9 @@ pub fn lower_field_adapters(ctx: &Context, module: &mut Module, vid: VariableId)
 /// The unit that declares the class (where its adapters are lowered).
 fn unit_of(ctx: &Context, cid: ClassId) -> Option<dartforge_elements::model::UnitId> {
     let c = &ctx.program.classes[cid.0 as usize];
-    c.decl.map(|d| d.unit).or_else(|| ctx.program.library(c.library).units.first().copied())
+    c.decl
+        .map(|d| d.unit)
+        .or_else(|| ctx.program.library(c.library).units.first().copied())
 }
 
 /// The function in place of a rejected SDK member: the same signature, and the
@@ -1731,7 +2283,13 @@ pub fn rejected_function(ctx: &Context, fid: usize, reason: &str) -> Function {
         ctx.hir_return(fid)
     };
     let symbol = super::symbol_of(ctx, fid);
-    let mut b = FnBuilder::new(ctx, unit, symbol.clone(), ctx.symbol_name(f.name).to_string(), ret);
+    let mut b = FnBuilder::new(
+        ctx,
+        unit,
+        symbol.clone(),
+        ctx.symbol_name(f.name).to_string(),
+        ret,
+    );
     let with_this = (f.class.is_some() && !f.static_ && !f.factory) || generative;
     if with_this {
         b.add_param("this".to_string(), Type::Ref);
@@ -1745,7 +2303,11 @@ pub fn rejected_function(ctx: &Context, fid: usize, reason: &str) -> Function {
     let text = format!("{symbol} ({reason})");
     let t = b.emit(Instruction::Const(Constant::String(text)), Type::Ref);
     b.emit(
-        Instruction::CallRuntime { name: "dartforge_member_rejected".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+        Instruction::CallRuntime {
+            name: "dartforge_member_rejected".to_string(),
+            args: vec![(t, Type::Ref)],
+            ret_ty: Type::Void,
+        },
         Type::Void,
     );
     b.terminate(Terminator::Unreachable);
@@ -1769,7 +2331,11 @@ fn register_rejection_facts(ctx: &Context, module: &mut Module, f: &Function) {
         .map(|(v, _, _)| *v)
         .collect();
     if !scalars.is_empty() {
-        module.dart_scalar_parameters.entry(f.symbol.clone()).or_default().extend(scalars);
+        module
+            .dart_scalar_parameters
+            .entry(f.symbol.clone())
+            .or_default()
+            .extend(scalars);
     }
 }
 
@@ -1799,20 +2365,26 @@ pub fn lower_function_or_reject(ctx: &Context, module: &mut Module, fid: usize) 
         ),
         Err(p) => Some(format!(
             "lowering panic: {}",
-            p.downcast_ref::<String>().cloned().or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string())).unwrap_or_default()
+            p.downcast_ref::<String>()
+                .cloned()
+                .or_else(|| p.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_default()
         )),
     };
     match (r, reason) {
         (Ok(mut m), None) => {
             module.functions.extend(std::mem::take(&mut m.functions));
-        super::join_arc_facts(module, &mut m);
+            super::join_arc_facts(module, &mut m);
             module.globals.extend(m.globals);
         }
         (_, Some(reason)) => {
             if !super::members::has_body(ctx, fid) {
                 return;
             }
-            let short = reason.rsplit_once(" (").map_or(reason.as_str(), |(a, _)| a).to_string();
+            let short = reason
+                .rsplit_once(" (")
+                .map_or(reason.as_str(), |(a, _)| a)
+                .to_string();
             let symbol = super::symbol_of(ctx, fid);
             let f = rejected_function(ctx, fid, &short);
             register_rejection_facts(ctx, module, &f);
@@ -1840,11 +2412,17 @@ pub fn lower_sdk_patterns(ctx: &Context, module: &mut Module) {
         };
         let base_symbol = super::symbol_of(ctx, fid);
         let b = FnBuilder::new(ctx, unit, String::new(), String::new(), Type::Ref);
-        let Some((unit_ref, params)) = b.parameters_of(fid) else { continue };
+        let Some((unit_ref, params)) = b.parameters_of(fid) else {
+            continue;
+        };
         let exported: Vec<usize> = params
             .iter()
             .enumerate()
-            .filter(|(_, p)| p.default_value.is_some_and(|e| !super::members::literal_pattern(&ctx.program.unit(unit_ref).ast, e)))
+            .filter(|(_, p)| {
+                p.default_value.is_some_and(|e| {
+                    !super::members::literal_pattern(&ctx.program.unit(unit_ref).ast, e)
+                })
+            })
             .map(|(i, _)| i)
             .collect();
         drop(b);
@@ -1852,7 +2430,9 @@ pub fn lower_sdk_patterns(ctx: &Context, module: &mut Module) {
             let symbol = format!("{base_symbol}.padrao.{i}");
             let mut b = FnBuilder::new(ctx, unit, symbol.clone(), symbol.clone(), Type::Ref);
             let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let v = b.default_value(fid, i).unwrap_or(Operand::Constant(Constant::Null));
+                let v = b
+                    .default_value(fid, i)
+                    .unwrap_or(Operand::Constant(Constant::Null));
                 let v = b.coerce(v, Type::Ref);
                 b.terminate(Terminator::Return(Some(v)));
                 b
@@ -1868,12 +2448,16 @@ pub fn lower_sdk_patterns(ctx: &Context, module: &mut Module) {
                 }
                 Ok(b) => {
                     let reason = b.errors[0].clone();
-                    module.functions.push(rejected_pattern(ctx, unit, &symbol, &reason));
+                    module
+                        .functions
+                        .push(rejected_pattern(ctx, unit, &symbol, &reason));
                     module.rejected.push((symbol, reason));
                 }
                 Err(_) => {
                     let reason = "panic while lowering the default value".to_string();
-                    module.functions.push(rejected_pattern(ctx, unit, &symbol, &reason));
+                    module
+                        .functions
+                        .push(rejected_pattern(ctx, unit, &symbol, &reason));
                     module.rejected.push((symbol, reason));
                 }
             }
@@ -1883,12 +2467,26 @@ pub fn lower_sdk_patterns(ctx: &Context, module: &mut Module) {
 
 /// The default function that does not lower: warns at runtime, like the
 /// rejected functions.
-fn rejected_pattern(ctx: &Context, unit: dartforge_elements::model::UnitId, symbol: &str, reason: &str) -> Function {
+fn rejected_pattern(
+    ctx: &Context,
+    unit: dartforge_elements::model::UnitId,
+    symbol: &str,
+    reason: &str,
+) -> Function {
     let mut b = FnBuilder::new(ctx, unit, symbol.to_string(), symbol.to_string(), Type::Ref);
-    let short = reason.strip_prefix(crate::UNSUPPORTED_PREFIX).unwrap_or(reason);
-    let t = b.emit(Instruction::Const(Constant::String(format!("{symbol} ({short})"))), Type::Ref);
+    let short = reason
+        .strip_prefix(crate::UNSUPPORTED_PREFIX)
+        .unwrap_or(reason);
+    let t = b.emit(
+        Instruction::Const(Constant::String(format!("{symbol} ({short})"))),
+        Type::Ref,
+    );
     b.emit(
-        Instruction::CallRuntime { name: "dartforge_member_rejected".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+        Instruction::CallRuntime {
+            name: "dartforge_member_rejected".to_string(),
+            args: vec![(t, Type::Ref)],
+            ret_ty: Type::Void,
+        },
         Type::Void,
     );
     b.terminate(Terminator::Unreachable);
@@ -1901,8 +2499,13 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
     lower_sdk_patterns(ctx, module);
     for (fid, f) in ctx.program.functions.iter().enumerate() {
         let name_str = ctx.symbol_name(f.name);
-        if f.class.is_none() && name_str.starts_with("_dartforge") && ctx.library_in_module(f.library) {
-            module.helpers.push((name_str.to_string(), super::symbol_of(ctx, fid)));
+        if f.class.is_none()
+            && name_str.starts_with("_dartforge")
+            && ctx.library_in_module(f.library)
+        {
+            module
+                .helpers
+                .push((name_str.to_string(), super::symbol_of(ctx, fid)));
         }
     }
     for (k, class) in ctx.program.classes.iter().enumerate() {
@@ -1910,7 +2513,11 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
         if !ctx.library_in_module(class.library) {
             continue;
         }
-        let mut fids: Vec<usize> = class.instance_members.values().map(|f| f.0 as usize).collect();
+        let mut fids: Vec<usize> = class
+            .instance_members
+            .values()
+            .map(|f| f.0 as usize)
+            .collect();
         fids.sort_unstable();
         fids.dedup();
         for fid in fids {
@@ -1938,16 +2545,20 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                 && let Some(u) = unit_of(ctx, cid)
             {
                 let symbol = "df.$stackTrace.toString$c".to_string();
-                let mut b = FnBuilder::new(ctx, u, symbol.clone(), "toString".to_string(), Type::Ref);
+                let mut b =
+                    FnBuilder::new(ctx, u, symbol.clone(), "toString".to_string(), Type::Ref);
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
                 b.add_param_vector(DartEntryVector::Arguments);
                 b.add_param_vector(DartEntryVector::Descriptor);
                 b.declare_arc_uniform_return();
-                let text = b.emit(Instruction::CallRuntime {
-                    name: "dartforge_stack_trace_string".to_string(),
-                    args: vec![(this, Type::Ref)],
-                    ret_ty: Type::Ref,
-                }, Type::Ref);
+                let text = b.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_stack_trace_string".to_string(),
+                        args: vec![(this, Type::Ref)],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                );
                 b.terminate(Terminator::Return(Some(text)));
                 b.finish(module);
                 table.retain(|(s, _)| s != "c:toString");
@@ -1964,19 +2575,28 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                     crate::context::escape_str(&ctx.library_name(class.library)),
                     crate::context::escape_str(ctx.symbol_name(class.name))
                 );
-                let mut b = FnBuilder::new(ctx, decl.unit, symbol.clone(), "_name".to_string(), Type::Ref);
+                let mut b = FnBuilder::new(
+                    ctx,
+                    decl.unit,
+                    symbol.clone(),
+                    "_name".to_string(),
+                    Type::Ref,
+                );
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
                 b.add_param_vector(DartEntryVector::Arguments);
                 b.add_param_vector(DartEntryVector::Descriptor);
                 b.declare_arc_uniform_return();
-                let name_str = b.emit(Instruction::CallRuntime {
-                    name: "dartforge_object_get".to_string(),
-                    args: vec![
-                        (this, Type::Ref),
-                        (Operand::Constant(Constant::Int(1)), Type::I64),
-                    ],
-                    ret_ty: Type::Ref,
-                }, Type::Ref);
+                let name_str = b.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_object_get".to_string(),
+                        args: vec![
+                            (this, Type::Ref),
+                            (Operand::Constant(Constant::Int(1)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                );
                 b.terminate(Terminator::Return(Some(name_str)));
                 b.finish(module);
                 table.retain(|(s, _)| s != "g:_name@dart:core");
@@ -1989,19 +2609,28 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                     crate::context::escape_str(&ctx.library_name(class.library)),
                     crate::context::escape_str(ctx.symbol_name(class.name))
                 );
-                let mut b = FnBuilder::new(ctx, decl.unit, symbol.clone(), "index".to_string(), Type::Ref);
+                let mut b = FnBuilder::new(
+                    ctx,
+                    decl.unit,
+                    symbol.clone(),
+                    "index".to_string(),
+                    Type::Ref,
+                );
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
                 b.add_param_vector(DartEntryVector::Arguments);
                 b.add_param_vector(DartEntryVector::Descriptor);
                 b.declare_arc_uniform_return();
-                let index = b.emit(Instruction::CallRuntime {
-                    name: "dartforge_object_get".to_string(),
-                    args: vec![
-                        (this, Type::Ref),
-                        (Operand::Constant(Constant::Int(0)), Type::I64),
-                    ],
-                    ret_ty: Type::I64,
-                }, Type::I64);
+                let index = b.emit(
+                    Instruction::CallRuntime {
+                        name: "dartforge_object_get".to_string(),
+                        args: vec![
+                            (this, Type::Ref),
+                            (Operand::Constant(Constant::Int(0)), Type::I64),
+                        ],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                );
                 let index = b.coerce(index, Type::Ref);
                 b.terminate(Terminator::Return(Some(index)));
                 b.finish(module);
@@ -2012,7 +2641,10 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
             // selector table must use that same body, including when the
             // value is printed by the source `List.toString`.
             if super::enums::is_enum(ctx, cid)
-                && module.classes.iter().any(|c| c.id == id && c.to_string_symbol.is_none())
+                && module
+                    .classes
+                    .iter()
+                    .any(|c| c.id == id && c.to_string_symbol.is_none())
                 && let Some(decl) = class.decl
             {
                 let base = format!(
@@ -2021,13 +2653,23 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                     crate::context::escape_str(ctx.symbol_name(class.name))
                 );
                 let symbol = format!("{base}$c");
-                let mut b = FnBuilder::new(ctx, decl.unit, symbol.clone(), "toString".to_string(), Type::Ref);
+                let mut b = FnBuilder::new(
+                    ctx,
+                    decl.unit,
+                    symbol.clone(),
+                    "toString".to_string(),
+                    Type::Ref,
+                );
                 let this = Operand::Val(b.add_param("this".to_string(), Type::Ref));
                 b.add_param_vector(DartEntryVector::Arguments);
                 b.add_param_vector(DartEntryVector::Descriptor);
                 b.declare_arc_uniform_return();
                 let text = b.emit_call_with_check(
-                    Instruction::CallStatic { symbol: base, args: vec![this], ret_ty: Type::Ref },
+                    Instruction::CallStatic {
+                        symbol: base,
+                        args: vec![this],
+                        ret_ty: Type::Ref,
+                    },
                     Type::Ref,
                 );
                 b.terminate(Terminator::Return(Some(text)));
@@ -2052,14 +2694,19 @@ pub fn lower_adapters_and_tables(ctx: &Context, module: &mut Module) {
                     table.push((selector, symbol));
                 }
             }
-            module.method_tables.push((id, table_symbol(ctx, cid), table));
+            module
+                .method_tables
+                .push((id, table_symbol(ctx, cid), table));
         }
     }
     // The table function of every compiled concrete class (the allocation, in
     // any module, registers the table of the class).
     for (k, class) in ctx.program.classes.iter().enumerate() {
         let cid = ClassId(k as u32);
-        if !ctx.compiled_library(class.library) || class.modifiers.abstract_ || super::members::is_mixin(ctx, cid) {
+        if !ctx.compiled_library(class.library)
+            || class.modifiers.abstract_
+            || super::members::is_mixin(ctx, cid)
+        {
             continue;
         }
         if let Some(id) = ctx.class_id_of(cid) {
@@ -2094,36 +2741,67 @@ fn adapters_or_reject(ctx: &Context, module: &mut Module, generate: impl FnOnce(
     let reason = m
         .errors
         .first()
-        .map(|e| e.strip_prefix(crate::UNSUPPORTED_PREFIX).unwrap_or(e).to_string())
+        .map(|e| {
+            e.strip_prefix(crate::UNSUPPORTED_PREFIX)
+                .unwrap_or(e)
+                .to_string()
+        })
         .unwrap_or_else(|| "lowering panic".to_string());
-    let reason = reason.rsplit_once(" (").map_or(reason.as_str(), |(a, _)| a).to_string();
+    let reason = reason
+        .rsplit_once(" (")
+        .map_or(reason.as_str(), |(a, _)| a)
+        .to_string();
     // Each built uniform entry and the corresponding typed one
     // (`$tc`/`$ts`, `typed_entry.rs`), which the table may cite even without
     // having been built before the error.
     let mut entries: Vec<(String, String)> = Vec::new();
     for f in &m.functions {
         let s = &f.symbol;
-        if !(s.ends_with("$c") || s.ends_with("$g") || s.ends_with("$s") || s.ends_with("$tc") || s.ends_with("$ts")) {
+        if !(s.ends_with("$c")
+            || s.ends_with("$g")
+            || s.ends_with("$s")
+            || s.ends_with("$tc")
+            || s.ends_with("$ts"))
+        {
             continue;
         }
-        let typed = (s.ends_with("$c") || s.ends_with("$s")) && !s.ends_with("$tc") && !s.ends_with("$ts");
-        for symbol in [Some(s.clone()), typed.then(|| format!("{}$t{}", &s[..s.len() - 2], &s[s.len() - 1..]))].into_iter().flatten() {
+        let typed =
+            (s.ends_with("$c") || s.ends_with("$s")) && !s.ends_with("$tc") && !s.ends_with("$ts");
+        for symbol in [
+            Some(s.clone()),
+            typed.then(|| format!("{}$t{}", &s[..s.len() - 2], &s[s.len() - 1..])),
+        ]
+        .into_iter()
+        .flatten()
+        {
             if !entries.iter().any(|(x, _)| *x == symbol) {
                 entries.push((symbol, f.name.clone()));
             }
         }
     }
     for (symbol, name_str) in entries {
-        let unit = ctx.program.units.iter().position(|_| true).map(|u| dartforge_elements::model::UnitId(u as u32));
+        let unit = ctx
+            .program
+            .units
+            .iter()
+            .position(|_| true)
+            .map(|u| dartforge_elements::model::UnitId(u as u32));
         let Some(unit) = unit else { continue };
         let mut b = FnBuilder::new(ctx, unit, symbol.clone(), name_str, Type::Ref);
         b.add_param("this".to_string(), Type::Ref);
         b.add_param_vector(DartEntryVector::Arguments);
         b.add_param_vector(DartEntryVector::Descriptor);
         b.declare_arc_uniform_return();
-        let t = b.emit(Instruction::Const(Constant::String(format!("{symbol} ({reason})"))), Type::Ref);
+        let t = b.emit(
+            Instruction::Const(Constant::String(format!("{symbol} ({reason})"))),
+            Type::Ref,
+        );
         b.emit(
-            Instruction::CallRuntime { name: "dartforge_member_rejected".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+            Instruction::CallRuntime {
+                name: "dartforge_member_rejected".to_string(),
+                args: vec![(t, Type::Ref)],
+                ret_ty: Type::Void,
+            },
             Type::Void,
         );
         b.terminate(Terminator::Unreachable);
@@ -2157,20 +2835,35 @@ pub fn lower_late_getter_or_reject(
     let reason = match r {
         Ok(mut m) if m.errors.is_empty() => {
             module.functions.extend(std::mem::take(&mut m.functions));
-        super::join_arc_facts(module, &mut m);
+            super::join_arc_facts(module, &mut m);
             module.globals.extend(m.globals);
             return;
         }
-        Ok(m) => m.errors[0].strip_prefix(crate::UNSUPPORTED_PREFIX).unwrap_or(&m.errors[0]).to_string(),
+        Ok(m) => m.errors[0]
+            .strip_prefix(crate::UNSUPPORTED_PREFIX)
+            .unwrap_or(&m.errors[0])
+            .to_string(),
         Err(_) => "lowering panic".to_string(),
     };
-    let reason = reason.rsplit_once(" (").map_or(reason.as_str(), |(a, _)| a).to_string();
-    let name_str = ctx.symbol_name(ctx.program.variables[vid.0 as usize].name).to_string();
+    let reason = reason
+        .rsplit_once(" (")
+        .map_or(reason.as_str(), |(a, _)| a)
+        .to_string();
+    let name_str = ctx
+        .symbol_name(ctx.program.variables[vid.0 as usize].name)
+        .to_string();
     let mut b = FnBuilder::new(ctx, unit, symbol.clone(), name_str, Type::Ref);
     b.add_param("this".to_string(), Type::Ref);
-    let t = b.emit(Instruction::Const(Constant::String(format!("{symbol} ({reason})"))), Type::Ref);
+    let t = b.emit(
+        Instruction::Const(Constant::String(format!("{symbol} ({reason})"))),
+        Type::Ref,
+    );
     b.emit(
-        Instruction::CallRuntime { name: "dartforge_member_rejected".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+        Instruction::CallRuntime {
+            name: "dartforge_member_rejected".to_string(),
+            args: vec![(t, Type::Ref)],
+            ret_ty: Type::Void,
+        },
         Type::Void,
     );
     b.terminate(Terminator::Unreachable);
@@ -2190,7 +2883,9 @@ pub fn lower_pruned_global(
     unit: dartforge_elements::model::UnitId,
     repr: Type,
 ) {
-    let name_str = ctx.symbol_name(ctx.program.variables[vid.0 as usize].name).to_string();
+    let name_str = ctx
+        .symbol_name(ctx.program.variables[vid.0 as usize].name)
+        .to_string();
     let getter = super::global_symbol(ctx, vid);
     let mut b = FnBuilder::new(ctx, unit, getter.clone(), name_str.clone(), repr);
     b.pruned_body();
@@ -2202,7 +2897,10 @@ pub fn lower_pruned_global(
     let v = s.add_param("v".to_string(), repr);
     // The value arrives in the representation of the Dart type of the global: scalar if not Ref.
     if ctx.arc_memory && matches!(repr, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
-        s.dart_scalar_parameters.entry(s.func.symbol.clone()).or_default().insert(v);
+        s.dart_scalar_parameters
+            .entry(s.func.symbol.clone())
+            .or_default()
+            .insert(v);
     }
     s.store_global(vid, Operand::Val(v), Span { start: 0, end: 0 });
     s.terminate(Terminator::Return(None));
@@ -2216,7 +2914,9 @@ pub fn lower_global_or_reject(
     unit: dartforge_elements::model::UnitId,
     repr: Type,
 ) {
-    let name_str = ctx.symbol_name(ctx.program.variables[vid.0 as usize].name).to_string();
+    let name_str = ctx
+        .symbol_name(ctx.program.variables[vid.0 as usize].name)
+        .to_string();
     let getter = super::global_symbol(ctx, vid);
     let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut m = Module::new();
@@ -2233,19 +2933,32 @@ pub fn lower_global_or_reject(
     match r {
         Ok(mut m) if m.errors.is_empty() => {
             module.functions.extend(std::mem::take(&mut m.functions));
-        super::join_arc_facts(module, &mut m);
+            super::join_arc_facts(module, &mut m);
             module.globals.extend(m.globals);
         }
         r => {
             let reason = match r {
-                Ok(m) => m.errors[0].strip_prefix(crate::UNSUPPORTED_PREFIX).unwrap_or(&m.errors[0]).to_string(),
+                Ok(m) => m.errors[0]
+                    .strip_prefix(crate::UNSUPPORTED_PREFIX)
+                    .unwrap_or(&m.errors[0])
+                    .to_string(),
                 Err(_) => "lowering panic".to_string(),
             };
-            let reason = reason.rsplit_once(" (").map_or(reason.as_str(), |(a, _)| a).to_string();
+            let reason = reason
+                .rsplit_once(" (")
+                .map_or(reason.as_str(), |(a, _)| a)
+                .to_string();
             let mut b = FnBuilder::new(ctx, unit, getter.clone(), name_str.clone(), repr);
-            let t = b.emit(Instruction::Const(Constant::String(format!("{getter} ({reason})"))), Type::Ref);
+            let t = b.emit(
+                Instruction::Const(Constant::String(format!("{getter} ({reason})"))),
+                Type::Ref,
+            );
             b.emit(
-                Instruction::CallRuntime { name: "dartforge_member_rejected".to_string(), args: vec![(t, Type::Ref)], ret_ty: Type::Void },
+                Instruction::CallRuntime {
+                    name: "dartforge_member_rejected".to_string(),
+                    args: vec![(t, Type::Ref)],
+                    ret_ty: Type::Void,
+                },
                 Type::Void,
             );
             b.terminate(Terminator::Unreachable);
@@ -2258,7 +2971,10 @@ pub fn lower_global_or_reject(
     let v = s.add_param("v".to_string(), repr);
     // The value arrives in the representation of the Dart type of the global: scalar if not Ref.
     if ctx.arc_memory && matches!(repr, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
-        s.dart_scalar_parameters.entry(s.func.symbol.clone()).or_default().insert(v);
+        s.dart_scalar_parameters
+            .entry(s.func.symbol.clone())
+            .or_default()
+            .insert(v);
     }
     s.store_global(vid, Operand::Val(v), Span { start: 0, end: 0 });
     s.terminate(Terminator::Return(None));
@@ -2275,7 +2991,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.unsupported(&format!("collection literal without `{name_str}`"), span);
         };
         let empty = self.ctx.interner.lookup("");
-        let Some(ctor) = empty.and_then(|v| self.ctx.program.classes[cid.0 as usize].constructors.get(&v).copied()) else {
+        let Some(ctor) = empty.and_then(|v| {
+            self.ctx.program.classes[cid.0 as usize]
+                .constructors
+                .get(&v)
+                .copied()
+        }) else {
             return self.unsupported(&format!("missing `{name_str}()`"), span);
         };
         self.instantiate_evaluated(ctor, &[], span)
@@ -2292,7 +3013,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(head);
         let ok = self.call_by_selector(it.clone(), "c:moveNext".to_string(), &[]);
         let ok = self.coerce(ok, Type::I1);
-        self.terminate(Terminator::CondBranch { cond: ok, then_block: fn_body, else_block: end });
+        self.terminate(Terminator::CondBranch {
+            cond: ok,
+            then_block: fn_body,
+            else_block: end,
+        });
         self.set_block(fn_body);
         self.emit_safepoint();
         let x = self.call_by_selector(it, "g:current".to_string(), &[]);
@@ -2321,9 +3046,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             None => false,
         };
         match target {
-            ForInTarget::Declared { name, ty: annotated, .. } => {
+            ForInTarget::Declared {
+                name,
+                ty: annotated,
+                ..
+            } => {
                 if dynamic_element && let Some(tid) = annotated {
-                    self.check_type_or_throw(ast.ty(*tid), x.clone(), super::rti::CastContext::Implicit);
+                    self.check_type_or_throw(
+                        ast.ty(*tid),
+                        x.clone(),
+                        super::rti::CastContext::Implicit,
+                    );
                     if self.is_terminated() {
                         return;
                     }
@@ -2353,7 +3086,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
             }
             ForInTarget::Pattern { pattern, .. } => {
-                self.match_irrefutable(ast, *pattern, x, super::patterns::Linkage::Declare, iterable);
+                self.match_irrefutable(
+                    ast,
+                    *pattern,
+                    x,
+                    super::patterns::Linkage::Declare,
+                    iterable,
+                );
             }
         }
     }
@@ -2377,9 +3116,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // length check of `ListIterator`; another class that
         // implements `List` goes through its `Iterator` (below).
         let mut direct_end = None;
-        if let Some(super::typed_items::Indexable::Core { write_op }) = self.indexable(self.ctx.get_type(self.unit_id, iterable)) {
+        if let Some(super::typed_items::Indexable::Core { write_op }) =
+            self.indexable(self.ctx.get_type(self.unit_id, iterable))
+        {
             let source = self.coerce(source.clone(), Type::Ref);
-            if let Some(end) = self.list_for_in(ast, target, iterable, body, span, source, write_op.unwrap_or(Type::Ref), &labels) {
+            if let Some(end) = self.list_for_in(
+                ast,
+                target,
+                iterable,
+                body,
+                span,
+                source,
+                write_op.unwrap_or(Type::Ref),
+                &labels,
+            ) {
                 direct_end = Some(end);
             }
         }
@@ -2395,7 +3145,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.set_block(head);
         let ok = self.call_by_selector(it.clone(), "c:moveNext".to_string(), &[]);
         let ok = self.coerce(ok, Type::I1);
-        self.terminate(Terminator::CondBranch { cond: ok, then_block: fn_body, else_block: end });
+        self.terminate(Terminator::CondBranch {
+            cond: ok,
+            then_block: fn_body,
+            else_block: end,
+        });
         self.set_block(fn_body);
         self.emit_safepoint();
         self.break_targets.push(end);
@@ -2442,7 +3196,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Option<BlockId> {
         let class = self.ctx.sdk_class("core", "ConcurrentModificationError")?;
         let empty = self.ctx.interner.lookup("")?;
-        let ctor = *self.ctx.program.classes[class.0 as usize].constructors.get(&empty)?;
+        let ctor = *self.ctx.program.classes[class.0 as usize]
+            .constructors
+            .get(&empty)?;
         // A core list by class (`@df.class`, fixed cids 8–10,
         // docs/NATIVO-ESPACO-UNIFICADO.md §2.4): `_List`, `_ImmutableList` or
         // `_GrowableList`; the length inline (`@df.list_len`).
@@ -2455,19 +3211,37 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I64,
         );
         let since = self.emit(
-            Instruction::Sub(cid, Operand::Constant(Constant::Int(i64::from(dartforge_runtime::layout::cid::LIST)))),
+            Instruction::Sub(
+                cid,
+                Operand::Constant(Constant::Int(i64::from(
+                    dartforge_runtime::layout::cid::LIST,
+                ))),
+            ),
             Type::I64,
         );
-        let is_list = self.emit(Instruction::ICmp(ICmpOp::Ult, since, Operand::Constant(Constant::Int(3))), Type::I1);
+        let is_list = self.emit(
+            Instruction::ICmp(ICmpOp::Ult, since, Operand::Constant(Constant::Int(3))),
+            Type::I1,
+        );
         let direct = self.new_block();
         let iterator = self.new_block();
         let after = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: is_list, then_block: direct, else_block: iterator });
+        self.terminate(Terminator::CondBranch {
+            cond: is_list,
+            then_block: direct,
+            else_block: iterator,
+        });
 
         self.set_block(direct);
         let n0 = self.list_len_inline(list.clone());
         let index = self.emit(Instruction::Alloca(Type::I64), Type::Ptr);
-        self.emit(Instruction::Store { ptr: index.clone(), val: Operand::Constant(Constant::Int(0)) }, Type::Void);
+        self.emit(
+            Instruction::Store {
+                ptr: index.clone(),
+                val: Operand::Constant(Constant::Int(0)),
+            },
+            Type::Void,
+        );
         let head = self.new_block();
         let changed = self.new_block();
         let checks = self.new_block();
@@ -2479,7 +3253,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // (`@df.list_len`, the same offset in the three classes).
         let n = self.list_len_inline(list.clone());
         let equal = self.emit(Instruction::ICmp(ICmpOp::Eq, n.clone(), n0), Type::I1);
-        self.terminate(Terminator::CondBranch { cond: equal, then_block: checks, else_block: changed });
+        self.terminate(Terminator::CondBranch {
+            cond: equal,
+            then_block: checks,
+            else_block: changed,
+        });
 
         self.set_block(changed);
         let error = self.instantiate_evaluated(ctor, &[(None, list.clone())], span);
@@ -2491,15 +3269,34 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
 
         self.set_block(checks);
-        let i = self.emit(Instruction::Load { ptr: index.clone(), ty: Type::I64 }, Type::I64);
+        let i = self.emit(
+            Instruction::Load {
+                ptr: index.clone(),
+                ty: Type::I64,
+            },
+            Type::I64,
+        );
         let inside = self.emit(Instruction::ICmp(ICmpOp::Slt, i.clone(), n), Type::I1);
-        self.terminate(Terminator::CondBranch { cond: inside, then_block: fn_body, else_block: after });
+        self.terminate(Terminator::CondBranch {
+            cond: inside,
+            then_block: fn_body,
+            else_block: after,
+        });
 
         self.set_block(fn_body);
         self.emit_safepoint();
         let x = self.read_list_element(&list, &i, repr);
-        let next = self.emit(Instruction::Add(i, Operand::Constant(Constant::Int(1))), Type::I64);
-        self.emit(Instruction::Store { ptr: index, val: next }, Type::Void);
+        let next = self.emit(
+            Instruction::Add(i, Operand::Constant(Constant::Int(1))),
+            Type::I64,
+        );
+        self.emit(
+            Instruction::Store {
+                ptr: index,
+                val: next,
+            },
+            Type::Void,
+        );
         for &r in labels {
             self.labeled_break_targets.insert(r, after);
             self.labeled_continue_targets.insert(r, head);
@@ -2529,11 +3326,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `Record`), through the class graph of the source SDK; null is not.
     pub fn is_core_instance(&mut self, v: Operand, name_str: &str) -> Operand {
         let zero = Operand::Constant(Constant::Int(0));
-        let Some((c, id)) = self.ctx.sdk_class("core", name_str).and_then(|c| Some((c, self.ctx.class_id_of(c)?))) else {
+        let Some((c, id)) = self
+            .ctx
+            .sdk_class("core", name_str)
+            .and_then(|c| Some((c, self.ctx.class_id_of(c)?)))
+        else {
             return Operand::Constant(Constant::Bool(false));
         };
         let cls = self.emit(
-            Instruction::CallRuntime { name: "dartforge_value_class".to_string(), args: vec![(v.clone(), Type::Ref)], ret_ty: Type::I64 },
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".to_string(),
+                args: vec![(v.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
             Type::I64,
         );
         let sub = self.subclass_test(cls, c, id);
@@ -2546,7 +3351,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn require_source(&mut self, cond: Operand, failure: BlockId) {
         let cond = self.to_bool(cond);
         let ok = self.new_block();
-        self.terminate(Terminator::CondBranch { cond, then_block: ok, else_block: failure });
+        self.terminate(Terminator::CondBranch {
+            cond,
+            then_block: ok,
+            else_block: failure,
+        });
         self.set_block(ok);
     }
 
@@ -2569,11 +3378,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.require_source(e, failure);
         let len = self.call_by_selector(v.clone(), "g:length".to_string(), &[]);
         let len = self.coerce(len, Type::I64);
-        let rest = elements.iter().position(|e| matches!(e, ListPatternElement::Rest(_)));
+        let rest = elements
+            .iter()
+            .position(|e| matches!(e, ListPatternElement::Rest(_)));
         let n_fixed = elements.len() - usize::from(rest.is_some());
         let ok = self.emit(
             Instruction::ICmp(
-                if rest.is_some() { ICmpOp::Sge } else { ICmpOp::Eq },
+                if rest.is_some() {
+                    ICmpOp::Sge
+                } else {
+                    ICmpOp::Eq
+                },
                 len.clone(),
                 Operand::Constant(Constant::Int(n_fixed as i64)),
             ),
@@ -2586,7 +3401,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let idx = match r {
                         Some(r) if i > r => {
                             let after = (elements.len() - i) as i64;
-                            self.emit(Instruction::Sub(len.clone(), Operand::Constant(Constant::Int(after))), Type::I64)
+                            self.emit(
+                                Instruction::Sub(
+                                    len.clone(),
+                                    Operand::Constant(Constant::Int(after)),
+                                ),
+                                Type::I64,
+                            )
                         }
                         _ => Operand::Constant(Constant::Int(i as i64)),
                     };
@@ -2595,11 +3416,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 (ListPatternElement::Rest(Some(sp)), _) => {
                     let after = (elements.len() - i - 1) as i64;
-                    let end = self.emit(Instruction::Sub(len.clone(), Operand::Constant(Constant::Int(after))), Type::I64);
+                    let end = self.emit(
+                        Instruction::Sub(len.clone(), Operand::Constant(Constant::Int(after))),
+                        Type::I64,
+                    );
                     let sub = self.call_by_selector(
                         v.clone(),
                         "c:sublist".to_string(),
-                        &[(None, Operand::Constant(Constant::Int(i as i64))), (None, end)],
+                        &[
+                            (None, Operand::Constant(Constant::Int(i as i64))),
+                            (None, end),
+                        ],
                     );
                     self.match_pattern(ast, *sp, (sub, origin), failure, linkage, linked);
                 }
@@ -2626,7 +3453,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.require_source(e, failure);
         for en in entries {
             let k = self.lower_expr(ast, en.key);
-            let has = self.call_by_selector(v.clone(), "c:containsKey".to_string(), &[(None, k.clone())]);
+            let has =
+                self.call_by_selector(v.clone(), "c:containsKey".to_string(), &[(None, k.clone())]);
             let has = self.coerce(has, Type::I1);
             self.require_source(has, failure);
             let x = self.call_by_selector(v.clone(), "c:[]".to_string(), &[(None, k)]);
@@ -2638,30 +3466,61 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 /// source SDK: each one gets the method table — `toString` and `==`
 /// (the generated ones), and the members of `Object` — with the adapters.
 pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
-    let Some(u) = ctx.entry_lib.and_then(|l| ctx.program.library(l).units.first().copied()) else { return };
-    let object = ctx.core.object_class.map(|c| method_table(ctx, c)).unwrap_or_default();
+    let Some(u) = ctx
+        .entry_lib
+        .and_then(|l| ctx.program.library(l).units.first().copied())
+    else {
+        return;
+    };
+    let object = ctx
+        .core
+        .object_class
+        .map(|c| method_table(ctx, c))
+        .unwrap_or_default();
     for k in 0..ctx.record_shapes.len() {
         let id = crate::context::SHAPE_BASE_ID + k as u32;
         let base = format!("df.$record.{k}");
         // toString$c
-        let mut b = FnBuilder::new(ctx, u, format!("{base}.toString$c"), "toString".to_string(), Type::Ref);
+        let mut b = FnBuilder::new(
+            ctx,
+            u,
+            format!("{base}.toString$c"),
+            "toString".to_string(),
+            Type::Ref,
+        );
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         b.add_param_vector(DartEntryVector::Arguments);
         b.add_param_vector(DartEntryVector::Descriptor);
         b.declare_arc_uniform_return();
         let r = b.emit_call_with_check(
-            Instruction::CallStatic { symbol: format!("{base}.toString"), args: vec![recv], ret_ty: Type::Ref },
+            Instruction::CallStatic {
+                symbol: format!("{base}.toString"),
+                args: vec![recv],
+                ret_ty: Type::Ref,
+            },
             Type::Ref,
         );
         b.terminate(Terminator::Return(Some(r)));
         b.finish(module);
         // ==$c
-        let mut b = FnBuilder::new(ctx, u, format!("{base}.$3d$3d$c"), "==".to_string(), Type::Ref);
+        let mut b = FnBuilder::new(
+            ctx,
+            u,
+            format!("{base}.$3d$3d$c"),
+            "==".to_string(),
+            Type::Ref,
+        );
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         let args = Operand::Val(b.add_param_vector(DartEntryVector::Arguments));
         b.add_param_vector(DartEntryVector::Descriptor);
         b.declare_arc_uniform_return();
-        let other = b.emit(Instruction::LoadIndexed { base: args, index: Operand::Constant(Constant::Int(0)) }, Type::Ref);
+        let other = b.emit(
+            Instruction::LoadIndexed {
+                base: args,
+                index: Operand::Constant(Constant::Int(0)),
+            },
+            Type::Ref,
+        );
         let r = b.emit_call_with_check(
             Instruction::CallStatic {
                 symbol: super::records::EQUAL_SYMBOL.to_string(),
@@ -2674,13 +3533,23 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
         b.terminate(Terminator::Return(Some(r)));
         b.finish(module);
         // hashCode$g: the hash follows the structural equality of the record.
-        let mut b = FnBuilder::new(ctx, u, format!("{base}.hashCode$g"), "hashCode".to_string(), Type::Ref);
+        let mut b = FnBuilder::new(
+            ctx,
+            u,
+            format!("{base}.hashCode$g"),
+            "hashCode".to_string(),
+            Type::Ref,
+        );
         let recv = Operand::Val(b.add_param("this".to_string(), Type::Ref));
         b.add_param_vector(DartEntryVector::Arguments);
         b.add_param_vector(DartEntryVector::Descriptor);
         b.declare_arc_uniform_return();
         let r = b.emit_call_with_check(
-            Instruction::CallStatic { symbol: format!("{base}.hashCode"), args: vec![recv], ret_ty: Type::I64 },
+            Instruction::CallStatic {
+                symbol: format!("{base}.hashCode"),
+                args: vec![recv],
+                ret_ty: Type::I64,
+            },
             Type::I64,
         );
         let r = b.coerce(r, Type::Ref);
@@ -2697,7 +3566,9 @@ pub fn record_shape_tables(ctx: &Context, module: &mut Module) {
                 table.push((s.clone(), f.clone()));
             }
         }
-        module.method_tables.push((id, format!("df.mt.$record.{k}"), table));
+        module
+            .method_tables
+            .push((id, format!("df.mt.$record.{k}"), table));
     }
 }
 
@@ -2709,26 +3580,54 @@ mod arc_tests {
 
     #[test]
     fn unreachable_and_literal_returns_keep_strict_dart_ownership_conventions() {
-        use crate::optimize::arc::{produce_and_verify_dart_tokens, ScopePlan, TokenPlan, TokenReturn};
-        for (return_type, expected) in [(Type::Ref, TokenReturn::Owned),
-            (Type::I64, TokenReturn::Trivial), (Type::Void, TokenReturn::Trivial)]
-        {
+        use crate::optimize::arc::{
+            ScopePlan, TokenPlan, TokenReturn, produce_and_verify_dart_tokens,
+        };
+        for (return_type, expected) in [
+            (Type::Ref, TokenReturn::Owned),
+            (Type::I64, TokenReturn::Trivial),
+            (Type::Void, TokenReturn::Trivial),
+        ] {
             for unreachable in [false, true] {
                 let value = match return_type {
                     Type::Ref => Some(Operand::Constant(Constant::Null)),
                     Type::I64 => Some(Operand::Constant(Constant::Int(7))),
                     _ => None,
                 };
-                let function = Function { symbol: "getter".into(), name: "getter".into(),
-                    debug_info: None, params: vec![], return_ty: return_type,
-                    blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
-                        terminator: if unreachable { Terminator::Unreachable } else { Terminator::Return(value) } }] };
-                for convention in [TokenReturn::Owned, TokenReturn::Trivial, TokenReturn::Borrowed] {
+                let function = Function {
+                    symbol: "getter".into(),
+                    name: "getter".into(),
+                    debug_info: None,
+                    params: vec![],
+                    return_ty: return_type,
+                    blocks: vec![BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![],
+                        terminator: if unreachable {
+                            Terminator::Unreachable
+                        } else {
+                            Terminator::Return(value)
+                        },
+                    }],
+                };
+                for convention in [
+                    TokenReturn::Owned,
+                    TokenReturn::Trivial,
+                    TokenReturn::Borrowed,
+                ] {
                     let mut classes = std::collections::HashMap::new();
-                    let mut plan = TokenPlan { ret: convention, ..Default::default() };
+                    let mut plan = TokenPlan {
+                        ret: convention,
+                        ..Default::default()
+                    };
                     let before = plan.clone();
-                    let result = produce_and_verify_dart_tokens(&function, &mut classes, &mut plan,
-                        &FunctionTables::default(), &ScopePlan::default());
+                    let result = produce_and_verify_dart_tokens(
+                        &function,
+                        &mut classes,
+                        &mut plan,
+                        &FunctionTables::default(),
+                        &ScopePlan::default(),
+                    );
                     if convention == expected {
                         result.unwrap();
                     } else {

@@ -103,10 +103,7 @@ fn error_in_flow(
     if let Some(s) = edge {
         path.push(f.blocks[s].id.0);
     }
-    format!(
-        "ARC003 in {}: {point}: {reason}; path {path:?}",
-        f.symbol
-    )
+    format!("ARC003 in {}: {point}: {reason}; path {path:?}", f.symbol)
 }
 
 /// Checks borrow limits and uses with equal stacks at joins.
@@ -159,9 +156,8 @@ fn analyze(
     if let Some(classes) = classes {
         classified_liveness(f, classes)?;
     }
-    let check_value = |v: ValueId, stack: &[u32]| {
-        classes.map_or(Ok(()), |classes| check(v, classes, stack))
-    };
+    let check_value =
+        |v: ValueId, stack: &[u32]| classes.map_or(Ok(()), |classes| check(v, classes, stack));
     let mut stacks = HashMap::new();
     let cfg = Cfg::new(f);
     let pos: HashMap<_, _> = f
@@ -175,12 +171,16 @@ fn analyze(
         .iter()
         .flat_map(|b| b.instructions.iter().map(|(v, _, _)| (*v, b.id)))
         .collect();
-    let error = |point: String, reason: String| format!("ARC003 in {}: {point}: {reason}", f.symbol);
+    let error =
+        |point: String, reason: String| format!("ARC003 in {}: {point}: {reason}", f.symbol);
     let mut ids: Vec<_> = plan.before.keys().copied().collect();
     ids.sort_by_key(|v| v.0);
     for id in ids {
         if !defs.contains_key(&id) {
-            return Err(error(format!("v{}", id.0), "limit without an instruction".into()));
+            return Err(error(
+                format!("v{}", id.0),
+                "limit without an instruction".into(),
+            ));
         }
     }
     let mut ids: Vec<_> = plan.exits.keys().copied().collect();
@@ -240,11 +240,8 @@ fn analyze(
                 }
             }
         }
-        change(
-            &mut stack,
-            plan.exits.get(&b.id).map_or(&[], Vec::as_slice),
-        )
-        .map_err(|m| error_in_flow(f, &parents, i, None, format!("b{} exit", b.id.0), m))?;
+        change(&mut stack, plan.exits.get(&b.id).map_or(&[], Vec::as_slice))
+            .map_err(|m| error_in_flow(f, &parents, i, None, format!("b{} exit", b.id.0), m))?;
         let mut invalid = None;
         terminator_operands(&b.terminator, &mut |o| {
             if invalid.is_none()
@@ -279,10 +276,7 @@ fn analyze(
             let mut next_one = stack.clone();
             change(
                 &mut next_one,
-                plan
-                    .edges
-                    .get(&(b.id, dest.id))
-                    .map_or(&[], Vec::as_slice),
+                plan.edges.get(&(b.id, dest.id)).map_or(&[], Vec::as_slice),
             )
             .map_err(|m| error_in_flow(f, &parents, i, Some(s), point.clone(), m))?;
             for (_, inst, _) in &dest.instructions {
@@ -389,9 +383,7 @@ mod tests {
         let (f, classes, mut plan) = example();
         verify_scopes(&f, &classes, &plan).unwrap();
         plan.exits.clear();
-        plan
-            .before
-            .insert(ValueId(2), vec![ScopeChange::Close(1)]);
+        plan.before.insert(ValueId(2), vec![ScopeChange::Close(1)]);
         assert!(
             verify_scopes(&f, &classes, &plan)
                 .unwrap_err()
@@ -446,11 +438,9 @@ mod tests {
                 },
             });
         }
-        plan
-            .edges
+        plan.edges
             .insert((BlockId(0), BlockId(1)), vec![ScopeChange::Close(1)]);
-        plan
-            .edges
+        plan.edges
             .insert((BlockId(0), BlockId(2)), vec![ScopeChange::Close(1)]);
         verify_scopes(&f, &classes, &plan).unwrap();
         plan.edges.remove(&(BlockId(0), BlockId(2)));
@@ -470,8 +460,7 @@ mod tests {
                 .unwrap_err()
                 .contains("join")
         );
-        plan
-            .edges
+        plan.edges
             .insert((BlockId(0), BlockId(0)), vec![ScopeChange::Close(1)]);
         verify_scopes(&f, &classes, &plan).unwrap();
     }
@@ -494,12 +483,9 @@ mod tests {
             terminator: Terminator::Return(None),
         });
         classes.insert(ValueId(3), Ownership::Owned);
-        plan
-            .exits
-            .insert(BlockId(1), vec![ScopeChange::Close(1)]);
+        plan.exits.insert(BlockId(1), vec![ScopeChange::Close(1)]);
         verify_scopes(&f, &classes, &plan).unwrap();
-        plan
-            .edges
+        plan.edges
             .insert((BlockId(0), BlockId(1)), vec![ScopeChange::Close(1)]);
         assert!(
             verify_scopes(&f, &classes, &plan)

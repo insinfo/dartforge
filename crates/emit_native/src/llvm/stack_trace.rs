@@ -59,8 +59,8 @@
 //! `  ; df.pos <line> <column>` markers.
 //! Written without compiling or running (2026-10-05).
 
+use crate::hir::{Function, FunctionDebugInfo, stack_trace_marks};
 use crate::target::Os;
-use crate::hir::{FunctionDebugInfo, Function, stack_trace_marks};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
@@ -107,7 +107,9 @@ pub(super) fn call_target(line: &str) -> Option<Option<&str>> {
             l = r;
         }
     }
-    let rest = l.strip_prefix("call ").or_else(|| l.strip_prefix("invoke "))?;
+    let rest = l
+        .strip_prefix("call ")
+        .or_else(|| l.strip_prefix("invoke "))?;
     // The type comes before the target and has no `@` nor `asm`; the target is the first
     // `@` or `%` (a named struct type, `%T`, counts as indirect: the
     // extra entry changes nothing).
@@ -185,7 +187,15 @@ fn group_asm(entries: &[Entry], operands: &[String], with_label: bool) -> String
 fn with_noinline(line: &str) -> String {
     // The attribute goes before the `"deopt"` operand (roots by maps), the
     // label of an `invoke` and the metadata.
-    match [line.find(" [ \"deopt\""), line.find(" to label "), line.find(", !")].into_iter().flatten().min() {
+    match [
+        line.find(" [ \"deopt\""),
+        line.find(" to label "),
+        line.find(", !"),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
+    {
         Some(i) => format!("{} noinline{}", &line[..i], &line[i..]),
         None => format!("{line} noinline"),
     }
@@ -194,12 +204,20 @@ fn with_noinline(line: &str) -> String {
 /// The linkage of the stack trace constants: in Mach-O, local symbols (the
 /// aarch64 writer does not relocate a subtraction with a temporary symbol).
 fn linkage() -> &'static str {
-    if crate::target::target_os() == Os::MacOs { "internal" } else { "private" }
+    if crate::target::target_os() == Os::MacOs {
+        "internal"
+    } else {
+        "private"
+    }
 }
 
 impl StackTrace {
     pub(super) fn new() -> StackTrace {
-        StackTrace { definitions: String::new(), urls: HashMap::new(), records: HashMap::new() }
+        StackTrace {
+            definitions: String::new(),
+            urls: HashMap::new(),
+            records: HashMap::new(),
+        }
     }
 
     fn url(&mut self, url: &str) -> usize {
@@ -222,12 +240,16 @@ impl StackTrace {
     /// The record of `(name, url, marks)`: the offset to the url, the byte
     /// of the marks and the name. One per module for each triple.
     fn record(&mut self, name: &str, url: &str, marks: u8) -> usize {
-        if let Some(&k) = self.records.get(&(name.to_string(), url.to_string(), marks)) {
+        if let Some(&k) = self
+            .records
+            .get(&(name.to_string(), url.to_string(), marks))
+        {
             return k;
         }
         let u = self.url(url);
         let k = self.records.len();
-        self.records.insert((name.to_string(), url.to_string(), marks), k);
+        self.records
+            .insert((name.to_string(), url.to_string(), marks), k);
         let n = name.len() + 1;
         writeln!(
             self.definitions,
@@ -241,13 +263,24 @@ impl StackTrace {
 
     /// The records and the positions of a call point, from the inner
     /// frame (the deepest copied function) to that of the function itself.
-    fn chain(&mut self, func: &Function, d: &FunctionDebugInfo, current: (u32, u32), context: Option<u32>) -> Vec<(usize, u32)> {
+    fn chain(
+        &mut self,
+        func: &Function,
+        d: &FunctionDebugInfo,
+        current: (u32, u32),
+        context: Option<u32>,
+    ) -> Vec<(usize, u32)> {
         let mut v = Vec::new();
         let (mut position, mut ctx) = (current, context);
         let mut steps = 0;
         while let Some(k) = ctx {
-            let Some(e) = d.embedded_set.get(k as usize) else { break };
-            v.push((self.record(&e.name, &e.url, e.marks), line_and_column(position)));
+            let Some(e) = d.embedded_set.get(k as usize) else {
+                break;
+            };
+            v.push((
+                self.record(&e.name, &e.url, e.marks),
+                line_and_column(position),
+            ));
             position = e.call;
             ctx = e.parent;
             steps += 1;
@@ -255,7 +288,10 @@ impl StackTrace {
                 break;
             }
         }
-        v.push((self.record(&func.stack_trace_name(), &d.url, d.marks), line_and_column(position)));
+        v.push((
+            self.record(&func.stack_trace_name(), &d.url, d.marks),
+            line_and_column(position),
+        ));
         v
     }
 
@@ -264,14 +300,32 @@ impl StackTrace {
     /// The identity does not carry the hidden mark (an `async` stub that listens to a
     /// `Future` shows up, like the closure in the VM).
     fn function_group(&mut self, func: &Function, d: &FunctionDebugInfo) -> Option<String> {
-        let entry = d.async_body.as_ref().map(|c| c.entry.clone()).or_else(|| d.closure_entry.clone())?;
-        let k = self.record(&func.stack_trace_name(), &d.url, d.marks & !stack_trace_marks::HIDDEN);
+        let entry = d
+            .async_body
+            .as_ref()
+            .map(|c| c.entry.clone())
+            .or_else(|| d.closure_entry.clone())?;
+        let k = self.record(
+            &func.stack_trace_name(),
+            &d.url,
+            d.marks & !stack_trace_marks::HIDDEN,
+        );
         let operands = vec![format!("ptr @{entry}"), format!("ptr @df.pcf.{k}")];
         let function = "${0:c}".to_string();
-        let mut entries = vec![Entry { label: function.clone(), record: Some(1), kind: 1, word: line_and_column(d.token) }];
+        let mut entries = vec![Entry {
+            label: function.clone(),
+            record: Some(1),
+            kind: 1,
+            word: line_and_column(d.token),
+        }];
         if let Some(c) = &d.async_body {
             for p in &c.waits {
-                entries.push(Entry { label: function.clone(), record: Some(1), kind: 2, word: line_and_column(*p) });
+                entries.push(Entry {
+                    label: function.clone(),
+                    record: Some(1),
+                    kind: 2,
+                    word: line_and_column(*p),
+                });
             }
         }
         if let Some(e) = d.chain_link {
@@ -340,7 +394,11 @@ impl StackTrace {
                 }
                 continue;
             }
-            if pending_group && line.starts_with("  ") && !line.trim_start().starts_with(';') && !line.trim().is_empty() {
+            if pending_group
+                && line.starts_with("  ")
+                && !line.trim_start().starts_with(';')
+                && !line.trim().is_empty()
+            {
                 pending_group = false;
                 if let Some(g) = self.function_group(func, d) {
                     writeln!(exit, "{g}").unwrap();
@@ -350,7 +408,10 @@ impl StackTrace {
             if shared {
                 // `noinline` at the end of the call (before any metadata
                 // or `invoke` label, which these functions do not have).
-                if target.is_some_and(|a| a.is_none_or(|n| !n.starts_with("llvm."))) && !line.contains(", !") && !line.contains(" to label ") {
+                if target.is_some_and(|a| a.is_none_or(|n| !n.starts_with("llvm.")))
+                    && !line.contains(", !")
+                    && !line.contains(" to label ")
+                {
                     writeln!(exit, "{}", with_noinline(line)).unwrap();
                 } else {
                     writeln!(exit, "{line}").unwrap();
@@ -361,11 +422,19 @@ impl StackTrace {
                 && labelable(target)
             {
                 let chain = self.chain(func, d, current, context);
-                let operands: Vec<String> = chain.iter().map(|(k, _)| format!("ptr @df.pcf.{k}")).collect();
+                let operands: Vec<String> = chain
+                    .iter()
+                    .map(|(k, _)| format!("ptr @df.pcf.{k}"))
+                    .collect();
                 let entries: Vec<Entry> = chain
                     .iter()
                     .enumerate()
-                    .map(|(i, &(_, lc))| Entry { label: "42b".to_string(), record: Some(i), kind: 0, word: lc })
+                    .map(|(i, &(_, lc))| Entry {
+                        label: "42b".to_string(),
+                        record: Some(i),
+                        kind: 0,
+                        word: lc,
+                    })
                     .collect();
                 writeln!(exit, "{}", group_asm(&entries, &operands, true)).unwrap();
                 // LLVM inlining would erase the frame of the called Dart function.
@@ -436,15 +505,39 @@ mod tests {
 
     #[test]
     fn finds_the_call_target() {
-        assert_eq!(call_target("  %v3 = call i64 @df.a.b(i64 %v1)"), Some(Some("df.a.b")));
-        assert_eq!(call_target("  call void @dartforge_exception_throw(i64 %v2, i8 3)"), Some(Some("dartforge_exception_throw")));
-        assert_eq!(call_target("  %r = tail call i64 @\"df.x$tear\"(i64 0)"), Some(Some("df.x$tear")));
+        assert_eq!(
+            call_target("  %v3 = call i64 @df.a.b(i64 %v1)"),
+            Some(Some("df.a.b"))
+        );
+        assert_eq!(
+            call_target("  call void @dartforge_exception_throw(i64 %v2, i8 3)"),
+            Some(Some("dartforge_exception_throw"))
+        );
+        assert_eq!(
+            call_target("  %r = tail call i64 @\"df.x$tear\"(i64 0)"),
+            Some(Some("df.x$tear"))
+        );
         assert_eq!(call_target("  %v9 = call i64 %f(i64 %v1)"), Some(None));
-        assert_eq!(call_target("  call void (...) @llvm.fake.use(ptr addrspace(1) %raiz1)"), Some(Some("llvm.fake.use")));
-        assert_eq!(call_target("  %v4 = call i64 @df.a(i64 %v1) [ \"deopt\"(i64 %v1) ]"), Some(Some("df.a")));
-        assert_eq!(with_noinline("  %v4 = call i64 @df.a(i64 %v1) [ \"deopt\"(i64 %v1) ]"), "  %v4 = call i64 @df.a(i64 %v1) noinline [ \"deopt\"(i64 %v1) ]");
-        assert_eq!(call_target("  %r.ok = invoke i64 @g(i64 1) to label %a unwind label %b"), Some(Some("g")));
-        assert_eq!(call_target("  call void asm sideeffect \"42:\", \"s\"(ptr @df.pcf.0) nounwind"), None);
+        assert_eq!(
+            call_target("  call void (...) @llvm.fake.use(ptr addrspace(1) %raiz1)"),
+            Some(Some("llvm.fake.use"))
+        );
+        assert_eq!(
+            call_target("  %v4 = call i64 @df.a(i64 %v1) [ \"deopt\"(i64 %v1) ]"),
+            Some(Some("df.a"))
+        );
+        assert_eq!(
+            with_noinline("  %v4 = call i64 @df.a(i64 %v1) [ \"deopt\"(i64 %v1) ]"),
+            "  %v4 = call i64 @df.a(i64 %v1) noinline [ \"deopt\"(i64 %v1) ]"
+        );
+        assert_eq!(
+            call_target("  %r.ok = invoke i64 @g(i64 1) to label %a unwind label %b"),
+            Some(Some("g"))
+        );
+        assert_eq!(
+            call_target("  call void asm sideeffect \"42:\", \"s\"(ptr @df.pcf.0) nounwind"),
+            None
+        );
         assert_eq!(call_target("  %v4 = add i64 %v1, %v2"), None);
         assert_eq!(call_target("  store i64 %v1, ptr @g"), None);
     }
@@ -460,7 +553,12 @@ mod tests {
     #[test]
     fn labels_calls_with_marker_position() {
         let func = function("df.lib.f");
-        let d = FunctionDebugInfo { file: "/x/a.dart".to_string(), url: "file:///x/a.dart".to_string(), line: 2, ..Default::default() };
+        let d = FunctionDebugInfo {
+            file: "/x/a.dart".to_string(),
+            url: "file:///x/a.dart".to_string(),
+            line: 2,
+            ..Default::default()
+        };
         let text = "define i64 @df.lib.f() {\nb0:\n  ; df.pos 3 7\n  %v1 = call i64 @df.lib.g()\n  %v2 = add i64 %v1, 1\n  ret i64 %v2\n}\n";
         let mut r = StackTrace::new();
         let exit = r.label(text, &func, Some(&d), false, false);
@@ -470,8 +568,14 @@ mod tests {
         assert!(asm < exit.find("@df.lib.g()").expect("call"), "{exit}");
         let mut out = String::new();
         r.finish(&mut out);
-        assert!(out.contains("@df.pcu.0 ") && out.contains("c\"file:\\2F\\2F\\2Fx\\2Fa.dart\\00\""), "{out}");
-        assert!(out.contains("@df.pcf.0 ") && out.contains("i8 0, [2 x i8] c\"f\\00\""), "{out}");
+        assert!(
+            out.contains("@df.pcu.0 ") && out.contains("c\"file:\\2F\\2F\\2Fx\\2Fa.dart\\00\""),
+            "{out}"
+        );
+        assert!(
+            out.contains("@df.pcf.0 ") && out.contains("i8 0, [2 x i8] c\"f\\00\""),
+            "{out}"
+        );
         // A direct call to a Dart function does not get LLVM inlining.
         assert!(exit.contains("@df.lib.g() noinline"), "{exit}");
     }
@@ -482,14 +586,27 @@ mod tests {
         let d = FunctionDebugInfo {
             url: "file:///x/a.dart".to_string(),
             line: 2,
-            embedded_set: vec![crate::hir::Embedded { name: "g".to_string(), url: "file:///x/b.dart".to_string(), call: (3, 7), parent: None, marks: 0 }],
+            embedded_set: vec![crate::hir::Embedded {
+                name: "g".to_string(),
+                url: "file:///x/b.dart".to_string(),
+                call: (3, 7),
+                parent: None,
+                marks: 0,
+            }],
             ..Default::default()
         };
         let text = "define i64 @df.lib.f() {\nb0:\n  ; df.pos 3 7\n  ; df.emb 9 4 0\n  %v1 = call i64 @df.lib.h()\n  ret i64 %v1\n}\n";
         let mut r = StackTrace::new();
         let exit = r.label(text, &func, Some(&d), false, false);
-        assert!(exit.contains(&format!(".long {}", 9 << 12 | 4)) && exit.contains(&format!(".long {}", 3 << 12 | 7)), "{exit}");
-        assert!(exit.contains("\"s,s\"(ptr @df.pcf.0, ptr @df.pcf.1)"), "{exit}");
+        assert!(
+            exit.contains(&format!(".long {}", 9 << 12 | 4))
+                && exit.contains(&format!(".long {}", 3 << 12 | 7)),
+            "{exit}"
+        );
+        assert!(
+            exit.contains("\"s,s\"(ptr @df.pcf.0, ptr @df.pcf.1)"),
+            "{exit}"
+        );
         assert!(!exit.contains("df.emb"), "{exit}");
     }
 
@@ -501,7 +618,10 @@ mod tests {
             line: 2,
             token: (1, 6),
             marks: stack_trace_marks::ASYNC_BODY,
-            async_body: Some(crate::hir::TraceAsyncBody { entry: "df.lib.f$async$q0000abcd$ent".to_string(), waits: vec![(3, 9), (4, 11)] }),
+            async_body: Some(crate::hir::TraceAsyncBody {
+                entry: "df.lib.f$async$q0000abcd$ent".to_string(),
+                waits: vec![(3, 9), (4, 11)],
+            }),
             ..Default::default()
         };
         let text = "define i64 @df.lib.f$async$q0000abcd() {\nb0:\n  %v1 = add i64 1, 2\n  ret i64 %v1\n}\n";
@@ -509,21 +629,40 @@ mod tests {
         let exit = r.label(text, &func, Some(&d), false, false);
         let g = exit.find("asm sideeffect").expect("grupo");
         assert!(g < exit.find("%v1 = add").expect("instruction"), "{exit}");
-        assert!(exit.contains("ptr @df.lib.f$async$q0000abcd$ent, ptr @df.pcf.0"), "{exit}");
-        assert!(exit.contains(&format!(".long {}", 3 << 12 | 9)) && exit.contains("-.+2"), "{exit}");
+        assert!(
+            exit.contains("ptr @df.lib.f$async$q0000abcd$ent, ptr @df.pcf.0"),
+            "{exit}"
+        );
+        assert!(
+            exit.contains(&format!(".long {}", 3 << 12 | 9)) && exit.contains("-.+2"),
+            "{exit}"
+        );
         assert_eq!(func.stack_trace_name(), "f");
-        assert_eq!(function("dart_main$clo0$e1234abcd").stack_trace_name(), "main.<anonymous closure>");
-        assert_eq!(function("df.lib.C.m$inner$e0000ffff").stack_trace_name(), "C.m.inner");
+        assert_eq!(
+            function("dart_main$clo0$e1234abcd").stack_trace_name(),
+            "main.<anonymous closure>"
+        );
+        assert_eq!(
+            function("df.lib.C.m$inner$e0000ffff").stack_trace_name(),
+            "C.m.inner"
+        );
     }
 
     #[test]
     fn shared_function_does_not_label_and_gets_no_inlining() {
         let func = function("df.lib.t$tear");
-        let d = FunctionDebugInfo { url: "file:///x/a.dart".to_string(), line: 1, ..Default::default() };
+        let d = FunctionDebugInfo {
+            url: "file:///x/a.dart".to_string(),
+            line: 1,
+            ..Default::default()
+        };
         let text = "define linkonce_odr i64 @\"df.lib.t$tear\"() {\nb0:\n  %v1 = call i64 @df.lib.t()\n  ret i64 %v1\n}\n";
         let mut r = StackTrace::new();
         let exit = r.label(text, &func, Some(&d), false, true);
         assert!(!exit.contains("asm"), "{exit}");
-        assert!(exit.contains("%v1 = call i64 @df.lib.t() noinline"), "{exit}");
+        assert!(
+            exit.contains("%v1 = call i64 @df.lib.t() noinline"),
+            "{exit}"
+        );
     }
 }

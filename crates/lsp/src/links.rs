@@ -18,7 +18,11 @@ use std::path::{Path, PathBuf};
 /// The links of `text` (the file `path`): the snippet and the target file.
 pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
     let mut names = dartforge_intern::Interner::new();
-    let p = dartforge_frontend::parser::parse_with(text, &mut names, dartforge_frontend::LibraryFeatures::default());
+    let p = dartforge_frontend::parser::parse_with(
+        text,
+        &mut names,
+        dartforge_frontend::LibraryFeatures::default(),
+    );
     let comments = Comments::scan(text);
     let mut docs: Vec<Span> = Vec::new();
     let mut doc_of = |start: usize| {
@@ -28,7 +32,11 @@ pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
             docs.push(s);
         }
     };
-    let start_of = |span: Span, metadata: &[ast::Annotation]| metadata.first().map_or(span.start, |m| m.span.start.min(span.start));
+    let start_of = |span: Span, metadata: &[ast::Annotation]| {
+        metadata
+            .first()
+            .map_or(span.start, |m| m.span.start.min(span.start))
+    };
     for d in &p.unit.directives {
         doc_of(start_of(d.span, &d.metadata));
     }
@@ -63,11 +71,16 @@ pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
         while let Some(k) = snippet[search..].find("{@tool") {
             let opens = search + k;
             // `{@tool}` or `{@tool arguments}` (not `{@toolbar}`).
-            if !matches!(snippet.as_bytes().get(opens + 6), Some(b' ' | b'}' | b'\t' | b'\r' | b'\n')) {
+            if !matches!(
+                snippet.as_bytes().get(opens + 6),
+                Some(b' ' | b'}' | b'\t' | b'\r' | b'\n')
+            ) {
                 search = opens + 6;
                 continue;
             }
-            let Some(f) = snippet[opens..].find('}') else { break };
+            let Some(f) = snippet[opens..].find('}') else {
+                break;
+            };
             let content = opens + f + 1;
             // Without `{@end-tool}`, the block does not close and is left out.
             let Some(c) = snippet[content..].find("{@end-tool}") else {
@@ -81,20 +94,32 @@ pub(crate) fn links(text: &str, path: &Path) -> Vec<(Span, PathBuf)> {
                 continue;
             }
             const SEE: &str = "** See code in ";
-            let Some(i) = value.find("** See code in examples/api/") else { continue };
+            let Some(i) = value.find("** See code in examples/api/") else {
+                continue;
+            };
             let root = folder.get_or_insert_with(|| examples_folder(path));
             // Without the folder, the visitor's `return`: nothing more from this comment.
             let Some(root) = root.clone() else { break };
             let start_ = i + SEE.len();
             // The first `.dart` of the content (the visitor's `indexOf`). Before the
             // start, Dart's `substring` would throw: the link is left out.
-            let Some(end) = value.find(".dart").map(|e| e + 5) else { continue };
+            let Some(end) = value.find(".dart").map(|e| e + 5) else {
+                continue;
+            };
             if end < start_ {
                 continue;
             }
-            let target = value[start_..end].split('/').fold(root, |p, part| p.join(part));
+            let target = value[start_..end]
+                .split('/')
+                .fold(root, |p, part| p.join(part));
             let start = d.start + content + start_;
-            output.push((Span { start, end: start + (end - start_) }, target));
+            output.push((
+                Span {
+                    start,
+                    end: start + (end - start_),
+                },
+                target,
+            ));
         }
     }
     output
@@ -115,7 +140,10 @@ fn documentation_comment(c: &Comments, text: &str, start: usize) -> Option<Span>
         .map(|s| s.end)
         .max()
         .unwrap_or(doc.end);
-    Some(Span { start: doc.start, end })
+    Some(Span {
+        start: doc.start,
+        end,
+    })
 }
 
 /// The folder, among the file's own and its ancestors, that has `examples/api`.
@@ -141,12 +169,25 @@ mod tests {
         let _ = std::fs::create_dir_all(root.join("lib"));
         let text = "/// Um widget.\n///\n/// {@tool dartpad}\n/// ** See code in examples/api/lib/a/b.0.dart **\n/// {@end-tool}\nclass A {}\n\n/// {@tool snippet}\n/// ** See code in examples/api/lib/c.dart **\nclass B {}\n";
         let ls = links(text, &root.join("lib/a.dart"));
-        assert_eq!(ls.len(), 1, "a block without {{@end-tool}} is left out: {ls:?}");
+        assert_eq!(
+            ls.len(),
+            1,
+            "a block without {{@end-tool}} is left out: {ls:?}"
+        );
         let (s, target) = &ls[0];
         assert_eq!(&text[s.start..s.end], "examples/api/lib/a/b.0.dart");
-        assert_eq!(target, &root.join("examples").join("api").join("lib").join("a").join("b.0.dart"));
+        assert_eq!(
+            target,
+            &root
+                .join("examples")
+                .join("api")
+                .join("lib")
+                .join("a")
+                .join("b.0.dart")
+        );
         // Without the `examples/api` folder, no link.
-        let other = std::env::temp_dir().join(format!("dartforge-links-without-{}", std::process::id()));
+        let other =
+            std::env::temp_dir().join(format!("dartforge-links-without-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&other);
         assert!(links(text, &other.join("a.dart")).is_empty());
         let _ = std::fs::remove_dir_all(&root);

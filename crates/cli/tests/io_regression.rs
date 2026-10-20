@@ -16,11 +16,24 @@ fn compile_and_run(name: &str, args: &[&std::ffi::OsStr], expected: &str, deadli
 }
 
 /// [`compile_and_run`] with environment variables for the program.
-fn compile_and_run_with_env(name: &str, args: &[&std::ffi::OsStr], env: &[(&str, &str)], expected: &str, deadline: Duration) {
+fn compile_and_run_with_env(
+    name: &str,
+    args: &[&std::ffi::OsStr],
+    env: &[(&str, &str)],
+    expected: &str,
+    deadline: Duration,
+) {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let dir = root.join(format!("../../target/tmp-io-regressao-{}-{name}", std::process::id()));
+    let dir = root.join(format!(
+        "../../target/tmp-io-regressao-{}-{name}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("test directory");
-    let exe = dir.join(if cfg!(windows) { format!("{name}.exe") } else { name.to_string() });
+    let exe = dir.join(if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_string()
+    });
     let compilation = Command::new(env!("CARGO_BIN_EXE_dartforge"))
         .arg("compile-native")
         .arg(root.join("tests/fixtures").join(format!("{name}.dart")))
@@ -28,9 +41,19 @@ fn compile_and_run_with_env(name: &str, args: &[&std::ffi::OsStr], env: &[(&str,
         .arg(&exe)
         .output()
         .expect("CLI");
-    assert!(compilation.status.success(), "compilation of {name}: {}", String::from_utf8_lossy(&compilation.stderr));
+    assert!(
+        compilation.status.success(),
+        "compilation of {name}: {}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
 
-    let mut child = Command::new(&exe).args(args).envs(env.iter().copied()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("program");
+    let mut child = Command::new(&exe)
+        .args(args)
+        .envs(env.iter().copied())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("program");
     let start = Instant::now();
     let status = loop {
         if let Some(s) = child.try_wait().expect("program status") {
@@ -45,24 +68,55 @@ fn compile_and_run_with_env(name: &str, args: &[&std::ffi::OsStr], env: &[(&str,
     };
     let mut stdout = String::new();
     let mut stderr = String::new();
-    child.stdout.take().expect("stdout").read_to_string(&mut stdout).expect("stdout");
-    child.stderr.take().expect("stderr").read_to_string(&mut stderr).expect("stderr");
+    child
+        .stdout
+        .take()
+        .expect("stdout")
+        .read_to_string(&mut stdout)
+        .expect("stdout");
+    child
+        .stderr
+        .take()
+        .expect("stderr")
+        .read_to_string(&mut stderr)
+        .expect("stderr");
     let _ = std::fs::remove_dir_all(&dir);
-    let status = status.unwrap_or_else(|| panic!("{name} did not finish within {deadline:?} (hung)\nstdout: {stdout}\nstderr: {stderr}"));
-    assert!(status.success(), "{name} exited with {status}\nstdout: {stdout}\nstderr: {stderr}");
-    assert_eq!(stdout.replace("\r\n", "\n"), expected, "{name}\nstderr: {stderr}");
+    let status = status.unwrap_or_else(|| {
+        panic!(
+            "{name} did not finish within {deadline:?} (hung)\nstdout: {stdout}\nstderr: {stderr}"
+        )
+    });
+    assert!(
+        status.success(),
+        "{name} exited with {status}\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert_eq!(
+        stdout.replace("\r\n", "\n"),
+        expected,
+        "{name}\nstderr: {stderr}"
+    );
 }
 
 #[test]
 #[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
 fn shared_listening_socket_only_closes_with_the_last_one() {
-    compile_and_run("shared_listener", &[], "o compartilhado sobrevive: ok\no ultimo fecha: ok\n", Duration::from_secs(60));
+    compile_and_run(
+        "shared_listener",
+        &[],
+        "o compartilhado sobrevive: ok\no ultimo fecha: ok\n",
+        Duration::from_secs(60),
+    );
 }
 
 #[test]
 #[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
 fn signal_burst_does_not_hang_the_handler() {
-    compile_and_run("signal_burst", &[], "rajada: ok\nreinscricao: ok\n", Duration::from_secs(60));
+    compile_and_run(
+        "signal_burst",
+        &[],
+        "rajada: ok\nreinscricao: ok\n",
+        Duration::from_secs(60),
+    );
 }
 
 #[test]
@@ -160,9 +214,16 @@ rsa cifrada: /C=BR/O=DartForge/CN=localhost -> ola rsa cifrada
 #[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
 fn legacy_renegotiation_is_rejected() {
     // OpenSSL (macOS's LibreSSL has no `-legacy_renegotiation`).
-    let version = Command::new("openssl").arg("version").output().map(|s| String::from_utf8_lossy(&s.stdout).into_owned()).unwrap_or_default();
+    let version = Command::new("openssl")
+        .arg("version")
+        .output()
+        .map(|s| String::from_utf8_lossy(&s.stdout).into_owned())
+        .unwrap_or_default();
     if !version.starts_with("OpenSSL") {
-        eprintln!("no OpenSSL openssl ({}): renegotiation test does not run", version.trim());
+        eprintln!(
+            "no OpenSSL openssl ({}): renegotiation test does not run",
+            version.trim()
+        );
         return;
     }
     let certificates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tls");
@@ -179,8 +240,16 @@ fn legacy_renegotiation_is_rejected() {
 #[test]
 #[ignore = "compiles with the source-built SDK and links with Clang; runs in the CI of each system"]
 fn main_receives_the_arguments() {
-    let args = [std::ffi::OsStr::new("one"), std::ffi::OsStr::new("two three")];
-    compile_and_run("main_arguments", &args, "[one, two three]\ntrue\nfixa\n", Duration::from_secs(60));
+    let args = [
+        std::ffi::OsStr::new("one"),
+        std::ffi::OsStr::new("two three"),
+    ];
+    compile_and_run(
+        "main_arguments",
+        &args,
+        "[one, two three]\ntrue\nfixa\n",
+        Duration::from_secs(60),
+    );
 }
 
 #[test]

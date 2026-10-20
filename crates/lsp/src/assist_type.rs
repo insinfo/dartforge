@@ -8,9 +8,9 @@
 //! | `Replace type annotation with 'var'` | `refactor.replace.withVar` | `ReplaceWithVar` |
 //! | `Convert into 'Function' syntax` | `refactor.convert.toGenericFunctionSyntax` | `ConvertToGenericFunctionSyntax` |
 
+use crate::Edit;
 use crate::actions::CodeAction;
 use crate::refactorings::Context;
-use crate::Edit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, ExprKind, StmtKind};
 use dartforge_types::{Type, TypeId};
@@ -19,28 +19,56 @@ use dartforge_types::{Type, TypeId};
 const TYPES: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
 
 impl Context<'_> {
-    fn type_action(&self, uri: &str, title: &str, kind: &str, edits: Vec<(Span, String)>) -> CodeAction {
+    fn type_action(
+        &self,
+        uri: &str,
+        title: &str,
+        kind: &str,
+        edits: Vec<(Span, String)>,
+    ) -> CodeAction {
         CodeAction {
             title: title.into(),
             kind: kind.into(),
-            edits: edits.into_iter().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+            edits: edits
+                .into_iter()
+                .map(|(span, text)| Edit {
+                    uri: uri.to_string(),
+                    span,
+                    text,
+                })
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         }
     }
 
     /// The child of `n` that is a type annotation.
     fn type_child(&self, n: usize) -> Option<usize> {
-        self.children(n).iter().copied().find(|&f| TYPES.contains(&self.kind(f)))
+        self.children(n)
+            .iter()
+            .copied()
+            .find(|&f| TYPES.contains(&self.kind(f)))
     }
 
     /// `RemoveTypeAnnotation.other` (remove_type_annotation.dart): the first
     /// `DeclaredIdentifier`, `SimpleFormalParameter`, `SuperFormalParameter` or
     /// `VariableDeclarationList` among the selection node and its ancestors.
-    pub(crate) fn remove_type_annotation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn remove_type_annotation(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
         let target = self.with_parents(node).find(|&k| {
-            matches!(self.kind(k), "DeclaredIdentifier" | "SimpleFormalParameter" | "SuperFormalParameter" | "VariableDeclarationList")
+            matches!(
+                self.kind(k),
+                "DeclaredIdentifier"
+                    | "SimpleFormalParameter"
+                    | "SuperFormalParameter"
+                    | "VariableDeclarationList"
+            )
         })?;
         let edits = match self.kind(target) {
             "DeclaredIdentifier" => self.remove_from_declared_identifier(target)?,
@@ -50,9 +78,19 @@ impl Context<'_> {
                 let ty = self.type_child(target)?;
                 let type_end = self.tree.nodes[ty].end;
                 let next = self.next_token(type_end)?.start;
-                let mut v = vec![(Span { start: self.tree.nodes[ty].start, end: next }, String::new())];
+                let mut v = vec![(
+                    Span {
+                        start: self.tree.nodes[ty].start,
+                        end: next,
+                    },
+                    String::new(),
+                )];
                 if self.kind(target) == "SuperFormalParameter"
-                    && let Some(list) = self.children(target).iter().copied().find(|&f| self.kind(f) == "FormalParameterList")
+                    && let Some(list) = self
+                        .children(target)
+                        .iter()
+                        .copied()
+                        .find(|&f| self.kind(f) == "FormalParameterList")
                 {
                     v.push((self.tree.span(list), String::new()));
                 }
@@ -60,7 +98,12 @@ impl Context<'_> {
             }
             _ => self.remove_from_declaration_list(target, start)?,
         };
-        Some(self.type_action(uri, "Remove type annotation", "refactor.remove.typeAnnotation", edits))
+        Some(self.type_action(
+            uri,
+            "Remove type annotation",
+            "refactor.remove.typeAnnotation",
+            edits,
+        ))
     }
 
     /// The `final`/`const`/`var` keyword of the list or of the declared
@@ -79,12 +122,26 @@ impl Context<'_> {
         // The name: the node's last token.
         let name = self.previous_token(self.tree.nodes[target].end)?;
         let word = self.declaration_word(self.tree.nodes[target].start, self.tree.nodes[ty].start);
-        let range = Span { start: self.tree.nodes[ty].start, end: name.start };
-        Some(vec![(range, if word.is_some_and(|p| p != "var") { String::new() } else { "var ".to_string() })])
+        let range = Span {
+            start: self.tree.nodes[ty].start,
+            end: name.start,
+        };
+        Some(vec![(
+            range,
+            if word.is_some_and(|p| p != "var") {
+                String::new()
+            } else {
+                "var ".to_string()
+            },
+        )])
     }
 
     /// `_removeFromDeclarationList`.
-    fn remove_from_declaration_list(&self, list: usize, selection: usize) -> Option<Vec<(Span, String)>> {
+    fn remove_from_declaration_list(
+        &self,
+        list: usize,
+        selection: usize,
+    ) -> Option<Vec<(Span, String)>> {
         let ty = self.type_child(list)?;
         let variables = self.kind_children(list, "VariableDeclaration");
         let first = *variables.first()?;
@@ -100,7 +157,11 @@ impl Context<'_> {
         let mut initializer = *self.children(first).first()?;
         let mut arguments: Option<(String, usize)> = None;
         if self.kind(ty) == "NamedType"
-            && let Some(args) = self.children(ty).iter().copied().find(|&f| self.kind(f) == "TypeArgumentList")
+            && let Some(args) = self
+                .children(ty)
+                .iter()
+                .copied()
+                .find(|&f| self.kind(f) == "TypeArgumentList")
         {
             if self.kind(initializer) == "CascadeExpression" {
                 initializer = *self.children(initializer).first()?;
@@ -108,19 +169,35 @@ impl Context<'_> {
             let text = self.node_text(args).to_string();
             match self.kind(initializer) {
                 "ListLiteral" | "SetOrMapLiteral" => {
-                    if !self.children(initializer).iter().any(|&f| self.kind(f) == "TypeArgumentList") {
+                    if !self
+                        .children(initializer)
+                        .iter()
+                        .any(|&f| self.kind(f) == "TypeArgumentList")
+                    {
                         // The `leftBracket`.
-                        let opens = self
-                            .tokens
-                            .iter()
-                            .find(|t| t.span.start >= self.tree.nodes[initializer].start && matches!(&self.source[t.span.start..t.span.end], "[" | "{"))?;
+                        let opens = self.tokens.iter().find(|t| {
+                            t.span.start >= self.tree.nodes[initializer].start
+                                && matches!(&self.source[t.span.start..t.span.end], "[" | "{")
+                        })?;
                         arguments = Some((text, opens.span.start));
                     }
                 }
                 "InstanceCreationExpression" => {
-                    let constructor_name = self.children(initializer).iter().copied().find(|&f| self.kind(f) == "ConstructorName")?;
-                    let created_type = self.children(constructor_name).iter().copied().find(|&f| self.kind(f) == "NamedType")?;
-                    if !self.children(created_type).iter().any(|&f| self.kind(f) == "TypeArgumentList") {
+                    let constructor_name = self
+                        .children(initializer)
+                        .iter()
+                        .copied()
+                        .find(|&f| self.kind(f) == "ConstructorName")?;
+                    let created_type = self
+                        .children(constructor_name)
+                        .iter()
+                        .copied()
+                        .find(|&f| self.kind(f) == "NamedType")?;
+                    if !self
+                        .children(created_type)
+                        .iter()
+                        .any(|&f| self.kind(f) == "TypeArgumentList")
+                    {
                         arguments = Some((text, self.tree.nodes[created_type].end));
                     }
                 }
@@ -129,14 +206,27 @@ impl Context<'_> {
         }
         // A set or map literal without type arguments would become ambiguous.
         if self.kind(initializer) == "SetOrMapLiteral"
-            && !self.children(initializer).iter().any(|&f| self.kind(f) == "TypeArgumentList")
+            && !self
+                .children(initializer)
+                .iter()
+                .any(|&f| self.kind(f) == "TypeArgumentList")
             && arguments.is_none()
         {
             return None;
         }
         let word = self.declaration_word(self.tree.nodes[list].start, self.tree.nodes[ty].start);
-        let range = Span { start: self.tree.nodes[ty].start, end: name.start };
-        let mut v = vec![(range, if word.is_some_and(|p| p != "var") { String::new() } else { "var ".to_string() })];
+        let range = Span {
+            start: self.tree.nodes[ty].start,
+            end: name.start,
+        };
+        let mut v = vec![(
+            range,
+            if word.is_some_and(|p| p != "var") {
+                String::new()
+            } else {
+                "var ".to_string()
+            },
+        )];
         if let Some((text, at)) = arguments {
             v.push((Span { start: at, end: at }, text));
         }
@@ -149,24 +239,40 @@ impl Context<'_> {
     /// node as a `SimpleFormalParameter`, `DeclaredVariablePattern` or typed
     /// literal; otherwise the first `VariableDeclarationList`,
     /// `DeclaredIdentifier` or `ForStatement` among the ancestors.
-    pub(crate) fn add_type_annotation(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn add_type_annotation(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
         let change = match self.kind(node) {
             "SimpleFormalParameter" => self.simple_parameter_type(node)?,
             "DeclaredVariablePattern" => self.declared_pattern_type(node)?,
             "ListLiteral" | "SetOrMapLiteral" => self.literal_type(node)?,
             _ => {
-                let target = self
-                    .with_parents(node)
-                    .find(|&k| matches!(self.kind(k), "VariableDeclarationList" | "DeclaredIdentifier" | "ForStatement"))?;
+                let target = self.with_parents(node).find(|&k| {
+                    matches!(
+                        self.kind(k),
+                        "VariableDeclarationList" | "DeclaredIdentifier" | "ForStatement"
+                    )
+                })?;
                 match self.kind(target) {
                     "VariableDeclarationList" => self.declaration_list_type(target, start)?,
                     "DeclaredIdentifier" => self.declared_identifier_type(target)?,
                     _ => {
                         // A `ForStatement` with `ForEachPartsWithDeclaration`, the node before the
                         // iterable.
-                        let parts = self.children(target).iter().copied().find(|&f| self.kind(f) == "ForEachPartsWithDeclaration")?;
-                        let declared = self.children(parts).iter().copied().find(|&f| self.kind(f) == "DeclaredIdentifier")?;
+                        let parts = self
+                            .children(target)
+                            .iter()
+                            .copied()
+                            .find(|&f| self.kind(f) == "ForEachPartsWithDeclaration")?;
+                        let declared = self
+                            .children(parts)
+                            .iter()
+                            .copied()
+                            .find(|&f| self.kind(f) == "DeclaredIdentifier")?;
                         let iterable = *self.children(parts).last()?;
                         if self.tree.nodes[node].start >= self.tree.nodes[iterable].start {
                             return None;
@@ -188,43 +294,76 @@ impl Context<'_> {
         Some(CodeAction {
             title: "Add type annotation".into(),
             kind: "refactor.add.typeAnnotation".into(),
-            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            edits: m
+                .files
+                .into_iter()
+                .flat_map(|(_, l)| l.into_iter().rev())
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 
     /// `_applyChange`: with `var`, the type in its place; otherwise before the
     /// name (`canWriteType` false: nothing).
     #[allow(clippy::type_complexity)]
-    fn apply_type(&self, word: Option<Span>, name: Span, t: TypeId) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+    fn apply_type(
+        &self,
+        word: Option<Span>,
+        name: Span,
+        t: TypeId,
+    ) -> Option<(
+        Vec<(Span, String)>,
+        std::collections::BTreeSet<dartforge_elements::model::LibraryId>,
+    )> {
         let mut writer = crate::write_type::Writer::new(self, name.start);
         let text = writer.write(t, false)?;
         let edit = match word {
             Some(p) if &self.source[p.start..p.end] == "var" => (p, text),
-            _ => (Span { start: name.start, end: name.start }, format!("{text} ")),
+            _ => (
+                Span {
+                    start: name.start,
+                    end: name.start,
+                },
+                format!("{text} "),
+            ),
         };
         Some((vec![edit], writer.import))
     }
 
     /// The analyzer's `InterfaceType`: class, `FutureOr`, extension type.
     fn is_interface_type(&self, t: TypeId) -> bool {
-        matches!(self.p.query.table.get(t), Type::Interface { .. } | Type::FutureOr { .. } | Type::ExtensionType { .. })
+        matches!(
+            self.p.query.table.get(t),
+            Type::Interface { .. } | Type::FutureOr { .. } | Type::ExtensionType { .. }
+        )
     }
 
     /// `_forSimpleFormalParameter`.
     #[allow(clippy::type_complexity)]
-    fn simple_parameter_type(&self, node: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+    fn simple_parameter_type(
+        &self,
+        node: usize,
+    ) -> Option<(
+        Vec<(Span, String)>,
+        std::collections::BTreeSet<dartforge_elements::model::LibraryId>,
+    )> {
         if self.type_child(node).is_some() {
             return None;
         }
         // The name: the node's last token.
         let name = self.previous_token(self.tree.nodes[node].end)?;
-        if !self.source[name.start..name.end].chars().next().is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$') {
+        if !self.source[name.start..name.end]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '$')
+        {
             return None;
         }
         let t = self.bodies.local_type(name.start)?;
-        if !(self.is_interface_type(t) || matches!(self.p.query.table.get(t), Type::Record { .. })) {
+        if !(self.is_interface_type(t) || matches!(self.p.query.table.get(t), Type::Record { .. }))
+        {
             return None;
         }
         self.apply_type(None, name, t)
@@ -233,26 +372,48 @@ impl Context<'_> {
     /// The `PatternId` of the pattern node (by range).
     fn node_pattern(&self, node: usize) -> Option<ast::PatternId> {
         let s = self.tree.span(node);
-        self.ast.patterns.iter().position(|p| p.span == s && matches!(p.kind, ast::PatternKind::Variable { .. })).map(|i| ast::PatternId(i as u32))
+        self.ast
+            .patterns
+            .iter()
+            .position(|p| p.span == s && matches!(p.kind, ast::PatternKind::Variable { .. }))
+            .map(|i| ast::PatternId(i as u32))
     }
 
     /// `DeclaredVariablePattern`: the `matchedValueType`.
     #[allow(clippy::type_complexity)]
-    fn declared_pattern_type(&self, node: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+    fn declared_pattern_type(
+        &self,
+        node: usize,
+    ) -> Option<(
+        Vec<(Span, String)>,
+        std::collections::BTreeSet<dartforge_elements::model::LibraryId>,
+    )> {
         let pid = self.node_pattern(node)?;
-        let ast::PatternKind::Variable { name, .. } = &self.ast.pattern(pid).kind else { return None };
+        let ast::PatternKind::Variable { name, .. } = &self.ast.pattern(pid).kind else {
+            return None;
+        };
         let t = *self.bodies.matched_types.get(&pid)?;
         let word = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nodes[node].start && tk.span.end <= name.span.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final"))
+            .find(|tk| {
+                tk.span.start >= self.tree.nodes[node].start
+                    && tk.span.end <= name.span.start
+                    && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final")
+            })
             .map(|tk| tk.span);
         self.apply_type(word, name.span, t)
     }
 
     /// `_typedLiteral`: `<arguments>` at the `[`/`{`.
     #[allow(clippy::type_complexity)]
-    fn literal_type(&self, node: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+    fn literal_type(
+        &self,
+        node: usize,
+    ) -> Option<(
+        Vec<(Span, String)>,
+        std::collections::BTreeSet<dartforge_elements::model::LibraryId>,
+    )> {
         let x = self.node_expr(node)?;
         let t = self.bodies.get_type(x)?;
         let args: Vec<TypeId> = match self.p.query.table.get(t) {
@@ -263,31 +424,65 @@ impl Context<'_> {
         let opens = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nodes[node].start && matches!(&self.source[tk.span.start..tk.span.end], "[" | "{"))?
+            .find(|tk| {
+                tk.span.start >= self.tree.nodes[node].start
+                    && matches!(&self.source[tk.span.start..tk.span.end], "[" | "{")
+            })?
             .span
             .start;
         let mut writer = crate::write_type::Writer::new(self, opens);
-        let texts: Vec<String> = args.iter().map(|&a| writer.write_type(Some(a), false).unwrap_or_default()).collect();
-        Some((vec![(Span { start: opens, end: opens }, format!("<{}>", texts.join(", ")))], writer.import))
+        let texts: Vec<String> = args
+            .iter()
+            .map(|&a| writer.write_type(Some(a), false).unwrap_or_default())
+            .collect();
+        Some((
+            vec![(
+                Span {
+                    start: opens,
+                    end: opens,
+                },
+                format!("<{}>", texts.join(", ")),
+            )],
+            writer.import,
+        ))
     }
 
     /// `_forDeclaredIdentifier`.
     #[allow(clippy::type_complexity)]
-    fn declared_identifier_type(&self, node: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+    fn declared_identifier_type(
+        &self,
+        node: usize,
+    ) -> Option<(
+        Vec<(Span, String)>,
+        std::collections::BTreeSet<dartforge_elements::model::LibraryId>,
+    )> {
         if self.type_child(node).is_some() {
             return None;
         }
         let name = self.previous_token(self.tree.nodes[node].end)?;
         let t = self.bodies.local_type(name.start)?;
         if !(self.is_interface_type(t)
-            || matches!(self.p.query.table.get(t), Type::Function { .. } | Type::Record { .. } | Type::TypeParameter { .. } | Type::Intersection { .. }))
+            || matches!(
+                self.p.query.table.get(t),
+                Type::Function { .. }
+                    | Type::Record { .. }
+                    | Type::TypeParameter { .. }
+                    | Type::Intersection { .. }
+            ))
         {
             return None;
         }
         let word = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nodes[node].start && tk.span.end <= name.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final" | "const"))
+            .find(|tk| {
+                tk.span.start >= self.tree.nodes[node].start
+                    && tk.span.end <= name.start
+                    && matches!(
+                        &self.source[tk.span.start..tk.span.end],
+                        "var" | "final" | "const"
+                    )
+            })
             .map(|tk| tk.span);
         self.apply_type(word, name, t)
     }
@@ -310,11 +505,20 @@ impl Context<'_> {
         let block_end = self.tree.nodes[block].end;
         let mut types: Vec<TypeId> = Vec::new();
         for (i, e) in self.ast.exprs.iter().enumerate() {
-            let ExprKind::Assign { op: ast::AssignOp::Assign, target, value } = &e.kind else { continue };
+            let ExprKind::Assign {
+                op: ast::AssignOp::Assign,
+                target,
+                value,
+            } = &e.kind
+            else {
+                continue;
+            };
             if e.span.start < command_end || e.span.end > block_end {
                 continue;
             }
-            if !matches!(self.ast.expr(*target).kind, ExprKind::Identifier(_)) || self.bodies.local_declaration(*target) != Some(name.start) {
+            if !matches!(self.ast.expr(*target).kind, ExprKind::Identifier(_))
+                || self.bodies.local_declaration(*target) != Some(name.start)
+            {
                 continue;
             }
             let _ = i;
@@ -332,7 +536,11 @@ impl Context<'_> {
         // already has is valid (the writer reads that table).
         let query = &self.p.query;
         let mut table = query.table.clone();
-        let mut env = dartforge_types::subtyping::SubtypeEnv::new(&mut table, &query.outline.hierarchy, &query.core);
+        let mut env = dartforge_types::subtyping::SubtypeEnv::new(
+            &mut table,
+            &query.outline.hierarchy,
+            &query.core,
+        );
         let mut best = first;
         for &t in rest {
             best = dartforge_types::bounds::up(best, t, &mut env);
@@ -342,7 +550,14 @@ impl Context<'_> {
 
     /// `_forVariableDeclaration`.
     #[allow(clippy::type_complexity)]
-    fn declaration_list_type(&self, list: usize, selection: usize) -> Option<(Vec<(Span, String)>, std::collections::BTreeSet<dartforge_elements::model::LibraryId>)> {
+    fn declaration_list_type(
+        &self,
+        list: usize,
+        selection: usize,
+    ) -> Option<(
+        Vec<(Span, String)>,
+        std::collections::BTreeSet<dartforge_elements::model::LibraryId>,
+    )> {
         if self.type_child(list).is_some() {
             return None;
         }
@@ -360,13 +575,28 @@ impl Context<'_> {
         }
         let table = &self.p.query.table;
         let non_null_interface = self.is_interface_type(t) && !matches!(table.get(t), Type::Null);
-        if !(non_null_interface || matches!(table.get(t), Type::Function { .. } | Type::Record { .. } | Type::TypeParameter { .. } | Type::Intersection { .. })) {
+        if !(non_null_interface
+            || matches!(
+                table.get(t),
+                Type::Function { .. }
+                    | Type::Record { .. }
+                    | Type::TypeParameter { .. }
+                    | Type::Intersection { .. }
+            ))
+        {
             return None;
         }
         let word = self
             .tokens
             .iter()
-            .find(|tk| tk.span.start >= self.tree.nodes[list].start && tk.span.end <= name.start && matches!(&self.source[tk.span.start..tk.span.end], "var" | "final" | "const"))
+            .find(|tk| {
+                tk.span.start >= self.tree.nodes[list].start
+                    && tk.span.end <= name.start
+                    && matches!(
+                        &self.source[tk.span.start..tk.span.end],
+                        "var" | "final" | "const"
+                    )
+            })
             .map(|tk| tk.span);
         let _ = StmtKind::Empty;
         self.apply_type(word, name, t)
@@ -377,9 +607,14 @@ impl Context<'_> {
     fn type_to_swap(&self, node: usize) -> Option<usize> {
         const ANNOTATIONS: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
         if self.kind(node) == "VariableDeclarationList" {
-            return self.children(node).iter().copied().find(|&k| ANNOTATIONS.contains(&self.kind(k)));
+            return self
+                .children(node)
+                .iter()
+                .copied()
+                .find(|&k| ANNOTATIONS.contains(&self.kind(k)));
         }
-        self.with_parents(node).find(|&k| ANNOTATIONS.contains(&self.kind(k)))
+        self.with_parents(node)
+            .find(|&k| ANNOTATIONS.contains(&self.kind(k)))
     }
 
     /// The declared type of the local whose name starts at `name` (`dynamic`
@@ -392,43 +627,101 @@ impl Context<'_> {
     /// `_canConvertVariableDeclarationList`.
     fn list_swappable_to_var(&self, list: usize) -> bool {
         // `node.type?.type`: without an annotation, nothing.
-        if !self.children(list).iter().any(|&f| matches!(self.kind(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation")) {
+        if !self.children(list).iter().any(|&f| {
+            matches!(
+                self.kind(f),
+                "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"
+            )
+        }) {
             return false;
         }
-        let variables: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
-        let Some(&first) = variables.first() else { return false };
-        let Some(name) = self.next_token(self.tree.nodes[first].start) else { return false };
-        let Some(declared) = self.local_declared_type(name.start) else { return false };
+        let variables: Vec<usize> = self
+            .children(list)
+            .iter()
+            .copied()
+            .filter(|&k| self.kind(k) == "VariableDeclaration")
+            .collect();
+        let Some(&first) = variables.first() else {
+            return false;
+        };
+        let Some(name) = self.next_token(self.tree.nodes[first].start) else {
+            return false;
+        };
+        let Some(declared) = self.local_declared_type(name.start) else {
+            return false;
+        };
         variables.iter().all(|&v| {
-            self.children(v).first().and_then(|&i| self.node_expr(i)).and_then(|x| self.bodies.get_type(x)) == Some(declared)
+            self.children(v)
+                .first()
+                .and_then(|&i| self.node_expr(i))
+                .and_then(|x| self.bodies.get_type(x))
+                == Some(declared)
         })
     }
 
     /// `_canReplaceWithVar`, from the parent of the selection node.
     fn swappable_to_var(&self, node: usize) -> bool {
-        let Some(parent) = self.parent(node) else { return false };
+        let Some(parent) = self.parent(node) else {
+            return false;
+        };
         for k in self.with_parents(parent) {
             match self.kind(k) {
                 "VariableDeclarationStatement" | "ForPartsWithDeclarations" => {
-                    let Some(&list) = self.children(k).iter().find(|&&f| self.kind(f) == "VariableDeclarationList") else { return false };
+                    let Some(&list) = self
+                        .children(k)
+                        .iter()
+                        .find(|&&f| self.kind(f) == "VariableDeclarationList")
+                    else {
+                        return false;
+                    };
                     return self.list_swappable_to_var(list);
                 }
                 "ForEachPartsWithDeclaration" => {
                     let children = self.children(k);
-                    let Some(&variable) = children.iter().find(|&&f| self.kind(f) == "DeclaredIdentifier") else { return false };
-                    let Some(&iterable) = children.last() else { return false };
-                    let Some(name) = self.previous_token(self.tree.nodes[variable].end) else { return false };
-                    let Some(declared) = self.local_declared_type(name.start) else { return false };
+                    let Some(&variable) = children
+                        .iter()
+                        .find(|&&f| self.kind(f) == "DeclaredIdentifier")
+                    else {
+                        return false;
+                    };
+                    let Some(&iterable) = children.last() else {
+                        return false;
+                    };
+                    let Some(name) = self.previous_token(self.tree.nodes[variable].end) else {
+                        return false;
+                    };
+                    let Some(declared) = self.local_declared_type(name.start) else {
+                        return false;
+                    };
                     // `loopVariable.type?.type`: without an annotation, nothing.
-                    if !self.children(variable).iter().any(|&f| matches!(self.kind(f), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation")) {
+                    if !self.children(variable).iter().any(|&f| {
+                        matches!(
+                            self.kind(f),
+                            "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"
+                        )
+                    }) {
                         return false;
                     }
-                    let Some(t) = self.node_expr(iterable).and_then(|x| self.bodies.get_type(x)) else { return false };
-                    let Some(iterable_class) = self.p.query.core.iterable_class else { return false };
+                    let Some(t) = self
+                        .node_expr(iterable)
+                        .and_then(|x| self.bodies.get_type(x))
+                    else {
+                        return false;
+                    };
+                    let Some(iterable_class) = self.p.query.core.iterable_class else {
+                        return false;
+                    };
                     let query = &self.p.query;
                     let mut table = query.table.clone();
                     let t = dartforge_types::ops::non_nullable(t, &mut table);
-                    let Some(instance) = query.outline.hierarchy.supertype_of(t, iterable_class, &mut table, &query.core) else { return false };
+                    let Some(instance) = query.outline.hierarchy.supertype_of(
+                        t,
+                        iterable_class,
+                        &mut table,
+                        &query.core,
+                    ) else {
+                        return false;
+                    };
                     return matches!(table.get(instance), Type::Interface { args, .. } if args.first() == Some(&declared));
                 }
                 _ => {}
@@ -439,7 +732,10 @@ impl Context<'_> {
 
     /// The type arguments (`TypeArgumentList`) that are children of `n`.
     fn type_arguments(&self, n: usize) -> Option<usize> {
-        self.children(n).iter().copied().find(|&k| self.kind(k) == "TypeArgumentList")
+        self.children(n)
+            .iter()
+            .copied()
+            .find(|&k| self.kind(k) == "TypeArgumentList")
     }
 
     /// `ReplaceWithVar` (replace_with_var.dart): the type of a local declaration
@@ -468,9 +764,21 @@ impl Context<'_> {
             false
         };
         let mut edits: Vec<(Span, String)> = Vec::new();
-        let type_args = (self.kind(ty) == "NamedType").then(|| self.type_arguments(ty)).flatten();
-        if self.kind(parent) == "VariableDeclarationList" && matches!(self.kind(grandparent), "VariableDeclarationStatement" | "ForPartsWithDeclarations") {
-            let variables: Vec<usize> = self.children(parent).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
+        let type_args = (self.kind(ty) == "NamedType")
+            .then(|| self.type_arguments(ty))
+            .flatten();
+        if self.kind(parent) == "VariableDeclarationList"
+            && matches!(
+                self.kind(grandparent),
+                "VariableDeclarationStatement" | "ForPartsWithDeclarations"
+            )
+        {
+            let variables: Vec<usize> = self
+                .children(parent)
+                .iter()
+                .copied()
+                .filter(|&k| self.kind(k) == "VariableDeclaration")
+                .collect();
             if variables.len() != 1 {
                 return None;
             }
@@ -487,15 +795,29 @@ impl Context<'_> {
                         "ListLiteral" | "SetOrMapLiteral" => {
                             if self.type_arguments(i).is_none() {
                                 // `leftBracket.offset`.
-                                let opens = self.tokens.iter().find(|t| t.span.start >= self.tree.nodes[i].start && matches!(&self.source[t.span.start..t.span.end], "[" | "{"))?;
-                                transfer = Some((self.node_text(args).to_string(), opens.span.start));
+                                let opens = self.tokens.iter().find(|t| {
+                                    t.span.start >= self.tree.nodes[i].start
+                                        && matches!(
+                                            &self.source[t.span.start..t.span.end],
+                                            "[" | "{"
+                                        )
+                                })?;
+                                transfer =
+                                    Some((self.node_text(args).to_string(), opens.span.start));
                             }
                         }
                         "InstanceCreationExpression" => {
-                            let constructor_name = self.children(i).iter().copied().find(|&k| self.kind(k) == "ConstructorName")?;
+                            let constructor_name = self
+                                .children(i)
+                                .iter()
+                                .copied()
+                                .find(|&k| self.kind(k) == "ConstructorName")?;
                             let constructor_type = *self.children(constructor_name).first()?;
                             if self.type_arguments(constructor_type).is_none() {
-                                transfer = Some((self.node_text(args).to_string(), self.tree.nodes[constructor_type].end));
+                                transfer = Some((
+                                    self.node_text(args).to_string(),
+                                    self.tree.nodes[constructor_type].end,
+                                ));
                             }
                         }
                         _ => {}
@@ -510,24 +832,43 @@ impl Context<'_> {
                 return None;
             }
             if final_or_const_word(parent) {
-                edits.push((Span { start: self.tree.nodes[ty].start, end: self.tree.nodes[variables[0]].start }, String::new()));
+                edits.push((
+                    Span {
+                        start: self.tree.nodes[ty].start,
+                        end: self.tree.nodes[variables[0]].start,
+                    },
+                    String::new(),
+                ));
             } else {
                 edits.push((self.tree.span(ty), "var".into()));
             }
             if let Some((text, at)) = transfer {
                 edits.push((Span { start: at, end: at }, text));
             }
-        } else if self.kind(parent) == "DeclaredIdentifier" && self.kind(grandparent) == "ForEachPartsWithDeclaration" {
+        } else if self.kind(parent) == "DeclaredIdentifier"
+            && self.kind(grandparent) == "ForEachPartsWithDeclaration"
+        {
             let mut transfer: Option<(String, usize)> = None;
             if let Some(args) = type_args {
                 let iterable = *self.children(grandparent).last()?;
-                if matches!(self.kind(iterable), "ListLiteral" | "SetOrMapLiteral") && self.type_arguments(iterable).is_none() {
-                    transfer = Some((self.node_text(args).to_string(), self.tree.nodes[iterable].start));
+                if matches!(self.kind(iterable), "ListLiteral" | "SetOrMapLiteral")
+                    && self.type_arguments(iterable).is_none()
+                {
+                    transfer = Some((
+                        self.node_text(args).to_string(),
+                        self.tree.nodes[iterable].start,
+                    ));
                 }
             }
             let name = self.previous_token(self.tree.nodes[parent].end)?;
             if final_or_const_word(parent) {
-                edits.push((Span { start: self.tree.nodes[ty].start, end: name.start }, String::new()));
+                edits.push((
+                    Span {
+                        start: self.tree.nodes[ty].start,
+                        end: name.start,
+                    },
+                    String::new(),
+                ));
             } else {
                 edits.push((self.tree.span(ty), "var".into()));
             }
@@ -537,16 +878,30 @@ impl Context<'_> {
         } else {
             return None;
         }
-        Some(self.type_action(uri, "Replace type annotation with 'var'", "refactor.replace.withVar", edits))
+        Some(self.type_action(
+            uri,
+            "Replace type annotation with 'var'",
+            "refactor.replace.withVar",
+            edits,
+        ))
     }
 
     /// `_allParametersHaveTypes`: every parameter (without the default value)
     /// is simple with a type or a typed function.
     fn typed_parameters(&self, list: usize) -> bool {
         self.children(list).iter().all(|&p| {
-            let p = if self.kind(p) == "DefaultFormalParameter" { self.children(p).first().copied().unwrap_or(p) } else { p };
+            let p = if self.kind(p) == "DefaultFormalParameter" {
+                self.children(p).first().copied().unwrap_or(p)
+            } else {
+                p
+            };
             match self.kind(p) {
-                "SimpleFormalParameter" => self.children(p).iter().any(|&k| matches!(self.kind(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation")),
+                "SimpleFormalParameter" => self.children(p).iter().any(|&k| {
+                    matches!(
+                        self.kind(k),
+                        "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"
+                    )
+                }),
                 "FunctionTypedFormalParameter" => true,
                 _ => false,
             }
@@ -557,13 +912,32 @@ impl Context<'_> {
     /// `typedef R F(P);` becomes `typedef F = R Function(P);` and the parameter
     /// `R f(P)` becomes `R Function(P) f`; inside a parameter list, only the
     /// parameter itself.
-    pub(crate) fn convert_to_function_syntax(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_to_function_syntax(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
-        let target = self.with_parents(node).find(|&k| matches!(self.kind(k), "FunctionTypeAlias" | "FunctionTypedFormalParameter" | "FormalParameterList"))?;
+        let target = self.with_parents(node).find(|&k| {
+            matches!(
+                self.kind(k),
+                "FunctionTypeAlias" | "FunctionTypedFormalParameter" | "FormalParameterList"
+            )
+        })?;
         let children = self.children(target).to_vec();
-        let list = *children.iter().rev().find(|&&k| self.kind(k) == "FormalParameterList")?;
-        let parameter_types = children.iter().copied().find(|&k| self.kind(k) == "TypeParameterList");
-        let return_ = children.iter().copied().find(|&k| RETURN_TYPES.contains(&self.kind(k)) && self.tree.nodes[k].end <= self.tree.nodes[list].start);
+        let list = *children
+            .iter()
+            .rev()
+            .find(|&&k| self.kind(k) == "FormalParameterList")?;
+        let parameter_types = children
+            .iter()
+            .copied()
+            .find(|&k| self.kind(k) == "TypeParameterList");
+        let return_ = children.iter().copied().find(|&k| {
+            RETURN_TYPES.contains(&self.kind(k))
+                && self.tree.nodes[k].end <= self.tree.nodes[list].start
+        });
         let parameters = self.node_text(list).to_string();
         match self.kind(target) {
             "FunctionTypeAlias" => {
@@ -571,19 +945,29 @@ impl Context<'_> {
                     return None;
                 }
                 // The name: the token before the type parameters or the list.
-                let after_name = parameter_types.map_or(self.tree.nodes[list].start, |t| self.tree.nodes[t].start);
+                let after_name = parameter_types
+                    .map_or(self.tree.nodes[list].start, |t| self.tree.nodes[t].start);
                 let name = self.previous_token(after_name)?;
                 let name_end = parameter_types.map_or(name.end, |t| self.tree.nodes[t].end);
                 let function_name = &self.source[name.start..name_end];
                 let swap = match return_ {
                     None => format!("{function_name} = Function{parameters}"),
-                    Some(r) => format!("{function_name} = {} Function{parameters}", self.node_text(r)),
+                    Some(r) => format!(
+                        "{function_name} = {} Function{parameters}",
+                        self.node_text(r)
+                    ),
                 };
                 let typedef = self.next_token(self.tree.nodes[target].start)?;
                 let typedef = if &self.source[typedef.start..typedef.end] == "typedef" {
                     typedef
                 } else {
-                    self.tokens.iter().find(|t| t.span.start >= self.tree.nodes[target].start && &self.source[t.span.start..t.span.end] == "typedef")?.span
+                    self.tokens
+                        .iter()
+                        .find(|t| {
+                            t.span.start >= self.tree.nodes[target].start
+                                && &self.source[t.span.start..t.span.end] == "typedef"
+                        })?
+                        .span
                 };
                 let after_typedef = self.next_token(typedef.end)?;
                 let semicolon = self.previous_token(self.tree.nodes[target].end)?;
@@ -591,7 +975,13 @@ impl Context<'_> {
                     uri,
                     "Convert into 'Function' syntax",
                     "refactor.convert.toGenericFunctionSyntax",
-                    vec![(Span { start: after_typedef.start, end: semicolon.start }, swap)],
+                    vec![(
+                        Span {
+                            start: after_typedef.start,
+                            end: semicolon.start,
+                        },
+                        swap,
+                    )],
                 ))
             }
             "FunctionTypedFormalParameter" => {
@@ -600,29 +990,55 @@ impl Context<'_> {
                 }
                 let before_type = return_.map_or_else(
                     || {
-                        let after = parameter_types.map_or(self.tree.nodes[list].start, |t| self.tree.nodes[t].start);
-                        self.previous_token(after).map_or(self.tree.nodes[target].start, |s| s.start)
+                        let after = parameter_types
+                            .map_or(self.tree.nodes[list].start, |t| self.tree.nodes[t].start);
+                        self.previous_token(after)
+                            .map_or(self.tree.nodes[target].start, |s| s.start)
                     },
                     |r| self.tree.nodes[r].start,
                 );
                 let words: Vec<&str> = self
                     .tokens
                     .iter()
-                    .filter(|t| t.span.start >= self.tree.nodes[target].start && t.span.end <= before_type)
+                    .filter(|t| {
+                        t.span.start >= self.tree.nodes[target].start && t.span.end <= before_type
+                    })
                     .map(|t| &self.source[t.span.start..t.span.end])
                     .collect();
-                let required = if words.contains(&"required") { "required " } else { "" };
-                let covariant = if words.contains(&"covariant") { "covariant " } else { "" };
-                let return_type = return_.map_or(String::new(), |r| format!("{} ", self.node_text(r)));
-                let after_name = parameter_types.map_or(self.tree.nodes[list].start, |t| self.tree.nodes[t].start);
+                let required = if words.contains(&"required") {
+                    "required "
+                } else {
+                    ""
+                };
+                let covariant = if words.contains(&"covariant") {
+                    "covariant "
+                } else {
+                    ""
+                };
+                let return_type =
+                    return_.map_or(String::new(), |r| format!("{} ", self.node_text(r)));
+                let after_name = parameter_types
+                    .map_or(self.tree.nodes[list].start, |t| self.tree.nodes[t].start);
                 let name = self.previous_token(after_name)?;
                 let tp = parameter_types.map_or(String::new(), |t| self.node_text(t).to_string());
-                let question = if self.source[self.tree.nodes[list].end..self.tree.nodes[target].end].trim() == "?" { "?" } else { "" };
+                let question =
+                    if self.source[self.tree.nodes[list].end..self.tree.nodes[target].end].trim()
+                        == "?"
+                    {
+                        "?"
+                    } else {
+                        ""
+                    };
                 let swap = format!(
                     "{required}{covariant}{return_type}Function{tp}{parameters}{question} {}",
                     &self.source[name.start..name.end]
                 );
-                Some(self.type_action(uri, "Convert into 'Function' syntax", "refactor.convert.toGenericFunctionSyntax", vec![(self.tree.span(target), swap)]))
+                Some(self.type_action(
+                    uri,
+                    "Convert into 'Function' syntax",
+                    "refactor.convert.toGenericFunctionSyntax",
+                    vec![(self.tree.span(target), swap)],
+                ))
             }
             _ => None,
         }

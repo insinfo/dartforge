@@ -209,7 +209,12 @@ impl Arenas {
 
     /// `TypeArgumentRule()`.
     pub fn type_argument_rule(&mut self) -> RuleId {
-        self.new_rule(RuleKind::TypeArgument { arguments_: Vec::new() }, cost::TYPE_ARGUMENT)
+        self.new_rule(
+            RuleKind::TypeArgument {
+                arguments_: Vec::new(),
+            },
+            cost::TYPE_ARGUMENT,
+        )
     }
 
     /// `CombinatorRule()`.
@@ -261,8 +266,18 @@ impl Arenas {
     }
 
     /// `NamedRule(collectionRule, leadingCollections, trailingCollections)`.
-    pub fn named_rule(&mut self, collection_rule: Option<RuleId>, leading: usize, trailing: usize) -> RuleId {
-        let r = self.new_rule(RuleKind::NamedRule { arguments_: Vec::new() }, cost::NORMAL);
+    pub fn named_rule(
+        &mut self,
+        collection_rule: Option<RuleId>,
+        leading: usize,
+        trailing: usize,
+    ) -> RuleId {
+        let r = self.new_rule(
+            RuleKind::NamedRule {
+                arguments_: Vec::new(),
+            },
+            cost::NORMAL,
+        );
         if leading > 0 || trailing > 0 {
             self.add_constraint(r, 1, collection_rule.expect("collection rule"), UNSPLIT);
         }
@@ -272,15 +287,23 @@ impl Arenas {
     /// `ArgumentRule.beforeArgument` e `TypeArgumentRule.beforeArgument`.
     pub fn before_argument(&mut self, r: RuleId, chunk: Option<ChunkId>) {
         match &mut self.rules[r as usize].kind_ {
-            RuleKind::Positional { arguments_, .. } | RuleKind::NamedRule { arguments_ } => arguments_.push(chunk),
-            RuleKind::TypeArgument { arguments_ } => arguments_.push(chunk.expect("type argument chunk")),
+            RuleKind::Positional { arguments_, .. } | RuleKind::NamedRule { arguments_ } => {
+                arguments_.push(chunk)
+            }
+            RuleKind::TypeArgument { arguments_ } => {
+                arguments_.push(chunk.expect("type argument chunk"))
+            }
             _ => panic!("beforeArgument on a rule that is not an argument rule"),
         }
     }
 
     /// `CombinatorRule.addCombinator`.
     pub fn add_combinator(&mut self, r: RuleId, chunk: ChunkId) {
-        if let RuleKind::Combinator { combinators_, names } = &mut self.rules[r as usize].kind_ {
+        if let RuleKind::Combinator {
+            combinators_,
+            names,
+        } = &mut self.rules[r as usize].kind_
+        {
             if !combinators_.contains(&chunk) {
                 combinators_.push(chunk);
             }
@@ -366,7 +389,9 @@ impl Arenas {
     /// `splitsOnInnerRules`.
     pub fn splits_with_inner(&self, r: RuleId) -> bool {
         match self.rules[r as usize].kind_ {
-            RuleKind::Positional { .. } | RuleKind::NamedRule { .. } => self.rules[r as usize].track_inner,
+            RuleKind::Positional { .. } | RuleKind::NamedRule { .. } => {
+                self.rules[r as usize].track_inner
+            }
             _ => true,
         }
     }
@@ -424,7 +449,10 @@ impl Arenas {
                             return false;
                         }
                     }
-                    for a in arguments_.iter().skip(arguments_.len() - trailing_collections) {
+                    for a in arguments_
+                        .iter()
+                        .skip(arguments_.len() - trailing_collections)
+                    {
                         if *a == Some(chunk) {
                             return false;
                         }
@@ -439,8 +467,12 @@ impl Arenas {
                 }
                 true
             }
-            RuleKind::Combinator { combinators_, names } => {
-                let combinator_node = |i: usize| combinators_.contains(&chunk) || names[i].contains(&chunk);
+            RuleKind::Combinator {
+                combinators_,
+                names,
+            } => {
+                let combinator_node =
+                    |i: usize| combinators_.contains(&chunk) || names[i].contains(&chunk);
                 match value {
                     1 => combinators_.contains(&chunk),
                     2 => combinator_node(0),
@@ -476,9 +508,20 @@ impl Arenas {
     }
 
     /// `addRangeConstraint(min, max, other, otherValue)`.
-    pub fn add_range_constraint(&mut self, r: RuleId, min: i32, max: i32, other: RuleId, other_value: i32) {
+    pub fn add_range_constraint(
+        &mut self,
+        r: RuleId,
+        min: i32,
+        max: i32,
+        other: RuleId,
+        other_value: i32,
+    ) {
         let rule = &mut self.rules[r as usize];
-        let c = Constraint { min, max, other_value };
+        let c = Constraint {
+            min,
+            max,
+            other_value,
+        };
         if let Some((_, list)) = rule.constraints.iter_mut().find(|(o, _)| *o == other) {
             list.push(c);
         } else {
@@ -523,7 +566,11 @@ impl Arenas {
 
     /// `constrainedRules`.
     pub fn constrained_rules(&self, r: RuleId) -> Vec<RuleId> {
-        self.rules[r as usize].constraints.iter().map(|(o, _)| *o).collect()
+        self.rules[r as usize]
+            .constraints
+            .iter()
+            .map(|(o, _)| *o)
+            .collect()
     }
 
     /// Number of constrained rules (`constrainedRules.length`).
@@ -561,7 +608,15 @@ impl Arenas {
     // ------------------------------------------------------------- chunks
 
     /// `Chunk(rule, indent, nesting, space:, flushLeft:, isDouble:)`.
-    pub fn new_chunk(&mut self, rule: RuleId, indentation: i32, nesting_: NestingId, space: bool, flush_left: bool, double: bool) -> ChunkId {
+    pub fn new_chunk(
+        &mut self,
+        rule: RuleId,
+        indentation: i32,
+        nesting_: NestingId,
+        space: bool,
+        flush_left: bool,
+        double: bool,
+    ) -> ChunkId {
         self.chunks.push(Chunk {
             text: String::new(),
             text_len: 0,
@@ -579,7 +634,15 @@ impl Arenas {
     }
 
     /// `BlockChunk(argument, rule, indent, nesting, space:, flushLeft:)`.
-    pub fn new_block(&mut self, argument: Option<ChunkId>, rule: RuleId, indentation: i32, nesting_: NestingId, space: bool, flush_left: bool) -> ChunkId {
+    pub fn new_block(
+        &mut self,
+        argument: Option<ChunkId>,
+        rule: RuleId,
+        indentation: i32,
+        nesting_: NestingId,
+        space: bool,
+        flush_left: bool,
+    ) -> ChunkId {
         let c = self.new_chunk(rule, indentation, nesting_, space, flush_left, false);
         self.chunks[c as usize].block = Some(Block {
             argument,
@@ -607,7 +670,13 @@ impl Arenas {
     }
 
     /// `updateSplit(flushLeft:, isDouble:, space:)`.
-    pub fn update_split(&mut self, c: ChunkId, flush_left: Option<bool>, double: bool, space: Option<bool>) {
+    pub fn update_split(
+        &mut self,
+        c: ChunkId,
+        flush_left: Option<bool>,
+        double: bool,
+        space: Option<bool>,
+    ) {
         let ch = &mut self.chunks[c as usize];
         if let Some(r) = flush_left {
             ch.flush_left = r;
@@ -726,14 +795,19 @@ impl Arenas {
 
     /// `totalUsedIndent`.
     pub fn nesting_total(&self, n: NestingId) -> i32 {
-        self.nestings[n as usize].total.expect("totalUsedIndent computed")
+        self.nestings[n as usize]
+            .total
+            .expect("totalUsedIndent computed")
     }
 
     // ------------------------------------------------------------- spans
 
     /// `Span(cost)`.
     pub fn new_span(&mut self, cost: i32) -> SpanId {
-        self.spans.push(SpanC { cost, marked: false });
+        self.spans.push(SpanC {
+            cost,
+            marked: false,
+        });
         self.spans.len() as SpanId - 1
     }
 

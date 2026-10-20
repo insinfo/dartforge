@@ -22,13 +22,23 @@ struct Quotes {
 fn quotes_of(text: &str) -> Quotes {
     let raw = text.starts_with('r') || text.starts_with('R');
     let rest = if raw { &text[1..] } else { text };
-    Quotes { raw, multiline: rest.starts_with("'''") || rest.starts_with("\"\"\""), simple: rest.starts_with('\'') }
+    Quotes {
+        raw,
+        multiline: rest.starts_with("'''") || rest.starts_with("\"\"\""),
+        simple: rest.starts_with('\''),
+    }
 }
 
 impl Context<'_> {
     /// `_ConvertQuotes.compute`: `from_double_quotes` converts from double to single
     /// quotes (`ConvertToSingleQuotes`); otherwise from single to double.
-    fn convert_quotes(&self, uri: &str, start: usize, end: usize, from_double_quotes: bool) -> Option<Change> {
+    fn convert_quotes(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+        from_double_quotes: bool,
+    ) -> Option<Change> {
         let node = self.tree.locate(start, end)?;
         let mut m = Change::default();
         // The producer's `token` (`_tokenAt(node, selectionOffset)`).
@@ -39,7 +49,11 @@ impl Context<'_> {
                 token = Some(span);
                 let text = &self.source[span.start..span.end];
                 let a = quotes_of(text);
-                if if from_double_quotes { !a.simple } else { a.simple } {
+                if if from_double_quotes {
+                    !a.simple
+                } else {
+                    a.simple
+                } {
                     let new = match (a.multiline, from_double_quotes) {
                         (true, true) => "'''",
                         (true, false) => "\"\"\"",
@@ -54,25 +68,57 @@ impl Context<'_> {
                     let mut i = 1;
                     while i + 1 < b.len() {
                         if b[i + 1] == quote && b[i] != b'\\' {
-                            m.add(uri, Span { start: span.start + 1 + i, end: span.start + 1 + i }, String::from("\\"));
+                            m.add(
+                                uri,
+                                Span {
+                                    start: span.start + 1 + i,
+                                    end: span.start + 1 + i,
+                                },
+                                String::from("\\"),
+                            );
                         }
                         i += 1;
                     }
                     let opens = span.start + usize::from(a.raw);
-                    m.add(uri, Span { start: opens, end: opens + size }, new.to_string());
-                    m.add(uri, Span { start: span.end - size, end: span.end }, new.to_string());
+                    m.add(
+                        uri,
+                        Span {
+                            start: opens,
+                            end: opens + size,
+                        },
+                        new.to_string(),
+                    );
+                    m.add(
+                        uri,
+                        Span {
+                            start: span.end - size,
+                            end: span.end,
+                        },
+                        new.to_string(),
+                    );
                 }
             }
             "StringInterpolation" | "InterpolationString" => {
-                let interpolation = if self.kind(node) == "InterpolationString" { self.parent(node)? } else { node };
+                let interpolation = if self.kind(node) == "InterpolationString" {
+                    self.parent(node)?
+                } else {
+                    node
+                };
                 let span = self.tree.span(interpolation);
                 let a = quotes_of(&self.source[span.start..span.end]);
                 token = if self.kind(node) == "InterpolationString" {
                     Some(self.tree.span(node))
                 } else {
-                    self.children(node).iter().map(|&k| self.tree.span(k)).find(|s| s.start <= start && start <= s.end)
+                    self.children(node)
+                        .iter()
+                        .map(|&k| self.tree.span(k))
+                        .find(|s| s.start <= start && start <= s.end)
                 };
-                if if from_double_quotes { !a.simple } else { a.simple } {
+                if if from_double_quotes {
+                    !a.simple
+                } else {
+                    a.simple
+                } {
                     let new = match (a.multiline, from_double_quotes) {
                         (true, true) => "'''",
                         (true, false) => "\"\"\"",
@@ -87,8 +133,22 @@ impl Context<'_> {
                         .any(|&k| self.node_text(k).contains(new));
                     if !some_contains {
                         let opens = span.start + usize::from(a.raw);
-                        m.add(uri, Span { start: opens, end: opens + size }, new.to_string());
-                        m.add(uri, Span { start: span.end - size, end: span.end }, new.to_string());
+                        m.add(
+                            uri,
+                            Span {
+                                start: opens,
+                                end: opens + size,
+                            },
+                            new.to_string(),
+                        );
+                        m.add(
+                            uri,
+                            Span {
+                                start: span.end - size,
+                                end: span.end,
+                            },
+                            new.to_string(),
+                        );
                     }
                 }
             }
@@ -101,7 +161,14 @@ impl Context<'_> {
             let mut i = 0;
             while i + 1 < b.len() {
                 if b[i] == b'\\' && b[i + 1] == quote {
-                    m.add(uri, Span { start: t.start + i, end: t.start + i + 1 }, String::new());
+                    m.add(
+                        uri,
+                        Span {
+                            start: t.start + i,
+                            end: t.start + i + 1,
+                        },
+                        String::new(),
+                    );
                     i += 1;
                 }
                 i += 1;
@@ -111,19 +178,37 @@ impl Context<'_> {
     }
 
     /// `ConvertToSingleQuotes` and `ConvertToDoubleQuotes` (convert_quotes.dart).
-    pub(crate) fn convert_text_quotes(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
+    pub(crate) fn convert_text_quotes(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Vec<CodeAction> {
         let mut output = Vec::new();
         for (from_double_quotes, title, kind) in [
-            (false, "Convert to double quoted string", "refactor.convert.toDoubleQuotedString"),
-            (true, "Convert to single quoted string", "refactor.convert.toSingleQuotedString"),
+            (
+                false,
+                "Convert to double quoted string",
+                "refactor.convert.toDoubleQuotedString",
+            ),
+            (
+                true,
+                "Convert to single quoted string",
+                "refactor.convert.toSingleQuotedString",
+            ),
         ] {
             if let Some(m) = self.convert_quotes(uri, start, end, from_double_quotes) {
                 output.push(CodeAction {
                     title: title.into(),
                     kind: kind.into(),
-                    edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+                    edits: m
+                        .files
+                        .into_iter()
+                        .flat_map(|(_, l)| l.into_iter().rev())
+                        .collect(),
                     diagnostic: None,
-                    create_file: None, linked: Default::default(),
+                    create_file: None,
+                    linked: Default::default(),
                 });
             }
         }
@@ -133,12 +218,23 @@ impl Context<'_> {
     /// `ConvertToMultilineString` (convert_to_multiline_string.dart): the
     /// single-line literal gets triple quotes, with a line break after the
     /// opening ones (`writeln`).
-    pub(crate) fn convert_to_multiline(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_to_multiline(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let mut node = self.tree.locate(start, end)?;
-        if matches!(self.kind(node), "InterpolationString" | "InterpolationExpression") {
+        if matches!(
+            self.kind(node),
+            "InterpolationString" | "InterpolationExpression"
+        ) {
             node = self.parent(node)?;
         }
-        if !matches!(self.kind(node), "SimpleStringLiteral" | "StringInterpolation") {
+        if !matches!(
+            self.kind(node),
+            "SimpleStringLiteral" | "StringInterpolation"
+        ) {
             return None;
         }
         let span = self.tree.span(node);
@@ -150,14 +246,33 @@ impl Context<'_> {
         let eol = crate::refactorings_exec::Text::new(self.source).eol();
         let opens = span.start + usize::from(a.raw);
         let mut m = Change::default();
-        m.add(uri, Span { start: opens, end: opens + 1 }, format!("{new}{eol}"));
-        m.add(uri, Span { start: span.end - 1, end: span.end }, new.to_string());
+        m.add(
+            uri,
+            Span {
+                start: opens,
+                end: opens + 1,
+            },
+            format!("{new}{eol}"),
+        );
+        m.add(
+            uri,
+            Span {
+                start: span.end - 1,
+                end: span.end,
+            },
+            new.to_string(),
+        );
         Some(CodeAction {
             title: "Convert to multiline string".into(),
             kind: "refactor.convert.toMultilineString".into(),
-            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            edits: m
+                .files
+                .into_iter()
+                .flat_map(|(_, l)| l.into_iter().rev())
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 }

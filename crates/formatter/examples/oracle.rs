@@ -49,7 +49,11 @@ fn collect(root: &Path, output: &mut Vec<PathBuf>) {
     children.sort();
     for f in children {
         let name_ = f.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if name_.starts_with('.') || name_ == "target" || name_ == "references" || name_ == "node_modules" {
+        if name_.starts_with('.')
+            || name_ == "target"
+            || name_ == "references"
+            || name_ == "node_modules"
+        {
             continue;
         }
         if f.is_symlink() {
@@ -111,7 +115,10 @@ struct Scoreboard {
 fn main() {
     std::panic::set_hook(Box::new(|_| {}));
     let mut args = std::env::args().skip(1);
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("repository root");
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("repository root");
     let home = std::env::var("HOME").unwrap_or_default();
     let mut dart = format!("{home}/tools/dart/3.6.2/dart-sdk/bin/dart");
     let mut cache = repo_root.join("target/formatter-oracle");
@@ -130,7 +137,12 @@ fn main() {
     let sets: Vec<(String, Vec<PathBuf>)> = if paths.is_empty() {
         let mut v = vec![
             ("repository".into(), vec![repo_root.clone()]),
-            ("sdk/lib".into(), vec![PathBuf::from(format!("{home}/tools/dart/3.6.2/dart-sdk/lib"))]),
+            (
+                "sdk/lib".into(),
+                vec![PathBuf::from(format!(
+                    "{home}/tools/dart/3.6.2/dart-sdk/lib"
+                ))],
+            ),
         ];
         let pub_cache = PathBuf::from(format!("{home}/tools/dart/pub-cache/hosted/pub.dev"));
         if pub_cache.is_dir() {
@@ -157,7 +169,10 @@ fn main() {
             .collect();
         let missing: Vec<(PathBuf, u64)> = with_hash
             .iter()
-            .filter(|(_, h, _)| !cache.join(format!("{h:016x}.out")).exists() && !cache.join(format!("{h:016x}.err")).exists())
+            .filter(|(_, h, _)| {
+                !cache.join(format!("{h:016x}.out")).exists()
+                    && !cache.join(format!("{h:016x}.err")).exists()
+            })
             .map(|(p, h, _)| (p.clone(), *h))
             .collect();
         if !missing.is_empty() {
@@ -200,9 +215,11 @@ fn main() {
                         let Some((p, h, data)) = with_hash.get(i) else {
                             break;
                         };
-                        let reference = fs::read_to_string(cache.join(format!("{h:016x}.out"))).ok();
+                        let reference =
+                            fs::read_to_string(cache.join(format!("{h:016x}.out"))).ok();
                         let source = String::from_utf8_lossy(data).to_string();
-                        let ours = std::panic::catch_unwind(|| format(&source, &FormatOptions::default()));
+                        let ours =
+                            std::panic::catch_unwind(|| format(&source, &FormatOptions::default()));
                         let mut pl = scoreboard.lock().expect("lock");
                         match (reference, ours) {
                             (None, Ok(Err(_))) => pl.both_reject += 1,
@@ -218,10 +235,20 @@ fn main() {
                                         pl.different += 1;
                                         if let Some(d) = &diffs {
                                             let base = format!("{h:016x}");
-                                            let _ = fs::write(d.join(format!("{base}.dart.ours")), &output);
-                                            let _ = fs::write(d.join(format!("{base}.dart.dart")), &r);
-                                            let _ = fs::write(d.join(format!("{base}.dart.source")), &source);
-                                            let _ = fs::write(d.join(format!("{base}.path")), p.to_string_lossy().as_bytes());
+                                            let _ = fs::write(
+                                                d.join(format!("{base}.dart.ours")),
+                                                &output,
+                                            );
+                                            let _ =
+                                                fs::write(d.join(format!("{base}.dart.dart")), &r);
+                                            let _ = fs::write(
+                                                d.join(format!("{base}.dart.source")),
+                                                &source,
+                                            );
+                                            let _ = fs::write(
+                                                d.join(format!("{base}.path")),
+                                                p.to_string_lossy().as_bytes(),
+                                            );
                                         }
                                         Some("different")
                                     }

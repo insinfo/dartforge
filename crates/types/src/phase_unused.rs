@@ -46,9 +46,12 @@ use crate::table::{CoreTypes, TypeTable};
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{
-    ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, LibraryId, Program, TypedefId, UnitId, UnitRole, VariableId,
+    ClassId, ClassKind, Element, ExtensionId, FunctionElementId, FunctionKind, LibraryId, Program,
+    TypedefId, UnitId, UnitRole, VariableId,
 };
-use dartforge_frontend::ast::{self, DeclKind, ExprId, ExprKind, ForInit, Initializer, MemberKind, StmtKind, TypeKind, UnaryOp};
+use dartforge_frontend::ast::{
+    self, DeclKind, ExprId, ExprKind, ForInit, Initializer, MemberKind, StmtKind, TypeKind, UnaryOp,
+};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
@@ -143,11 +146,19 @@ impl Context<'_> {
             }
             El::Getter(v) => {
                 let x = p.variable(v);
-                Some((x.class, x.extension, self.interner.resolve(x.name).to_string()))
+                Some((
+                    x.class,
+                    x.extension,
+                    self.interner.resolve(x.name).to_string(),
+                ))
             }
             El::Setter(v) => {
                 let x = p.variable(v);
-                Some((x.class, x.extension, format!("{}_=", self.interner.resolve(x.name))))
+                Some((
+                    x.class,
+                    x.extension,
+                    format!("{}_=", self.interner.resolve(x.name)),
+                ))
             }
             _ => None,
         }
@@ -164,13 +175,25 @@ impl Context<'_> {
                 let tgt = match (cls, extension) {
                     (Some(c), _) => {
                         let k = self.program.class(c);
-                        k.instance_members.get(&s).or_else(|| k.static_members.get(&s)).copied()
+                        k.instance_members
+                            .get(&s)
+                            .or_else(|| k.static_members.get(&s))
+                            .copied()
                     }
                     (None, Some(x)) => {
                         let k = self.program.extension(x);
-                        k.instance_members.get(&s).or_else(|| k.static_members.get(&s)).copied()
+                        k.instance_members
+                            .get(&s)
+                            .or_else(|| k.static_members.get(&s))
+                            .copied()
                     }
-                    (None, None) => match self.program.library(self.program.function(f).library).declared.get(&s)?.getter? {
+                    (None, None) => match self
+                        .program
+                        .library(self.program.function(f).library)
+                        .declared
+                        .get(&s)?
+                        .getter?
+                    {
                         Element::Function(g) => Some(g),
                         _ => None,
                     },
@@ -190,7 +213,10 @@ impl Context<'_> {
         let (cls, extension, static_, ctor, factory) = match e {
             El::Function(f) => {
                 let g = p.function(f);
-                let ctor = matches!(g.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor);
+                let ctor = matches!(
+                    g.kind,
+                    FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+                );
                 (g.class, g.extension, g.static_, ctor, g.factory)
             }
             El::Getter(v) | El::Setter(v) => {
@@ -209,7 +235,10 @@ impl Context<'_> {
             }
         }
         if let Some(x) = extension {
-            return p.extension(x).name.is_some_and(|n| !private(self.interner, n));
+            return p
+                .extension(x)
+                .name
+                .is_some_and(|n| !private(self.interner, n));
         }
         true
     }
@@ -217,11 +246,24 @@ impl Context<'_> {
 
 /// `_overriddenElements`: the `getOverridden2` in the member's class, by the
 /// `Name` of the verified library (`e.declaration` of each one).
-fn overridden(cx: &Context<'_>, h: &mut crate::inheritance::InheritanceManager, p: &mut crate::inheritance::OutlineProvider<'_, '_>, e: El) -> Vec<El> {
-    let Some((Some(c), _, text)) = cx.member_key(e) else { return Vec::new() };
-    let Some(s) = cx.interner.lookup(&text) else { return Vec::new() };
+fn overridden(
+    cx: &Context<'_>,
+    h: &mut crate::inheritance::InheritanceManager,
+    p: &mut crate::inheritance::OutlineProvider<'_, '_>,
+    e: El,
+) -> Vec<El> {
+    let Some((Some(c), _, text)) = cx.member_key(e) else {
+        return Vec::new();
+    };
+    let Some(s) = cx.interner.lookup(&text) else {
+        return Vec::new();
+    };
     let the_name = crate::inheritance::MemberName::new(cx.interner, cx.lib, s);
-    h.overridden(p, c, the_name).unwrap_or_default().into_iter().map(|m| cx.of_function(m.function)).collect()
+    h.overridden(p, c, the_name)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| cx.of_function(m.function))
+        .collect()
 }
 
 /// `_overridesUsedElement`.
@@ -266,7 +308,11 @@ fn types_without_interface_use(a: &ast::Ast) -> HashSet<ast::TypeId> {
                 }
             }
             TypeKind::Void => {}
-            TypeKind::Function { return_type, type_params, parameters } => {
+            TypeKind::Function {
+                return_type,
+                type_params,
+                parameters,
+            } => {
                 if let Some(r) = return_type {
                     descend(a, *r, v);
                 }
@@ -342,7 +388,11 @@ fn types_without_interface_use_roots(a: &ast::Ast) -> HashSet<ast::TypeId> {
     }
     for s in a.stmts.iter() {
         match &s.kind {
-            StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => list(l, &mut v),
+            StmtKind::Variables(l)
+            | StmtKind::For {
+                init: Some(ForInit::Variables(l)),
+                ..
+            } => list(l, &mut v),
             _ => {}
         }
     }
@@ -366,14 +416,32 @@ fn types_without_interface_use_roots(a: &ast::Ast) -> HashSet<ast::TypeId> {
 /// constructor of `dart.core` with the `name` field equal to
 /// `vm:entry-point`) or, with `js`, `@JS(…)` (the `JS` constructor of the
 /// `_js_annotations` library) in a list of annotations of unit `u`.
-fn marked(cx: &Context<'_>, engine: &mut Option<Engine<'_>>, u: UnitId, metadata: &[ast::Annotation], js: bool) -> bool {
+fn marked(
+    cx: &Context<'_>,
+    engine: &mut Option<Engine<'_>>,
+    u: UnitId,
+    metadata: &[ast::Annotation],
+    js: bool,
+) -> bool {
     let p = cx.program;
     let library_name = |l: LibraryId| {
-        p.library(l).name.as_ref().map(|n| n.iter().map(|s| cx.interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
+        p.library(l)
+            .name
+            .as_ref()
+            .map(|n| {
+                n.iter()
+                    .map(|s| cx.interner.resolve(*s))
+                    .collect::<Vec<_>>()
+                    .join(".")
+            })
+            .unwrap_or_default()
     };
     for m in metadata {
         let Some(args) = &m.arguments else { continue };
-        let Some(Element::Class(c)) = crate::annotations::annotation_element(p, cx.interner, u, m) else { continue };
+        let Some(Element::Class(c)) = crate::annotations::annotation_element(p, cx.interner, u, m)
+        else {
+            continue;
+        };
         let k = p.class(c);
         let the_name = cx.interner.resolve(k.name);
         if js && the_name == "JS" && library_name(k.library) == "_js_annotations" {
@@ -381,7 +449,9 @@ fn marked(cx: &Context<'_>, engine: &mut Option<Engine<'_>>, u: UnitId, metadata
         }
         if the_name == "pragma" && library_name(k.library) == "dart.core" {
             // The `name` of the `pragma` is the first positional argument.
-            let Some(first) = args.args.iter().find(|x| x.name.is_none()) else { continue };
+            let Some(first) = args.args.iter().find(|x| x.name.is_none()) else {
+                continue;
+            };
             let a = &p.unit(u).ast;
             let value = match &a.expr(first.value).kind {
                 ExprKind::String(s) => s.constant_value().map(|t| t.to_string_lossy()),
@@ -389,7 +459,9 @@ fn marked(cx: &Context<'_>, engine: &mut Option<Engine<'_>>, u: UnitId, metadata
                     let cxm = Ctx::simple(u, p.unit(u).library);
                     match mm.evaluate(&cxm, first.value, true) {
                         Constant::Value(v) => match v.state {
-                            crate::const_eval::value::InstanceState::Str(Some(t)) => Some(String::from_utf16_lossy(&t)),
+                            crate::const_eval::value::InstanceState::Str(Some(t)) => {
+                                Some(String::from_utf16_lossy(&t))
+                            }
                             _ => None,
                         },
                         Constant::Invalid(_) => None,
@@ -416,15 +488,21 @@ pub fn unused_elements(
     the_inferred: &HashSet<LibraryId>,
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
-    let cx = Context { program, interner, lib };
+    let cx = Context {
+        program,
+        interner,
+        lib,
+    };
     let mut used = Used::default();
-    let units: Vec<UnitId> = program.library(lib).units.iter().copied().filter(|u| program.unit(*u).role != UnitRole::Patch).collect();
-    let decl_class = |u: UnitId, d: ast::DeclId| {
-        program.class_of_decl(u, d)
-    };
-    let node_function = |u: UnitId, f: ast::FunctionId| {
-        program.function_of_node(u, f)
-    };
+    let units: Vec<UnitId> = program
+        .library(lib)
+        .units
+        .iter()
+        .copied()
+        .filter(|u| program.unit(*u).role != UnitRole::Patch)
+        .collect();
+    let decl_class = |u: UnitId, d: ast::DeclId| program.class_of_decl(u, d);
+    let node_function = |u: UnitId, f: ast::FunctionId| program.function_of_node(u, f);
     let member_constructor = |u: UnitId, m: ast::MemberId| {
         program
             .functions
@@ -435,7 +513,9 @@ pub fn unused_elements(
 
     for &u in &units {
         let a = &program.unit(u).ast;
-        let Some(the_body) = bodies.units.get(u.0 as usize) else { continue };
+        let Some(the_body) = bodies.units.get(u.0 as usize) else {
+            continue;
+        };
         let parents = crate::typed_lints::unit_parents(program, u);
         // The classes (`ClassDeclaration`) and the executables (declared functions
         // and methods) that contain each place.
@@ -461,8 +541,20 @@ pub fn unused_elements(
                 executables.push((a.function(*f).span, e));
             }
         }
-        let class_in = |s: Span| classes.iter().filter(|(r, _)| inside(s, *r)).min_by_key(|(r, _)| r.end - r.start).map(|x| x.1);
-        let executable_in = |s: Span| executables.iter().filter(|(r, _)| inside(s, *r)).min_by_key(|(r, _)| r.end - r.start).map(|x| x.1);
+        let class_in = |s: Span| {
+            classes
+                .iter()
+                .filter(|(r, _)| inside(s, *r))
+                .min_by_key(|(r, _)| r.end - r.start)
+                .map(|x| x.1)
+        };
+        let executable_in = |s: Span| {
+            executables
+                .iter()
+                .filter(|(r, _)| inside(s, *r))
+                .min_by_key(|(r, _)| r.end - r.start)
+                .map(|x| x.1)
+        };
         // `_useIdentifierElement`.
         let use_it = |used: &mut Used, e: El, where_: Span| {
             if cx.library(e) != lib {
@@ -508,9 +600,11 @@ pub fn unused_elements(
         // The executable of an operator or `call` resolution (the node's
         // `staticElement`).
         let executable = |r: Option<&Resolved>| match r {
-            Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
-                Some(cx.of_function(*f))
-            }
+            Some(Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            })
+            | Some(Resolved::ExtensionMember { member: f, .. }) => Some(cx.of_function(*f)),
             _ => None,
         };
         for (k, ex) in a.exprs.iter().enumerate() {
@@ -522,7 +616,10 @@ pub fn unused_elements(
                 // `visitPostfixExpression`, `visitIndexExpression` and
                 // `visitAssignmentExpression`: the resolved operator is a used member
                 // (`addMember`).
-                ExprKind::Binary { .. } | ExprKind::Unary { .. } | ExprKind::Index { .. } | ExprKind::Assign { .. } => {
+                ExprKind::Binary { .. }
+                | ExprKind::Unary { .. }
+                | ExprKind::Index { .. }
+                | ExprKind::Assign { .. } => {
                     // The index that is the target of an assignment (`a[i] = v`, `a[i] ??= v`):
                     // the `writeOrReadElement` (3.6.2
                     // `unused_local_elements_verifier.dart:176-180`) is the `[]=`; the `[]`
@@ -531,15 +628,27 @@ pub fn unused_elements(
                         && parent_of(id).is_some_and(|p| matches!(&a.expr(p).kind, ExprKind::Assign { target, .. } if *target == id));
                     let write = if assignment_target {
                         match the_body.get_resolved(id) {
-                            Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+                            Some(Resolved::Member {
+                                member: MemberRef::Function(f),
+                                ..
+                            })
+                            | Some(Resolved::ExtensionMember { member: f, .. }) => {
                                 let g = program.function(*f);
                                 let the_name = interner.lookup("[]=");
                                 let sibling = the_name.and_then(|n| match (g.class, g.extension) {
-                                    (Some(c), _) => program.class(c).instance_members.get(&n).copied(),
-                                    (None, Some(x)) => program.extension(x).instance_members.get(&n).copied(),
+                                    (Some(c), _) => {
+                                        program.class(c).instance_members.get(&n).copied()
+                                    }
+                                    (None, Some(x)) => {
+                                        program.extension(x).instance_members.get(&n).copied()
+                                    }
                                     _ => None,
                                 });
-                                if interner.resolve(g.name) == "[]" { sibling } else { Some(*f) }
+                                if interner.resolve(g.name) == "[]" {
+                                    sibling
+                                } else {
+                                    Some(*f)
+                                }
                             }
                             _ => None,
                         }
@@ -557,7 +666,8 @@ pub fn unused_elements(
                             // never equals the declaration (`g *= h` does not use it).
                             let substituted = matches!(ex.kind, ExprKind::Assign { .. })
                                 && matches!(the_body.get_resolved(id), Some(Resolved::ExtensionMember { extension, .. }) if !program.extension(*extension).type_params.is_empty());
-                            if !substituted && let Some(el) = executable(the_body.get_resolved(id)) {
+                            if !substituted && let Some(el) = executable(the_body.get_resolved(id))
+                            {
                                 used.members.insert(el);
                             }
                         }
@@ -583,7 +693,12 @@ pub fn unused_elements(
                             use_it(&mut used, el, ex.span);
                             used.members.insert(el);
                             read_member(&mut used, el);
-                        } else if let Some(&v) = program.class(*d).enum_constants.iter().find(|&&v| program.variable(v).name == name.sym) {
+                        } else if let Some(&v) = program
+                            .class(*d)
+                            .enum_constants
+                            .iter()
+                            .find(|&&v| program.variable(v).name == name.sym)
+                        {
                             // The enum constant (`.v`) has no getter in the model: read like that of
                             // `_E.v`.
                             let el = El::Getter(v);
@@ -606,7 +721,10 @@ pub fn unused_elements(
                     if let Some(Resolved::Constructor(f)) = the_body.get_resolved(id) {
                         let written = match &ex.kind {
                             ExprKind::InstanceCreation { .. } => true,
-                            ExprKind::Call { target, .. } => matches!(a.expr(*target).kind, ExprKind::Property { .. } | ExprKind::DotShorthand { .. }),
+                            ExprKind::Call { target, .. } => matches!(
+                                a.expr(*target).kind,
+                                ExprKind::Property { .. } | ExprKind::DotShorthand { .. }
+                            ),
                             _ => false,
                         };
                         let named_one = !interner.resolve(program.function(*f).name).is_empty();
@@ -631,7 +749,9 @@ pub fn unused_elements(
             {
                 match &a.expr(p).kind {
                     ExprKind::Unary { operand, .. } if *operand == id => read_value = false,
-                    ExprKind::Assign { op, target, .. } if *target == id => read_value = matches!(op, ast::AssignOp::Compound(ast::BinaryOp::IfNull)),
+                    ExprKind::Assign { op, target, .. } if *target == id => {
+                        read_value = matches!(op, ast::AssignOp::Compound(ast::BinaryOp::IfNull))
+                    }
                     _ => {}
                 }
             }
@@ -645,15 +765,23 @@ pub fn unused_elements(
                         used.unresolved.insert(the_name.sym);
                     }
                 }
-                Some(Resolved::Local(_) | Resolved::Parameter { .. } | Resolved::TypeParameter(_) | Resolved::Prefix(_)) => {}
+                Some(
+                    Resolved::Local(_)
+                    | Resolved::Parameter { .. }
+                    | Resolved::TypeParameter(_)
+                    | Resolved::Prefix(_),
+                ) => {}
                 Some(Resolved::Element(e)) => {
-                    let Some(el) = cx.of_element(*e) else { continue };
+                    let Some(el) = cx.of_element(*e) else {
+                        continue;
+                    };
                     match el {
                         // The static extension field (in the model, read through the variable):
                         // the field's synthetic getter is the member read (`_A.f1`, `_baz` inside
                         // the extension).
                         El::Variable(v) | El::Getter(v) | El::Setter(v)
-                            if program.variable(v).class.is_none() && program.variable(v).extension.is_some() =>
+                            if program.variable(v).class.is_none()
+                                && program.variable(v).extension.is_some() =>
                         {
                             if read_value {
                                 used.members.insert(El::Getter(v));
@@ -664,13 +792,20 @@ pub fn unused_elements(
                             }
                         }
                         // The top-level variable (synthetic accessors).
-                        El::Variable(v) | El::Getter(v) | El::Setter(v) if program.variable(v).class.is_none() => {
+                        El::Variable(v) | El::Getter(v) | El::Setter(v)
+                            if program.variable(v).class.is_none() =>
+                        {
                             if read_value {
                                 used.elements.insert(El::Variable(v));
                             }
                         }
                         // The explicit top-level accessor.
-                        El::Function(f) if matches!(program.function(f).kind, FunctionKind::Getter | FunctionKind::Setter) => {
+                        El::Function(f)
+                            if matches!(
+                                program.function(f).kind,
+                                FunctionKind::Getter | FunctionKind::Setter
+                            ) =>
+                        {
                             if read_value {
                                 used.members.insert(el);
                                 read_member(&mut used, el);
@@ -678,16 +813,27 @@ pub fn unused_elements(
                             if written {
                                 // The `writeElement`: the setter of the same name, or the getter of the
                                 // recovery (without a setter).
-                                let setter = program.library(program.function(f).library).declared.get(&program.function(f).name).and_then(|b| b.setter);
+                                let setter = program
+                                    .library(program.function(f).library)
+                                    .declared
+                                    .get(&program.function(f).name)
+                                    .and_then(|b| b.setter);
                                 match setter {
-                                    Some(Element::Function(g)) => use_it(&mut used, El::Function(g), ex.span),
+                                    Some(Element::Function(g)) => {
+                                        use_it(&mut used, El::Function(g), ex.span)
+                                    }
                                     _ => use_it(&mut used, el, ex.span),
                                 }
                                 // The `readElement` of the compound assignment and of `++`/`--`: the getter
                                 // (`_useIdentifierElement`, 3.6.2
                                 // `unused_local_elements_verifier.dart:284`).
                                 if !simple_assignment {
-                                    let getter = if program.function(f).kind == FunctionKind::Getter { Some(el) } else { cx.getter_of(el) };
+                                    let getter = if program.function(f).kind == FunctionKind::Getter
+                                    {
+                                        Some(el)
+                                    } else {
+                                        cx.getter_of(el)
+                                    };
                                     if let Some(g) = getter {
                                         use_it(&mut used, g, ex.span);
                                     }
@@ -764,16 +910,28 @@ pub fn unused_elements(
             let where_ = a.pattern(*p).span;
             match r {
                 Resolved::Element(e) => {
-                    let Some(el) = cx.of_element(*e) else { continue };
+                    let Some(el) = cx.of_element(*e) else {
+                        continue;
+                    };
                     match el {
-                        El::Variable(v) | El::Getter(v) | El::Setter(v) if program.variable(v).class.is_none() && program.variable(v).extension.is_some() => {
+                        El::Variable(v) | El::Getter(v) | El::Setter(v)
+                            if program.variable(v).class.is_none()
+                                && program.variable(v).extension.is_some() =>
+                        {
                             used.members.insert(El::Getter(v));
                             read_member(&mut used, El::Getter(v));
                         }
-                        El::Variable(v) | El::Getter(v) | El::Setter(v) if program.variable(v).class.is_none() => {
+                        El::Variable(v) | El::Getter(v) | El::Setter(v)
+                            if program.variable(v).class.is_none() =>
+                        {
                             used.elements.insert(El::Variable(v));
                         }
-                        El::Function(f) if matches!(program.function(f).kind, FunctionKind::Getter | FunctionKind::Setter) => {
+                        El::Function(f)
+                            if matches!(
+                                program.function(f).kind,
+                                FunctionKind::Getter | FunctionKind::Setter
+                            ) =>
+                        {
                             used.members.insert(el);
                             read_member(&mut used, el);
                         }
@@ -805,11 +963,20 @@ pub fn unused_elements(
         // `visitPatternField`: `addMember` and `addReadMember` of the field's
         // element.
         for p in a.patterns.iter() {
-            let ast::PatternKind::Object { fields, .. } = &p.kind else { continue };
+            let ast::PatternKind::Object { fields, .. } = &p.kind else {
+                continue;
+            };
             for f in fields.iter() {
                 let el = match the_body.field_elements.get(&f.pattern) {
-                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => El::Getter(*v),
-                    Some(Resolved::Member { member: MemberRef::Function(g), .. }) | Some(Resolved::ExtensionMember { member: g, .. }) => cx.of_function(*g),
+                    Some(Resolved::Member {
+                        member: MemberRef::Variable(v),
+                        ..
+                    }) => El::Getter(*v),
+                    Some(Resolved::Member {
+                        member: MemberRef::Function(g),
+                        ..
+                    })
+                    | Some(Resolved::ExtensionMember { member: g, .. }) => cx.of_function(*g),
                     _ => continue,
                 };
                 used.members.insert(el);
@@ -821,7 +988,11 @@ pub fn unused_elements(
         // `addMember` and `addReadMember` of the operator.
         for el in the_body.relational_operators.values() {
             let el = match el {
-                Resolved::Member { member: MemberRef::Function(g), .. } | Resolved::ExtensionMember { member: g, .. } => cx.of_function(*g),
+                Resolved::Member {
+                    member: MemberRef::Function(g),
+                    ..
+                }
+                | Resolved::ExtensionMember { member: g, .. } => cx.of_function(*g),
                 _ => continue,
             };
             used.members.insert(el);
@@ -831,7 +1002,9 @@ pub fn unused_elements(
         // `visitNamedType`.
         let without_interface = types_without_interface_use(a);
         for (ti, t) in a.types.iter().enumerate() {
-            let TypeKind::Named { name, .. } = &t.kind else { continue };
+            let TypeKind::Named { name, .. } = &t.kind else {
+                continue;
+            };
             let element = match &name[..] {
                 [n] => {
                     if crate::annotations::is_shadowed(a, interner, n.span.start, n.sym) {
@@ -839,10 +1012,14 @@ pub fn unused_elements(
                     }
                     program.lookup_in_unit(u, n.sym).and_then(|b| b.getter)
                 }
-                [p, n, ..] => program.lookup_prefixed_in_unit(u, p.sym, n.sym).and_then(|b| b.getter),
+                [p, n, ..] => program
+                    .lookup_prefixed_in_unit(u, p.sym, n.sym)
+                    .and_then(|b| b.getter),
                 [] => None,
             };
-            let Some(el) = element.and_then(|e| cx.of_element(e)) else { continue };
+            let Some(el) = element.and_then(|e| cx.of_element(e)) else {
+                continue;
+            };
             if matches!(el, El::Class(_)) && without_interface.contains(&ast::TypeId(ti as u32)) {
                 continue;
             }
@@ -850,7 +1027,9 @@ pub fn unused_elements(
         }
         // The annotation names.
         for m in dartforge_frontend::parents::all_annotations(a, &program.unit(u).unit) {
-            if let Some(el) = crate::annotations::annotation_element(program, interner, u, m).and_then(|e| cx.of_element(e)) {
+            if let Some(el) = crate::annotations::annotation_element(program, interner, u, m)
+                .and_then(|e| cx.of_element(e))
+            {
                 use_it(&mut used, el, m.span);
             }
         }
@@ -858,7 +1037,9 @@ pub fn unused_elements(
         // of `super.n(…)`.
         for (di, d) in a.decls.iter().enumerate() {
             let DeclKind::Enum(x) = &d.kind else { continue };
-            let Some(c) = decl_class(u, ast::DeclId(di as u32)) else { continue };
+            let Some(c) = decl_class(u, ast::DeclId(di as u32)) else {
+                continue;
+            };
             for k in x.constants.iter() {
                 let the_name = k.constructor.map(|n| n.sym).or_else(|| interner.lookup(""));
                 if let Some(f) = the_name.and_then(|n| program.class(c).constructors.get(&n)) {
@@ -867,7 +1048,9 @@ pub fn unused_elements(
             }
         }
         for (mi, m) in a.members.iter().enumerate() {
-            let MemberKind::Constructor(k) = &m.kind else { continue };
+            let MemberKind::Constructor(k) = &m.kind else {
+                continue;
+            };
             // The `returnType` of the `ConstructorDeclaration` is a `SimpleIdentifier`
             // with the owner type: outside a `ClassDeclaration` (`_enclosingClass` is
             // only set there), it uses the enum or the extension type (3.6.2,
@@ -881,7 +1064,10 @@ pub fn unused_elements(
             if !primary
                 && let Some(eu) = member_constructor(u, ast::MemberId(mi as u32))
                 && let Some(cls) = program.function(eu).class
-                && matches!(program.class(cls).kind, ClassKind::Enum | ClassKind::ExtensionType)
+                && matches!(
+                    program.class(cls).kind,
+                    ClassKind::Enum | ClassKind::ExtensionType
+                )
             {
                 used.elements.insert(El::Class(cls));
             }
@@ -899,8 +1085,12 @@ pub fn unused_elements(
             {
                 mark(c, ctor);
             }
-            let Some(eu) = member_constructor(u, ast::MemberId(mi as u32)) else { continue };
-            let Some(cls) = program.function(eu).class else { continue };
+            let Some(eu) = member_constructor(u, ast::MemberId(mi as u32)) else {
+                continue;
+            };
+            let Some(cls) = program.function(eu).class else {
+                continue;
+            };
             for i in k.initializers.iter() {
                 match i {
                     Initializer::Redirect { constructor, .. } => mark(cls, *constructor),
@@ -916,13 +1106,21 @@ pub fn unused_elements(
         // `visitGenericTypeAlias`: a public typedef of an interface type uses its
         // public constructors.
         for d in a.decls.iter() {
-            let DeclKind::Typedef(t) = &d.kind else { continue };
-            let ast::TypedefKind::Alias(ty) = &t.kind else { continue };
+            let DeclKind::Typedef(t) = &d.kind else {
+                continue;
+            };
+            let ast::TypedefKind::Alias(ty) = &t.kind else {
+                continue;
+            };
             if private(interner, t.name.sym) {
                 continue;
             }
-            let Some(tgt) = outline.written_types.get(&(u, *ty)) else { continue };
-            if let crate::table::Type::Interface { class, .. } | crate::table::Type::ExtensionType { decl: class, .. } = table.get(*tgt) {
+            let Some(tgt) = outline.written_types.get(&(u, *ty)) else {
+                continue;
+            };
+            if let crate::table::Type::Interface { class, .. }
+            | crate::table::Type::ExtensionType { decl: class, .. } = table.get(*tgt)
+            {
                 for (n, f) in program.class(*class).constructors.iter() {
                     if !private(interner, *n) {
                         used.elements.insert(El::Function(*f));
@@ -938,7 +1136,13 @@ pub fn unused_elements(
     let mut override_used: HashSet<El> = HashSet::new();
     {
         let mut inheritance = crate::inheritance::InheritanceManager::default();
-        let mut prov = crate::inheritance::OutlineProvider { program, interner, core, outline, table: &mut *table };
+        let mut prov = crate::inheritance::OutlineProvider {
+            program,
+            interner,
+            core,
+            outline,
+            table: &mut *table,
+        };
         let mut candidates: Vec<El> = Vec::new();
         for (i, k) in program.classes.iter().enumerate() {
             if k.library != lib || k.decl.is_none() {
@@ -954,7 +1158,14 @@ pub fn unused_elements(
             let _ = c;
         }
         for el in candidates {
-            if overrides_used(&cx, &mut inheritance, &mut prov, el, &used, &mut HashSet::new()) {
+            if overrides_used(
+                &cx,
+                &mut inheritance,
+                &mut prov,
+                el,
+                &used,
+                &mut HashSet::new(),
+            ) {
                 override_used.insert(el);
             }
         }
@@ -964,10 +1175,22 @@ pub fn unused_elements(
     let needs_engine = units.iter().any(|&u| {
         dartforge_frontend::parents::all_annotations(&program.unit(u).ast, &program.unit(u).unit)
             .iter()
-            .any(|m| m.name.last().is_some_and(|n| interner.resolve(n.sym) == "pragma"))
+            .any(|m| {
+                m.name
+                    .last()
+                    .is_some_and(|n| interner.resolve(n.sym) == "pragma")
+            })
     });
     if needs_engine {
-        engine = Some(Engine::new(program, interner, table, core, outline, bodies, the_inferred));
+        engine = Some(Engine::new(
+            program,
+            interner,
+            table,
+            core,
+            outline,
+            bodies,
+            the_inferred,
+        ));
     }
     let mut output: Vec<(UnitId, Diagnostic)> = Vec::new();
     // The fields declared by a primary constructor parameter (3.13), with two
@@ -976,10 +1199,15 @@ pub fn unused_elements(
     let mut report = |u: UnitId, code, n: ast::Name, displayed: String| {
         output.push((u, Diagnostic::with_code(code, n.span, [displayed.as_str()])));
     };
-    let used_element = |el: El, metadata: &[ast::Annotation], u: UnitId, engine: &mut Option<Engine<'_>>| {
-        used.elements.contains(&el) || marked(&cx, engine, u, metadata, false)
-    };
-    let used_member = |el: El, the_name: SymbolId, metadata: &[ast::Annotation], u: UnitId, engine: &mut Option<Engine<'_>>| {
+    let used_element =
+        |el: El, metadata: &[ast::Annotation], u: UnitId, engine: &mut Option<Engine<'_>>| {
+            used.elements.contains(&el) || marked(&cx, engine, u, metadata, false)
+        };
+    let used_member = |el: El,
+                       the_name: SymbolId,
+                       metadata: &[ast::Annotation],
+                       u: UnitId,
+                       engine: &mut Option<Engine<'_>>| {
         cx.accessible(el, the_name)
             || marked(&cx, engine, u, metadata, false)
             || used.members.contains(&el)
@@ -989,9 +1217,19 @@ pub fn unused_elements(
     // `_isReadMember` of a field or enum constant.
     let read_value = |v: VariableId| {
         let x = program.variable(v);
-        let static_ = x.static_ || x.const_ && x.class.is_some_and(|c| program.class(c).kind == ClassKind::Enum);
-        let private_container = x.class.is_some_and(|c| private(interner, program.class(c).name))
-            || x.extension.is_some_and(|e| program.extension(e).name.is_none_or(|n| private(interner, n)));
+        let static_ = x.static_
+            || x.const_
+                && x.class
+                    .is_some_and(|c| program.class(c).kind == ClassKind::Enum);
+        let private_container = x
+            .class
+            .is_some_and(|c| private(interner, program.class(c).name))
+            || x.extension.is_some_and(|e| {
+                program
+                    .extension(e)
+                    .name
+                    .is_none_or(|n| private(interner, n))
+            });
         if !private(interner, x.name) && !(private_container && static_) {
             return true;
         }
@@ -1003,17 +1241,35 @@ pub fn unused_elements(
         }
         override_used.contains(&El::Getter(v))
     };
-    let variables_of = |u: UnitId, decl: Option<ast::DeclId>, mem: Option<ast::MemberId>| -> HashMap<usize, VariableId> {
+    let variables_of = |u: UnitId,
+                        decl: Option<ast::DeclId>,
+                        mem: Option<ast::MemberId>|
+     -> HashMap<usize, VariableId> {
         let mut m = HashMap::new();
-        for (i, x) in program.index().unit_variables[u.0 as usize].iter().map(|&v| (v.0 as usize, program.variable(v))) {
+        for (i, x) in program.index().unit_variables[u.0 as usize]
+            .iter()
+            .map(|&v| (v.0 as usize, program.variable(v)))
+        {
             match x.node {
-                dartforge_elements::model::VariableRef::TopLevel { unit, decl: d, index } if unit == u && Some(d) == decl => {
+                dartforge_elements::model::VariableRef::TopLevel {
+                    unit,
+                    decl: d,
+                    index,
+                } if unit == u && Some(d) == decl => {
                     m.insert(index, VariableId(i as u32));
                 }
-                dartforge_elements::model::VariableRef::Field { unit, member, index } if unit == u && Some(member) == mem => {
+                dartforge_elements::model::VariableRef::Field {
+                    unit,
+                    member,
+                    index,
+                } if unit == u && Some(member) == mem => {
                     m.insert(index, VariableId(i as u32));
                 }
-                dartforge_elements::model::VariableRef::EnumConstant { unit, decl: d, index } if unit == u && Some(d) == decl => {
+                dartforge_elements::model::VariableRef::EnumConstant {
+                    unit,
+                    decl: d,
+                    index,
+                } if unit == u && Some(d) == decl => {
                     m.insert(index, VariableId(i as u32));
                 }
                 _ => {}
@@ -1038,7 +1294,12 @@ pub fn unused_elements(
                         && !used_element(El::Class(c), &d.metadata, u, &mut engine)
                         && !marked(&cx, &mut engine, u, &d.metadata, true)
                     {
-                        report(u, w::UNUSED_ELEMENT, x.name, interner.resolve(x.name.sym).to_string());
+                        report(
+                            u,
+                            w::UNUSED_ELEMENT,
+                            x.name,
+                            interner.resolve(x.name.sym).to_string(),
+                        );
                     }
                     primary = x.primary_constructor;
                 }
@@ -1048,7 +1309,12 @@ pub fn unused_elements(
                         && private(interner, x.name.sym)
                         && !used_element(El::Class(c), &d.metadata, u, &mut engine)
                     {
-                        report(u, w::UNUSED_ELEMENT, x.name, interner.resolve(x.name.sym).to_string());
+                        report(
+                            u,
+                            w::UNUSED_ELEMENT,
+                            x.name,
+                            interner.resolve(x.name.sym).to_string(),
+                        );
                     }
                 }
                 DeclKind::Enum(x) => {
@@ -1057,7 +1323,12 @@ pub fn unused_elements(
                         && private(interner, x.name.sym)
                         && !used_element(El::Class(c), &d.metadata, u, &mut engine)
                     {
-                        report(u, w::UNUSED_ELEMENT, x.name, interner.resolve(x.name.sym).to_string());
+                        report(
+                            u,
+                            w::UNUSED_ELEMENT,
+                            x.name,
+                            interner.resolve(x.name.sym).to_string(),
+                        );
                     }
                     // The constants.
                     let vs = variables_of(u, Some(did), None);
@@ -1065,7 +1336,12 @@ pub fn unused_elements(
                         if let Some(&v) = vs.get(&i)
                             && !read_value(v)
                         {
-                            report(u, w::UNUSED_FIELD, k.name, interner.resolve(k.name.sym).to_string());
+                            report(
+                                u,
+                                w::UNUSED_FIELD,
+                                k.name,
+                                interner.resolve(k.name.sym).to_string(),
+                            );
                         }
                     }
                     primary = x.primary_constructor;
@@ -1076,7 +1352,12 @@ pub fn unused_elements(
                         && private(interner, x.name.sym)
                         && !used_element(El::Class(c), &d.metadata, u, &mut engine)
                     {
-                        report(u, w::UNUSED_ELEMENT, x.name, interner.resolve(x.name.sym).to_string());
+                        report(
+                            u,
+                            w::UNUSED_ELEMENT,
+                            x.name,
+                            interner.resolve(x.name.sym).to_string(),
+                        );
                     }
                 }
                 DeclKind::Extension(x) => members = &x.members,
@@ -1086,16 +1367,28 @@ pub fn unused_elements(
                         && private(interner, t.name.sym)
                         && !used_element(El::Typedef(tid), &d.metadata, u, &mut engine)
                     {
-                        report(u, w::UNUSED_ELEMENT, t.name, interner.resolve(t.name.sym).to_string());
+                        report(
+                            u,
+                            w::UNUSED_ELEMENT,
+                            t.name,
+                            interner.resolve(t.name.sym).to_string(),
+                        );
                     }
                 }
                 DeclKind::Function(f) => {
                     let g = a.function(*f);
-                    let (Some(n), Some(e)) = (g.name, node_function(u, *f)) else { continue };
+                    let (Some(n), Some(e)) = (g.name, node_function(u, *f)) else {
+                        continue;
+                    };
                     let el = cx.of_function(e);
                     let the_used = match g.kind {
-                        ast::FunctionKind::Getter | ast::FunctionKind::Setter => used_member(el, n.sym, &d.metadata, u, &mut engine),
-                        _ => !private(interner, n.sym) || used_element(el, &d.metadata, u, &mut engine),
+                        ast::FunctionKind::Getter | ast::FunctionKind::Setter => {
+                            used_member(el, n.sym, &d.metadata, u, &mut engine)
+                        }
+                        _ => {
+                            !private(interner, n.sym)
+                                || used_element(el, &d.metadata, u, &mut engine)
+                        }
                     };
                     if !the_used {
                         report(u, w::UNUSED_ELEMENT, n, interner.resolve(n.sym).to_string());
@@ -1108,7 +1401,12 @@ pub fn unused_elements(
                             && private(interner, v.name.sym)
                             && !used_element(El::Variable(id), &d.metadata, u, &mut engine)
                         {
-                            report(u, w::UNUSED_ELEMENT, v.name, interner.resolve(v.name.sym).to_string());
+                            report(
+                                u,
+                                w::UNUSED_ELEMENT,
+                                v.name,
+                                interner.resolve(v.name.sym).to_string(),
+                            );
                         }
                     }
                 }
@@ -1119,7 +1417,10 @@ pub fn unused_elements(
                 DeclKind::Mixin(x) => interner.resolve(x.name.sym).to_string(),
                 DeclKind::Enum(x) => interner.resolve(x.name.sym).to_string(),
                 DeclKind::ExtensionType(x) => interner.resolve(x.name.sym).to_string(),
-                DeclKind::Extension(x) => x.name.map(|n| interner.resolve(n.sym).to_string()).unwrap_or_default(),
+                DeclKind::Extension(x) => x
+                    .name
+                    .map(|n| interner.resolve(n.sym).to_string())
+                    .unwrap_or_default(),
                 _ => String::new(),
             };
             // `visitPrimaryConstructorDeclaration` (3.13,
@@ -1129,8 +1430,15 @@ pub fn unused_elements(
             // parameter name, with the name and the keyword; an extension type never
             // reports. The parser elaborates the field with the parameter's name.
             let declaring_names: HashSet<usize> = match primary.map(|m| &a.member(m).kind) {
-                Some(MemberKind::Constructor(k)) if matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_)) => {
-                    k.parameters.iter().filter(|p| p.this_).filter_map(|p| p.name).map(|n| n.span.start).collect()
+                Some(MemberKind::Constructor(k))
+                    if matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_)) =>
+                {
+                    k.parameters
+                        .iter()
+                        .filter(|p| p.this_)
+                        .filter_map(|p| p.name)
+                        .map(|n| n.span.start)
+                        .collect()
                 }
                 _ => HashSet::new(),
             };
@@ -1142,7 +1450,9 @@ pub fn unused_elements(
                 match &mem.kind {
                     MemberKind::Method(f) => {
                         let g = a.function(*f);
-                        let (Some(n), Some(e)) = (g.name, node_function(u, *f)) else { continue };
+                        let (Some(n), Some(e)) = (g.name, node_function(u, *f)) else {
+                            continue;
+                        };
                         let el = cx.of_function(e);
                         if !used_member(el, n.sym, &mem.metadata, u, &mut engine) {
                             report(u, w::UNUSED_ELEMENT, n, interner.resolve(n.sym).to_string());
@@ -1154,7 +1464,8 @@ pub fn unused_elements(
                             // The field of a declaring parameter `_` is a wildcard: it has no getter,
                             // and its `_isReadMember` is false (`field.getter == null`) even with reads
                             // of `_`.
-                            let wildcard = declaring_names.contains(&v.name.span.start) && interner.resolve(v.name.sym) == "_";
+                            let wildcard = declaring_names.contains(&v.name.span.start)
+                                && interner.resolve(v.name.sym) == "_";
                             if let Some(&id) = vs.get(&i)
                                 && (wildcard || !read_value(id))
                             {
@@ -1162,25 +1473,46 @@ pub fn unused_elements(
                                     let keyword = if l.final_ { "final" } else { "var" };
                                     of_primary.push((
                                         u,
-                                        Diagnostic::with_code(w::UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR, v.name.span, [interner.resolve(v.name.sym), keyword]),
+                                        Diagnostic::with_code(
+                                            w::UNUSED_FIELD_FROM_PRIMARY_CONSTRUCTOR,
+                                            v.name.span,
+                                            [interner.resolve(v.name.sym), keyword],
+                                        ),
                                     ));
                                 } else {
-                                    report(u, w::UNUSED_FIELD, v.name, interner.resolve(v.name.sym).to_string());
+                                    report(
+                                        u,
+                                        w::UNUSED_FIELD,
+                                        v.name,
+                                        interner.resolve(v.name.sym).to_string(),
+                                    );
                                 }
                             }
                         }
                     }
                     MemberKind::Constructor(k) => {
-                        let (Some(n), Some(e)) = (k.name, member_constructor(u, mid)) else { continue };
+                        let (Some(n), Some(e)) = (k.name, member_constructor(u, mid)) else {
+                            continue;
+                        };
                         if interner.resolve(n.sym) == "new" || k.primary_body_part {
                             continue;
                         }
-                        let Some(c) = program.function(e).class else { continue };
+                        let Some(c) = program.function(e).class else {
+                            continue;
+                        };
                         // The representation constructor of an extension type is not in the model,
                         // but it counts.
-                        let representation = usize::from(program.class(c).kind == ClassKind::ExtensionType);
-                        if program.class(c).constructors.len() + representation > 1 && !used_member(El::Function(e), n.sym, &mem.metadata, u, &mut engine) {
-                            report(u, w::UNUSED_ELEMENT, n, format!("{type_name}.{}", interner.resolve(n.sym)));
+                        let representation =
+                            usize::from(program.class(c).kind == ClassKind::ExtensionType);
+                        if program.class(c).constructors.len() + representation > 1
+                            && !used_member(El::Function(e), n.sym, &mem.metadata, u, &mut engine)
+                        {
+                            report(
+                                u,
+                                w::UNUSED_ELEMENT,
+                                n,
+                                format!("{type_name}.{}", interner.resolve(n.sym)),
+                            );
                         }
                     }
                 }

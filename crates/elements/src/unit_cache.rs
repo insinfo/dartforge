@@ -37,7 +37,10 @@ impl FileStamp {
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        Some(FileStamp { mtime_ns, size: md.len() })
+        Some(FileStamp {
+            mtime_ns,
+            size: md.len(),
+        })
     }
 }
 
@@ -93,7 +96,10 @@ impl AnalyzedUnitCache {
     /// series would cost seconds), without reading content.
     pub fn changed(&self) -> Vec<PathBuf> {
         let paths: Vec<(&PathBuf, FileStamp)> = self.marks.iter().map(|(p, m)| (p, *m)).collect();
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(8);
         if paths.len() < 32 || threads < 2 {
             return paths
                 .into_iter()
@@ -118,7 +124,10 @@ impl AnalyzedUnitCache {
                     })
                 })
                 .collect();
-            handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or_default())
+                .collect()
         });
         batches.into_iter().flatten().collect()
     }

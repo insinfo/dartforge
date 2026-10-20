@@ -37,12 +37,18 @@ enum Last {
     /// Word: identifier, keyword or number. `regex_after` says whether it is
     /// a keyword after which an expression comes; `number`, whether it is a
     /// numeric literal.
-    Word { regex_after: bool, number: bool },
+    Word {
+        regex_after: bool,
+        number: bool,
+    },
     /// String, template or regex.
     Literal,
     /// Punctuation: the character, and whether it forms `++`/`--` with the
     /// previous one.
-    Punct { c: u8, doubled: bool },
+    Punct {
+        c: u8,
+        doubled: bool,
+    },
 }
 
 /// Pending whitespace between the last token and the next one.
@@ -58,7 +64,20 @@ fn is_word(c: u8) -> bool {
 }
 
 const KEYWORDS_BEFORE_EXPRESSION: &[&[u8]] = &[
-    b"return", b"typeof", b"instanceof", b"in", b"of", b"new", b"delete", b"void", b"throw", b"case", b"do", b"else", b"yield", b"await",
+    b"return",
+    b"typeof",
+    b"instanceof",
+    b"in",
+    b"of",
+    b"new",
+    b"delete",
+    b"void",
+    b"throw",
+    b"case",
+    b"do",
+    b"else",
+    b"yield",
+    b"await",
 ];
 
 /// Compacts `src` (JS) according to the rules of the module.
@@ -72,7 +91,11 @@ pub fn compact(src: &str) -> String {
         let c = b[i];
         // Whitespace and line breaks.
         if c == b' ' || c == b'\t' || c == b'\n' || c == b'\r' || c == 0x0b || c == 0x0c {
-            let q = if c == b'\n' || c == b'\r' { Space::Newline } else { Space::Blank };
+            let q = if c == b'\n' || c == b'\r' {
+                Space::Newline
+            } else {
+                Space::Blank
+            };
             pending = pending.max(q);
             i += 1;
             continue;
@@ -86,9 +109,16 @@ pub fn compact(src: &str) -> String {
             continue;
         }
         if c == b'/' && b.get(i + 1) == Some(&b'*') {
-            let end = src[i + 2..].find("*/").map(|k| i + 2 + k + 2).unwrap_or(b.len());
+            let end = src[i + 2..]
+                .find("*/")
+                .map(|k| i + 2 + k + 2)
+                .unwrap_or(b.len());
             let with_newline = b[i..end].iter().any(|&x| x == b'\n' || x == b'\r');
-            pending = pending.max(if with_newline { Space::Newline } else { Space::Blank });
+            pending = pending.max(if with_newline {
+                Space::Newline
+            } else {
+                Space::Blank
+            });
             i = end;
             continue;
         }
@@ -103,14 +133,33 @@ pub fn compact(src: &str) -> String {
                 None => (i + 1, Last::Punct { c, doubled: false }),
             }
         } else if is_word(c) {
-            let number = c.is_ascii_digit() || (c == b'.' && b.get(i + 1).is_some_and(u8::is_ascii_digit));
-            let f = if number { number_end(b, i) } else { word_end(b, i) };
+            let number =
+                c.is_ascii_digit() || (c == b'.' && b.get(i + 1).is_some_and(u8::is_ascii_digit));
+            let f = if number {
+                number_end(b, i)
+            } else {
+                word_end(b, i)
+            };
             let regex_after = !number && KEYWORDS_BEFORE_EXPRESSION.contains(&&b[i..f]);
-            (f, Last::Word { regex_after, number })
+            (
+                f,
+                Last::Word {
+                    regex_after,
+                    number,
+                },
+            )
         } else if c == b'.' && b.get(i + 1).is_some_and(u8::is_ascii_digit) {
-            (number_end(b, i), Last::Word { regex_after: false, number: true })
+            (
+                number_end(b, i),
+                Last::Word {
+                    regex_after: false,
+                    number: true,
+                },
+            )
         } else {
-            let doubled = (c == b'+' || c == b'-') && matches!(last, Last::Punct { c: d, doubled: false } if d == c) && pending == Space::Zero;
+            let doubled = (c == b'+' || c == b'-')
+                && matches!(last, Last::Punct { c: d, doubled: false } if d == c)
+                && pending == Space::Zero;
             (i + 1, Last::Punct { c, doubled })
         };
         match pending {
@@ -149,7 +198,10 @@ fn needs_space(last: Last, a: Option<u8>, b: u8) -> bool {
     if matches!(last, Last::Word { number: true, .. }) && b == b'.' {
         return true;
     }
-    matches!((a, b), (b'+', b'+') | (b'-', b'-') | (b'/', b'/') | (b'/', b'*') | (b'<', b'!') | (b'-', b'>'))
+    matches!(
+        (a, b),
+        (b'+', b'+') | (b'-', b'-') | (b'/', b'/') | (b'/', b'*') | (b'<', b'!') | (b'-', b'>')
+    )
 }
 
 fn word_end(b: &[u8], mut i: usize) -> usize {
@@ -169,7 +221,8 @@ fn number_end(b: &[u8], mut i: usize) -> usize {
         let c = b[i];
         // The sign only belongs to the number right after the exponent
         // (`1e-5`).
-        let exponent_sign = (c == b'+' || c == b'-') && !hex && i > 0 && matches!(b[i - 1], b'e' | b'E');
+        let exponent_sign =
+            (c == b'+' || c == b'-') && !hex && i > 0 && matches!(b[i - 1], b'e' | b'E');
         if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' || exponent_sign {
             i += 1;
         } else {
@@ -278,13 +331,39 @@ pub const SDK_END_MARKER: &str = "dartforge:sdk-end";
 /// shapes. The other `dart.X` calls (`dsend`, `dload`, `bind`,
 /// `defineExtensionMethods`, the signatures…) treat their *strings* as names.
 const DART_WITHOUT_NAMES: &[&str] = &[
-    "privateName", "const", "constList", "constMap", "constSet", "nullCheck", "throw", "fn", "equals", "toString", "str", "strSafe", "hashCode",
-    "identical", "lateFields", "recordLiteral", "registerExtension", "jsInteropNullCheck", "checkNativeNonNull",
+    "privateName",
+    "const",
+    "constList",
+    "constMap",
+    "constSet",
+    "nullCheck",
+    "throw",
+    "fn",
+    "equals",
+    "toString",
+    "str",
+    "strSafe",
+    "hashCode",
+    "identical",
+    "lateFields",
+    "recordLiteral",
+    "registerExtension",
+    "jsInteropNullCheck",
+    "checkNativeNonNull",
 ];
 
 /// JavaScript methods whose *string* is a property name
 /// (`Object.defineProperty(o, "x", …)`, `o.hasOwnProperty("x")`).
-const JS_WITH_NAMES: &[&str] = &["defineProperty", "getOwnPropertyDescriptor", "hasOwnProperty", "propertyIsEnumerable", "get", "has", "set", "deleteProperty"];
+const JS_WITH_NAMES: &[&str] = &[
+    "defineProperty",
+    "getOwnPropertyDescriptor",
+    "hasOwnProperty",
+    "propertyIsEnumerable",
+    "get",
+    "has",
+    "set",
+    "deleteProperty",
+];
 
 /// Identifier-shaped literal *strings* that reach run time as a **property
 /// name** and therefore cannot be renamed (`docs/JS-PRODUCAO-TAMANHO.md`
@@ -360,7 +439,10 @@ impl<'a> oxc_ast_visit::Visit<'a> for IdentifierStrings {
         }
         oxc_ast_visit::walk::walk_property_key(self, it);
     }
-    fn visit_computed_member_expression(&mut self, it: &oxc_ast::ast::ComputedMemberExpression<'a>) {
+    fn visit_computed_member_expression(
+        &mut self,
+        it: &oxc_ast::ast::ComputedMemberExpression<'a>,
+    ) {
         if self.before && matches!(it.expression, oxc_ast::ast::Expression::StringLiteral(_)) {
             self.visit_expression(&it.object);
             return;
@@ -371,7 +453,11 @@ impl<'a> oxc_ast_visit::Visit<'a> for IdentifierStrings {
         // The deduplication's `var t$S… = "…"` stay at the top of the file,
         // before the marker, but only carry data *strings*: those in name
         // position are not deduplicated (`StringOccurrences`).
-        if it.id.get_binding_identifier().is_some_and(|b| b.name.starts_with("t$S")) {
+        if it
+            .id
+            .get_binding_identifier()
+            .is_some_and(|b| b.name.starts_with("t$S"))
+        {
             return;
         }
         oxc_ast_visit::walk::walk_variable_declarator(self, it);
@@ -380,7 +466,12 @@ impl<'a> oxc_ast_visit::Visit<'a> for IdentifierStrings {
         // A function body with statements (the `defineLazy` *getters*, the
         // methods): what it does is not an argument of the call. An
         // expression arrow (`() => ["a"]`) has no statements and inherits.
-        let expression = it.statements.len() == 1 && matches!(it.statements[0], oxc_ast::ast::Statement::ExpressionStatement(_)) && it.directives.is_empty();
+        let expression = it.statements.len() == 1
+            && matches!(
+                it.statements[0],
+                oxc_ast::ast::Statement::ExpressionStatement(_)
+            )
+            && it.directives.is_empty();
         let inherited = self.stack.last().copied().unwrap_or(false);
         self.stack.push(expression && inherited);
         oxc_ast_visit::walk::walk_function_body(self, it);
@@ -398,14 +489,22 @@ impl<'a> oxc_ast_visit::Visit<'a> for IdentifierStrings {
 
 impl IdentifierStrings {
     fn new(sdk_end: u32) -> Self {
-        IdentifierStrings { names: std::collections::HashSet::new(), before: true, sdk_end, stack: Vec::new() }
+        IdentifierStrings {
+            names: std::collections::HashSet::new(),
+            before: true,
+            sdk_end,
+            stack: Vec::new(),
+        }
     }
     fn is_name(&self, start: u32) -> bool {
         start < self.sdk_end || self.stack.last().copied().unwrap_or(false)
     }
     fn record(&mut self, v: &str) {
         let mut cs = v.chars();
-        let ok = cs.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+        let ok = cs
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+            && cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
         if ok && !self.names.contains(v) {
             self.names.insert(v.to_string());
         }
@@ -420,7 +519,9 @@ pub(crate) fn marker_start(program: &oxc_ast::ast::Program<'_>) -> u32 {
         for s in stmts {
             if let Statement::ExpressionStatement(e) = s {
                 match &e.expression {
-                    Expression::StringLiteral(l) if l.value == SDK_END_MARKER => return Some(l.span.start),
+                    Expression::StringLiteral(l) if l.value == SDK_END_MARKER => {
+                        return Some(l.span.start);
+                    }
                     // The `(function () { … })();` wrapper of the whole file.
                     Expression::CallExpression(c) => {
                         if let Expression::ParenthesizedExpression(p) = &c.callee
@@ -456,7 +557,10 @@ struct StringOccurrences {
 
 impl StringOccurrences {
     fn record(&mut self, it: &oxc_ast::ast::StringLiteral<'_>) {
-        self.map.entry(it.value.to_string()).or_default().push((it.span.start, it.span.end));
+        self.map
+            .entry(it.value.to_string())
+            .or_default()
+            .push((it.span.start, it.span.end));
     }
 }
 
@@ -467,12 +571,17 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringOccurrences {
         // reservation reads it there) and as the key of `x["_n$1c"]` or of
         // `in` (the visits below), which compression replaces with
         // `x._n$1c`.
-        if is_identifier(it.value.as_str()) && (it.span.start < self.sdk_end || self.stack.last().copied().unwrap_or(false)) {
+        if is_identifier(it.value.as_str())
+            && (it.span.start < self.sdk_end || self.stack.last().copied().unwrap_or(false))
+        {
             return;
         }
         self.record(it);
     }
-    fn visit_computed_member_expression(&mut self, it: &oxc_ast::ast::ComputedMemberExpression<'a>) {
+    fn visit_computed_member_expression(
+        &mut self,
+        it: &oxc_ast::ast::ComputedMemberExpression<'a>,
+    ) {
         self.visit_expression(&it.object);
         match &it.expression {
             oxc_ast::ast::Expression::StringLiteral(l) if is_identifier(l.value.as_str()) => {}
@@ -505,7 +614,12 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringOccurrences {
         self.stack.pop();
     }
     fn visit_function_body(&mut self, it: &oxc_ast::ast::FunctionBody<'a>) {
-        let expression = it.statements.len() == 1 && matches!(it.statements[0], oxc_ast::ast::Statement::ExpressionStatement(_)) && it.directives.is_empty();
+        let expression = it.statements.len() == 1
+            && matches!(
+                it.statements[0],
+                oxc_ast::ast::Statement::ExpressionStatement(_)
+            )
+            && it.directives.is_empty();
         let inherited = self.stack.last().copied().unwrap_or(false);
         self.stack.push(expression && inherited);
         oxc_ast_visit::walk::walk_function_body(self, it);
@@ -522,7 +636,9 @@ impl<'a> oxc_ast_visit::Visit<'a> for StringOccurrences {
 
 fn is_identifier(v: &str) -> bool {
     let mut cs = v.chars();
-    cs.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$') && cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+    cs.next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && cs.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
 /// Whether the *strings* in the arguments of a call to `callee` are property
@@ -532,7 +648,9 @@ fn is_identifier(v: &str) -> bool {
 fn is_bind(callee: &oxc_ast::ast::Expression<'_>) -> bool {
     use oxc_ast::ast::Expression;
     let name = match callee {
-        Expression::StaticMemberExpression(m) if matches!(&m.object, Expression::Identifier(o) if o.name == "dart") => Some(m.property.name.as_str()),
+        Expression::StaticMemberExpression(m) if matches!(&m.object, Expression::Identifier(o) if o.name == "dart") => {
+            Some(m.property.name.as_str())
+        }
         Expression::Identifier(i) => crate::flatten::member(i.name.as_str(), "dart"),
         _ => None,
     };
@@ -544,7 +662,11 @@ fn is_bind(callee: &oxc_ast::ast::Expression<'_>) -> bool {
 /// signature `sig[name]`, and both were renamed
 /// (`docs/JS-PRODUCAO-TAMANHO.md` §9.7). *Tearoff* equality compares the
 /// receiver and the method, not the name.
-fn rewrite_binds<'a>(program: &mut oxc_ast::ast::Program<'a>, map: &std::collections::HashMap<String, String>, allocator: &'a oxc_allocator::Allocator) {
+fn rewrite_binds<'a>(
+    program: &mut oxc_ast::ast::Program<'a>,
+    map: &std::collections::HashMap<String, String>,
+    allocator: &'a oxc_allocator::Allocator,
+) {
     use oxc_ast_visit::VisitMut;
     struct R<'m, 'a> {
         map: &'m std::collections::HashMap<String, String>,
@@ -574,7 +696,9 @@ fn call_takes_names(callee: &oxc_ast::ast::Expression<'_>) -> bool {
         Expression::StaticMemberExpression(m) => {
             let prop = m.property.name.as_str();
             match &m.object {
-                Expression::Identifier(o) if o.name == "dart" => !DART_WITHOUT_NAMES.contains(&prop),
+                Expression::Identifier(o) if o.name == "dart" => {
+                    !DART_WITHOUT_NAMES.contains(&prop)
+                }
                 Expression::Identifier(o) if o.name == "js_util" => true,
                 _ => JS_WITH_NAMES.contains(&prop),
             }
@@ -607,7 +731,11 @@ fn dedup_strings(source: &str) -> Result<String, String> {
     if let Some(e) = parsed.diagnostics.first() {
         return Err(format!("oxc could not parse the production file: {e}"));
     }
-    let mut oc = StringOccurrences { map: std::collections::HashMap::new(), sdk_end: marker_start(&parsed.program), stack: Vec::new() };
+    let mut oc = StringOccurrences {
+        map: std::collections::HashMap::new(),
+        sdk_end: marker_start(&parsed.program),
+        stack: Vec::new(),
+    };
     oc.visit_program(&parsed.program);
     // It pays off when the `n` copies cost more than the declaration and the
     // `n` references (≈ 3 bytes each after minification).
@@ -657,11 +785,67 @@ fn dedup_strings(source: &str) -> Result<String, String> {
 /// Property names that every JavaScript object (or function, *array*,
 /// *string*) already has: no renamed member may land on them.
 const JS_PROTOTYPE_NAMES: &[&str] = &[
-    "constructor", "prototype", "__proto__", "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__", "toString",
-    "toLocaleString", "valueOf", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "name", "length", "call", "apply", "bind",
-    "arguments", "caller", "at", "of", "is", "big", "sub", "sup", "map", "pop", "raw", "now", "get", "set", "has", "add", "keys", "fill",
-    "find", "flat", "join", "push", "some", "sort", "trim", "link", "bold", "anchor", "blink", "fixed", "small", "strike", "fontsize",
-    "fontcolor", "italics", "then", "catch", "finally", "next", "done", "value", "return", "throw",
+    "constructor",
+    "prototype",
+    "__proto__",
+    "__defineGetter__",
+    "__defineSetter__",
+    "__lookupGetter__",
+    "__lookupSetter__",
+    "toString",
+    "toLocaleString",
+    "valueOf",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "name",
+    "length",
+    "call",
+    "apply",
+    "bind",
+    "arguments",
+    "caller",
+    "at",
+    "of",
+    "is",
+    "big",
+    "sub",
+    "sup",
+    "map",
+    "pop",
+    "raw",
+    "now",
+    "get",
+    "set",
+    "has",
+    "add",
+    "keys",
+    "fill",
+    "find",
+    "flat",
+    "join",
+    "push",
+    "some",
+    "sort",
+    "trim",
+    "link",
+    "bold",
+    "anchor",
+    "blink",
+    "fixed",
+    "small",
+    "strike",
+    "fontsize",
+    "fontcolor",
+    "italics",
+    "then",
+    "catch",
+    "finally",
+    "next",
+    "done",
+    "value",
+    "return",
+    "throw",
 ];
 
 /// Counts the program's properties and gives each name in `renamed` a short
@@ -690,11 +874,17 @@ fn assign_names(
         }
     }
     impl<'a> oxc_ast_visit::Visit<'a> for Count {
-        fn visit_static_member_expression(&mut self, it: &oxc_ast::ast::StaticMemberExpression<'a>) {
+        fn visit_static_member_expression(
+            &mut self,
+            it: &oxc_ast::ast::StaticMemberExpression<'a>,
+        ) {
             self.one(it.property.name.as_str());
             oxc_ast_visit::walk::walk_static_member_expression(self, it);
         }
-        fn visit_computed_member_expression(&mut self, it: &oxc_ast::ast::ComputedMemberExpression<'a>) {
+        fn visit_computed_member_expression(
+            &mut self,
+            it: &oxc_ast::ast::ComputedMemberExpression<'a>,
+        ) {
             if let oxc_ast::ast::Expression::StringLiteral(l) = &it.expression {
                 self.one(l.value.as_str());
             }
@@ -708,7 +898,10 @@ fn assign_names(
             }
             oxc_ast_visit::walk::walk_property_key(self, it);
         }
-        fn visit_assignment_target_property_identifier(&mut self, it: &oxc_ast::ast::AssignmentTargetPropertyIdentifier<'a>) {
+        fn visit_assignment_target_property_identifier(
+            &mut self,
+            it: &oxc_ast::ast::AssignmentTargetPropertyIdentifier<'a>,
+        ) {
             self.one(it.binding.name.as_str());
             oxc_ast_visit::walk::walk_assignment_target_property_identifier(self, it);
         }
@@ -723,12 +916,20 @@ fn assign_names(
     }
     let mut c = Count(std::collections::HashMap::new());
     c.visit_program(program);
-    let mut taken: std::collections::HashSet<&str> = c.0.keys().map(String::as_str).filter(|n| !renamed.contains(*n)).collect();
+    let mut taken: std::collections::HashSet<&str> =
+        c.0.keys()
+            .map(String::as_str)
+            .filter(|n| !renamed.contains(*n))
+            .collect();
     taken.extend(extra_taken.iter().copied());
-    let mut order: Vec<(&String, u32)> = renamed.iter().map(|n| (n, c.0.get(n).copied().unwrap_or(0))).collect();
+    let mut order: Vec<(&String, u32)> = renamed
+        .iter()
+        .map(|n| (n, c.0.get(n).copied().unwrap_or(0)))
+        .collect();
     order.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
     // The groups of each shareable name (renamed, not solitary).
-    let mut groups_of: std::collections::HashMap<&str, Vec<usize>> = std::collections::HashMap::new();
+    let mut groups_of: std::collections::HashMap<&str, Vec<usize>> =
+        std::collections::HashMap::new();
     for (g, members) in names.groups.iter().enumerate() {
         for m in members {
             if renamed.contains(m) && !names.solitary.contains(m) {
@@ -812,7 +1013,10 @@ fn assign_names(
 /// The text is not valid JS for the parser (which would be an emitter
 /// defect), or `oxc` rejects the property-renaming options: the first
 /// message.
-pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Result<String, String> {
+pub fn minify_with_properties(
+    js: &str,
+    names: &crate::properties::Names,
+) -> Result<String, String> {
     use oxc_allocator::Allocator;
     use oxc_ast_visit::Visit;
     use oxc_codegen::{Codegen, CodegenOptions};
@@ -823,16 +1027,36 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
     // `DARTFORGE_JSPROD_DEDUP=0` turns off string deduplication.
     // A repeated `this` becomes a local (`alias_this.rs`);
     // `DARTFORGE_JSPROD_THIS=0` turns it off.
-    let source = if std::env::var("DARTFORGE_JSPROD_THIS").map_or(true, |v| v != "0") { crate::alias_this::apply(&source) } else { source };
-    let source = if std::env::var("DARTFORGE_JSPROD_DEDUP").map_or(true, |v| v != "0") { dedup_strings(&source)? } else { source };
+    let source = if std::env::var("DARTFORGE_JSPROD_THIS").map_or(true, |v| v != "0") {
+        crate::alias_this::apply(&source)
+    } else {
+        source
+    };
+    let source = if std::env::var("DARTFORGE_JSPROD_DEDUP").map_or(true, |v| v != "0") {
+        dedup_strings(&source)?
+    } else {
+        source
+    };
     // Library members as variables (`flatten.rs`); `DARTFORGE_JSPROD_FLATTEN=0`
     // turns it off.
-    let source = if std::env::var("DARTFORGE_JSPROD_FLATTEN").map_or(true, |v| v != "0") { crate::flatten::apply(&source)?.0 } else { source };
+    let source = if std::env::var("DARTFORGE_JSPROD_FLATTEN").map_or(true, |v| v != "0") {
+        crate::flatten::apply(&source)?.0
+    } else {
+        source
+    };
     // Trivial functions inlined at their calls (`inline.rs`);
     // `DARTFORGE_JSPROD_INLINE=0` turns it off.
-    let source = if std::env::var("DARTFORGE_JSPROD_INLINE").map_or(true, |v| v != "0") { crate::inline::apply(&source)? } else { source };
+    let source = if std::env::var("DARTFORGE_JSPROD_INLINE").map_or(true, |v| v != "0") {
+        crate::inline::apply(&source)?
+    } else {
+        source
+    };
     // Compact forms (`shapes.rs`); `DARTFORGE_JSPROD_SHAPES=0` turns it off.
-    let source = if std::env::var("DARTFORGE_JSPROD_SHAPES").map_or(true, |v| v != "0") { crate::shapes::apply(&source)? } else { source };
+    let source = if std::env::var("DARTFORGE_JSPROD_SHAPES").map_or(true, |v| v != "0") {
+        crate::shapes::apply(&source)?
+    } else {
+        source
+    };
     let allocator = Allocator::default();
     let parsed = Parser::new(&allocator, &source, SourceType::cjs()).parse();
     if let Some(e) = parsed.diagnostics.first() {
@@ -849,8 +1073,25 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
     if std::env::var("DARTFORGE_JSPROD_COMPRESS").map_or(true, |v| v != "0") {
         let mut c = oxc_minifier::CompressOptions::smallest();
         // `Object.create(dart.library)` of a namespace nobody cites: no effect.
-        c.treeshake.manual_pure_functions = ["dart.privateName", "dart.fnType", "dart.gFnType", "dart$$privateName", "dart$$fnType", "dart$$gFnType", "t$R", "Object.create"].iter().map(|s| s.to_string()).collect();
-        let _ = Minifier::new(MinifierOptions { mangle: None, mangle_properties: None, compress: Some(c) }).minify(&allocator, &mut program);
+        c.treeshake.manual_pure_functions = [
+            "dart.privateName",
+            "dart.fnType",
+            "dart.gFnType",
+            "dart$$privateName",
+            "dart$$fnType",
+            "dart$$gFnType",
+            "t$R",
+            "Object.create",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let _ = Minifier::new(MinifierOptions {
+            mangle: None,
+            mangle_properties: None,
+            compress: Some(c),
+        })
+        .minify(&allocator, &mut program);
     }
     strings.before = false;
     strings.visit_program(&program);
@@ -859,7 +1100,11 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
         .iter()
         .map(String::as_str)
         .filter(|n| !names.reserved.contains(*n) && !strings.names.contains(*n) && n.len() > 1)
-        .filter(|n| n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$') && !n.as_bytes()[0].is_ascii_digit())
+        .filter(|n| {
+            n.chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                && !n.as_bytes()[0].is_ascii_digit()
+        })
         .collect();
     free.sort_unstable();
     // `DARTFORGE_JSPROD_PROPS_WHY=a,b`: why each name stays or goes
@@ -887,15 +1132,23 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
         }
         let mut probe = oxc_minifier::PropertyMangler::new_in(base.clone(), &allocator);
         probe.collect(&program);
-        let candidates: Vec<String> = probe.assign().keys().map(|k| k.as_str().to_string()).collect();
+        let candidates: Vec<String> = probe
+            .assign()
+            .keys()
+            .map(|k| k.as_str().to_string())
+            .collect();
         let probe_candidates = candidates.clone();
         let mut o = base;
         for c in candidates {
             // A property with a private name of the program (`_x$1c`,
             // `$C$x$1c`): generated by the emitter, only cited by the text
             // itself.
-            let private = c.rsplit_once('$').is_some_and(|(b, t)| !b.is_empty() && names.tags.contains(&format!("${t}")));
-            if !free.contains(c.as_str()) && !(private && !names.reserved.contains(&c) && !strings.names.contains(&c)) {
+            let private = c
+                .rsplit_once('$')
+                .is_some_and(|(b, t)| !b.is_empty() && names.tags.contains(&format!("${t}")));
+            if !free.contains(c.as_str())
+                && !(private && !names.reserved.contains(&c) && !strings.names.contains(&c))
+            {
                 o.reserved.insert(c.as_str().into());
             }
         }
@@ -903,23 +1156,35 @@ pub fn minify_with_properties(js: &str, names: &crate::properties::Names) -> Res
         // *string* of the file as a target, and the single letters (`"a"`,
         // `"p"` of tags and CSS) went unused.
         if std::env::var("DARTFORGE_JSPROD_OWN_NAMES").map_or(true, |v| v != "0") {
-            let renamed: std::collections::HashSet<String> =
-                probe_candidates.iter().filter(|c| !o.reserved.contains(c.as_str())).cloned().collect();
+            let renamed: std::collections::HashSet<String> = probe_candidates
+                .iter()
+                .filter(|c| !o.reserved.contains(c.as_str()))
+                .cloned()
+                .collect();
             let mut extra_taken: Vec<&str> = JS_PROTOTYPE_NAMES.to_vec();
             extra_taken.extend(names.reserved.iter().map(String::as_str));
             extra_taken.extend(strings.names.iter().map(String::as_str));
             for (from, to) in assign_names(&program, &renamed, &extra_taken, names) {
-                o.cache.insert(from.into(), Some(to.into())).map_err(|e| e.to_string())?;
+                o.cache
+                    .insert(from.into(), Some(to.into()))
+                    .map_err(|e| e.to_string())?;
             }
         }
         let mut pm = oxc_minifier::PropertyMangler::new_in(o, &allocator);
         pm.collect(&program);
-        let map: std::collections::HashMap<String, String> = pm.assign().iter().map(|(a, b)| (a.as_str().to_string(), b.as_str().to_string())).collect();
+        let map: std::collections::HashMap<String, String> = pm
+            .assign()
+            .iter()
+            .map(|(a, b)| (a.as_str().to_string(), b.as_str().to_string()))
+            .collect();
         pm.rewrite(&mut program);
         rewrite_binds(&mut program, &map, &allocator);
     }
     let options = MinifierOptions {
-        mangle: Some(oxc_minifier::MangleOptions { top_level: Some(true), ..oxc_minifier::MangleOptions::default() }),
+        mangle: Some(oxc_minifier::MangleOptions {
+            top_level: Some(true),
+            ..oxc_minifier::MangleOptions::default()
+        }),
         mangle_properties: None,
         compress: None,
     };
@@ -961,7 +1226,12 @@ pub fn minify_names(js: &str) -> Result<String, String> {
     if let Some(e) = parsed.diagnostics.first() {
         return Err(format!("oxc could not parse the production file: {e}"));
     }
-    let mangle = Mangler::new().with_options(MangleOptions { top_level: Some(true), ..MangleOptions::default() }).build(&parsed.program);
+    let mangle = Mangler::new()
+        .with_options(MangleOptions {
+            top_level: Some(true),
+            ..MangleOptions::default()
+        })
+        .build(&parsed.program);
     let output = Codegen::new()
         .with_options(CodegenOptions::minify())
         .with_scoping(Some(mangle.scoping))
@@ -979,24 +1249,41 @@ mod tests {
         let js = "a.foo; a.foo; a.foo; b.bar; b.bar; c.baz; d.stat; e.unknown;";
         let allocator = oxc_allocator::Allocator::default();
         let parsed = oxc_parser::Parser::new(&allocator, js, oxc_span::SourceType::cjs()).parse();
-        let renamed: std::collections::HashSet<String> = ["foo", "bar", "baz", "stat", "unknown"].iter().map(|s| s.to_string()).collect();
+        let renamed: std::collections::HashSet<String> = ["foo", "bar", "baz", "stat", "unknown"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         // `foo` and `bar` never meet; `baz` lives with `foo`.
         let names = crate::properties::Names {
             groups: vec![vec!["foo".into(), "baz".into()], vec!["bar".into()]],
             solitary: ["stat".to_string()].into_iter().collect(),
             ..Default::default()
         };
-        let map: std::collections::HashMap<String, String> = assign_names(&parsed.program, &renamed, &[], &names).into_iter().collect();
+        let map: std::collections::HashMap<String, String> =
+            assign_names(&parsed.program, &renamed, &[], &names)
+                .into_iter()
+                .collect();
         assert_eq!(map["foo"], map["bar"]);
         assert_ne!(map["foo"], map["baz"]);
         for solo in ["stat", "unknown"] {
-            for other in ["foo", "bar", "baz", if solo == "stat" { "unknown" } else { "stat" }] {
+            for other in [
+                "foo",
+                "bar",
+                "baz",
+                if solo == "stat" { "unknown" } else { "stat" },
+            ] {
                 assert_ne!(map[solo], map[other], "{solo} shares with {other}");
             }
         }
         // Without groups, every name gets its own target.
-        let map: std::collections::HashMap<String, String> =
-            assign_names(&parsed.program, &renamed, &[], &crate::properties::Names::default()).into_iter().collect();
+        let map: std::collections::HashMap<String, String> = assign_names(
+            &parsed.program,
+            &renamed,
+            &[],
+            &crate::properties::Names::default(),
+        )
+        .into_iter()
+        .collect();
         let targets: std::collections::HashSet<&String> = map.values().collect();
         assert_eq!(targets.len(), renamed.len());
     }
@@ -1032,8 +1319,14 @@ mod tests {
     fn literals_are_copied_as_they_are() {
         assert_eq!(compact("s = 'a  // b'  ;"), "s='a  // b';");
         assert_eq!(compact("s = \"x \\\" /* y */\""), "s=\"x \\\" /* y */\"");
-        assert_eq!(compact("t = `a  ${ f( '}' ) }  b`"), "t=`a  ${ f( '}' ) }  b`");
-        assert_eq!(compact("r = /a  b[/ ]c/g.test(x)"), "r=/a  b[/ ]c/g.test(x)");
+        assert_eq!(
+            compact("t = `a  ${ f( '}' ) }  b`"),
+            "t=`a  ${ f( '}' ) }  b`"
+        );
+        assert_eq!(
+            compact("r = /a  b[/ ]c/g.test(x)"),
+            "r=/a  b[/ ]c/g.test(x)"
+        );
         assert_eq!(compact("return /  x/.exec(s)"), "return/  x/.exec(s)");
     }
 

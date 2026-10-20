@@ -53,7 +53,9 @@ impl State {
 /// with the stage (`[compile-js …]`, `[compile-native]`, `[jsprod …]`) when
 /// the compiler did not produce a program.
 fn rejected_at_compile_time(s: &Output) -> bool {
-    ["[compile-js", "[compile-native]", "[jsprod"].iter().any(|p| s.stderr.starts_with(p))
+    ["[compile-js", "[compile-native]", "[jsprod"]
+        .iter()
+        .any(|p| s.stderr.starts_with(p))
 }
 
 /// The reference was not obtained: missing tool (`Output::error`) or timeout.
@@ -76,18 +78,32 @@ fn single_line(s: &str) -> String {
 /// The state of `actual` against the reference, with the detail.
 pub fn classify(reference: &Output, actual: &Output, pending: bool) -> (State, String) {
     if reference_missing(reference) {
-        return (State::NotMeasured, single_line(reference.first_stderr_line()));
+        return (
+            State::NotMeasured,
+            single_line(reference.first_stderr_line()),
+        );
     }
     match compare(reference, actual) {
         None if rejected_at_compile_time(actual) => (State::Rejected, "as the reference".into()),
         None => (State::Supported, String::new()),
-        Some(_) if rejected_at_compile_time(actual) => (State::Rejected, single_line(actual.first_stderr_line())),
+        Some(_) if rejected_at_compile_time(actual) => {
+            (State::Rejected, single_line(actual.first_stderr_line()))
+        }
         Some(d) => {
             let place = match d {
-                Divergence::ExitCode => format!("exit code {} (reference {})", actual.code, reference.code),
+                Divergence::ExitCode => {
+                    format!("exit code {} (reference {})", actual.code, reference.code)
+                }
                 Divergence::Line(n) => format!("stdout line {n}"),
             };
-            (State::Divergent, if pending { format!("PENDENTES; {place}") } else { place })
+            (
+                State::Divergent,
+                if pending {
+                    format!("PENDENTES; {place}")
+                } else {
+                    place
+                },
+            )
         }
     }
 }
@@ -115,21 +131,51 @@ mod tests {
     use super::*;
 
     fn s(stdout: &str, stderr: &str, code: i32) -> Output {
-        Output { stdout: stdout.into(), stderr: stderr.into(), code }
+        Output {
+            stdout: stdout.into(),
+            stderr: stderr.into(),
+            code,
+        }
     }
 
     #[test]
     fn the_four_states() {
         let vm = s("1\n", "", 0);
         assert_eq!(classify(&vm, &s("1\n", "", 0), false).0, State::Supported);
-        assert_eq!(classify(&vm, &s("2\n", "", 0), false), (State::Divergent, "stdout line 1".into()));
-        assert_eq!(classify(&vm, &s("1\n", "", 255), true).1, "PENDENTES; exit code 255 (reference 0)");
-        let rejection = s("", "[compile-native] not supported by the native backend: X\ndetail", 1);
-        assert_eq!(classify(&vm, &rejection, false), (State::Rejected, "[compile-native] not supported by the native backend: X".into()));
+        assert_eq!(
+            classify(&vm, &s("2\n", "", 0), false),
+            (State::Divergent, "stdout line 1".into())
+        );
+        assert_eq!(
+            classify(&vm, &s("1\n", "", 255), true).1,
+            "PENDENTES; exit code 255 (reference 0)"
+        );
+        let rejection = s(
+            "",
+            "[compile-native] not supported by the native backend: X\ndetail",
+            1,
+        );
+        assert_eq!(
+            classify(&vm, &rejection, false),
+            (
+                State::Rejected,
+                "[compile-native] not supported by the native backend: X".into()
+            )
+        );
         // The VM rejects it too (library missing on the platform): equal.
-        let vm_rejection = s("", "main.dart:1:8: Error: Dart library 'dart:js' is not available", 254);
+        let vm_rejection = s(
+            "",
+            "main.dart:1:8: Error: Dart library 'dart:js' is not available",
+            254,
+        );
         let forge_rejection = s("", "[compile-native] library unavailable", 254);
-        assert_eq!(classify(&vm_rejection, &forge_rejection, false), (State::Rejected, "as the reference".into()));
-        assert_eq!(classify(&Output::error("dart missing"), &vm, false).0, State::NotMeasured);
+        assert_eq!(
+            classify(&vm_rejection, &forge_rejection, false),
+            (State::Rejected, "as the reference".into())
+        );
+        assert_eq!(
+            classify(&Output::error("dart missing"), &vm, false).0,
+            State::NotMeasured
+        );
     }
 }

@@ -545,7 +545,15 @@ fn cache_guards_phi_edges_and_exceptional_uses_cannot_forge_a_token() {
                     *then_block = *else_block;
                 }
             }
-            _ => caller.blocks[4].instructions.insert(0, call(32, "observe", vec![(Operand::Val(ValueId(22)), Type::Ref)], Type::Void)),
+            _ => caller.blocks[4].instructions.insert(
+                0,
+                call(
+                    32,
+                    "observe",
+                    vec![(Operand::Val(ValueId(22)), Type::Ref)],
+                    Type::Void,
+                ),
+            ),
         }
         let inventory = Inventory::new(&module);
         assert!(

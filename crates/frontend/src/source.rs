@@ -14,9 +14,10 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::ast::{
-    Annotation, Arguments, AssignOp, Ast, BinaryOp, CatchClause, CollectionElement, CreationKeyword, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody,
-    FunctionId, AsyncModifier, ListPatternElement, Parameter, ParameterKind, PatternId, PatternKind, StmtId, StmtKind, StringLit, TypeId, TypeKind,
-    TypeParameter, UnaryOp, VariableList,
+    Annotation, Arguments, AssignOp, Ast, AsyncModifier, BinaryOp, CatchClause, CollectionElement,
+    CreationKeyword, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody, FunctionId,
+    ListPatternElement, Parameter, ParameterKind, PatternId, PatternKind, StmtId, StmtKind,
+    StringLit, TypeId, TypeKind, TypeParameter, UnaryOp, VariableList,
 };
 use dartforge_intern::Interner;
 
@@ -59,7 +60,8 @@ fn identifier_part(c: u8) -> bool {
 /// The source, from `i`, starts with the whole word `p`.
 pub fn word_at(source: &str, i: usize, p: &str) -> bool {
     let b = source.as_bytes();
-    b.get(i..).is_some_and(|r| r.starts_with(p.as_bytes())) && !b.get(i + p.len()).is_some_and(|&c| identifier_part(c))
+    b.get(i..).is_some_and(|r| r.starts_with(p.as_bytes()))
+        && !b.get(i + p.len()).is_some_and(|&c| identifier_part(c))
 }
 
 /// The end of a `FunctionTypedFormalParameter`/`FieldFormalParameter` node
@@ -82,7 +84,11 @@ pub fn function_parameter_end(source: &str, after_name: usize) -> usize {
                 level = level.saturating_sub(1);
                 if level == 0 && b[i] == b')' {
                     let k = skip_whitespace(b, i + 1);
-                    return if b.get(k) == Some(&b'?') { k + 1 } else { i + 1 };
+                    return if b.get(k) == Some(&b'?') {
+                        k + 1
+                    } else {
+                        i + 1
+                    };
                 }
             }
             b'\'' | b'"' => {
@@ -139,7 +145,12 @@ pub fn from_annotation(a: &Ast, source: &str, interner: &Interner, m: &Annotatio
 
 /// The text of the type parameter list `ps` (the `TypeParameterList`; empty
 /// when there are none).
-pub fn from_type_parameters(a: &Ast, source: &str, interner: &Interner, ps: &[TypeParameter]) -> String {
+pub fn from_type_parameters(
+    a: &Ast,
+    source: &str,
+    interner: &Interner,
+    ps: &[TypeParameter],
+) -> String {
     let mut f = Printer::new(a, source, interner);
     f.type_parameters_(ps);
     f.output
@@ -191,7 +202,13 @@ struct Printer<'a> {
 
 impl<'a> Printer<'a> {
     fn new(a: &'a Ast, source: &'a str, interner: &'a Interner) -> Self {
-        Printer { a, source, interner, output: String::new(), cascade: ".." }
+        Printer {
+            a,
+            source,
+            interner,
+            output: String::new(),
+            cascade: "..",
+        }
     }
 
     fn w(&mut self, s: &str) {
@@ -279,7 +296,11 @@ impl<'a> Printer<'a> {
                 self.type_arguments_(args);
             }
             TypeKind::Void => self.w("void"),
-            TypeKind::Function { return_type, type_params, parameters } => {
+            TypeKind::Function {
+                return_type,
+                type_params,
+                parameters,
+            } => {
                 if let Some(r) = return_type {
                     self.kind(*r);
                 }
@@ -298,7 +319,9 @@ impl<'a> Printer<'a> {
                     // after the type.
                     let b = self.source.as_bytes();
                     let i = skip_whitespace(b, a.ty(p).span.end);
-                    if b.get(i).is_some_and(|&c| identifier_part(c) && !c.is_ascii_digit()) {
+                    if b.get(i)
+                        .is_some_and(|&c| identifier_part(c) && !c.is_ascii_digit())
+                    {
                         let mut j = i;
                         while j < b.len() && identifier_part(b[j]) {
                             j += 1;
@@ -519,7 +542,11 @@ impl<'a> Printer<'a> {
                 self.expr(*i);
                 self.w(")");
             }
-            ExprKind::List { const_, type_args, elements } => {
+            ExprKind::List {
+                const_,
+                type_args,
+                elements,
+            } => {
                 if *const_ {
                     self.w("const ");
                 }
@@ -528,7 +555,11 @@ impl<'a> Printer<'a> {
                 self.elements_(elements);
                 self.w("]");
             }
-            ExprKind::SetOrMap { const_, type_args, elements } => {
+            ExprKind::SetOrMap {
+                const_,
+                type_args,
+                elements,
+            } => {
                 if *const_ {
                     self.w("const ");
                 }
@@ -537,10 +568,15 @@ impl<'a> Printer<'a> {
                 self.elements_(elements);
                 self.w("}");
             }
-            ExprKind::Record { positional, named, .. } => {
+            ExprKind::Record {
+                positional, named, ..
+            } => {
                 // `visitRecordLiteral`: the fields in written order, without the `const`
                 // and without the trailing comma.
-                let mut fields_: Vec<(usize, Option<crate::ast::Name>, ExprId)> = positional.iter().map(|&p| (a.expr(p).span.start, None, p)).collect();
+                let mut fields_: Vec<(usize, Option<crate::ast::Name>, ExprId)> = positional
+                    .iter()
+                    .map(|&p| (a.expr(p).span.start, None, p))
+                    .collect();
                 fields_.extend(named.iter().map(|&(n, v)| (n.span.start, Some(n), v)));
                 fields_.sort_by_key(|c| c.0);
                 self.w("(");
@@ -556,7 +592,12 @@ impl<'a> Printer<'a> {
                 }
                 self.w(")");
             }
-            ExprKind::InstanceCreation { keyword, ty, constructor, arguments } => {
+            ExprKind::InstanceCreation {
+                keyword,
+                ty,
+                constructor,
+                arguments,
+            } => {
                 match keyword {
                     Some(CreationKeyword::New) => self.w("new "),
                     Some(CreationKeyword::Const) => self.w("const "),
@@ -570,7 +611,11 @@ impl<'a> Printer<'a> {
                 self.arguments_(arguments, false);
             }
             ExprKind::FunctionExpression(f) => self.function(*f, false),
-            ExprKind::Property { target, name, null_aware } => {
+            ExprKind::Property {
+                target,
+                name,
+                null_aware,
+            } => {
                 if matches!(a.expr(*target).kind, ExprKind::CascadeTarget) {
                     self.w(self.cascade);
                 } else {
@@ -579,7 +624,11 @@ impl<'a> Printer<'a> {
                 }
                 self.name(*name);
             }
-            ExprKind::Index { target, index, null_aware } => {
+            ExprKind::Index {
+                target,
+                index,
+                null_aware,
+            } => {
                 if matches!(a.expr(*target).kind, ExprKind::CascadeTarget) {
                     self.w(self.cascade);
                 } else {
@@ -628,7 +677,11 @@ impl<'a> Printer<'a> {
                 self.w(" ");
                 self.expr(*right);
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 self.w(" ? ");
                 self.expr(*then);
@@ -663,7 +716,11 @@ impl<'a> Printer<'a> {
                 self.w(" = ");
                 self.expr(*value);
             }
-            ExprKind::Cascade { target, sections, null_aware } => {
+            ExprKind::Cascade {
+                target,
+                sections,
+                null_aware,
+            } => {
                 self.expr(*target);
                 let before = self.cascade;
                 for (k, &s) in sections.iter().enumerate() {
@@ -818,7 +875,13 @@ impl<'a> Printer<'a> {
                 self.w(if *null_aware { "...?" } else { "..." });
                 self.expr(*value);
             }
-            CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+            CollectionElement::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.w("if (");
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
@@ -836,7 +899,13 @@ impl<'a> Printer<'a> {
                     self.element(x);
                 }
             }
-            CollectionElement::For { await_, init, condition, updates, body } => {
+            CollectionElement::For {
+                await_,
+                init,
+                condition,
+                updates,
+                body,
+            } => {
                 if *await_ {
                     self.w("await ");
                 }
@@ -845,7 +914,12 @@ impl<'a> Printer<'a> {
                 self.w(") ");
                 self.element(body);
             }
-            CollectionElement::ForIn { await_, target, iterable, body } => {
+            CollectionElement::ForIn {
+                await_,
+                target,
+                iterable,
+                body,
+            } => {
                 if *await_ {
                     self.w("await ");
                 }
@@ -858,7 +932,12 @@ impl<'a> Printer<'a> {
     }
 
     fn for_parts(&mut self, init: Option<&ForInit>, condition: Option<ExprId>, updates: &[ExprId]) {
-        if let Some(ForInit::Pattern { final_, pattern, value }) = init {
+        if let Some(ForInit::Pattern {
+            final_,
+            pattern,
+            value,
+        }) = init
+        {
             // `visitForPartsWithPattern`.
             self.w(if *final_ { "final " } else { "var " });
             self.pattern(*pattern);
@@ -896,7 +975,14 @@ impl<'a> Printer<'a> {
 
     fn for_in_parts(&mut self, target: &ForInTarget, iterable: ExprId) {
         match target {
-            ForInTarget::Declared { metadata, final_, var_, ty, name, const_ } => {
+            ForInTarget::Declared {
+                metadata,
+                final_,
+                var_,
+                ty,
+                name,
+                const_,
+            } => {
                 self.metadata(metadata);
                 if *final_ {
                     self.w("final ");
@@ -1016,7 +1102,11 @@ impl<'a> Printer<'a> {
                 self.variable_list(l);
                 self.w(";");
             }
-            StmtKind::PatternVariables { final_, pattern, value } => {
+            StmtKind::PatternVariables {
+                final_,
+                pattern,
+                value,
+            } => {
                 self.metadata_local(s);
                 self.w(if *final_ { "final " } else { "var " });
                 self.pattern(*pattern);
@@ -1044,7 +1134,13 @@ impl<'a> Printer<'a> {
                 self.expr(*e);
                 self.w(";");
             }
-            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+            StmtKind::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.w("if (");
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
@@ -1062,7 +1158,13 @@ impl<'a> Printer<'a> {
                     self.stmt(*x);
                 }
             }
-            StmtKind::For { await_, init, condition, updates, body } => {
+            StmtKind::For {
+                await_,
+                init,
+                condition,
+                updates,
+                body,
+            } => {
                 if *await_ {
                     self.w("await ");
                 }
@@ -1071,7 +1173,12 @@ impl<'a> Printer<'a> {
                 self.w(") ");
                 self.stmt(*body);
             }
-            StmtKind::ForIn { await_, target, iterable, body } => {
+            StmtKind::ForIn {
+                await_,
+                target,
+                iterable,
+                body,
+            } => {
                 if *await_ {
                     self.w("await ");
                 }
@@ -1127,7 +1234,11 @@ impl<'a> Printer<'a> {
                 self.w("}");
             }
             StmtKind::Break(l) | StmtKind::Continue(l) => {
-                self.w(if matches!(st.kind, StmtKind::Break(_)) { "break" } else { "continue" });
+                self.w(if matches!(st.kind, StmtKind::Break(_)) {
+                    "break"
+                } else {
+                    "continue"
+                });
                 if let Some(n) = l {
                     self.w(" ");
                     self.name(*n);
@@ -1147,7 +1258,11 @@ impl<'a> Printer<'a> {
                 self.expr(*value);
                 self.w(";");
             }
-            StmtKind::Try { body, catches, finally_ } => {
+            StmtKind::Try {
+                body,
+                catches,
+                finally_,
+            } => {
                 self.w("try ");
                 self.stmt(*body);
                 for c in catches.iter() {
@@ -1224,7 +1339,12 @@ impl<'a> Printer<'a> {
                 }
                 self.w("_");
             }
-            PatternKind::Variable { final_, var_, ty, name } => {
+            PatternKind::Variable {
+                final_,
+                var_,
+                ty,
+                name,
+            } => {
                 if *final_ {
                     self.w("final ");
                 } else if *var_ {
@@ -1279,7 +1399,10 @@ impl<'a> Printer<'a> {
                 self.pattern(*i);
                 self.w(")");
             }
-            PatternKind::List { type_args, elements } => {
+            PatternKind::List {
+                type_args,
+                elements,
+            } => {
                 self.type_arguments_(type_args);
                 self.w("[");
                 for (k, e) in elements.iter().enumerate() {
@@ -1298,7 +1421,11 @@ impl<'a> Printer<'a> {
                 }
                 self.w("]");
             }
-            PatternKind::Map { type_args, entries, rest } => {
+            PatternKind::Map {
+                type_args,
+                entries,
+                rest,
+            } => {
                 self.type_arguments_(type_args);
                 self.w("{");
                 for (k, e) in entries.iter().enumerate() {

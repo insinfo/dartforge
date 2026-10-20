@@ -31,7 +31,9 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use crate::ffi::{self, Task};
-use crate::{ENTRY_SYMBOL, EntryReport, HotReloadReport, JitError, JitSession, PROGRAM_STACK_BYTES};
+use crate::{
+    ENTRY_SYMBOL, EntryReport, HotReloadReport, JitError, JitSession, PROGRAM_STACK_BYTES,
+};
 
 /// What the program thread does.
 enum Command {
@@ -80,7 +82,10 @@ impl JitSession {
                 .spawn_scoped(scope, move || {
                     for command in received_list {
                         match command {
-                            Command::ExecuteMain { address, from_source } => {
+                            Command::ExecuteMain {
+                                address,
+                                from_source,
+                            } => {
                                 let start = Instant::now();
                                 let code = if from_source {
                                     ffi::call_source_main(address)
@@ -97,8 +102,20 @@ impl JitSession {
                         }
                     }
                 })
-                .map_err(|error| JitError::new("execute", "could not create the program thread", error.to_string()))?;
-            let mut alive = LiveProgram { session: self, commands, results, busy, on_wait: Box::new(|| {}) };
+                .map_err(|error| {
+                    JitError::new(
+                        "execute",
+                        "could not create the program thread",
+                        error.to_string(),
+                    )
+                })?;
+            let mut alive = LiveProgram {
+                session: self,
+                commands,
+                results,
+                busy,
+                on_wait: Box::new(|| {}),
+            };
             Ok(body(&mut alive))
             // `alive` goes out of scope here: without the command sender, the
             // thread ends when the running program ends.
@@ -135,12 +152,24 @@ impl<'s> LiveProgram<'s> {
             return self.session.add_reloadable_module(name, ir);
         }
         let runtime = match self.session.sdk_dll.clone() {
-            Some(dll) => ffi::ReloadRuntime::from_library(&dll)
-                .map_err(|detail| JitError::new("contract", "the session's runtime does not publish generations", detail))?,
+            Some(dll) => ffi::ReloadRuntime::from_library(&dll).map_err(|detail| {
+                JitError::new(
+                    "contract",
+                    "the session's runtime does not publish generations",
+                    detail,
+                )
+            })?,
             None => ffi::ReloadRuntime::embedded(),
         };
-        let LiveProgram { session, commands, busy, on_wait, .. } = self;
-        let mut at_safepoint = |task: Task| run_in_program(task, &runtime, commands, busy, on_wait.as_mut());
+        let LiveProgram {
+            session,
+            commands,
+            busy,
+            on_wait,
+            ..
+        } = self;
+        let mut at_safepoint =
+            |task: Task| run_in_program(task, &runtime, commands, busy, on_wait.as_mut());
         session.hot_reload_at_safepoint(name, ir, &mut at_safepoint)
     }
 
@@ -151,34 +180,57 @@ impl<'s> LiveProgram<'s> {
     /// published the entry.
     pub fn run_main(&mut self) -> Result<(), JitError> {
         if self.running() {
-            return Err(JitError::new("execute", "the program is already running", String::new()));
+            return Err(JitError::new(
+                "execute",
+                "the program is already running",
+                String::new(),
+            ));
         }
         let from_source = self.session.uses_source_sdk();
-        let input = self.session.stable_entry(if from_source { "main" } else { ENTRY_SYMBOL })?;
+        let input = self
+            .session
+            .stable_entry(if from_source { "main" } else { ENTRY_SYMBOL })?;
         let expected_one = if from_source { "i32 ()" } else { "void ()" };
         if input.signature() != expected_one {
             return Err(JitError::new(
                 "execute",
-                &format!("the entry {} has signature {}, expected {expected_one}", input.name(), input.signature()),
+                &format!(
+                    "the entry {} has signature {}, expected {expected_one}",
+                    input.name(),
+                    input.signature()
+                ),
                 String::new(),
             ));
         }
         self.busy.store(true, Ordering::Release);
         self.commands
-            .send(Command::ExecuteMain { address: input.address, from_source })
+            .send(Command::ExecuteMain {
+                address: input.address,
+                from_source,
+            })
             .map_err(|_| JitError::new("execute", "the program thread has ended", String::new()))
     }
 
     /// The end of the program, if it has already ended (without waiting).
     pub fn finished(&mut self) -> Option<EntryReport> {
         let (exit_code, execute) = self.results.try_recv().ok()?;
-        Some(EntryReport { lookup: Duration::ZERO, execute, total: execute, exit_code })
+        Some(EntryReport {
+            lookup: Duration::ZERO,
+            execute,
+            total: execute,
+            exit_code,
+        })
     }
 
     /// Waits for the program to end.
     pub fn wait_end(&mut self) -> Option<EntryReport> {
         let (exit_code, execute) = self.results.recv().ok()?;
-        Some(EntryReport { lookup: Duration::ZERO, execute, total: execute, exit_code })
+        Some(EntryReport {
+            lookup: Duration::ZERO,
+            execute,
+            total: execute,
+            exit_code,
+        })
     }
 }
 

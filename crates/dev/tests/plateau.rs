@@ -61,7 +61,11 @@ fn project(dir: &Path) -> (PathBuf, PathBuf) {
     let support = proj.join("support.dart");
     std::fs::write(&support, "int twice(int x) => x + x;\n").unwrap();
     let main = proj.join("main.dart");
-    std::fs::write(&main, "import 'support.dart';\nvoid main() { print(twice(2)); }\n").unwrap();
+    std::fs::write(
+        &main,
+        "import 'support.dart';\nvoid main() { print(twice(2)); }\n",
+    )
+    .unwrap();
     (main, support)
 }
 

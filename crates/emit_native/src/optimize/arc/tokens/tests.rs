@@ -198,12 +198,18 @@ fn borrowed_phi_checks_lexical_limit_in_full_wrapper() {
             vec![
                 (
                     ValueId(6),
-                    Instruction::EnvGet { env: value(0), index: 0 },
+                    Instruction::EnvGet {
+                        env: value(0),
+                        index: 0,
+                    },
                     Type::Ref,
                 ),
                 (
                     ValueId(7),
-                    Instruction::EnvGet { env: value(6), index: 0 },
+                    Instruction::EnvGet {
+                        env: value(6),
+                        index: 0,
+                    },
                     Type::Ref,
                 ),
             ],
@@ -538,7 +544,11 @@ fn copy_move_drop_and_double_consumption() {
 
 #[test]
 fn exit_with_token_and_join_with_conditional_consumption_fail() {
-    let f = function(vec![block(0, vec![copy_inst(1, 0)], Terminator::Return(None))]);
+    let f = function(vec![block(
+        0,
+        vec![copy_inst(1, 0)],
+        Terminator::Return(None),
+    )]);
     assert!(
         verify(&f, &classes(&[1], &[]))
             .unwrap_err()
@@ -560,9 +570,7 @@ fn exit_with_token_and_join_with_conditional_consumption_fail() {
     ]);
     let e = verify(&f, &classes(&[1], &[3])).unwrap_err();
     assert!(
-        e.contains("join b3")
-            && e.contains("previous path [0, 1, 3]")
-            && e.contains("path [0, 2]"),
+        e.contains("join b3") && e.contains("previous path [0, 1, 3]") && e.contains("path [0, 2]"),
         "{e}"
     );
 }
@@ -734,7 +742,11 @@ fn phi_producer_rejects_borrow_and_originless_cycle_without_changing_maps() {
 
 #[test]
 fn verified_production_does_not_publish_function_metadata_with_leaked_token() {
-    let mut f = function(vec![block(0, vec![copy_inst(1, 0)], Terminator::Return(None))]);
+    let mut f = function(vec![block(
+        0,
+        vec![copy_inst(1, 0)],
+        Terminator::Return(None),
+    )]);
     let mut c = classes(&[], &[]);
     let initial = c.clone();
     let mut p = TokenPlan::default();
@@ -768,29 +780,32 @@ fn verified_production_does_not_publish_function_metadata_with_leaked_token() {
 
 #[test]
 fn audited_borrowed_result_depends_on_argument_owner() {
-    let mut f = function(vec![block(
-        0,
-        vec![
-            copy_inst(1, 0),
-            (
-                ValueId(2),
-                Instruction::CallRuntime {
-                    name: "dartforge_native_DartForge_record_fieldAt".into(),
-                    args: vec![
-                        (value(1), Type::Ref),
-                        (Operand::Constant(Constant::Int(0)), Type::I64),
-                    ],
-                    ret_ty: Type::Ref,
-                },
-                Type::Ref,
-            ),
-        ],
-        Terminator::Branch(BlockId(2)),
-    ), block(
-        2,
-        vec![copy_inst(4, 2), drop(5, 4), drop(6, 1)],
-        Terminator::Return(None),
-    )]);
+    let mut f = function(vec![
+        block(
+            0,
+            vec![
+                copy_inst(1, 0),
+                (
+                    ValueId(2),
+                    Instruction::CallRuntime {
+                        name: "dartforge_native_DartForge_record_fieldAt".into(),
+                        args: vec![
+                            (value(1), Type::Ref),
+                            (Operand::Constant(Constant::Int(0)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+            ],
+            Terminator::Branch(BlockId(2)),
+        ),
+        block(
+            2,
+            vec![copy_inst(4, 2), drop(5, 4), drop(6, 1)],
+            Terminator::Return(None),
+        ),
+    ]);
     let mut c = classes(&[], &[]);
     let mut p = TokenPlan::default();
     let t = FunctionTables::default();
@@ -940,7 +955,10 @@ fn invoke_consumes_argument_on_both_exits_and_produces_only_on_success() {
     // exceptional exit is accepted; what is missing is still the consumption.
     p.instructions.get_mut(&ValueId(2)).unwrap().may_fail = false;
     let error = verify_tokens(&f, &c, &t, &p).unwrap_err();
-    assert!(!error.contains("exceptional exits") && error.contains("not consumed"), "{error}");
+    assert!(
+        !error.contains("exceptional exits") && error.contains("not consumed"),
+        "{error}"
+    );
 }
 
 #[test]

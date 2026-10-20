@@ -11,7 +11,10 @@
 //! library's `fieldNameNonPromotabilityInfo` (which why-not-promoted shows)
 //! and the promotable fields (`isPromotable`).
 
-use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, LibraryId, Program, VariableId, VariableRef};
+use dartforge_elements::model::{
+    ClassId, ClassKind, FunctionElementId, FunctionKind, LibraryId, Program, VariableId,
+    VariableRef,
+};
 use dartforge_frontend::ast;
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
@@ -59,7 +62,10 @@ pub fn enabled(program: &Program, lib: LibraryId) -> bool {
 /// The classes, enums and mixins of a unit in the analyzer's order: the
 /// classes (and class aliases), then the enums, then the mixins, each group
 /// in declaration order.
-fn unit_declarations(program: &Program, u: dartforge_elements::model::UnitId) -> Vec<(ClassId, bool)> {
+fn unit_declarations(
+    program: &Program,
+    u: dartforge_elements::model::UnitId,
+) -> Vec<(ClassId, bool)> {
     let mut classes = Vec::new();
     let mut enums = Vec::new();
     let mut mixins = Vec::new();
@@ -83,7 +89,12 @@ fn unit_declarations(program: &Program, u: dartforge_elements::model::UnitId) ->
     classes.sort_by_key(|x| x.0);
     enums.sort_by_key(|x| x.0);
     mixins.sort_by_key(|x| x.0);
-    classes.into_iter().chain(enums).chain(mixins).map(|(_, id, a)| (id, a)).collect()
+    classes
+        .into_iter()
+        .chain(enums)
+        .chain(mixins)
+        .map(|(_, id, a)| (id, a))
+        .collect()
 }
 
 /// `getSuperclasses`: the supertype and the mixins; with `implements` (and
@@ -103,7 +114,12 @@ fn superclasses(program: &Program, c: ClassId, ignore_implements: bool) -> Vec<C
 
 /// The `_directNames` names of each node reachable from `c` (the
 /// `_ClassHierarchyWalker`: the transitive union).
-fn transitive_names(program: &Program, c: ClassId, direct: &HashMap<ClassId, HashSet<SymbolId>>, ignore_implements: bool) -> HashSet<SymbolId> {
+fn transitive_names(
+    program: &Program,
+    c: ClassId,
+    direct: &HashMap<ClassId, HashSet<SymbolId>>,
+    ignore_implements: bool,
+) -> HashSet<SymbolId> {
     let mut seen: HashSet<ClassId> = HashSet::new();
     let mut stack = vec![c];
     let mut names = HashSet::new();
@@ -122,10 +138,12 @@ fn transitive_names(program: &Program, c: ClassId, direct: &HashMap<ClassId, Has
 /// The written `abstract` of a field.
 fn abstract_field(program: &Program, v: VariableId) -> bool {
     match program.variable(v).node {
-        VariableRef::Field { unit, member, .. } => match &program.unit(unit).ast.member(member).kind {
-            ast::MemberKind::Field(l) => l.abstract_,
-            _ => false,
-        },
+        VariableRef::Field { unit, member, .. } => {
+            match &program.unit(unit).ast.member(member).kind {
+                ast::MemberKind::Field(l) => l.abstract_,
+                _ => false,
+            }
+        }
         _ => false,
     }
 }
@@ -200,9 +218,10 @@ pub fn compute(program: &Program, interner: &Interner, lib: LibraryId) -> Librar
                 continue;
             }
             if let Some(rep) = c.representation
-                && private(program.variable(rep).name) {
-                    r.fields.insert(rep);
-                }
+                && private(program.variable(rep).name)
+            {
+                r.fields.insert(rep);
+            }
         }
     }
     // `computeNonPromotabilityInfo`: the concrete classes whose interface has
@@ -210,7 +229,10 @@ pub fn compute(program: &Program, interner: &Interner, lib: LibraryId) -> Librar
     for &c in &concrete {
         let interface_names = transitive_names(program, c, &interface, false);
         let implemented_names = transitive_names(program, c, &implemented, true);
-        let mut missing: Vec<SymbolId> = interface_names.into_iter().filter(|n| !implemented_names.contains(n)).collect();
+        let mut missing: Vec<SymbolId> = interface_names
+            .into_iter()
+            .filter(|n| !implemented_names.contains(n))
+            .collect();
         missing.sort();
         for n in missing {
             info.entry(n).or_default().nsm_classes.push(c);

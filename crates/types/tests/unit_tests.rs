@@ -12,9 +12,9 @@ use dartforge_elements::model::*;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
 use dartforge_types::ops::{erase_extension_type, substitute};
+use dartforge_types::resolve_outline;
 use dartforge_types::subtyping::is_subtype;
 use dartforge_types::table::{CoreTypes, Type, TypeId, TypeTable};
-use dartforge_types::resolve_outline;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -105,12 +105,17 @@ fn test_generic_typedef_expansion() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loads the program with a typedef");
+    let prog =
+        load(&main_dart, &sdk, None, &mut interner).expect("loads the program with a typedef");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
     let (outline, diags) = resolve_outline(&prog, &interner, &mut table, &core);
-    assert!(diags.is_empty(), "there must be no resolution errors: {:?}", diags);
+    assert!(
+        diags.is_empty(),
+        "there must be no resolution errors: {:?}",
+        diags
+    );
 
     // Finds the field Target.cb
     let cb_sym = interner.intern("cb");
@@ -134,7 +139,10 @@ fn test_generic_typedef_expansion() {
             ..
         } => {
             assert!(*nullable, "cb must be nullable (F<int>?)");
-            assert_eq!(*ret, core.int, "the expanded return of the typedef must be int");
+            assert_eq!(
+                *ret, core.int,
+                "the expanded return of the typedef must be int"
+            );
             assert_eq!(positional.len(), 1, "must have 1 positional parameter");
             assert_eq!(positional[0], core.int, "the parameter must be int");
         }
@@ -157,7 +165,9 @@ fn test_generic_typedef_expansion() {
     let substituted = substitute(typedef_data.target_type, &subst_map, &mut table);
 
     match table.get(substituted) {
-        Type::Function { ret, positional, .. } => {
+        Type::Function {
+            ret, positional, ..
+        } => {
             assert_eq!(*ret, core.int);
             assert_eq!(positional.len(), 1);
             assert_eq!(positional[0], core.int);
@@ -197,12 +207,17 @@ fn test_override_inference() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loads the program with an override");
+    let prog =
+        load(&main_dart, &sdk, None, &mut interner).expect("loads the program with an override");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
     let (outline, diags) = resolve_outline(&prog, &interner, &mut table, &core);
-    assert!(diags.is_empty(), "there must be no resolution errors: {:?}", diags);
+    assert!(
+        diags.is_empty(),
+        "there must be no resolution errors: {:?}",
+        diags
+    );
 
     let child_sym = interner.intern("Child");
     let (child_cid, _) = prog
@@ -289,7 +304,11 @@ fn test_mixin_application_instantiated_supertypes() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
     let (outline, diags) = resolve_outline(&prog, &interner, &mut table, &core);
-    assert!(diags.is_empty(), "there must be no resolution errors: {:?}", diags);
+    assert!(
+        diags.is_empty(),
+        "there must be no resolution errors: {:?}",
+        diags
+    );
 
     let mut find_cls = |name: &str| -> ClassId {
         let sym = interner.intern(name);
@@ -397,7 +416,11 @@ fn test_extension_type_erasure_and_subtyping() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
     let (outline, diags) = resolve_outline(&prog, &interner, &mut table, &core);
-    assert!(diags.is_empty(), "there must be no resolution errors: {:?}", diags);
+    assert!(
+        diags.is_empty(),
+        "there must be no resolution errors: {:?}",
+        diags
+    );
 
     let mut find_cls = |name: &str| -> ClassId {
         let sym = interner.intern(name);
@@ -441,17 +464,20 @@ fn test_extension_type_erasure_and_subtyping() {
     };
 
     let erased_id = erase_extension_type(id_ty, &mut table, &rep_fn);
-    assert_eq!(erased_id, core.int, "erase_extension_type(Id) must return int");
+    assert_eq!(
+        erased_id, core.int,
+        "erase_extension_type(Id) must return int"
+    );
 
     let erased_sub = erase_extension_type(sub_id_ty, &mut table, &rep_fn);
-    assert_eq!(erased_sub, core.int, "erase_extension_type(SubId) must return int");
+    assert_eq!(
+        erased_sub, core.int,
+        "erase_extension_type(SubId) must return int"
+    );
 
     // 2. Subtipagem
-    let mut env = dartforge_types::subtyping::SubtypeEnv::new(
-        &mut table,
-        &outline.hierarchy,
-        &core,
-    );
+    let mut env =
+        dartforge_types::subtyping::SubtypeEnv::new(&mut table, &outline.hierarchy, &core);
 
     // Id does not implement int: Id <: int is FALSE
     assert!(
@@ -506,7 +532,8 @@ fn test_accumulated_diagnostics_unknown_type() {
     )
     .unwrap();
 
-    let prog = load(&main_dart, &sdk, None, &mut interner).expect("loads the program with a type error");
+    let prog =
+        load(&main_dart, &sdk, None, &mut interner).expect("loads the program with a type error");
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
 
@@ -518,8 +545,10 @@ fn test_accumulated_diagnostics_unknown_type() {
         "must accumulate a diagnostic for the nonexistent type"
     );
     assert!(
-        diags.iter().any(|d| d.code.is_some_and(|c| c.info().name == "undefined_class")
-            && d.message.starts_with("Undefined class '")),
+        diags.iter().any(
+            |d| d.code.is_some_and(|c| c.info().name == "undefined_class")
+                && d.message.starts_with("Undefined class '")
+        ),
         "the error must be the analyzer's undefined_class: {:?}",
         diags
     );
@@ -549,7 +578,10 @@ fn test_accumulated_diagnostics_unknown_type() {
         }
     }
 
-    assert!(found_bad && found_good, "both fields must have been inspected");
+    assert!(
+        found_bad && found_good,
+        "both fields must have been inspected"
+    );
 }
 
 /// `class C extends C` (`recursive_interface_inheritance`): the outline
@@ -560,7 +592,11 @@ fn superclass_of_itself_terminates() {
     let sdk = mock_sdk(tmp.path());
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    fs::write(&main_dart, "class C extends C {\n  var foo = 0;\n  bar();\n}\n").unwrap();
+    fs::write(
+        &main_dart,
+        "class C extends C {\n  var foo = 0;\n  bar();\n}\n",
+    )
+    .unwrap();
     let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
@@ -583,13 +619,16 @@ fn corpus_invalid_overrides() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let lib = prog.entry.unwrap();
-    let classes: Vec<ClassId> =
-        (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
-    let mut v: Vec<(String, String)> =
-        dartforge_types::override_checks::invalid_overrides(&prog, &interner, &mut table, &core, &outline, &classes)
-            .into_iter()
-            .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
-            .collect();
+    let classes: Vec<ClassId> = (0..prog.classes.len())
+        .map(|i| ClassId(i as u32))
+        .filter(|c| prog.class(*c).library == lib)
+        .collect();
+    let mut v: Vec<(String, String)> = dartforge_types::override_checks::invalid_overrides(
+        &prog, &interner, &mut table, &core, &outline, &classes,
+    )
+    .into_iter()
+    .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
+    .collect();
     v.sort();
     assert_eq!(
         v,
@@ -618,10 +657,11 @@ fn type_parameter_variance() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let lib = prog.entry.unwrap();
-    let v: Vec<(String, String)> = dartforge_types::variance::variance(&prog, &interner, &table, &outline, lib)
-        .into_iter()
-        .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
-        .collect();
+    let v: Vec<(String, String)> =
+        dartforge_types::variance::variance(&prog, &interner, &table, &outline, lib)
+            .into_iter()
+            .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
+            .collect();
     assert_eq!(
         v,
         vec![
@@ -651,13 +691,16 @@ fn getter_and_setter_with_incompatible_types() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let lib = prog.entry.unwrap();
-    let classes: Vec<ClassId> =
-        (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
-    let mut v: Vec<(String, String)> =
-        dartforge_types::override_checks::getters_and_setters(&prog, &interner, &mut table, &core, &outline, lib, &classes)
-            .into_iter()
-            .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
-            .collect();
+    let classes: Vec<ClassId> = (0..prog.classes.len())
+        .map(|i| ClassId(i as u32))
+        .filter(|c| prog.class(*c).library == lib)
+        .collect();
+    let mut v: Vec<(String, String)> = dartforge_types::override_checks::getters_and_setters(
+        &prog, &interner, &mut table, &core, &outline, lib, &classes,
+    )
+    .into_iter()
+    .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
+    .collect();
     v.sort();
     assert_eq!(
         v,
@@ -686,19 +729,28 @@ fn abstract_members_in_concrete_class() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let lib = prog.entry.unwrap();
-    let classes: Vec<ClassId> =
-        (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
-    let mut v: Vec<(String, String)> =
-        dartforge_types::override_checks::abstract_members(&prog, &interner, &mut table, &core, &outline, &classes)
-            .into_iter()
-            .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
-            .collect();
+    let classes: Vec<ClassId> = (0..prog.classes.len())
+        .map(|i| ClassId(i as u32))
+        .filter(|c| prog.class(*c).library == lib)
+        .collect();
+    let mut v: Vec<(String, String)> = dartforge_types::override_checks::abstract_members(
+        &prog, &interner, &mut table, &core, &outline, &classes,
+    )
+    .into_iter()
+    .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
+    .collect();
     v.sort();
     assert_eq!(
         v,
         vec![
-            ("B".to_string(), "Missing concrete implementations of 'I.m' and 'getter I.g'.".to_string()),
-            ("void f();".to_string(), "'f' must have a method body because 'A' isn't abstract.".to_string()),
+            (
+                "B".to_string(),
+                "Missing concrete implementations of 'I.m' and 'getter I.g'.".to_string()
+            ),
+            (
+                "void f();".to_string(),
+                "'f' must have a method body because 'A' isn't abstract.".to_string()
+            ),
         ]
     );
 }
@@ -718,11 +770,15 @@ fn conflicting_members_and_default_values() {
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let lib = prog.entry.unwrap();
-    let mut v: Vec<(String, String)> = dartforge_types::override_checks::conflicting_members(&prog, &interner, &mut table, &core, &outline, lib)
-        .into_iter()
-        .chain(dartforge_types::override_checks::default_values(&prog, &interner, &mut table, &outline, lib))
-        .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
-        .collect();
+    let mut v: Vec<(String, String)> = dartforge_types::override_checks::conflicting_members(
+        &prog, &interner, &mut table, &core, &outline, lib,
+    )
+    .into_iter()
+    .chain(dartforge_types::override_checks::default_values(
+        &prog, &interner, &mut table, &outline, lib,
+    ))
+    .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
+    .collect();
     v.sort();
     assert_eq!(
         v,
@@ -748,20 +804,24 @@ fn members_forbidden_in_enum_implementers() {
     .unwrap();
     let mut interner = Interner::new();
     let main_dart = tmp.path().join("main.dart");
-    let source = "abstract class A implements Enum {\n  int get index => 0;\n  int values = 0;\n}\n";
+    let source =
+        "abstract class A implements Enum {\n  int get index => 0;\n  int values = 0;\n}\n";
     fs::write(&main_dart, source).unwrap();
     let (prog, _) = dartforge_elements::load::load_lenient(&main_dart, &sdk, None, &mut interner);
     let mut table = TypeTable::new();
     let core = CoreTypes::init(&mut table, &prog, &interner);
     let (outline, _) = resolve_outline(&prog, &interner, &mut table, &core);
     let lib = prog.entry.unwrap();
-    let classes: Vec<ClassId> =
-        (0..prog.classes.len()).map(|i| ClassId(i as u32)).filter(|c| prog.class(*c).library == lib).collect();
-    let mut v: Vec<(String, String)> =
-        dartforge_types::override_checks::enum_members(&prog, &interner, &mut table, &core, &outline, &classes)
-            .into_iter()
-            .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
-            .collect();
+    let classes: Vec<ClassId> = (0..prog.classes.len())
+        .map(|i| ClassId(i as u32))
+        .filter(|c| prog.class(*c).library == lib)
+        .collect();
+    let mut v: Vec<(String, String)> = dartforge_types::override_checks::enum_members(
+        &prog, &interner, &mut table, &core, &outline, &classes,
+    )
+    .into_iter()
+    .map(|(_, d)| (source[d.span.start..d.span.end].to_string(), d.message))
+    .collect();
     v.sort();
     assert_eq!(
         v,

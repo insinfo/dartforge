@@ -23,7 +23,7 @@
 
 use super::LlvmEmitter;
 use crate::hir::*;
-use dartforge_runtime::layout::{self, cid, state, flags};
+use dartforge_runtime::layout::{self, cid, flags, state};
 use std::fmt::Write;
 
 #[cfg(test)]
@@ -277,7 +277,11 @@ impl LlvmEmitter<'_> {
         let only = self.coerce(op, Type::Ref);
         match to {
             Type::F64 => {
-                writeln!(self.out, "  %v{v} = call double @df.unbox_double(i64 {only})").unwrap();
+                writeln!(
+                    self.out,
+                    "  %v{v} = call double @df.unbox_double(i64 {only})"
+                )
+                .unwrap();
             }
             Type::I1 => {
                 writeln!(self.out, "  %v{v} = call i1 @df.unbox_bool(i64 {only})").unwrap();
@@ -292,7 +296,12 @@ impl LlvmEmitter<'_> {
     /// header `hdr`, into `%v<v>`, and its pointer (the handle) into `%bp<v>`.
     /// Above `TLAB_N` words, `@df.allocate` goes to the runtime.
     fn allocate_block(&mut self, v: u32, hdr: u64, w: usize) {
-        writeln!(self.out, "  %v{v} = call i64 @df.allocate(i64 {}, i64 {w})", hdr as i64).unwrap();
+        writeln!(
+            self.out,
+            "  %v{v} = call i64 @df.allocate(i64 {}, i64 {w})",
+            hdr as i64
+        )
+        .unwrap();
         writeln!(self.out, "  %bp{v} = inttoptr i64 %v{v} to ptr").unwrap();
     }
 
@@ -300,8 +309,16 @@ impl LlvmEmitter<'_> {
     /// (from the block) of object `%bp<v>`; `suffix` makes the name unique.
     fn store_word(&mut self, v: u32, suffix: &str, off: usize, value: &str) {
         let d = off as i64 - layout::HANDLE_OFFSET;
-        writeln!(self.out, "  %bg{v}_{suffix} = getelementptr inbounds i8, ptr %bp{v}, i64 {d}").unwrap();
-        writeln!(self.out, "  store i64 {value}, ptr %bg{v}_{suffix}, align 8").unwrap();
+        writeln!(
+            self.out,
+            "  %bg{v}_{suffix} = getelementptr inbounds i8, ptr %bp{v}, i64 {d}"
+        )
+        .unwrap();
+        writeln!(
+            self.out,
+            "  store i64 {value}, ptr %bg{v}_{suffix}, align 8"
+        )
+        .unwrap();
     }
 
     /// Writes the `map` (the first 32 reference bits) of object `%bp<v>`.
@@ -311,7 +328,11 @@ impl LlvmEmitter<'_> {
             return;
         }
         let d = layout::offsets::MAP as i64 - layout::HANDLE_OFFSET;
-        writeln!(self.out, "  %bm{v} = getelementptr inbounds i8, ptr %bp{v}, i64 {d}").unwrap();
+        writeln!(
+            self.out,
+            "  %bm{v} = getelementptr inbounds i8, ptr %bp{v}, i64 {d}"
+        )
+        .unwrap();
         writeln!(self.out, "  store i32 {}, ptr %bm{v}, align 4", map as i32).unwrap();
     }
 
@@ -327,12 +348,27 @@ impl LlvmEmitter<'_> {
     pub(super) fn record_buffer(&mut self, v: u32, elements: &[(Operand, u8)]) {
         if self.arc_owned_factories() {
             if !elements.is_empty() {
-                writeln!(self.out, "  %rec_buf_{v} = alloca [{} x i64]", elements.len()).unwrap();
+                writeln!(
+                    self.out,
+                    "  %rec_buf_{v} = alloca [{} x i64]",
+                    elements.len()
+                )
+                .unwrap();
             }
         } else if !self.refs_only_record(elements) {
-            writeln!(self.out, "  %rec_buf_{v} = alloca [{} x i64]", elements.len() * 2).unwrap();
+            writeln!(
+                self.out,
+                "  %rec_buf_{v} = alloca [{} x i64]",
+                elements.len() * 2
+            )
+            .unwrap();
         } else if 1 + elements.len() > layout::TLAB_N {
-            writeln!(self.out, "  %rec_buf_{v} = alloca [{} x i64]", elements.len()).unwrap();
+            writeln!(
+                self.out,
+                "  %rec_buf_{v} = alloca [{} x i64]",
+                elements.len()
+            )
+            .unwrap();
         }
     }
 
@@ -344,11 +380,23 @@ impl LlvmEmitter<'_> {
         if self.arc_owned_factories() {
             for (i, (elem, _)) in elements.iter().enumerate() {
                 let s = self.coerce(elem, Type::Ref);
-                writeln!(self.out, "  %rb{v}_{i} = getelementptr [{n} x i64], ptr %rec_buf_{v}, i64 0, i64 {i}").unwrap();
+                writeln!(
+                    self.out,
+                    "  %rb{v}_{i} = getelementptr [{n} x i64], ptr %rec_buf_{v}, i64 0, i64 {i}"
+                )
+                .unwrap();
                 writeln!(self.out, "  store i64 {s}, ptr %rb{v}_{i}").unwrap();
             }
-            let buf = if n == 0 { "null".to_string() } else { format!("%rec_buf_{v}") };
-            writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_record_from_refs_owned_v1(ptr {buf}, i64 {n})").unwrap();
+            let buf = if n == 0 {
+                "null".to_string()
+            } else {
+                format!("%rec_buf_{v}")
+            };
+            writeln!(
+                self.out,
+                "  %v{v} = call i64 @dartforge_arc_record_from_refs_owned_v1(ptr {buf}, i64 {n})"
+            )
+            .unwrap();
             return;
         }
         if !self.refs_only_record(elements) {
@@ -358,26 +406,51 @@ impl LlvmEmitter<'_> {
             for (i, (elem, _)) in elements.iter().enumerate() {
                 let tag = self.tag_of(elem);
                 let sop = self.coerce(elem, Type::I64);
-                writeln!(self.out, "  %rb{v}_{i} = getelementptr [{total} x i64], ptr %rec_buf_{v}, i64 0, i64 {}", i * 2).unwrap();
+                writeln!(
+                    self.out,
+                    "  %rb{v}_{i} = getelementptr [{total} x i64], ptr %rec_buf_{v}, i64 0, i64 {}",
+                    i * 2
+                )
+                .unwrap();
                 writeln!(self.out, "  store i64 {sop}, ptr %rb{v}_{i}").unwrap();
-                writeln!(self.out, "  %rt{v}_{i} = getelementptr [{total} x i64], ptr %rec_buf_{v}, i64 0, i64 {}", i * 2 + 1).unwrap();
+                writeln!(
+                    self.out,
+                    "  %rt{v}_{i} = getelementptr [{total} x i64], ptr %rec_buf_{v}, i64 0, i64 {}",
+                    i * 2 + 1
+                )
+                .unwrap();
                 writeln!(self.out, "  store i64 {tag}, ptr %rt{v}_{i}").unwrap();
             }
-            writeln!(self.out, "  %v{v} = call i64 @dartforge_record_new(ptr %rec_buf_{v}, i64 {n})").unwrap();
+            writeln!(
+                self.out,
+                "  %v{v} = call i64 @dartforge_record_new(ptr %rec_buf_{v}, i64 {n})"
+            )
+            .unwrap();
             return;
         }
         let w = 1 + n;
         if w > layout::TLAB_N {
             for (i, (elem, _)) in elements.iter().enumerate() {
                 let s = self.coerce(elem, Type::Ref);
-                writeln!(self.out, "  %rb{v}_{i} = getelementptr [{n} x i64], ptr %rec_buf_{v}, i64 0, i64 {i}").unwrap();
+                writeln!(
+                    self.out,
+                    "  %rb{v}_{i} = getelementptr [{n} x i64], ptr %rec_buf_{v}, i64 0, i64 {i}"
+                )
+                .unwrap();
                 writeln!(self.out, "  store i64 {s}, ptr %rb{v}_{i}").unwrap();
             }
-            writeln!(self.out, "  %v{v} = call i64 @dartforge_record_from_refs(ptr %rec_buf_{v}, i64 {n})").unwrap();
+            writeln!(
+                self.out,
+                "  %v{v} = call i64 @dartforge_record_from_refs(ptr %rec_buf_{v}, i64 {n})"
+            )
+            .unwrap();
             return;
         }
         let hdr = layout::header_word(state::YOUNG, flags::REFS, w, cid::RECORD);
-        let values: Vec<String> = elements.iter().map(|(e, _)| self.coerce(e, Type::Ref)).collect();
+        let values: Vec<String> = elements
+            .iter()
+            .map(|(e, _)| self.coerce(e, Type::Ref))
+            .collect();
         self.allocate_block(v, hdr, w);
         self.store_word(v, "n", layout::offsets::RECORD_SHAPE, &n.to_string());
         for (i, s) in values.iter().enumerate() {
@@ -414,7 +487,11 @@ impl LlvmEmitter<'_> {
         let c = self.coerce(cell, Type::Ref);
         let d = layout::offsets::BODY as i64 - layout::HANDLE_OFFSET;
         writeln!(self.out, "  %cgp{v} = inttoptr i64 {c} to ptr").unwrap();
-        writeln!(self.out, "  %cgg{v} = getelementptr inbounds i8, ptr %cgp{v}, i64 {d}").unwrap();
+        writeln!(
+            self.out,
+            "  %cgg{v} = getelementptr inbounds i8, ptr %cgp{v}, i64 {d}"
+        )
+        .unwrap();
         writeln!(self.out, "  %u{v} = load i64, ptr %cgg{v}, align 8").unwrap();
         self.bits_to_repr(v, &format!("%u{v}"), ty);
     }
@@ -429,17 +506,40 @@ impl LlvmEmitter<'_> {
         // Under ARC the write goes to the runtime, which counts the replacement (field 0 of the
         // cell, a one-field `INSTANCE`).
         if self.module.arc_memory {
-            writeln!(self.out, "  call void @dartforge_object_set(i64 {c}, i64 0, i64 {s}, i8 {})", u8::from(is_ref)).unwrap();
+            writeln!(
+                self.out,
+                "  call void @dartforge_object_set(i64 {c}, i64 0, i64 {s}, i8 {})",
+                u8::from(is_ref)
+            )
+            .unwrap();
             return;
         }
         let d = layout::offsets::BODY as i64 - layout::HANDLE_OFFSET;
         let dm = layout::offsets::MAP as i64 - layout::HANDLE_OFFSET;
         writeln!(self.out, "  %csp{k} = inttoptr i64 {c} to ptr").unwrap();
-        writeln!(self.out, "  %csg{k} = getelementptr inbounds i8, ptr %csp{k}, i64 {d}").unwrap();
+        writeln!(
+            self.out,
+            "  %csg{k} = getelementptr inbounds i8, ptr %csp{k}, i64 {d}"
+        )
+        .unwrap();
         writeln!(self.out, "  store i64 {s}, ptr %csg{k}, align 8").unwrap();
-        writeln!(self.out, "  %csm{k} = getelementptr inbounds i8, ptr %csp{k}, i64 {dm}").unwrap();
-        writeln!(self.out, "  store i32 {}, ptr %csm{k}, align 4", u8::from(is_ref)).unwrap();
-        let constant = matches!(value, Operand::Constant(Constant::Null | Constant::Int(_) | Constant::Bool(_) | Constant::Double(_)));
+        writeln!(
+            self.out,
+            "  %csm{k} = getelementptr inbounds i8, ptr %csp{k}, i64 {dm}"
+        )
+        .unwrap();
+        writeln!(
+            self.out,
+            "  store i32 {}, ptr %csm{k}, align 4",
+            u8::from(is_ref)
+        )
+        .unwrap();
+        let constant = matches!(
+            value,
+            Operand::Constant(
+                Constant::Null | Constant::Int(_) | Constant::Bool(_) | Constant::Double(_)
+            )
+        );
         if is_ref && !constant {
             writeln!(self.out, "  call void @df.barrier(i64 {c}, i64 {s})").unwrap();
         }
@@ -460,8 +560,14 @@ impl LlvmEmitter<'_> {
             writeln!(self.out, "  %v{v} = add i64 0, 0").unwrap();
             return;
         }
-        let refs: Vec<bool> = values.iter().map(|val| self.type_of(val) == Type::Ref).collect();
-        let bits: Vec<String> = values.iter().map(|val| self.coerce(val, Type::I64)).collect();
+        let refs: Vec<bool> = values
+            .iter()
+            .map(|val| self.type_of(val) == Type::Ref)
+            .collect();
+        let bits: Vec<String> = values
+            .iter()
+            .map(|val| self.coerce(val, Type::I64))
+            .collect();
         let w = layout::instance_words(n);
         if w <= layout::TLAB_N {
             let hdr = layout::header_word(state::YOUNG, flags::INSTANCE, n, cid::CONTEXT);
@@ -469,13 +575,22 @@ impl LlvmEmitter<'_> {
         } else {
             // A large context: the runtime (the `n` of an `INSTANCE` is the number
             // of fields, not the words of the body).
-            writeln!(self.out, "  %v{v} = call i64 @dartforge_object_new(i64 {}, i64 {n})", cid::CONTEXT).unwrap();
+            writeln!(
+                self.out,
+                "  %v{v} = call i64 @dartforge_object_new(i64 {}, i64 {n})",
+                cid::CONTEXT
+            )
+            .unwrap();
             writeln!(self.out, "  %bp{v} = inttoptr i64 %v{v} to ptr").unwrap();
         }
         for (i, s) in bits.iter().enumerate() {
             self.store_word(v, &i.to_string(), layout::offsets::BODY + 8 * i, s);
         }
-        let map = refs.iter().take(32).enumerate().fold(0u32, |m, (i, &r)| m | (u32::from(r) << i));
+        let map = refs
+            .iter()
+            .take(32)
+            .enumerate()
+            .fold(0u32, |m, (i, &r)| m | (u32::from(r) << i));
         self.store_map(v, map);
         let has_ref = refs.iter().any(|&r| r);
         // The extension of the map (fields 32..), in the words after the fields.
@@ -502,7 +617,11 @@ impl LlvmEmitter<'_> {
         let e = self.coerce(env, Type::Ref);
         let d = (layout::offsets::BODY + 8 * index) as i64 - layout::HANDLE_OFFSET;
         writeln!(self.out, "  %ep{v} = inttoptr i64 {e} to ptr").unwrap();
-        writeln!(self.out, "  %eg{v} = getelementptr inbounds i8, ptr %ep{v}, i64 {d}").unwrap();
+        writeln!(
+            self.out,
+            "  %eg{v} = getelementptr inbounds i8, ptr %ep{v}, i64 {d}"
+        )
+        .unwrap();
         writeln!(self.out, "  %u{v} = load i64, ptr %eg{v}, align 8").unwrap();
         self.bits_to_repr(v, &format!("%u{v}"), ty);
     }
@@ -533,7 +652,15 @@ impl LlvmEmitter<'_> {
     /// The closure with a typed body (`AllocClosureTyped`). With `direct`, `env`
     /// is the captured value itself (or the `this`) in place of the context: the same
     /// `Ref` field.
-    pub(super) fn emit_alloc_typed_closure(&mut self, v: u32, code_symbol: &str, env: &Operand, typed: &str, abi: i64, direct: bool) {
+    pub(super) fn emit_alloc_typed_closure(
+        &mut self,
+        v: u32,
+        code_symbol: &str,
+        env: &Operand,
+        typed: &str,
+        abi: i64,
+        direct: bool,
+    ) {
         let _ = direct;
         self.annotate_external(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
         let code = format!("ptrtoint (ptr @{code_symbol} to i64)");
@@ -545,7 +672,11 @@ impl LlvmEmitter<'_> {
     /// runtime keeps the single handle, `Heap::tearoff`).
     pub(super) fn emit_tearoff(&mut self, v: u32, code_symbol: &str) {
         self.annotate_external(code_symbol, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
-        writeln!(self.out, "  %v{v} = call i64 @dartforge_tearoff(i64 ptrtoint (ptr @{code_symbol} to i64))").unwrap();
+        writeln!(
+            self.out,
+            "  %v{v} = call i64 @dartforge_tearoff(i64 ptrtoint (ptr @{code_symbol} to i64))"
+        )
+        .unwrap();
     }
 }
 
@@ -563,7 +694,10 @@ mod tests {
         assert_eq!(layout::offsets::CLASS as i64 - layout::HANDLE_OFFSET, 2);
         assert_eq!((cid::MINT, cid::DOUBLE), (3, 4));
         for (name, _, _) in HELPER_EFFECTS {
-            assert!(HELPERS.contains(&format!("@{name}(")), "{name} without a definition");
+            assert!(
+                HELPERS.contains(&format!("@{name}(")),
+                "{name} without a definition"
+            );
         }
         assert_eq!(CAB_CELL >> 32, cid::CELL as u64);
         assert_eq!(CAB_CLOSURE >> 16 & 0xFFFF, 4);

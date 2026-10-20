@@ -99,7 +99,8 @@ impl Tree {
     /// # Panics
     /// If the new node's index cannot be represented by [`NodeId`].
     pub fn push(&mut self, node: Node, start: Tk, end: Tk) -> NodeId {
-        let id = NodeId(u32::try_from(self.nodes.len()).expect("syntax tree exceeds NodeId capacity"));
+        let id =
+            NodeId(u32::try_from(self.nodes.len()).expect("syntax tree exceeds NodeId capacity"));
         self.nodes.push(NodeData {
             node,
             parent: None,
@@ -1228,11 +1229,17 @@ impl Node {
         };
         use Node::*;
         match self {
-            CompilationUnit { directives, declarations, .. } => {
+            CompilationUnit {
+                directives,
+                declarations,
+                ..
+            } => {
                 all(directives, f);
                 all(declarations, f);
             }
-            LibraryDirective { metadata, name2, .. } => {
+            LibraryDirective {
+                metadata, name2, ..
+            } => {
                 all(metadata, f);
                 one(name2, f);
             }
@@ -1276,13 +1283,18 @@ impl Node {
                 one(library_name, f);
                 one(uri, f);
             }
-            Configuration { name, value, uri, .. } => {
+            Configuration {
+                name, value, uri, ..
+            } => {
                 f(*name);
                 one(value, f);
                 f(*uri);
             }
             DottedName { components } | LibraryIdentifier { components } => all(components, f),
-            ShowCombinator { shown_names: v, .. } | HideCombinator { hidden_names: v, .. } => all(v, f),
+            ShowCombinator { shown_names: v, .. }
+            | HideCombinator {
+                hidden_names: v, ..
+            } => all(v, f),
             ClassDeclaration {
                 metadata,
                 type_parameters,
@@ -1377,7 +1389,11 @@ impl Node {
                 all(constants, f);
                 all(members, f);
             }
-            EnumConstantDeclaration { metadata, arguments, .. } => {
+            EnumConstantDeclaration {
+                metadata,
+                arguments,
+                ..
+            } => {
                 all(metadata, f);
                 one(arguments, f);
             }
@@ -1437,7 +1453,11 @@ impl Node {
                 one(return_type, f);
                 f(*function_expression);
             }
-            TopLevelVariableDeclaration { metadata, variables, .. } => {
+            TopLevelVariableDeclaration {
+                metadata,
+                variables,
+                ..
+            } => {
                 all(metadata, f);
                 f(*variables);
             }
@@ -1471,11 +1491,17 @@ impl Node {
                 one(parameters, f);
                 f(*body);
             }
-            FieldDeclaration { metadata, fields, .. } => {
+            FieldDeclaration {
+                metadata, fields, ..
+            } => {
                 all(metadata, f);
                 f(*fields);
             }
-            ConstructorFieldInitializer { field_name, expression, .. } => {
+            ConstructorFieldInitializer {
+                field_name,
+                expression,
+                ..
+            } => {
                 f(*field_name);
                 f(*expression);
             }
@@ -1492,7 +1518,12 @@ impl Node {
                 one(constructor_name, f);
                 f(*argument_list);
             }
-            AssertInitializer { condition, message, .. } | AssertStatement { condition, message, .. } => {
+            AssertInitializer {
+                condition, message, ..
+            }
+            | AssertStatement {
+                condition, message, ..
+            } => {
                 f(*condition);
                 one(message, f);
             }
@@ -1501,7 +1532,9 @@ impl Node {
             EmptyFunctionBody { .. } => {}
             NativeFunctionBody { string_literal, .. } => one(string_literal, f),
             FormalParameterList { parameters, .. } => all(parameters, f),
-            SimpleFormalParameter { metadata, type_, .. } => {
+            SimpleFormalParameter {
+                metadata, type_, ..
+            } => {
                 all(metadata, f);
                 one(type_, f);
             }
@@ -1564,8 +1597,12 @@ impl Node {
                 one(named_fields, f);
             }
             RecordTypeAnnotationNamedFields { fields, .. } => all(fields, f),
-            RecordTypeAnnotationPositionalField { metadata, type_, .. }
-            | RecordTypeAnnotationNamedField { metadata, type_, .. } => {
+            RecordTypeAnnotationPositionalField {
+                metadata, type_, ..
+            }
+            | RecordTypeAnnotationNamedField {
+                metadata, type_, ..
+            } => {
                 all(metadata, f);
                 f(*type_);
             }
@@ -1573,7 +1610,9 @@ impl Node {
             | TypeParameterList {
                 type_parameters: v, ..
             } => all(v, f),
-            TypeParameter { metadata, bound, .. } => {
+            TypeParameter {
+                metadata, bound, ..
+            } => {
                 all(metadata, f);
                 one(bound, f);
             }
@@ -1603,7 +1642,9 @@ impl Node {
                 all(variables, f);
             }
             VariableDeclaration { initializer, .. } => one(initializer, f),
-            FunctionDeclarationStatement { function_declaration } => f(*function_declaration),
+            FunctionDeclarationStatement {
+                function_declaration,
+            } => f(*function_declaration),
             IfStatement {
                 expression,
                 case_clause,
@@ -1616,17 +1657,26 @@ impl Node {
                 f(*then_statement);
                 one(else_statement, f);
             }
-            CaseClause { guarded_pattern, .. } => f(*guarded_pattern),
-            GuardedPattern { pattern, when_clause } => {
+            CaseClause {
+                guarded_pattern, ..
+            } => f(*guarded_pattern),
+            GuardedPattern {
+                pattern,
+                when_clause,
+            } => {
                 f(*pattern);
                 one(when_clause, f);
             }
             WhenClause { expression, .. } => f(*expression),
             ForStatement {
-                for_loop_parts, body, ..
+                for_loop_parts,
+                body,
+                ..
             }
             | ForElement {
-                for_loop_parts, body, ..
+                for_loop_parts,
+                body,
+                ..
             } => {
                 f(*for_loop_parts);
                 f(*body);
@@ -1665,7 +1715,11 @@ impl Node {
                 f(*loop_variable);
                 f(*iterable);
             }
-            ForEachPartsWithIdentifier { identifier, iterable, .. } => {
+            ForEachPartsWithIdentifier {
+                identifier,
+                iterable,
+                ..
+            } => {
                 f(*identifier);
                 f(*iterable);
             }
@@ -1679,19 +1733,29 @@ impl Node {
                 f(*pattern);
                 f(*iterable);
             }
-            DeclaredIdentifier { metadata, type_, .. } => {
+            DeclaredIdentifier {
+                metadata, type_, ..
+            } => {
                 all(metadata, f);
                 one(type_, f);
             }
-            WhileStatement { condition, body, .. } => {
+            WhileStatement {
+                condition, body, ..
+            } => {
                 f(*condition);
                 f(*body);
             }
-            DoStatement { body, condition, .. } => {
+            DoStatement {
+                body, condition, ..
+            } => {
                 f(*body);
                 f(*condition);
             }
-            SwitchStatement { expression, members, .. } => {
+            SwitchStatement {
+                expression,
+                members,
+                ..
+            } => {
                 f(*expression);
                 all(members, f);
             }
@@ -1715,7 +1779,9 @@ impl Node {
                 f(*guarded_pattern);
                 all(statements, f);
             }
-            SwitchDefault { labels, statements, .. } => {
+            SwitchDefault {
+                labels, statements, ..
+            } => {
                 all(labels, f);
                 all(statements, f);
             }
@@ -1763,7 +1829,12 @@ impl Node {
                 f(*expression);
             }
             AdjacentStrings { strings } => all(strings, f),
-            AsExpression { expression, type_, .. } | IsExpression { expression, type_, .. } => {
+            AsExpression {
+                expression, type_, ..
+            }
+            | IsExpression {
+                expression, type_, ..
+            } => {
                 f(*expression);
                 f(*type_);
             }
@@ -1775,7 +1846,9 @@ impl Node {
                 f(*left_hand_side);
                 f(*right_hand_side);
             }
-            AwaitExpression { expression, .. } | ThrowExpression { expression, .. } => f(*expression),
+            AwaitExpression { expression, .. } | ThrowExpression { expression, .. } => {
+                f(*expression)
+            }
             BinaryExpression {
                 left_operand,
                 right_operand,
@@ -1794,7 +1867,10 @@ impl Node {
                 f(*left_operand);
                 f(*right_operand);
             }
-            BooleanLiteral { .. } | DoubleLiteral { .. } | IntegerLiteral { .. } | NullLiteral { .. } => {}
+            BooleanLiteral { .. }
+            | DoubleLiteral { .. }
+            | IntegerLiteral { .. }
+            | NullLiteral { .. } => {}
             CascadeExpression {
                 target,
                 cascade_sections,
@@ -1898,12 +1974,16 @@ impl Node {
             }
             ParenthesizedExpression { expression, .. } => f(*expression),
             PostfixExpression { operand, .. } | PrefixExpression { operand, .. } => f(*operand),
-            PrefixedIdentifier { prefix, identifier, .. } => {
+            PrefixedIdentifier {
+                prefix, identifier, ..
+            } => {
                 f(*prefix);
                 f(*identifier);
             }
             PropertyAccess {
-                target, property_name, ..
+                target,
+                property_name,
+                ..
             } => {
                 one(target, f);
                 f(*property_name);
@@ -1912,8 +1992,13 @@ impl Node {
             RethrowExpression { .. } | SimpleIdentifier { .. } | SimpleStringLiteral { .. } => {}
             StringInterpolation { elements } => all(elements, f),
             InterpolationExpression { expression, .. } => f(*expression),
-            InterpolationString { .. } | SuperExpression { .. } | ThisExpression { .. } | SymbolLiteral { .. } => {}
-            SwitchExpression { expression, cases, .. } => {
+            InterpolationString { .. }
+            | SuperExpression { .. }
+            | ThisExpression { .. }
+            | SymbolLiteral { .. } => {}
+            SwitchExpression {
+                expression, cases, ..
+            } => {
                 f(*expression);
                 all(cases, f);
             }
@@ -1960,7 +2045,11 @@ impl Node {
             PatternFieldName { .. } => {}
             RelationalPattern { operand, .. } => f(*operand),
             RestPatternElement { pattern, .. } => one(pattern, f),
-            PatternAssignment { pattern, expression, .. } => {
+            PatternAssignment {
+                pattern,
+                expression,
+                ..
+            } => {
                 f(*pattern);
                 f(*expression);
             }

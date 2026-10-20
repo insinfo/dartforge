@@ -92,12 +92,18 @@ impl std::fmt::Display for ApplicationIdentity {
         let target = match &self.target {
             Target::Library(_) => "library".to_string(),
             Target::Declaration(
-                Key::Method { owner, name, .. } | Key::Field { owner, name, .. } | Key::Constructor { owner, name, .. },
+                Key::Method { owner, name, .. }
+                | Key::Field { owner, name, .. }
+                | Key::Constructor { owner, name, .. },
             ) => format!("{owner}.{name}"),
             Target::Declaration(c) => c.name().to_string(),
         };
         let class = self.macro_.rsplit('#').next().unwrap_or("");
-        let constructor = if self.constructor.is_empty() { String::new() } else { format!(".{}", self.constructor) };
+        let constructor = if self.constructor.is_empty() {
+            String::new()
+        } else {
+            format!(".{}", self.constructor)
+        };
         write!(f, "{} {target} @{class}{constructor}", self.library)?;
         if self.ordinal > 0 {
             write!(f, " #{}", self.ordinal)?;
@@ -174,7 +180,10 @@ impl MacroCache {
     /// The state of a compilation without a cache: a new table and nothing
     /// recorded.
     pub(crate) fn disabled() -> Self {
-        MacroCache { enabled: false, ..MacroCache::new("") }
+        MacroCache {
+            enabled: false,
+            ..MacroCache::new("")
+        }
     }
 
     /// How many `(application, phase)` expansions are recorded.
@@ -185,7 +194,6 @@ impl MacroCache {
     pub fn is_empty(&self) -> bool {
         self.records.is_empty()
     }
-
 }
 
 /// The records per `(application, phase)`.
@@ -199,7 +207,9 @@ pub(crate) fn revalidate(
     request: &Digest,
     queries: &mut dyn QueryService,
 ) -> Revalidation {
-    let Some(r) = records.get(key) else { return Revalidation::Missing };
+    let Some(r) = records.get(key) else {
+        return Revalidation::Missing;
+    };
     if r.request != *request {
         return Revalidation::RequestChanged;
     }
@@ -208,7 +218,10 @@ pub(crate) fn revalidate(
             return Revalidation::QueryChanged { replayed: i + 1 };
         }
     }
-    Revalidation::Valid { result: Box::new(r.result.clone()), replayed: r.queries.len() }
+    Revalidation::Valid {
+        result: Box::new(r.result.clone()),
+        replayed: r.queries.len(),
+    }
 }
 
 /// The outcome of a revalidation.
@@ -216,8 +229,13 @@ pub(crate) enum Revalidation {
     Missing,
     RequestChanged,
     /// Query number `replayed` answered differently.
-    QueryChanged { replayed: usize },
-    Valid { result: Box<ExecutionResult>, replayed: usize },
+    QueryChanged {
+        replayed: usize,
+    },
+    Valid {
+        result: Box<ExecutionResult>,
+        replayed: usize,
+    },
 }
 
 /// Records a new [`Record`] (after executing) and says whether the result is
@@ -232,7 +250,14 @@ pub(crate) fn record(
     result: &ExecutionResult,
 ) -> bool {
     let same = records.get(&key).is_some_and(|r| r.result == *result);
-    records.insert(key, Record { request, queries, result: result.clone() });
+    records.insert(
+        key,
+        Record {
+            request,
+            queries,
+            result: result.clone(),
+        },
+    );
     same
 }
 
@@ -258,7 +283,11 @@ pub(crate) struct Recorder<'s> {
 
 impl<'s> Recorder<'s> {
     pub fn new(inner: &'s mut dyn QueryService, enabled: bool) -> Self {
-        Recorder { inner, enabled, queries: Vec::new() }
+        Recorder {
+            inner,
+            enabled,
+            queries: Vec::new(),
+        }
     }
 }
 
@@ -266,7 +295,11 @@ impl QueryService for Recorder<'_> {
     fn query(&mut self, kind: &str, args: &Value) -> Result<Value, QueryError> {
         let r = self.inner.query(kind, args);
         if self.enabled {
-            self.queries.push(RecordedQuery { kind: kind.to_string(), args: args.clone(), response: response_digest(&r) });
+            self.queries.push(RecordedQuery {
+                kind: kind.to_string(),
+                args: args.clone(),
+                response: response_digest(&r),
+            });
         }
         r
     }
@@ -297,7 +330,13 @@ fn response_digest(r: &Result<Value, QueryError>) -> Digest {
 
 /// The fingerprint of the `macro.execute` request, without the instance
 /// number (which belongs to the executor process, not to the macro).
-pub(crate) fn request_digest(executor: &str, instance: &InstanceKey, phase: Phase, target: &Value, model: &Value) -> Digest {
+pub(crate) fn request_digest(
+    executor: &str,
+    instance: &InstanceKey,
+    phase: Phase,
+    target: &Value,
+    model: &Value,
+) -> Digest {
     let mut h = blake3::Hasher::new();
     hash_field(&mut h, HOST_VERSION);
     hash_field(&mut h, executor);

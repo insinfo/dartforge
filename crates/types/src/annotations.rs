@@ -13,7 +13,10 @@
 
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Element, Program, UnitId};
-use dartforge_frontend::ast::{self, DeclKind, ExprKind, ForInTarget, ForInit, FunctionBody, Initializer, MemberKind, PatternId, PatternKind, StmtKind, TypeKind};
+use dartforge_frontend::ast::{
+    self, DeclKind, ExprKind, ForInTarget, ForInit, FunctionBody, Initializer, MemberKind,
+    PatternId, PatternKind, StmtKind, TypeKind,
+};
 use dartforge_intern::{Interner, SymbolId};
 
 /// The names declared by a pattern (its variables).
@@ -24,13 +27,15 @@ fn pattern_variables(a: &ast::Ast, p: PatternId, output: &mut Vec<ast::Name>) {
             pattern_variables(a, *l, output);
             pattern_variables(a, *r, output);
         }
-        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => {
-            pattern_variables(a, *x, output)
-        }
+        PatternKind::NullCheck(x)
+        | PatternKind::NullAssert(x)
+        | PatternKind::Parenthesized(x)
+        | PatternKind::Cast { pattern: x, .. } => pattern_variables(a, *x, output),
         PatternKind::List { elements, .. } => {
             for e in elements.iter() {
                 match e {
-                    ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => pattern_variables(a, *x, output),
+                    ast::ListPatternElement::Pattern(x)
+                    | ast::ListPatternElement::Rest(Some(x)) => pattern_variables(a, *x, output),
                     ast::ListPatternElement::Rest(None) => {}
                 }
             }
@@ -63,19 +68,32 @@ fn declared_in_pattern(a: &ast::Ast, p: PatternId, refutable: bool, output: &mut
     let mut stack = vec![p];
     while let Some(q) = stack.pop() {
         match &a.pattern(q).kind {
-            PatternKind::Variable { name, final_, var_, ty } => {
+            PatternKind::Variable {
+                name,
+                final_,
+                var_,
+                ty,
+            } => {
                 if *final_ || *var_ || ty.is_some() {
                     output.push(*name);
                 }
             }
             PatternKind::Or(l, r) | PatternKind::And(l, r) => stack.extend([*l, *r]),
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => stack.push(*x),
-            PatternKind::List { elements, .. } => stack.extend(elements.iter().filter_map(|e| match e {
-                ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => Some(*x),
-                ast::ListPatternElement::Rest(None) => None,
-            })),
+            PatternKind::NullCheck(x)
+            | PatternKind::NullAssert(x)
+            | PatternKind::Parenthesized(x)
+            | PatternKind::Cast { pattern: x, .. } => stack.push(*x),
+            PatternKind::List { elements, .. } => {
+                stack.extend(elements.iter().filter_map(|e| match e {
+                    ast::ListPatternElement::Pattern(x)
+                    | ast::ListPatternElement::Rest(Some(x)) => Some(*x),
+                    ast::ListPatternElement::Rest(None) => None,
+                }))
+            }
             PatternKind::Map { entries, .. } => stack.extend(entries.iter().map(|e| e.value)),
-            PatternKind::Record { fields } | PatternKind::Object { fields, .. } => stack.extend(fields.iter().map(|f| f.pattern)),
+            PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
+                stack.extend(fields.iter().map(|f| f.pattern))
+            }
             _ => {}
         }
     }
@@ -85,13 +103,25 @@ fn declared_in_pattern(a: &ast::Ast, p: PatternId, refutable: bool, output: &mut
 fn element_snippet(a: &ast::Ast, el: &ast::CollectionElement) -> Option<Span> {
     use ast::CollectionElement as E;
     let joins_with = |x: Option<Span>, y: Option<Span>| match (x, y) {
-        (Some(p), Some(q)) => Some(Span { start: p.start.min(q.start), end: p.end.max(q.end) }),
+        (Some(p), Some(q)) => Some(Span {
+            start: p.start.min(q.start),
+            end: p.end.max(q.end),
+        }),
         (p, q) => p.or(q),
     };
     match el {
-        E::Expression(e) | E::NullAwareExpression(e) | E::Spread { value: e, .. } => Some(a.expr(*e).span),
-        E::MapEntry { key, value, .. } => joins_with(Some(a.expr(*key).span), Some(a.expr(*value).span)),
-        E::If { condition, then, else_, .. } => {
+        E::Expression(e) | E::NullAwareExpression(e) | E::Spread { value: e, .. } => {
+            Some(a.expr(*e).span)
+        }
+        E::MapEntry { key, value, .. } => {
+            joins_with(Some(a.expr(*key).span), Some(a.expr(*value).span))
+        }
+        E::If {
+            condition,
+            then,
+            else_,
+            ..
+        } => {
             let mut s = joins_with(Some(a.expr(*condition).span), element_snippet(a, then));
             if let Some(x) = else_ {
                 s = joins_with(s, element_snippet(a, x));
@@ -103,23 +133,44 @@ fn element_snippet(a: &ast::Ast, el: &ast::CollectionElement) -> Option<Span> {
 }
 
 /// The local scopes of the collection elements: (span, declared names).
-fn collection_scopes(a: &ast::Ast, el: &ast::CollectionElement, output: &mut Vec<(Span, Vec<ast::Name>)>) {
+fn collection_scopes(
+    a: &ast::Ast,
+    el: &ast::CollectionElement,
+    output: &mut Vec<(Span, Vec<ast::Name>)>,
+) {
     use ast::CollectionElement as E;
     match el {
-        E::If { case_pattern, then, else_, .. } => {
+        E::If {
+            case_pattern,
+            then,
+            else_,
+            ..
+        } => {
             if let Some(p) = case_pattern
                 && let Some(t) = element_snippet(a, then)
             {
                 let mut names = Vec::new();
                 declared_in_pattern(a, *p, true, &mut names);
-                output.push((Span { start: a.pattern(*p).span.start, end: t.end }, names));
+                output.push((
+                    Span {
+                        start: a.pattern(*p).span.start,
+                        end: t.end,
+                    },
+                    names,
+                ));
             }
             collection_scopes(a, then, output);
             if let Some(x) = else_ {
                 collection_scopes(a, x, output);
             }
         }
-        E::For { init, condition, updates, body, .. } => {
+        E::For {
+            init,
+            condition,
+            updates,
+            body,
+            ..
+        } => {
             let mut names = Vec::new();
             let mut start: Option<usize> = None;
             match init {
@@ -133,7 +184,10 @@ fn collection_scopes(a: &ast::Ast, el: &ast::CollectionElement, output: &mut Vec
                 }
                 _ => {}
             }
-            let end = element_snippet(a, body).map(|s| s.end).or(condition.map(|c| a.expr(c).span.end)).or(updates.last().map(|u| a.expr(*u).span.end));
+            let end = element_snippet(a, body)
+                .map(|s| s.end)
+                .or(condition.map(|c| a.expr(c).span.end))
+                .or(updates.last().map(|u| a.expr(*u).span.end));
             if let (Some(i), Some(f)) = (start, end) {
                 output.push((Span { start: i, end: f }, names));
             }
@@ -143,7 +197,9 @@ fn collection_scopes(a: &ast::Ast, el: &ast::CollectionElement, output: &mut Vec
             let mut names = Vec::new();
             match target {
                 ForInTarget::Declared { name, .. } => names.push(*name),
-                ForInTarget::Pattern { pattern, .. } => declared_in_pattern(a, *pattern, false, &mut names),
+                ForInTarget::Pattern { pattern, .. } => {
+                    declared_in_pattern(a, *pattern, false, &mut names)
+                }
                 ForInTarget::Expression(_) => {}
             }
             if let Some(t) = element_snippet(a, body) {
@@ -198,15 +254,25 @@ pub struct ShadowIndex {
 impl ShadowIndex {
     /// `n` is declared in a scope that contains `pos`.
     pub fn shadows(&self, interner: &Interner, pos: usize, n: SymbolId) -> bool {
-        if self.by_name.get(&n).is_some_and(|v| v.iter().any(|s| s.covers(pos))) {
+        if self
+            .by_name
+            .get(&n)
+            .is_some_and(|v| v.iter().any(|s| s.covers(pos)))
+        {
             return true;
         }
-        !self.enum_bodies.is_empty() && interner.resolve(n) == "values" && self.enum_bodies.iter().any(|s| s.covers(pos))
+        !self.enum_bodies.is_empty()
+            && interner.resolve(n) == "values"
+            && self.enum_bodies.iter().any(|s| s.covers(pos))
     }
 
     fn add(&mut self, n: SymbolId, scope: Span, after: Option<usize>) {
         if scope.start < scope.end {
-            self.by_name.entry(n).or_default().push(Shadow { start: scope.start, end: scope.end, after });
+            self.by_name.entry(n).or_default().push(Shadow {
+                start: scope.start,
+                end: scope.end,
+                after,
+            });
         }
     }
 
@@ -232,27 +298,46 @@ impl ShadowIndex {
                     declared_in_pattern(a, *pattern, false, &mut names);
                     whole_block.push((s.span, names));
                 }
-                StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
+                StmtKind::For {
+                    init: Some(ForInit::Variables(l)),
+                    ..
+                } => {
                     for v in l.variables.iter() {
                         x.add(v.name.sym, s.span, Some(v.name.span.start));
                     }
                 }
-                StmtKind::For { init: Some(ForInit::Pattern { pattern, .. }), .. } => {
+                StmtKind::For {
+                    init: Some(ForInit::Pattern { pattern, .. }),
+                    ..
+                } => {
                     declared_in_pattern(a, *pattern, false, &mut names);
                     for v in names {
                         x.add(v.sym, s.span, Some(v.span.start));
                     }
                 }
-                StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => x.add(name.sym, s.span, Some(name.span.start)),
-                StmtKind::ForIn { target: ForInTarget::Pattern { pattern, .. }, .. } => {
+                StmtKind::ForIn {
+                    target: ForInTarget::Declared { name, .. },
+                    ..
+                } => x.add(name.sym, s.span, Some(name.span.start)),
+                StmtKind::ForIn {
+                    target: ForInTarget::Pattern { pattern, .. },
+                    ..
+                } => {
                     declared_in_pattern(a, *pattern, false, &mut names);
                     for v in names {
                         x.add(v.sym, s.span, Some(v.span.start));
                     }
                 }
-                StmtKind::If { case_pattern: Some(p), then, .. } => {
+                StmtKind::If {
+                    case_pattern: Some(p),
+                    then,
+                    ..
+                } => {
                     declared_in_pattern(a, *p, true, &mut names);
-                    let scope = Span { start: a.pattern(*p).span.start, end: a.stmt(*then).span.end };
+                    let scope = Span {
+                        start: a.pattern(*p).span.start,
+                        end: a.stmt(*then).span.end,
+                    };
                     for v in names {
                         x.add(v.sym, scope, Some(v.span.start));
                     }
@@ -303,7 +388,10 @@ impl ShadowIndex {
                     }
                     for (s, names) in scopes {
                         // In scope where both the literal and the element's scope are.
-                        let scope = Span { start: s.start.max(e.span.start), end: s.end.min(e.span.end) };
+                        let scope = Span {
+                            start: s.start.max(e.span.start),
+                            end: s.end.min(e.span.end),
+                        };
                         for v in names {
                             x.add(v.sym, scope, Some(v.span.start));
                         }
@@ -335,10 +423,15 @@ impl ShadowIndex {
         // The constructor: in the initializer list all parameters are in scope
         // (`this.x` and `super.x` too); in the body, the ordinary ones.
         for m in a.members.iter() {
-            let MemberKind::Constructor(k) = &m.kind else { continue };
+            let MemberKind::Constructor(k) = &m.kind else {
+                continue;
+            };
             for i in k.initializers.iter() {
                 let span = match i {
-                    Initializer::Field { span, .. } | Initializer::Super { span, .. } | Initializer::Redirect { span, .. } | Initializer::Assert { span, .. } => *span,
+                    Initializer::Field { span, .. }
+                    | Initializer::Super { span, .. }
+                    | Initializer::Redirect { span, .. }
+                    | Initializer::Assert { span, .. } => *span,
                 };
                 for p in k.parameters.iter() {
                     if let Some(n) = p.name {
@@ -374,7 +467,12 @@ impl ShadowIndex {
             }
         }
         for t in a.types.iter() {
-            if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
+            if let TypeKind::Function {
+                type_params,
+                parameters,
+                ..
+            } = &t.kind
+            {
                 for tp in type_params.iter() {
                     x.add(tp.name.sym, t.span, None);
                 }
@@ -389,12 +487,31 @@ impl ShadowIndex {
         // The declared members (and the type parameters) of the type, after
         // its name; the type parameters of the typedef.
         for d in a.decls.iter() {
-            let (the_name, types, members, extras): (Option<ast::Name>, &[ast::TypeParameter], &[ast::MemberId], Vec<SymbolId>) = match &d.kind {
-                DeclKind::Class(c) => (Some(c.name), &c.type_params[..], &c.members[..], Vec::new()),
-                DeclKind::Mixin(c) => (Some(c.name), &c.type_params[..], &c.members[..], Vec::new()),
-                DeclKind::Enum(c) => (Some(c.name), &c.type_params[..], &c.members[..], c.constants.iter().map(|k| k.name.sym).collect()),
+            let (the_name, types, members, extras): (
+                Option<ast::Name>,
+                &[ast::TypeParameter],
+                &[ast::MemberId],
+                Vec<SymbolId>,
+            ) = match &d.kind {
+                DeclKind::Class(c) => {
+                    (Some(c.name), &c.type_params[..], &c.members[..], Vec::new())
+                }
+                DeclKind::Mixin(c) => {
+                    (Some(c.name), &c.type_params[..], &c.members[..], Vec::new())
+                }
+                DeclKind::Enum(c) => (
+                    Some(c.name),
+                    &c.type_params[..],
+                    &c.members[..],
+                    c.constants.iter().map(|k| k.name.sym).collect(),
+                ),
                 DeclKind::Extension(c) => (c.name, &c.type_params[..], &c.members[..], Vec::new()),
-                DeclKind::ExtensionType(c) => (Some(c.name), &c.type_params[..], &c.members[..], vec![c.representation_name.sym]),
+                DeclKind::ExtensionType(c) => (
+                    Some(c.name),
+                    &c.type_params[..],
+                    &c.members[..],
+                    vec![c.representation_name.sym],
+                ),
                 DeclKind::Typedef(t) => {
                     for tp in t.type_params.iter() {
                         x.add(tp.name.sym, d.span, None);
@@ -405,9 +522,16 @@ impl ShadowIndex {
             };
             let after_name = the_name.map_or(d.span.start, |n| n.span.end);
             // `pos > after_name && pos < end`.
-            let scope = Span { start: after_name + 1, end: d.span.end };
+            let scope = Span {
+                start: after_name + 1,
+                end: d.span.end,
+            };
             if matches!(d.kind, DeclKind::Enum(_)) && scope.start < scope.end {
-                x.enum_bodies.push(Shadow { start: scope.start, end: scope.end, after: None });
+                x.enum_bodies.push(Shadow {
+                    start: scope.start,
+                    end: scope.end,
+                    after: None,
+                });
             }
             for t in types {
                 x.add(t.name.sym, scope, None);
@@ -439,7 +563,12 @@ impl ShadowIndex {
 /// strictly before it (the scope of a block local); the span itself without
 /// one. One sweep over the blocks and the spans sorted by start.
 fn smallest_blocks(a: &ast::Ast, spans: Vec<Span>) -> Vec<Span> {
-    let mut blocks: Vec<Span> = a.stmts.iter().filter(|x| matches!(x.kind, StmtKind::Block(_))).map(|x| x.span).collect();
+    let mut blocks: Vec<Span> = a
+        .stmts
+        .iter()
+        .filter(|x| matches!(x.kind, StmtKind::Block(_)))
+        .map(|x| x.span)
+        .collect();
     blocks.sort_by(|x, y| x.start.cmp(&y.start).then(y.end.cmp(&x.end)));
     let mut order: Vec<usize> = (0..spans.len()).collect();
     order.sort_by_key(|&i| spans[i].start);
@@ -478,7 +607,11 @@ pub fn is_shadowed_walk(a: &ast::Ast, interner: &Interner, pos: usize, n: Symbol
     let block_of = |s: Span| {
         a.stmts
             .iter()
-            .filter(|x| matches!(x.kind, StmtKind::Block(_)) && x.span.start < s.start && s.end <= x.span.end)
+            .filter(|x| {
+                matches!(x.kind, StmtKind::Block(_))
+                    && x.span.start < s.start
+                    && s.end <= x.span.end
+            })
             .map(|x| x.span)
             .min_by_key(|x| x.end - x.start)
             .unwrap_or(s)
@@ -518,26 +651,45 @@ pub fn is_shadowed_walk(a: &ast::Ast, interner: &Interner, pos: usize, n: Symbol
                 block_of(s.span)
             }
             // The loop variables are in scope in the loop itself.
-            StmtKind::For { init: Some(ForInit::Variables(l)), .. } => {
+            StmtKind::For {
+                init: Some(ForInit::Variables(l)),
+                ..
+            } => {
                 names.extend(l.variables.iter().map(|v| v.name));
                 s.span
             }
-            StmtKind::For { init: Some(ForInit::Pattern { pattern, .. }), .. } => {
+            StmtKind::For {
+                init: Some(ForInit::Pattern { pattern, .. }),
+                ..
+            } => {
                 declared_in_pattern(a, *pattern, false, &mut names);
                 s.span
             }
-            StmtKind::ForIn { target: ForInTarget::Declared { name, .. }, .. } => {
+            StmtKind::ForIn {
+                target: ForInTarget::Declared { name, .. },
+                ..
+            } => {
                 names.push(*name);
                 s.span
             }
-            StmtKind::ForIn { target: ForInTarget::Pattern { pattern, .. }, .. } => {
+            StmtKind::ForIn {
+                target: ForInTarget::Pattern { pattern, .. },
+                ..
+            } => {
                 declared_in_pattern(a, *pattern, false, &mut names);
                 s.span
             }
             // The `if-case` variables are in scope in the guard and in the `then`.
-            StmtKind::If { case_pattern: Some(p), then, .. } => {
+            StmtKind::If {
+                case_pattern: Some(p),
+                then,
+                ..
+            } => {
                 declared_in_pattern(a, *p, true, &mut names);
-                Span { start: a.pattern(*p).span.start, end: a.stmt(*then).span.end }
+                Span {
+                    start: a.pattern(*p).span.start,
+                    end: a.stmt(*then).span.end,
+                }
             }
             // Those of each case are in scope in the guard and in the case body.
             StmtKind::Switch { cases, .. } => {
@@ -554,7 +706,12 @@ pub fn is_shadowed_walk(a: &ast::Ast, interner: &Interner, pos: usize, n: Symbol
             StmtKind::Try { catches, .. } => {
                 for c in catches.iter() {
                     let the_body = a.stmt(c.body).span;
-                    if in_(the_body) && c.exception.iter().chain(c.stack_trace.iter()).any(|x| x.sym == n) {
+                    if in_(the_body)
+                        && c.exception
+                            .iter()
+                            .chain(c.stack_trace.iter())
+                            .any(|x| x.sym == n)
+                    {
                         return true;
                     }
                 }
@@ -562,7 +719,13 @@ pub fn is_shadowed_walk(a: &ast::Ast, interner: &Interner, pos: usize, n: Symbol
             }
             _ => continue,
         };
-        if in_(scope) && (if in_whole_block { names.iter().any(|x| x.sym == n) } else { declares(&names) }) {
+        if in_(scope)
+            && (if in_whole_block {
+                names.iter().any(|x| x.sym == n)
+            } else {
+                declares(&names)
+            })
+        {
             return true;
         }
     }
@@ -595,7 +758,10 @@ pub fn is_shadowed_walk(a: &ast::Ast, interner: &Interner, pos: usize, n: Symbol
     }
     // The parameters (in the body) and the type parameters (in the whole
     // function) of the functions that contain `pos`.
-    let common = |ps: &[ast::Parameter]| ps.iter().any(|p| !p.this_ && !p.super_ && p.name.is_some_and(|x| x.sym == n));
+    let common = |ps: &[ast::Parameter]| {
+        ps.iter()
+            .any(|p| !p.this_ && !p.super_ && p.name.is_some_and(|x| x.sym == n))
+    };
     for f in a.functions.iter() {
         if in_(f.span) && f.type_params.iter().any(|t| t.name.sym == n) {
             return true;
@@ -612,13 +778,22 @@ pub fn is_shadowed_walk(a: &ast::Ast, interner: &Interner, pos: usize, n: Symbol
     // The constructor: in the initializer list all parameters are in scope
     // (`this.x` and `super.x` too); in the body, the ordinary ones.
     for m in a.members.iter() {
-        let MemberKind::Constructor(k) = &m.kind else { continue };
+        let MemberKind::Constructor(k) = &m.kind else {
+            continue;
+        };
         let in_initializers = k.initializers.iter().any(|i| {
             in_(match i {
-                Initializer::Field { span, .. } | Initializer::Super { span, .. } | Initializer::Redirect { span, .. } | Initializer::Assert { span, .. } => *span,
+                Initializer::Field { span, .. }
+                | Initializer::Super { span, .. }
+                | Initializer::Redirect { span, .. }
+                | Initializer::Assert { span, .. } => *span,
             })
         });
-        if in_initializers && k.parameters.iter().any(|p| p.name.is_some_and(|x| x.sym == n)) {
+        if in_initializers
+            && k.parameters
+                .iter()
+                .any(|p| p.name.is_some_and(|x| x.sym == n))
+        {
             return true;
         }
         let the_body = match &k.body {
@@ -634,19 +809,31 @@ pub fn is_shadowed_walk(a: &ast::Ast, interner: &Interner, pos: usize, n: Symbol
     // parameter `f<T>(…)`.
     fn parameter_types(ps: &[ast::Parameter], pos: usize, n: SymbolId) -> bool {
         ps.iter().any(|p| {
-            (p.span.start <= pos && pos < p.span.end && p.function_type_params.iter().any(|t| t.name.sym == n))
-                || p.function_parameters.as_deref().is_some_and(|fs| parameter_types(fs, pos, n))
+            (p.span.start <= pos
+                && pos < p.span.end
+                && p.function_type_params.iter().any(|t| t.name.sym == n))
+                || p.function_parameters
+                    .as_deref()
+                    .is_some_and(|fs| parameter_types(fs, pos, n))
         })
     }
     for t in a.types.iter() {
-        if let TypeKind::Function { type_params, parameters, .. } = &t.kind
-            && ((in_(t.span) && type_params.iter().any(|x| x.name.sym == n)) || parameter_types(parameters, pos, n))
+        if let TypeKind::Function {
+            type_params,
+            parameters,
+            ..
+        } = &t.kind
+            && ((in_(t.span) && type_params.iter().any(|x| x.name.sym == n))
+                || parameter_types(parameters, pos, n))
         {
             return true;
         }
     }
     for f in a.functions.iter() {
-        if f.parameters.as_deref().is_some_and(|ps| parameter_types(ps, pos, n)) {
+        if f.parameters
+            .as_deref()
+            .is_some_and(|ps| parameter_types(ps, pos, n))
+        {
             return true;
         }
     }
@@ -654,13 +841,32 @@ pub fn is_shadowed_walk(a: &ast::Ast, interner: &Interner, pos: usize, n: Symbol
     // `pos` after its name; the type parameters of the typedef.
     let values = interner.lookup("values");
     for d in a.decls.iter() {
-        let (the_name, types, members, extras): (Option<ast::Name>, &[ast::TypeParameter], &[ast::MemberId], Vec<SymbolId>) = match &d.kind {
+        let (the_name, types, members, extras): (
+            Option<ast::Name>,
+            &[ast::TypeParameter],
+            &[ast::MemberId],
+            Vec<SymbolId>,
+        ) = match &d.kind {
             DeclKind::Class(x) => (Some(x.name), &x.type_params[..], &x.members[..], Vec::new()),
             DeclKind::Mixin(x) => (Some(x.name), &x.type_params[..], &x.members[..], Vec::new()),
             // The enum's synthetic `values` is also in scope.
-            DeclKind::Enum(x) => (Some(x.name), &x.type_params[..], &x.members[..], x.constants.iter().map(|c| c.name.sym).chain(values).collect()),
+            DeclKind::Enum(x) => (
+                Some(x.name),
+                &x.type_params[..],
+                &x.members[..],
+                x.constants
+                    .iter()
+                    .map(|c| c.name.sym)
+                    .chain(values)
+                    .collect(),
+            ),
             DeclKind::Extension(x) => (x.name, &x.type_params[..], &x.members[..], Vec::new()),
-            DeclKind::ExtensionType(x) => (Some(x.name), &x.type_params[..], &x.members[..], vec![x.representation_name.sym]),
+            DeclKind::ExtensionType(x) => (
+                Some(x.name),
+                &x.type_params[..],
+                &x.members[..],
+                vec![x.representation_name.sym],
+            ),
             DeclKind::Typedef(x) => {
                 if in_(d.span) && x.type_params.iter().any(|t| t.name.sym == n) {
                     return true;
@@ -694,7 +900,12 @@ pub fn is_shadowed_walk(a: &ast::Ast, interner: &Interner, pos: usize, n: Symbol
 /// name, the prefixed one (`p.x`, `p.C.ctor`) or the class one (`C.ctor`,
 /// `C.x`, which returns the class). `None` when the name is from a local or
 /// member scope, or does not resolve.
-pub fn annotation_element(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Option<Element> {
+pub fn annotation_element(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    m: &ast::Annotation,
+) -> Option<Element> {
     let a = &program.unit(u).ast;
     let pos = m.span.start;
     let first = m.name.first()?;
@@ -707,7 +918,9 @@ pub fn annotation_element(program: &Program, interner: &Interner, u: UnitId, m: 
         // `p.x` with `p` an import prefix, or `C.x`.
         [p, x, ..] => match in_scope {
             Some(e) => Some(e),
-            None => program.lookup_prefixed_in_unit(u, p.sym, x.sym).and_then(|b| b.getter),
+            None => program
+                .lookup_prefixed_in_unit(u, p.sym, x.sym)
+                .and_then(|b| b.getter),
         },
         [] => None,
     }
@@ -718,37 +931,66 @@ pub fn annotation_element(program: &Program, interner: &Interner, u: UnitId, m: 
 /// variable, or the explicit one).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InvokedElement {
-    Constructor(dartforge_elements::model::ClassId, dartforge_elements::model::FunctionElementId),
+    Constructor(
+        dartforge_elements::model::ClassId,
+        dartforge_elements::model::FunctionElementId,
+    ),
     Class(dartforge_elements::model::ClassId),
     Getter(dartforge_elements::model::FunctionElementId),
     Other,
 }
 
 /// The [`InvokedElement`] of annotation `m`, written in unit `u`.
-pub fn invoked_element(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> InvokedElement {
+pub fn invoked_element(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    m: &ast::Annotation,
+) -> InvokedElement {
     use dartforge_elements::model::FunctionKind;
     let a = &program.unit(u).ast;
-    let Some(first) = m.name.first() else { return InvokedElement::Other };
+    let Some(first) = m.name.first() else {
+        return InvokedElement::Other;
+    };
     if is_shadowed(a, interner, m.span.start, first.sym) {
         return InvokedElement::Other;
     }
     let (tgt, member) = match &m.name[..] {
-        [c] => (program.lookup_in_unit(u, c.sym).and_then(|b| b.getter), None),
+        [c] => (
+            program.lookup_in_unit(u, c.sym).and_then(|b| b.getter),
+            None,
+        ),
         [x, y] => match program.lookup_in_unit(u, x.sym).and_then(|b| b.getter) {
             Some(el @ Element::Class(_)) => (Some(el), Some(y.sym)),
-            _ => (program.lookup_prefixed_in_unit(u, x.sym, y.sym).and_then(|b| b.getter), None),
+            _ => (
+                program
+                    .lookup_prefixed_in_unit(u, x.sym, y.sym)
+                    .and_then(|b| b.getter),
+                None,
+            ),
         },
-        [x, c, n] => (program.lookup_prefixed_in_unit(u, x.sym, c.sym).and_then(|b| b.getter), Some(n.sym)),
+        [x, c, n] => (
+            program
+                .lookup_prefixed_in_unit(u, x.sym, c.sym)
+                .and_then(|b| b.getter),
+            Some(n.sym),
+        ),
         _ => (None, None),
     };
     let getter = |f: dartforge_elements::model::FunctionElementId| {
         let e = program.function(f);
         let is_getter = match e.kind {
             FunctionKind::Getter => true,
-            FunctionKind::ImplicitAccessor => e.variable.is_some_and(|v| program.variable(v).getter == Some(f)),
+            FunctionKind::ImplicitAccessor => e
+                .variable
+                .is_some_and(|v| program.variable(v).getter == Some(f)),
             _ => false,
         };
-        if is_getter { InvokedElement::Getter(f) } else { InvokedElement::Other }
+        if is_getter {
+            InvokedElement::Getter(f)
+        } else {
+            InvokedElement::Other
+        }
     };
     match (tgt, m.arguments.is_some(), member) {
         (Some(Element::Class(c)), true, _) => {
@@ -759,10 +1001,12 @@ pub fn invoked_element(program: &Program, interner: &Interner, u: UnitId, m: &as
             }
         }
         (Some(Element::Class(c)), false, None) => InvokedElement::Class(c),
-        (Some(Element::Class(c)), false, Some(n)) => match program.class(c).static_members.get(&n) {
-            Some(&f) => getter(f),
-            None => InvokedElement::Other,
-        },
+        (Some(Element::Class(c)), false, Some(n)) => {
+            match program.class(c).static_members.get(&n) {
+                Some(&f) => getter(f),
+                None => InvokedElement::Other,
+            }
+        }
         (Some(Element::Variable(v)), _, None) => match program.variable(v).getter {
             Some(f) => InvokedElement::Getter(f),
             None => InvokedElement::Other,
@@ -773,17 +1017,39 @@ pub fn invoked_element(program: &Program, interner: &Interner, u: UnitId, m: &as
 }
 
 /// The library name (`library a.b;`), like `LibraryElement.name`.
-pub fn library_name(program: &Program, interner: &Interner, l: dartforge_elements::model::LibraryId) -> String {
-    program.library(l).name.as_ref().map(|n| n.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
+pub fn library_name(
+    program: &Program,
+    interner: &Interner,
+    l: dartforge_elements::model::LibraryId,
+) -> String {
+    program
+        .library(l)
+        .name
+        .as_ref()
+        .map(|n| {
+            n.iter()
+                .map(|s| interner.resolve(*s))
+                .collect::<Vec<_>>()
+                .join(".")
+        })
+        .unwrap_or_default()
 }
 
 /// `_isTopGetter`: the annotation reads the getter `the_name` of a library named
 /// `library` (`_isPackageMetaGetter` with `meta`).
-pub fn is_getter_of(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, library: &str, the_name: &str) -> bool {
+pub fn is_getter_of(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    m: &ast::Annotation,
+    library: &str,
+    the_name: &str,
+) -> bool {
     match invoked_element(program, interner, u, m) {
         InvokedElement::Getter(f) => {
             let e = program.function(f);
-            interner.resolve(e.name) == the_name && library_name(program, interner, e.library) == library
+            interner.resolve(e.name) == the_name
+                && library_name(program, interner, e.library) == library
         }
         _ => false,
     }
@@ -791,11 +1057,19 @@ pub fn is_getter_of(program: &Program, interner: &Interner, u: UnitId, m: &ast::
 
 /// `_isConstructor`: the annotation invokes a constructor of class `class` of
 /// a library named `library`.
-pub fn is_constructor_of(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, library: &str, class: &str) -> bool {
+pub fn is_constructor_of(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    m: &ast::Annotation,
+    library: &str,
+    class: &str,
+) -> bool {
     match invoked_element(program, interner, u, m) {
         InvokedElement::Constructor(c, _) => {
             let k = program.class(c);
-            interner.resolve(k.name) == class && library_name(program, interner, k.library) == library
+            interner.resolve(k.name) == class
+                && library_name(program, interner, k.library) == library
         }
         _ => false,
     }
@@ -803,8 +1077,19 @@ pub fn is_constructor_of(program: &Program, interner: &Interner, u: UnitId, m: &
 
 /// Annotation `m` (written in unit `u`), without arguments, is the top-level
 /// variable `the_name` of a library whose URI satisfies `of_library`.
-pub fn annotation_and_variable(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation, the_name: &str, of_library: &dyn Fn(&str) -> bool) -> bool {
-    if m.arguments.is_some() || m.name.last().is_none_or(|n| interner.resolve(n.sym) != the_name) {
+pub fn annotation_and_variable(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    m: &ast::Annotation,
+    the_name: &str,
+    of_library: &dyn Fn(&str) -> bool,
+) -> bool {
+    if m.arguments.is_some()
+        || m.name
+            .last()
+            .is_none_or(|n| interner.resolve(n.sym) != the_name)
+    {
         return false;
     }
     match annotation_element(program, interner, u, m) {
@@ -819,15 +1104,24 @@ pub fn annotation_and_variable(program: &Program, interner: &Interner, u: UnitId
 /// `ElementAnnotation.isDeprecated`: the `deprecated` variable of `dart:core`
 /// (without arguments), or a constructor of the `Deprecated` class of
 /// `dart:core` (`@Deprecated('…')`, with arguments).
-pub fn is_deprecated(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> bool {
+pub fn is_deprecated(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    m: &ast::Annotation,
+) -> bool {
     match annotation_element(program, interner, u, m) {
         Some(Element::Variable(v)) => {
             let x = program.variable(v);
-            m.arguments.is_none() && interner.resolve(x.name) == "deprecated" && program.library(x.library).uri == "dart:core"
+            m.arguments.is_none()
+                && interner.resolve(x.name) == "deprecated"
+                && program.library(x.library).uri == "dart:core"
         }
         Some(Element::Class(c)) => {
             let x = program.class(c);
-            m.arguments.is_some() && interner.resolve(x.name) == "Deprecated" && program.library(x.library).uri == "dart:core"
+            m.arguments.is_some()
+                && interner.resolve(x.name) == "Deprecated"
+                && program.library(x.library).uri == "dart:core"
         }
         _ => false,
     }
@@ -835,6 +1129,13 @@ pub fn is_deprecated(program: &Program, interner: &Interner, u: UnitId, m: &ast:
 
 /// `ElementAnnotation.isDeprecated` without arguments: the `deprecated`
 /// variable of `dart:core`.
-pub fn is_core_deprecated(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> bool {
-    annotation_and_variable(program, interner, u, m, "deprecated", &|uri| uri == "dart:core")
+pub fn is_core_deprecated(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    m: &ast::Annotation,
+) -> bool {
+    annotation_and_variable(program, interner, u, m, "deprecated", &|uri| {
+        uri == "dart:core"
+    })
 }

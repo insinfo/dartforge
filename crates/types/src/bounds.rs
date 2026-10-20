@@ -8,7 +8,7 @@
 //! first one that matches decides.
 
 use crate::ops::{non_nullable, nullable};
-use crate::subtyping::{is_subtype, SubtypeEnv};
+use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{Type, TypeId, TypeParamId, Variance};
 use std::collections::HashMap;
 
@@ -16,7 +16,11 @@ use std::collections::HashMap;
 pub fn is_top(t: TypeId, env: &SubtypeEnv) -> bool {
     match env.table.get(t) {
         Type::Dynamic | Type::Void => true,
-        Type::Interface { class, nullable: true, .. } => Some(*class) == env.core.object_class,
+        Type::Interface {
+            class,
+            nullable: true,
+            ..
+        } => Some(*class) == env.core.object_class,
         Type::FutureOr { arg, nullable } => {
             is_top(*arg, env) || (*nullable && is_object(*arg, env))
         }
@@ -27,8 +31,15 @@ pub fn is_top(t: TypeId, env: &SubtypeEnv) -> bool {
 /// **OBJECT**(`T`): `Object`, `FutureOr<S>` with **OBJECT**(`S`).
 pub fn is_object(t: TypeId, env: &SubtypeEnv) -> bool {
     match env.table.get(t) {
-        Type::Interface { class, nullable: false, .. } => Some(*class) == env.core.object_class,
-        Type::FutureOr { arg, nullable: false } => is_object(*arg, env),
+        Type::Interface {
+            class,
+            nullable: false,
+            ..
+        } => Some(*class) == env.core.object_class,
+        Type::FutureOr {
+            arg,
+            nullable: false,
+        } => is_object(*arg, env),
         _ => false,
     }
 }
@@ -38,7 +49,10 @@ pub fn is_bottom(t: TypeId, env: &SubtypeEnv) -> bool {
     match env.table.get(t) {
         Type::Never => true,
         Type::Intersection { bound, .. } => is_bottom(*bound, env),
-        Type::TypeParameter { param, nullable: false } if *param != env.core.unknown_param => {
+        Type::TypeParameter {
+            param,
+            nullable: false,
+        } if *param != env.core.unknown_param => {
             let b = env.table.param(*param).bound;
             b != t && matches!(env.table.get(b), Type::Never)
         }
@@ -50,7 +64,10 @@ pub fn is_bottom(t: TypeId, env: &SubtypeEnv) -> bool {
 pub fn is_null(t: TypeId, env: &SubtypeEnv) -> bool {
     match env.table.get(t) {
         Type::Null => true,
-        Type::TypeParameter { param, nullable: true } if *param != env.core.unknown_param => {
+        Type::TypeParameter {
+            param,
+            nullable: true,
+        } if *param != env.core.unknown_param => {
             let b = env.table.param(*param).bound;
             matches!(env.table.get(b), Type::Never)
         }
@@ -157,16 +174,30 @@ fn contains_params(t: TypeId, params: &[TypeParamId], env: &SubtypeEnv) -> bool 
             args.iter().any(|a| contains_params(*a, params, env))
         }
         Type::FutureOr { arg, .. } => contains_params(*arg, params, env),
-        Type::Function { type_params, ret, positional, optional, named, .. } => {
+        Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
             contains_params(*ret, params, env)
-                || positional.iter().chain(optional.iter()).any(|a| contains_params(*a, params, env))
-                || named.iter().any(|(_, a, _)| contains_params(*a, params, env))
+                || positional
+                    .iter()
+                    .chain(optional.iter())
+                    .any(|a| contains_params(*a, params, env))
+                || named
+                    .iter()
+                    .any(|(_, a, _)| contains_params(*a, params, env))
                 || type_params.iter().any(|p| {
                     let b = env.table.param(*p).bound;
                     contains_params(b, params, env)
                 })
         }
-        Type::Record { positional, named, .. } => {
+        Type::Record {
+            positional, named, ..
+        } => {
             positional.iter().any(|a| contains_params(*a, params, env))
                 || named.iter().any(|(_, a)| contains_params(*a, params, env))
         }
@@ -181,32 +212,78 @@ fn closure(t: TypeId, params: &[TypeParamId], greatest: bool, env: &mut SubtypeE
     let ty = env.table.get(t).clone();
     match ty {
         Type::TypeParameter { nullable: n, .. } => {
-            let r = if greatest { env.core.object_nullable } else { env.core.never };
+            let r = if greatest {
+                env.core.object_nullable
+            } else {
+                env.core.never
+            };
             if n { nullable(r, env.table) } else { r }
         }
-        Type::Interface { class, args, nullable: n } => {
-            let args: Vec<TypeId> = args.iter().map(|a| closure(*a, params, greatest, env)).collect();
-            env.table.intern(Type::Interface { class, args: args.into_boxed_slice(), nullable: n })
+        Type::Interface {
+            class,
+            args,
+            nullable: n,
+        } => {
+            let args: Vec<TypeId> = args
+                .iter()
+                .map(|a| closure(*a, params, greatest, env))
+                .collect();
+            env.table.intern(Type::Interface {
+                class,
+                args: args.into_boxed_slice(),
+                nullable: n,
+            })
         }
-        Type::ExtensionType { decl, args, nullable: n } => {
-            let args: Vec<TypeId> = args.iter().map(|a| closure(*a, params, greatest, env)).collect();
-            env.table.intern(Type::ExtensionType { decl, args: args.into_boxed_slice(), nullable: n })
+        Type::ExtensionType {
+            decl,
+            args,
+            nullable: n,
+        } => {
+            let args: Vec<TypeId> = args
+                .iter()
+                .map(|a| closure(*a, params, greatest, env))
+                .collect();
+            env.table.intern(Type::ExtensionType {
+                decl,
+                args: args.into_boxed_slice(),
+                nullable: n,
+            })
         }
         Type::FutureOr { arg, nullable: n } => {
             let arg = closure(arg, params, greatest, env);
             env.table.intern(Type::FutureOr { arg, nullable: n })
         }
-        Type::Function { type_params, ret, positional, optional, named, nullable: n } => {
+        Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            nullable: n,
+        } => {
             if type_params.iter().any(|p| {
                 let b = env.table.param(*p).bound;
                 contains_params(b, params, env)
             }) {
-                return if greatest { env.core.function } else { env.core.never };
+                return if greatest {
+                    env.core.function
+                } else {
+                    env.core.never
+                };
             }
             let ret = closure(ret, params, greatest, env);
-            let positional: Vec<TypeId> = positional.iter().map(|a| closure(*a, params, !greatest, env)).collect();
-            let optional: Vec<TypeId> = optional.iter().map(|a| closure(*a, params, !greatest, env)).collect();
-            let named: Vec<_> = named.iter().map(|(s, a, r)| (*s, closure(*a, params, !greatest, env), *r)).collect();
+            let positional: Vec<TypeId> = positional
+                .iter()
+                .map(|a| closure(*a, params, !greatest, env))
+                .collect();
+            let optional: Vec<TypeId> = optional
+                .iter()
+                .map(|a| closure(*a, params, !greatest, env))
+                .collect();
+            let named: Vec<_> = named
+                .iter()
+                .map(|(s, a, r)| (*s, closure(*a, params, !greatest, env), *r))
+                .collect();
             env.table.intern(Type::Function {
                 type_params,
                 ret,
@@ -216,10 +293,24 @@ fn closure(t: TypeId, params: &[TypeParamId], greatest: bool, env: &mut SubtypeE
                 nullable: n,
             })
         }
-        Type::Record { positional, named, nullable: n } => {
-            let positional: Vec<TypeId> = positional.iter().map(|a| closure(*a, params, greatest, env)).collect();
-            let named: Vec<_> = named.iter().map(|(s, a)| (*s, closure(*a, params, greatest, env))).collect();
-            env.table.intern(Type::Record { positional: positional.into_boxed_slice(), named: named.into_boxed_slice(), nullable: n })
+        Type::Record {
+            positional,
+            named,
+            nullable: n,
+        } => {
+            let positional: Vec<TypeId> = positional
+                .iter()
+                .map(|a| closure(*a, params, greatest, env))
+                .collect();
+            let named: Vec<_> = named
+                .iter()
+                .map(|(s, a)| (*s, closure(*a, params, greatest, env)))
+                .collect();
+            env.table.intern(Type::Record {
+                positional: positional.into_boxed_slice(),
+                named: named.into_boxed_slice(),
+                nullable: n,
+            })
         }
         _ => t,
     }
@@ -243,16 +334,32 @@ pub fn schema_least(t: TypeId, env: &mut SubtypeEnv) -> TypeId {
 }
 
 fn is_function(t: TypeId, env: &SubtypeEnv) -> bool {
-    matches!(env.table.get(t), Type::Function { nullable: false, .. })
+    matches!(
+        env.table.get(t),
+        Type::Function {
+            nullable: false,
+            ..
+        }
+    )
 }
 
 fn is_record(t: TypeId, env: &SubtypeEnv) -> bool {
-    matches!(env.table.get(t), Type::Record { nullable: false, .. })
+    matches!(
+        env.table.get(t),
+        Type::Record {
+            nullable: false,
+            ..
+        }
+    )
 }
 
 fn is_iface(t: TypeId, env: &SubtypeEnv, c: Option<dartforge_elements::model::ClassId>) -> bool {
     match env.table.get(t) {
-        Type::Interface { class, nullable: false, .. } => Some(*class) == c,
+        Type::Interface {
+            class,
+            nullable: false,
+            ..
+        } => Some(*class) == c,
         _ => false,
     }
 }
@@ -312,7 +419,10 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
     }
     // X1 & B1: handled before nullability (changelog of 2023.10.27).
     if let Type::Intersection { param, bound } = env.table.get(t1).clone() {
-        let x1 = env.table.intern(Type::TypeParameter { param, nullable: false });
+        let x1 = env.table.intern(Type::TypeParameter {
+            param,
+            nullable: false,
+        });
         if sub_up(x1, t2, env) {
             return t2;
         }
@@ -323,7 +433,10 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
         return up_depth(b, t2, env, depth + 1);
     }
     if let Type::Intersection { param, bound } = env.table.get(t2).clone() {
-        let x2 = env.table.intern(Type::TypeParameter { param, nullable: false });
+        let x2 = env.table.intern(Type::TypeParameter {
+            param,
+            nullable: false,
+        });
         if sub_up(t1, x2, env) {
             return x2;
         }
@@ -338,20 +451,36 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
         return if more_bottom(t1, t2, env) { t2 } else { t1 };
     }
     if null1 {
-        return if is_nullable(t2, env) { t2 } else { nullable(t2, env.table) };
+        return if is_nullable(t2, env) {
+            t2
+        } else {
+            nullable(t2, env.table)
+        };
     }
     if null2 {
-        return if is_nullable(t1, env) { t1 } else { nullable(t1, env.table) };
+        return if is_nullable(t1, env) {
+            t1
+        } else {
+            nullable(t1, env.table)
+        };
     }
     let (obj1, obj2) = (is_object(t1, env), is_object(t2, env));
     if obj1 && obj2 {
         return if more_top(t1, t2, env) { t1 } else { t2 };
     }
     if obj1 {
-        return if is_non_nullable(t2, env) { t1 } else { nullable(t1, env.table) };
+        return if is_non_nullable(t2, env) {
+            t1
+        } else {
+            nullable(t1, env.table)
+        };
     }
     if obj2 {
-        return if is_non_nullable(t1, env) { t2 } else { nullable(t2, env.table) };
+        return if is_non_nullable(t1, env) {
+            t2
+        } else {
+            nullable(t2, env.table)
+        };
     }
     let (ty1, ty2) = (env.table.get(t1).clone(), env.table.get(t2).clone());
     let (n1, n2) = (ty1.is_declared_nullable(), ty2.is_declared_nullable());
@@ -392,17 +521,26 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
         return t1;
     }
     if let (
-        Type::Function { type_params: tp0, ret: r0, positional: p0, optional: o0, named: nm0, .. },
-        Type::Function { type_params: tp1, ret: r1, positional: p1, optional: o1, named: nm1, .. },
+        Type::Function {
+            type_params: tp0,
+            ret: r0,
+            positional: p0,
+            optional: o0,
+            named: nm0,
+            ..
+        },
+        Type::Function {
+            type_params: tp1,
+            ret: r1,
+            positional: p1,
+            optional: o1,
+            named: nm1,
+            ..
+        },
     ) = (&ty1, &ty2)
     {
-        return up_functions(
-            (tp0, *r0, p0, o0, nm0),
-            (tp1, *r1, p1, o1, nm1),
-            env,
-            depth,
-        )
-        .unwrap_or(env.core.function);
+        return up_functions((tp0, *r0, p0, o0, nm0), (tp1, *r1, p1, o1, nm1), env, depth)
+            .unwrap_or(env.core.function);
     }
     if is_function(t1, env) {
         let o = env.core.object;
@@ -420,16 +558,40 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
     if is_iface(t1, env, record_class) && is_record(t2, env) {
         return t1;
     }
-    if let (Type::Record { positional: p0, named: nm0, .. }, Type::Record { positional: p1, named: nm1, .. }) = (&ty1, &ty2) {
+    if let (
+        Type::Record {
+            positional: p0,
+            named: nm0,
+            ..
+        },
+        Type::Record {
+            positional: p1,
+            named: nm1,
+            ..
+        },
+    ) = (&ty1, &ty2)
+    {
         let same_shape = p0.len() == p1.len()
             && nm0.len() == nm1.len()
             && nm0.iter().zip(nm1.iter()).all(|((a, _), (b, _))| a == b);
         if !same_shape {
             return env.core.record;
         }
-        let pos: Vec<TypeId> = p0.iter().zip(p1.iter()).map(|(a, b)| up_depth(*a, *b, env, depth + 1)).collect();
-        let named: Vec<_> = nm0.iter().zip(nm1.iter()).map(|((s, a), (_, b))| (*s, up_depth(*a, *b, env, depth + 1))).collect();
-        return env.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: named.into_boxed_slice(), nullable: false });
+        let pos: Vec<TypeId> = p0
+            .iter()
+            .zip(p1.iter())
+            .map(|(a, b)| up_depth(*a, *b, env, depth + 1))
+            .collect();
+        let named: Vec<_> = nm0
+            .iter()
+            .zip(nm1.iter())
+            .map(|((s, a), (_, b))| (*s, up_depth(*a, *b, env, depth + 1)))
+            .collect();
+        return env.table.intern(Type::Record {
+            positional: pos.into_boxed_slice(),
+            named: named.into_boxed_slice(),
+            nullable: false,
+        });
     }
     if is_record(t1, env) {
         let o = env.core.object;
@@ -443,32 +605,51 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
     let future = env.core.future_class;
     let future_arg = |t: &Type| -> Option<TypeId> {
         match t {
-            Type::Interface { class, args, nullable: false } if Some(*class) == future && args.len() == 1 => Some(args[0]),
+            Type::Interface {
+                class,
+                args,
+                nullable: false,
+            } if Some(*class) == future && args.len() == 1 => Some(args[0]),
             _ => None,
         }
     };
     match (&ty1, &ty2) {
         (Type::FutureOr { arg: a, .. }, Type::FutureOr { arg: b, .. }) => {
             let t3 = up_depth(*a, *b, env, depth + 1);
-            return env.table.intern(Type::FutureOr { arg: t3, nullable: false });
+            return env.table.intern(Type::FutureOr {
+                arg: t3,
+                nullable: false,
+            });
         }
         (_, Type::FutureOr { arg: b, .. }) if future_arg(&ty1).is_some() => {
             let a = future_arg(&ty1).unwrap();
             let t3 = up_depth(a, *b, env, depth + 1);
-            return env.table.intern(Type::FutureOr { arg: t3, nullable: false });
+            return env.table.intern(Type::FutureOr {
+                arg: t3,
+                nullable: false,
+            });
         }
         (Type::FutureOr { arg: a, .. }, _) if future_arg(&ty2).is_some() => {
             let b = future_arg(&ty2).unwrap();
             let t3 = up_depth(*a, b, env, depth + 1);
-            return env.table.intern(Type::FutureOr { arg: t3, nullable: false });
+            return env.table.intern(Type::FutureOr {
+                arg: t3,
+                nullable: false,
+            });
         }
         (_, Type::FutureOr { arg: b, .. }) => {
             let t3 = up_depth(t1, *b, env, depth + 1);
-            return env.table.intern(Type::FutureOr { arg: t3, nullable: false });
+            return env.table.intern(Type::FutureOr {
+                arg: t3,
+                nullable: false,
+            });
         }
         (Type::FutureOr { arg: a, .. }, _) => {
             let t3 = up_depth(*a, t2, env, depth + 1);
-            return env.table.intern(Type::FutureOr { arg: t3, nullable: false });
+            return env.table.intern(Type::FutureOr {
+                arg: t3,
+                nullable: false,
+            });
         }
         _ => {}
     }
@@ -480,8 +661,22 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
     }
     // Interfaces (and extension types through their superinterfaces).
     if let (
-        Type::Interface { class: c1, args: a1, .. } | Type::ExtensionType { decl: c1, args: a1, .. },
-        Type::Interface { class: c2, args: a2, .. } | Type::ExtensionType { decl: c2, args: a2, .. },
+        Type::Interface {
+            class: c1,
+            args: a1,
+            ..
+        }
+        | Type::ExtensionType {
+            decl: c1, args: a1, ..
+        },
+        Type::Interface {
+            class: c2,
+            args: a2,
+            ..
+        }
+        | Type::ExtensionType {
+            decl: c2, args: a2, ..
+        },
     ) = (&ty1, &ty2)
     {
         // Same declaration (class or extension type, R-UP-w §4.2.4 step 3):
@@ -493,7 +688,11 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
             // `variance` experiment): `in` takes DOWN, `inout` needs equal
             // arguments (otherwise the interface level decides).
             let variances: Vec<Variance> = match env.hierarchy.get(*c1) {
-                Some(data) if data.type_params.len() == a1.len() => data.type_params.iter().map(|&p| env.table.param(p).variance).collect(),
+                Some(data) if data.type_params.len() == a1.len() => data
+                    .type_params
+                    .iter()
+                    .map(|&p| env.table.param(p).variance)
+                    .collect(),
                 _ => vec![Variance::Unspecified; a1.len()],
             };
             let mut args: Vec<TypeId> = Vec::with_capacity(a1.len());
@@ -506,14 +705,24 @@ fn up_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeId 
                         }
                         args.push(*x);
                     }
-                    Variance::Covariant | Variance::Unspecified => args.push(up_depth(*x, *y, env, depth + 1)),
+                    Variance::Covariant | Variance::Unspecified => {
+                        args.push(up_depth(*x, *y, env, depth + 1))
+                    }
                 }
             }
             let args = args.into_boxed_slice();
             return if ext1 {
-                env.table.intern(Type::ExtensionType { decl: *c1, args, nullable: false })
+                env.table.intern(Type::ExtensionType {
+                    decl: *c1,
+                    args,
+                    nullable: false,
+                })
             } else {
-                env.table.intern(Type::Interface { class: *c1, args, nullable: false })
+                env.table.intern(Type::Interface {
+                    class: *c1,
+                    args,
+                    nullable: false,
+                })
             };
         }
         return interface_lub(t1, t2, env);
@@ -531,18 +740,32 @@ fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
     // directly).
     let supers = |t: TypeId, env: &mut SubtypeEnv| -> Vec<TypeId> {
         let (class, args) = match env.table.get(t) {
-            Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => (*class, args.clone()),
+            Type::Interface { class, args, .. }
+            | Type::ExtensionType {
+                decl: class, args, ..
+            } => (*class, args.clone()),
             _ => return vec![],
         };
         let mut out = vec![t];
         if let Some(data) = env.hierarchy.get(class) {
-            let map: HashMap<TypeParamId, TypeId> = data.type_params.iter().copied().zip(args.iter().copied()).collect();
+            let map: HashMap<TypeParamId, TypeId> = data
+                .type_params
+                .iter()
+                .copied()
+                .zip(args.iter().copied())
+                .collect();
             let list = data.all_supertypes.clone();
             for s in list {
                 let si = crate::ops::substitute(s, &map, env.table);
                 // `Object` goes below only if there is a class in the chain (the hierarchy
                 // also puts it above an extension type).
-                if si != env.core.object && matches!(env.table.get(si), Type::Interface { .. } | Type::ExtensionType { .. }) && !out.contains(&si) {
+                if si != env.core.object
+                    && matches!(
+                        env.table.get(si),
+                        Type::Interface { .. } | Type::ExtensionType { .. }
+                    )
+                    && !out.contains(&si)
+                {
                     out.push(si);
                 }
             }
@@ -550,7 +773,10 @@ fn interface_lub(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv) -> TypeId {
         // An extension type that implements `Object` (directly, or through
         // another extension type) has it among its superinterfaces too.
         let object = env.core.object;
-        let has_class = out.iter().any(|x| matches!(env.table.get(*x), Type::Interface { .. })) || is_subtype(t, object, env);
+        let has_class = out
+            .iter()
+            .any(|x| matches!(env.table.get(*x), Type::Interface { .. }))
+            || is_subtype(t, object, env);
         if has_class && !out.contains(&env.core.object) {
             out.push(env.core.object);
         }
@@ -602,13 +828,20 @@ type FnParts<'x> = (
 );
 
 /// Renames the type parameters of `b` to those of `a` (same bounds).
-fn align_generics(a: &[TypeParamId], b: &[TypeParamId], env: &mut SubtypeEnv) -> Option<HashMap<TypeParamId, TypeId>> {
+fn align_generics(
+    a: &[TypeParamId],
+    b: &[TypeParamId],
+    env: &mut SubtypeEnv,
+) -> Option<HashMap<TypeParamId, TypeId>> {
     if a.len() != b.len() {
         return None;
     }
     let mut map = HashMap::new();
     for (&pa, &pb) in a.iter().zip(b.iter()) {
-        let ta = env.table.intern(Type::TypeParameter { param: pa, nullable: false });
+        let ta = env.table.intern(Type::TypeParameter {
+            param: pa,
+            nullable: false,
+        });
         map.insert(pb, ta);
     }
     for (&pa, &pb) in a.iter().zip(b.iter()) {
@@ -622,7 +855,12 @@ fn align_generics(a: &[TypeParamId], b: &[TypeParamId], env: &mut SubtypeEnv) ->
     Some(map)
 }
 
-fn up_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth: u32) -> Option<TypeId> {
+fn up_functions(
+    f0: FnParts<'_>,
+    f1: FnParts<'_>,
+    env: &mut SubtypeEnv,
+    depth: u32,
+) -> Option<TypeId> {
     let map = align_generics(f0.0, f1.0, env)?;
     let s = |t: TypeId, env: &mut SubtypeEnv| crate::ops::substitute(t, &map, env.table);
     let r1 = s(f1.1, env);
@@ -635,9 +873,15 @@ fn up_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth: u
             return None;
         }
         let ret = up_depth(f0.1, r1, env, depth + 1);
-        let pos: Vec<TypeId> = p0.iter().zip(p1.iter()).map(|(a, b)| down_depth(*a, *b, env, depth + 1)).collect();
+        let pos: Vec<TypeId> = p0
+            .iter()
+            .zip(p1.iter())
+            .map(|(a, b)| down_depth(*a, *b, env, depth + 1))
+            .collect();
         let q = o0.len().min(o1.len());
-        let opt: Vec<TypeId> = (0..q).map(|i| down_depth(o0[i], o1[i], env, depth + 1)).collect();
+        let opt: Vec<TypeId> = (0..q)
+            .map(|i| down_depth(o0[i], o1[i], env, depth + 1))
+            .collect();
         return Some(env.table.intern(Type::Function {
             type_params: f0.0.into(),
             ret,
@@ -661,7 +905,11 @@ fn up_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth: u
         }
     }
     let ret = up_depth(f0.1, r1, env, depth + 1);
-    let pos: Vec<TypeId> = p0.iter().zip(p1.iter()).map(|(a, b)| down_depth(*a, *b, env, depth + 1)).collect();
+    let pos: Vec<TypeId> = p0
+        .iter()
+        .zip(p1.iter())
+        .map(|(a, b)| down_depth(*a, *b, env, depth + 1))
+        .collect();
     let mut named = Vec::new();
     for (nm, t0, r0) in n0.iter() {
         if let Some((_, t1, r1)) = n1.iter().find(|(m, _, _)| m == nm) {
@@ -678,7 +926,12 @@ fn up_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth: u
     }))
 }
 
-fn down_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth: u32) -> Option<TypeId> {
+fn down_functions(
+    f0: FnParts<'_>,
+    f1: FnParts<'_>,
+    env: &mut SubtypeEnv,
+    depth: u32,
+) -> Option<TypeId> {
     let map = align_generics(f0.0, f1.0, env)?;
     let s = |t: TypeId, env: &mut SubtypeEnv| crate::ops::substitute(t, &map, env.table);
     let r1 = s(f1.1, env);
@@ -716,7 +969,11 @@ fn down_functions(f0: FnParts<'_>, f1: FnParts<'_>, env: &mut SubtypeEnv, depth:
     if !o0.is_empty() || !o1.is_empty() || p0.len() != p1.len() {
         return None;
     }
-    let pos: Vec<TypeId> = p0.iter().zip(p1.iter()).map(|(a, b)| up_depth(*a, *b, env, depth + 1)).collect();
+    let pos: Vec<TypeId> = p0
+        .iter()
+        .zip(p1.iter())
+        .map(|(a, b)| up_depth(*a, *b, env, depth + 1))
+        .collect();
     let mut named = Vec::new();
     for (nm, t0, r0) in n0.iter() {
         match n1.iter().find(|(m, _, _)| m == nm) {
@@ -782,10 +1039,18 @@ fn down_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeI
         return if more_bottom(t1, t2, env) { t1 } else { t2 };
     }
     if null1 {
-        return if is_nullable(t2, env) { t1 } else { env.core.never };
+        return if is_nullable(t2, env) {
+            t1
+        } else {
+            env.core.never
+        };
     }
     if null2 {
-        return if is_nullable(t1, env) { t2 } else { env.core.never };
+        return if is_nullable(t1, env) {
+            t2
+        } else {
+            env.core.never
+        };
     }
     let (obj1, obj2) = (is_object(t1, env), is_object(t2, env));
     if obj1 && obj2 {
@@ -796,14 +1061,22 @@ fn down_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeI
             return t2;
         }
         let nn = non_nullable(t2, env.table);
-        return if is_non_nullable(nn, env) { nn } else { env.core.never };
+        return if is_non_nullable(nn, env) {
+            nn
+        } else {
+            env.core.never
+        };
     }
     if obj2 {
         if is_non_nullable(t1, env) {
             return t1;
         }
         let nn = non_nullable(t1, env.table);
-        return if is_non_nullable(nn, env) { nn } else { env.core.never };
+        return if is_non_nullable(nn, env) {
+            nn
+        } else {
+            env.core.never
+        };
     }
     let (ty1, ty2) = (env.table.get(t1).clone(), env.table.get(t2).clone());
     let (n1, n2) = (ty1.is_declared_nullable(), ty2.is_declared_nullable());
@@ -821,23 +1094,61 @@ fn down_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeI
         return down_depth(t1, b, env, depth + 1);
     }
     if let (
-        Type::Function { type_params: tp0, ret: r0, positional: p0, optional: o0, named: nm0, .. },
-        Type::Function { type_params: tp1, ret: r1, positional: p1, optional: o1, named: nm1, .. },
+        Type::Function {
+            type_params: tp0,
+            ret: r0,
+            positional: p0,
+            optional: o0,
+            named: nm0,
+            ..
+        },
+        Type::Function {
+            type_params: tp1,
+            ret: r1,
+            positional: p1,
+            optional: o1,
+            named: nm1,
+            ..
+        },
     ) = (&ty1, &ty2)
     {
         return down_functions((tp0, *r0, p0, o0, nm0), (tp1, *r1, p1, o1, nm1), env, depth)
             .unwrap_or(env.core.never);
     }
-    if let (Type::Record { positional: p0, named: nm0, .. }, Type::Record { positional: p1, named: nm1, .. }) = (&ty1, &ty2) {
+    if let (
+        Type::Record {
+            positional: p0,
+            named: nm0,
+            ..
+        },
+        Type::Record {
+            positional: p1,
+            named: nm1,
+            ..
+        },
+    ) = (&ty1, &ty2)
+    {
         let same_shape = p0.len() == p1.len()
             && nm0.len() == nm1.len()
             && nm0.iter().zip(nm1.iter()).all(|((a, _), (b, _))| a == b);
         if !same_shape {
             return env.core.never;
         }
-        let pos: Vec<TypeId> = p0.iter().zip(p1.iter()).map(|(a, b)| down_depth(*a, *b, env, depth + 1)).collect();
-        let named: Vec<_> = nm0.iter().zip(nm1.iter()).map(|((s, a), (_, b))| (*s, down_depth(*a, *b, env, depth + 1))).collect();
-        return env.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: named.into_boxed_slice(), nullable: false });
+        let pos: Vec<TypeId> = p0
+            .iter()
+            .zip(p1.iter())
+            .map(|(a, b)| down_depth(*a, *b, env, depth + 1))
+            .collect();
+        let named: Vec<_> = nm0
+            .iter()
+            .zip(nm1.iter())
+            .map(|((s, a), (_, b))| (*s, down_depth(*a, *b, env, depth + 1)))
+            .collect();
+        return env.table.intern(Type::Record {
+            positional: pos.into_boxed_slice(),
+            named: named.into_boxed_slice(),
+            nullable: false,
+        });
     }
     if sub_down(t1, t2, env) {
         return t1;
@@ -848,24 +1159,39 @@ fn down_depth(t1: TypeId, t2: TypeId, env: &mut SubtypeEnv, depth: u32) -> TypeI
     let future = env.core.future_class;
     let future_arg = |t: &Type| -> Option<TypeId> {
         match t {
-            Type::Interface { class, args, nullable: false } if Some(*class) == future && args.len() == 1 => Some(args[0]),
+            Type::Interface {
+                class,
+                args,
+                nullable: false,
+            } if Some(*class) == future && args.len() == 1 => Some(args[0]),
             _ => None,
         }
     };
     match (&ty1, &ty2) {
         (Type::FutureOr { arg: a, .. }, Type::FutureOr { arg: b, .. }) => {
             let s = down_depth(*a, *b, env, depth + 1);
-            return env.table.intern(Type::FutureOr { arg: s, nullable: false });
+            return env.table.intern(Type::FutureOr {
+                arg: s,
+                nullable: false,
+            });
         }
         (Type::FutureOr { arg: a, .. }, _) if future_arg(&ty2).is_some() => {
             let b = future_arg(&ty2).unwrap();
             let s = down_depth(*a, b, env, depth + 1);
-            return env.table.intern(Type::Interface { class: future.unwrap(), args: Box::new([s]), nullable: false });
+            return env.table.intern(Type::Interface {
+                class: future.unwrap(),
+                args: Box::new([s]),
+                nullable: false,
+            });
         }
         (_, Type::FutureOr { arg: b, .. }) if future_arg(&ty1).is_some() => {
             let a = future_arg(&ty1).unwrap();
             let s = down_depth(a, *b, env, depth + 1);
-            return env.table.intern(Type::Interface { class: future.unwrap(), args: Box::new([s]), nullable: false });
+            return env.table.intern(Type::Interface {
+                class: future.unwrap(),
+                args: Box::new([s]),
+                nullable: false,
+            });
         }
         (Type::FutureOr { arg: a, .. }, _) => return down_depth(*a, t2, env, depth + 1),
         (_, Type::FutureOr { arg: b, .. }) => return down_depth(t1, *b, env, depth + 1),

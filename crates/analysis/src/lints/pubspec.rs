@@ -12,9 +12,9 @@
 //! [`YamlIgnores`], which also applies to the `PubspecValidator`.
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
 use crate::non_dart::yaml::{self, Node, Value};
 use dartforge_diagnostics::Span;
 
@@ -28,7 +28,11 @@ fn text(node: &Node) -> Option<String> {
 
 /// The text of a scalar key (`key.toString()`).
 fn key_text(node: &Node) -> Option<String> {
-    if node.is_scalar() { text(node).or_else(|| node.is_null().then(|| "null".to_string())) } else { None }
+    if node.is_scalar() {
+        text(node).or_else(|| node.is_null().then(|| "null".to_string()))
+    } else {
+        None
+    }
 }
 
 /// `_findEntry(map, key)`: the scalar value of the last equal key.
@@ -76,16 +80,31 @@ fn dependencies_of(v: &Node) -> Option<Vec<Dependency<'_>>> {
             for (dk, dv) in details {
                 match key_text(dk).as_deref() {
                     Some("hosted") => {
-                        hosted = if dv.is_scalar() { Some(dv) } else if dv.map().is_some() { find_entry(dv, "url") } else { None };
+                        hosted = if dv.is_scalar() {
+                            Some(dv)
+                        } else if dv.map().is_some() {
+                            find_entry(dv, "url")
+                        } else {
+                            None
+                        };
                     }
                     Some("git") => {
-                        git = if dv.is_scalar() { Some(dv) } else if dv.map().is_some() { find_entry(dv, "url") } else { None };
+                        git = if dv.is_scalar() {
+                            Some(dv)
+                        } else if dv.map().is_some() {
+                            find_entry(dv, "url")
+                        } else {
+                            None
+                        };
                     }
                     _ => {}
                 }
             }
         }
-        list.push(Dependency { name: k, urls: git.into_iter().chain(hosted).collect() });
+        list.push(Dependency {
+            name: k,
+            urls: git.into_iter().chain(hosted).collect(),
+        });
     }
     Some(list)
 }
@@ -130,13 +149,16 @@ fn is_identifier(s: &str) -> bool {
     if !b[i].is_ascii_digit() {
         return false;
     }
-    b[i + 1..].iter().all(|c| *c == b'_' || c.is_ascii_alphanumeric())
+    b[i + 1..]
+        .iter()
+        .all(|c| *c == b'_' || c.is_ascii_alphanumeric())
 }
 
 /// The reserved words of `Keyword` (`isReservedWord`).
 const RESERVED: [&str; 33] = [
-    "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else", "enum", "extends", "false", "final", "finally",
-    "for", "if", "in", "is", "new", "null", "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while",
+    "assert", "break", "case", "catch", "class", "const", "continue", "default", "do", "else",
+    "enum", "extends", "false", "final", "finally", "for", "if", "in", "is", "new", "null",
+    "rethrow", "return", "super", "switch", "this", "throw", "true", "try", "var", "void", "while",
     "with",
 ];
 
@@ -175,7 +197,11 @@ fn scheme(t: &str) -> Option<String> {
     }
     let s = &t[..end];
     let b = s.as_bytes();
-    if !b[0].is_ascii_alphabetic() || !b.iter().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'-' | b'.')) {
+    if !b[0].is_ascii_alphabetic()
+        || !b
+            .iter()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'+' | b'-' | b'.'))
+    {
         return None;
     }
     Some(s.to_ascii_lowercase())
@@ -184,12 +210,22 @@ fn scheme(t: &str) -> Option<String> {
 /// The `pubspec.yaml` lints for the text `source`.
 pub fn run(source: &str, enabled: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
-    let Ok(Some(root)) = yaml::parse(source) else { return out };
+    let Ok(Some(root)) = yaml::parse(source) else {
+        return out;
+    };
     let p = read(&root);
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
-    let lists = [&p.dependencies, &p.dev_dependencies, &p.dependency_overrides];
+    let lists = [
+        &p.dependencies,
+        &p.dev_dependencies,
+        &p.dependency_overrides,
+    ];
 
     // `package_names`.
     if enabled("package_names")
@@ -211,7 +247,10 @@ pub fn run(source: &str, enabled: &dyn Fn(&str) -> bool) -> Vec<LintReport> {
                 report(&c::SECURE_PUBSPEC_URLS, node.span, &[s.as_str()]);
             }
         };
-        for node in [p.documentation, p.homepage, p.issue_tracker, p.repository].into_iter().flatten() {
+        for node in [p.documentation, p.homepage, p.issue_tracker, p.repository]
+            .into_iter()
+            .flatten()
+        {
             check(node);
         }
         for list in lists.iter().copied().flatten() {
@@ -303,7 +342,11 @@ pub struct YamlIgnores {
 
 /// `_trimmedCommaSeparatedMatcher` (`[^\s,]([^,]*[^\s,])?`).
 fn split_names(t: &str) -> Vec<String> {
-    t.split(',').map(str::trim).filter(|x| !x.is_empty()).map(str::to_lowercase).collect()
+    t.split(',')
+        .map(str::trim)
+        .filter(|x| !x.is_empty())
+        .map(str::to_lowercase)
+        .collect()
 }
 
 impl YamlIgnores {
@@ -324,7 +367,11 @@ impl YamlIgnores {
             }
             i += 1;
         }
-        let mut r = YamlIgnores { whole_file: Vec::new(), per_line: Default::default(), line_starts };
+        let mut r = YamlIgnores {
+            whole_file: Vec::new(),
+            per_line: Default::default(),
+            line_starts,
+        };
         // The lines as the `RegExp` `.` sees them (without `\n`, `\r`, U+2028
         // and U+2029).
         let lines: Vec<(usize, &str)> = {
@@ -365,8 +412,15 @@ impl YamlIgnores {
                 // `before.trim().isEmpty`: the comment applies to the next
                 // line.
                 let line_no = line_of(&r.line_starts, start);
-                let target = if line[..hash].trim().is_empty() { line_no + 1 } else { line_no };
-                r.per_line.entry(target).or_default().extend(split_names(&line[after..]));
+                let target = if line[..hash].trim().is_empty() {
+                    line_no + 1
+                } else {
+                    line_no
+                };
+                r.per_line
+                    .entry(target)
+                    .or_default()
+                    .extend(split_names(&line[after..]));
             }
         }
         r
@@ -378,14 +432,15 @@ impl YamlIgnores {
         if self.whole_file.iter().any(matches) {
             return true;
         }
-        self.per_line.get(&line_of(&self.line_starts, pos)).is_some_and(|v| v.iter().any(matches))
+        self.per_line
+            .get(&line_of(&self.line_starts, pos))
+            .is_some_and(|v| v.iter().any(matches))
     }
 }
 
 fn line_of(line_starts: &[usize], pos: usize) -> usize {
     line_starts.partition_point(|&x| x <= pos)
 }
-
 
 #[cfg(test)]
 mod dependency_cache_tests {
@@ -398,8 +453,14 @@ mod dependency_cache_tests {
         let mut development = production.clone();
         development.push("test_dep".to_string());
         for _ in 0..3 {
-            assert_eq!(available_dependencies(source, false), Some(production.clone()));
-            assert_eq!(available_dependencies(source, true), Some(development.clone()));
+            assert_eq!(
+                available_dependencies(source, false),
+                Some(production.clone())
+            );
+            assert_eq!(
+                available_dependencies(source, true),
+                Some(development.clone())
+            );
         }
         let mut result = available_dependencies(source, true).unwrap();
         result.clear();
@@ -411,17 +472,26 @@ mod dependency_cache_tests {
         for source in ["", "name: [", "dependencies: {}\n"] {
             for mode in [false, true] {
                 for _ in 0..2 {
-                    assert_eq!(available_dependencies(source, mode), available_dependencies_uncached(source, mode));
+                    assert_eq!(
+                        available_dependencies(source, mode),
+                        available_dependencies_uncached(source, mode)
+                    );
                 }
             }
         }
         for n in 0..140 {
             let source = format!("name: cache_eviction_{n}\ndev_dependencies:\n  test_dep: any\n");
             for mode in [false, true] {
-                assert_eq!(available_dependencies(&source, mode), available_dependencies_uncached(&source, mode));
+                assert_eq!(
+                    available_dependencies(&source, mode),
+                    available_dependencies_uncached(&source, mode)
+                );
             }
         }
         let source = "name: after_eviction\n";
-        assert_eq!(available_dependencies(source, false), Some(vec!["after_eviction".into()]));
+        assert_eq!(
+            available_dependencies(source, false),
+            Some(vec!["after_eviction".into()])
+        );
     }
 }

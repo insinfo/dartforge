@@ -18,7 +18,12 @@ fn summary(v: &[Duration]) -> String {
     v.sort();
     let m = v.get(v.len() / 2).copied().unwrap_or_default();
     let x = v.last().copied().unwrap_or_default();
-    format!("{:.1} ms; {:.1} ms (n={})", m.as_secs_f64() * 1000.0, x.as_secs_f64() * 1000.0, v.len())
+    format!(
+        "{:.1} ms; {:.1} ms (n={})",
+        m.as_secs_f64() * 1000.0,
+        x.as_secs_f64() * 1000.0,
+        v.len()
+    )
 }
 
 fn dart_in(d: &Path, output: &mut Vec<PathBuf>) {
@@ -34,7 +39,11 @@ fn dart_in(d: &Path, output: &mut Vec<PathBuf>) {
 }
 
 fn uri_of(p: &Path) -> String {
-    url::Url::from_file_path(dartforge_elements::config::without_verbatim(p.to_path_buf())).unwrap().to_string()
+    url::Url::from_file_path(dartforge_elements::config::without_verbatim(
+        p.to_path_buf(),
+    ))
+    .unwrap()
+    .to_string()
 }
 
 fn main() {
@@ -61,13 +70,17 @@ fn main() {
         server.pump();
         start.elapsed()
     };
-    server.receive(json!({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
-        "rootUri": uri_of(&root), "capabilities": {}}}));
+    server.receive(
+        json!({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
+        "rootUri": uri_of(&root), "capabilities": {}}}),
+    );
     server.pump();
     for a in &files {
         let t = std::fs::read_to_string(a).expect("read");
-        server.receive(json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
-            "textDocument": {"uri": uri_of(a), "languageId": "dart", "version": 1, "text": t}}}));
+        server.receive(
+            json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {
+            "textDocument": {"uri": uri_of(a), "languageId": "dart", "version": 1, "text": t}}}),
+        );
     }
     server.pump();
     server.await_diagnostics(Duration::from_secs(600));
@@ -76,8 +89,11 @@ fn main() {
     let uri = uri_of(&path);
     let table = dartforge_lsp::utf16::LineTable::build(&text);
     let tokens = dartforge_frontend::lexer::lex(&text).unwrap_or_default();
-    let idents: Vec<usize> =
-        tokens.iter().filter(|t| t.kind == dartforge_frontend::token::Kind::Ident).map(|t| t.span.start).collect();
+    let idents: Vec<usize> = tokens
+        .iter()
+        .filter(|t| t.kind == dartforge_frontend::token::Kind::Ident)
+        .map(|t| t.span.start)
+        .collect();
     let step = (idents.len() / n.max(1)).max(1);
     let sample: Vec<usize> = idents.iter().step_by(step).take(n).copied().collect();
     let pos = |o: usize| {
@@ -92,11 +108,19 @@ fn main() {
             "textDocument/references",
             json!({"textDocument": doc, "position": pos(a + 1), "context": {"includeDeclaration": true}}),
         ));
-        imps.push(request(&mut server, "textDocument/implementation", json!({"textDocument": doc, "position": pos(a + 1)})));
+        imps.push(request(
+            &mut server,
+            "textDocument/implementation",
+            json!({"textDocument": doc, "position": pos(a + 1)}),
+        ));
     }
     // A body edit (a space at the end) in another file, followed by
     // `references`: what survives the edit.
-    let other = files.iter().find(|a| **a != path).cloned().unwrap_or(path.clone());
+    let other = files
+        .iter()
+        .find(|a| **a != path)
+        .cloned()
+        .unwrap_or(path.clone());
     let other_text = std::fs::read_to_string(&other).expect("read");
     let last = other_text.lines().count() as u32;
     let mut after_edit = Vec::new();
@@ -113,10 +137,27 @@ fn main() {
         ));
     }
     server.await_diagnostics(Duration::from_secs(600));
-    println!("project: {} ({} files); file: {}", root.display(), files.len(), path.display());
+    println!(
+        "project: {} ({} files); file: {}",
+        root.display(),
+        files.len(),
+        path.display()
+    );
     println!("| request | first | median; maximum of the others |");
     println!("|---|---|---|");
-    println!("| references | {:.1} ms | {} |", refs[0].as_secs_f64() * 1000.0, summary(&refs[1..]));
-    println!("| implementation | {:.1} ms | {} |", imps[0].as_secs_f64() * 1000.0, summary(&imps[1..]));
-    println!("| references after editing another file | {:.1} ms | {} |", after_edit[0].as_secs_f64() * 1000.0, summary(&after_edit[1..]));
+    println!(
+        "| references | {:.1} ms | {} |",
+        refs[0].as_secs_f64() * 1000.0,
+        summary(&refs[1..])
+    );
+    println!(
+        "| implementation | {:.1} ms | {} |",
+        imps[0].as_secs_f64() * 1000.0,
+        summary(&imps[1..])
+    );
+    println!(
+        "| references after editing another file | {:.1} ms | {} |",
+        after_edit[0].as_secs_f64() * 1000.0,
+        summary(&after_edit[1..])
+    );
 }

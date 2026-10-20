@@ -40,12 +40,14 @@ impl Project {
     pub(crate) fn augmentation_links(&self) -> Vec<Link> {
         let p = self.program();
         let mut links: Vec<Link> = Vec::new();
-        let link_ = |links: &mut Vec<Link>, current: &mut HashMap<String, usize>, key: String, new: Link, augment: bool| {
+        let link_ = |links: &mut Vec<Link>,
+                     current: &mut HashMap<String, usize>,
+                     key: String,
+                     new: Link,
+                     augment: bool| {
             let i = links.len();
             links.push(new);
-            if augment
-                && let Some(&previous) = current.get(&key)
-            {
+            if augment && let Some(&previous) = current.get(&key) {
                 links[previous].next = Some(i);
                 links[i].previous = Some(previous);
             }
@@ -62,8 +64,15 @@ impl Project {
                 for &d in &p.unit(u).unit.declarations {
                     let decl = a.decl(d);
                     for (name, setter) in declaration_names(a, decl) {
-                        let key = format!("{}{}", self.name(name.sym), if setter { "=" } else { "" });
-                        let link = Link { unit: u, name: name.span, declaration: decl.span, previous: None, next: None };
+                        let key =
+                            format!("{}{}", self.name(name.sym), if setter { "=" } else { "" });
+                        let link = Link {
+                            unit: u,
+                            name: name.span,
+                            declaration: decl.span,
+                            previous: None,
+                            next: None,
+                        };
                         link_(&mut links, &mut current, key, link, decl.augment);
                     }
                 }
@@ -80,7 +89,13 @@ impl Project {
                 let a = &p.unit(u).ast;
                 let m = a.member(mid);
                 for (name, key) in member_names(a, m, |s| self.name(s).to_string()) {
-                    let link = Link { unit: u, name: name.span, declaration: m.span, previous: None, next: None };
+                    let link = Link {
+                        unit: u,
+                        name: name.span,
+                        declaration: m.span,
+                        previous: None,
+                        next: None,
+                    };
                     link_(&mut links, &mut current, key, link, m.augment);
                 }
             }
@@ -91,7 +106,12 @@ impl Project {
     /// The lenses of `unit`: first the "Go to Augmented" ones (the target is the
     /// previous link), then the "Go to Augmentation" ones (the next), in text
     /// order. Each one: the name, the title and the target.
-    pub(crate) fn augmentation_lenses(&self, unit: UnitId, augmented: bool, augmentations: bool) -> Vec<(Span, &'static str, UnitId, Span)> {
+    pub(crate) fn augmentation_lenses(
+        &self,
+        unit: UnitId,
+        augmented: bool,
+        augmentations: bool,
+    ) -> Vec<(Span, &'static str, UnitId, Span)> {
         let links = self.augmentation_links();
         let mut from_here: Vec<&Link> = links.iter().filter(|e| e.unit == unit).collect();
         from_here.sort_by_key(|e| e.name.start);
@@ -116,11 +136,18 @@ impl Project {
     /// `dart/textDocument/augmented` (`next` false) and
     /// `dart/textDocument/augmentation` (true): the link of the declaration that
     /// contains `offset` (the innermost) and its neighbor.
-    pub(crate) fn augmentation_neighbor(&self, unit: UnitId, offset: usize, next: bool) -> Option<(UnitId, Span)> {
+    pub(crate) fn augmentation_neighbor(
+        &self,
+        unit: UnitId,
+        offset: usize,
+        next: bool,
+    ) -> Option<(UnitId, Span)> {
         let links = self.augmentation_links();
         let e = links
             .iter()
-            .filter(|e| e.unit == unit && e.declaration.start <= offset && offset <= e.declaration.end)
+            .filter(|e| {
+                e.unit == unit && e.declaration.start <= offset && offset <= e.declaration.end
+            })
             .min_by_key(|e| e.declaration.end - e.declaration.start)?;
         let target = if next { e.next } else { e.previous }?;
         Some((links[target].unit, links[target].name))
@@ -138,7 +165,9 @@ fn declaration_names(a: &ast::Ast, d: &ast::Decl) -> Vec<(ast::Name, bool)> {
         DeclKind::Extension(x) => x.name.map(|n| vec![(n, false)]).unwrap_or_default(),
         DeclKind::Function(f) => {
             let f = a.function(*f);
-            f.name.map(|n| vec![(n, f.kind == ast::FunctionKind::Setter)]).unwrap_or_default()
+            f.name
+                .map(|n| vec![(n, f.kind == ast::FunctionKind::Setter)])
+                .unwrap_or_default()
         }
         DeclKind::Variables(l) => l.variables.iter().map(|v| (v.name, false)).collect(),
     }
@@ -146,22 +175,49 @@ fn declaration_names(a: &ast::Ast, d: &ast::Decl) -> Vec<(ast::Name, bool)> {
 
 /// The names declared by a member, with the chain key (statics apart; the
 /// constructor by name).
-fn member_names(a: &ast::Ast, m: &ast::Member, name: impl Fn(dartforge_intern::SymbolId) -> String) -> Vec<(ast::Name, String)> {
+fn member_names(
+    a: &ast::Ast,
+    m: &ast::Member,
+    name: impl Fn(dartforge_intern::SymbolId) -> String,
+) -> Vec<(ast::Name, String)> {
     match &m.kind {
         MemberKind::Method(f) => {
             let f = a.function(*f);
             let Some(n) = f.name else { return Vec::new() };
-            let setter = if f.kind == ast::FunctionKind::Setter { "=" } else { "" };
-            vec![(n, format!("{}{}{setter}", if f.static_ { "static " } else { "" }, name(n.sym)))]
+            let setter = if f.kind == ast::FunctionKind::Setter {
+                "="
+            } else {
+                ""
+            };
+            vec![(
+                n,
+                format!(
+                    "{}{}{setter}",
+                    if f.static_ { "static " } else { "" },
+                    name(n.sym)
+                ),
+            )]
         }
         MemberKind::Constructor(k) => {
             let n = k.name.unwrap_or(k.class_name);
-            vec![(n, format!("new {}", k.name.map(|x| name(x.sym)).unwrap_or_default()))]
+            vec![(
+                n,
+                format!("new {}", k.name.map(|x| name(x.sym)).unwrap_or_default()),
+            )]
         }
         MemberKind::Field(l) => l
             .variables
             .iter()
-            .map(|v| (v.name, format!("{}{}", if l.static_ { "static " } else { "" }, name(v.name.sym))))
+            .map(|v| {
+                (
+                    v.name,
+                    format!(
+                        "{}{}",
+                        if l.static_ { "static " } else { "" },
+                        name(v.name.sym)
+                    ),
+                )
+            })
             .collect(),
     }
 }

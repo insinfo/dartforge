@@ -11,7 +11,13 @@ use dartforge_intern::SymbolId;
 /// The `typedef` declared in `target` reaches itself.
 pub fn self_referencing_typedef(program: &Program, target: DeclRef) -> bool {
     let lib = program.unit(target.unit).library;
-    let mut finder = SelfReferenceFinder { program, lib, target, visited: Vec::new(), found: false };
+    let mut finder = SelfReferenceFinder {
+        program,
+        lib,
+        target,
+        visited: Vec::new(),
+        found: false,
+    };
     finder.typedef(target);
     finder.found
 }
@@ -30,7 +36,12 @@ struct SelfReferenceFinder<'a> {
 }
 
 impl SelfReferenceFinder<'_> {
-    fn declaration(&self, u: UnitId, the_name: &[ast::Name], scope: &[SymbolId]) -> Option<DeclRef> {
+    fn declaration(
+        &self,
+        u: UnitId,
+        the_name: &[ast::Name],
+        scope: &[SymbolId],
+    ) -> Option<DeclRef> {
         let b = match the_name {
             [n] if scope.contains(&n.sym) => return None,
             [n] => self.program.lookup_in_unit(u, n.sym),
@@ -39,7 +50,10 @@ impl SelfReferenceFinder<'_> {
         }?;
         let (lib, decl) = match b.getter? {
             Element::Class(id) => (self.program.class(id).library, self.program.class(id).decl?),
-            Element::Typedef(id) => (self.program.typedef(id).library, self.program.typedef(id).decl),
+            Element::Typedef(id) => (
+                self.program.typedef(id).library,
+                self.program.typedef(id).decl,
+            ),
             _ => return None,
         };
         (lib == self.lib).then_some(decl)
@@ -60,8 +74,12 @@ impl SelfReferenceFinder<'_> {
                         self.visited.push(d);
                         let ast_d = &self.program.unit(d.unit).ast;
                         match &ast_d.decl(d.decl).kind {
-                            DeclKind::Class(c) => self.type_parameters(d.unit, ast_d, &c.type_params, &mut Vec::new()),
-                            DeclKind::Mixin(m) => self.type_parameters(d.unit, ast_d, &m.type_params, &mut Vec::new()),
+                            DeclKind::Class(c) => {
+                                self.type_parameters(d.unit, ast_d, &c.type_params, &mut Vec::new())
+                            }
+                            DeclKind::Mixin(m) => {
+                                self.type_parameters(d.unit, ast_d, &m.type_params, &mut Vec::new())
+                            }
                             DeclKind::Typedef(_) => self.typedef(d),
                             _ => {}
                         }
@@ -71,7 +89,11 @@ impl SelfReferenceFinder<'_> {
                     self.typ(u, ast_, a, scope);
                 }
             }
-            TypeKind::Function { return_type, type_params, parameters } => {
+            TypeKind::Function {
+                return_type,
+                type_params,
+                parameters,
+            } => {
                 let n = scope.len();
                 self.type_parameters(u, ast_, type_params, scope);
                 self.parameters(u, ast_, parameters, scope);
@@ -90,7 +112,13 @@ impl SelfReferenceFinder<'_> {
     }
 
     /// The bounds (`_typeParameterList`), with the names already in scope.
-    fn type_parameters(&mut self, u: UnitId, ast_: &ast::Ast, tps: &[ast::TypeParameter], scope: &mut Vec<SymbolId>) {
+    fn type_parameters(
+        &mut self,
+        u: UnitId,
+        ast_: &ast::Ast,
+        tps: &[ast::TypeParameter],
+        scope: &mut Vec<SymbolId>,
+    ) {
         scope.extend(tps.iter().map(|p| p.name.sym));
         for p in tps {
             if let Some(b) = p.bound {
@@ -101,7 +129,13 @@ impl SelfReferenceFinder<'_> {
 
     /// `_formalParameterList`: the types of the simple parameters and of the
     /// function-typed parameters (not those of `this.x`/`super.x`).
-    fn parameters(&mut self, u: UnitId, ast_: &ast::Ast, ps: &[Parameter], scope: &mut Vec<SymbolId>) {
+    fn parameters(
+        &mut self,
+        u: UnitId,
+        ast_: &ast::Ast,
+        ps: &[Parameter],
+        scope: &mut Vec<SymbolId>,
+    ) {
         for p in ps {
             if p.this_ || p.super_ {
                 continue;
@@ -120,12 +154,17 @@ impl SelfReferenceFinder<'_> {
 
     fn typedef(&mut self, d: DeclRef) {
         let ast_ = &self.program.unit(d.unit).ast;
-        let DeclKind::Typedef(td) = &ast_.decl(d.decl).kind else { return };
+        let DeclKind::Typedef(td) = &ast_.decl(d.decl).kind else {
+            return;
+        };
         let mut scope = Vec::new();
         self.type_parameters(d.unit, ast_, &td.type_params, &mut scope);
         match &td.kind {
             TypedefKind::Alias(t) => self.typ(d.unit, ast_, *t, &mut scope),
-            TypedefKind::Legacy { return_type, parameters } => {
+            TypedefKind::Legacy {
+                return_type,
+                parameters,
+            } => {
                 self.parameters(d.unit, ast_, parameters, &mut scope);
                 if let Some(r) = return_type {
                     self.typ(d.unit, ast_, *r, &mut scope);

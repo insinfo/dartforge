@@ -3,13 +3,18 @@
 //! those of `corpus/specification/t2/v`, with the outputs of both live
 //! oracles. Written without compiling or running (2026-10-05).
 
-use dartforge_frontend::features::{LibraryFeatures, AnalyzerReference};
+use dartforge_frontend::features::{AnalyzerReference, LibraryFeatures};
 use dartforge_frontend::parser::parse_with;
 use dartforge_intern::Interner;
 
 /// The unit's reference in a 3.6 library and, already in its form, each
 /// diagnostic: code, excerpt, message and fix.
-fn read(source: &str) -> (AnalyzerReference, Vec<(&'static str, String, String, String)>) {
+fn read(
+    source: &str,
+) -> (
+    AnalyzerReference,
+    Vec<(&'static str, String, String, String)>,
+) {
     let mut names = Interner::new();
     let read_ = parse_with(source, &mut names, LibraryFeatures::floor());
     let reference = read_.reference;
@@ -19,7 +24,12 @@ fn read(source: &str) -> (AnalyzerReference, Vec<(&'static str, String, String, 
         .filter_map(|d| d.for_reference(reference))
         .map(|d| {
             let correction = d.correction().unwrap_or_default();
-            (d.code.map_or("", |c| c.info().name), source[d.span.start..d.span.end].to_string(), d.message, correction)
+            (
+                d.code.map_or("", |c| c.info().name),
+                source[d.span.start..d.span.end].to_string(),
+                d.message,
+                correction,
+            )
         })
         .collect();
     v.sort();
@@ -34,7 +44,10 @@ fn null_element_stays_with_3_6() {
     assert_eq!(reference, AnalyzerReference::V3_6);
     assert_eq!(v.len(), 1, "{v:?}");
     assert_eq!(v[0].0, "experiment_not_enabled");
-    assert_eq!(v[0].2, "This requires the 'null-aware-elements' language feature to be enabled.");
+    assert_eq!(
+        v[0].2,
+        "This requires the 'null-aware-elements' language feature to be enabled."
+    );
     assert!(v[0].3.contains("to 3.6.0 or higher"), "{}", v[0].3);
 }
 
@@ -48,7 +61,12 @@ fn unknown_syntax_falls_to_3_13() {
 
     let (reference, v) = read("class A {\n  int _x;\n  A({required this._x});\n}\n");
     assert_eq!(reference, AnalyzerReference::V3_13);
-    assert!(v.iter().any(|d| d.0 == "experiment_not_enabled" && d.1.ends_with("_x") && d.3.contains("3.12.0")), "{v:?}");
+    assert!(
+        v.iter().any(|d| d.0 == "experiment_not_enabled"
+            && d.1.ends_with("_x")
+            && d.3.contains("3.12.0")),
+        "{v:?}"
+    );
 }
 
 /// c02: the `final` of the representation field, in 3.6.2's text.
@@ -56,19 +74,39 @@ fn unknown_syntax_falls_to_3_13() {
 fn representation_modifier_in_3_6() {
     let (reference, v) = read("extension type E(final int i) {}\n");
     assert_eq!(reference, AnalyzerReference::V3_6);
-    assert_eq!(v, [("representation_field_modifier", "final".to_string(), "Representation fields can't have modifiers.".to_string(), "Try removing the modifier.".to_string())]);
+    assert_eq!(
+        v,
+        [(
+            "representation_field_modifier",
+            "final".to_string(),
+            "Representation fields can't have modifiers.".to_string(),
+            "Try removing the modifier.".to_string()
+        )]
+    );
 
     // Without a type, 3.6.2 reports the missing type at the `final` itself
     // (c23, F).
     let (reference, v) = read("extension type F(final i) {}\n");
     assert_eq!(reference, AnalyzerReference::V3_6);
     let v: Vec<(&str, &str)> = v.iter().map(|d| (d.0, d.1.as_str())).collect();
-    assert_eq!(v, [("expected_representation_type", "final"), ("representation_field_modifier", "final")]);
+    assert_eq!(
+        v,
+        [
+            ("expected_representation_type", "final"),
+            ("representation_field_modifier", "final")
+        ]
+    );
 
     // With two fields, 3.6.2 reports the modifier and the comma (c23, G).
     let (_, v) = read("extension type G(final int i, final int j) {}\n");
     let v: Vec<(&str, &str)> = v.iter().map(|d| (d.0, d.1.as_str())).collect();
-    assert_eq!(v, [("multiple_representation_fields", ","), ("representation_field_modifier", "final")]);
+    assert_eq!(
+        v,
+        [
+            ("multiple_representation_fields", ","),
+            ("representation_field_modifier", "final")
+        ]
+    );
 }
 
 /// All of c23: the declaring `var` makes 3.13.4 the reference, and then the
@@ -80,13 +118,28 @@ fn representation_with_var_in_3_13() {
     let (reference, v) = read(source);
     assert_eq!(reference, AnalyzerReference::V3_13);
     let new_ = "Representation fields can't have the modifier 'var'.";
-    let summary: Vec<(&str, &str, &str)> = v.iter().map(|d| (d.0, d.1.as_str(), d.2.as_str())).collect();
+    let summary: Vec<(&str, &str, &str)> = v
+        .iter()
+        .map(|d| (d.0, d.1.as_str(), d.2.as_str()))
+        .collect();
     assert_eq!(
         summary,
         [
-            ("expected_representation_type", "i", "Expected a representation type."),
-            ("experiment_not_enabled", "var", "This requires the 'primary-constructors' language feature to be enabled."),
-            ("multiple_representation_fields", ",", "Each extension type should have exactly one representation field."),
+            (
+                "expected_representation_type",
+                "i",
+                "Expected a representation type."
+            ),
+            (
+                "experiment_not_enabled",
+                "var",
+                "This requires the 'primary-constructors' language feature to be enabled."
+            ),
+            (
+                "multiple_representation_fields",
+                ",",
+                "Each extension type should have exactly one representation field."
+            ),
             ("representation_field_modifier", "final", new_),
             ("representation_field_modifier", "var", new_),
         ]
@@ -114,7 +167,10 @@ fn function_literal_with_name() {
         parse_with(source, &mut names, LibraryFeatures::floor())
             .diagnostics
             .iter()
-            .filter(|d| d.code.is_some_and(|c| c.info().name == "named_function_expression"))
+            .filter(|d| {
+                d.code
+                    .is_some_and(|c| c.info().name == "named_function_expression")
+            })
             .map(|d| (d.span.start, d.span.end - d.span.start))
             .collect()
     };
@@ -125,5 +181,10 @@ fn function_literal_with_name() {
     assert!(named_ones("f() { g(); h() {} var x = g(); }\n").is_empty());
     assert!(named_ones("class A {\n  int x;\n  A() : x = g() {}\n}\nint g() => 0;\n").is_empty());
     // The guard of a `switch` expression case.
-    assert!(named_ones("int f(int o) => switch (o) { _ when g(o) => 1, _ => 0 };\nbool g(int o) => true;\n").is_empty());
+    assert!(
+        named_ones(
+            "int f(int o) => switch (o) { _ when g(o) => 1, _ => 0 };\nbool g(int o) => true;\n"
+        )
+        .is_empty()
+    );
 }

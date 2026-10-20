@@ -116,7 +116,12 @@ pub fn read(file: &Path, text: &str, per_member: bool) -> Option<SdkIndex> {
 /// # Errors
 ///
 /// A write or serialization failure; the caller goes on without the cache.
-pub fn write(dir: &Path, text: &str, per_member: bool, index: &SdkIndex) -> Result<PathBuf, String> {
+pub fn write(
+    dir: &Path,
+    text: &str,
+    per_member: bool,
+    index: &SdkIndex,
+) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let a = CacheFile {
         format: FORMAT,
@@ -129,7 +134,11 @@ pub fn write(dir: &Path, text: &str, per_member: bool, index: &SdkIndex) -> Resu
     let destination = path(dir, text, per_member);
     // Temporary file with the process id: two simultaneous compilations do
     // not write to the same file, and `rename` is atomic.
-    let tmp = dir.join(format!(".jsprod-sdk-{}-{:016x}.tmp", std::process::id(), a.key));
+    let tmp = dir.join(format!(
+        ".jsprod-sdk-{}-{:016x}.tmp",
+        std::process::id(),
+        a.key
+    ));
     std::fs::write(&tmp, &bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, &destination).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
@@ -142,12 +151,23 @@ pub fn write(dir: &Path, text: &str, per_member: bool, index: &SdkIndex) -> Resu
 /// Keeps at most [`MAX_ENTRIES`] indexes in `dir`, the most recent ones;
 /// `keep` (the one just written) never goes.
 fn evict_old(dir: &Path, keep: &Path) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut indexes: Vec<(std::time::SystemTime, PathBuf)> = entries
         .filter_map(Result::ok)
         .map(|e| e.path())
-        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("jsprod-sdk-") && n.ends_with(".bin")))
-        .filter_map(|p| std::fs::metadata(&p).and_then(|m| m.modified()).ok().map(|t| (t, p)))
+        .filter(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("jsprod-sdk-") && n.ends_with(".bin"))
+        })
+        .filter_map(|p| {
+            std::fs::metadata(&p)
+                .and_then(|m| m.modified())
+                .ok()
+                .map(|t| (t, p))
+        })
         .collect();
     // Most recent first; ties broken by name, so the order does not depend
     // on the file system.
@@ -202,7 +222,10 @@ mod tests {
     );
 
     fn temp_dir(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("dartforge-jsprod-cache-{}-{name}", std::process::id()));
+        let d = std::env::temp_dir().join(format!(
+            "dartforge-jsprod-cache-{}-{name}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&d);
         d
     }
@@ -265,7 +288,11 @@ mod tests {
             let t = format!("{SDK}core.X{k} = class X{k} {{}};\n");
             load_in(Some(&d), &t, true);
         }
-        let n = std::fs::read_dir(&d).unwrap().filter_map(Result::ok).filter(|e| e.file_name().to_string_lossy().starts_with("jsprod-sdk-")).count();
+        let n = std::fs::read_dir(&d)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_name().to_string_lossy().starts_with("jsprod-sdk-"))
+            .count();
         assert_eq!(n, MAX_ENTRIES);
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -279,7 +306,10 @@ mod tests {
         let (i, o) = load_in(Some(&d), SDK, true);
         assert_eq!(o, Origin::Cache);
         let roots = vec!["core.print".to_string()];
-        assert_eq!(crate::sdk::prune_with_index(SDK, &i, &roots), crate::sdk::prune(SDK, &roots, true));
+        assert_eq!(
+            crate::sdk::prune_with_index(SDK, &i, &roots),
+            crate::sdk::prune(SDK, &roots, true)
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 }

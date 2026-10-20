@@ -24,7 +24,10 @@ use crate::ops;
 use crate::resolve::{ClassTypeData, OutlineTypes};
 use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeParamOwner, TypeTable, Variance};
-use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, VariableRef};
+use dartforge_elements::model::{
+    ClassId, ClassKind, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program,
+    VariableRef,
+};
 use dartforge_frontend::ast::{self, MemberKind};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
@@ -44,21 +47,30 @@ impl MemberName {
     /// `Name(libraryUri, name)`.
     pub fn new(interner: &Interner, library: LibraryId, key: SymbolId) -> MemberName {
         let private = interner.resolve(key).starts_with('_');
-        MemberName { key, library: private.then_some(library) }
+        MemberName {
+            key,
+            library: private.then_some(library),
+        }
     }
 
     /// `forSetter`.
     pub fn from_setter(self, interner: &Interner) -> Option<MemberName> {
         let text = interner.resolve(self.key);
         let key = interner.lookup(&format!("{text}_="))?;
-        Some(MemberName { key, library: self.library })
+        Some(MemberName {
+            key,
+            library: self.library,
+        })
     }
 
     /// `forGetter`.
     pub fn of_getter(self, interner: &Interner) -> Option<MemberName> {
         let text = interner.resolve(self.key);
         match text.strip_suffix("_=") {
-            Some(base) => Some(MemberName { key: interner.lookup(base)?, library: self.library }),
+            Some(base) => Some(MemberName {
+                key: interner.lookup(base)?,
+                library: self.library,
+            }),
             None => Some(self),
         }
     }
@@ -103,13 +115,27 @@ pub struct InterfaceMember {
 #[derive(Clone, Debug)]
 pub enum Conflict {
     /// `CandidatesConflict`.
-    Candidates { name: MemberName, candidates: Vec<InterfaceMember> },
+    Candidates {
+        name: MemberName,
+        candidates: Vec<InterfaceMember>,
+    },
     /// `GetterMethodConflict`.
-    GetterMethod { name: MemberName, getter: InterfaceMember, method: InterfaceMember },
+    GetterMethod {
+        name: MemberName,
+        getter: InterfaceMember,
+        method: InterfaceMember,
+    },
     /// `HasNonExtensionAndExtensionMemberConflict`.
-    ExtensionAndNonExtension { name: MemberName, non_extension: Vec<InterfaceMember>, extension: Vec<InterfaceMember> },
+    ExtensionAndNonExtension {
+        name: MemberName,
+        non_extension: Vec<InterfaceMember>,
+        extension: Vec<InterfaceMember>,
+    },
     /// `NotUniqueExtensionMemberConflict`.
-    NonUniqueExtension { name: MemberName, candidates: Vec<InterfaceMember> },
+    NonUniqueExtension {
+        name: MemberName,
+        candidates: Vec<InterfaceMember>,
+    },
 }
 
 /// A map in insertion order (Dart's `LinkedHashMap`: reassigning keeps the
@@ -122,7 +148,10 @@ pub struct Map<V> {
 
 impl<V> Default for Map<V> {
     fn default() -> Self {
-        Map { entries: Vec::new(), index: FxHashMap::default() }
+        Map {
+            entries: Vec::new(),
+            index: FxHashMap::default(),
+        }
     }
 }
 
@@ -182,12 +211,17 @@ pub struct Interface {
 impl Interface {
     /// `Interface._empty`.
     fn empty() -> Interface {
-        Interface { super_implemented: vec![Map::default()], ..Interface::default() }
+        Interface {
+            super_implemented: vec![Map::default()],
+            ..Interface::default()
+        }
     }
 
     /// `isSuperImplemented`.
     pub fn super_implemented(&self, n: &MemberName) -> bool {
-        self.super_implemented.last().is_some_and(|m| m.contains_key(n))
+        self.super_implemented
+            .last()
+            .is_some_and(|m| m.contains_key(n))
     }
 }
 
@@ -264,7 +298,10 @@ pub fn member_function_type(
             })
         };
     }
-    outline.functions.get(f.0 as usize).map_or(core.dynamic_, |d| d.signature)
+    outline
+        .functions
+        .get(f.0 as usize)
+        .map_or(core.dynamic_, |d| d.signature)
 }
 
 impl<'p> Provider<'p> for OutlineProvider<'p, '_> {
@@ -285,10 +322,22 @@ impl<'p> Provider<'p> for OutlineProvider<'p, '_> {
     }
     fn member_type(&mut self, f: FunctionElementId) -> TypeId {
         let tv = match self.program.function(f).variable {
-            Some(v) => self.outline.variables.get(v.0 as usize).and_then(|d| d.declared_type.or(d.inferred)).unwrap_or(self.core.dynamic_),
+            Some(v) => self
+                .outline
+                .variables
+                .get(v.0 as usize)
+                .and_then(|d| d.declared_type.or(d.inferred))
+                .unwrap_or(self.core.dynamic_),
             None => self.core.dynamic_,
         };
-        member_function_type(self.program, self.outline, self.core, &mut *self.table, f, tv)
+        member_function_type(
+            self.program,
+            self.outline,
+            self.core,
+            &mut *self.table,
+            f,
+            tv,
+        )
     }
     fn sub(&mut self, a: TypeId, b: TypeId) -> bool {
         let mut env = SubtypeEnv::new(&mut *self.table, &self.outline.hierarchy, self.core);
@@ -326,12 +375,17 @@ fn kind_of(program: &Program, f: FunctionElementId) -> Kind {
 
 /// The field list of a variable declaration (for `abstract` and
 /// `covariant`).
-fn field_list(program: &Program, v: dartforge_elements::model::VariableId) -> Option<&ast::VariableList> {
+fn field_list(
+    program: &Program,
+    v: dartforge_elements::model::VariableId,
+) -> Option<&ast::VariableList> {
     match program.variable(v).node {
-        VariableRef::Field { unit, member, .. } => match &program.unit(unit).ast.member(member).kind {
-            MemberKind::Field(l) => Some(l),
-            _ => None,
-        },
+        VariableRef::Field { unit, member, .. } => {
+            match &program.unit(unit).ast.member(member).kind {
+                MemberKind::Field(l) => Some(l),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -339,7 +393,11 @@ fn field_list(program: &Program, v: dartforge_elements::model::VariableId) -> Op
 /// `isAbstract`. The `int get index;` of `dart:core`'s `Enum` counts as
 /// concrete (3.6.2 `element_builder.dart:968-974`: the specification says the
 /// actual superclass is another class that implements `Enum`).
-fn the_abstract_(program: &Program, interner: &dartforge_intern::Interner, f: FunctionElementId) -> bool {
+fn the_abstract_(
+    program: &Program,
+    interner: &dartforge_intern::Interner,
+    f: FunctionElementId,
+) -> bool {
     let e = program.function(f);
     if e.kind == FunctionKind::Getter
         && interner.resolve(e.name) == "index"
@@ -350,7 +408,10 @@ fn the_abstract_(program: &Program, interner: &dartforge_intern::Interner, f: Fu
         return false;
     }
     if e.kind == FunctionKind::ImplicitAccessor {
-        return e.variable.and_then(|v| field_list(program, v)).is_some_and(|l| l.abstract_);
+        return e
+            .variable
+            .and_then(|v| field_list(program, v))
+            .is_some_and(|l| l.abstract_);
     }
     e.abstract_
 }
@@ -360,12 +421,25 @@ fn the_abstract_(program: &Program, interner: &dartforge_intern::Interner, f: Fu
 fn written_covariance(program: &Program, f: FunctionElementId) -> Vec<Param> {
     let e = program.function(f);
     if e.kind == FunctionKind::ImplicitAccessor {
-        let setter = e.variable.is_some_and(|v| program.variable(v).setter == Some(f));
-        let covariant = e.variable.and_then(|v| field_list(program, v)).is_some_and(|l| l.covariant);
-        return if setter && covariant { vec![Param::Index(0)] } else { Vec::new() };
+        let setter = e
+            .variable
+            .is_some_and(|v| program.variable(v).setter == Some(f));
+        let covariant = e
+            .variable
+            .and_then(|v| field_list(program, v))
+            .is_some_and(|l| l.covariant);
+        return if setter && covariant {
+            vec![Param::Index(0)]
+        } else {
+            Vec::new()
+        };
     }
-    let FunctionRef::Function { unit, function } = e.node else { return Vec::new() };
-    let Some(ps) = &program.unit(unit).ast.function(function).parameters else { return Vec::new() };
+    let FunctionRef::Function { unit, function } = e.node else {
+        return Vec::new();
+    };
+    let Some(ps) = &program.unit(unit).ast.function(function).parameters else {
+        return Vec::new();
+    };
     ps.iter()
         .enumerate()
         .filter(|(_, p)| p.covariant)
@@ -379,8 +453,15 @@ fn written_covariance(program: &Program, f: FunctionElementId) -> Vec<Param> {
 /// The parameter descriptors of a function type, in order.
 fn parameters_of_type(table: &TypeTable, t: TypeId) -> Vec<Param> {
     match table.get(t) {
-        Type::Function { positional, optional, named, .. } => {
-            let mut v: Vec<Param> = (0..positional.len() + optional.len()).map(Param::Index).collect();
+        Type::Function {
+            positional,
+            optional,
+            named,
+            ..
+        } => {
+            let mut v: Vec<Param> = (0..positional.len() + optional.len())
+                .map(Param::Index)
+                .collect();
             v.extend(named.iter().map(|(n, _, _)| Param::MemberName(*n)));
             v
         }
@@ -449,9 +530,17 @@ impl InheritanceManager {
                 return None;
             }
             if let Some(k) = mixin_index {
-                return i.super_implemented.get(k).and_then(|m| m.get(&name)).cloned();
+                return i
+                    .super_implemented
+                    .get(k)
+                    .and_then(|m| m.get(&name))
+                    .cloned();
             }
-            return i.super_implemented.last().and_then(|m| m.get(&name)).cloned();
+            return i
+                .super_implemented
+                .last()
+                .and_then(|m| m.get(&name))
+                .cloned();
         }
         if concrete {
             return i.implemented.get(&name).cloned();
@@ -460,19 +549,32 @@ impl InheritanceManager {
     }
 
     /// `getOverridden2`.
-    pub fn overridden<'p>(&mut self, p: &mut dyn Provider<'p>, c: ClassId, name: MemberName) -> Option<Vec<InterfaceMember>> {
+    pub fn overridden<'p>(
+        &mut self,
+        p: &mut dyn Provider<'p>,
+        c: ClassId,
+        name: MemberName,
+    ) -> Option<Vec<InterfaceMember>> {
         self.interface(p, c).overridden.get(&name).cloned()
     }
 
     /// `getInheritedMap2`.
-    pub fn inherited_map<'p>(&mut self, p: &mut dyn Provider<'p>, c: ClassId) -> Rc<Map<InterfaceMember>> {
+    pub fn inherited_map<'p>(
+        &mut self,
+        p: &mut dyn Provider<'p>,
+        c: ClassId,
+    ) -> Rc<Map<InterfaceMember>> {
         let c = p.program().class_owner(c);
         if let Some(m) = self.the_inherited.get(&c) {
             return m.clone();
         }
         let i = self.interface(p, c);
         let mut map = Map::default();
-        let source = if p.program().class(c).kind == ClassKind::ExtensionType { &i.redeclared } else { &i.overridden };
+        let source = if p.program().class(c).kind == ClassKind::ExtensionType {
+            &i.redeclared
+        } else {
+            &i.overridden
+        };
         most_specific(p, c, &mut map, source, false);
         let map = Rc::new(map);
         self.the_inherited.insert(c, map.clone());
@@ -480,39 +582,70 @@ impl InheritanceManager {
     }
 
     /// `getInherited2`.
-    pub fn inherited<'p>(&mut self, p: &mut dyn Provider<'p>, c: ClassId, name: MemberName) -> Option<InterfaceMember> {
+    pub fn inherited<'p>(
+        &mut self,
+        p: &mut dyn Provider<'p>,
+        c: ClassId,
+        name: MemberName,
+    ) -> Option<InterfaceMember> {
         self.inherited_map(p, c).get(&name).cloned()
     }
 
     /// `getInheritedConcreteMap2`.
-    pub fn inherited_concrete<'p>(&mut self, p: &mut dyn Provider<'p>, c: ClassId) -> Map<InterfaceMember> {
+    pub fn inherited_concrete<'p>(
+        &mut self,
+        p: &mut dyn Provider<'p>,
+        c: ClassId,
+    ) -> Map<InterfaceMember> {
         if p.program().class(c).kind == ClassKind::ExtensionType {
             return Map::default();
         }
-        self.interface(p, c).super_implemented.last().cloned().unwrap_or_default()
+        self.interface(p, c)
+            .super_implemented
+            .last()
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// The class and the substitution (`Substitution.fromInterfaceType`) of a
     /// supertype.
-    fn substitution<'p>(p: &mut dyn Provider<'p>, t: TypeId) -> Option<(ClassId, HashMap<TypeParamId, TypeId>)> {
+    fn substitution<'p>(
+        p: &mut dyn Provider<'p>,
+        t: TypeId,
+    ) -> Option<(ClassId, HashMap<TypeParamId, TypeId>)> {
         let (c, args) = match p.table().get(t) {
             Type::Interface { class, args, .. } => (*class, args.clone()),
             Type::ExtensionType { decl, args, .. } => (*decl, args.clone()),
             _ => return None,
         };
         let formals = p.class_data(c).type_params;
-        Some((c, formals.iter().copied().zip(args.iter().copied()).collect()))
+        Some((
+            c,
+            formals.iter().copied().zip(args.iter().copied()).collect(),
+        ))
     }
 
-    fn substitute<'p>(p: &mut dyn Provider<'p>, m: &InterfaceMember, s: &HashMap<TypeParamId, TypeId>) -> InterfaceMember {
+    fn substitute<'p>(
+        p: &mut dyn Provider<'p>,
+        m: &InterfaceMember,
+        s: &HashMap<TypeParamId, TypeId>,
+    ) -> InterfaceMember {
         if s.is_empty() {
             return m.clone();
         }
-        InterfaceMember { ty: ops::substitute(m.ty, s, p.table()), ..m.clone() }
+        InterfaceMember {
+            ty: ops::substitute(m.ty, s, p.table()),
+            ..m.clone()
+        }
     }
 
     /// `_addCandidates`.
-    fn add_candidates<'p>(p: &mut dyn Provider<'p>, candidates: &mut Map<Vec<InterfaceMember>>, s: &HashMap<TypeParamId, TypeId>, i: &Interface) {
+    fn add_candidates<'p>(
+        p: &mut dyn Provider<'p>,
+        candidates: &mut Map<Vec<InterfaceMember>>,
+        s: &HashMap<TypeParamId, TypeId>,
+        i: &Interface,
+    ) {
         for (n, m) in i.map.iter() {
             let c = Self::substitute(p, m, s);
             match candidates.get_mut(n) {
@@ -525,12 +658,20 @@ impl InheritanceManager {
     /// The type of `Object`.
     fn object_type<'p>(p: &mut dyn Provider<'p>) -> Option<TypeId> {
         let o = p.core().object_class?;
-        Some(p.table().intern(Type::Interface { class: o, args: Box::new([]), nullable: false }))
+        Some(p.table().intern(Type::Interface {
+            class: o,
+            args: Box::new([]),
+            nullable: false,
+        }))
     }
 
     /// `element.supertype`, with the defaults of `setDefaultSupertypes` and
     /// `buildEnumChildren`.
-    fn the_supertype<'p>(p: &mut dyn Provider<'p>, c: ClassId, data: &ClassTypeData) -> Option<TypeId> {
+    fn the_supertype<'p>(
+        p: &mut dyn Provider<'p>,
+        c: ClassId,
+        data: &ClassTypeData,
+    ) -> Option<TypeId> {
         let prog = p.program();
         let k = prog.class(c);
         match k.kind {
@@ -541,7 +682,10 @@ impl InheritanceManager {
                 // Only a class interface type counts as a superclass
                 // (`_isInterfaceTypeClass`); anything else falls back to `Object`.
                 let written = data.supertype.filter(|&t| match p.table().get(t) {
-                    Type::Interface { class, .. } => matches!(prog.class(*class).kind, ClassKind::Class | ClassKind::MixinApplication),
+                    Type::Interface { class, .. } => matches!(
+                        prog.class(*class).kind,
+                        ClassKind::Class | ClassKind::MixinApplication
+                    ),
                     _ => false,
                 });
                 written.or_else(|| Self::object_type(p))
@@ -556,7 +700,11 @@ impl InheritanceManager {
                     }
                 });
                 match enum_ {
-                    Some(e) => Some(p.table().intern(Type::Interface { class: e, args: Box::new([]), nullable: false })),
+                    Some(e) => Some(p.table().intern(Type::Interface {
+                        class: e,
+                        args: Box::new([]),
+                        nullable: false,
+                    })),
                     None => Self::object_type(p),
                 }
             }
@@ -583,7 +731,9 @@ impl InheritanceManager {
                     chain.push(m);
                 }
             }
-            current = Self::the_supertype(p, k, &data).and_then(|st| Self::substitution(p, st)).map(|(s, _)| s);
+            current = Self::the_supertype(p, k, &data)
+                .and_then(|st| Self::substitution(p, st))
+                .map(|(s, _)| s);
         }
         chain
     }
@@ -596,8 +746,15 @@ impl InheritanceManager {
         let prog = p.program();
         let interner = p.interner();
         let k = prog.class(c);
-        let ids = k.instance_members.values().chain(k.static_members.values()).chain(k.constructors.values()).map(|f| f.0);
-        let (Some(mut min), Some(mut max)) = (ids.clone().min(), ids.max()) else { return Vec::new() };
+        let ids = k
+            .instance_members
+            .values()
+            .chain(k.static_members.values())
+            .chain(k.constructors.values())
+            .map(|f| f.0);
+        let (Some(mut min), Some(mut max)) = (ids.clone().min(), ids.max()) else {
+            return Vec::new();
+        };
         // Overridden same-named members in the map may come before the
         // smallest remaining id (or after the largest): the range grows
         // while the neighboring elements belong to the class.
@@ -615,8 +772,16 @@ impl InheritanceManager {
                 let e = prog.function(f);
                 e.class == Some(c)
                     && !e.static_
-                    && (!matches!(e.node, FunctionRef::None) || e.kind == FunctionKind::ImplicitAccessor)
-                    && matches!(e.kind, FunctionKind::Function | FunctionKind::Getter | FunctionKind::Setter | FunctionKind::Operator | FunctionKind::ImplicitAccessor)
+                    && (!matches!(e.node, FunctionRef::None)
+                        || e.kind == FunctionKind::ImplicitAccessor)
+                    && matches!(
+                        e.kind,
+                        FunctionKind::Function
+                            | FunctionKind::Getter
+                            | FunctionKind::Setter
+                            | FunctionKind::Operator
+                            | FunctionKind::ImplicitAccessor
+                    )
             })
             .collect();
         if all.iter().all(|f| in_map.contains(f)) {
@@ -630,7 +795,11 @@ impl InheritanceManager {
     /// The declared instance members (`_getTypeMembers`): methods, then
     /// accessors, in source order, with the written covariance and the one
     /// inherited from `candidates` (`_inferParameterCovariance`).
-    fn declared<'p>(p: &mut dyn Provider<'p>, c: ClassId, candidates: &Map<Vec<InterfaceMember>>) -> Map<InterfaceMember> {
+    fn declared<'p>(
+        p: &mut dyn Provider<'p>,
+        c: ClassId,
+        candidates: &Map<Vec<InterfaceMember>>,
+    ) -> Map<InterfaceMember> {
         let prog = p.program();
         let interner = p.interner();
         let k = prog.class(c);
@@ -641,7 +810,11 @@ impl InheritanceManager {
         let mut members: Vec<(SymbolId, FunctionElementId)> = k
             .instance_members
             .iter()
-            .filter(|&(&s, &f)| !(is_enum && matches!(prog.function(f).node, FunctionRef::None) && interner.resolve(s) == "index"))
+            .filter(|&(&s, &f)| {
+                !(is_enum
+                    && matches!(prog.function(f).node, FunctionRef::None)
+                    && interner.resolve(s) == "index")
+            })
             .map(|(&s, &f)| (s, f))
             .collect();
         // Duplicate declaration: the last one in `_getTypeMembers` order wins
@@ -670,7 +843,8 @@ impl InheritanceManager {
                     let inherits = overridden.iter().any(|o| {
                         // `_getCorrespondingParameter`: a named one by name, a
                         // positional one by position (if it is positional there).
-                        o.the_covariant.contains(&d) && parameters_of_type(p.table(), o.ty).contains(&d)
+                        o.the_covariant.contains(&d)
+                            && parameters_of_type(p.table(), o.ty).contains(&d)
                     });
                     if inherits {
                         the_covariant.push(d);
@@ -715,7 +889,9 @@ impl InheritanceManager {
         }
         let mut mixin_conflicts: Vec<Vec<Conflict>> = Vec::new();
         for &mt in data.mixins.iter() {
-            let Some((mc, s)) = Self::substitution(p, mt) else { continue };
+            let Some((mc, s)) = Self::substitution(p, mt) else {
+                continue;
+            };
             let mi = self.interface(p, mc);
             let mut of_super_and_mixin: Map<Vec<InterfaceMember>> = Map::default();
             let mut mixin_conflicts_of: Vec<Conflict> = Vec::new();
@@ -730,8 +906,16 @@ impl InheritanceManager {
                 };
                 if candidate.class == mc {
                     if current.kind != candidate.kind {
-                        let (getter, method) = if current.kind == Kind::Getter { (current, candidate.clone()) } else { (candidate.clone(), current) };
-                        mixin_conflicts_of.push(Conflict::GetterMethod { name: *n, getter, method });
+                        let (getter, method) = if current.kind == Kind::Getter {
+                            (current, candidate.clone())
+                        } else {
+                            (candidate.clone(), current)
+                        };
+                        mixin_conflicts_of.push(Conflict::GetterMethod {
+                            name: *n,
+                            getter,
+                            method,
+                        });
                     }
                     candidates.insert(*n, vec![candidate]);
                 } else {
@@ -756,7 +940,9 @@ impl InheritanceManager {
             super_impl.push(implemented.clone());
         }
         for &it in data.interfaces.iter() {
-            let Some((ic, s)) = Self::substitution(p, it) else { continue };
+            let Some((ic, s)) = Self::substitution(p, it) else {
+                continue;
+            };
             let ii = self.interface(p, ic);
             Self::add_candidates(p, &mut candidates, &s, &ii);
         }
@@ -809,16 +995,22 @@ impl InheritanceManager {
         // The `noSuchMethod` forwarders.
         let k = prog.class(c);
         let mut forwarded: HashSet<MemberName> = HashSet::new();
-        let abstract_class =
-            matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) && (k.modifiers.abstract_ || k.modifiers.sealed);
+        let abstract_class = matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication)
+            && (k.modifiers.abstract_ || k.modifiers.sealed);
         if abstract_class {
             if let Some(si) = &super_interface {
                 forwarded = si.forwarded.clone();
             }
         } else if let Some(nsm) = p.interner().lookup("noSuchMethod") {
-            let name = MemberName { key: nsm, library: None };
+            let name = MemberName {
+                key: nsm,
+                library: None,
+            };
             let object = p.core().object_class;
-            if implemented.get(&name).is_some_and(|m| Some(m.class) != object) {
+            if implemented
+                .get(&name)
+                .is_some_and(|m| Some(m.class) != object)
+            {
                 let from_super = super_interface.as_ref().map(|s| &s.forwarded);
                 for (n, m) in map.iter() {
                     if !implemented.contains_key(n) || from_super.is_some_and(|s| s.contains(n)) {
@@ -860,7 +1052,9 @@ impl InheritanceManager {
         }
         let mut super_candidates: Map<Vec<InterfaceMember>> = Map::default();
         for t in constraints {
-            let Some((rc, s)) = Self::substitution(p, t) else { continue };
+            let Some((rc, s)) = Self::substitution(p, t) else {
+                continue;
+            };
             let ri = self.interface(p, rc);
             Self::add_candidates(p, &mut super_candidates, &s, &ri);
         }
@@ -868,7 +1062,9 @@ impl InheritanceManager {
         let super_conflicts = most_specific(p, c, &mut super_interface, &super_candidates, true);
         let mut candidates = super_candidates.clone();
         for &it in data.interfaces.iter() {
-            let Some((ic, s)) = Self::substitution(p, it) else { continue };
+            let Some((ic, s)) = Self::substitution(p, it) else {
+                continue;
+            };
             let ii = self.interface(p, ic);
             Self::add_candidates(p, &mut candidates, &s, &ii);
         }
@@ -945,7 +1141,12 @@ impl InheritanceManager {
                 }
             }
             fn all(&self) -> Vec<InterfaceMember> {
-                self.methods.iter().chain(self.getters.iter()).chain(self.setters.iter()).cloned().collect()
+                self.methods
+                    .iter()
+                    .chain(self.getters.iter())
+                    .chain(self.setters.iter())
+                    .cloned()
+                    .collect()
             }
         }
         let not_excluded = |n: &MemberName, cs: &Candidates| -> Vec<InterfaceMember> {
@@ -965,7 +1166,9 @@ impl InheritanceManager {
         let mut of_extension: Map<Candidates> = Map::default();
         let mut others: Map<Candidates> = Map::default();
         for &it in data.interfaces.iter() {
-            let Some((ic, s)) = Self::substitution(p, it) else { continue };
+            let Some((ic, s)) = Self::substitution(p, it) else {
+                continue;
+            };
             let ii = self.interface(p, ic);
             for (n, m) in ii.map.iter() {
                 let m = Self::substitute(p, m, &s);
@@ -975,7 +1178,11 @@ impl InheritanceManager {
                 // as non-extension (`G implements F, D` with the merged `method`
                 // from `A`/`B` in `F`: no conflict).
                 let of_ext = !m.synthetic && prog.class(m.class).kind == ClassKind::ExtensionType;
-                let target = if of_ext { &mut of_extension } else { &mut others };
+                let target = if of_ext {
+                    &mut of_extension
+                } else {
+                    &mut others
+                };
                 match target.get_mut(n) {
                     Some(cs) => cs.add(m),
                     None => {
@@ -1000,14 +1207,21 @@ impl InheritanceManager {
             if let Some(ne) = others.get(n) {
                 let ne_free = not_excluded(n, ne);
                 if !ne_free.is_empty() {
-                    conflicts.push(Conflict::ExtensionAndNonExtension { name: *n, non_extension: ne_free, extension: free });
+                    conflicts.push(Conflict::ExtensionAndNonExtension {
+                        name: *n,
+                        non_extension: ne_free,
+                        extension: free,
+                    });
                 }
                 continue;
             }
             // The inherited one must be unique.
             let unique = free.iter().all(|m| m.function == free[0].function);
             if !unique {
-                conflicts.push(Conflict::NonUniqueExtension { name: *n, candidates: free });
+                conflicts.push(Conflict::NonUniqueExtension {
+                    name: *n,
+                    candidates: free,
+                });
                 continue;
             }
             implemented.insert(*n, free[0].clone());
@@ -1023,7 +1237,10 @@ impl InheritanceManager {
             }
             match combine(p, c, &free, true, *n, None) {
                 Some(m) => implemented.insert(*n, m),
-                None => conflicts.push(Conflict::Candidates { name: *n, candidates: free }),
+                None => conflicts.push(Conflict::Candidates {
+                    name: *n,
+                    candidates: free,
+                }),
             }
         }
         // The redeclared ones, without repetition.
@@ -1073,11 +1290,21 @@ fn member_order(prog: &Program, f: FunctionElementId) -> (u8, FunctionElementId)
 fn getter_method_conflict(name: MemberName, candidates: &[InterfaceMember]) -> Option<Conflict> {
     let getter = candidates.iter().find(|m| m.kind == Kind::Getter)?;
     let method = candidates.iter().find(|m| m.kind == Kind::Method)?;
-    Some(Conflict::GetterMethod { name, getter: getter.clone(), method: method.clone() })
+    Some(Conflict::GetterMethod {
+        name,
+        getter: getter.clone(),
+        method: method.clone(),
+    })
 }
 
 /// `_findMostSpecificFromNamedCandidates`.
-fn most_specific<'p>(p: &mut dyn Provider<'p>, target: ClassId, map: &mut Map<InterfaceMember>, candidates: &Map<Vec<InterfaceMember>>, top_merge: bool) -> Vec<Conflict> {
+fn most_specific<'p>(
+    p: &mut dyn Provider<'p>,
+    target: ClassId,
+    map: &mut Map<InterfaceMember>,
+    candidates: &Map<Vec<InterfaceMember>>,
+    top_merge: bool,
+) -> Vec<Conflict> {
     let mut conflicts = Vec::new();
     for (n, list) in candidates.iter() {
         if list.len() > 1
@@ -1118,11 +1345,18 @@ pub fn combine<'p>(
     }
     if valid.is_empty() {
         if let Some(cs) = conflicts {
-            cs.push(Conflict::Candidates { name, candidates: candidates.to_vec() });
+            cs.push(Conflict::Candidates {
+                name,
+                candidates: candidates.to_vec(),
+            });
         }
         return None;
     }
-    if top_merge { Some(top(p, target, &valid)) } else { Some(valid[0].clone()) }
+    if top_merge {
+        Some(top(p, target, &valid))
+    } else {
+        Some(valid[0].clone())
+    }
 }
 
 /// Dart type equality (`==`): structural, ignoring the alias, and up to the
@@ -1133,17 +1367,43 @@ fn equal(table: &mut TypeTable, a: TypeId, b: TypeId) -> bool {
         return true;
     }
     match (table.get(ca).clone(), table.get(cb).clone()) {
-        (Type::Function { type_params: ta, .. }, Type::Function { type_params: tb, .. }) if !ta.is_empty() && ta.len() == tb.len() => {
+        (
+            Type::Function {
+                type_params: ta, ..
+            },
+            Type::Function {
+                type_params: tb, ..
+            },
+        ) if !ta.is_empty() && ta.len() == tb.len() => {
             let mut s: HashMap<TypeParamId, TypeId> = HashMap::new();
             for (x, y) in tb.iter().zip(ta.iter()) {
-                let ty = table.intern(Type::TypeParameter { param: *y, nullable: false });
+                let ty = table.intern(Type::TypeParameter {
+                    param: *y,
+                    nullable: false,
+                });
                 s.insert(*x, ty);
             }
             // The parameters of `b` renamed to those of `a`: the rest must
             // match.
             let rb = ops::substitute(cb, &s, table);
-            let (Type::Function { ret: ra, positional: pa, optional: oa, named: at, nullable: la, .. }, Type::Function { ret: rr, positional: pb, optional: ob, named: nb, nullable: lb, .. }) =
-                (table.get(ca).clone(), table.get(rb).clone())
+            let (
+                Type::Function {
+                    ret: ra,
+                    positional: pa,
+                    optional: oa,
+                    named: at,
+                    nullable: la,
+                    ..
+                },
+                Type::Function {
+                    ret: rr,
+                    positional: pb,
+                    optional: ob,
+                    named: nb,
+                    nullable: lb,
+                    ..
+                },
+            ) = (table.get(ca).clone(), table.get(rb).clone())
             else {
                 return false;
             };
@@ -1152,14 +1412,23 @@ fn equal(table: &mut TypeTable, a: TypeId, b: TypeId) -> bool {
                 let ly = ops::substitute(table.param(*y).bound, &s, table);
                 table.canonical(lx) == table.canonical(ly)
             });
-            limits && la == lb && table.canonical(ra) == table.canonical(rr) && pa == pb && oa == ob && at == nb
+            limits
+                && la == lb
+                && table.canonical(ra) == table.canonical(rr)
+                && pa == pb
+                && oa == ob
+                && at == nb
         }
         _ => false,
     }
 }
 
 /// `_topMerge`.
-fn top<'p>(p: &mut dyn Provider<'p>, target: ClassId, valid: &[InterfaceMember]) -> InterfaceMember {
+fn top<'p>(
+    p: &mut dyn Provider<'p>,
+    target: ClassId,
+    valid: &[InterfaceMember],
+) -> InterfaceMember {
     let first = &valid[0];
     if valid.len() == 1 {
         return first.clone();
@@ -1193,7 +1462,13 @@ fn top<'p>(p: &mut dyn Provider<'p>, target: ClassId, valid: &[InterfaceMember])
 }
 
 /// `_inheritCovariance`.
-fn inherit_covariance<'p>(p: &mut dyn Provider<'p>, c: ClassId, candidates: &Map<Vec<InterfaceMember>>, name: &MemberName, m: &InterfaceMember) -> InterfaceMember {
+fn inherit_covariance<'p>(
+    p: &mut dyn Provider<'p>,
+    c: ClassId,
+    candidates: &Map<Vec<InterfaceMember>>,
+    name: &MemberName,
+    m: &InterfaceMember,
+) -> InterfaceMember {
     if m.class == c {
         return m.clone();
     }
@@ -1201,7 +1476,9 @@ fn inherit_covariance<'p>(p: &mut dyn Provider<'p>, c: ClassId, candidates: &Map
     if parameters.is_empty() {
         return m.clone();
     }
-    let Some(list) = candidates.get(name) else { return m.clone() };
+    let Some(list) = candidates.get(name) else {
+        return m.clone();
+    };
     let mut the_covariant: HashSet<Param> = HashSet::new();
     for o in list {
         for d in parameters_of_type(p.table(), o.ty) {
@@ -1213,13 +1490,24 @@ fn inherit_covariance<'p>(p: &mut dyn Provider<'p>, c: ClassId, candidates: &Map
     if the_covariant.is_empty() {
         return m.clone();
     }
-    let must: Vec<Param> = parameters.iter().copied().filter(|d| the_covariant.contains(d)).collect();
-    let changed = parameters.iter().any(|d| m.the_covariant.contains(d) != must.contains(d));
+    let must: Vec<Param> = parameters
+        .iter()
+        .copied()
+        .filter(|d| the_covariant.contains(d))
+        .collect();
+    let changed = parameters
+        .iter()
+        .any(|d| m.the_covariant.contains(d) != must.contains(d));
     if !changed {
         return m.clone();
     }
     match m.kind {
-        Kind::Method | Kind::Setter => InterfaceMember { class: c, the_covariant: must.into(), synthetic: true, ..m.clone() },
+        Kind::Method | Kind::Setter => InterfaceMember {
+            class: c,
+            the_covariant: must.into(),
+            synthetic: true,
+            ..m.clone()
+        },
         Kind::Getter => m.clone(),
     }
 }
@@ -1232,12 +1520,40 @@ fn is_nullable(table: &TypeTable, t: TypeId) -> bool {
 
 fn with_nullability(table: &mut TypeTable, t: TypeId, nullable: bool) -> TypeId {
     let the_new_ = match table.get(t).clone() {
-        Type::Interface { class, args, .. } => Type::Interface { class, args, nullable },
-        Type::Function { type_params, ret, positional, optional, named, .. } => Type::Function { type_params, ret, positional, optional, named, nullable },
-        Type::Record { positional, named, .. } => Type::Record { positional, named, nullable },
+        Type::Interface { class, args, .. } => Type::Interface {
+            class,
+            args,
+            nullable,
+        },
+        Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            nullable,
+        },
+        Type::Record {
+            positional, named, ..
+        } => Type::Record {
+            positional,
+            named,
+            nullable,
+        },
         Type::TypeParameter { param, .. } => Type::TypeParameter { param, nullable },
         Type::FutureOr { arg, .. } => Type::FutureOr { arg, nullable },
-        Type::ExtensionType { decl, args, .. } => Type::ExtensionType { decl, args, nullable },
+        Type::ExtensionType { decl, args, .. } => Type::ExtensionType {
+            decl,
+            args,
+            nullable,
+        },
         _ => return t,
     };
     table.intern(the_new_)
@@ -1251,11 +1567,19 @@ fn top_merge<'p>(p: &mut dyn Provider<'p>, t: TypeId, s: TypeId) -> TypeId {
 
 /// `TopMergeHelper.topMerge`, with parameter covariance when `t` and `s` are
 /// the types of two members.
-fn top_merge_function<'p>(p: &mut dyn Provider<'p>, t: TypeId, s: TypeId, cov_t: &[Param], cov_s: &[Param]) -> TypeId {
+fn top_merge_function<'p>(
+    p: &mut dyn Provider<'p>,
+    t: TypeId,
+    s: TypeId,
+    cov_t: &[Param],
+    cov_s: &[Param],
+) -> TypeId {
     let object = p.core().object_class;
     let (tt, st) = (p.table().get(t).clone(), p.table().get(s).clone());
-    let t_obj_q = matches!(tt, Type::Interface { class, nullable: true, .. } if Some(class) == object);
-    let s_obj_q = matches!(st, Type::Interface { class, nullable: true, .. } if Some(class) == object);
+    let t_obj_q =
+        matches!(tt, Type::Interface { class, nullable: true, .. } if Some(class) == object);
+    let s_obj_q =
+        matches!(st, Type::Interface { class, nullable: true, .. } if Some(class) == object);
     if t_obj_q && s_obj_q {
         return t;
     }
@@ -1301,34 +1625,82 @@ fn top_merge_function<'p>(p: &mut dyn Provider<'p>, t: TypeId, s: TypeId, cov_t:
         return t;
     }
     match (tt, st) {
-        (Type::Interface { class: a, args: xa, .. }, Type::Interface { class: b, args: xb, .. }) => {
+        (
+            Type::Interface {
+                class: a, args: xa, ..
+            },
+            Type::Interface {
+                class: b, args: xb, ..
+            },
+        ) => {
             if a != b {
                 return t;
             }
             if xa.is_empty() {
                 return t;
             }
-            let args: Vec<TypeId> = xa.iter().zip(xb.iter()).map(|(x, y)| top_merge(p, *x, *y)).collect();
-            p.table().intern(Type::Interface { class: a, args: args.into_boxed_slice(), nullable: false })
+            let args: Vec<TypeId> = xa
+                .iter()
+                .zip(xb.iter())
+                .map(|(x, y)| top_merge(p, *x, *y))
+                .collect();
+            p.table().intern(Type::Interface {
+                class: a,
+                args: args.into_boxed_slice(),
+                nullable: false,
+            })
         }
-        (Type::ExtensionType { decl: a, args: xa, .. }, Type::ExtensionType { decl: b, args: xb, .. }) => {
+        (
+            Type::ExtensionType {
+                decl: a, args: xa, ..
+            },
+            Type::ExtensionType {
+                decl: b, args: xb, ..
+            },
+        ) => {
             if a != b || xa.is_empty() {
                 return t;
             }
-            let args: Vec<TypeId> = xa.iter().zip(xb.iter()).map(|(x, y)| top_merge(p, *x, *y)).collect();
-            p.table().intern(Type::ExtensionType { decl: a, args: args.into_boxed_slice(), nullable: false })
+            let args: Vec<TypeId> = xa
+                .iter()
+                .zip(xb.iter())
+                .map(|(x, y)| top_merge(p, *x, *y))
+                .collect();
+            p.table().intern(Type::ExtensionType {
+                decl: a,
+                args: args.into_boxed_slice(),
+                nullable: false,
+            })
         }
         (Type::FutureOr { arg: a, .. }, Type::FutureOr { arg: b, .. }) => {
             let r = top_merge(p, a, b);
-            p.table().intern(Type::FutureOr { arg: r, nullable: false })
+            p.table().intern(Type::FutureOr {
+                arg: r,
+                nullable: false,
+            })
         }
         (Type::Null, Type::Null) => t,
         (Type::Function { .. }, Type::Function { .. }) => the_functions(p, t, s, cov_t, cov_s),
-        (Type::Record { positional: pa, named: at, .. }, Type::Record { positional: pb, named: nb, .. }) => {
+        (
+            Type::Record {
+                positional: pa,
+                named: at,
+                ..
+            },
+            Type::Record {
+                positional: pb,
+                named: nb,
+                ..
+            },
+        ) => {
             if pa.len() != pb.len() || at.len() != nb.len() {
                 return t;
             }
-            let pos: Vec<TypeId> = pa.iter().zip(pb.iter()).map(|(x, y)| top_merge(p, *x, *y)).collect();
+            let pos: Vec<TypeId> = pa
+                .iter()
+                .zip(pb.iter())
+                .map(|(x, y)| top_merge(p, *x, *y))
+                .collect();
             let mut named_args: Vec<(SymbolId, TypeId)> = Vec::new();
             for ((n1, x), (n2, y)) in at.iter().zip(nb.iter()) {
                 if n1 != n2 {
@@ -1336,7 +1708,11 @@ fn top_merge_function<'p>(p: &mut dyn Provider<'p>, t: TypeId, s: TypeId, cov_t:
                 }
                 named_args.push((*n1, top_merge(p, *x, *y)));
             }
-            p.table().intern(Type::Record { positional: pos.into_boxed_slice(), named: named_args.into_boxed_slice(), nullable: false })
+            p.table().intern(Type::Record {
+                positional: pos.into_boxed_slice(),
+                named: named_args.into_boxed_slice(),
+                nullable: false,
+            })
         }
         (Type::TypeParameter { param: a, .. }, Type::TypeParameter { param: b, .. }) if a == b => t,
         _ => t,
@@ -1344,10 +1720,30 @@ fn top_merge_function<'p>(p: &mut dyn Provider<'p>, t: TypeId, s: TypeId, cov_t:
 }
 
 /// `_functionTypes`.
-fn the_functions<'p>(p: &mut dyn Provider<'p>, t: TypeId, s: TypeId, cov_t: &[Param], cov_s: &[Param]) -> TypeId {
+fn the_functions<'p>(
+    p: &mut dyn Provider<'p>,
+    t: TypeId,
+    s: TypeId,
+    cov_t: &[Param],
+    cov_s: &[Param],
+) -> TypeId {
     let (
-        Type::Function { type_params: tp_t, ret: rt, positional: pt, optional: ot, named: nt, .. },
-        Type::Function { type_params: tp_s, ret: rs, positional: ps, optional: os, named: ns, .. },
+        Type::Function {
+            type_params: tp_t,
+            ret: rt,
+            positional: pt,
+            optional: ot,
+            named: nt,
+            ..
+        },
+        Type::Function {
+            type_params: tp_s,
+            ret: rs,
+            positional: ps,
+            optional: os,
+            named: ns,
+            ..
+        },
     ) = (p.table().get(t).clone(), p.table().get(s).clone())
     else {
         return t;
@@ -1363,8 +1759,16 @@ fn the_functions<'p>(p: &mut dyn Provider<'p>, t: TypeId, s: TypeId, cov_t: &[Pa
         for (a, b) in tp_t.iter().zip(tp_s.iter()) {
             let name = p.table().param(*a).name;
             let default_bound = p.core().object_nullable;
-            let n = p.table().alloc_type_param(name, TypeParamOwner::GenericFunctionType, default_bound, Variance::Unspecified);
-            let tn = p.table().intern(Type::TypeParameter { param: n, nullable: false });
+            let n = p.table().alloc_type_param(
+                name,
+                TypeParamOwner::GenericFunctionType,
+                default_bound,
+                Variance::Unspecified,
+            );
+            let tn = p.table().intern(Type::TypeParameter {
+                param: n,
+                nullable: false,
+            });
             sub_t.insert(*a, tn);
             sub_s.insert(*b, tn);
             new_.push(n);
@@ -1391,18 +1795,45 @@ fn the_functions<'p>(p: &mut dyn Provider<'p>, t: TypeId, s: TypeId, cov_t: &[Pa
     }
     let mut positional_args = Vec::with_capacity(pt.len());
     for (i, (a, b)) in pt.iter().zip(ps.iter()).enumerate() {
-        positional_args.push(parameter(p, Param::Index(i), *a, *b, cov_t, cov_s, &sub_t, &sub_s));
+        positional_args.push(parameter(
+            p,
+            Param::Index(i),
+            *a,
+            *b,
+            cov_t,
+            cov_s,
+            &sub_t,
+            &sub_s,
+        ));
     }
     let mut the_optional = Vec::with_capacity(ot.len());
     for (i, (a, b)) in ot.iter().zip(os.iter()).enumerate() {
-        the_optional.push(parameter(p, Param::Index(pt.len() + i), *a, *b, cov_t, cov_s, &sub_t, &sub_s));
+        the_optional.push(parameter(
+            p,
+            Param::Index(pt.len() + i),
+            *a,
+            *b,
+            cov_t,
+            cov_s,
+            &sub_t,
+            &sub_s,
+        ));
     }
     let mut named_args = Vec::with_capacity(nt.len());
     for ((n1, a, r1), (n2, b, r2)) in nt.iter().zip(ns.iter()) {
         if n1 != n2 {
             return t;
         }
-        let ty = parameter(p, Param::MemberName(*n1), *a, *b, cov_t, cov_s, &sub_t, &sub_s);
+        let ty = parameter(
+            p,
+            Param::MemberName(*n1),
+            *a,
+            *b,
+            cov_t,
+            cov_s,
+            &sub_t,
+            &sub_s,
+        );
         named_args.push((*n1, ty, *r1 || *r2));
     }
     p.table().intern(Type::Function {
@@ -1417,7 +1848,13 @@ fn the_functions<'p>(p: &mut dyn Provider<'p>, t: TypeId, s: TypeId, cov_t: &[Pa
 
 /// `mergeTypes` of `_functionTypes`: both sides with the new type
 /// parameters.
-fn join<'p>(p: &mut dyn Provider<'p>, a: TypeId, b: TypeId, sub_t: &HashMap<TypeParamId, TypeId>, sub_s: &HashMap<TypeParamId, TypeId>) -> TypeId {
+fn join<'p>(
+    p: &mut dyn Provider<'p>,
+    a: TypeId,
+    b: TypeId,
+    sub_t: &HashMap<TypeParamId, TypeId>,
+    sub_s: &HashMap<TypeParamId, TypeId>,
+) -> TypeId {
     let a = ops::substitute(a, sub_t, p.table());
     let b = ops::substitute(b, sub_s, p.table());
     top_merge(p, a, b)

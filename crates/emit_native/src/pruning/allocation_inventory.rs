@@ -4,10 +4,10 @@
 //! access or pointer conversion. Everything else remains explicitly unknown.
 //! It does not certify transitive allocation closure or enable import pruning.
 pub(crate) mod closure;
-pub(crate) mod publication;
-pub(crate) mod imports;
 pub(crate) mod images;
+pub(crate) mod imports;
 mod integrity_io;
+pub(crate) mod publication;
 mod register_read;
 
 use super::{AllocationRecord, AllocationState, Summary};
@@ -219,7 +219,10 @@ mod transport_tests {
         let parsed = Summary::from_string(&text).unwrap();
         assert_eq!(parsed, summary);
         assert_eq!(parsed.ambiguous_classes, [128, 300]);
-        assert_eq!(parsed.audited_allocations(summary.definitions[0].name), Some([300].as_slice()));
+        assert_eq!(
+            parsed.audited_allocations(summary.definitions[0].name),
+            Some([300].as_slice())
+        );
     }
 
     #[test]

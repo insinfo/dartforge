@@ -292,7 +292,9 @@ impl<'a> Ctx<'a> {
     }
 
     fn ann_is(&self, a: &ast::Annotation, name: &str) -> bool {
-        a.name.last().is_some_and(|n| self.interner.resolve(n.sym) == name)
+        a.name
+            .last()
+            .is_some_and(|n| self.interner.resolve(n.sym) == name)
     }
 
     /// Classes, libraries, functions and variables annotated with `@JS` (outside the SDK).
@@ -316,7 +318,11 @@ impl<'a> Ctx<'a> {
                 dartforge_elements::model::VariableRef::TopLevel { unit, decl, index } => {
                     var_index.insert((unit.0, decl.0, index), VariableId(i as u32));
                 }
-                dartforge_elements::model::VariableRef::Field { unit, member, index } => {
+                dartforge_elements::model::VariableRef::Field {
+                    unit,
+                    member,
+                    index,
+                } => {
                     var_index.insert((unit.0, member.0 | (1 << 31), index), VariableId(i as u32));
                 }
                 _ => {}
@@ -396,7 +402,9 @@ impl<'a> Ctx<'a> {
                             }
                             ast::MemberKind::Field(list) => {
                                 for (idx, _) in list.variables.iter().enumerate() {
-                                    if let Some(&vid) = var_index.get(&(uid.0, mid.0 | (1 << 31), idx)) {
+                                    if let Some(&vid) =
+                                        var_index.get(&(uid.0, mid.0 | (1 << 31), idx))
+                                    {
                                         var_js.insert(vid, js_name.clone());
                                     }
                                 }
@@ -427,8 +435,15 @@ impl<'a> Ctx<'a> {
             // the same `usesJSInterop` of the DDC (an annotation on the library
             // is enough for `external` members, and those of an extension type
             // never have a class).
-            if info.is_none() && c.kind == ClassKind::ExtensionType && js_libs.contains_key(&c.library) {
-                info = Some(JsClass { name: None, anonymous: false, static_interop: true });
+            if info.is_none()
+                && c.kind == ClassKind::ExtensionType
+                && js_libs.contains_key(&c.library)
+            {
+                info = Some(JsClass {
+                    name: None,
+                    anonymous: false,
+                    static_interop: true,
+                });
             }
             if let Some(info) = info {
                 js_classes.insert(ClassId(i as u32), info);
@@ -495,7 +510,13 @@ impl<'a> Ctx<'a> {
             let mut by_field: HashMap<u32, String> = HashMap::new();
             for &mid in members {
                 let mem = unit.ast.member(mid);
-                let Some(js_name) = mem.metadata.iter().find_map(|a| self.ann_js_name(decl.unit, a)) else { continue };
+                let Some(js_name) = mem
+                    .metadata
+                    .iter()
+                    .find_map(|a| self.ann_js_name(decl.unit, a))
+                else {
+                    continue;
+                };
                 match &mem.kind {
                     ast::MemberKind::Method(fid) => {
                         by_function.insert(fid.0, js_name);
@@ -509,7 +530,11 @@ impl<'a> Ctx<'a> {
             if by_function.is_empty() && by_field.is_empty() {
                 continue;
             }
-            for &fid in class.instance_members.values().chain(class.static_members.values()) {
+            for &fid in class
+                .instance_members
+                .values()
+                .chain(class.static_members.values())
+            {
                 let f = self.program.function(fid);
                 if let dartforge_elements::model::FunctionRef::Function { function, .. } = f.node {
                     if let Some(n) = by_function.get(&function.0) {
@@ -518,7 +543,9 @@ impl<'a> Ctx<'a> {
                     }
                 }
                 if let Some(v) = f.variable {
-                    if let dartforge_elements::model::VariableRef::Field { member, .. } = self.program.variable(v).node {
+                    if let dartforge_elements::model::VariableRef::Field { member, .. } =
+                        self.program.variable(v).node
+                    {
                         if let Some(n) = by_field.get(&member.0) {
                             map.insert(fid.0, n.clone());
                         }
@@ -538,7 +565,12 @@ impl<'a> Ctx<'a> {
         let v = &self.outline.variables[rep.0 as usize];
         let t = v.declared_type.or(v.inferred)?;
         let mut map = HashMap::new();
-        for (p, a) in self.class_params.get(class.0 as usize)?.iter().zip(args.iter()) {
+        for (p, a) in self
+            .class_params
+            .get(class.0 as usize)?
+            .iter()
+            .zip(args.iter())
+        {
             map.insert(p.id, a.clone());
         }
         Some(self.ty_of(t).subst_prop(&map))
@@ -546,7 +578,8 @@ impl<'a> Ctx<'a> {
 
     /// Reachability level of the class; without a filter, `Instantiated` (everything emitted).
     pub fn class_level(&self, c: ClassId) -> crate::filter::Level {
-        self.filter.map_or(crate::filter::Level::Instantiated, |f| f.class_level(c))
+        self.filter
+            .map_or(crate::filter::Level::Instantiated, |f| f.class_level(c))
     }
 
     /// State of the function; without a filter, `Live`.
@@ -556,7 +589,13 @@ impl<'a> Ctx<'a> {
     /// (`docs/JS-PRODUCAO-TAMANHO.md` §13.5). `DARTFORGE_JSPROD_LATE_NAMES=0`
     /// keeps them; the development profile always keeps them.
     pub fn late_name<'n>(&self, name: &'n str) -> &'n str {
-        if self.production() && std::env::var("DARTFORGE_JSPROD_LATE_NAMES").map_or(true, |v| v != "0") { "" } else { name }
+        if self.production()
+            && std::env::var("DARTFORGE_JSPROD_LATE_NAMES").map_or(true, |v| v != "0")
+        {
+            ""
+        } else {
+            name
+        }
     }
 
     /// The production profile's emission choices that are not pruning
@@ -566,12 +605,14 @@ impl<'a> Ctx<'a> {
     }
 
     pub fn fn_state(&self, f: FunctionElementId) -> crate::filter::State {
-        self.filter.map_or(crate::filter::State::Live, |x| x.function(f))
+        self.filter
+            .map_or(crate::filter::State::Live, |x| x.function(f))
     }
 
     /// State of the variable; without a filter, `Live`.
     pub fn var_state(&self, v: VariableId) -> crate::filter::State {
-        self.filter.map_or(crate::filter::State::Live, |x| x.variable(v))
+        self.filter
+            .map_or(crate::filter::State::Live, |x| x.variable(v))
     }
 
     /// Name invoked somewhere; without a filter, always.
@@ -615,7 +656,8 @@ impl<'a> Ctx<'a> {
         if !f.external || self.libs[f.library.0 as usize].is_sdk {
             return false;
         }
-        if self.fn_js.contains_key(&fid) || f.variable.is_some_and(|v| self.var_js.contains_key(&v)) {
+        if self.fn_js.contains_key(&fid) || f.variable.is_some_and(|v| self.var_js.contains_key(&v))
+        {
             return true;
         }
         if self.interop_extension_member(fid).is_some() {
@@ -636,10 +678,19 @@ impl<'a> Ctx<'a> {
     /// no `Ext|get#m` function for them.
     pub fn interop_extension_member(&self, fid: FunctionElementId) -> Option<String> {
         let f = self.program.function(fid);
-        if !f.external || f.static_ || f.extension.is_none() || self.libs[f.library.0 as usize].is_sdk {
+        if !f.external
+            || f.static_
+            || f.extension.is_none()
+            || self.libs[f.library.0 as usize].is_sdk
+        {
             return None;
         }
-        let explicit = self.fn_js.get(&fid).cloned().flatten().filter(|n| !n.is_empty());
+        let explicit = self
+            .fn_js
+            .get(&fid)
+            .cloned()
+            .flatten()
+            .filter(|n| !n.is_empty());
         Some(explicit.unwrap_or_else(|| self.name(f.name).trim_end_matches("_=").to_string()))
     }
 
@@ -659,7 +710,9 @@ impl<'a> Ctx<'a> {
 
     pub fn is_js_member_kind(&self, mk: &MemberKind) -> bool {
         match *mk {
-            MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => self.is_js_member(f),
+            MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => {
+                self.is_js_member(f)
+            }
             MemberKind::Field(v) => self.is_js_var(v),
         }
     }
@@ -671,14 +724,21 @@ impl<'a> Ctx<'a> {
             return false;
         }
         let class = match *mk {
-            MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => self.program.function(f).class,
+            MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => {
+                self.program.function(f).class
+            }
             MemberKind::Field(v) => self.program.variable(v).class,
         };
-        if class.and_then(|c| self.js_classes.get(&c)).is_some_and(|j| j.static_interop) {
+        if class
+            .and_then(|c| self.js_classes.get(&c))
+            .is_some_and(|j| j.static_interop)
+        {
             return false;
         }
         let ty = match *mk {
-            MemberKind::Method(f) | MemberKind::Getter(f) => self.ty_of(self.outline.functions[f.0 as usize].return_type),
+            MemberKind::Method(f) | MemberKind::Getter(f) => {
+                self.ty_of(self.outline.functions[f.0 as usize].return_type)
+            }
             MemberKind::Setter(_) => return false,
             MemberKind::Field(v) => self.var_ty(v),
         };
@@ -703,7 +763,11 @@ impl<'a> Ctx<'a> {
     /// Global JS name of an interop class (`_jsNameWithoutGlobal`).
     pub fn js_class_global(&self, c: ClassId) -> String {
         let class = self.program.class(c);
-        let name = self.js_classes.get(&c).and_then(|j| j.name.clone()).unwrap_or_else(|| self.name(class.name).to_string());
+        let name = self
+            .js_classes
+            .get(&c)
+            .and_then(|j| j.name.clone())
+            .unwrap_or_else(|| self.name(class.name).to_string());
         self.js_global(class.library, &name)
     }
 
@@ -712,7 +776,12 @@ impl<'a> Ctx<'a> {
     pub fn js_interop_member_name(&self, mk: &MemberKind, dart_name: &str) -> String {
         let explicit = match *mk {
             MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => {
-                self.fn_js.get(&f).cloned().flatten().or_else(|| self.program.function(f).variable.and_then(|v| self.var_js.get(&v).cloned().flatten()))
+                self.fn_js.get(&f).cloned().flatten().or_else(|| {
+                    self.program
+                        .function(f)
+                        .variable
+                        .and_then(|v| self.var_js.get(&v).cloned().flatten())
+                })
             }
             MemberKind::Field(v) => self.var_js.get(&v).cloned().flatten(),
         };
@@ -721,7 +790,13 @@ impl<'a> Ctx<'a> {
 
     /// Global reference of an `external` static member of an interop class, or
     /// of an interop top-level function/variable.
-    pub fn js_static_ref(&self, class: Option<ClassId>, lib: LibraryId, mk: &MemberKind, dart_name: &str) -> String {
+    pub fn js_static_ref(
+        &self,
+        class: Option<ClassId>,
+        lib: LibraryId,
+        mk: &MemberKind,
+        dart_name: &str,
+    ) -> String {
         let member = self.js_interop_member_name(mk, dart_name);
         match class {
             Some(c) => format!("{}{}", self.js_class_global(c), js::prop_access(&member)),
@@ -735,7 +810,8 @@ impl<'a> Ctx<'a> {
     /// the module of the first library (classes in a cycle need a single order).
     fn compute_groups(&mut self) {
         let n = self.program.libraries.len();
-        let is_user = |i: usize, s: &Self| !s.libs[i].is_sdk && !s.program.libraries[i].units.is_empty();
+        let is_user =
+            |i: usize, s: &Self| !s.libs[i].is_sdk && !s.program.libraries[i].units.is_empty();
         // 1. Initial module of each library.
         let mut key_of: Vec<Option<String>> = vec![None; n];
         for (i, module_key) in key_of.iter_mut().enumerate() {
@@ -749,7 +825,9 @@ impl<'a> Ctx<'a> {
                 .and_then(|u| self.program.unit(*u).path.as_ref())
                 .map(|p| {
                     let s = p.to_string_lossy().replace('\\', "/").to_lowercase();
-                    s.contains("/pub/cache/") || s.contains("/.pub-cache/") || s.contains("/hosted/pub.dev/")
+                    s.contains("/pub/cache/")
+                        || s.contains("/.pub-cache/")
+                        || s.contains("/hosted/pub.dev/")
                 })
                 .unwrap_or(false);
             let key = match lib.uri.strip_prefix("package:") {
@@ -779,7 +857,12 @@ impl<'a> Ctx<'a> {
             let a = index_of[k];
             members[a].push(i);
             let lib = &self.program.libraries[i];
-            for j in lib.imports.iter().map(|x| x.library.0 as usize).chain(lib.exports.iter().map(|x| x.library.0 as usize)) {
+            for j in lib
+                .imports
+                .iter()
+                .map(|x| x.library.0 as usize)
+                .chain(lib.exports.iter().map(|x| x.library.0 as usize))
+            {
                 if let Some(kj) = &key_of[j] {
                     let b = index_of[kj];
                     if b != a && !edges[a].contains(&b) {
@@ -840,7 +923,10 @@ impl<'a> Ctx<'a> {
         }
         // 4. Final groups: the libraries of each component, sorted by id.
         for comp in sccs {
-            let mut libs: Vec<usize> = comp.iter().flat_map(|&mi| members[mi].iter().copied()).collect();
+            let mut libs: Vec<usize> = comp
+                .iter()
+                .flat_map(|&mi| members[mi].iter().copied())
+                .collect();
             libs.sort();
             if libs.len() < 2 {
                 continue;
@@ -911,7 +997,10 @@ impl<'a> Ctx<'a> {
                 }
             }
         }
-        for c in [self.int_, self.double_, self.bool_, self.string_].into_iter().flatten() {
+        for c in [self.int_, self.double_, self.bool_, self.string_]
+            .into_iter()
+            .flatten()
+        {
             natives.push(c);
         }
         let mut extensible: Vec<ClassId> = Vec::new();
@@ -926,8 +1015,12 @@ impl<'a> Ctx<'a> {
             if let Some(l) = find_lib(lib) {
                 for n in names {
                     if let Some(sym) = self.interner.lookup(n) {
-                        if let Some(Element::Class(c)) =
-                            self.program.library(l).declared.get(&sym).and_then(|b| b.getter)
+                        if let Some(Element::Class(c)) = self
+                            .program
+                            .library(l)
+                            .declared
+                            .get(&sym)
+                            .and_then(|b| b.getter)
                         {
                             extensible.push(c);
                         }
@@ -972,7 +1065,11 @@ impl<'a> Ctx<'a> {
         let unit = self.program.unit(decl.unit);
         let d = unit.ast.decl(decl.decl);
         d.metadata.iter().any(|a| {
-            let n = a.name.first().map(|n| self.interner.resolve(n.sym)).unwrap_or("");
+            let n = a
+                .name
+                .first()
+                .map(|n| self.interner.resolve(n.sym))
+                .unwrap_or("");
             n == "Native" || n == "JsPeerInterface"
         })
     }
@@ -987,7 +1084,11 @@ impl<'a> Ctx<'a> {
         let name = self.interner.resolve(data.name).to_string();
         self.param_bounds.borrow_mut().insert(pid.0, bound.clone());
         self.param_names.borrow_mut().insert(pid.0, name.clone());
-        TyParam { id: pid.0, name, bound: Box::new(bound) }
+        TyParam {
+            id: pid.0,
+            name,
+            bound: Box::new(bound),
+        }
     }
 
     pub fn ty_of(&self, id: TypeId) -> Ty {
@@ -996,31 +1097,62 @@ impl<'a> Ctx<'a> {
             Type::Void => Ty::Void,
             Type::Never => Ty::Never,
             Type::Null => Ty::Null,
-            Type::Interface { class, args, nullable } => {
+            Type::Interface {
+                class,
+                args,
+                nullable,
+            } => {
                 // Raw type coming from the table (`Caixa` for `Caixa<dynamic>`):
                 // complete the arity here, at the single entry point, so that
                 // recipes, rti rules, substitutions and member lookup always
                 // see the same shape (see `args_at_arity`).
                 let args: Vec<Ty> = args.iter().map(|a| self.ty_of(*a)).collect();
                 let args = self.args_at_arity(*class, &args).into_owned();
-                Ty::Iface { class: *class, args, nullable: *nullable }
+                Ty::Iface {
+                    class: *class,
+                    args,
+                    nullable: *nullable,
+                }
             }
-            Type::Function { type_params, ret, positional, optional, named, nullable } => Ty::Fn {
+            Type::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+            } => Ty::Fn {
                 type_params: type_params.iter().map(|p| self.ty_param_of(*p)).collect(),
                 ret: Box::new(self.ty_of(*ret)),
                 pos: positional.iter().map(|a| self.ty_of(*a)).collect(),
                 opt: optional.iter().map(|a| self.ty_of(*a)).collect(),
                 named: {
-                    let mut v: Vec<(String, Ty, bool)> = named.iter().map(|(n, t, r)| (self.interner.resolve(*n).to_string(), self.ty_of(*t), *r)).collect();
+                    let mut v: Vec<(String, Ty, bool)> = named
+                        .iter()
+                        .map(|(n, t, r)| {
+                            (self.interner.resolve(*n).to_string(), self.ty_of(*t), *r)
+                        })
+                        .collect();
                     v.sort_by(|a, b| a.0.cmp(&b.0));
                     v
                 },
                 nullable: *nullable,
             },
-            Type::Record { positional, named, nullable } => {
-                let mut named: Vec<(String, Ty)> = named.iter().map(|(n, t)| (self.interner.resolve(*n).to_string(), self.ty_of(*t))).collect();
+            Type::Record {
+                positional,
+                named,
+                nullable,
+            } => {
+                let mut named: Vec<(String, Ty)> = named
+                    .iter()
+                    .map(|(n, t)| (self.interner.resolve(*n).to_string(), self.ty_of(*t)))
+                    .collect();
                 named.sort_by(|a, b| a.0.cmp(&b.0));
-                Ty::Record { pos: positional.iter().map(|a| self.ty_of(*a)).collect(), named, nullable: *nullable }
+                Ty::Record {
+                    pos: positional.iter().map(|a| self.ty_of(*a)).collect(),
+                    named,
+                    nullable: *nullable,
+                }
             }
             Type::TypeParameter { param, nullable } => {
                 let data = self.table.param(*param);
@@ -1032,27 +1164,45 @@ impl<'a> Ctx<'a> {
                     self.param_bounds.borrow_mut().insert(param.0, b);
                     self.param_names.borrow_mut().insert(param.0, name.clone());
                 }
-                Ty::Param { id: param.0, name, nullable: *nullable }
+                Ty::Param {
+                    id: param.0,
+                    name,
+                    nullable: *nullable,
+                }
             }
-            Type::FutureOr { arg, nullable } => Ty::FutureOr { arg: Box::new(self.ty_of(*arg)), nullable: *nullable },
+            Type::FutureOr { arg, nullable } => Ty::FutureOr {
+                arg: Box::new(self.ty_of(*arg)),
+                nullable: *nullable,
+            },
             // `X & B` (type variable promotion, only in inference): at runtime
             // it is the variable `X` itself.
             Type::Intersection { param, .. } => {
                 let p = *param;
-                let t = self.table.intern_lookup(Type::TypeParameter { param: p, nullable: false });
+                let t = self.table.intern_lookup(Type::TypeParameter {
+                    param: p,
+                    nullable: false,
+                });
                 match t {
                     Some(t) => self.ty_of(t),
                     None => Ty::Dynamic,
                 }
             }
-            Type::ExtensionType { decl, args, nullable } => {
+            Type::ExtensionType {
+                decl,
+                args,
+                nullable,
+            } => {
                 // Interop (`@JS`): keep the type, so that the `external`
                 // members become properties of the JS object; the others are
                 // erased to the representation type.
                 if self.interop_ext_types.contains(decl) {
                     let args: Vec<Ty> = args.iter().map(|a| self.ty_of(*a)).collect();
                     let args = self.args_at_arity(*decl, &args).into_owned();
-                    return Ty::Iface { class: *decl, args, nullable: *nullable };
+                    return Ty::Iface {
+                        class: *decl,
+                        args,
+                        nullable: *nullable,
+                    };
                 }
                 let class = self.program.class(*decl);
                 if let Some(rep) = class.representation {
@@ -1088,11 +1238,19 @@ impl<'a> Ctx<'a> {
         *n += 1;
         self.param_bounds.borrow_mut().insert(id, bound.clone());
         self.param_names.borrow_mut().insert(id, name.to_string());
-        TyParam { id, name: name.to_string(), bound: Box::new(bound) }
+        TyParam {
+            id,
+            name: name.to_string(),
+            bound: Box::new(bound),
+        }
     }
 
     pub fn bound_of(&self, id: u32) -> Ty {
-        self.param_bounds.borrow().get(&id).cloned().unwrap_or(Ty::Dynamic)
+        self.param_bounds
+            .borrow()
+            .get(&id)
+            .cloned()
+            .unwrap_or(Ty::Dynamic)
     }
 
     // -----------------------------------------------------------------------
@@ -1118,25 +1276,43 @@ impl<'a> Ctx<'a> {
         self.object.map(Ty::iface).unwrap_or(Ty::Dynamic)
     }
     pub fn t_object_q(&self) -> Ty {
-        self.object.map(|c| Ty::Iface { class: c, args: vec![], nullable: true }).unwrap_or(Ty::Dynamic)
+        self.object
+            .map(|c| Ty::Iface {
+                class: c,
+                args: vec![],
+                nullable: true,
+            })
+            .unwrap_or(Ty::Dynamic)
     }
     pub fn t_list(&self, e: Ty) -> Ty {
-        self.list_.map(|c| Ty::iface_args(c, vec![e])).unwrap_or(Ty::Dynamic)
+        self.list_
+            .map(|c| Ty::iface_args(c, vec![e]))
+            .unwrap_or(Ty::Dynamic)
     }
     pub fn t_map(&self, k: Ty, v: Ty) -> Ty {
-        self.map_.map(|c| Ty::iface_args(c, vec![k, v])).unwrap_or(Ty::Dynamic)
+        self.map_
+            .map(|c| Ty::iface_args(c, vec![k, v]))
+            .unwrap_or(Ty::Dynamic)
     }
     pub fn t_set(&self, e: Ty) -> Ty {
-        self.set_.map(|c| Ty::iface_args(c, vec![e])).unwrap_or(Ty::Dynamic)
+        self.set_
+            .map(|c| Ty::iface_args(c, vec![e]))
+            .unwrap_or(Ty::Dynamic)
     }
     pub fn t_iterable(&self, e: Ty) -> Ty {
-        self.iterable_.map(|c| Ty::iface_args(c, vec![e])).unwrap_or(Ty::Dynamic)
+        self.iterable_
+            .map(|c| Ty::iface_args(c, vec![e]))
+            .unwrap_or(Ty::Dynamic)
     }
     pub fn t_future(&self, e: Ty) -> Ty {
-        self.future_.map(|c| Ty::iface_args(c, vec![e])).unwrap_or(Ty::Dynamic)
+        self.future_
+            .map(|c| Ty::iface_args(c, vec![e]))
+            .unwrap_or(Ty::Dynamic)
     }
     pub fn t_stream(&self, e: Ty) -> Ty {
-        self.stream_.map(|c| Ty::iface_args(c, vec![e])).unwrap_or(Ty::Dynamic)
+        self.stream_
+            .map(|c| Ty::iface_args(c, vec![e]))
+            .unwrap_or(Ty::Dynamic)
     }
     pub fn t_type(&self) -> Ty {
         self.type_.map(Ty::iface).unwrap_or(Ty::Dynamic)
@@ -1149,7 +1325,8 @@ impl<'a> Ctx<'a> {
         t.is_class(self.double_) && !t.is_nullable()
     }
     pub fn is_num_like(&self, t: &Ty) -> bool {
-        (t.is_class(self.int_) || t.is_class(self.double_) || t.is_class(self.num_)) && !t.is_nullable()
+        (t.is_class(self.int_) || t.is_class(self.double_) || t.is_class(self.num_))
+            && !t.is_nullable()
     }
     pub fn is_num_like_nullable(&self, t: &Ty) -> bool {
         t.is_class(self.int_) || t.is_class(self.double_) || t.is_class(self.num_)
@@ -1207,7 +1384,9 @@ impl<'a> Ctx<'a> {
 
     /// Direct supertypes of `ty` (an Iface) with the arguments substituted.
     pub fn direct_supers(&self, ty: &Ty) -> Vec<Ty> {
-        let Ty::Iface { class, args, .. } = ty else { return vec![] };
+        let Ty::Iface { class, args, .. } = ty else {
+            return vec![];
+        };
         let params = &self.class_params[class.0 as usize];
         let mut map = HashMap::new();
         for (p, a) in params.iter().zip(args.iter()) {
@@ -1216,7 +1395,10 @@ impl<'a> Ctx<'a> {
         for p in params.iter().skip(args.len()) {
             map.insert(p.id, Ty::Dynamic);
         }
-        self.class_supers[class.0 as usize].iter().map(|s| s.subst(&map)).collect()
+        self.class_supers[class.0 as usize]
+            .iter()
+            .map(|s| s.subst(&map))
+            .collect()
     }
 
     /// `ty` seen as an instance of the class `target` (`List<int>` → `Iterable<int>`).
@@ -1232,7 +1414,9 @@ impl<'a> Ctx<'a> {
         } else {
             ty
         };
-        let Ty::Iface { class, args, .. } = ty else { return None };
+        let Ty::Iface { class, args, .. } = ty else {
+            return None;
+        };
         if *class == target {
             return Some(ty.clone());
         }
@@ -1241,7 +1425,9 @@ impl<'a> Ctx<'a> {
             Some(g) => g,
             None => {
                 let g = self.as_super_generic(*class, target);
-                self.super_memo.borrow_mut().insert((*class, target), g.clone());
+                self.super_memo
+                    .borrow_mut()
+                    .insert((*class, target), g.clone());
                 g
             }
         };
@@ -1267,7 +1453,11 @@ impl<'a> Ctx<'a> {
             class,
             args: self.class_params[class.0 as usize]
                 .iter()
-                .map(|p| Ty::Param { id: p.id, name: p.name.clone(), nullable: false })
+                .map(|p| Ty::Param {
+                    id: p.id,
+                    name: p.name.clone(),
+                    nullable: false,
+                })
                 .collect(),
             nullable: false,
         };
@@ -1326,8 +1516,15 @@ impl<'a> Ctx<'a> {
     /// Looks up an instance member declared in the class (not inherited).
     pub fn declared_member(&self, c: ClassId, name: &str, setter: bool) -> Option<MemberKind> {
         let class = self.program.class(c);
-        let key = if setter { format!("{name}_=") } else { name.to_string() };
-        let found = self.interner.lookup(&key).and_then(|sym| class.instance_members.get(&sym).copied());
+        let key = if setter {
+            format!("{name}_=")
+        } else {
+            name.to_string()
+        };
+        let found = self
+            .interner
+            .lookup(&key)
+            .and_then(|sym| class.instance_members.get(&sym).copied());
         let Some(fid) = found else {
             if setter {
                 // A `late final` without an initializer accepts one assignment.
@@ -1341,7 +1538,10 @@ impl<'a> Ctx<'a> {
             return None;
         };
         let f = self.program.function(fid);
-        if class.kind == ClassKind::Enum && name == "name" && matches!(f.node, dartforge_elements::model::FunctionRef::None) {
+        if class.kind == ClassKind::Enum
+            && name == "name"
+            && matches!(f.node, dartforge_elements::model::FunctionRef::None)
+        {
             return None;
         }
         Some(match f.kind {
@@ -1360,7 +1560,11 @@ impl<'a> Ctx<'a> {
 
     pub fn declared_static(&self, c: ClassId, name: &str, setter: bool) -> Option<MemberKind> {
         let class = self.program.class(c);
-        let key = if setter { format!("{name}_=") } else { name.to_string() };
+        let key = if setter {
+            format!("{name}_=")
+        } else {
+            name.to_string()
+        };
         let sym = self.interner.lookup(&key)?;
         let fid = *class.static_members.get(&sym)?;
         let f = self.program.function(fid);
@@ -1405,13 +1609,20 @@ impl<'a> Ctx<'a> {
         // same for any instantiation of the initial class. When the declaring
         // class has no type parameters, the substitution is empty and the
         // result comes out without walking anything.
-        let memo_key = self.interner.lookup(name).map(|sym| (initial_class, sym, setter));
+        let memo_key = self
+            .interner
+            .lookup(name)
+            .map(|sym| (initial_class, sym, setter));
         if let Some(k) = memo_key {
             if let Some(found) = self.member_memo.borrow().get(&k) {
                 match found {
                     None => return None,
                     Some((c, kind)) if self.class_params[c.0 as usize].is_empty() => {
-                        return Some(Member { class: *c, kind: *kind, subst: HashMap::new() });
+                        return Some(Member {
+                            class: *c,
+                            kind: *kind,
+                            subst: HashMap::new(),
+                        });
                     }
                     Some(_) => {}
                 }
@@ -1430,7 +1641,9 @@ impl<'a> Ctx<'a> {
         let mut queue = std::collections::VecDeque::new();
         queue.push_back(start);
         while let Some(t) = queue.pop_front() {
-            let Ty::Iface { class, args, .. } = &t else { continue };
+            let Ty::Iface { class, args, .. } = &t else {
+                continue;
+            };
             if !seen.insert(*class) {
                 continue;
             }
@@ -1444,7 +1657,11 @@ impl<'a> Ctx<'a> {
                     subst.insert(p.id, Ty::Dynamic);
                 }
                 store(Some((*class, kind)));
-                return Some(Member { class: *class, kind, subst });
+                return Some(Member {
+                    class: *class,
+                    kind,
+                    subst,
+                });
             }
             for s in self.direct_supers(&t) {
                 queue.push_back(s);
@@ -1455,7 +1672,11 @@ impl<'a> Ctx<'a> {
             if !seen.contains(&o) {
                 if let Some(kind) = self.declared_member(o, name, setter) {
                     store(Some((o, kind)));
-                    return Some(Member { class: o, kind, subst: HashMap::new() });
+                    return Some(Member {
+                        class: o,
+                        kind,
+                        subst: HashMap::new(),
+                    });
                 }
             }
         }
@@ -1467,7 +1688,9 @@ impl<'a> Ctx<'a> {
     pub fn member_ty(&self, m: &Member) -> Ty {
         let raw = match m.kind {
             MemberKind::Method(fid) => self.fn_ty(fid),
-            MemberKind::Getter(fid) => self.ty_of(self.outline.functions[fid.0 as usize].return_type),
+            MemberKind::Getter(fid) => {
+                self.ty_of(self.outline.functions[fid.0 as usize].return_type)
+            }
             MemberKind::Setter(fid) => self.outline.functions[fid.0 as usize]
                 .parameters
                 .first()
@@ -1539,7 +1762,10 @@ impl<'a> Ctx<'a> {
         if self.js_classes.contains_key(&c) {
             return false;
         }
-        if self.production() && self.class_params[c.0 as usize].is_empty() && std::env::var("DARTFORGE_JSPROD_CLOSED_TI").map_or(true, |v| v != "0") {
+        if self.production()
+            && self.class_params[c.0 as usize].is_empty()
+            && std::env::var("DARTFORGE_JSPROD_CLOSED_TI").map_or(true, |v| v != "0")
+        {
             return false;
         }
         let mut cur = Some(c);
@@ -1559,12 +1785,21 @@ impl<'a> Ctx<'a> {
 
     /// Public forwarded member in a native class: looks in the class and its
     /// superclasses (`getDispatchTarget`); `(function, is field)`.
-    pub fn native_forwarded_member(&self, c: ClassId, name: &str, setter: bool) -> Option<(FunctionElementId, bool)> {
+    pub fn native_forwarded_member(
+        &self,
+        c: ClassId,
+        name: &str,
+        setter: bool,
+    ) -> Option<(FunctionElementId, bool)> {
         let mut cur = Some(c);
         let mut guard = 0;
         while let Some(k) = cur {
             let class = self.program.class(k);
-            let key = if setter { format!("{name}_=") } else { name.to_string() };
+            let key = if setter {
+                format!("{name}_=")
+            } else {
+                name.to_string()
+            };
             if let Some(sym) = self.interner.lookup(&key) {
                 if let Some(&fid) = class.instance_members.get(&sym) {
                     let f = self.program.function(fid);
@@ -1591,7 +1826,10 @@ impl<'a> Ctx<'a> {
     pub fn has_native_body(&self, fid: FunctionElementId) -> bool {
         match self.program.function(fid).node {
             dartforge_elements::model::FunctionRef::Function { unit, function } => {
-                matches!(self.program.unit(unit).ast.function(function).body, ast::FunctionBody::Native(_))
+                matches!(
+                    self.program.unit(unit).ast.function(function).body,
+                    ast::FunctionBody::Native(_)
+                )
             }
             _ => false,
         }
@@ -1601,7 +1839,13 @@ impl<'a> Ctx<'a> {
     pub fn is_web_library(&self, lib: LibraryId) -> bool {
         matches!(
             self.program.library(lib).uri.as_str(),
-            "dart:html" | "dart:svg" | "dart:indexed_db" | "dart:web_audio" | "dart:web_gl" | "dart:web_sql" | "dart:html_common"
+            "dart:html"
+                | "dart:svg"
+                | "dart:indexed_db"
+                | "dart:web_audio"
+                | "dart:web_gl"
+                | "dart:web_sql"
+                | "dart:html_common"
         )
     }
 
@@ -1615,7 +1859,9 @@ impl<'a> Ctx<'a> {
             }
             if let Some(mk) = self.declared_member(k, name, setter) {
                 let abstract_ = match mk {
-                    MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => self.program.function(f).abstract_,
+                    MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) => {
+                        self.program.function(f).abstract_
+                    }
                     MemberKind::Field(v) => self.program.variable(v).external && false,
                 };
                 if !abstract_ {
@@ -1657,7 +1903,13 @@ impl<'a> Ctx<'a> {
     /// map is a `HashMap`: iterating it directly gives an order that changes
     /// from one run to the next.
     fn declared_members(&self, k: ClassId) -> Vec<(SymbolId, FunctionElementId)> {
-        let mut v: Vec<(SymbolId, FunctionElementId)> = self.program.class(k).instance_members.iter().map(|(&s, &f)| (s, f)).collect();
+        let mut v: Vec<(SymbolId, FunctionElementId)> = self
+            .program
+            .class(k)
+            .instance_members
+            .iter()
+            .map(|(&s, &f)| (s, f))
+            .collect();
         v.sort_by_key(|&(_, f)| f);
         v
     }
@@ -1700,7 +1952,11 @@ impl<'a> Ctx<'a> {
             for &mx in &class.mixin_classes {
                 visit(ctx, mx, seen, out);
             }
-            for &i in class.interface_classes.iter().chain(class.on_classes.iter()) {
+            for &i in class
+                .interface_classes
+                .iter()
+                .chain(class.on_classes.iter())
+            {
                 visit(ctx, i, seen, out);
             }
         }
@@ -1731,7 +1987,10 @@ impl<'a> Ctx<'a> {
                     Some(n) => (n.to_string(), true),
                     None => (key.clone(), false),
                 };
-                if out.iter().any(|(n, mk)| *n == name && matches!(mk, MemberKind::Setter(_)) == setter) {
+                if out
+                    .iter()
+                    .any(|(n, mk)| *n == name && matches!(mk, MemberKind::Setter(_)) == setter)
+                {
                     continue;
                 }
                 if self.has_concrete_member(c, &name, setter) {
@@ -1741,7 +2000,11 @@ impl<'a> Ctx<'a> {
                     FunctionKind::Getter => MemberKind::Getter(fid),
                     FunctionKind::Setter => MemberKind::Setter(fid),
                     FunctionKind::ImplicitAccessor => {
-                        if setter { MemberKind::Setter(fid) } else { MemberKind::Getter(fid) }
+                        if setter {
+                            MemberKind::Setter(fid)
+                        } else {
+                            MemberKind::Getter(fid)
+                        }
                     }
                     _ => MemberKind::Method(fid),
                 };
@@ -1757,8 +2020,14 @@ impl<'a> Ctx<'a> {
             let order = self.cfe_member_order(c);
             let pos = |n: &str| order.iter().position(|x| x == n).unwrap_or(usize::MAX);
             out.sort_by(|(na, ka), (nb, kb)| {
-                let (sa, sb) = (matches!(ka, MemberKind::Setter(_)), matches!(kb, MemberKind::Setter(_)));
-                pos(na).cmp(&pos(nb)).then_with(|| na.cmp(nb)).then(sa.cmp(&sb))
+                let (sa, sb) = (
+                    matches!(ka, MemberKind::Setter(_)),
+                    matches!(kb, MemberKind::Setter(_)),
+                );
+                pos(na)
+                    .cmp(&pos(nb))
+                    .then_with(|| na.cmp(nb))
+                    .then(sa.cmp(&sb))
             });
         }
         out
@@ -1780,14 +2049,22 @@ impl<'a> Ctx<'a> {
                 ast::ParameterKind::Required => pos.push(t),
                 ast::ParameterKind::Optional => opt.push(t),
                 ast::ParameterKind::Named => {
-                    let n = p.external_name.or(p.name).map(|s| self.interner.resolve(s).to_string()).unwrap_or_default();
+                    let n = p
+                        .external_name
+                        .or(p.name)
+                        .map(|s| self.interner.resolve(s).to_string())
+                        .unwrap_or_default();
                     named.push((n, t, p.required));
                 }
             }
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));
         Ty::Fn {
-            type_params: data.type_params.iter().map(|p| self.ty_param_of(*p)).collect(),
+            type_params: data
+                .type_params
+                .iter()
+                .map(|p| self.ty_param_of(*p))
+                .collect(),
             ret: Box::new(self.ty_of(data.return_type)),
             pos,
             opt,
@@ -1798,17 +2075,32 @@ impl<'a> Ctx<'a> {
 
     /// `C<dynamic, …>`: the class as a type literal without arguments.
     pub fn this_ty_default(&self, c: ClassId) -> Ty {
-        let args = self.class_params[c.0 as usize].iter().map(|_| Ty::Dynamic).collect();
-        Ty::Iface { class: c, args, nullable: false }
+        let args = self.class_params[c.0 as usize]
+            .iter()
+            .map(|_| Ty::Dynamic)
+            .collect();
+        Ty::Iface {
+            class: c,
+            args,
+            nullable: false,
+        }
     }
 
     /// The `this` type of a class: `C<T1..Tn>`.
     pub fn this_ty(&self, c: ClassId) -> Ty {
         let args = self.class_params[c.0 as usize]
             .iter()
-            .map(|p| Ty::Param { id: p.id, name: p.name.clone(), nullable: false })
+            .map(|p| Ty::Param {
+                id: p.id,
+                name: p.name.clone(),
+                nullable: false,
+            })
             .collect();
-        Ty::Iface { class: c, args, nullable: false }
+        Ty::Iface {
+            class: c,
+            args,
+            nullable: false,
+        }
     }
 
     /// Whether the member seen from `ty` is accessed through `dartx` (decided by the class that declares it).
@@ -1836,7 +2128,10 @@ impl<'a> Ctx<'a> {
         // definition's `checkNativeNonNull` — and (b) when `@JSName('x')`
         // renames it (`x != name`), because then the Dart name does not exist
         // on the JS object. Members with a Dart body are always `dartx` symbols.
-        let impl_class = if Some(class) == self.int_ || Some(class) == self.double_ || Some(class) == self.num_ {
+        let impl_class = if Some(class) == self.int_
+            || Some(class) == self.double_
+            || Some(class) == self.num_
+        {
             self.jsnumber
         } else if Some(class) == self.bool_ {
             self.jsbool
@@ -1892,9 +2187,12 @@ impl<'a> Ctx<'a> {
             (_, Ty::Dynamic) | (_, Ty::Void) => true,
             (Ty::Dynamic, _) => true,
             (Ty::Never, _) => true,
-            (_, Ty::Iface { class, nullable, .. }) if Some(*class) == self.object => {
-                *nullable || !a.is_nullable()
-            }
+            (
+                _,
+                Ty::Iface {
+                    class, nullable, ..
+                },
+            ) if Some(*class) == self.object => *nullable || !a.is_nullable(),
             (Ty::Null, b) => b.is_nullable(),
             (a, Ty::FutureOr { arg, nullable }) => {
                 if a.is_nullable() && !*nullable {
@@ -1912,7 +2210,12 @@ impl<'a> Ctx<'a> {
                     && self.is_subtype_depth(&self.t_future((**arg).clone()), b, depth + 1)
             }
             (Ty::Param { id, nullable, .. }, b) => {
-                if let Ty::Param { id: id2, nullable: n2, .. } = b {
+                if let Ty::Param {
+                    id: id2,
+                    nullable: n2,
+                    ..
+                } = b
+                {
                     if id == id2 {
                         return !*nullable || *n2;
                     }
@@ -1924,7 +2227,16 @@ impl<'a> Ctx<'a> {
                 self.is_subtype_depth(&bound, b, depth + 1)
             }
             (_, Ty::Param { .. }) => false,
-            (Ty::Iface { class, nullable, .. }, Ty::Iface { class: c2, args: args2, nullable: n2 }) => {
+            (
+                Ty::Iface {
+                    class, nullable, ..
+                },
+                Ty::Iface {
+                    class: c2,
+                    args: args2,
+                    nullable: n2,
+                },
+            ) => {
                 if *nullable && !*n2 {
                     return false;
                 }
@@ -1936,16 +2248,46 @@ impl<'a> Ctx<'a> {
                 if sargs.len() != args2.len() {
                     return true;
                 }
-                sargs.iter().zip(args2.iter()).all(|(x, y)| self.is_subtype_depth(x, y, depth + 1))
+                sargs
+                    .iter()
+                    .zip(args2.iter())
+                    .all(|(x, y)| self.is_subtype_depth(x, y, depth + 1))
             }
-            (Ty::Iface { class, nullable, .. }, Ty::Fn { nullable: n2, .. }) => {
+            (
+                Ty::Iface {
+                    class, nullable, ..
+                },
+                Ty::Fn { nullable: n2, .. },
+            ) => {
                 let _ = (class, nullable, n2);
                 false
             }
-            (Ty::Fn { nullable, .. }, Ty::Iface { class, nullable: n2, .. }) => {
-                (!*nullable || *n2) && Some(*class) == self.function_
-            }
-            (Ty::Fn { ret, pos, opt, named, nullable, .. }, Ty::Fn { ret: r2, pos: p2, opt: o2, named: n2, nullable: nn2, .. }) => {
+            (
+                Ty::Fn { nullable, .. },
+                Ty::Iface {
+                    class,
+                    nullable: n2,
+                    ..
+                },
+            ) => (!*nullable || *n2) && Some(*class) == self.function_,
+            (
+                Ty::Fn {
+                    ret,
+                    pos,
+                    opt,
+                    named,
+                    nullable,
+                    ..
+                },
+                Ty::Fn {
+                    ret: r2,
+                    pos: p2,
+                    opt: o2,
+                    named: n2,
+                    nullable: nn2,
+                    ..
+                },
+            ) => {
                 if *nullable && !*nn2 {
                     return false;
                 }
@@ -1956,7 +2298,11 @@ impl<'a> Ctx<'a> {
                     return false;
                 }
                 for (i, t2) in p2.iter().chain(o2.iter()).enumerate() {
-                    let t1 = if i < pos.len() { &pos[i] } else { &opt[i - pos.len()] };
+                    let t1 = if i < pos.len() {
+                        &pos[i]
+                    } else {
+                        &opt[i - pos.len()]
+                    };
                     if !self.is_subtype_depth(t2, t1, depth + 1) {
                         return false;
                     }
@@ -1973,16 +2319,38 @@ impl<'a> Ctx<'a> {
                 }
                 true
             }
-            (Ty::Record { pos, named, nullable }, Ty::Record { pos: p2, named: n2, nullable: nn2 }) => {
+            (
+                Ty::Record {
+                    pos,
+                    named,
+                    nullable,
+                },
+                Ty::Record {
+                    pos: p2,
+                    named: n2,
+                    nullable: nn2,
+                },
+            ) => {
                 (!*nullable || *nn2)
                     && pos.len() == p2.len()
                     && named.len() == n2.len()
-                    && pos.iter().zip(p2).all(|(x, y)| self.is_subtype_depth(x, y, depth + 1))
-                    && named.iter().zip(n2).all(|((a, x), (b, y))| a == b && self.is_subtype_depth(x, y, depth + 1))
+                    && pos
+                        .iter()
+                        .zip(p2)
+                        .all(|(x, y)| self.is_subtype_depth(x, y, depth + 1))
+                    && named
+                        .iter()
+                        .zip(n2)
+                        .all(|((a, x), (b, y))| a == b && self.is_subtype_depth(x, y, depth + 1))
             }
-            (Ty::Record { nullable, .. }, Ty::Iface { class, nullable: n2, .. }) => {
-                (!*nullable || *n2) && Some(*class) == self.record_
-            }
+            (
+                Ty::Record { nullable, .. },
+                Ty::Iface {
+                    class,
+                    nullable: n2,
+                    ..
+                },
+            ) => (!*nullable || *n2) && Some(*class) == self.record_,
             _ => false,
         }
     }
@@ -2012,10 +2380,30 @@ impl<'a> Ctx<'a> {
                     return self.t_num().with_nullable(nullable);
                 }
                 // Same class: lub of the arguments.
-                if let (Ty::Iface { class: ca, args: aa, .. }, Ty::Iface { class: cb, args: ab, .. }) = (&an, &bn) {
+                if let (
+                    Ty::Iface {
+                        class: ca,
+                        args: aa,
+                        ..
+                    },
+                    Ty::Iface {
+                        class: cb,
+                        args: ab,
+                        ..
+                    },
+                ) = (&an, &bn)
+                {
                     if ca == cb && aa.len() == ab.len() {
-                        let args = aa.iter().zip(ab.iter()).map(|(x, y)| self.lub(x, y)).collect();
-                        return Ty::Iface { class: *ca, args, nullable };
+                        let args = aa
+                            .iter()
+                            .zip(ab.iter())
+                            .map(|(x, y)| self.lub(x, y))
+                            .collect();
+                        return Ty::Iface {
+                            class: *ca,
+                            args,
+                            nullable,
+                        };
                     }
                 }
                 // Look for a common superclass in the `extends` chain of `a`.
@@ -2030,7 +2418,11 @@ impl<'a> Ctx<'a> {
                     }
                 }
                 if let (Ty::Fn { .. }, Ty::Fn { .. }) = (&an, &bn) {
-                    return self.function_.map(Ty::iface).unwrap_or(Ty::Dynamic).with_nullable(nullable);
+                    return self
+                        .function_
+                        .map(Ty::iface)
+                        .unwrap_or(Ty::Dynamic)
+                        .with_nullable(nullable);
                 }
                 self.t_object().with_nullable(nullable)
             }
@@ -2054,7 +2446,10 @@ impl<'a> Ctx<'a> {
     /// call, in the function's prologue and in the rti recipe of the function
     /// type.
     pub fn named_key(&self, name: &str) -> String {
-        self.filter.and_then(|f| f.named_key_of(name)).unwrap_or(name).to_string()
+        self.filter
+            .and_then(|f| f.named_key_of(name))
+            .unwrap_or(name)
+            .to_string()
     }
 
     /// rti recipe prefix of the class: `core|int`, `main|P`. In SDK mode
@@ -2073,7 +2468,9 @@ impl<'a> Ctx<'a> {
     pub fn class_recipe(&self, c: ClassId) -> String {
         let lib = self.lib_of_class(c);
         if self.sdk.is_some() && self.short_recipe {
-            let ids = self.recipe_ids.get_or_init(|| crate::recipe_ids(self.program, self.interner));
+            let ids = self
+                .recipe_ids
+                .get_or_init(|| crate::recipe_ids(self.program, self.interner));
             return format!("|{}", ids[c.0 as usize]);
         }
         if self.sdk.is_some() && !self.libs[lib.0 as usize].is_sdk {
@@ -2085,13 +2482,24 @@ impl<'a> Ctx<'a> {
     /// [`Ctx::class_recipe`] of the class `name` of `uri`; `fallback` if it
     /// does not exist in the program.
     pub fn recipe_of(&self, uri: &str, name: &str, fallback: &str) -> String {
-        let class = self.program.libraries.iter().position(|l| l.uri == uri).and_then(|i| {
-            let sym = self.interner.lookup(name)?;
-            match self.program.library(LibraryId(i as u32)).declared.get(&sym)?.getter {
-                Some(Element::Class(c)) => Some(c),
-                _ => None,
-            }
-        });
+        let class = self
+            .program
+            .libraries
+            .iter()
+            .position(|l| l.uri == uri)
+            .and_then(|i| {
+                let sym = self.interner.lookup(name)?;
+                match self
+                    .program
+                    .library(LibraryId(i as u32))
+                    .declared
+                    .get(&sym)?
+                    .getter
+                {
+                    Some(Element::Class(c)) => Some(c),
+                    _ => None,
+                }
+            });
         class.map_or_else(|| fallback.to_string(), |c| self.class_recipe(c))
     }
 
@@ -2102,7 +2510,11 @@ impl<'a> Ctx<'a> {
     pub fn class_arity(&self, c: ClassId) -> usize {
         match self.class_params.get(c.0 as usize) {
             Some(p) => p.len(),
-            None => self.outline.classes.get(c.0 as usize).map_or(0, |k| k.type_params.len()),
+            None => self
+                .outline
+                .classes
+                .get(c.0 as usize)
+                .map_or(0, |k| k.type_params.len()),
         }
     }
 
@@ -2121,11 +2533,17 @@ impl<'a> Ctx<'a> {
                 let mut v = HashSet::new();
                 for x in &self.program.unit(unit).ast.exprs {
                     match &x.kind {
-                        ast::ExprKind::Assign { op, target, .. } if *op != ast::AssignOp::Assign => {
+                        ast::ExprKind::Assign { op, target, .. }
+                            if *op != ast::AssignOp::Assign =>
+                        {
                             v.insert(target.0);
                         }
                         ast::ExprKind::Unary {
-                            op: ast::UnaryOp::PrefixInc | ast::UnaryOp::PrefixDec | ast::UnaryOp::PostfixInc | ast::UnaryOp::PostfixDec,
+                            op:
+                                ast::UnaryOp::PrefixInc
+                                | ast::UnaryOp::PrefixDec
+                                | ast::UnaryOp::PostfixInc
+                                | ast::UnaryOp::PostfixDec,
                             operand,
                         } => {
                             v.insert(operand.0);
@@ -2235,20 +2653,38 @@ fn compute_libs(program: &Program) -> Vec<LibInfo> {
                 "_rti" => "dart_rti",
                 n => n,
             };
-            LibInfo { ident: name.to_string(), module_path: String::new(), is_sdk: true, js_var: js_var.to_string() }
+            LibInfo {
+                ident: name.to_string(),
+                module_path: String::new(),
+                is_sdk: true,
+                js_var: js_var.to_string(),
+            }
         } else if let Some(rest) = uri.strip_prefix("package:") {
             let path = rest.strip_suffix(".dart").unwrap_or(rest);
             let ident = path_ident(path);
-            LibInfo { ident: ident.clone(), module_path: format!("packages/{path}.js"), is_sdk: false, js_var: format!("L${ident}") }
+            LibInfo {
+                ident: ident.clone(),
+                module_path: format!("packages/{path}.js"),
+                is_sdk: false,
+                js_var: format!("L${ident}"),
+            }
         } else {
-            let p = uri.strip_prefix("file:///").unwrap_or(uri).replace('\\', "/");
+            let p = uri
+                .strip_prefix("file:///")
+                .unwrap_or(uri)
+                .replace('\\', "/");
             let rel = match &entry_dir {
                 Some(d) if p.starts_with(d.as_str()) => p[d.len()..].to_string(),
                 _ => p.replace(':', "_"),
             };
             let stem = rel.strip_suffix(".dart").unwrap_or(&rel).to_string();
             let ident = path_ident(&stem);
-            LibInfo { ident: ident.clone(), module_path: format!("{stem}.js"), is_sdk: false, js_var: format!("L${ident}") }
+            LibInfo {
+                ident: ident.clone(),
+                module_path: format!("{stem}.js"),
+                is_sdk: false,
+                js_var: format!("L${ident}"),
+            }
         };
         let mut info = info;
         if !info.is_sdk {

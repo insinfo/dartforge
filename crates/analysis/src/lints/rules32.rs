@@ -21,9 +21,9 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::rules::LintReport;
 use super::rules16::is_method_invocation;
-use super::LintCode;
 use crate::Unit;
 use dartforge_elements::model::{ClassId, ClassKind};
 use dartforge_frontend::ast::{ExprId, ExprKind};
@@ -76,7 +76,12 @@ enum TargetType {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if enabled("analyzer_use_new_elements") {
@@ -92,17 +97,30 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // `extendsDartHtmlClass`: the class or a superclass is `name` of the
     // `dart.dom.html` library.
     let library_name = |c: ClassId| -> Option<String> {
-        program.library(program.class(c).library).name.as_ref().map(|n| n.iter().map(|x| interner.resolve(*x)).collect::<Vec<_>>().join("."))
+        program
+            .library(program.class(c).library)
+            .name
+            .as_ref()
+            .map(|n| {
+                n.iter()
+                    .map(|x| interner.resolve(*x))
+                    .collect::<Vec<_>>()
+                    .join(".")
+            })
     };
     let extends_html = |recv_ty: TargetType, name: &str| -> bool {
-        let TargetType::Class(mut c) = recv_ty else { return false };
+        let TargetType::Class(mut c) = recv_ty else {
+            return false;
+        };
         let mut seen: Vec<ClassId> = Vec::new();
         loop {
             if seen.contains(&c) {
                 return false;
             }
             seen.push(c);
-            if interner.resolve(program.class(c).name) == name && library_name(c).as_deref() == Some("dart.dom.html") {
+            if interner.resolve(program.class(c).name) == name
+                && library_name(c).as_deref() == Some("dart.dom.html")
+            {
                 return true;
             }
             match program.class(c).supertype_class {
@@ -111,7 +129,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
         }
     };
-    let dynamic_or = |recv_ty: TargetType, name: &str| matches!(recv_ty, TargetType::Dynamic) || extends_html(recv_ty, name);
+    let dynamic_or = |recv_ty: TargetType, name: &str| {
+        matches!(recv_ty, TargetType::Dynamic) || extends_html(recv_ty, name)
+    };
     let target_type_of = |t: TypeId| -> Option<TargetType> {
         match table.get(t) {
             Type::Dynamic => Some(TargetType::Dynamic),
@@ -122,7 +142,10 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // The cascades: the `realTarget` of a section is the cascade's target.
     let mut cascades: std::collections::HashMap<ExprId, ExprId> = std::collections::HashMap::new();
     for e in a.exprs.iter() {
-        if let ExprKind::Cascade { target, sections, .. } = &e.kind {
+        if let ExprKind::Cascade {
+            target, sections, ..
+        } = &e.kind
+        {
             for sec in sections.iter() {
                 let mut x = *sec;
                 loop {
@@ -131,7 +154,10 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                             cascades.insert(x, *target);
                             break;
                         }
-                        ExprKind::Property { target, .. } | ExprKind::Index { target, .. } | ExprKind::Call { target, .. } | ExprKind::TypeArguments { target, .. } => x = *target,
+                        ExprKind::Property { target, .. }
+                        | ExprKind::Index { target, .. }
+                        | ExprKind::Call { target, .. }
+                        | ExprKind::TypeArguments { target, .. } => x = *target,
                         ExprKind::Assign { target, .. } => x = *target,
                         _ => break,
                     }
@@ -146,11 +172,19 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // The `thisType` of the class that contains the resolved member (only a `class`).
     let member_class_type = |e: ExprId| -> Option<TargetType> {
         match body.get_resolved(e)? {
-            Resolved::Member { class, .. } if matches!(program.class(*class).kind, ClassKind::Class | ClassKind::MixinApplication) => Some(TargetType::Class(*class)),
+            Resolved::Member { class, .. }
+                if matches!(
+                    program.class(*class).kind,
+                    ClassKind::Class | ClassKind::MixinApplication
+                ) =>
+            {
+                Some(TargetType::Class(*class))
+            }
             _ => None,
         }
     };
-    let mut findings: Vec<(dartforge_diagnostics::Span, &'static LintCode, Vec<String>)> = Vec::new();
+    let mut findings: Vec<(dartforge_diagnostics::Span, &'static LintCode, Vec<String>)> =
+        Vec::new();
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
         match &e.kind {
@@ -162,14 +196,21 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 }
                 let (recv_ty, name) = match &a.expr(left).kind {
                     ExprKind::Identifier(n) => (member_class_type(left), n.sym),
-                    ExprKind::Property { target: t, name, .. } => (real_target_type(*t), name.sym),
+                    ExprKind::Property {
+                        target: t, name, ..
+                    } => (real_target_type(*t), name.sym),
                     _ => continue,
                 };
                 let Some(recv_ty) = recv_ty else { continue };
                 let n = interner.resolve(name);
                 let is_unsafe = match n {
                     "href" => dynamic_or(recv_ty, "AnchorElement"),
-                    "src" => matches!(recv_ty, TargetType::Dynamic) || extends_html(recv_ty, "EmbedElement") || extends_html(recv_ty, "IFrameElement") || extends_html(recv_ty, "ScriptElement"),
+                    "src" => {
+                        matches!(recv_ty, TargetType::Dynamic)
+                            || extends_html(recv_ty, "EmbedElement")
+                            || extends_html(recv_ty, "IFrameElement")
+                            || extends_html(recv_ty, "ScriptElement")
+                    }
                     "srcdoc" => dynamic_or(recv_ty, "IFrameElement"),
                     _ => false,
                 };
@@ -178,12 +219,25 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 }
             }
             // `visitInstanceCreationExpression` (with or without `new`).
-            ExprKind::InstanceCreation { constructor: Some(c), .. } if interner.resolve(c.sym) == "html" => {
-                let Some(recv_ty) = body.get_type(id).and_then(target_type_of) else { continue };
+            ExprKind::InstanceCreation {
+                constructor: Some(c),
+                ..
+            } if interner.resolve(c.sym) == "html" => {
+                let Some(recv_ty) = body.get_type(id).and_then(target_type_of) else {
+                    continue;
+                };
                 if extends_html(recv_ty, "DocumentFragment") {
-                    findings.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "DocumentFragment".to_string()]));
+                    findings.push((
+                        e.span,
+                        &UNSAFE_HTML_CONSTRUCTOR,
+                        vec!["html".to_string(), "DocumentFragment".to_string()],
+                    ));
                 } else if extends_html(recv_ty, "Element") {
-                    findings.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "Element".to_string()]));
+                    findings.push((
+                        e.span,
+                        &UNSAFE_HTML_CONSTRUCTOR,
+                        vec!["html".to_string(), "Element".to_string()],
+                    ));
                 }
             }
             ExprKind::Call { target, .. } => {
@@ -191,11 +245,21 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     if interner.resolve(program.function(*f).name) != "html" {
                         continue;
                     }
-                    let Some(recv_ty) = body.get_type(id).and_then(target_type_of) else { continue };
+                    let Some(recv_ty) = body.get_type(id).and_then(target_type_of) else {
+                        continue;
+                    };
                     if extends_html(recv_ty, "DocumentFragment") {
-                        findings.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "DocumentFragment".to_string()]));
+                        findings.push((
+                            e.span,
+                            &UNSAFE_HTML_CONSTRUCTOR,
+                            vec!["html".to_string(), "DocumentFragment".to_string()],
+                        ));
                     } else if extends_html(recv_ty, "Element") {
-                        findings.push((e.span, &UNSAFE_HTML_CONSTRUCTOR, vec!["html".to_string(), "Element".to_string()]));
+                        findings.push((
+                            e.span,
+                            &UNSAFE_HTML_CONSTRUCTOR,
+                            vec!["html".to_string(), "Element".to_string()],
+                        ));
                     }
                     continue;
                 }
@@ -205,18 +269,26 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 }
                 let (recv_ty, name) = match &a.expr(*target).kind {
                     ExprKind::Identifier(n) => (member_class_type(*target), n.sym),
-                    ExprKind::Property { target: t, name, .. } => (real_target_type(*t), name.sym),
+                    ExprKind::Property {
+                        target: t, name, ..
+                    } => (real_target_type(*t), name.sym),
                     _ => continue,
                 };
                 let Some(recv_ty) = recv_ty else { continue };
                 let n = interner.resolve(name);
                 let (is_unsafe, owner_class) = match n {
-                    "createFragment" | "setInnerHtml" => (dynamic_or(recv_ty, "Element"), "Element"),
+                    "createFragment" | "setInnerHtml" => {
+                        (dynamic_or(recv_ty, "Element"), "Element")
+                    }
                     "open" => (dynamic_or(recv_ty, "Window"), "Window"),
                     _ => (false, ""),
                 };
                 if is_unsafe {
-                    findings.push((e.span, &UNSAFE_HTML_METHOD, vec![n.to_string(), owner_class.to_string()]));
+                    findings.push((
+                        e.span,
+                        &UNSAFE_HTML_METHOD,
+                        vec![n.to_string(), owner_class.to_string()],
+                    ));
                 }
             }
             _ => {}
@@ -236,7 +308,10 @@ fn is_old_model_element(s: &super::Semantics<'_>, interner: &Interner, c: ClassI
     if s.program.unit(r.unit).uri != "package:analyzer/dart/element/element.dart" {
         return false;
     }
-    !matches!(interner.resolve(k.name), "DirectiveUri" | "DirectiveUriWithRelativeUri" | "ElementAnnotation" | "ElementKind")
+    !matches!(
+        interner.resolve(k.name),
+        "DirectiveUri" | "DirectiveUriWithRelativeUri" | "ElementAnnotation" | "ElementKind"
+    )
 }
 
 /// `_isOldModelType`: the `RecursiveTypeVisitor` over interface types.
@@ -246,26 +321,63 @@ fn is_old_model_type(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, d
     }
     let r = |x: TypeId| is_old_model_type(s, interner, x, depth + 1);
     match s.table.get(t) {
-        Type::Interface { class, args, .. } => is_old_model_element(s, interner, *class) || args.iter().any(|x| r(*x)),
+        Type::Interface { class, args, .. } => {
+            is_old_model_element(s, interner, *class) || args.iter().any(|x| r(*x))
+        }
         Type::ExtensionType { args, .. } => args.iter().any(|x| r(*x)),
         Type::FutureOr { arg, .. } => r(*arg),
-        Type::Function { ret, positional, optional, named, .. } => r(*ret) || positional.iter().chain(optional.iter()).any(|x| r(*x)) || named.iter().any(|(_, x, _)| r(*x)),
-        Type::Record { positional, named, .. } => positional.iter().any(|x| r(*x)) || named.iter().any(|(_, x)| r(*x)),
+        Type::Function {
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
+            r(*ret)
+                || positional.iter().chain(optional.iter()).any(|x| r(*x))
+                || named.iter().any(|(_, x, _)| r(*x))
+        }
+        Type::Record {
+            positional, named, ..
+        } => positional.iter().any(|x| r(*x)) || named.iter().any(|(_, x)| r(*x)),
         _ => false,
     }
 }
 
 /// `analyzer_use_new_elements`.
-fn new_elements_rule(u: Unit<'_>, interner: &Interner, s: &super::Semantics<'_>) -> Vec<LintReport> {
+fn new_elements_rule(
+    u: Unit<'_>,
+    interner: &Interner,
+    s: &super::Semantics<'_>,
+) -> Vec<LintReport> {
     let mut out = Vec::new();
     let program = s.program;
     // `_isEnabledForFile`: the pub package, the option file and the prefixes.
     let lib = program.library(program.unit(s.unit).library);
-    let Some(file) = lib.units.first().and_then(|x| program.unit(*x).path.clone()) else { return out };
-    let Some(root) = file.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()).map(std::path::Path::to_path_buf) else { return out };
-    let Ok(text) = std::fs::read_to_string(root.join("analyzer_use_new_elements.txt")) else { return out };
+    let Some(file) = lib
+        .units
+        .first()
+        .and_then(|x| program.unit(*x).path.clone())
+    else {
+        return out;
+    };
+    let Some(root) = file
+        .ancestors()
+        .skip(1)
+        .find(|d| d.join("pubspec.yaml").is_file())
+        .map(std::path::Path::to_path_buf)
+    else {
+        return out;
+    };
+    let Ok(text) = std::fs::read_to_string(root.join("analyzer_use_new_elements.txt")) else {
+        return out;
+    };
     let separator = std::path::MAIN_SEPARATOR.to_string();
-    let prefixes: Vec<String> = text.trim().split('\n').map(|l| l.trim().replace('/', &separator)).collect();
+    let prefixes: Vec<String> = text
+        .trim()
+        .split('\n')
+        .map(|l| l.trim().replace('/', &separator))
+        .collect();
     let path = file.to_string_lossy().to_string();
     let base = root.to_string_lossy().to_string();
     if !path.starts_with(&base) || path.len() <= base.len() {
@@ -278,7 +390,9 @@ fn new_elements_rule(u: Unit<'_>, interner: &Interner, s: &super::Semantics<'_>)
     let a = u.ast;
     // `visitNamedType`.
     for t in a.types.iter() {
-        let dartforge_frontend::ast::TypeKind::Named { name, .. } = &t.kind else { continue };
+        let dartforge_frontend::ast::TypeKind::Named { name, .. } = &t.kind else {
+            continue;
+        };
         let b = match &name[..] {
             [n] => program.lookup_in_unit(s.unit, n.sym),
             [p, n] => program.lookup_prefixed_in_unit(s.unit, p.sym, n.sym),
@@ -288,23 +402,40 @@ fn new_elements_rule(u: Unit<'_>, interner: &Interner, s: &super::Semantics<'_>)
             && is_old_model_element(s, interner, c)
             && let Some(last) = name.last()
         {
-            out.push(LintReport { code: &ANALYZER_USE_NEW_ELEMENTS, span: last.span, args: Vec::new() });
+            out.push(LintReport {
+                code: &ANALYZER_USE_NEW_ELEMENTS,
+                span: last.span,
+                args: Vec::new(),
+            });
         }
     }
     // The invoked method names: only through `visitMethodInvocation`.
     let mut method_names: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     for (k, e) in a.exprs.iter().enumerate() {
-        let ExprKind::Call { target, .. } = &e.kind else { continue };
-        if matches!(s.body.get_resolved(ExprId(k as u32)), Some(Resolved::Constructor(_))) || !is_method_invocation(s, a, *target) {
+        let ExprKind::Call { target, .. } = &e.kind else {
+            continue;
+        };
+        if matches!(
+            s.body.get_resolved(ExprId(k as u32)),
+            Some(Resolved::Constructor(_))
+        ) || !is_method_invocation(s, a, *target)
+        {
             continue;
         }
         method_names.insert(*target);
-        if s.body.get_type(ExprId(k as u32)).is_some_and(|t| is_old_model_type(s, interner, t, 0)) {
+        if s.body
+            .get_type(ExprId(k as u32))
+            .is_some_and(|t| is_old_model_type(s, interner, t, 0))
+        {
             let sp = match &a.expr(*target).kind {
                 ExprKind::Property { name, .. } => name.span,
                 _ => a.expr(*target).span,
             };
-            out.push(LintReport { code: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
+            out.push(LintReport {
+                code: &ANALYZER_USE_NEW_ELEMENTS,
+                span: sp,
+                args: Vec::new(),
+            });
         }
     }
     // `visitSimpleIdentifier`: the identifier and the property name.
@@ -318,8 +449,15 @@ fn new_elements_rule(u: Unit<'_>, interner: &Interner, s: &super::Semantics<'_>)
             ExprKind::Property { name, .. } => name.span,
             _ => continue,
         };
-        if s.body.get_type(id).is_some_and(|t| is_old_model_type(s, interner, t, 0)) {
-            out.push(LintReport { code: &ANALYZER_USE_NEW_ELEMENTS, span: sp, args: Vec::new() });
+        if s.body
+            .get_type(id)
+            .is_some_and(|t| is_old_model_type(s, interner, t, 0))
+        {
+            out.push(LintReport {
+                code: &ANALYZER_USE_NEW_ELEMENTS,
+                span: sp,
+                args: Vec::new(),
+            });
         }
     }
     out.sort_by_key(|r| (r.span.start, r.span.end));

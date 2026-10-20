@@ -141,7 +141,11 @@ impl<'a> ConstantEvaluator<'a> {
                 let r_val = self.evaluate_expr(unit_id, *right)?;
                 self.evaluate_binary(*op, l_val, r_val)
             }
-            ast::ExprKind::Conditional { condition, then, else_ } => {
+            ast::ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 let cond_val = self.evaluate_expr(unit_id, *condition)?;
                 match cond_val {
                     ConstValue::Bool(true) => self.evaluate_expr(unit_id, *then),
@@ -172,7 +176,9 @@ impl<'a> ConstantEvaluator<'a> {
             }
             ast::ExprKind::SetOrMap { elements, .. } => {
                 // Evaluates whether it is a map or a set
-                let is_map = elements.iter().any(|el| matches!(el, ast::CollectionElement::MapEntry { .. }));
+                let is_map = elements
+                    .iter()
+                    .any(|el| matches!(el, ast::CollectionElement::MapEntry { .. }));
                 if is_map {
                     let mut map = Vec::new();
                     for el in elements {
@@ -193,7 +199,9 @@ impl<'a> ConstantEvaluator<'a> {
                     Some(ConstValue::Set(set))
                 }
             }
-            ast::ExprKind::Record { positional, named, .. } => {
+            ast::ExprKind::Record {
+                positional, named, ..
+            } => {
                 let mut pos = Vec::with_capacity(positional.len());
                 for &e in positional {
                     pos.push(self.evaluate_expr(unit_id, e)?);
@@ -225,12 +233,23 @@ impl<'a> ConstantEvaluator<'a> {
         }
     }
 
-    fn evaluate_binary(&mut self, op: BinaryOp, left: ConstValue, right: ConstValue) -> Option<ConstValue> {
+    fn evaluate_binary(
+        &mut self,
+        op: BinaryOp,
+        left: ConstValue,
+        right: ConstValue,
+    ) -> Option<ConstValue> {
         match (op, left, right) {
             // Integer arithmetic
-            (BinaryOp::Add, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a.wrapping_add(b))),
-            (BinaryOp::Sub, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a.wrapping_sub(b))),
-            (BinaryOp::Mul, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a.wrapping_mul(b))),
+            (BinaryOp::Add, ConstValue::Int(a), ConstValue::Int(b)) => {
+                Some(ConstValue::Int(a.wrapping_add(b)))
+            }
+            (BinaryOp::Sub, ConstValue::Int(a), ConstValue::Int(b)) => {
+                Some(ConstValue::Int(a.wrapping_sub(b)))
+            }
+            (BinaryOp::Mul, ConstValue::Int(a), ConstValue::Int(b)) => {
+                Some(ConstValue::Int(a.wrapping_mul(b)))
+            }
             (BinaryOp::Div, ConstValue::Int(a), ConstValue::Int(b)) => {
                 if b == 0 {
                     self.error_thrown = Some("IntegerDivisionByZeroException".to_string());
@@ -256,28 +275,54 @@ impl<'a> ConstantEvaluator<'a> {
                 }
             }
             // Bitwise operators with 32/64-bit semantics
-            (BinaryOp::BitAnd, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a & b)),
-            (BinaryOp::BitOr, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a | b)),
-            (BinaryOp::BitXor, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Int(a ^ b)),
+            (BinaryOp::BitAnd, ConstValue::Int(a), ConstValue::Int(b)) => {
+                Some(ConstValue::Int(a & b))
+            }
+            (BinaryOp::BitOr, ConstValue::Int(a), ConstValue::Int(b)) => {
+                Some(ConstValue::Int(a | b))
+            }
+            (BinaryOp::BitXor, ConstValue::Int(a), ConstValue::Int(b)) => {
+                Some(ConstValue::Int(a ^ b))
+            }
             (BinaryOp::Shl, ConstValue::Int(a), ConstValue::Int(b)) => {
-                if b < 0 { None } else { Some(ConstValue::Int(a << (b as u32 % 64))) }
+                if b < 0 {
+                    None
+                } else {
+                    Some(ConstValue::Int(a << (b as u32 % 64)))
+                }
             }
             (BinaryOp::Shr, ConstValue::Int(a), ConstValue::Int(b)) => {
-                if b < 0 { None } else { Some(ConstValue::Int(a >> (b as u32 % 64))) }
+                if b < 0 {
+                    None
+                } else {
+                    Some(ConstValue::Int(a >> (b as u32 % 64)))
+                }
             }
             (BinaryOp::UShr, ConstValue::Int(a), ConstValue::Int(b)) => {
-                if b < 0 { None } else { Some(ConstValue::Int(((a as u64) >> (b as u32 % 64)) as i64)) }
+                if b < 0 {
+                    None
+                } else {
+                    Some(ConstValue::Int(((a as u64) >> (b as u32 % 64)) as i64))
+                }
             }
             // Comparisons
             (BinaryOp::Lt, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Bool(a < b)),
-            (BinaryOp::LtEq, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Bool(a <= b)),
+            (BinaryOp::LtEq, ConstValue::Int(a), ConstValue::Int(b)) => {
+                Some(ConstValue::Bool(a <= b))
+            }
             (BinaryOp::Gt, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Bool(a > b)),
-            (BinaryOp::GtEq, ConstValue::Int(a), ConstValue::Int(b)) => Some(ConstValue::Bool(a >= b)),
+            (BinaryOp::GtEq, ConstValue::Int(a), ConstValue::Int(b)) => {
+                Some(ConstValue::Bool(a >= b))
+            }
             (BinaryOp::Eq, l, r) => Some(ConstValue::Bool(l == r)),
             (BinaryOp::NotEq, l, r) => Some(ConstValue::Bool(l != r)),
             // Boolean logic
-            (BinaryOp::And, ConstValue::Bool(a), ConstValue::Bool(b)) => Some(ConstValue::Bool(a && b)),
-            (BinaryOp::Or, ConstValue::Bool(a), ConstValue::Bool(b)) => Some(ConstValue::Bool(a || b)),
+            (BinaryOp::And, ConstValue::Bool(a), ConstValue::Bool(b)) => {
+                Some(ConstValue::Bool(a && b))
+            }
+            (BinaryOp::Or, ConstValue::Bool(a), ConstValue::Bool(b)) => {
+                Some(ConstValue::Bool(a || b))
+            }
             _ => None,
         }
     }
@@ -292,15 +337,24 @@ impl<'a> ConstantEvaluator<'a> {
 
         // identical(a, b)
         if let ast::ExprKind::Identifier(name) = &expr.kind
-            && self.interner.resolve(name.sym) == "identical" && args.args.len() == 2 {
-                let v1 = self.evaluate_expr(unit_id, args.args[0].value)?;
-                let v2 = self.evaluate_expr(unit_id, args.args[1].value)?;
-                return Some(ConstValue::Bool(v1 == v2));
-            }
+            && self.interner.resolve(name.sym) == "identical"
+            && args.args.len() == 2
+        {
+            let v1 = self.evaluate_expr(unit_id, args.args[0].value)?;
+            let v2 = self.evaluate_expr(unit_id, args.args[1].value)?;
+            return Some(ConstValue::Bool(v1 == v2));
+        }
 
         // String.fromEnvironment / int.fromEnvironment / bool.fromEnvironment
-        if let ast::ExprKind::Property { target: recv, name, .. } = &expr.kind {
-            let recv_expr = &self.program.unit(dartforge_elements::model::UnitId(unit_id.0)).ast.exprs[recv.0 as usize];
+        if let ast::ExprKind::Property {
+            target: recv, name, ..
+        } = &expr.kind
+        {
+            let recv_expr = &self
+                .program
+                .unit(dartforge_elements::model::UnitId(unit_id.0))
+                .ast
+                .exprs[recv.0 as usize];
             if let ast::ExprKind::Identifier(recv_name) = &recv_expr.kind {
                 let recv_str = self.interner.resolve(recv_name.sym);
                 let method_str = self.interner.resolve(name.sym);
@@ -313,7 +367,9 @@ impl<'a> ConstantEvaluator<'a> {
                     };
 
                     let default_arg = args.args.iter().find(|a| {
-                        a.name.as_ref().is_some_and(|n| self.interner.resolve(n.sym) == "defaultValue")
+                        a.name
+                            .as_ref()
+                            .is_some_and(|n| self.interner.resolve(n.sym) == "defaultValue")
                     });
 
                     match recv_str {
@@ -331,7 +387,11 @@ impl<'a> ConstantEvaluator<'a> {
                             return Some(ConstValue::Null);
                         }
                         "int" => {
-                            if let Some(val) = self.env_variables.get(&key_str).and_then(|s| s.parse::<i64>().ok()) {
+                            if let Some(val) = self
+                                .env_variables
+                                .get(&key_str)
+                                .and_then(|s| s.parse::<i64>().ok())
+                            {
                                 return Some(ConstValue::Int(val));
                             }
                             if let Some(def) = default_arg {

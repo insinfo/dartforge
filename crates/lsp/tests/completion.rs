@@ -2,20 +2,14 @@
 
 mod common;
 
-use common::{Project, item, mark, labels};
+use common::{Project, item, labels, mark};
 use serde_json::json;
 
 /// Opens `text` (with the `▮` marker) and completes at the marker.
 fn completion(project: &mut Project, relative: &str, text: &str) -> serde_json::Value {
     let (text, line, column) = mark(text);
     project.open(relative, &text);
-    project.in_position(
-        "textDocument/completion",
-        relative,
-        line,
-        column,
-        json!({}),
-    )
+    project.in_position("textDocument/completion", relative, line, column, json!({}))
 }
 
 const CLASSES: &str = "class A {
@@ -92,7 +86,12 @@ fn members_by_receiver_type_with_dangling_dot() {
         .as_array()
         .unwrap()
         .iter()
-        .map(|i| (i["label"].as_str().unwrap().to_string(), i["sortText"].as_str().unwrap().to_string()))
+        .map(|i| {
+            (
+                i["label"].as_str().unwrap().to_string(),
+                i["sortText"].as_str().unwrap().to_string(),
+            )
+        })
         .collect();
     let expected_: Vec<(String, String)> = [
         ("marcado", "9444"),
@@ -223,7 +222,12 @@ fn scope_locals_parameters_members_top_level_and_keywords() {
     ]
     .iter()
     .filter(|(label, order)| item(&r, label)["sortText"] != *order)
-    .map(|(label, order)| format!("{label}: {} (expected {order})", item(&r, label)["sortText"]))
+    .map(|(label, order)| {
+        format!(
+            "{label}: {} (expected {order})",
+            item(&r, label)["sortText"]
+        )
+    })
     .collect::<Vec<_>>()
     .into_iter()
     .reduce(|a, b| format!("{a}; {b}"))
@@ -317,7 +321,10 @@ fn top_level_offers_declaration_keywords_and_types() {
     let r_labels = labels(&r);
     // After declarations, `dart language-server` 3.6.2 does not offer `import`
     // (only the declaration keywords and the types).
-    assert!(r_labels.contains(&"A".to_string()) && r_labels.contains(&"class".to_string()), "{r_labels:?}");
+    assert!(
+        r_labels.contains(&"A".to_string()) && r_labels.contains(&"class".to_string()),
+        "{r_labels:?}"
+    );
     assert!(!r_labels.contains(&"import".to_string()), "{r_labels:?}");
 }
 
@@ -397,21 +404,42 @@ fn auto_import_from_sdk_and_project() {
     // From the project (with `package_config`, the `package:` URI), after the
     // existing imports (a blank line between the groups), like
     // `dart language-server` 3.6.2.
-    let r = completion(&mut p, "lib/b.dart", "import 'dart:math';\nvoid f() {\n  som▮\n}\n");
+    let r = completion(
+        &mut p,
+        "lib/b.dart",
+        "import 'dart:math';\nvoid f() {\n  som▮\n}\n",
+    );
     let absorb = item(&r, "somar(…)").clone();
     assert_eq!(absorb["detail"], "(int a, int b) → int");
     let resolved = p.request("completionItem/resolve", absorb);
-    assert_eq!(resolved["result"]["detail"], "Auto import from 'package:projeto/util.dart'\n\n(int a, int b) → int");
-    assert_eq!(resolved["result"]["additionalTextEdits"][0]["newText"], "\n\nimport 'package:projeto/util.dart';");
-    assert_eq!(resolved["result"]["additionalTextEdits"][0]["range"]["start"], json!({"line": 0, "character": 19}));
+    assert_eq!(
+        resolved["result"]["detail"],
+        "Auto import from 'package:projeto/util.dart'\n\n(int a, int b) → int"
+    );
+    assert_eq!(
+        resolved["result"]["additionalTextEdits"][0]["newText"],
+        "\n\nimport 'package:projeto/util.dart';"
+    );
+    assert_eq!(
+        resolved["result"]["additionalTextEdits"][0]["range"]["start"],
+        json!({"line": 0, "character": 19})
+    );
     // Already imported: the item is the in-scope one, without an additional edit.
-    let r = completion(&mut p, "lib/c.dart", "import 'dart:math';\nvoid f() {\n  Rand▮\n}\n");
+    let r = completion(
+        &mut p,
+        "lib/c.dart",
+        "import 'dart:math';\nvoid f() {\n  Rand▮\n}\n",
+    );
     let random = item(&r, "Random");
     assert!(random.get("additionalTextEdits").is_none(), "{random}");
     assert_eq!(labels(&r).iter().filter(|x| *x == "Random").count(), 1);
     // In a part, the import would go to another file: not offered.
     p.write("lib/dona.dart", "part 'parte.dart';\n");
-    let r = completion(&mut p, "lib/parte.dart", "part of 'dona.dart';\nvoid g() {\n  Rand▮\n}\n");
+    let r = completion(
+        &mut p,
+        "lib/parte.dart",
+        "part of 'dona.dart';\nvoid g() {\n  Rand▮\n}\n",
+    );
     assert!(!labels(&r).contains(&"Random".to_string()), "{r}");
     // With nothing typed, there are no not-imported items.
     let r = completion(&mut p, "lib/d.dart", "void f() {\n  ▮\n}\n");
@@ -422,8 +450,14 @@ fn auto_import_from_sdk_and_project() {
 fn resolve_brings_documentation() {
     let mut p = Project::new("completar-resolve");
     let r = p.initialization.clone();
-    assert_eq!(r["result"]["capabilities"]["completionProvider"]["resolveProvider"], true);
-    p.write("lib/util.dart", "/// Soma dois.\nint somar(int a, int b) => a + b;\n");
+    assert_eq!(
+        r["result"]["capabilities"]["completionProvider"]["resolveProvider"],
+        true
+    );
+    p.write(
+        "lib/util.dart",
+        "/// Soma dois.\nint somar(int a, int b) => a + b;\n",
+    );
     let r = completion(
         &mut p,
         "lib/a.dart",
@@ -439,7 +473,10 @@ fn resolve_brings_documentation() {
     let r = completion(&mut p, "lib/b.dart", "void f() {\n  som▮\n}\n");
     let absorb = item(&r, "somar(…)").clone();
     let resolved = p.request("completionItem/resolve", absorb);
-    assert_eq!(resolved["result"]["documentation"], json!({"kind": "markdown", "value": "Soma dois."}));
+    assert_eq!(
+        resolved["result"]["documentation"],
+        json!({"kind": "markdown", "value": "Soma dois."})
+    );
     // Without `data`, the item comes back as it came.
     let resolved = p.request("completionItem/resolve", json!({"label": "x"}));
     assert_eq!(resolved["result"], json!({"label": "x"}));
@@ -450,18 +487,30 @@ fn call_snippets_when_client_accepts() {
     let mut p = Project::new("completar-snippet");
     let class = "class A {\n  void met(int x, {String? nome, int? idade}) {}\n  void req({required int n}) {}\n  void nada() {}\n  int campo = 0;\n}\n";
     // Without snippet support: only the name.
-    let r = completion(&mut p, "lib/a.dart", &format!("{class}void f(A a) {{\n  a.me▮\n}}\n"));
+    let r = completion(
+        &mut p,
+        "lib/a.dart",
+        &format!("{class}void f(A a) {{\n  a.me▮\n}}\n"),
+    );
     assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
     assert!(item(&r, "met(…)").get("insertTextFormat").is_none());
     // Only with `snippetSupport`: `dart.completeFunctionCalls` is off by
     // default, and the item is only the name (`dart language-server` 3.6.2).
     p.restart(json!({"capabilities": {"workspace": {"configuration": true}, "textDocument": {"completion": {"completionItem": {"snippetSupport": true}}}}}));
-    let r = completion(&mut p, "lib/b.dart", &format!("{class}void f(A a) {{\n  a.▮\n}}\n"));
+    let r = completion(
+        &mut p,
+        "lib/b.dart",
+        &format!("{class}void f(A a) {{\n  a.▮\n}}\n"),
+    );
     assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
     // With `completeFunctionCalls`: the required parameters as stops; only one
     // is the final one (`$0`), as in the Dart server.
     p.configure(json!({"completeFunctionCalls": true}));
-    let r = completion(&mut p, "lib/c.dart", &format!("{class}void f(A a) {{\n  a.▮\n}}\n"));
+    let r = completion(
+        &mut p,
+        "lib/c.dart",
+        &format!("{class}void f(A a) {{\n  a.▮\n}}\n"),
+    );
     assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met(${0:x})");
     assert_eq!(item(&r, "met(…)")["insertTextFormat"], 2);
     assert_eq!(item(&r, "req(…)")["textEdit"]["newText"], "req(n: ${0:n})");
@@ -471,11 +520,19 @@ fn call_snippets_when_client_accepts() {
     assert_eq!(item(&r, "campo")["textEdit"]["newText"], "campo");
     assert!(item(&r, "campo").get("insertTextFormat").is_none());
     // Parentheses already written: only the name.
-    let r = completion(&mut p, "lib/d.dart", &format!("{class}void f(A a) {{\n  a.me▮(1);\n}}\n"));
+    let r = completion(
+        &mut p,
+        "lib/d.dart",
+        &format!("{class}void f(A a) {{\n  a.me▮(1);\n}}\n"),
+    );
     assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
     // `completeFunctionCalls: false` turns it off.
     p.configure(json!({"completeFunctionCalls": false}));
-    let r = completion(&mut p, "lib/e.dart", &format!("{class}void f(A a) {{\n  a.me▮\n}}\n"));
+    let r = completion(
+        &mut p,
+        "lib/e.dart",
+        &format!("{class}void f(A a) {{\n  a.me▮\n}}\n"),
+    );
     assert_eq!(item(&r, "met(…)")["textEdit"]["newText"], "met");
 }
 
@@ -486,51 +543,101 @@ fn type_position_offers_only_types() {
     let r = completion(&mut p, "lib/a.dart", base);
     let r_labels = labels(&r);
     for expected in ["T", "Caixa", "int", "String", "m", "dynamic"] {
-        assert!(r_labels.contains(&expected.to_string()), "{expected} in {r_labels:?}");
+        assert!(
+            r_labels.contains(&expected.to_string()),
+            "{expected} in {r_labels:?}"
+        );
     }
     for forbidden in ["valor", "dobro(…)", "print(…)", "itens", "true", "null"] {
-        assert!(!r_labels.contains(&forbidden.to_string()), "{forbidden} in {r_labels:?}");
+        assert!(
+            !r_labels.contains(&forbidden.to_string()),
+            "{forbidden} in {r_labels:?}"
+        );
     }
     // Function parameter: the class's `T` is not in scope.
     let r = completion(&mut p, "lib/b.dart", "int valor = 0;\nvoid f(▮ x) {}\n");
     let r_labels = labels(&r);
-    assert!(r_labels.contains(&"int".to_string()) && !r_labels.contains(&"valor".to_string()) && !r_labels.contains(&"T".to_string()), "{r_labels:?}");
+    assert!(
+        r_labels.contains(&"int".to_string())
+            && !r_labels.contains(&"valor".to_string())
+            && !r_labels.contains(&"T".to_string()),
+        "{r_labels:?}"
+    );
     // `m.` at the start of a top-level declaration: the Dart 3.6.2 server
     // treats it as the start of the member (declaration keywords and types,
     // those of the prefix as `m.Random`), not as a prefixed type name.
-    let r = completion(&mut p, "lib/c.dart", "import 'dart:math' as m;\nm.▮ aleatorio;\n");
+    let r = completion(
+        &mut p,
+        "lib/c.dart",
+        "import 'dart:math' as m;\nm.▮ aleatorio;\n",
+    );
     let r_labels = labels(&r);
-    assert!(r_labels.contains(&"m.Random".to_string()) && r_labels.contains(&"class".to_string()), "{r_labels:?}");
-    assert!(!r_labels.contains(&"pi".to_string()) && !r_labels.contains(&"m.pi".to_string()), "{r_labels:?}");
+    assert!(
+        r_labels.contains(&"m.Random".to_string()) && r_labels.contains(&"class".to_string()),
+        "{r_labels:?}"
+    );
+    assert!(
+        !r_labels.contains(&"pi".to_string()) && !r_labels.contains(&"m.pi".to_string()),
+        "{r_labels:?}"
+    );
     // Type of a local in the body: types and statement keywords, no locals.
-    let r = completion(&mut p, "lib/d.dart", "void g(int local) {\n  Str▮ s = '';\n}\n");
+    let r = completion(
+        &mut p,
+        "lib/d.dart",
+        "void g(int local) {\n  Str▮ s = '';\n}\n",
+    );
     let r_labels = labels(&r);
-    assert!(r_labels.contains(&"String".to_string()) && !r_labels.contains(&"local".to_string()), "{r_labels:?}");
+    assert!(
+        r_labels.contains(&"String".to_string()) && !r_labels.contains(&"local".to_string()),
+        "{r_labels:?}"
+    );
     // Not imported in a type position (with `workspace.applyEdit`): only types
     // (the class, not the function).
     p.restart(json!({"capabilities": {"workspace": {"applyEdit": true}}}));
-    p.write("lib/util.dart", "class Utilitario {}\nint utilidade() => 0;\n");
+    p.write(
+        "lib/util.dart",
+        "class Utilitario {}\nint utilidade() => 0;\n",
+    );
     let r = completion(&mut p, "lib/e.dart", "void f(Uti▮ u) {}\n");
     let r_labels = labels(&r);
-    assert!(r_labels.contains(&"Utilitario".to_string()) && !r_labels.iter().any(|x| x.starts_with("utilidade")), "{r_labels:?}");
+    assert!(
+        r_labels.contains(&"Utilitario".to_string())
+            && !r_labels.iter().any(|x| x.starts_with("utilidade")),
+        "{r_labels:?}"
+    );
 }
 
 #[test]
 fn fuzzy_and_relevance() {
     let mut p = Project::new("completar-relevancia");
     let class = "class X {\n  int vtabela = 0;\n  int valorTotal = 0;\n  int total = 0;\n}\n";
-    let r = completion(&mut p, "lib/a.dart", &format!("{class}void f(X x) {{\n  x.vt▮\n}}\n"));
+    let r = completion(
+        &mut p,
+        "lib/a.dart",
+        &format!("{class}void f(X x) {{\n  x.vt▮\n}}\n"),
+    );
     // Prefix before word initials; `total` does not match.
     assert_eq!(labels(&r), vec!["vtabela", "valorTotal"]);
-    let r = completion(&mut p, "lib/b.dart", &format!("{CLASSES}void f(A a) {{\n  a.rtl▮\n}}\n"));
+    let r = completion(
+        &mut p,
+        "lib/b.dart",
+        &format!("{CLASSES}void f(A a) {{\n  a.rtl▮\n}}\n"),
+    );
     // The `FuzzyMatcher` (`TEXT` style) does not match `rtl` with `label`
     // (score -1).
     assert!(labels(&r).is_empty(), "{:?}", labels(&r));
     // Own members before those inherited from `Object`.
-    let r = completion(&mut p, "lib/c.dart", &format!("{CLASSES}void f(B b) {{\n  b.▮\n}}\n"));
+    let r = completion(
+        &mut p,
+        "lib/c.dart",
+        &format!("{CLASSES}void f(B b) {{\n  b.▮\n}}\n"),
+    );
     let r_labels = labels(&r);
     let pos = |n: &str| r_labels.iter().position(|x| x == n).unwrap();
-    assert!(pos("marcado") < pos("toString()") && pos("campo") < pos("hashCode"), "{r_labels:?}");
+    assert!(
+        pos("marcado") < pos("toString()") && pos("campo") < pos("hashCode"),
+        "{r_labels:?}"
+    );
 }
 
 #[test]
@@ -557,9 +664,15 @@ fn class_name_call_targets_like_the_resolved_tree() {
     // static call whose class target has no static type (no `Type` members).
     let mut p = Project::new("completar-alvo-classe");
     let text = format!("{CLASSES}void f() {{\n  var x = A.▮vazio();\n}}\n");
-    assert_eq!(labels(&completion(&mut p, "lib/a.dart", &text)), vec!["vazio()"]);
+    assert_eq!(
+        labels(&completion(&mut p, "lib/a.dart", &text)),
+        vec!["vazio()"]
+    );
     let text = format!("{CLASSES}void f() {{\n  A.▮contar();\n}}\n");
-    assert_eq!(labels(&completion(&mut p, "lib/b.dart", &text)), vec!["vazio()", "contar()"]);
+    assert_eq!(
+        labels(&completion(&mut p, "lib/b.dart", &text)),
+        vec!["vazio()", "contar()"]
+    );
 }
 
 #[test]
@@ -567,8 +680,15 @@ fn prefixed_constants_ranked_by_their_inferred_types() {
     // In a fresh session the constants of `chars.dart` were not inferred yet;
     // their types come on demand, so the `int` context ranks `plus` first.
     let mut p = Project::new("completar-tipo-sob-demanda");
-    p.write("lib/chars.dart", "const letter = 'a';\nconst plus = 0x2b;\n");
-    let r = completion(&mut p, "lib/a.dart", "import 'chars.dart' as chars;\nint f() => chars.▮;\n");
+    p.write(
+        "lib/chars.dart",
+        "const letter = 'a';\nconst plus = 0x2b;\n",
+    );
+    let r = completion(
+        &mut p,
+        "lib/a.dart",
+        "import 'chars.dart' as chars;\nint f() => chars.▮;\n",
+    );
     let sort = |label: &str| item(&r, label)["sortText"].as_str().unwrap().to_string();
     assert!(sort("plus") < sort("letter"), "{r}");
     assert_eq!(item(&r, "plus")["detail"], "int");
@@ -581,7 +701,11 @@ fn not_imported_types_in_a_declaration_name() {
     let mut p = Project::new("completar-nome-declaracao");
     p.restart(json!({"capabilities": {"workspace": {"applyEdit": true}}}));
     let r = completion(&mut p, "lib/a.dart", "class C {\n  int Ran▮ge() => 0;\n}\n");
-    assert_eq!(item(&r, "Random")["data"]["importUris"], json!(["dart:math"]), "{r}");
+    assert_eq!(
+        item(&r, "Random")["data"]["importUris"],
+        json!(["dart:math"]),
+        "{r}"
+    );
 }
 
 #[test]
@@ -591,13 +715,28 @@ fn inherited_accessor_pairs_and_private_members() {
     // the private members of a superclass from another library too
     // (`dart language-server` 3.6.2).
     let mut p = Project::new("completar-herdados");
-    p.write("lib/base.dart", "class Base {\n  int get pos => _pos;\n  set pos(int v) {}\n  int _pos = 0;\n}\n");
-    let r = completion(&mut p, "lib/a.dart", "import 'base.dart';\nclass Sub extends Base {\n  int f() => 1 + po▮;\n}\n");
+    p.write(
+        "lib/base.dart",
+        "class Base {\n  int get pos => _pos;\n  set pos(int v) {}\n  int _pos = 0;\n}\n",
+    );
+    let r = completion(
+        &mut p,
+        "lib/a.dart",
+        "import 'base.dart';\nclass Sub extends Base {\n  int f() => 1 + po▮;\n}\n",
+    );
     assert_eq!(item(&r, "pos")["detail"], "int", "{r}");
-    let r = completion(&mut p, "lib/b.dart", "import 'base.dart';\nclass Sub extends Base {\n  void f() {\n    _p▮ = 1;\n  }\n}\n");
+    let r = completion(
+        &mut p,
+        "lib/b.dart",
+        "import 'base.dart';\nclass Sub extends Base {\n  void f() {\n    _p▮ = 1;\n  }\n}\n",
+    );
     item(&r, "_pos");
     // Through a receiver, a private member of another library stays hidden.
-    let r = completion(&mut p, "lib/c.dart", "import 'base.dart';\nvoid f(Base b) {\n  b._p▮;\n}\n");
+    let r = completion(
+        &mut p,
+        "lib/c.dart",
+        "import 'base.dart';\nvoid f(Base b) {\n  b._p▮;\n}\n",
+    );
     assert!(!labels(&r).iter().any(|l| l == "_pos"), "{r}");
 }
 
@@ -606,12 +745,16 @@ fn inherited_accessor_pairs_and_private_members() {
 /// `deprecatedSupport`, `deprecated: true` (`toCompletionItem`, §14.8.2).
 #[test]
 fn deprecated_items_by_client_capability() {
-    let text = "@Deprecated('use novo')\nint velho() => 0;\nint novo() => 0;\nvoid f() {\n  vel▮\n}\n";
+    let text =
+        "@Deprecated('use novo')\nint velho() => 0;\nint novo() => 0;\nvoid f() {\n  vel▮\n}\n";
     let mut plain = Project::new("completar-depreciado");
     let r = completion(&mut plain, "lib/a.dart", text);
     let old = item(&r, "velho()");
     assert_eq!(old["detail"], json!("() → int\n\n(Deprecated)"), "{old}");
-    assert!(old.get("tags").is_none() && old.get("deprecated").is_none(), "{old}");
+    assert!(
+        old.get("tags").is_none() && old.get("deprecated").is_none(),
+        "{old}"
+    );
     let mut tagged = Project::with_capabilities(
         "completar-depreciado-tag",
         json!({"textDocument": {"completion": {"completionItem": {"tagSupport": {"valueSet": [1]}, "deprecatedSupport": true}}}}),

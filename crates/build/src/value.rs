@@ -98,7 +98,9 @@ impl Value {
                 None => Value::Text(r.clone()),
             },
             Yaml::String(s) => Value::Text(s.clone()),
-            Yaml::Array(a) => Value::List(a.iter().map(Value::from_yaml).collect::<Result<_, _>>()?),
+            Yaml::Array(a) => {
+                Value::List(a.iter().map(Value::from_yaml).collect::<Result<_, _>>()?)
+            }
             Yaml::Hash(h) => {
                 let mut m = Map::default();
                 for (k, v) in h {

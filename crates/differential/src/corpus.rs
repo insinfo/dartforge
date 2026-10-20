@@ -62,7 +62,9 @@ pub struct Header {
 pub fn read_header(source: &str) -> Header {
     let mut c = Header::default();
     for l in source.lines().take(20) {
-        let Some(rest) = l.trim().strip_prefix("//") else { continue };
+        let Some(rest) = l.trim().strip_prefix("//") else {
+            continue;
+        };
         let rest = rest.trim_start();
         if let Some(m) = rest.strip_prefix("diverge-ddc:") {
             c.diverge_ddc.get_or_insert_with(|| m.trim().to_string());
@@ -71,7 +73,12 @@ pub fn read_header(source: &str) -> Header {
         } else if rest.trim_end() == "erro-de-compilacao" {
             c.compile_error = true;
         } else if let Some(e) = rest.strip_prefix("experimentos:") {
-            c.experiments.extend(e.split(',').map(str::trim).filter(|x| !x.is_empty()).map(str::to_string));
+            c.experiments.extend(
+                e.split(',')
+                    .map(str::trim)
+                    .filter(|x| !x.is_empty())
+                    .map(str::to_string),
+            );
         }
     }
     c
@@ -84,7 +91,10 @@ impl Program {
         let c = read_header(&source);
         let forge_entry = entry.parent().and_then(|dir| {
             let manifest = std::fs::read_to_string(dir.join("dartforge-entrada.txt")).ok()?;
-            let rel = manifest.lines().map(str::trim).find(|l| !l.is_empty() && !l.starts_with('#'))?;
+            let rel = manifest
+                .lines()
+                .map(str::trim)
+                .find(|l| !l.is_empty() && !l.starts_with('#'))?;
             Some(dir.join(rel))
         });
         Program {
@@ -171,7 +181,9 @@ pub fn read_pending(dir: &Path) -> Vec<String> {
 /// substring of the name.
 pub fn list(dir: &Path, filter: Option<&str>) -> Vec<Program> {
     let mut programs = Vec::new();
-    let Ok(entries) = std::fs::read_dir(dir) else { return programs };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return programs;
+    };
     let mut paths: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
     paths.sort();
     for p in paths {
@@ -199,10 +211,13 @@ pub fn list(dir: &Path, filter: Option<&str>) -> Vec<Program> {
         programs.retain(|p| p.name.contains(f));
     }
     // Numeric order by the prefix (`10_` before `100_`), then by name.
-    programs.sort_by(|a, b| number_prefix(&a.name).cmp(&number_prefix(&b.name)).then_with(|| a.name.cmp(&b.name)));
+    programs.sort_by(|a, b| {
+        number_prefix(&a.name)
+            .cmp(&number_prefix(&b.name))
+            .then_with(|| a.name.cmp(&b.name))
+    });
     programs
 }
-
 
 /// Parses `K/N` (shard K of N, counted from 1) — the argument of `--shard`.
 pub fn parse_shard(text: &str) -> Result<(usize, usize), String> {
@@ -227,15 +242,26 @@ pub fn parse_shard(text: &str) -> Result<(usize, usize), String> {
 /// add up the reports.
 pub fn shard(programs: Vec<Program>, k: usize, n: usize) -> Vec<Program> {
     assert!(n > 0 && (1..=n).contains(&k), "invalid shard {k}/{n}");
-    programs.into_iter().enumerate().filter(|(i, _)| i % n == k - 1).map(|(_, p)| p).collect()
+    programs
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| i % n == k - 1)
+        .map(|(_, p)| p)
+        .collect()
 }
 
 fn number_prefix(name: &str) -> u32 {
-    name.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(u32::MAX)
+    name.chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .unwrap_or(u32::MAX)
 }
 
 fn collect_dart_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
@@ -274,16 +300,24 @@ mod tests {
 
     #[test]
     fn diverge_header() {
-        assert_eq!(read_diverge_ddc("// diverge-ddc: 64-bit int\nvoid main() {}"), Some("64-bit int".into()));
+        assert_eq!(
+            read_diverge_ddc("// diverge-ddc: 64-bit int\nvoid main() {}"),
+            Some("64-bit int".into())
+        );
         assert_eq!(read_diverge_ddc("void main() {}"), None);
     }
 
     #[test]
     fn version_negative_and_experiment_headers() {
-        let c = read_header("// @dart=3.6\n// requer-dart: 3.13\n// erro-de-compilacao\n// experimentos: macros, augmentations\nvoid main() {}");
+        let c = read_header(
+            "// @dart=3.6\n// requer-dart: 3.13\n// erro-de-compilacao\n// experimentos: macros, augmentations\nvoid main() {}",
+        );
         assert_eq!(c.requires, Some(LanguageVersion::new(3, 13)));
         assert!(c.compile_error);
-        assert_eq!(c.experiments, vec!["macros".to_string(), "augmentations".to_string()]);
+        assert_eq!(
+            c.experiments,
+            vec!["macros".to_string(), "augmentations".to_string()]
+        );
         assert_eq!(c.diverge_ddc, None);
         assert_eq!(read_header("void main() {}"), Header::default());
     }
@@ -310,7 +344,10 @@ mod tests {
         }
         seen.sort();
         let expected: Vec<String> = all.iter().map(|p| p.name.clone()).collect();
-        assert_eq!(seen, expected, "the union of the shards is the corpus, without repetition");
+        assert_eq!(
+            seen, expected,
+            "the union of the shards is the corpus, without repetition"
+        );
         assert_eq!(shard(all.clone(), 1, 1).len(), 23);
         assert_eq!(shard(all, 2, 4)[0].name, "01_x");
     }

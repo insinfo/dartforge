@@ -16,8 +16,9 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::ast::{
-    Annotation, Arguments, Ast, CollectionElement, CompilationUnit, CreationKeyword, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, MemberKind,
-    Parameter, PatternId, PatternKind, StmtKind, TypeKind, TypeParameter, TypedefKind, VariableList,
+    Annotation, Arguments, Ast, CollectionElement, CompilationUnit, CreationKeyword, DeclKind,
+    ExprId, ExprKind, ForInTarget, ForInit, MemberKind, Parameter, PatternId, PatternKind,
+    StmtKind, TypeKind, TypeParameter, TypedefKind, VariableList,
 };
 
 /// Every annotation written in the unit (what a recursive visitor's
@@ -84,7 +85,12 @@ pub fn all_annotations<'a>(a: &'a Ast, unit: &'a CompilationUnit) -> Vec<&'a Ann
         }
     }
     for t in a.types.iter() {
-        if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
+        if let TypeKind::Function {
+            type_params,
+            parameters,
+            ..
+        } = &t.kind
+        {
             types_(type_params, &mut v);
             parameters_(parameters, &mut v);
         }
@@ -93,7 +99,11 @@ pub fn all_annotations<'a>(a: &'a Ast, unit: &'a CompilationUnit) -> Vec<&'a Ann
         v.extend(ms.iter());
     }
     for s in a.stmts.iter() {
-        if let StmtKind::ForIn { target: ForInTarget::Declared { metadata, .. }, .. } = &s.kind {
+        if let StmtKind::ForIn {
+            target: ForInTarget::Declared { metadata, .. },
+            ..
+        } = &s.kind
+        {
             v.extend(metadata.iter());
         }
     }
@@ -154,13 +164,20 @@ impl Parents {
     /// `before_3`: the library predates 3.0 (the `switch`'s `case e:` is the
     /// old `SwitchCase`, a constant context).
     pub fn new(a: &Ast, unit: &CompilationUnit, source: &str, before_3: bool) -> Parents {
-        let mut p = Constructor { a, source, parents: vec![Parent::Boundary; a.exprs.len()] };
+        let mut p = Constructor {
+            a,
+            source,
+            parents: vec![Parent::Boundary; a.exprs.len()],
+        };
         p.everything(unit, before_3);
         Parents { parents: p.parents }
     }
 
     pub fn parent(&self, e: ExprId) -> Parent {
-        self.parents.get(e.0 as usize).copied().unwrap_or(Parent::Boundary)
+        self.parents
+            .get(e.0 as usize)
+            .copied()
+            .unwrap_or(Parent::Boundary)
     }
 
     /// `Expression.inConstantContext`.
@@ -172,11 +189,17 @@ impl Parents {
             match current {
                 Parent::Boundary => return false,
                 Parent::Annotation | Parent::EnumConstant => return true,
-                Parent::Variable { constant } | Parent::ConstantPattern { constant } => return constant,
+                Parent::Variable { constant } | Parent::ConstantPattern { constant } => {
+                    return constant;
+                }
                 Parent::Expr(p) => {
                     let constant = match &a.expr(p).kind {
-                        ExprKind::InstanceCreation { keyword, .. } => *keyword == Some(CreationKeyword::Const),
-                        ExprKind::List { const_, .. } | ExprKind::SetOrMap { const_, .. } | ExprKind::Record { const_, .. } => *const_,
+                        ExprKind::InstanceCreation { keyword, .. } => {
+                            *keyword == Some(CreationKeyword::Const)
+                        }
+                        ExprKind::List { const_, .. }
+                        | ExprKind::SetOrMap { const_, .. }
+                        | ExprKind::Record { const_, .. } => *const_,
                         _ => false,
                     };
                     if constant {
@@ -259,7 +282,12 @@ impl Constructor<'_> {
                 self.set_parent(*value, parent);
             }
             CollectionElement::Spread { value, .. } => self.set_parent(*value, parent),
-            CollectionElement::If { condition, then, else_, .. } => {
+            CollectionElement::If {
+                condition,
+                then,
+                else_,
+                ..
+            } => {
                 // The condition is a child of the `IfElement`; the pattern and the guard
                 // are not.
                 self.set_parent(*condition, parent);
@@ -289,7 +317,12 @@ impl Constructor<'_> {
         let pt = self.a.pattern(p);
         if let PatternKind::Constant(e) = &pt.kind {
             let written = crate::source::word_at(self.source, pt.span.start, "const");
-            self.set_parent(*e, Parent::ConstantPattern { constant: written || old_case });
+            self.set_parent(
+                *e,
+                Parent::ConstantPattern {
+                    constant: written || old_case,
+                },
+            );
         }
     }
 
@@ -303,9 +336,15 @@ impl Constructor<'_> {
             let id = ExprId(k as u32);
             let parent = Parent::Expr(id);
             match &e.kind {
-                ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => self.set_parent(*x, parent),
-                ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => self.elements_(id, elements),
-                ExprKind::Record { positional, named, .. } => {
+                ExprKind::Parenthesized(x) | ExprKind::Await(x) | ExprKind::Throw(x) => {
+                    self.set_parent(*x, parent)
+                }
+                ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
+                    self.elements_(id, elements)
+                }
+                ExprKind::Record {
+                    positional, named, ..
+                } => {
                     for &x in positional.iter() {
                         self.set_parent(x, parent);
                     }
@@ -314,7 +353,9 @@ impl Constructor<'_> {
                     }
                 }
                 ExprKind::InstanceCreation { arguments, .. } => self.arguments_(arguments, parent),
-                ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => self.set_parent(*target, parent),
+                ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => {
+                    self.set_parent(*target, parent)
+                }
                 ExprKind::Index { target, index, .. } => {
                     self.set_parent(*target, parent);
                     self.set_parent(*index, parent);
@@ -328,18 +369,26 @@ impl Constructor<'_> {
                     self.set_parent(*left, parent);
                     self.set_parent(*right, parent);
                 }
-                ExprKind::Conditional { condition, then, else_ } => {
+                ExprKind::Conditional {
+                    condition,
+                    then,
+                    else_,
+                } => {
                     self.set_parent(*condition, parent);
                     self.set_parent(*then, parent);
                     self.set_parent(*else_, parent);
                 }
-                ExprKind::Is { value, .. } | ExprKind::As { value, .. } => self.set_parent(*value, parent),
+                ExprKind::Is { value, .. } | ExprKind::As { value, .. } => {
+                    self.set_parent(*value, parent)
+                }
                 ExprKind::Assign { target, value, .. } => {
                     self.set_parent(*target, parent);
                     self.set_parent(*value, parent);
                 }
                 ExprKind::PatternAssign { value, .. } => self.set_parent(*value, parent),
-                ExprKind::Cascade { target, sections, .. } => {
+                ExprKind::Cascade {
+                    target, sections, ..
+                } => {
                     self.set_parent(*target, parent);
                     for &s in sections.iter() {
                         self.set_parent(s, parent);
@@ -415,7 +464,12 @@ impl Constructor<'_> {
             }
         }
         for t in a.types.iter() {
-            if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
+            if let TypeKind::Function {
+                type_params,
+                parameters,
+                ..
+            } = &t.kind
+            {
                 self.type_parameters_(type_params);
                 self.parameters_(parameters);
             }
@@ -426,8 +480,14 @@ impl Constructor<'_> {
         for s in a.stmts.iter() {
             match &s.kind {
                 StmtKind::Variables(l) => self.list(l),
-                StmtKind::For { init: Some(ForInit::Variables(l)), .. } => self.list(l),
-                StmtKind::ForIn { target: ForInTarget::Declared { metadata, .. }, .. } => self.annotations(metadata),
+                StmtKind::For {
+                    init: Some(ForInit::Variables(l)),
+                    ..
+                } => self.list(l),
+                StmtKind::ForIn {
+                    target: ForInTarget::Declared { metadata, .. },
+                    ..
+                } => self.annotations(metadata),
                 _ => {}
             }
         }

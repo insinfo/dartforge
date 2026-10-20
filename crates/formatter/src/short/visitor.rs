@@ -10,9 +10,9 @@
 use std::collections::{HashMap, HashSet};
 
 use super::arena::{Arenas, ChunkId, RuleId, cost, indentation};
-use super::builder::{SourceComment, ChunkBuilder, CommentKind};
-use crate::syntax::tree::{Tree, Node, NodeId, ParameterKind};
-use crate::syntax::token::{TokenKind, Tk, Tokens};
+use super::builder::{ChunkBuilder, CommentKind, SourceComment};
+use crate::syntax::token::{Tk, TokenKind, Tokens};
+use crate::syntax::tree::{Node, NodeId, ParameterKind, Tree};
 use dartforge_frontend::token::{Keyword, Op};
 
 /// Action between (or before/after) the nodes of a list, like the functions
@@ -88,7 +88,14 @@ pub struct SourceVisitor<'f> {
 
 impl<'f> SourceVisitor<'f> {
     /// `SourceVisitor(formatter, lineInfo, source)`.
-    pub fn new(source: &'f str, tk: &'f Tokens, tree_: &'f Tree, page_width: usize, indentation: i32, line_ending: String) -> SourceVisitor<'f> {
+    pub fn new(
+        source: &'f str,
+        tk: &'f Tokens,
+        tree_: &'f Tree,
+        page_width: usize,
+        indentation: i32,
+        line_ending: String,
+    ) -> SourceVisitor<'f> {
         let mut a = Arenas::new(page_width, line_ending);
         let top = ChunkBuilder::top(&mut a, indentation);
         SourceVisitor {
@@ -488,14 +495,17 @@ impl<'f> SourceVisitor<'f> {
 
     /// `containsLineComments([rightBracket])`.
     fn contains_line_comments(&self, nodes: &[NodeId], right_: Option<Tk>) -> bool {
-        nodes.iter().any(|&n| self.node_has_line_comment_before(n)) || right_.is_some_and(|t| self.has_line_comment_before(t))
+        nodes.iter().any(|&n| self.node_has_line_comment_before(n))
+            || right_.is_some_and(|t| self.has_line_comment_before(t))
     }
 
     /// `hasNonEmptyBody`.
     fn has_non_empty_body(&self, id: NodeId) -> bool {
         let body_ = match self.node(id) {
             Node::MethodDeclaration { body, .. } => Some(*body),
-            Node::FunctionDeclarationStatement { function_declaration } => self.declaration_body(*function_declaration),
+            Node::FunctionDeclarationStatement {
+                function_declaration,
+            } => self.declaration_body(*function_declaration),
             Node::FunctionDeclaration { .. } => self.declaration_body(id),
             _ => None,
         };
@@ -503,7 +513,10 @@ impl<'f> SourceVisitor<'f> {
     }
 
     fn declaration_body(&self, decl: NodeId) -> Option<NodeId> {
-        if let Node::FunctionDeclaration { function_expression, .. } = self.node(decl)
+        if let Node::FunctionDeclaration {
+            function_expression,
+            ..
+        } = self.node(decl)
             && let Node::FunctionExpression { body, .. } = self.node(*function_expression)
         {
             return Some(*body);
@@ -522,17 +535,25 @@ impl<'f> SourceVisitor<'f> {
     }
 
     pub fn is_collection_literal(&self, id: NodeId) -> bool {
-        matches!(self.node(id), Node::ListLiteral { .. } | Node::RecordLiteral { .. } | Node::SetOrMapLiteral { .. })
+        matches!(
+            self.node(id),
+            Node::ListLiteral { .. } | Node::RecordLiteral { .. } | Node::SetOrMapLiteral { .. }
+        )
     }
 
     fn is_control_flow_element(&self, id: NodeId) -> bool {
-        matches!(self.node(id), Node::IfElement { .. } | Node::ForElement { .. })
+        matches!(
+            self.node(id),
+            Node::IfElement { .. } | Node::ForElement { .. }
+        )
     }
 
     /// `isFunctionExpressionBody`.
     fn is_function_expression_body(&self, id: NodeId) -> bool {
         match self.parent(id) {
-            Some(p) if matches!(self.node(p), Node::FunctionExpression { .. }) => !self.parent_and(p, |n| matches!(n, Node::FunctionDeclaration { .. })),
+            Some(p) if matches!(self.node(p), Node::FunctionExpression { .. }) => {
+                !self.parent_and(p, |n| matches!(n, Node::FunctionDeclaration { .. }))
+            }
             _ => false,
         }
     }
@@ -577,19 +598,27 @@ impl<'f> SourceVisitor<'f> {
 
     /// `looksLikeStaticCall`.
     pub fn looks_like_static_call(&self, id: NodeId) -> bool {
-        let Node::MethodInvocation { target, method_name, .. } = self.node(id) else {
+        let Node::MethodInvocation {
+            target,
+            method_name,
+            ..
+        } = self.node(id)
+        else {
             return false;
         };
         let Some(mut target_) = *target else {
             return false;
         };
-        if matches!(self.node(target_), Node::SimpleIdentifier { .. }) && looks_like_class_name(self.simple_name(*method_name)) {
+        if matches!(self.node(target_), Node::SimpleIdentifier { .. })
+            && looks_like_class_name(self.simple_name(*method_name))
+        {
             return true;
         }
         if let Node::PrefixedIdentifier { identifier, .. } = self.node(target_) {
             target_ = *identifier;
         }
-        matches!(self.node(target_), Node::SimpleIdentifier { .. }) && looks_like_class_name(self.simple_name(target_))
+        matches!(self.node(target_), Node::SimpleIdentifier { .. })
+            && looks_like_class_name(self.simple_name(target_))
     }
 
     pub fn simple_name(&self, id: NodeId) -> &'f str {
@@ -606,7 +635,10 @@ impl<'f> SourceVisitor<'f> {
         }
         !matches!(
             self.node(target),
-            Node::ConditionalExpression { .. } | Node::BinaryExpression { .. } | Node::PrefixExpression { .. } | Node::AwaitExpression { .. }
+            Node::ConditionalExpression { .. }
+                | Node::BinaryExpression { .. }
+                | Node::PrefixExpression { .. }
+                | Node::AwaitExpression { .. }
         )
     }
 
@@ -614,7 +646,8 @@ impl<'f> SourceVisitor<'f> {
     pub fn is_multiline_string(&self, id: NodeId) -> bool {
         let first = match self.node(id) {
             Node::SimpleStringLiteral { literal } => *literal,
-            Node::StringInterpolation { elements } => match elements.first().map(|e| self.node(*e)) {
+            Node::StringInterpolation { elements } => match elements.first().map(|e| self.node(*e))
+            {
                 Some(Node::InterpolationString { contents }) => *contents,
                 _ => return false,
             },
@@ -628,7 +661,9 @@ impl<'f> SourceVisitor<'f> {
     fn is_string_literal(&self, id: NodeId) -> bool {
         matches!(
             self.node(id),
-            Node::SimpleStringLiteral { .. } | Node::StringInterpolation { .. } | Node::AdjacentStrings { .. }
+            Node::SimpleStringLiteral { .. }
+                | Node::StringInterpolation { .. }
+                | Node::AdjacentStrings { .. }
         )
     }
 
@@ -740,7 +775,12 @@ impl<'f> SourceVisitor<'f> {
         let n = self.node(id);
         match n {
             Node::CompilationUnit { .. } => self.visit_compilation_unit(id),
-            Node::LibraryDirective { metadata, library_keyword, name2, semicolon } => {
+            Node::LibraryDirective {
+                metadata,
+                library_keyword,
+                name2,
+                semicolon,
+            } => {
                 self.visit_directive_metadata(id, metadata);
                 self.nest_expression(None, false);
                 self.token(*library_keyword);
@@ -842,16 +882,28 @@ impl<'f> SourceVisitor<'f> {
                     self.visit(Some(c));
                 }
             }
-            Node::ShowCombinator { keyword, shown_names } => self.visit_combinator(*keyword, shown_names),
-            Node::HideCombinator { keyword, hidden_names } => self.visit_combinator(*keyword, hidden_names),
+            Node::ShowCombinator {
+                keyword,
+                shown_names,
+            } => self.visit_combinator(*keyword, shown_names),
+            Node::HideCombinator {
+                keyword,
+                hidden_names,
+            } => self.visit_combinator(*keyword, hidden_names),
             Node::ClassDeclaration { .. } => self.visit_class_declaration(id),
-            Node::ExtendsClause { extends_keyword, superclass } => {
+            Node::ExtendsClause {
+                extends_keyword,
+                superclass,
+            } => {
                 self.solo_split(cost::NORMAL);
                 self.token(*extends_keyword);
                 self.space();
                 self.visit(Some(*superclass));
             }
-            Node::WithClause { with_keyword, mixin_types } => self.visit_combinator(*with_keyword, mixin_types),
+            Node::WithClause {
+                with_keyword,
+                mixin_types,
+            } => self.visit_combinator(*with_keyword, mixin_types),
             Node::ImplementsClause {
                 implements_keyword,
                 interfaces,
@@ -860,13 +912,18 @@ impl<'f> SourceVisitor<'f> {
                 on_keyword,
                 superclass_constraints,
             } => self.visit_combinator(*on_keyword, superclass_constraints),
-            Node::NativeClause { native_keyword, name } => {
+            Node::NativeClause {
+                native_keyword,
+                name,
+            } => {
                 self.token(*native_keyword);
                 self.visit_before(*name, Action::Space);
             }
             Node::MixinDeclaration { .. } => self.visit_mixin_declaration(id),
             Node::ExtensionDeclaration { .. } => self.visit_extension_declaration(id),
-            Node::ExtensionOnClause { .. } => panic!("ExtensionOnClause is visited by the extension"),
+            Node::ExtensionOnClause { .. } => {
+                panic!("ExtensionOnClause is visited by the extension")
+            }
             Node::ExtensionTypeDeclaration { .. } => self.visit_extension_type_declaration(id),
             Node::RepresentationDeclaration { .. } => self.visit_representation_declaration(id),
             Node::RepresentationConstructorName { period, name } => {
@@ -874,7 +931,11 @@ impl<'f> SourceVisitor<'f> {
                 self.token(*name);
             }
             Node::EnumDeclaration { .. } => self.visit_enum_declaration(id),
-            Node::EnumConstantDeclaration { metadata, name, arguments } => {
+            Node::EnumConstantDeclaration {
+                metadata,
+                name,
+                arguments,
+            } => {
                 self.visit_metadata(metadata);
                 self.token(*name);
                 if let Some(args) = arguments
@@ -933,7 +994,12 @@ impl<'f> SourceVisitor<'f> {
             } => {
                 self.visit_nodes(metadata, Action::Nothing, Action::Newline, Action::Newline);
                 self.nest_expression(None, false);
-                self.visit_generic_type_alias_header(*typedef_keyword, *name, *type_parameters, *equals);
+                self.visit_generic_type_alias_header(
+                    *typedef_keyword,
+                    *name,
+                    *type_parameters,
+                    *equals,
+                );
                 self.space();
                 self.visit(Some(*type_));
                 self.token(*semicolon);
@@ -1075,14 +1141,33 @@ impl<'f> SourceVisitor<'f> {
                     args.push(*m);
                 }
                 if self.list_has_comma_after(&args) {
-                    self.visit_collection_literal(*left_parenthesis, &args, *right_parenthesis, None, None, None, false, false);
+                    self.visit_collection_literal(
+                        *left_parenthesis,
+                        &args,
+                        *right_parenthesis,
+                        None,
+                        None,
+                        None,
+                        false,
+                        false,
+                    );
                     return;
                 }
                 self.nest_expression(None, false);
-                super::arguments::ArgumentListVisitor::for_arguments(self, *left_parenthesis, *right_parenthesis, &args).visit(self);
+                super::arguments::ArgumentListVisitor::for_arguments(
+                    self,
+                    *left_parenthesis,
+                    *right_parenthesis,
+                    &args,
+                )
+                .visit(self);
                 self.unnest();
             }
-            Node::BlockFunctionBody { keyword, star, block } => {
+            Node::BlockFunctionBody {
+                keyword,
+                star,
+                block,
+            } => {
                 self.space();
                 self.token_opt(*keyword);
                 self.token_opt(*star);
@@ -1092,7 +1177,9 @@ impl<'f> SourceVisitor<'f> {
                 self.visit(Some(*block));
             }
             Node::ExpressionFunctionBody { .. } => self.visit_expression_function_body(id),
-            Node::EmptyFunctionBody { semicolon } | Node::EmptyStatement { semicolon } => self.token(*semicolon),
+            Node::EmptyFunctionBody { semicolon } | Node::EmptyStatement { semicolon } => {
+                self.token(*semicolon)
+            }
             Node::NativeFunctionBody {
                 native_keyword,
                 string_literal,
@@ -1152,8 +1239,16 @@ impl<'f> SourceVisitor<'f> {
                 ..
             } => {
                 let is_super = matches!(n, Node::SuperFormalParameter { .. });
-                let (keyword, type_, kw, period, name, tps, ps, q) =
-                    (*keyword, *type_, *kw, *period, *name, *type_parameters, *parameters, *question);
+                let (keyword, type_, kw, period, name, tps, ps, q) = (
+                    *keyword,
+                    *type_,
+                    *kw,
+                    *period,
+                    *name,
+                    *type_parameters,
+                    *parameters,
+                    *question,
+                );
                 let metadata = metadata.clone();
                 self.visit_parameter_metadata(&metadata, |v| {
                     v.begin_formal_parameter(id);
@@ -1256,12 +1351,21 @@ impl<'f> SourceVisitor<'f> {
                 parameters,
                 question,
             } => {
-                self.visit_generic_function_type(*return_type, *function_keyword, *type_parameters, *parameters);
+                self.visit_generic_function_type(
+                    *return_type,
+                    *function_keyword,
+                    *type_parameters,
+                    *parameters,
+                );
                 self.token_opt(*question);
             }
             Node::RecordTypeAnnotation { .. } => self.visit_record_type_annotation(id),
             Node::RecordTypeAnnotationNamedFields { .. } => panic!("visited by the record type"),
-            Node::RecordTypeAnnotationPositionalField { metadata, type_, name } => {
+            Node::RecordTypeAnnotationPositionalField {
+                metadata,
+                type_,
+                name,
+            } => {
                 let (t, nm) = (*type_, *name);
                 let metadata = metadata.clone();
                 self.visit_parameter_metadata(&metadata, |v| {
@@ -1269,7 +1373,11 @@ impl<'f> SourceVisitor<'f> {
                     v.token_space_before(nm);
                 });
             }
-            Node::RecordTypeAnnotationNamedField { metadata, type_, name } => {
+            Node::RecordTypeAnnotationNamedField {
+                metadata,
+                type_,
+                name,
+            } => {
                 let (t, nm) = (*type_, *name);
                 let metadata = metadata.clone();
                 self.visit_parameter_metadata(&metadata, |v| {
@@ -1341,13 +1449,19 @@ impl<'f> SourceVisitor<'f> {
                 }
                 self.visit_body(*left_bracket, statements, *right_bracket);
             }
-            Node::ExpressionStatement { expression, semicolon } => {
+            Node::ExpressionStatement {
+                expression,
+                semicolon,
+            } => {
                 self.nest_expression(None, false);
                 self.visit(Some(*expression));
                 self.token_opt(*semicolon);
                 self.unnest();
             }
-            Node::VariableDeclarationStatement { variables, semicolon } => {
+            Node::VariableDeclarationStatement {
+                variables,
+                semicolon,
+            } => {
                 self.nest_expression(None, false);
                 self.visit(Some(*variables));
                 self.token(*semicolon);
@@ -1369,7 +1483,9 @@ impl<'f> SourceVisitor<'f> {
                 };
                 self.visit_assignment(equals.expect("="), *init, multiple);
             }
-            Node::FunctionDeclarationStatement { function_declaration } => self.visit(Some(*function_declaration)),
+            Node::FunctionDeclarationStatement {
+                function_declaration,
+            } => self.visit(Some(*function_declaration)),
             Node::IfStatement { .. } => self.visit_if_statement(id),
             Node::CaseClause { .. } | Node::GuardedPattern { .. } | Node::WhenClause { .. } => {
                 panic!("visited by the if/case")
@@ -1394,9 +1510,9 @@ impl<'f> SourceVisitor<'f> {
                 self.unnest();
                 self.visit_loop_body(*body);
             }
-            Node::ForPartsWithDeclarations { .. } | Node::ForPartsWithExpression { .. } | Node::ForPartsWithPattern { .. } => {
-                self.visit_for_parts(id)
-            }
+            Node::ForPartsWithDeclarations { .. }
+            | Node::ForPartsWithExpression { .. }
+            | Node::ForPartsWithPattern { .. } => self.visit_for_parts(id),
             Node::ForEachPartsWithDeclaration {
                 loop_variable,
                 in_keyword,
@@ -1433,7 +1549,12 @@ impl<'f> SourceVisitor<'f> {
                 self.end_block_argument_nesting();
                 self.visit_for_each_parts_from_in(*in_keyword, *iterable);
             }
-            Node::DeclaredIdentifier { keyword, type_, name, .. } => {
+            Node::DeclaredIdentifier {
+                keyword,
+                type_,
+                name,
+                ..
+            } => {
                 self.modifier(*keyword);
                 self.visit_after(*type_, Action::Space);
                 self.token(*name);
@@ -1481,7 +1602,9 @@ impl<'f> SourceVisitor<'f> {
                 self.unnest();
             }
             Node::SwitchStatement { .. } => self.visit_switch_statement(id),
-            Node::SwitchCase { .. } | Node::SwitchPatternCase { .. } | Node::SwitchDefault { .. } => {
+            Node::SwitchCase { .. }
+            | Node::SwitchPatternCase { .. }
+            | Node::SwitchDefault { .. } => {
                 panic!("visited by the switch")
             }
             Node::TryStatement {
@@ -1600,14 +1723,32 @@ impl<'f> SourceVisitor<'f> {
                     args.push(*m);
                 }
                 if self.list_has_comma_after(&args) {
-                    self.visit_collection_literal(*left_parenthesis, &args, *right_parenthesis, None, None, None, false, false);
+                    self.visit_collection_literal(
+                        *left_parenthesis,
+                        &args,
+                        *right_parenthesis,
+                        None,
+                        None,
+                        None,
+                        false,
+                        false,
+                    );
                 } else {
-                    super::arguments::ArgumentListVisitor::for_arguments(self, *left_parenthesis, *right_parenthesis, &args).visit(self);
+                    super::arguments::ArgumentListVisitor::for_arguments(
+                        self,
+                        *left_parenthesis,
+                        *right_parenthesis,
+                        &args,
+                    )
+                    .visit(self);
                 }
                 self.token(*semicolon);
                 self.unnest();
             }
-            Node::PatternVariableDeclarationStatement { declaration, semicolon } => {
+            Node::PatternVariableDeclarationStatement {
+                declaration,
+                semicolon,
+            } => {
                 self.visit(Some(*declaration));
                 self.token(*semicolon);
             }
@@ -1670,11 +1811,14 @@ impl<'f> SourceVisitor<'f> {
                 self.visit(Some(*expression));
             }
             Node::BinaryExpression { operator, .. } => {
-                let nest = !self.parent_and(id, |p| matches!(p, Node::ExpressionFunctionBody { .. }));
+                let nest =
+                    !self.parent_and(id, |p| matches!(p, Node::ExpressionFunctionBody { .. }));
                 let prec = precedence(self.lexeme(*operator));
                 self.visit_binary(id, Some(prec), nest);
             }
-            Node::LogicalAndPattern { .. } | Node::LogicalOrPattern { .. } => self.visit_binary(id, None, true),
+            Node::LogicalAndPattern { .. } | Node::LogicalOrPattern { .. } => {
+                self.visit_binary(id, None, true)
+            }
             Node::BooleanLiteral { literal }
             | Node::DoubleLiteral { literal }
             | Node::IntegerLiteral { literal }
@@ -1731,7 +1875,11 @@ impl<'f> SourceVisitor<'f> {
                 self.end_span();
                 self.unnest();
             }
-            Node::ConstructorName { type_, period, name } => {
+            Node::ConstructorName {
+                type_,
+                period,
+                name,
+            } => {
                 self.visit(Some(*type_));
                 self.token_opt(*period);
                 self.visit(*name);
@@ -1760,8 +1908,21 @@ impl<'f> SourceVisitor<'f> {
                 elements,
                 right_bracket,
             } => {
-                let c = if elements.len() <= 1 { cost::SINGLE_ELEMENT_LIST } else { cost::NORMAL };
-                self.visit_collection_literal(*left_bracket, elements, *right_bracket, *const_keyword, *type_arguments, Some(c), true, false);
+                let c = if elements.len() <= 1 {
+                    cost::SINGLE_ELEMENT_LIST
+                } else {
+                    cost::NORMAL
+                };
+                self.visit_collection_literal(
+                    *left_bracket,
+                    elements,
+                    *right_bracket,
+                    *const_keyword,
+                    *type_arguments,
+                    Some(c),
+                    true,
+                    false,
+                );
             }
             Node::SetOrMapLiteral {
                 const_keyword,
@@ -1769,7 +1930,16 @@ impl<'f> SourceVisitor<'f> {
                 left_bracket,
                 elements,
                 right_bracket,
-            } => self.visit_collection_literal(*left_bracket, elements, *right_bracket, *const_keyword, *type_arguments, None, true, false),
+            } => self.visit_collection_literal(
+                *left_bracket,
+                elements,
+                *right_bracket,
+                *const_keyword,
+                *type_arguments,
+                None,
+                true,
+                false,
+            ),
             Node::ListPattern {
                 type_arguments,
                 left_bracket,
@@ -1781,8 +1951,26 @@ impl<'f> SourceVisitor<'f> {
                 left_bracket,
                 elements,
                 right_bracket,
-            } => self.visit_collection_literal(*left_bracket, elements, *right_bracket, None, *type_arguments, None, false, false),
-            Node::MapLiteralEntry { key, separator, value } | Node::MapPatternEntry { key, separator, value } => {
+            } => self.visit_collection_literal(
+                *left_bracket,
+                elements,
+                *right_bracket,
+                None,
+                *type_arguments,
+                None,
+                false,
+                false,
+            ),
+            Node::MapLiteralEntry {
+                key,
+                separator,
+                value,
+            }
+            | Node::MapPatternEntry {
+                key,
+                separator,
+                value,
+            } => {
                 self.nest_expression(None, false);
                 self.visit(Some(*key));
                 self.token(*separator);
@@ -1825,7 +2013,9 @@ impl<'f> SourceVisitor<'f> {
                 }
                 self.visit(Some(*operand));
             }
-            Node::PrefixedIdentifier { .. } => super::chain::CallChainVisitor::new(self, id).visit(self),
+            Node::PrefixedIdentifier { .. } => {
+                super::chain::CallChainVisitor::new(self, id).visit(self)
+            }
             Node::PropertyAccess {
                 target,
                 operator,
@@ -1845,13 +2035,31 @@ impl<'f> SourceVisitor<'f> {
                 right_parenthesis,
             } => {
                 self.modifier(*const_keyword);
-                self.visit_collection_literal(*left_parenthesis, fields, *right_parenthesis, None, None, None, false, true);
+                self.visit_collection_literal(
+                    *left_parenthesis,
+                    fields,
+                    *right_parenthesis,
+                    None,
+                    None,
+                    None,
+                    false,
+                    true,
+                );
             }
             Node::RecordPattern {
                 left_parenthesis,
                 fields,
                 right_parenthesis,
-            } => self.visit_collection_literal(*left_parenthesis, fields, *right_parenthesis, None, None, None, false, true),
+            } => self.visit_collection_literal(
+                *left_parenthesis,
+                fields,
+                *right_parenthesis,
+                None,
+                None,
+                None,
+                false,
+                true,
+            ),
             Node::RethrowExpression { rethrow_keyword } => self.token(*rethrow_keyword),
             Node::SimpleIdentifier { token } => self.token(*token),
             Node::SimpleStringLiteral { literal } => self.write_string_literal(*literal),
@@ -1874,8 +2082,12 @@ impl<'f> SourceVisitor<'f> {
                 self.b().0.allow_splits();
             }
             Node::InterpolationString { contents } => self.write_string_literal(*contents),
-            Node::SuperExpression { super_keyword: kw } | Node::ThisExpression { this_keyword: kw } => self.token(*kw),
-            Node::SymbolLiteral { pound_sign, components } => {
+            Node::SuperExpression { super_keyword: kw }
+            | Node::ThisExpression { this_keyword: kw } => self.token(*kw),
+            Node::SymbolLiteral {
+                pound_sign,
+                components,
+            } => {
                 self.token(*pound_sign);
                 for &c in components {
                     if c > 0 && self.lexeme(c - 1) == "." {
@@ -1904,7 +2116,16 @@ impl<'f> SourceVisitor<'f> {
                 self.modifier(*const_keyword);
                 self.visit(Some(*expression));
             }
-            Node::DeclaredVariablePattern { keyword, type_, name } | Node::WildcardPattern { keyword, type_, name } => {
+            Node::DeclaredVariablePattern {
+                keyword,
+                type_,
+                name,
+            }
+            | Node::WildcardPattern {
+                keyword,
+                type_,
+                name,
+            } => {
                 self.modifier(*keyword);
                 if let Some(t) = type_ {
                     self.visit(Some(*t));
@@ -1912,7 +2133,8 @@ impl<'f> SourceVisitor<'f> {
                 }
                 self.token(*name);
             }
-            Node::NullAssertPattern { pattern, operator } | Node::NullCheckPattern { pattern, operator } => {
+            Node::NullAssertPattern { pattern, operator }
+            | Node::NullCheckPattern { pattern, operator } => {
                 self.visit(Some(*pattern));
                 self.token(*operator);
             }
@@ -1923,10 +2145,22 @@ impl<'f> SourceVisitor<'f> {
                 right_parenthesis,
             } => {
                 self.visit(Some(*type_));
-                self.visit_collection_literal(*left_parenthesis, fields, *right_parenthesis, None, None, None, false, false);
+                self.visit_collection_literal(
+                    *left_parenthesis,
+                    fields,
+                    *right_parenthesis,
+                    None,
+                    None,
+                    None,
+                    false,
+                    false,
+                );
             }
             Node::PatternField { name, pattern } => match name.map(|n| self.node(n)) {
-                Some(Node::PatternFieldName { name: Some(nm), colon }) => {
+                Some(Node::PatternFieldName {
+                    name: Some(nm),
+                    colon,
+                }) => {
                     self.visit_named_node(*nm, *colon, *pattern, None);
                 }
                 Some(Node::PatternFieldName { name: None, colon }) => {
@@ -1980,13 +2214,20 @@ impl<'f> SourceVisitor<'f> {
             self.two_newlines();
             directives_ = &directives_[1..];
         }
-        self.visit_nodes(directives_, Action::Nothing, Action::OneOrTwoNewlines, Action::Nothing);
+        self.visit_nodes(
+            directives_,
+            Action::Nothing,
+            Action::OneOrTwoNewlines,
+            Action::Nothing,
+        );
 
         let mut needs_double = true;
         for &d in declarations {
             let has_body = matches!(
                 self.node(d),
-                Node::ClassDeclaration { .. } | Node::EnumDeclaration { .. } | Node::ExtensionDeclaration { .. }
+                Node::ClassDeclaration { .. }
+                    | Node::EnumDeclaration { .. }
+                    | Node::ExtensionDeclaration { .. }
             );
             if has_body {
                 needs_double = true;
@@ -2015,7 +2256,11 @@ impl<'f> SourceVisitor<'f> {
             Some(Node::CompilationUnit { directives, .. }) => directives.first() == Some(&id),
             _ => false,
         };
-        let after = if first_ { Action::OneOrTwoNewlines } else { Action::Newline };
+        let after = if first_ {
+            Action::OneOrTwoNewlines
+        } else {
+            Action::Newline
+        };
         self.visit_nodes(metadata, Action::Nothing, Action::Newline, after);
     }
 
@@ -2078,7 +2323,12 @@ impl<'f> SourceVisitor<'f> {
     fn visit_combinators(&mut self, combinators: &[NodeId]) {
         let r = self.a.combinator_rule();
         self.start_rule(Some(r));
-        self.visit_nodes(combinators, Action::Nothing, Action::Nothing, Action::Nothing);
+        self.visit_nodes(
+            combinators,
+            Action::Nothing,
+            Action::Nothing,
+            Action::Nothing,
+        );
         self.end_rule();
     }
 
@@ -2230,7 +2480,8 @@ impl<'f> SourceVisitor<'f> {
         self.visit(*type_parameters);
         let constraints: &[NodeId] = match on_clause.map(|o| self.node(o)) {
             Some(Node::MixinOnClause {
-                superclass_constraints, ..
+                superclass_constraints,
+                ..
             }) => superclass_constraints,
             _ => &[],
         };
@@ -2276,7 +2527,10 @@ impl<'f> SourceVisitor<'f> {
         self.token_space_before(*name);
         self.visit(*type_parameters);
         if let Some(o) = on_clause
-            && let Node::ExtensionOnClause { on_keyword, extended_type } = self.node(*o)
+            && let Node::ExtensionOnClause {
+                on_keyword,
+                extended_type,
+            } = self.node(*o)
         {
             self.solo_split(cost::NORMAL);
             self.token(*on_keyword);
@@ -2504,7 +2758,8 @@ impl<'f> SourceVisitor<'f> {
             if initializers.len() > 1 {
                 let last = *params.last().expect("parameter");
                 let k = self.param_kind(last);
-                let padding = if k == ParameterKind::Named || k == ParameterKind::OptionalPositional {
+                let padding = if k == ParameterKind::Named || k == ParameterKind::OptionalPositional
+                {
                     " "
                 } else {
                     "  "
@@ -2575,7 +2830,13 @@ impl<'f> SourceVisitor<'f> {
     }
 
     /// `_visitFunctionBody(typeParameters, parameters, body, beforeBody)`.
-    fn visit_function_body(&mut self, type_parameters: Option<NodeId>, parameters: Option<NodeId>, body: NodeId, before_body: impl FnOnce(&mut Self)) {
+    fn visit_function_body(
+        &mut self,
+        type_parameters: Option<NodeId>,
+        parameters: Option<NodeId>,
+        body: NodeId,
+        before_body: impl FnOnce(&mut Self),
+    ) {
         let expr = matches!(self.node(body), Node::ExpressionFunctionBody { .. });
         if expr {
             self.nest_expression(None, false);
@@ -2591,7 +2852,11 @@ impl<'f> SourceVisitor<'f> {
     }
 
     /// `_visitParameterSignature(typeParameters, parameters)`.
-    fn visit_parameter_signature(&mut self, type_parameters: Option<NodeId>, parameters: Option<NodeId>) {
+    fn visit_parameter_signature(
+        &mut self,
+        type_parameters: Option<NodeId>,
+        parameters: Option<NodeId>,
+    ) {
         self.nest_expression(None, false);
         self.visit(type_parameters);
         if let Some(p) = parameters {
@@ -2768,7 +3033,10 @@ impl<'f> SourceVisitor<'f> {
                 break;
             }
         }
-        if matches!(self.node(parameters[0]), Node::DefaultFormalParameter { .. }) {
+        if matches!(
+            self.node(parameters[0]),
+            Node::DefaultFormalParameter { .. }
+        ) {
             self.token_opt(*left_delimiter);
         }
         self.start_block(None, true, false);
@@ -2853,7 +3121,9 @@ impl<'f> SourceVisitor<'f> {
         };
         let block_type = match self.node(t) {
             Node::GenericFunctionType { parameters, .. } => match self.node(*parameters) {
-                Node::FormalParameterList { parameters, .. } => !parameters.is_empty() && self.list_has_comma_after(parameters),
+                Node::FormalParameterList { parameters, .. } => {
+                    !parameters.is_empty() && self.list_has_comma_after(parameters)
+                }
                 _ => false,
             },
             Node::RecordTypeAnnotation { .. } => true,
@@ -2869,7 +3139,13 @@ impl<'f> SourceVisitor<'f> {
     }
 
     /// `_visitGenericFunctionType`.
-    fn visit_generic_function_type(&mut self, return_type: Option<NodeId>, function_keyword: Tk, type_parameters: Option<NodeId>, parameters: NodeId) {
+    fn visit_generic_function_type(
+        &mut self,
+        return_type: Option<NodeId>,
+        function_keyword: Tk,
+        type_parameters: Option<NodeId>,
+        parameters: NodeId,
+    ) {
         self.start_lazy_rule(None);
         self.nest_expression(None, false);
         self.visit_after(return_type, Action::Split);
@@ -2880,7 +3156,13 @@ impl<'f> SourceVisitor<'f> {
     }
 
     /// `_visitGenericTypeAliasHeader`.
-    fn visit_generic_type_alias_header(&mut self, typedef_keyword: Tk, name: Tk, type_parameters: Option<NodeId>, equals: Tk) {
+    fn visit_generic_type_alias_header(
+        &mut self,
+        typedef_keyword: Tk,
+        name: Tk,
+        type_parameters: Option<NodeId>,
+        equals: Tk,
+    ) {
         self.token(typedef_keyword);
         self.space();
         self.start_rule(None);
@@ -2950,7 +3232,10 @@ impl<'f> SourceVisitor<'f> {
             self.write_preceding_comments_and_newlines(first_closer);
         }
         let force = match named_args {
-            None => positional_fields.len() > 1 && self.has_comma_after(*positional_fields.last().expect("field")),
+            None => {
+                positional_fields.len() > 1
+                    && self.has_comma_after(*positional_fields.last().expect("field"))
+            }
             Some((_, fields_, _)) => fields_.last().is_some_and(|&c| self.has_comma_after(c)),
         };
         self.end_block(force);
@@ -3115,10 +3400,19 @@ impl<'f> SourceVisitor<'f> {
         else {
             unreachable!()
         };
-        self.visit_if_condition(*if_keyword, *left_parenthesis, *expression, *case_clause, *right_parenthesis);
+        self.visit_if_condition(
+            *if_keyword,
+            *left_parenthesis,
+            *expression,
+            *case_clause,
+            *right_parenthesis,
+        );
         let has_else = else_statement.is_some();
         let visit_clause = |v: &mut Self, clause: NodeId| {
-            if matches!(v.node(clause), Node::Block { .. } | Node::IfStatement { .. }) {
+            if matches!(
+                v.node(clause),
+                Node::Block { .. } | Node::IfStatement { .. }
+            ) {
                 v.space();
                 v.visit(Some(clause));
             } else {
@@ -3147,7 +3441,14 @@ impl<'f> SourceVisitor<'f> {
     }
 
     /// `_visitIfCondition`.
-    fn visit_if_condition(&mut self, if_keyword: Tk, left_parenthesis: Tk, condition: NodeId, case_clause: Option<NodeId>, right_parenthesis: Tk) {
+    fn visit_if_condition(
+        &mut self,
+        if_keyword: Tk,
+        left_parenthesis: Tk,
+        condition: NodeId,
+        case_clause: Option<NodeId>,
+        right_parenthesis: Tk,
+    ) {
         self.nest_expression(None, false);
         self.token(if_keyword);
         self.space();
@@ -3162,7 +3463,11 @@ impl<'f> SourceVisitor<'f> {
                 else {
                     unreachable!()
                 };
-                let Node::GuardedPattern { pattern, when_clause } = self.node(*guarded_pattern) else {
+                let Node::GuardedPattern {
+                    pattern,
+                    when_clause,
+                } = self.node(*guarded_pattern)
+                else {
                     unreachable!()
                 };
                 let case_rule = self.a.rule(cost::NORMAL);
@@ -3194,7 +3499,11 @@ impl<'f> SourceVisitor<'f> {
     }
 
     fn visit_when_clause(&mut self, w: NodeId) {
-        let Node::WhenClause { when_keyword, expression } = self.node(w) else {
+        let Node::WhenClause {
+            when_keyword,
+            expression,
+        } = self.node(w)
+        else {
             unreachable!()
         };
         self.token(*when_keyword);
@@ -3215,7 +3524,12 @@ impl<'f> SourceVisitor<'f> {
         else {
             unreachable!()
         };
-        self.visit_switch_value(*switch_keyword, *left_parenthesis, *expression, *right_parenthesis);
+        self.visit_switch_value(
+            *switch_keyword,
+            *left_parenthesis,
+            *expression,
+            *right_parenthesis,
+        );
         self.begin_body(*left_bracket, false);
         for &m in members {
             let (labels, keyword, colon, statements) = match self.node(m) {
@@ -3248,9 +3562,15 @@ impl<'f> SourceVisitor<'f> {
                     self.space();
                     self.visit(Some(*expression));
                 }
-                Node::SwitchPatternCase { guarded_pattern, .. } => {
+                Node::SwitchPatternCase {
+                    guarded_pattern, ..
+                } => {
                     self.space();
-                    let Node::GuardedPattern { pattern, when_clause } = self.node(*guarded_pattern) else {
+                    let Node::GuardedPattern {
+                        pattern,
+                        when_clause,
+                    } = self.node(*guarded_pattern)
+                    else {
                         unreachable!()
                     };
                     match when_clause {
@@ -3278,7 +3598,12 @@ impl<'f> SourceVisitor<'f> {
             if !statements.is_empty() {
                 self.indent(None);
                 self.newline();
-                self.visit_nodes(statements, Action::Nothing, Action::OneOrTwoNewlines, Action::Nothing);
+                self.visit_nodes(
+                    statements,
+                    Action::Nothing,
+                    Action::OneOrTwoNewlines,
+                    Action::Nothing,
+                );
                 self.unindent();
                 self.one_or_two_newlines();
             } else {
@@ -3292,7 +3617,13 @@ impl<'f> SourceVisitor<'f> {
     }
 
     /// `_visitSwitchValue`.
-    fn visit_switch_value(&mut self, switch_keyword: Tk, left_parenthesis: Tk, value: NodeId, right_parenthesis: Tk) {
+    fn visit_switch_value(
+        &mut self,
+        switch_keyword: Tk,
+        left_parenthesis: Tk,
+        value: NodeId,
+        right_parenthesis: Tk,
+    ) {
         self.nest_expression(None, false);
         self.token(switch_keyword);
         self.space();
@@ -3318,13 +3649,23 @@ impl<'f> SourceVisitor<'f> {
             unreachable!()
         };
         if !self.can_split(cases, *right_bracket) {
-            self.visit_switch_value(*switch_keyword, *left_parenthesis, *expression, *right_parenthesis);
+            self.visit_switch_value(
+                *switch_keyword,
+                *left_parenthesis,
+                *expression,
+                *right_parenthesis,
+            );
             self.token(*left_bracket);
             self.token(*right_bracket);
             return;
         }
         self.start_rule(None);
-        self.visit_switch_value(*switch_keyword, *left_parenthesis, *expression, *right_parenthesis);
+        self.visit_switch_value(
+            *switch_keyword,
+            *left_parenthesis,
+            *expression,
+            *right_parenthesis,
+        );
         self.token(*left_bracket);
         self.start_block(None, true, !cases.is_empty());
         self.visit_comma_separated_nodes(cases, Action::Split);
@@ -3342,7 +3683,11 @@ impl<'f> SourceVisitor<'f> {
         else {
             unreachable!()
         };
-        let Node::GuardedPattern { pattern, when_clause } = self.node(*guarded_pattern) else {
+        let Node::GuardedPattern {
+            pattern,
+            when_clause,
+        } = self.node(*guarded_pattern)
+        else {
             unreachable!()
         };
         let mut branches = Vec::new();
@@ -3474,7 +3819,12 @@ impl<'f> SourceVisitor<'f> {
                         }
                     }
                 }
-                Node::AssertInitializer { condition, message, .. } | Node::AssertStatement { condition, message, .. } => {
+                Node::AssertInitializer {
+                    condition, message, ..
+                }
+                | Node::AssertStatement {
+                    condition, message, ..
+                } => {
                     nest = false;
                     if *condition != id && self.is_string_literal(*condition) {
                         nest = true;
@@ -3487,8 +3837,10 @@ impl<'f> SourceVisitor<'f> {
                     }
                 }
                 Node::VariableDeclaration { .. } => nest = false,
-                Node::AssignmentExpression { right_hand_side, .. }
-                    if *right_hand_side == id && self.parent_and(p, |n| matches!(n, Node::ExpressionStatement { .. })) =>
+                Node::AssignmentExpression {
+                    right_hand_side, ..
+                } if *right_hand_side == id
+                    && self.parent_and(p, |n| matches!(n, Node::ExpressionStatement { .. })) =>
                 {
                     nest = false
                 }
@@ -3501,7 +3853,12 @@ impl<'f> SourceVisitor<'f> {
         if nest {
             self.nest_expression(None, false);
         }
-        self.visit_nodes(strings, Action::Nothing, Action::SplitOrNewline, Action::Nothing);
+        self.visit_nodes(
+            strings,
+            Action::Nothing,
+            Action::SplitOrNewline,
+            Action::Nothing,
+        );
         if nest {
             self.unnest();
         }
@@ -3528,7 +3885,16 @@ impl<'f> SourceVisitor<'f> {
             return;
         }
         if self.list_has_comma_after(arguments) {
-            self.visit_collection_literal(*left_parenthesis, arguments, *right_parenthesis, None, None, None, false, false);
+            self.visit_collection_literal(
+                *left_parenthesis,
+                arguments,
+                *right_parenthesis,
+                None,
+                None,
+                None,
+                false,
+                false,
+            );
             return;
         }
         if nest {
@@ -3569,21 +3935,34 @@ impl<'f> SourceVisitor<'f> {
         }
         let inline = self.allow_inline(*target, cascade_sections.len());
         if split_with_target {
-            let r = if inline { self.a.rule(cost::NORMAL) } else { self.a.hard_rule() };
+            let r = if inline {
+                self.a.rule(cost::NORMAL)
+            } else {
+                self.a.hard_rule()
+            };
             self.start_lazy_rule(Some(r));
         }
         self.visit(Some(*target));
         self.nest_expression(Some(indentation::CASCADE), true);
         self.start_block_argument_nesting();
         if !split_with_target {
-            let r = if inline { self.a.rule(cost::NORMAL) } else { self.a.hard_rule() };
+            let r = if inline {
+                self.a.rule(cost::NORMAL)
+            } else {
+                self.a.hard_rule()
+            };
             self.start_rule(Some(r));
         }
         self.zero_split();
         if !split_with_target {
             self.end_rule();
         }
-        self.visit_nodes(cascade_sections, Action::Nothing, Action::ZeroSplit, Action::Nothing);
+        self.visit_nodes(
+            cascade_sections,
+            Action::Nothing,
+            Action::ZeroSplit,
+            Action::Nothing,
+        );
         if split_with_target {
             self.end_rule();
         }
@@ -3720,7 +4099,10 @@ impl<'f> SourceVisitor<'f> {
         self.start_span(cost::NORMAL);
         self.token(name_);
         self.token(colon_);
-        if matches!(self.node(node), Node::ListLiteral { .. } | Node::SetOrMapLiteral { .. } | Node::RecordLiteral { .. }) {
+        if matches!(
+            self.node(node),
+            Node::ListLiteral { .. } | Node::SetOrMapLiteral { .. } | Node::RecordLiteral { .. }
+        ) {
             self.space();
         } else {
             let r = self.solo_split(cost::NORMAL);
@@ -3753,7 +4135,9 @@ impl<'f> SourceVisitor<'f> {
     /// `_assignmentCost(rightHandSide)`.
     fn assignment_cost(&self, right_: NodeId) -> i32 {
         match self.node(right_) {
-            Node::ListLiteral { .. } | Node::SetOrMapLiteral { .. } | Node::CascadeExpression { .. } => cost::ASSIGN_BLOCK,
+            Node::ListLiteral { .. }
+            | Node::SetOrMapLiteral { .. }
+            | Node::CascadeExpression { .. } => cost::ASSIGN_BLOCK,
             _ => cost::ASSIGN,
         }
     }
@@ -3879,7 +4263,13 @@ impl<'f> SourceVisitor<'f> {
             else {
                 unreachable!()
             };
-            self.visit_if_condition(*if_keyword, *left_parenthesis, *expression, *case_clause, *right_parenthesis);
+            self.visit_if_condition(
+                *if_keyword,
+                *left_parenthesis,
+                *expression,
+                *case_clause,
+                *right_parenthesis,
+            );
             visit_child(self, el, *then_element, &spreads);
             if self.is_control_flow_element(*then_element) {
                 inner_flow = true;
@@ -4118,7 +4508,9 @@ impl<'f> SourceVisitor<'f> {
         let quote_start = usize::from(line.starts_with('r'));
         let quote_end = quote_start + 3;
         let mut backslashes = 0;
-        if b.len() > quote_end && (line[quote_start..].starts_with("'''") || line[quote_start..].starts_with("\"\"\"")) {
+        if b.len() > quote_end
+            && (line[quote_start..].starts_with("'''") || line[quote_start..].starts_with("\"\"\""))
+        {
             let mut cursor = quote_end;
             loop {
                 let mut c = b[cursor];

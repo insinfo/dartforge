@@ -108,7 +108,10 @@ fn usage_error(msg: &str) -> ExitCode {
 
 /// Runs `dartforge format` with the arguments after the subcommand.
 pub fn run(args: &[OsString]) -> ExitCode {
-    let args: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let args: Vec<String> = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let mut output = Output::Write;
     let mut output_given = false;
     let mut show = Show::Changed;
@@ -139,16 +142,17 @@ pub fn run(args: &[OsString]) -> ExitCode {
         }
         // Splits `--name=value`, `-oshow` and the forms with the value in the
         // next argument.
-        let (name, attached_value): (String, Option<String>) = if let Some(rest) = a.strip_prefix("--") {
-            match rest.split_once('=') {
-                Some((n, v)) => (format!("--{n}"), Some(v.to_string())),
-                None => (a.clone(), None),
-            }
-        } else if a.len() > 2 {
-            (a[..2].to_string(), Some(a[2..].to_string()))
-        } else {
-            (a.clone(), None)
-        };
+        let (name, attached_value): (String, Option<String>) =
+            if let Some(rest) = a.strip_prefix("--") {
+                match rest.split_once('=') {
+                    Some((n, v)) => (format!("--{n}"), Some(v.to_string())),
+                    None => (a.clone(), None),
+                }
+            } else if a.len() > 2 {
+                (a[..2].to_string(), Some(a[2..].to_string()))
+            } else {
+                (a.clone(), None)
+            };
         let takes_value = matches!(
             name.as_str(),
             "-o" | "--output"
@@ -180,7 +184,11 @@ pub fn run(args: &[OsString]) -> ExitCode {
             }
             None
         };
-        let not_allowed = |v: &str| usage_error(&format!("\"{v}\" is not an allowed value for option \"{name}\"."));
+        let not_allowed = |v: &str| {
+            usage_error(&format!(
+                "\"{v}\" is not an allowed value for option \"{name}\"."
+            ))
+        };
         match name.as_str() {
             "-h" | "--help" => help = true,
             "-v" | "--verbose" => verbose = true,
@@ -222,10 +230,16 @@ pub fn run(args: &[OsString]) -> ExitCode {
             "--language-version" => {
                 let v = value.expect("value");
                 let ok = v == "latest"
-                    || v.split_once('.')
-                        .is_some_and(|(a, b)| !a.is_empty() && !b.is_empty() && a.bytes().all(|c| c.is_ascii_digit()) && b.bytes().all(|c| c.is_ascii_digit()));
+                    || v.split_once('.').is_some_and(|(a, b)| {
+                        !a.is_empty()
+                            && !b.is_empty()
+                            && a.bytes().all(|c| c.is_ascii_digit())
+                            && b.bytes().all(|c| c.is_ascii_digit())
+                    });
                 if !ok {
-                    return usage_error(&format!("--language-version must be a version like \"3.2\" or \"latest\", was \"{v}\"."));
+                    return usage_error(&format!(
+                        "--language-version must be a version like \"3.2\" or \"latest\", was \"{v}\"."
+                    ));
                 }
             }
             "--enable-experiment" | "--selection" => {}
@@ -235,7 +249,11 @@ pub fn run(args: &[OsString]) -> ExitCode {
                 return ExitCode::from(64);
             }
             _ => {
-                let shown = if a.starts_with("--") { name.clone() } else { name[1..].to_string() };
+                let shown = if a.starts_with("--") {
+                    name.clone()
+                } else {
+                    name[1..].to_string()
+                };
                 if a.starts_with("--") {
                     return usage_error(&format!("Could not find an option named \"{shown}\"."));
                 }
@@ -245,7 +263,10 @@ pub fn run(args: &[OsString]) -> ExitCode {
     }
 
     if help {
-        println!("Idiomatically format Dart source code.\n\n{}", if verbose { VERBOSE_USAGE } else { USAGE });
+        println!(
+            "Idiomatically format Dart source code.\n\n{}",
+            if verbose { VERBOSE_USAGE } else { USAGE }
+        );
         return ExitCode::SUCCESS;
     }
     if version {
@@ -268,7 +289,9 @@ pub fn run(args: &[OsString]) -> ExitCode {
         return usage_error("Cannot print a summary with JSON output.");
     }
     let Ok(width) = width.parse::<i64>() else {
-        return usage_error(&format!("--line-length must be an integer, was \"{width}\"."));
+        return usage_error(&format!(
+            "--line-length must be an integer, was \"{width}\"."
+        ));
     };
     let Ok(indent_n) = indent.parse::<i64>() else {
         return usage_error(&format!("--indent must be an integer, was \"{indent}\"."));
@@ -383,7 +406,10 @@ fn process_directory(config: &Config, state: &mut State, dir: &str) -> bool {
         if is_link || !is_file || !path.ends_with(".dart") {
             continue;
         }
-        let relative = path.strip_prefix(dir).unwrap_or(&path).trim_start_matches('/');
+        let relative = path
+            .strip_prefix(dir)
+            .unwrap_or(&path)
+            .trim_start_matches('/');
         if relative.split('/').any(|p| p.starts_with('.')) {
             continue;
         }
@@ -427,19 +453,29 @@ fn process_file(config: &Config, state: &mut State, file: &Path, shown: &str) ->
         Ok(b) => match String::from_utf8(b) {
             Ok(s) => s,
             Err(_) => {
-                eprintln!("Hit a bug in the formatter when formatting {shown}.\nPlease report at github.com/dart-lang/dart_style/issues.\nFormatException: Invalid UTF-8 byte");
+                eprintln!(
+                    "Hit a bug in the formatter when formatting {shown}.\nPlease report at github.com/dart-lang/dart_style/issues.\nFormatException: Invalid UTF-8 byte"
+                );
                 return false;
             }
         },
         Err(e) => {
-            eprintln!("Hit a bug in the formatter when formatting {shown}.\nPlease report at github.com/dart-lang/dart_style/issues.\n{e}");
+            eprintln!(
+                "Hit a bug in the formatter when formatting {shown}.\nPlease report at github.com/dart-lang/dart_style/issues.\n{e}"
+            );
             return false;
         }
     };
     process_source(config, state, Some(file), shown, &source)
 }
 
-fn process_source(config: &Config, state: &mut State, file: Option<&Path>, shown: &str, source: &str) -> bool {
+fn process_source(
+    config: &Config,
+    state: &mut State,
+    file: Option<&Path>,
+    shown: &str,
+    source: &str,
+) -> bool {
     let result = std::panic::catch_unwind(|| format(source, &config.options));
     let output = match result {
         Ok(Ok(s)) => s,
@@ -451,14 +487,18 @@ fn process_source(config: &Config, state: &mut State, file: Option<&Path>, shown
             return false;
         }
         Ok(Err(e @ FormatError::UnexpectedOutput { .. })) => {
-            eprintln!("Hit a bug in the formatter when formatting {shown}.\n{e}\nPlease report at github.com/dart-lang/dart_style/issues.");
+            eprintln!(
+                "Hit a bug in the formatter when formatting {shown}.\n{e}\nPlease report at github.com/dart-lang/dart_style/issues."
+            );
             if file.is_none() {
                 state.code = 70;
             }
             return false;
         }
         Err(_) => {
-            eprintln!("Hit a bug in the formatter when formatting {shown}.\nPlease report at github.com/dart-lang/dart_style/issues.");
+            eprintln!(
+                "Hit a bug in the formatter when formatting {shown}.\nPlease report at github.com/dart-lang/dart_style/issues."
+            );
             if file.is_none() {
                 state.code = 70;
             }
@@ -486,7 +526,10 @@ fn process_source(config: &Config, state: &mut State, file: Option<&Path>, shown
     let display = match config.show {
         Show::All => {
             if changed {
-                println!("{} {shown}", if overwritten { "Formatted" } else { "Changed" });
+                println!(
+                    "{} {shown}",
+                    if overwritten { "Formatted" } else { "Changed" }
+                );
             } else {
                 println!("Unchanged {shown}");
             }
@@ -494,7 +537,10 @@ fn process_source(config: &Config, state: &mut State, file: Option<&Path>, shown
         }
         Show::Changed => {
             if changed {
-                println!("{} {shown}", if overwritten { "Formatted" } else { "Changed" });
+                println!(
+                    "{} {shown}",
+                    if overwritten { "Formatted" } else { "Changed" }
+                );
             }
             changed
         }
@@ -510,7 +556,9 @@ fn process_source(config: &Config, state: &mut State, file: Option<&Path>, shown
             Output::Json => {
                 let path = serde_json::to_string(shown).unwrap_or_default();
                 let text = serde_json::to_string(&output).unwrap_or_default();
-                println!("{{\"path\":{path},\"source\":{text},\"selection\":{{\"offset\":-1,\"length\":-1}}}}");
+                println!(
+                    "{{\"path\":{path},\"source\":{text},\"selection\":{{\"offset\":-1,\"length\":-1}}}}"
+                );
             }
             _ => {}
         }
@@ -528,11 +576,22 @@ fn error_message(source: &str, shown: &str, e: &dartforge_formatter::SyntaxError
     let line_start = source[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
     let line = source[..pos].matches('\n').count() + 1;
     let column = source[line_start..pos].chars().count() + 1;
-    let line_end = source[pos..].find('\n').map(|i| pos + i).unwrap_or(source.len());
+    let line_end = source[pos..]
+        .find('\n')
+        .map(|i| pos + i)
+        .unwrap_or(source.len());
     let line_text = source[line_start..line_end].trim_end_matches('\r');
     let number_width = line.to_string().len();
     let margin = " ".repeat(number_width);
-    let caret = "^".repeat(source[pos..(pos + e.length).min(line_end.max(pos + 1)).min(source.len()).max(pos)].chars().count().max(1));
+    let caret = "^".repeat(
+        source[pos..(pos + e.length)
+            .min(line_end.max(pos + 1))
+            .min(source.len())
+            .max(pos)]
+            .chars()
+            .count()
+            .max(1),
+    );
     format!(
         "Could not format because the source could not be parsed:\n\nline {line}, column {column} of {shown}: {}\n{margin} ╷\n{line} │ {line_text}\n{margin} │ {}{caret}\n{margin} ╵",
         e.message,

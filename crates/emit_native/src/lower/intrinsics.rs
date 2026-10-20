@@ -28,7 +28,12 @@ fn c(n: i64) -> Operand {
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     fn primitive(&self, e: ExprId) -> Option<PrimitiveKind> {
-        let T::Interface { class, nullable: false, .. } = self.ctx.table.get(self.ctx.get_type(self.unit_id, e)?) else {
+        let T::Interface {
+            class,
+            nullable: false,
+            ..
+        } = self.ctx.table.get(self.ctx.get_type(self.unit_id, e)?)
+        else {
             return None;
         };
         if Some(*class) == self.ctx.core.int_class {
@@ -51,10 +56,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `compact_hash.dart`). The VM's external classes (`cidExternal*`) do not
     /// exist here: the field stays as it is (0, which no object has).
     fn runtime_class_id(&self, ast: &ast::Ast, e: ExprId) -> Option<i64> {
-        use dartforge_runtime::layout::{cid, FIRST_FREE_CID};
+        use dartforge_runtime::layout::{FIRST_FREE_CID, cid};
         use dartforge_runtime::typed_lists::ty;
-        let ExprKind::Property { name, null_aware: false, .. } = &ast.expr(e).kind else { return None };
-        let Some(dartforge_types::resolved::Resolved::Member { class, .. }) = self.ctx.get_resolved(self.unit_id, e) else {
+        let ExprKind::Property {
+            name,
+            null_aware: false,
+            ..
+        } = &ast.expr(e).kind
+        else {
+            return None;
+        };
+        let Some(dartforge_types::resolved::Resolved::Member { class, .. }) =
+            self.ctx.get_resolved(self.unit_id, e)
+        else {
             return None;
         };
         if Some(*class) != self.ctx.sdk_class("_internal", "ClassID") {
@@ -104,10 +118,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(r);
         }
         let (recv, name_str, call) = match &ast.expr(e).kind {
-            ExprKind::Property { target, name, null_aware: false } => (*target, name.sym, false),
-            ExprKind::Call { target, arguments } if arguments.args.is_empty() && arguments.type_args.is_empty() => {
+            ExprKind::Property {
+                target,
+                name,
+                null_aware: false,
+            } => (*target, name.sym, false),
+            ExprKind::Call { target, arguments }
+                if arguments.args.is_empty() && arguments.type_args.is_empty() =>
+            {
                 match &ast.expr(*target).kind {
-                    ExprKind::Property { target, name, null_aware: false } => (*target, name.sym, true),
+                    ExprKind::Property {
+                        target,
+                        name,
+                        null_aware: false,
+                    } => (*target, name.sym, true),
                     _ => return None,
                 }
             }
@@ -117,8 +141,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let name_str = self.ctx.symbol_name(name_str);
         let shape = match (p, name_str, call) {
             (PrimitiveKind::Int, "isEven" | "isOdd" | "isNegative", false) => name_str,
-            (PrimitiveKind::Int, "toDouble" | "abs" | "toInt" | "floor" | "ceil" | "round" | "truncate", true) => name_str,
-            (PrimitiveKind::Double, "isNaN" | "isInfinite" | "isFinite" | "isNegative", false) => name_str,
+            (
+                PrimitiveKind::Int,
+                "toDouble" | "abs" | "toInt" | "floor" | "ceil" | "round" | "truncate",
+                true,
+            ) => name_str,
+            (PrimitiveKind::Double, "isNaN" | "isInfinite" | "isFinite" | "isNegative", false) => {
+                name_str
+            }
             (PrimitiveKind::Double, "toDouble" | "abs" | "toInt" | "truncate", true) => name_str,
             _ => return None,
         };
@@ -143,18 +173,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// every comparison. `double` (and `num`) keep the SDK member:
     /// NaN and `-0.0` have their own rules.
     fn compare_to_int(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
-        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
-        if arguments.args.len() != 1 || arguments.args[0].name.is_some() || !arguments.type_args.is_empty() {
+        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else {
+            return None;
+        };
+        if arguments.args.len() != 1
+            || arguments.args[0].name.is_some()
+            || !arguments.type_args.is_empty()
+        {
             return None;
         }
-        let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+        let ExprKind::Property {
+            target: recv,
+            name,
+            null_aware: false,
+        } = &ast.expr(*target).kind
+        else {
             return None;
         };
         if self.ctx.symbol_name(name.sym) != "compareTo" {
             return None;
         }
         let arg = arguments.args[0].value;
-        if self.primitive(*recv) != Some(PrimitiveKind::Int) || self.primitive(arg) != Some(PrimitiveKind::Int) {
+        if self.primitive(*recv) != Some(PrimitiveKind::Int)
+            || self.primitive(arg) != Some(PrimitiveKind::Int)
+        {
             return None;
         }
         let a = self.lower_expr(ast, *recv);
@@ -167,10 +209,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some(Operand::Constant(Constant::Null));
         }
         let b = self.coerce(b, Type::I64);
-        let larger = self.emit(Instruction::ICmp(ICmpOp::Sgt, a.clone(), b.clone()), Type::I1);
+        let larger = self.emit(
+            Instruction::ICmp(ICmpOp::Sgt, a.clone(), b.clone()),
+            Type::I1,
+        );
         let smaller = self.emit(Instruction::ICmp(ICmpOp::Slt, a, b), Type::I1);
-        let larger = self.emit(Instruction::ZExt { op: larger, from: Type::I1, to: Type::I64 }, Type::I64);
-        let smaller = self.emit(Instruction::ZExt { op: smaller, from: Type::I1, to: Type::I64 }, Type::I64);
+        let larger = self.emit(
+            Instruction::ZExt {
+                op: larger,
+                from: Type::I1,
+                to: Type::I64,
+            },
+            Type::I64,
+        );
+        let smaller = self.emit(
+            Instruction::ZExt {
+                op: smaller,
+                from: Type::I1,
+                to: Type::I64,
+            },
+            Type::I64,
+        );
         Some(self.emit(Instruction::Sub(larger, smaller), Type::I64))
     }
 
@@ -184,18 +243,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// conversion of the dart_ui color kernel.
     fn num_to_int(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
         use dartforge_runtime::layout::cid;
-        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
+        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else {
+            return None;
+        };
         if !arguments.args.is_empty() || !arguments.type_args.is_empty() {
             return None;
         }
-        let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+        let ExprKind::Property {
+            target: recv,
+            name,
+            null_aware: false,
+        } = &ast.expr(*target).kind
+        else {
             return None;
         };
         let shape = self.ctx.symbol_name(name.sym);
         if shape != "toInt" && shape != "truncate" {
             return None;
         }
-        let T::Interface { class, nullable: false, .. } = self.ctx.table.get(self.ctx.get_type(self.unit_id, *recv)?) else {
+        let T::Interface {
+            class,
+            nullable: false,
+            ..
+        } = self.ctx.table.get(self.ctx.get_type(self.unit_id, *recv)?)
+        else {
             return None;
         };
         if Some(*class) != self.ctx.core.num_class || self.ctx.arc_memory {
@@ -214,11 +285,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::I64,
         );
-        let is_double = self.emit(Instruction::ICmp(ICmpOp::Eq, cls, c(i64::from(cid::DOUBLE))), Type::I1);
+        let is_double = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, cls, c(i64::from(cid::DOUBLE))),
+            Type::I1,
+        );
         let b_double = self.new_block();
         let b_int = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: is_double, then_block: b_double, else_block: b_int });
+        self.terminate(Terminator::CondBranch {
+            cond: is_double,
+            then_block: b_double,
+            else_block: b_int,
+        });
         self.set_block(b_double);
         let d = self.double_intrinsic(v.clone(), "toInt");
         let mut incoming = Vec::new();
@@ -231,7 +309,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         incoming.push((self.current_block, i));
         self.terminate(Terminator::Branch(join));
         self.set_block(join);
-        Some(self.emit(Instruction::Phi { incoming, ty: Type::I64 }, Type::I64))
+        Some(self.emit(
+            Instruction::Phi {
+                incoming,
+                ty: Type::I64,
+            },
+            Type::I64,
+        ))
     }
 
     /// `list.add(v)` with a list of static type `List<int>`,
@@ -247,11 +331,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// entry and in the `[]=` inside `add`) and wrote the boxed value.
     fn list_add_scalar(&mut self, ast: &ast::Ast, e: ExprId) -> Option<Operand> {
         use dartforge_runtime::layout::{cid, flags};
-        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else { return None };
-        if arguments.args.len() != 1 || arguments.args[0].name.is_some() || !arguments.type_args.is_empty() {
+        let ExprKind::Call { target, arguments } = &ast.expr(e).kind else {
+            return None;
+        };
+        if arguments.args.len() != 1
+            || arguments.args[0].name.is_some()
+            || !arguments.type_args.is_empty()
+        {
             return None;
         }
-        let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+        let ExprKind::Property {
+            target: recv,
+            name,
+            null_aware: false,
+        } = &ast.expr(*target).kind
+        else {
             return None;
         };
         if self.ctx.symbol_name(name.sym) != "add" {
@@ -265,12 +359,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // The argument must be of the element type, non-nullable: a
         // `dynamic` or `num` would need the checked implicit conversion.
         let arg = arguments.args[0].value;
-        let T::Interface { class, nullable: false, .. } = self.ctx.table.get(self.ctx.get_type(self.unit_id, arg)?) else {
+        let T::Interface {
+            class,
+            nullable: false,
+            ..
+        } = self.ctx.table.get(self.ctx.get_type(self.unit_id, arg)?)
+        else {
             return None;
         };
         let (expected, shape) = match t {
             Type::I64 => (self.ctx.core.int_class, flags::RAW | flags::ELEMENT_INT),
-            Type::F64 => (self.ctx.core.double_class, flags::RAW | flags::ELEMENT_DOUBLE),
+            Type::F64 => (
+                self.ctx.core.double_class,
+                flags::RAW | flags::ELEMENT_DOUBLE,
+            ),
             _ => (self.ctx.core.bool_class, flags::RAW | flags::ELEMENT_BOOL),
         };
         if Some(*class) != expected {
@@ -291,7 +393,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (word, ty) = match t {
             Type::I64 => (v.clone(), CType::I64),
             Type::F64 => (v.clone(), CType::F64),
-            _ => (self.emit(Instruction::ZExt { op: v.clone(), from: Type::I1, to: Type::I64 }, Type::I64), CType::I64),
+            _ => (
+                self.emit(
+                    Instruction::ZExt {
+                        op: v.clone(),
+                        from: Type::I1,
+                        to: Type::I64,
+                    },
+                    Type::I64,
+                ),
+                CType::I64,
+            ),
         };
         let cls = self.emit(
             Instruction::CallRuntime {
@@ -301,11 +413,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
             Type::I64,
         );
-        let growable = self.emit(Instruction::ICmp(ICmpOp::Eq, cls, c(i64::from(cid::GROWABLE_LIST))), Type::I1);
+        let growable = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, cls, c(i64::from(cid::GROWABLE_LIST))),
+            Type::I1,
+        );
         let b_exp = self.new_block();
         let slow = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: growable, then_block: b_exp, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: growable,
+            then_block: b_exp,
+            else_block: slow,
+        });
 
         self.set_block(b_exp);
         let (_done, full) = self.append_scalar_inline(list.clone(), word, ty, shape, slow);
@@ -326,7 +445,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(join));
 
         self.set_block(slow);
-        self.call_by_name(list, super::sdk_source::AccessKind::Call, "add", &[(None, v)]);
+        self.call_by_name(
+            list,
+            super::sdk_source::AccessKind::Call,
+            "add",
+            &[(None, v)],
+        );
         if !self.is_terminated() {
             self.terminate(Terminator::Branch(join));
         }
@@ -339,7 +463,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match shape {
             "isEven" | "isOdd" => {
                 let bit = self.emit(Instruction::And(x, c(1)), Type::I64);
-                let op = if shape == "isEven" { ICmpOp::Eq } else { ICmpOp::Ne };
+                let op = if shape == "isEven" {
+                    ICmpOp::Eq
+                } else {
+                    ICmpOp::Ne
+                };
                 self.emit(Instruction::ICmp(op, bit, c(0)), Type::I1)
             }
             "isNegative" => self.emit(Instruction::ICmp(ICmpOp::Slt, x, c(0)), Type::I1),
@@ -359,7 +487,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn double_intrinsic(&mut self, v: Operand, shape: &str) -> Operand {
         let boxed = v.clone();
         let x = self.coerce(v, Type::F64);
-        let bits = |s: &mut Self, x: Operand| s.emit(Instruction::Bitcast { op: x, to: Type::I64 }, Type::I64);
+        let bits = |s: &mut Self, x: Operand| {
+            s.emit(
+                Instruction::Bitcast {
+                    op: x,
+                    to: Type::I64,
+                },
+                Type::I64,
+            )
+        };
         match shape {
             "isNaN" => {
                 let equal = self.emit(Instruction::FCmp(FCmpOp::Eq, x.clone(), x), Type::I1);
@@ -369,13 +505,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             "isInfinite" => {
                 let b = bits(self, x);
                 let m = self.emit(Instruction::And(b, c(i64::MAX)), Type::I64);
-                self.emit(Instruction::ICmp(ICmpOp::Eq, m, c(0x7FF0_0000_0000_0000)), Type::I1)
+                self.emit(
+                    Instruction::ICmp(ICmpOp::Eq, m, c(0x7FF0_0000_0000_0000)),
+                    Type::I1,
+                )
             }
             // Exponent not all ones (neither infinity nor NaN).
             "isFinite" => {
                 let b = bits(self, x);
                 let m = self.emit(Instruction::And(b, c(i64::MAX)), Type::I64);
-                self.emit(Instruction::ICmp(ICmpOp::Slt, m, c(0x7FF0_0000_0000_0000)), Type::I1)
+                self.emit(
+                    Instruction::ICmp(ICmpOp::Slt, m, c(0x7FF0_0000_0000_0000)),
+                    Type::I1,
+                )
             }
             // The sign bit, except for NaN (`-0.0.isNegative` is true;
             // `double.nan.isNegative`, false).
@@ -383,8 +525,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let b = bits(self, x.clone());
                 let sign = self.emit(Instruction::ICmp(ICmpOp::Slt, b, c(0)), Type::I1);
                 let not_nan = self.emit(Instruction::FCmp(FCmpOp::Eq, x.clone(), x), Type::I1);
-                let s = self.emit(Instruction::ZExt { op: sign, from: Type::I1, to: Type::I64 }, Type::I64);
-                let n = self.emit(Instruction::ZExt { op: not_nan, from: Type::I1, to: Type::I64 }, Type::I64);
+                let s = self.emit(
+                    Instruction::ZExt {
+                        op: sign,
+                        from: Type::I1,
+                        to: Type::I64,
+                    },
+                    Type::I64,
+                );
+                let n = self.emit(
+                    Instruction::ZExt {
+                        op: not_nan,
+                        from: Type::I1,
+                        to: Type::I64,
+                    },
+                    Type::I64,
+                );
                 let e = self.emit(Instruction::And(s, n), Type::I64);
                 self.emit(Instruction::ICmp(ICmpOp::Ne, e, c(0)), Type::I1)
             }
@@ -392,21 +548,59 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             "abs" => {
                 let b = bits(self, x);
                 let m = self.emit(Instruction::And(b, c(i64::MAX)), Type::I64);
-                self.emit(Instruction::Bitcast { op: m, to: Type::F64 }, Type::F64)
+                self.emit(
+                    Instruction::Bitcast {
+                        op: m,
+                        to: Type::F64,
+                    },
+                    Type::F64,
+                )
             }
             // `toInt`/`truncate`: in [-2^63, 2^63) the `fptosi`; outside (and NaN),
             // the SDK member, which throws the `UnsupportedError`.
             _ => {
-                let lo = self.emit(Instruction::FCmp(FCmpOp::Ge, x.clone(), Operand::Constant(Constant::Double(-(2f64.powi(63))))), Type::I1);
-                let hi = self.emit(Instruction::FCmp(FCmpOp::Lt, x.clone(), Operand::Constant(Constant::Double(2f64.powi(63)))), Type::I1);
-                let lo = self.emit(Instruction::ZExt { op: lo, from: Type::I1, to: Type::I64 }, Type::I64);
-                let hi = self.emit(Instruction::ZExt { op: hi, from: Type::I1, to: Type::I64 }, Type::I64);
+                let lo = self.emit(
+                    Instruction::FCmp(
+                        FCmpOp::Ge,
+                        x.clone(),
+                        Operand::Constant(Constant::Double(-(2f64.powi(63)))),
+                    ),
+                    Type::I1,
+                );
+                let hi = self.emit(
+                    Instruction::FCmp(
+                        FCmpOp::Lt,
+                        x.clone(),
+                        Operand::Constant(Constant::Double(2f64.powi(63))),
+                    ),
+                    Type::I1,
+                );
+                let lo = self.emit(
+                    Instruction::ZExt {
+                        op: lo,
+                        from: Type::I1,
+                        to: Type::I64,
+                    },
+                    Type::I64,
+                );
+                let hi = self.emit(
+                    Instruction::ZExt {
+                        op: hi,
+                        from: Type::I1,
+                        to: Type::I64,
+                    },
+                    Type::I64,
+                );
                 let ok = self.emit(Instruction::And(lo, hi), Type::I64);
                 let ok = self.emit(Instruction::ICmp(ICmpOp::Ne, ok, c(0)), Type::I1);
                 let fast = self.new_block();
                 let slow = self.new_block();
                 let join = self.new_block();
-                self.terminate(Terminator::CondBranch { cond: ok, then_block: fast, else_block: slow });
+                self.terminate(Terminator::CondBranch {
+                    cond: ok,
+                    then_block: fast,
+                    else_block: slow,
+                });
                 self.set_block(fast);
                 let r = self.emit(Instruction::DoubleToInt(x.clone()), Type::I64);
                 let fast_end = self.current_block;
@@ -422,7 +616,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.terminate(Terminator::Branch(join));
                 self.set_block(join);
-                self.emit(Instruction::Phi { incoming: vec![(fast_end, r), (slow_end, s)], ty: Type::I64 }, Type::I64)
+                self.emit(
+                    Instruction::Phi {
+                        incoming: vec![(fast_end, r), (slow_end, s)],
+                        ty: Type::I64,
+                    },
+                    Type::I64,
+                )
             }
         }
     }

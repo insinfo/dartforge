@@ -43,22 +43,21 @@
 use llvm_sys::core::{
     LLVMAddFunction, LLVMConstIntGetSExtValue, LLVMContextCreate, LLVMContextDispose,
     LLVMCountParamTypes, LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMDisposeMemoryBuffer,
-    LLVMDisposeMessage, LLVMDisposeModule, LLVMGetCalledValue, LLVMGetFirstBasicBlock,
-    LLVMGetFirstFunction, LLVMGetFirstInstruction, LLVMGetNextBasicBlock, LLVMGetNextFunction,
-    LLVMGetNextInstruction, LLVMGetNumOperands, LLVMGetOperand, LLVMGetParamTypes,
-    LLVMGetReturnType, LLVMGetValueName2, LLVMGlobalGetValueType, LLVMIsACallInst,
-    LLVMIsAConstantInt, LLVMIsDeclaration, LLVMIsFunctionVarArg, LLVMPrintTypeToString,
-    LLVMReplaceAllUsesWith, LLVMSetValueName2, LLVMGetInitializer, LLVMIsAGlobalVariable,
-    LLVMIsAConstantDataSequential, LLVMGetAsString,
+    LLVMDisposeMessage, LLVMDisposeModule, LLVMGetAsString, LLVMGetCalledValue,
+    LLVMGetFirstBasicBlock, LLVMGetFirstFunction, LLVMGetFirstInstruction, LLVMGetInitializer,
+    LLVMGetNextBasicBlock, LLVMGetNextFunction, LLVMGetNextInstruction, LLVMGetNumOperands,
+    LLVMGetOperand, LLVMGetParamTypes, LLVMGetReturnType, LLVMGetValueName2,
+    LLVMGlobalGetValueType, LLVMIsACallInst, LLVMIsAConstantDataSequential, LLVMIsAConstantInt,
+    LLVMIsAGlobalVariable, LLVMIsDeclaration, LLVMIsFunctionVarArg, LLVMPrintTypeToString,
+    LLVMReplaceAllUsesWith, LLVMSetValueName2,
 };
 use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage};
 use llvm_sys::ir_reader::LLVMParseIRInContext2;
 use llvm_sys::orc2::lljit::{
     LLVMOrcCreateLLJIT, LLVMOrcCreateLLJITBuilder, LLVMOrcDisposeLLJIT,
-    LLVMOrcLLJITAddLLVMIRModuleWithRT,
-    LLVMOrcLLJITBuilderSetJITTargetMachineBuilder, LLVMOrcLLJITGetDataLayoutStr,
-    LLVMOrcLLJITGetMainJITDylib, LLVMOrcLLJITGetTripleString, LLVMOrcLLJITLookup,
-    LLVMOrcLLJITMangleAndIntern, LLVMOrcLLJITRef,
+    LLVMOrcLLJITAddLLVMIRModuleWithRT, LLVMOrcLLJITBuilderSetJITTargetMachineBuilder,
+    LLVMOrcLLJITGetDataLayoutStr, LLVMOrcLLJITGetMainJITDylib, LLVMOrcLLJITGetTripleString,
+    LLVMOrcLLJITLookup, LLVMOrcLLJITMangleAndIntern, LLVMOrcLLJITRef,
 };
 use llvm_sys::orc2::{
     LLVMJITEvaluatedSymbol, LLVMJITSymbolFlags, LLVMJITSymbolGenericFlags, LLVMOrcAbsoluteSymbols,
@@ -260,7 +259,11 @@ pub(crate) fn parse_module(name: &str, ir: &str) -> Result<ParsedModule, String>
             llvm_sys::analysis::LLVMVerifierFailureAction::LLVMReturnStatusAction,
             &mut detail_msg,
         ) != 0;
-        let text = if detail_msg.is_null() { String::new() } else { take_message(detail_msg) };
+        let text = if detail_msg.is_null() {
+            String::new()
+        } else {
+            take_message(detail_msg)
+        };
         if invalid_one {
             LLVMDisposeModule(module);
             LLVMContextDispose(context);
@@ -625,9 +628,14 @@ impl ParsedModule {
         // SAFETY: the definitions are live values of this module; the new name is
         // copied by LLVM.
         unsafe {
-            let definition = self.definitions().into_iter().find(|&f| value_name(f) == of);
+            let definition = self
+                .definitions()
+                .into_iter()
+                .find(|&f| value_name(f) == of);
             let busy = self.definitions().into_iter().any(|f| value_name(f) == to);
-            let Some(function) = definition.filter(|_| !busy) else { return false };
+            let Some(function) = definition.filter(|_| !busy) else {
+                return false;
+            };
             self.rename_definition(function, to);
             value_name(function) == to
         }
@@ -747,8 +755,16 @@ impl ParsedModule {
 
     /// Only definitions or a previously certified, delta-kept resume entry can
     /// justify an asynchronous frame ABI. An imported declaration alone cannot.
-    pub(crate) fn frame_contract(&self, ir: &str, previous: &crate::frame_layouts::BodyLayouts) -> Result<(Vec<(i64, i64)>, crate::frame_layouts::BodyLayouts), String> {
-        let definitions: Vec<_> = self.signatures().into_iter().map(|signature| signature.name).collect();
+    pub(crate) fn frame_contract(
+        &self,
+        ir: &str,
+        previous: &crate::frame_layouts::BodyLayouts,
+    ) -> Result<(Vec<(i64, i64)>, crate::frame_layouts::BodyLayouts), String> {
+        let definitions: Vec<_> = self
+            .signatures()
+            .into_iter()
+            .map(|signature| signature.name)
+            .collect();
         crate::frame_layouts::classify(ir, &self.allocation_layouts(), &definitions, previous)
     }
 
@@ -897,8 +913,14 @@ impl ParsedModule {
                     continue;
                 }
                 llvm_sys::comdat::LLVMSetComdat(function, ptr::null_mut());
-                llvm_sys::core::LLVMSetLinkage(function, llvm_sys::LLVMLinkage::LLVMInternalLinkage);
-                llvm_sys::core::LLVMSetVisibility(function, llvm_sys::LLVMVisibility::LLVMDefaultVisibility);
+                llvm_sys::core::LLVMSetLinkage(
+                    function,
+                    llvm_sys::LLVMLinkage::LLVMInternalLinkage,
+                );
+                llvm_sys::core::LLVMSetVisibility(
+                    function,
+                    llvm_sys::LLVMVisibility::LLVMDefaultVisibility,
+                );
             }
         }
         // What the entry does not reach goes away before code generation (a
@@ -909,7 +931,12 @@ impl ParsedModule {
         // here, and the returned error is consumed.
         unsafe {
             let options = llvm_sys::transforms::pass_builder::LLVMCreatePassBuilderOptions();
-            let error = llvm_sys::transforms::pass_builder::LLVMRunPasses(self.module, pipeline.as_ptr(), ptr::null_mut(), options);
+            let error = llvm_sys::transforms::pass_builder::LLVMRunPasses(
+                self.module,
+                pipeline.as_ptr(),
+                ptr::null_mut(),
+                options,
+            );
             llvm_sys::transforms::pass_builder::LLVMDisposePassBuilderOptions(options);
             if !error.is_null() {
                 let msg = LLVMGetErrorMessage(error);
@@ -921,7 +948,10 @@ impl ParsedModule {
     fn local_function(&self, function: LLVMValueRef) -> bool {
         // SAFETY: `function` came from the traversal of this module's definitions.
         let linkage = unsafe { llvm_sys::core::LLVMGetLinkage(function) };
-        matches!(linkage, llvm_sys::LLVMLinkage::LLVMInternalLinkage | llvm_sys::LLVMLinkage::LLVMPrivateLinkage)
+        matches!(
+            linkage,
+            llvm_sys::LLVMLinkage::LLVMInternalLinkage | llvm_sys::LLVMLinkage::LLVMPrivateLinkage
+        )
     }
 }
 
@@ -942,7 +972,12 @@ unsafe fn object_new_layout(instruction: LLVMValueRef) -> Option<(i64, i64)> {
         // `dartforge_object_new_t` is the source SDK's (registers the method
         // table on the first allocation); the first two arguments are the
         // same.
-        if callee.is_null() || !matches!(value_name(callee).as_str(), "dartforge_object_new" | "dartforge_object_new_t") {
+        if callee.is_null()
+            || !matches!(
+                value_name(callee).as_str(),
+                "dartforge_object_new" | "dartforge_object_new_t"
+            )
+        {
             return None;
         }
         if LLVMGetNumOperands(instruction) < 3 {
@@ -994,7 +1029,8 @@ unsafe fn class_name_registration(instruction: LLVMValueRef) -> Option<(i64, Str
         if bytes.is_null() {
             return None;
         }
-        let name = String::from_utf8_lossy(std::slice::from_raw_parts(bytes.cast::<u8>(), len)).into_owned();
+        let name = String::from_utf8_lossy(std::slice::from_raw_parts(bytes.cast::<u8>(), len))
+            .into_owned();
         Some((LLVMConstIntGetSExtValue(class_id) as i64, name))
     }
 }
@@ -1197,18 +1233,31 @@ fn target_machine() -> Result<LLVMTargetMachineRef, String> {
         let mut target = ptr::null_mut();
         let mut message = ptr::null_mut();
         if LLVMGetTargetFromTriple(triple, &mut target, &mut message) != 0 {
-            let detail = if message.is_null() { "unknown target".to_owned() } else { take_message(message) };
+            let detail = if message.is_null() {
+                "unknown target".to_owned()
+            } else {
+                take_message(message)
+            };
             LLVMDisposeMessage(triple);
             return Err(format!("LLVM has no target for the host: {detail}"));
         }
         let machine = LLVMCreateTargetMachine(
             target,
             triple,
-            if cfg!(target_arch = "x86_64") { c"x86-64" } else { c"generic" }.as_ptr(),
+            if cfg!(target_arch = "x86_64") {
+                c"x86-64"
+            } else {
+                c"generic"
+            }
+            .as_ptr(),
             c"".as_ptr(),
             // With map-based roots, never `-O0` (FastISel has known defects
             // with `gc.relocate`, §3.4).
-            if roots_by_maps() { LLVMCodeGenOptLevel::LLVMCodeGenLevelLess } else { LLVMCodeGenOptLevel::LLVMCodeGenLevelNone },
+            if roots_by_maps() {
+                LLVMCodeGenOptLevel::LLVMCodeGenLevelLess
+            } else {
+                LLVMCodeGenOptLevel::LLVMCodeGenLevelNone
+            },
             LLVMRelocMode::LLVMRelocDefault,
             LLVMCodeModel::LLVMCodeModelJITDefault,
         );
@@ -1340,7 +1389,10 @@ impl Lljit {
         // data more than 4 GiB apart, which makes RuntimeDyld abort the process.
         let bounded_layout = maps || trace || cfg!(all(windows, target_arch = "x86_64"));
         let layer: *mut LayerContext = if bounded_layout {
-            Box::into_raw(Box::new(LayerContext { rec: std::sync::Mutex::new(None), trace: std::sync::Mutex::new(None) }))
+            Box::into_raw(Box::new(LayerContext {
+                rec: std::sync::Mutex::new(None),
+                trace: std::sync::Mutex::new(None),
+            }))
         } else {
             ptr::null_mut()
         };
@@ -1363,7 +1415,11 @@ impl Lljit {
                 LLVMOrcJITTargetMachineBuilderCreateFromTargetMachine(machine),
             );
             if bounded_layout {
-                llvm_sys::orc2::lljit::LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator(builder, create_layer, layer.cast());
+                llvm_sys::orc2::lljit::LLVMOrcLLJITBuilderSetObjectLinkingLayerCreator(
+                    builder,
+                    create_layer,
+                    layer.cast(),
+                );
             }
             if let Some(message) = take_error(LLVMOrcCreateLLJIT(&mut handle, builder)) {
                 release_layer();
@@ -1388,7 +1444,15 @@ impl Lljit {
         // SAFETY: `handle` was just created successfully; the main dylib
         // belongs to the `LLJIT` and is valid while this structure lives.
         let main = unsafe { LLVMOrcLLJITGetMainJITDylib(handle) };
-        Ok(Self { handle, main, layer, maps, trace, keep_resident: false, callback_owners: Vec::new() })
+        Ok(Self {
+            handle,
+            main,
+            layer,
+            maps,
+            trace,
+            keep_resident: false,
+            callback_owners: Vec::new(),
+        })
     }
 
     /// With map-based roots: the objects' maps go to this process's
@@ -1400,10 +1464,12 @@ impl Lljit {
         // SAFETY: the layer lives as long as the session.
         let layer = unsafe { &*self.layer };
         if self.maps {
-            *layer.rec.lock().unwrap_or_else(|e| e.into_inner()) = Some((register_local, deregister_local));
+            *layer.rec.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some((register_local, deregister_local));
         }
         if self.trace {
-            *layer.trace.lock().unwrap_or_else(|e| e.into_inner()) = Some((register_local_trace, deregister_local_trace));
+            *layer.trace.lock().unwrap_or_else(|e| e.into_inner()) =
+                Some((register_local_trace, deregister_local_trace));
         }
     }
 
@@ -1492,8 +1558,10 @@ impl Lljit {
                 )
             })
             .collect();
-        let pairs: Vec<(&CStr, u64)> =
-            names.iter().map(|(name, address)| (name.as_c_str(), *address)).collect();
+        let pairs: Vec<(&CStr, u64)> = names
+            .iter()
+            .map(|(name, address)| (name.as_c_str(), *address))
+            .collect();
         self.define_absolute(&pairs, exported_callable())?;
         self.define_absolute(&crt_data_symbols(), exported_data())
     }
@@ -1569,7 +1637,10 @@ impl Lljit {
         // SAFETY: `self.main` belongs to this live `LLJIT`; the returned tracker
         // comes already retained and is freed by `ResourceTracker::drop`.
         let handle = unsafe { LLVMOrcJITDylibCreateResourceTracker(self.main) };
-        ResourceTracker { handle, callback_owner: std::cell::RefCell::new(None) }
+        ResourceTracker {
+            handle,
+            callback_owner: std::cell::RefCell::new(None),
+        }
     }
 
     /// Hands the module to the `LLJIT` under the given tracker.
@@ -1672,9 +1743,16 @@ impl Lljit {
     }
 
     /// Invokes a reloadable trampoline with ABI `void ()`, checked before the FFI.
-    pub(crate) fn call_stable_void(&self, address: u64, signature: &FunctionSignature) -> Result<(), String> {
+    pub(crate) fn call_stable_void(
+        &self,
+        address: u64,
+        signature: &FunctionSignature,
+    ) -> Result<(), String> {
         if signature.var_arg || signature.ret != "void" || !signature.params.is_empty() {
-            return Err(format!("the stable entry has signature {}, expected void ()", signature.text()));
+            return Err(format!(
+                "the stable entry has signature {}, expected void ()",
+                signature.text()
+            ));
         }
         let pointer = usize::try_from(address)
             .map_err(|_| "stable entry address does not fit in usize".to_owned())?
@@ -1686,9 +1764,16 @@ impl Lljit {
     }
 
     /// Calls a stable entry with ABI `i32 ()` (the source SDK's `main`).
-    pub(crate) fn call_stable_i32(&self, address: u64, signature: &FunctionSignature) -> Result<i32, String> {
+    pub(crate) fn call_stable_i32(
+        &self,
+        address: u64,
+        signature: &FunctionSignature,
+    ) -> Result<i32, String> {
         if signature.var_arg || signature.ret != "i32" || !signature.params.is_empty() {
-            return Err(format!("the stable entry has signature {}, expected i32 ()", signature.text()));
+            return Err(format!(
+                "the stable entry has signature {}, expected i32 ()",
+                signature.text()
+            ));
         }
         let pointer = usize::try_from(address)
             .map_err(|_| "stable entry address does not fit in usize".to_owned())?
@@ -1770,14 +1855,18 @@ impl Drop for Lljit {
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn LoadLibraryW(name: *const u16) -> *mut std::ffi::c_void;
-    fn GetProcAddress(module: *mut std::ffi::c_void, name: *const std::ffi::c_char) -> *mut std::ffi::c_void;
+    fn GetProcAddress(
+        module: *mut std::ffi::c_void,
+        name: *const std::ffi::c_char,
+    ) -> *mut std::ffi::c_void;
 }
 
 #[cfg(unix)]
 #[cfg_attr(target_os = "linux", link(name = "dl"))]
 unsafe extern "C" {
     fn dlopen(name: *const std::ffi::c_char, mode: std::ffi::c_int) -> *mut std::ffi::c_void;
-    fn dlsym(module: *mut std::ffi::c_void, name: *const std::ffi::c_char) -> *mut std::ffi::c_void;
+    fn dlsym(module: *mut std::ffi::c_void, name: *const std::ffi::c_char)
+    -> *mut std::ffi::c_void;
 }
 
 /// `RTLD_NOW | RTLD_LOCAL`: everything resolved at load time, and the library's names
@@ -1801,7 +1890,9 @@ fn load_library(file_path: &std::path::Path) -> *mut std::ffi::c_void {
 #[cfg(unix)]
 fn load_library(file_path: &std::path::Path) -> *mut std::ffi::c_void {
     use std::os::unix::ffi::OsStrExt;
-    let Ok(c) = CString::new(file_path.as_os_str().as_bytes()) else { return std::ptr::null_mut() };
+    let Ok(c) = CString::new(file_path.as_os_str().as_bytes()) else {
+        return std::ptr::null_mut();
+    };
     // SAFETY: `c` is a zero-terminated path; the library stays loaded
     // until the end of the process (it is never unloaded).
     unsafe { dlopen(c.as_ptr(), RTLD_NOW_LOCAL) }
@@ -1865,7 +1956,10 @@ pub(crate) fn set_script_in_library(dll: &std::path::Path, file_path: &[u8]) -> 
 }
 
 /// Publishes the explicit source-loader config to the SDK runtime instance.
-pub(crate) fn set_package_config_in_library(dll: &std::path::Path, config: Option<&str>) -> Result<(), String> {
+pub(crate) fn set_package_config_in_library(
+    dll: &std::path::Path,
+    config: Option<&str>,
+) -> Result<(), String> {
     let module = load_library(dll);
     if module.is_null() {
         return Err(format!("could not load the SDK library {}", dll.display()));
@@ -1930,7 +2024,11 @@ extern "C" fn serve_reload_request(datum: usize, execute_fn: i32) {
     // runtime calls this function only once per accepted request.
     let request = unsafe { &*(datum as *const ReloadRequest) };
     if execute_fn != 0 {
-        let task = request.task.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let task = request
+            .task
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         if let Some(task) = task {
             task();
         }
@@ -1943,7 +2041,8 @@ impl ReloadRuntime {
     /// This process's runtime (`dartforge_runtime::abi`).
     pub(crate) fn embedded() -> Self {
         Self {
-            request_fn: dartforge_runtime::abi::dartforge_request_at_safepoint as *const () as usize,
+            request_fn: dartforge_runtime::abi::dartforge_request_at_safepoint as *const ()
+                as usize,
             publish: dartforge_runtime::abi::dartforge_publish_generation as *const () as usize,
             stop: dartforge_runtime::abi::dartforge_stop_isolates as *const () as usize,
             free: dartforge_runtime::abi::dartforge_release_isolates as *const () as usize,
@@ -1992,7 +2091,10 @@ impl ReloadRuntime {
         // SAFETY: `migrate` is `dartforge_set_migration` (`selectors.rs`),
         // which copies the `data.len()` words.
         unsafe {
-            std::mem::transmute::<usize, unsafe extern "C" fn(*const i64, i64)>(self.migrate)(data.as_ptr(), data.len() as i64);
+            std::mem::transmute::<usize, unsafe extern "C" fn(*const i64, i64)>(self.migrate)(
+                data.as_ptr(),
+                data.len() as i64,
+            );
         }
     }
 
@@ -2010,11 +2112,19 @@ impl ReloadRuntime {
         // SAFETY: `request_fn` is `dartforge_request_at_safepoint` (`ports.rs`),
         // with this signature; the request lives until the answer below.
         let accepted = unsafe {
-            let request_fn: extern "C" fn(extern "C" fn(usize, i32), usize) -> i32 = std::mem::transmute(self.request_fn);
-            request_fn(serve_reload_request, &request as *const ReloadRequest as usize)
+            let request_fn: extern "C" fn(extern "C" fn(usize, i32), usize) -> i32 =
+                std::mem::transmute(self.request_fn);
+            request_fn(
+                serve_reload_request,
+                &request as *const ReloadRequest as usize,
+            )
         };
         if accepted == 0 {
-            let task = request.task.lock().unwrap_or_else(|e| e.into_inner()).take();
+            let task = request
+                .task
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .take();
             return Err(task.expect("a refused request keeps the task"));
         }
         let mut response = request.response.lock().unwrap_or_else(|e| e.into_inner());
@@ -2038,7 +2148,11 @@ impl ReloadRuntime {
         if ran {
             return Ok(());
         }
-        let task = request.task.lock().unwrap_or_else(|e| e.into_inner()).take();
+        let task = request
+            .task
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take();
         Err(task.expect("a discarded request keeps the task"))
     }
 
@@ -2050,18 +2164,34 @@ impl ReloadRuntime {
     }
 
     /// Releases the stop: each isolate redoes the registrations of the new generation.
-    pub(crate) fn release_isolates(&self, stopped_flag: usize, area: Option<u64>, register: Option<u64>, rti: Option<u64>) {
+    pub(crate) fn release_isolates(
+        &self,
+        stopped_flag: usize,
+        area: Option<u64>,
+        register: Option<u64>,
+        rti: Option<u64>,
+    ) {
         let e = |x: Option<u64>| x.map_or(0, |v| v as usize);
         // SAFETY: `free` is `dartforge_release_isolates` (`ports.rs`), and
         // `stopped_flag` came from `stop_isolates`, once.
         unsafe {
-            std::mem::transmute::<usize, extern "C" fn(usize, usize, usize, usize)>(self.free)(stopped_flag, e(area), e(register), e(rti));
+            std::mem::transmute::<usize, extern "C" fn(usize, usize, usize, usize)>(self.free)(
+                stopped_flag,
+                e(area),
+                e(register),
+                e(rti),
+            );
         }
     }
 
     /// `dartforge_publish_generation(area, register, rti)`: the globals area
     /// and the registrations of the new generation, on the program thread.
-    pub(crate) fn publish_records(&self, area: Option<u64>, register: Option<u64>, rti: Option<u64>) {
+    pub(crate) fn publish_records(
+        &self,
+        area: Option<u64>,
+        register: Option<u64>,
+        rti: Option<u64>,
+    ) {
         let as_fn = |address: Option<u64>| {
             // SAFETY: the addresses are `void ()` trampolines of the session
             // (`df.prepare_area`, `df.register.program`,
@@ -2071,8 +2201,11 @@ impl ReloadRuntime {
         };
         // SAFETY: `publish` is `dartforge_publish_generation` (`selectors.rs`).
         unsafe {
-            let publish: extern "C" fn(Option<extern "C" fn()>, Option<extern "C" fn()>, Option<extern "C" fn()>) =
-                std::mem::transmute(self.publish);
+            let publish: extern "C" fn(
+                Option<extern "C" fn()>,
+                Option<extern "C" fn()>,
+                Option<extern "C" fn()>,
+            ) = std::mem::transmute(self.publish);
             publish(as_fn(area), as_fn(register), as_fn(rti));
         }
     }
@@ -2109,7 +2242,9 @@ impl GlobalCopy {
     pub(crate) fn apply(self) {
         // SAFETY: both addresses are materialized LLJIT globals, of the
         // same size (`Lljit::global_copy`), of retained generations.
-        unsafe { std::ptr::copy_nonoverlapping(self.of as *const u8, self.to as *mut u8, self.size) };
+        unsafe {
+            std::ptr::copy_nonoverlapping(self.of as *const u8, self.to as *mut u8, self.size)
+        };
     }
 }
 
@@ -2141,7 +2276,10 @@ impl Lljit {
         dll: &std::path::Path,
         names: &[String],
     ) -> Result<(), String> {
-        if names.iter().any(|name| !RUNTIME_DATA_SYMBOLS.contains(&name.as_str())) {
+        if names
+            .iter()
+            .any(|name| !RUNTIME_DATA_SYMBOLS.contains(&name.as_str()))
+        {
             return Err("unreviewed runtime data import".to_owned());
         }
         let module = load_library(dll);
@@ -2150,21 +2288,31 @@ impl Lljit {
         }
         let mut pairs = Vec::with_capacity(names.len());
         for name in names {
-            let name = CString::new(name.as_str()).map_err(|_| "runtime data name contains NUL".to_owned())?;
+            let name = CString::new(name.as_str())
+                .map_err(|_| "runtime data name contains NUL".to_owned())?;
             let address = address_in_library(module, &name);
             if address.is_null() {
-                return Err(format!("the SDK library does not export runtime data {}", name.to_string_lossy()));
+                return Err(format!(
+                    "the SDK library does not export runtime data {}",
+                    name.to_string_lossy()
+                ));
             }
             pairs.push((name, address as u64));
         }
-        let borrowed: Vec<_> = pairs.iter().map(|(name, address)| (name.as_c_str(), *address)).collect();
+        let borrowed: Vec<_> = pairs
+            .iter()
+            .map(|(name, address)| (name.as_c_str(), *address))
+            .collect();
         self.define_absolute(&borrowed, exported_data())
     }
 
     /// Requested names that appear in the SDK DLL's export list.
     /// The list is consulted before publishing a new generation, so that
     /// an unknown reference refuses the reload without changing the pointers.
-    pub(crate) fn exported_symbols_in_dll(dll: &std::path::Path, used_count: &[String]) -> Result<Vec<String>, String> {
+    pub(crate) fn exported_symbols_in_dll(
+        dll: &std::path::Path,
+        used_count: &[String],
+    ) -> Result<Vec<String>, String> {
         let def = dll.with_file_name("exportados.def");
         let text = std::fs::read_to_string(&def).map_err(|e| format!("{}: {e}", def.display()))?;
         Ok(text
@@ -2182,7 +2330,12 @@ impl Lljit {
     ///
     /// # Errors
     /// Missing DLL or list, or a name in the list the DLL does not export.
-    pub(crate) fn define_symbols_from_dll(&self, dll: &std::path::Path, used_count: &[String], publish_crt: bool) -> Result<Vec<String>, String> {
+    pub(crate) fn define_symbols_from_dll(
+        &self,
+        dll: &std::path::Path,
+        used_count: &[String],
+        publish_crt: bool,
+    ) -> Result<Vec<String>, String> {
         let names = Self::exported_symbols_in_dll(dll, used_count)?;
         let module = load_library(dll);
         if module.is_null() {
@@ -2197,7 +2350,8 @@ impl Lljit {
             }
             pair_list.push((c, p as u64));
         }
-        let borrowed_list: Vec<(&CStr, u64)> = pair_list.iter().map(|(n, a)| (n.as_c_str(), *a)).collect();
+        let borrowed_list: Vec<(&CStr, u64)> =
+            pair_list.iter().map(|(n, a)| (n.as_c_str(), *a)).collect();
         self.define_absolute(&borrowed_list, exported_callable())?;
         if publish_crt {
             self.define_absolute(&crt_data_symbols(), exported_data())?;
@@ -2209,9 +2363,14 @@ impl Lljit {
     /// with a stack of `stack_bytes`; the code is what it returns. The
     /// globals of the received JIT modules go back to zero as in `run_entry`.
     /// This operation does not reset the SDK DLL's internal statics.
-    pub(crate) fn run_main(&self, stack_bytes: usize, globals: &[&MutableGlobal]) -> Result<(Duration, i32, Duration), String> {
+    pub(crate) fn run_main(
+        &self,
+        stack_bytes: usize,
+        globals: &[&MutableGlobal],
+    ) -> Result<(Duration, i32, Duration), String> {
         let phase = Instant::now();
-        let address = usize::try_from(self.lookup("main")?).map_err(|_| "main address".to_owned())?;
+        let address =
+            usize::try_from(self.lookup("main")?).map_err(|_| "main address".to_owned())?;
         let lookup = phase.elapsed();
         for global in globals {
             self.zero_global(global)?;
@@ -2223,11 +2382,14 @@ impl Lljit {
                     let started = Instant::now();
                     // SAFETY: `address` came from `LLVMOrcLLJITLookup(main)`, which the
                     // emitter writes with the C signature `i32(void)`.
-                    let code = unsafe { std::mem::transmute::<usize, extern "C" fn() -> i32>(address)() };
+                    let code =
+                        unsafe { std::mem::transmute::<usize, extern "C" fn() -> i32>(address)() };
                     (code, started.elapsed())
                 })
                 .map_err(|error| format!("could not create the thread of the program: {error}"))?;
-            handle.join().map_err(|_| "the program thread ended in a panic".to_owned())
+            handle
+                .join()
+                .map_err(|_| "the program thread ended in a panic".to_owned())
         })?;
         Ok((lookup, code, execute))
     }
@@ -2269,7 +2431,8 @@ fn runtime_symbol_addresses() -> Vec<(&'static str, usize)> {
 /// Failure to create the thread, or if the thread ends in a panic outside the
 /// `extern "C"` code (inside it a panic aborts the process, as in the AOT).
 pub(crate) fn execute_program(address: u64, stack_bytes: usize) -> Result<(i32, Duration), String> {
-    let address = usize::try_from(address).map_err(|_| "entry address does not fit in usize".to_owned())?;
+    let address =
+        usize::try_from(address).map_err(|_| "entry address does not fit in usize".to_owned())?;
     std::thread::scope(|scope| {
         let handle = std::thread::Builder::new()
             .stack_size(stack_bytes)
@@ -2321,7 +2484,11 @@ static FLTUSED: i32 = 0x9875;
 /// Data symbols the session publishes besides the runtime.
 /// Only COFF references `_fltused`; on ELF and Mach-O the list is empty.
 fn crt_data_symbols() -> Vec<(&'static CStr, u64)> {
-    if cfg!(windows) { vec![(c"_fltused", std::ptr::addr_of!(FLTUSED) as u64)] } else { Vec::new() }
+    if cfg!(windows) {
+        vec![(c"_fltused", std::ptr::addr_of!(FLTUSED) as u64)]
+    } else {
+        Vec::new()
+    }
 }
 
 /// Version of the `LLVM-C.dll` actually loaded, `(major, minor, patch)`.
@@ -2365,11 +2532,17 @@ impl ParsedModule {
 
     /// The reloadable generation keeps a copy of the program's statics.
     /// The suffix avoids collisions between generations retained in the same `JITDylib`.
-    pub(crate) fn version_mutable_globals(&self, suffix: &str) -> Result<Vec<MutableGlobal>, String> {
+    pub(crate) fn version_mutable_globals(
+        &self,
+        suffix: &str,
+    ) -> Result<Vec<MutableGlobal>, String> {
         self.prepare_mutable_globals_with_suffix(suffix)
     }
 
-    fn prepare_mutable_globals_with_suffix(&self, suffix: &str) -> Result<Vec<MutableGlobal>, String> {
+    fn prepare_mutable_globals_with_suffix(
+        &self,
+        suffix: &str,
+    ) -> Result<Vec<MutableGlobal>, String> {
         use llvm_sys::LLVMLinkage;
         let mut globals = Vec::new();
         // SAFETY: traversal through the LLVM API over the live module, ended at the
@@ -2379,9 +2552,14 @@ impl ParsedModule {
             let mut global = llvm_sys::core::LLVMGetFirstGlobal(self.module);
             while !global.is_null() {
                 let next = llvm_sys::core::LLVMGetNextGlobal(global);
-                if LLVMIsDeclaration(global) == 0 && llvm_sys::core::LLVMIsGlobalConstant(global) == 0 {
+                if LLVMIsDeclaration(global) == 0
+                    && llvm_sys::core::LLVMIsGlobalConstant(global) == 0
+                {
                     let name = value_name(global);
-                    if name.starts_with("df.jit.callback.owner.") { global = next; continue; }
+                    if name.starts_with("df.jit.callback.owner.") {
+                        global = next;
+                        continue;
+                    }
                     let init = llvm_sys::core::LLVMGetInitializer(global);
                     if init.is_null() || llvm_sys::core::LLVMIsNull(init) == 0 {
                         return Err(format!(
@@ -2404,16 +2582,29 @@ impl ParsedModule {
                         }
                     };
                     let linkage = llvm_sys::core::LLVMGetLinkage(global);
-                    if matches!(linkage, LLVMLinkage::LLVMInternalLinkage | LLVMLinkage::LLVMPrivateLinkage) {
+                    if matches!(
+                        linkage,
+                        LLVMLinkage::LLVMInternalLinkage | LLVMLinkage::LLVMPrivateLinkage
+                    ) {
                         llvm_sys::core::LLVMSetLinkage(global, LLVMLinkage::LLVMExternalLinkage);
                     }
                     let logical_name = name.clone();
-                    let name = if suffix.is_empty() { name } else {
+                    let name = if suffix.is_empty() {
+                        name
+                    } else {
                         let versioned = format!("{name}{suffix}");
-                        llvm_sys::core::LLVMSetValueName2(global, versioned.as_ptr().cast::<c_char>(), versioned.len());
+                        llvm_sys::core::LLVMSetValueName2(
+                            global,
+                            versioned.as_ptr().cast::<c_char>(),
+                            versioned.len(),
+                        );
                         versioned
                     };
-                    globals.push(MutableGlobal { logical_name, name, size });
+                    globals.push(MutableGlobal {
+                        logical_name,
+                        name,
+                        size,
+                    });
                 }
                 global = next;
             }
@@ -2426,13 +2617,26 @@ impl Lljit {
     /// The transfer of a static from the previous generation to the new one, which the
     /// publication applies before redirecting the stable entries — with the
     /// program stopped or at the safepoint, never in the middle of an event.
-    pub(crate) fn global_copy(&self, previous: &MutableGlobal, next: &MutableGlobal) -> Result<GlobalCopy, String> {
+    pub(crate) fn global_copy(
+        &self,
+        previous: &MutableGlobal,
+        next: &MutableGlobal,
+    ) -> Result<GlobalCopy, String> {
         if previous.size != next.size {
-            return Err(format!("the global {} changed from {} to {} bytes", previous.logical_name, previous.size, next.size));
+            return Err(format!(
+                "the global {} changed from {} to {} bytes",
+                previous.logical_name, previous.size, next.size
+            ));
         }
-        let of = usize::try_from(self.lookup(&previous.name)?).map_err(|_| "global address".to_owned())?;
-        let to = usize::try_from(self.lookup(&next.name)?).map_err(|_| "global address".to_owned())?;
-        Ok(GlobalCopy { of, to, size: next.size })
+        let of = usize::try_from(self.lookup(&previous.name)?)
+            .map_err(|_| "global address".to_owned())?;
+        let to =
+            usize::try_from(self.lookup(&next.name)?).map_err(|_| "global address".to_owned())?;
+        Ok(GlobalCopy {
+            of,
+            to,
+            size: next.size,
+        })
     }
 
     /// Writes zeros into the mutable global, already materialized.
@@ -2446,7 +2650,11 @@ impl Lljit {
         // generated code is running: `run_entry` only zeroes before creating the
         // program thread, and the session is borrowed through `&self`.
         unsafe {
-            std::ptr::write_bytes(usize::try_from(address).unwrap_or(usize::MAX) as *mut u8, 0, global.size);
+            std::ptr::write_bytes(
+                usize::try_from(address).unwrap_or(usize::MAX) as *mut u8,
+                0,
+                global.size,
+            );
         }
         Ok(())
     }
@@ -2455,7 +2663,12 @@ impl Lljit {
     ///
     /// # Errors
     /// Propagates LLVM's message (invalid object, duplicate symbol).
-    pub(crate) fn add_object(&self, tracker: &ResourceTracker, object: &[u8], name: &str) -> Result<(), String> {
+    pub(crate) fn add_object(
+        &self,
+        tracker: &ResourceTracker,
+        object: &[u8],
+        name: &str,
+    ) -> Result<(), String> {
         let name = CString::new(name).map_err(|_| "module name contains a null byte".to_owned())?;
         // SAFETY: the buffer is a copy of `object` and comes to belong to the
         // `LLJIT` in the next call, even when it returns an error.
@@ -2506,7 +2719,8 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
     let globals = parsed.prepare_mutable_globals()?;
     let declarations = parsed.declarations();
     let signatures = parsed.signatures();
-    let (layouts, async_frames) = parsed.frame_contract(ir, &crate::frame_layouts::BodyLayouts::new())?;
+    let (layouts, async_frames) =
+        parsed.frame_contract(ir, &crate::frame_layouts::BodyLayouts::new())?;
     let machine = target_machine()?;
     // Map-based roots: the cached object goes through the same pass the
     // session runs on modules (`transform_ir`).
@@ -2524,7 +2738,10 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
     // module without a layout is freed right after being copied into it; the returned
     // buffer is copied and freed.
     let object = unsafe {
-        if CStr::from_ptr(llvm_sys::core::LLVMGetDataLayoutStr(parsed.module)).to_bytes().is_empty() {
+        if CStr::from_ptr(llvm_sys::core::LLVMGetDataLayoutStr(parsed.module))
+            .to_bytes()
+            .is_empty()
+        {
             let data = llvm_sys::target_machine::LLVMCreateTargetDataLayout(machine);
             llvm_sys::target::LLVMSetModuleDataLayout(parsed.module, data);
             llvm_sys::target::LLVMDisposeTargetData(data);
@@ -2539,7 +2756,11 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
             &mut buffer,
         ) != 0;
         let result = if has_failed {
-            Err(if message.is_null() { "the code generator failed".to_owned() } else { take_message(message) })
+            Err(if message.is_null() {
+                "the code generator failed".to_owned()
+            } else {
+                take_message(message)
+            })
         } else {
             let start = llvm_sys::core::LLVMGetBufferStart(buffer).cast::<u8>();
             let size = llvm_sys::core::LLVMGetBufferSize(buffer);
@@ -2551,9 +2772,17 @@ pub(crate) fn compile_object(name: &str, ir: &str) -> Result<ObjectParts, String
         result
     }?;
     let target = parsed.target();
-    Ok(ObjectParts { object, declarations, signatures, layouts, async_frames, globals, target, callback_registration })
+    Ok(ObjectParts {
+        object,
+        declarations,
+        signatures,
+        layouts,
+        async_frames,
+        globals,
+        target,
+        callback_registration,
+    })
 }
-
 
 // ─── Map-based roots in the JIT (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §3.8) ───
 //
@@ -2638,7 +2867,12 @@ mod virtual_memory {
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn VirtualAlloc(address: *mut u8, size: usize, ty: u32, protection: u32) -> *mut u8;
-        fn VirtualProtect(address: *mut u8, size: usize, protection: u32, old_value: *mut u32) -> i32;
+        fn VirtualProtect(
+            address: *mut u8,
+            size: usize,
+            protection: u32,
+            old_value: *mut u32,
+        ) -> i32;
         fn VirtualFree(address: *mut u8, size: usize, ty: u32) -> i32;
         fn FlushInstructionCache(process: *mut u8, address: *const u8, size: usize) -> i32;
         fn GetCurrentProcess() -> *mut u8;
@@ -2677,7 +2911,10 @@ mod virtual_memory {
     pub(super) unsafe fn make_executable(p: *mut u8, n: usize) -> bool {
         let mut old_value = 0u32;
         // SAFETY: the function contract.
-        unsafe { VirtualProtect(p, n, PAGE_EXECUTE_READ, &mut old_value) != 0 && FlushInstructionCache(GetCurrentProcess(), p, n) != 0 }
+        unsafe {
+            VirtualProtect(p, n, PAGE_EXECUTE_READ, &mut old_value) != 0
+                && FlushInstructionCache(GetCurrentProcess(), p, n) != 0
+        }
     }
 
     /// Frees the whole region.
@@ -2694,7 +2931,14 @@ mod virtual_memory {
 #[cfg(unix)]
 mod virtual_memory {
     unsafe extern "C" {
-        fn mmap(address: *mut u8, size: usize, protection: i32, flag_bits: i32, file: i32, offset: i64) -> *mut u8;
+        fn mmap(
+            address: *mut u8,
+            size: usize,
+            protection: i32,
+            flag_bits: i32,
+            file: i32,
+            offset: i64,
+        ) -> *mut u8;
         fn mprotect(address: *mut u8, size: usize, protection: i32) -> i32;
         fn munmap(address: *mut u8, size: usize) -> i32;
         fn sysconf(name: i32) -> i64;
@@ -2711,7 +2955,11 @@ mod virtual_memory {
     const PROT_WRITE: i32 = 2;
     const PROT_EXEC: i32 = 4;
     const MAP_PRIVATE: i32 = 2;
-    const MAP_ANON: i32 = if cfg!(target_os = "macos") { 0x1000 } else { 0x20 };
+    const MAP_ANON: i32 = if cfg!(target_os = "macos") {
+        0x1000
+    } else {
+        0x20
+    };
     /// Without reserving swap for the whole region (Linux only).
     const MAP_NORESERVE: i32 = if cfg!(target_os = "linux") { 0x4000 } else { 0 };
     /// `_SC_PAGESIZE`.
@@ -2727,8 +2975,21 @@ mod virtual_memory {
     /// (null on failure).
     pub(super) fn reserve_space(n: usize) -> *mut u8 {
         // SAFETY: new anonymous mapping.
-        let p = unsafe { mmap(std::ptr::null_mut(), n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_NORESERVE, -1, 0) };
-        if p as isize == -1 { std::ptr::null_mut() } else { p }
+        let p = unsafe {
+            mmap(
+                std::ptr::null_mut(),
+                n,
+                PROT_READ | PROT_WRITE,
+                MAP_PRIVATE | MAP_ANON | MAP_NORESERVE,
+                -1,
+                0,
+            )
+        };
+        if p as isize == -1 {
+            std::ptr::null_mut()
+        } else {
+            p
+        }
     }
 
     /// The pages of an anonymous mapping are born when touched.
@@ -2824,9 +3085,15 @@ impl JitObject {
             return ptr::null_mut();
         }
         let alignment = alignment.max(16).next_power_of_two();
-        let (cursor, limit) = if code { (&mut self.code, HALF_REGION) } else { (&mut self.data, OBJECT_REGION) };
+        let (cursor, limit) = if code {
+            (&mut self.code, HALF_REGION)
+        } else {
+            (&mut self.data, OBJECT_REGION)
+        };
         let start = (*cursor + alignment - 1) & !(alignment - 1);
-        let Some(end) = start.checked_add(size.max(1)) else { return ptr::null_mut() };
+        let Some(end) = start.checked_add(size.max(1)) else {
+            return ptr::null_mut();
+        };
         if end > limit {
             return ptr::null_mut();
         }
@@ -2859,7 +3126,9 @@ impl JitObject {
         }
         #[cfg(all(windows, target_arch = "x86_64"))]
         for &(p, n) in &self.pdata {
-            if n < 12 { continue; }
+            if n < 12 {
+                continue;
+            }
             // SAFETY: the object's relocated `.pdata`; its RVAs are relative to the
             // region base (the lowest address of the sections, as RTDyld
             // computes it: the first code section starts there).
@@ -2873,7 +3142,9 @@ impl JitObject {
             let layer = unsafe { &*self.layer };
             let rec = *layer.rec.lock().unwrap_or_else(|e| e.into_inner());
             let Some((register, _)) = rec else {
-                return Err("map-based roots in the JIT without the runtime registration".to_owned());
+                return Err(
+                    "map-based roots in the JIT without the runtime registration".to_owned(),
+                );
             };
             // SAFETY: the map section, relocated and alive as long as the object.
             unsafe { register(p, p.add(n)) };
@@ -2918,7 +3189,12 @@ impl Drop for JitObject {
             }
         }
         #[cfg(all(windows, target_arch = "x86_64"))]
-        for &(p, _) in self.pdata.iter().filter(|(_, size)| *size >= 12).take(self.registered_tables) {
+        for &(p, _) in self
+            .pdata
+            .iter()
+            .filter(|(_, size)| *size >= 12)
+            .take(self.registered_tables)
+        {
             // SAFETY: each table was registered with this address and stays
             // alive until after every registration has been removed.
             unsafe { RtlDeleteFunctionTable(p) };
@@ -2939,7 +3215,13 @@ extern "C" fn create_context(layer: *mut std::ffi::c_void) -> *mut std::ffi::c_v
 
 extern "C" fn notify_end(_layer: *mut std::ffi::c_void) {}
 
-extern "C" fn allocate_code(opaque: *mut std::ffi::c_void, size: usize, alignment: u32, _id: u32, _name: *const c_char) -> *mut u8 {
+extern "C" fn allocate_code(
+    opaque: *mut std::ffi::c_void,
+    size: usize,
+    alignment: u32,
+    _id: u32,
+    _name: *const c_char,
+) -> *mut u8 {
     // SAFETY: `opaque` is the `JitObject` from `create_context`, alive until `destroy`.
     let o = unsafe { &mut *opaque.cast::<JitObject>() };
     o.allocate(size, alignment as usize, true)
@@ -2970,7 +3252,10 @@ extern "C" fn allocate_data(
     p
 }
 
-extern "C" fn finalize_memory(opaque: *mut std::ffi::c_void, error: *mut *mut c_char) -> llvm_sys::prelude::LLVMBool {
+extern "C" fn finalize_memory(
+    opaque: *mut std::ffi::c_void,
+    error: *mut *mut c_char,
+) -> llvm_sys::prelude::LLVMBool {
     // SAFETY: `opaque` is the `JitObject` from `create_context`, alive until `destroy`.
     let o = unsafe { &mut *opaque.cast::<JitObject>() };
     match o.finalize() {
@@ -3049,7 +3334,12 @@ unsafe fn maps_pass(module: LLVMModuleRef, llvm_machine: LLVMTargetMachineRef) -
     // SAFETY: the function contract; the options are created and freed here.
     unsafe {
         let options = llvm_sys::transforms::pass_builder::LLVMCreatePassBuilderOptions();
-        let error = llvm_sys::transforms::pass_builder::LLVMRunPasses(module, c"rewrite-statepoints-for-gc,verify".as_ptr(), llvm_machine, options);
+        let error = llvm_sys::transforms::pass_builder::LLVMRunPasses(
+            module,
+            c"rewrite-statepoints-for-gc,verify".as_ptr(),
+            llvm_machine,
+            options,
+        );
         llvm_sys::transforms::pass_builder::LLVMDisposePassBuilderOptions(options);
         error
     }
@@ -3068,7 +3358,13 @@ extern "C" fn transform_ir(
     _responsibility: llvm_sys::orc2::LLVMOrcMaterializationResponsibilityRef,
 ) -> LLVMErrorRef {
     // SAFETY: `module` points to the `ThreadSafeModule` being materialized.
-    unsafe { llvm_sys::orc2::LLVMOrcThreadSafeModuleWithModuleDo(*module, pass_in_module, ptr::null_mut()) }
+    unsafe {
+        llvm_sys::orc2::LLVMOrcThreadSafeModuleWithModuleDo(
+            *module,
+            pass_in_module,
+            ptr::null_mut(),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -3111,7 +3407,11 @@ mod tests {
         unsafe {
             let mut target = ptr::null_mut();
             let mut message = ptr::null_mut();
-            assert_eq!(LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut message), 0, "no target {triple:?}");
+            assert_eq!(
+                LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut message),
+                0,
+                "no target {triple:?}"
+            );
             llvm_sys::core::LLVMSetTarget(parsed.module, triple.as_ptr());
             let machine = LLVMCreateTargetMachine(
                 target,
@@ -3171,7 +3471,9 @@ mod callback_lifetime_tests {
         // the process. Keep these metadata-only assertions isolated from the
         // other scenario's real callback publication without weakening them.
         static CALLBACK_LIFETIME_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        let _isolation = CALLBACK_LIFETIME_TEST.lock().unwrap_or_else(|error| error.into_inner());
+        let _isolation = CALLBACK_LIFETIME_TEST
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
             let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
             let directory = std::env::temp_dir().join(format!("dartforge-jit-callback-lifetime-{}-{stamp}", std::process::id()));

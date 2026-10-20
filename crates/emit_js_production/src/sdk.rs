@@ -33,12 +33,45 @@ use crate::scan;
 /// `library.member` when the prefix is in this list — otherwise `this.foo`
 /// and `opts.bar` would become symbols.
 const LIBS: &[&str] = &[
-    "dart", "_ddc_only", "_async_status_codes", "_js_shared_embedded_names", "_recipe_syntax",
-    "dart_rti", "_debugger", "_foreign_helper", "_interceptors", "_internal", "_isolate_helper",
-    "_js_annotations", "_js_helper", "_js_names", "_js_primitives", "_js_types", "_metadata",
-    "_native_typed_data", "async", "collection", "convert", "developer", "io", "isolate", "js",
-    "js_interop", "js_interop_unsafe", "js_util", "math", "typed_data", "indexed_db", "html$",
-    "html_common", "svg$", "web_audio", "web_gl", "core", "_http", "dartx",
+    "dart",
+    "_ddc_only",
+    "_async_status_codes",
+    "_js_shared_embedded_names",
+    "_recipe_syntax",
+    "dart_rti",
+    "_debugger",
+    "_foreign_helper",
+    "_interceptors",
+    "_internal",
+    "_isolate_helper",
+    "_js_annotations",
+    "_js_helper",
+    "_js_names",
+    "_js_primitives",
+    "_js_types",
+    "_metadata",
+    "_native_typed_data",
+    "async",
+    "collection",
+    "convert",
+    "developer",
+    "io",
+    "isolate",
+    "js",
+    "js_interop",
+    "js_interop_unsafe",
+    "js_util",
+    "math",
+    "typed_data",
+    "indexed_db",
+    "html$",
+    "html_common",
+    "svg$",
+    "web_audio",
+    "web_gl",
+    "core",
+    "_http",
+    "dartx",
 ];
 
 /// In rti recipes the `dart:html` and `dart:svg` libraries appear without
@@ -69,8 +102,17 @@ fn recipe_ns(p: &str) -> &str {
 /// program cites, and including them would cost the whole
 /// `_native_typed_data`.
 const BUILTIN_TAGS: &[&str] = &[
-    "Object", "String", "Number", "Boolean", "Array", "Function", "Symbol", "BigInt",
-    "Error", "TypeError", "RangeError",
+    "Object",
+    "String",
+    "Number",
+    "Boolean",
+    "Array",
+    "Function",
+    "Symbol",
+    "BigInt",
+    "Error",
+    "TypeError",
+    "RangeError",
 ];
 
 /// Libraries whose classes are **always** roots. Just one:
@@ -88,7 +130,11 @@ fn is_lib(name: &str) -> bool {
 /// can be pruned separately; the prefix alone is not enough to keep a private
 /// key used by a live getter.
 fn is_symbol_table(name: &str) -> bool {
-    name == "S" || name == "S$" || name.strip_prefix("S$").is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+    name == "S"
+        || name == "S$"
+        || name
+            .strip_prefix("S$")
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn ident_end(b: &[u8], i: usize) -> usize {
@@ -140,11 +186,18 @@ fn references(t: &str, out: &mut Vec<String>, user_module: bool) {
                 out.push(name.to_string());
             }
             // `CT.C42` is a constant.
-            if name == "CT" && member.len() > 1 && member.starts_with('C') && member[1..].bytes().all(|c| c.is_ascii_digit()) {
+            if name == "CT"
+                && member.len() > 1
+                && member.starts_with('C')
+                && member[1..].bytes().all(|c| c.is_ascii_digit())
+            {
                 out.push(format!("C#{}", &member[1..]));
             }
             advance = end2;
-        } else if end < b.len() && b[end] == b'[' && (is_lib(name) || (user_module && matches!(name, "html" | "svg"))) {
+        } else if end < b.len()
+            && b[end] == b'['
+            && (is_lib(name) || (user_module && matches!(name, "html" | "svg")))
+        {
             // `lib['A|b']` — an extension member, whose name has `|`.
             let mut j = end + 1;
             if j < b.len() && (b[j] == b'\'' || b[j] == b'"') {
@@ -184,7 +237,11 @@ fn references(t: &str, out: &mut Vec<String>, user_module: bool) {
             continue;
         }
         let mut start = i;
-        while start > 0 && (b[start - 1].is_ascii_alphanumeric() || b[start - 1] == b'_' || b[start - 1] == b'$') {
+        while start > 0
+            && (b[start - 1].is_ascii_alphanumeric()
+                || b[start - 1] == b'_'
+                || b[start - 1] == b'$')
+        {
             start -= 1;
         }
         if start == i || !is_ident_start(b, start) {
@@ -335,7 +392,11 @@ fn qualified_declaration(t: &str) -> Option<String> {
 fn member_name(t: &str) -> Option<String> {
     let t = t.trim_start();
     let t = t.strip_prefix("static").map(str::trim_start).unwrap_or(t);
-    let t = t.strip_prefix("get ").or_else(|| t.strip_prefix("set ")).map(str::trim_start).unwrap_or(t);
+    let t = t
+        .strip_prefix("get ")
+        .or_else(|| t.strip_prefix("set "))
+        .map(str::trim_start)
+        .unwrap_or(t);
     let t = t.strip_prefix('*').map(str::trim_start).unwrap_or(t);
     let b = t.as_bytes();
     if b.is_empty() {
@@ -361,9 +422,7 @@ fn member_name(t: &str) -> Option<String> {
             // In DDC `get [S.$head]()` and `get [S$2.$console]()` use a symbol
             // alias. The selector is the alias's field, not `S`.
             let prefix = &t[j..end];
-            if is_symbol_table(prefix)
-                && b.get(end) == Some(&b'.') && end + 1 < b.len()
-            {
+            if is_symbol_table(prefix) && b.get(end) == Some(&b'.') && end + 1 < b.len() {
                 let start = end + 1 + usize::from(b[end + 1] == b'$');
                 if start < b.len() && is_ident_start(b, start) {
                     let name_end = ident_end(b, start);
@@ -408,23 +467,44 @@ fn member_name(t: &str) -> Option<String> {
 fn is_selector_name(n: &str) -> bool {
     !n.is_empty()
         && is_ident_start(n.as_bytes(), 0)
-        && n.bytes().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$' | b'#' | b'|'))
+        && n.bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$' | b'#' | b'|'))
 }
 
 /// Splits `X = class … { … }` into a shell + one member per entry.
-fn split_class(src: &str, start: usize, end: usize, sym: &str, slices: &mut Vec<Slice>, group: &mut u32) -> bool {
+fn split_class(
+    src: &str,
+    start: usize,
+    end: usize,
+    sym: &str,
+    slices: &mut Vec<Slice>,
+    group: &mut u32,
+) -> bool {
     let t = &src[start..end];
-    let Some(eq) = t.find("= class ") else { return false };
-    let Some(rel) = t[eq..].find('{') else { return false };
+    let Some(eq) = t.find("= class ") else {
+        return false;
+    };
+    let Some(rel) = t[eq..].find('{') else {
+        return false;
+    };
     let open = start + eq + rel;
-    let Some(close) = scan::closing_brace(src, open) else { return false };
+    let Some(close) = scan::closing_brace(src, open) else {
+        return false;
+    };
     let body = &src[open + 1..close];
     let members = scan::class_entries(body);
     if members.len() < 3 {
         return false;
     }
     // Shell: `X = class N extends S {` … `};` plus whatever comes after.
-    slices.push(Slice { start, end: open + 1, group: None, always: false, triggers: vec![sym.to_string()], requirements: vec![] });
+    slices.push(Slice {
+        start,
+        end: open + 1,
+        group: None,
+        always: false,
+        triggers: vec![sym.to_string()],
+        requirements: vec![],
+    });
     for (a, b) in members {
         let txt = &body[a..b];
         let mut req = vec![sym.to_string()];
@@ -432,13 +512,28 @@ fn split_class(src: &str, start: usize, end: usize, sym: &str, slices: &mut Vec<
         // the class: that is the conservative side, and it is what keeps the
         // operators standing.
         if let Some(n) = member_name(txt)
-            && is_selector_name(&n) {
-                req.push(format!("sel:{n}"));
-            }
-        slices.push(Slice { start: open + 1 + a, end: open + 1 + b, group: None, always: false, triggers: vec![], requirements: req });
+            && is_selector_name(&n)
+        {
+            req.push(format!("sel:{n}"));
+        }
+        slices.push(Slice {
+            start: open + 1 + a,
+            end: open + 1 + b,
+            group: None,
+            always: false,
+            triggers: vec![],
+            requirements: req,
+        });
     }
     let _ = group;
-    slices.push(Slice { start: close, end, group: None, always: false, triggers: vec![sym.to_string()], requirements: vec![] });
+    slices.push(Slice {
+        start: close,
+        end,
+        group: None,
+        always: false,
+        triggers: vec![sym.to_string()],
+        requirements: vec![],
+    });
     true
 }
 
@@ -454,7 +549,9 @@ fn split_object(
     group: &mut u32,
 ) -> bool {
     let (start, end) = (range.start, range.end);
-    let Some(close) = scan::closing_brace(src, open) else { return false };
+    let Some(close) = scan::closing_brace(src, open) else {
+        return false;
+    };
     let body = &src[open + 1..close];
     let entries = scan::object_entries(body);
     if entries.len() < 2 {
@@ -462,7 +559,14 @@ fn split_object(
     }
     let g = *group;
     *group += 1;
-    slices.push(Slice { start, end: open + 1, group: None, always: false, triggers: vec![target.to_string()], requirements: vec![] });
+    slices.push(Slice {
+        start,
+        end: open + 1,
+        group: None,
+        always: false,
+        triggers: vec![target.to_string()],
+        requirements: vec![],
+    });
     for (a, b) in entries {
         let txt = body[a..b].trim_end().trim_end_matches(',');
         let key = entry_key(txt);
@@ -472,10 +576,30 @@ fn split_object(
             (None, _) => (vec![target.to_string()], vec![]),
         };
         let shift = body[a..b].len() - body[a..b].trim_end().len();
-        let cut = b - shift - if body[a..b].trim_end().ends_with(',') { 1 } else { 0 };
-        slices.push(Slice { start: open + 1 + a, end: open + 1 + cut, group: Some(g), always: false, triggers: trig, requirements: req });
+        let cut = b
+            - shift
+            - if body[a..b].trim_end().ends_with(',') {
+                1
+            } else {
+                0
+            };
+        slices.push(Slice {
+            start: open + 1 + a,
+            end: open + 1 + cut,
+            group: Some(g),
+            always: false,
+            triggers: trig,
+            requirements: req,
+        });
     }
-    slices.push(Slice { start: close, end, group: None, always: false, triggers: vec![target.to_string()], requirements: vec![] });
+    slices.push(Slice {
+        start: close,
+        end,
+        group: None,
+        always: false,
+        triggers: vec![target.to_string()],
+        requirements: vec![],
+    });
     true
 }
 
@@ -484,8 +608,16 @@ fn split_object(
 fn entry_key(t: &str) -> Option<String> {
     let t = t.trim_start();
     // Position comment that DDC emits before the `defineLazy` entries.
-    let t = if let Some(r) = t.strip_prefix("/*") { r.split_once("*/").map(|(_, x)| x.trim_start()).unwrap_or(r) } else { t };
-    let t = t.strip_prefix("get ").or_else(|| t.strip_prefix("set ")).map(str::trim_start).unwrap_or(t);
+    let t = if let Some(r) = t.strip_prefix("/*") {
+        r.split_once("*/").map(|(_, x)| x.trim_start()).unwrap_or(r)
+    } else {
+        t
+    };
+    let t = t
+        .strip_prefix("get ")
+        .or_else(|| t.strip_prefix("set "))
+        .map(str::trim_start)
+        .unwrap_or(t);
     let b = t.as_bytes();
     if b.is_empty() {
         return None;
@@ -518,8 +650,22 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
     for (start, end) in scan::declarations(src) {
         let t = &src[start..end];
         let tt = t.trim_start();
-        let simple = |g: Vec<String>| Slice { start, end, group: None, always: false, triggers: g, requirements: vec![] };
-        let always = || Slice { start, end, group: None, always: true, triggers: vec![], requirements: vec![] };
+        let simple = |g: Vec<String>| Slice {
+            start,
+            end,
+            group: None,
+            always: false,
+            triggers: g,
+            requirements: vec![],
+        };
+        let always = || Slice {
+            start,
+            end,
+            group: None,
+            always: true,
+            triggers: vec![],
+            requirements: vec![],
+        };
 
         // `dart.defineLazy(TARGET, { get x() {…}, … })` — lazy statics.
         // The 549 constants of `CT` are the largest declaration of the file
@@ -530,20 +676,32 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
             // identifier tied the group's head to the `html$` namespace,
             // which is always live, and the head cites the class: the whole
             // of `dart:html` went into a program that only does `print`.
-            if let Some(target) = qualified_target(r).or_else(|| first_ident(r).map(|(a, _)| a.to_string())) {
+            if let Some(target) =
+                qualified_target(r).or_else(|| first_ident(r).map(|(a, _)| a.to_string()))
+            {
                 let target = target.as_str();
                 let is_ct = target == "CT";
                 let is_class = target.contains('.');
                 if let Some(rel) = t.find('{') {
                     let open = start + rel;
-                    let Some(close) = scan::closing_brace(src, open) else { slices.push(always()); continue };
+                    let Some(close) = scan::closing_brace(src, open) else {
+                        slices.push(always());
+                        continue;
+                    };
                     let body = &src[open + 1..close];
                     let entries = scan::object_entries(body);
                     if entries.len() >= 2 {
                         let g = group;
                         group += 1;
                         let target_s = target.to_string();
-                        slices.push(Slice { start, end: open + 1, group: None, always: false, triggers: vec![target_s.clone()], requirements: vec![] });
+                        slices.push(Slice {
+                            start,
+                            end: open + 1,
+                            group: None,
+                            always: false,
+                            triggers: vec![target_s.clone()],
+                            requirements: vec![],
+                        });
                         for (a, b) in entries {
                             let txt = body[a..b].trim_end();
                             let key = entry_key(txt);
@@ -554,16 +712,36 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
                             // extraction does not model: it lives with the
                             // class, and only the selector prunes it.
                             let (trig, req) = match (&key, is_ct, is_class) {
-                                (Some(k), true, _) => (vec![format!("C#{}", k.trim_start_matches('C'))], vec![]),
-                                (Some(k), false, true) if per_member && is_selector_name(k) => (vec![], vec![target_s.clone(), format!("sel:{k}")]),
+                                (Some(k), true, _) => {
+                                    (vec![format!("C#{}", k.trim_start_matches('C'))], vec![])
+                                }
+                                (Some(k), false, true) if per_member && is_selector_name(k) => {
+                                    (vec![], vec![target_s.clone(), format!("sel:{k}")])
+                                }
                                 (_, false, true) => (vec![target_s.clone()], vec![]),
-                                (Some(k), false, false) => (vec![format!("{target_s}.{k}")], vec![]),
+                                (Some(k), false, false) => {
+                                    (vec![format!("{target_s}.{k}")], vec![])
+                                }
                                 (None, _, _) => (vec![target_s.clone()], vec![]),
                             };
                             let cut = a + txt.len() - usize::from(txt.ends_with(','));
-                            slices.push(Slice { start: open + 1 + a, end: open + 1 + cut, group: Some(g), always: false, triggers: trig, requirements: req });
+                            slices.push(Slice {
+                                start: open + 1 + a,
+                                end: open + 1 + cut,
+                                group: Some(g),
+                                always: false,
+                                triggers: trig,
+                                requirements: req,
+                            });
                         }
-                        slices.push(Slice { start: close, end, group: None, always: false, triggers: vec![target_s.clone()], requirements: vec![] });
+                        slices.push(Slice {
+                            start: close,
+                            end,
+                            group: None,
+                            always: false,
+                            triggers: vec![target_s.clone()],
+                            requirements: vec![],
+                        });
                         continue;
                     }
                 }
@@ -572,13 +750,22 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
         // `dart.copyProperties(io, { … })` — library top-level members.
         if let Some(r) = tt.strip_prefix("dart.copyProperties(")
             && let Some((target, _)) = first_ident(r)
-                && is_lib(target)
-                    && let Some(rel) = t.find('{') {
-                        let target = target.to_string();
-                        if split_object(src, start..end, start + rel, &target, false, &mut slices, &mut group) {
-                            continue;
-                        }
-                    }
+            && is_lib(target)
+            && let Some(rel) = t.find('{')
+        {
+            let target = target.to_string();
+            if split_object(
+                src,
+                start..end,
+                start + rel,
+                &target,
+                false,
+                &mut slices,
+                &mut group,
+            ) {
+                continue;
+            }
+        }
         // `dart_rti._Universe.addRules(u, JSON.parse('{"core|List":{…},…}'))`
         // — 315 KB of subtyping rules, one key per class.
         if tt.starts_with("dart_rti._Universe.add") && t.contains("JSON.parse(") {
@@ -591,7 +778,14 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
                     if entries.len() >= 2 {
                         let g = group;
                         group += 1;
-                        slices.push(Slice { start, end: open + 1, group: None, always: true, triggers: vec![], requirements: vec![] });
+                        slices.push(Slice {
+                            start,
+                            end: open + 1,
+                            group: None,
+                            always: true,
+                            triggers: vec![],
+                            requirements: vec![],
+                        });
                         for (a, b) in entries {
                             let txt = body[a..b].trim_end();
                             // The key comes escaped inside the JS string:
@@ -601,17 +795,42 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
                                 .trim_start_matches(['\\', '"', '\''])
                                 .split_once('|')
                                 .and_then(|(ns, rest)| {
-                                    let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$')).unwrap_or(rest.len());
+                                    let end = rest
+                                        .find(|c: char| {
+                                            !(c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                                        })
+                                        .unwrap_or(rest.len());
                                     let ns = recipe_ns(ns);
                                     is_lib(ns).then(|| format!("{ns}.{}", &rest[..end]))
                                 });
                             let cut = a + txt.len() - usize::from(txt.ends_with(','));
                             match sym {
-                                Some(s) => slices.push(Slice { start: open + 1 + a, end: open + 1 + cut, group: Some(g), always: false, triggers: vec![s], requirements: vec![] }),
-                                None => slices.push(Slice { start: open + 1 + a, end: open + 1 + cut, group: Some(g), always: true, triggers: vec![], requirements: vec![] }),
+                                Some(s) => slices.push(Slice {
+                                    start: open + 1 + a,
+                                    end: open + 1 + cut,
+                                    group: Some(g),
+                                    always: false,
+                                    triggers: vec![s],
+                                    requirements: vec![],
+                                }),
+                                None => slices.push(Slice {
+                                    start: open + 1 + a,
+                                    end: open + 1 + cut,
+                                    group: Some(g),
+                                    always: true,
+                                    triggers: vec![],
+                                    requirements: vec![],
+                                }),
                             }
                         }
-                        slices.push(Slice { start: close, end, group: None, always: true, triggers: vec![], requirements: vec![] });
+                        slices.push(Slice {
+                            start: close,
+                            end,
+                            group: None,
+                            always: true,
+                            triggers: vec![],
+                            requirements: vec![],
+                        });
                         continue;
                     }
                 }
@@ -620,41 +839,69 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
         // `var S = { $delete: dartx.delete = Symbol("dartx.delete"), … }`
         // The entry defines two names: `S.$delete` (used in the bodies) and
         // `dartx.delete` (used by our modules) — either one lights it up.
-        if (tt.starts_with("var S = {") || tt.starts_with("var S$")) && t.contains("Symbol(")
-            && let Some(rel) = t.find('{') {
-                let open = start + rel;
-                if let Some(close) = scan::closing_brace(src, open) {
-                    let body = &src[open + 1..close];
-                    let entries = scan::object_entries(body);
-                    if entries.len() >= 2 {
-                        let var = tt.trim_start_matches("var ").split(' ').next().unwrap_or("S").to_string();
-                        let g = group;
-                        group += 1;
-                        slices.push(Slice { start, end: open + 1, group: None, always: true, triggers: vec![], requirements: vec![] });
-                        for (a, b) in entries {
-                            let txt = body[a..b].trim_end();
-                            let mut trig = Vec::new();
-                            if let Some(k) = entry_key(txt) {
-                                trig.push(format!("{var}.{k}"));
-                            }
-                            // `dartx.name = Symbol(…)` or
-                            // `dart.privateName(lib, "_name")`
-                            if let Some(p) = txt.find("dartx.") {
-                                let rest = &txt[p + 6..];
-                                let f = ident_end(rest.as_bytes(), 0);
-                                if f > 0 {
-                                    trig.push(format!("dartx.{}", &rest[..f]));
-                                }
-                            }
-                            let cut = a + txt.len() - usize::from(txt.ends_with(','));
-                            let empty = trig.is_empty();
-                            slices.push(Slice { start: open + 1 + a, end: open + 1 + cut, group: Some(g), always: empty, triggers: trig, requirements: vec![] });
+        if (tt.starts_with("var S = {") || tt.starts_with("var S$"))
+            && t.contains("Symbol(")
+            && let Some(rel) = t.find('{')
+        {
+            let open = start + rel;
+            if let Some(close) = scan::closing_brace(src, open) {
+                let body = &src[open + 1..close];
+                let entries = scan::object_entries(body);
+                if entries.len() >= 2 {
+                    let var = tt
+                        .trim_start_matches("var ")
+                        .split(' ')
+                        .next()
+                        .unwrap_or("S")
+                        .to_string();
+                    let g = group;
+                    group += 1;
+                    slices.push(Slice {
+                        start,
+                        end: open + 1,
+                        group: None,
+                        always: true,
+                        triggers: vec![],
+                        requirements: vec![],
+                    });
+                    for (a, b) in entries {
+                        let txt = body[a..b].trim_end();
+                        let mut trig = Vec::new();
+                        if let Some(k) = entry_key(txt) {
+                            trig.push(format!("{var}.{k}"));
                         }
-                        slices.push(Slice { start: close, end, group: None, always: true, triggers: vec![], requirements: vec![] });
-                        continue;
+                        // `dartx.name = Symbol(…)` or
+                        // `dart.privateName(lib, "_name")`
+                        if let Some(p) = txt.find("dartx.") {
+                            let rest = &txt[p + 6..];
+                            let f = ident_end(rest.as_bytes(), 0);
+                            if f > 0 {
+                                trig.push(format!("dartx.{}", &rest[..f]));
+                            }
+                        }
+                        let cut = a + txt.len() - usize::from(txt.ends_with(','));
+                        let empty = trig.is_empty();
+                        slices.push(Slice {
+                            start: open + 1 + a,
+                            end: open + 1 + cut,
+                            group: Some(g),
+                            always: empty,
+                            triggers: trig,
+                            requirements: vec![],
+                        });
                     }
+                    slices.push(Slice {
+                        start: close,
+                        end,
+                        group: None,
+                        always: true,
+                        triggers: vec![],
+                        requirements: vec![],
+                    });
+                    continue;
                 }
             }
+        }
         // `dart.defineExtensionMethods(C, [a, b])` and its accessor sibling:
         // they install on `C.prototype[dartx.a]` what is on `C.prototype.a`.
         // If member `a` was pruned and the name stayed in the list, the
@@ -663,48 +910,83 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
         // defect that per-member granularity produced. Each name becomes a
         // unit with the **same** condition as the member: `[the class, the
         // selector]`.
-        if (tt.starts_with("dart.defineExtensionMethods(") || tt.starts_with("dart.defineExtensionAccessors("))
+        if (tt.starts_with("dart.defineExtensionMethods(")
+            || tt.starts_with("dart.defineExtensionAccessors("))
             && let Some(p) = tt.find('(')
-                && let Some(target) = qualified_target(&tt[p + 1..]) {
-                    if let Some(rel) = t.find('[') {
-                        let open = start + rel;
-                        if let Some(close) = scan::closing_bracket(src, open) {
-                            let body = &src[open + 1..close];
-                            let entries = scan::object_entries(body);
-                            if !entries.is_empty() && per_member {
-                                let g = group;
-                                group += 1;
-                                slices.push(Slice { start, end: open + 1, group: None, always: false, triggers: vec![target.clone()], requirements: vec![] });
-                                for (a, b) in entries {
-                                    let txt = body[a..b].trim_end();
-                                    let name = txt.trim().trim_end_matches(',').trim().trim_matches(['\x27', '"']);
-                                    let cut = a + txt.len() - usize::from(txt.ends_with(','));
-                                    let req = if is_selector_name(name) { vec![target.clone(), format!("sel:{name}")] } else { vec![target.clone()] };
-                                    slices.push(Slice { start: open + 1 + a, end: open + 1 + cut, group: Some(g), always: false, triggers: vec![], requirements: req });
-                                }
-                                slices.push(Slice { start: close, end, group: None, always: false, triggers: vec![target.clone()], requirements: vec![] });
-                                continue;
-                            }
+            && let Some(target) = qualified_target(&tt[p + 1..])
+        {
+            if let Some(rel) = t.find('[') {
+                let open = start + rel;
+                if let Some(close) = scan::closing_bracket(src, open) {
+                    let body = &src[open + 1..close];
+                    let entries = scan::object_entries(body);
+                    if !entries.is_empty() && per_member {
+                        let g = group;
+                        group += 1;
+                        slices.push(Slice {
+                            start,
+                            end: open + 1,
+                            group: None,
+                            always: false,
+                            triggers: vec![target.clone()],
+                            requirements: vec![],
+                        });
+                        for (a, b) in entries {
+                            let txt = body[a..b].trim_end();
+                            let name = txt
+                                .trim()
+                                .trim_end_matches(',')
+                                .trim()
+                                .trim_matches(['\x27', '"']);
+                            let cut = a + txt.len() - usize::from(txt.ends_with(','));
+                            let req = if is_selector_name(name) {
+                                vec![target.clone(), format!("sel:{name}")]
+                            } else {
+                                vec![target.clone()]
+                            };
+                            slices.push(Slice {
+                                start: open + 1 + a,
+                                end: open + 1 + cut,
+                                group: Some(g),
+                                always: false,
+                                triggers: vec![],
+                                requirements: req,
+                            });
                         }
+                        slices.push(Slice {
+                            start: close,
+                            end,
+                            group: None,
+                            always: false,
+                            triggers: vec![target.clone()],
+                            requirements: vec![],
+                        });
+                        continue;
                     }
-                    slices.push(simple(vec![target]));
-                    continue;
                 }
+            }
+            slices.push(simple(vec![target]));
+            continue;
+        }
         // `dart.registerExtension("XMLHttpRequest", html$.HttpRequest);`
         // — the target is the **second** argument.
         if let Some(r) = tt.strip_prefix("dart.registerExtension(")
             && let Some((tag, rest)) = r.split_once(',')
-                && let Some(v) = qualified_target(rest) {
-                    let tag = tag.trim().trim_matches(['"', '\x27']);
-                    if BUILTIN_TAGS.contains(&tag) {
-                        roots.push(v.clone());
-                    }
-                    slices.push(simple(vec![v]));
-                    continue;
-                }
+            && let Some(v) = qualified_target(rest)
+        {
+            let tag = tag.trim().trim_matches(['"', '\x27']);
+            if BUILTIN_TAGS.contains(&tag) {
+                roots.push(v.clone());
+            }
+            slices.push(simple(vec![v]));
+            continue;
+        }
         // `lib.Name = …` / `lib.Name[…] = …`
         if let Some(v) = qualified_declaration(tt) {
-            if per_member && tt.contains("= class ") && split_class(src, start, end, &v, &mut slices, &mut group) {
+            if per_member
+                && tt.contains("= class ")
+                && split_class(src, start, end, &v, &mut slices, &mut group)
+            {
                 continue;
             }
             slices.push(simple(vec![v]));
@@ -716,21 +998,23 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
         // `collection['NullableIterableExtensions|get#nonNulls']` and the
         // declaration was tied to a symbol nobody cites.
         if let Some((a, i)) = first_ident(tt)
-            && is_lib(a) && tt.as_bytes().get(i) == Some(&b'[') {
-                let b = tt.as_bytes();
-                if matches!(b.get(i + 1), Some(b'\'') | Some(b'"')) {
-                    let quote = b[i + 1];
-                    let start = i + 2;
-                    let mut j = start;
-                    while j < b.len() && b[j] != quote {
-                        j += 1;
-                    }
-                    if j < b.len() {
-                        slices.push(simple(vec![format!("{a}.{}", &tt[start..j])]));
-                        continue;
-                    }
+            && is_lib(a)
+            && tt.as_bytes().get(i) == Some(&b'[')
+        {
+            let b = tt.as_bytes();
+            if matches!(b.get(i + 1), Some(b'\'') | Some(b'"')) {
+                let quote = b[i + 1];
+                let start = i + 2;
+                let mut j = start;
+                while j < b.len() && b[j] != quote {
+                    j += 1;
+                }
+                if j < b.len() {
+                    slices.push(simple(vec![format!("{a}.{}", &tt[start..j])]));
+                    continue;
                 }
             }
+        }
         // `(lib.Name.ctor = function …).prototype = …` / `(Var[dart.mixinNew] = …)`
         if let Some(r) = tt.strip_prefix('(') {
             if let Some(v) = qualified_target(r) {
@@ -738,32 +1022,37 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
                 continue;
             }
             if let Some((a, i)) = first_ident(r)
-                && matches!(r.as_bytes().get(i), Some(b'.') | Some(b'[')) {
-                    slices.push(simple(vec![a.to_string()]));
-                    continue;
-                }
+                && matches!(r.as_bytes().get(i), Some(b'.') | Some(b'['))
+            {
+                slices.push(simple(vec![a.to_string()]));
+                continue;
+            }
         }
         // `dart.anything(lib.Name, …)` / `dart.applyMixin(Var, …)`
         if (tt.starts_with("dart.") || tt.starts_with("dart_rti."))
-            && let Some(p) = tt.find('(') {
-                let arg = &tt[p + 1..];
-                if let Some(v) = qualified_target(arg) {
-                    slices.push(simple(vec![v]));
-                    continue;
-                }
-                if let Some((a, i)) = first_ident(arg)
-                    && !is_lib(a) && matches!(arg.as_bytes().get(i), Some(b',') | Some(b')')) {
-                        slices.push(simple(vec![a.to_string()]));
-                        continue;
-                    }
+            && let Some(p) = tt.find('(')
+        {
+            let arg = &tt[p + 1..];
+            if let Some(v) = qualified_target(arg) {
+                slices.push(simple(vec![v]));
+                continue;
             }
+            if let Some((a, i)) = first_ident(arg)
+                && !is_lib(a)
+                && matches!(arg.as_bytes().get(i), Some(b',') | Some(b')'))
+            {
+                slices.push(simple(vec![a.to_string()]));
+                continue;
+            }
+        }
         // `var X = …`
         for pref in ["var ", "let ", "const "] {
             if let Some(r) = tt.strip_prefix(pref)
-                && let Some((a, _)) = first_ident(r) {
-                    slices.push(simple(vec![a.to_string()]));
-                    break;
-                }
+                && let Some((a, _)) = first_ident(r)
+            {
+                slices.push(simple(vec![a.to_string()]));
+                break;
+            }
         }
         if slices.last().map(|f| f.start) != Some(start) {
             slices.push(always());
@@ -774,9 +1063,10 @@ fn classify(src: &str, per_member: bool) -> (Vec<Slice>, Vec<String>) {
     for f in &slices {
         for g in &f.triggers {
             if let Some((lib, _)) = g.split_once('.')
-                && ROOT_LIBS.contains(&lib) {
-                    roots.push(g.clone());
-                }
+                && ROOT_LIBS.contains(&lib)
+            {
+                roots.push(g.clone());
+            }
         }
     }
     roots.sort();
@@ -796,7 +1086,19 @@ pub fn user_roots(modules: &[Module]) -> Vec<String> {
     }
     // The bundle calls `main` at the end, and `dart_sdk.js` needs its own
     // initialization entry points even with nobody citing them.
-    for r in ["sel:main", "dart.trackLibraries", "dart._checkModuleNullSafetyMode", "dart.global", "dart.typeUniverse", "dart_rti._theUniverse", "dart_rti._Universe", "core.Object", "core.Error", "_interceptors.Interceptor", "_js_helper.Primitives"] {
+    for r in [
+        "sel:main",
+        "dart.trackLibraries",
+        "dart._checkModuleNullSafetyMode",
+        "dart.global",
+        "dart.typeUniverse",
+        "dart_rti._theUniverse",
+        "dart_rti._Universe",
+        "core.Object",
+        "core.Error",
+        "_interceptors.Interceptor",
+        "_js_helper.Primitives",
+    ] {
         v.push(r.to_string());
     }
     // Only **qualified** symbols become roots. A plain identifier from our
@@ -1024,14 +1326,22 @@ pub fn prune_with_index(src: &str, index: &SdkIndex, roots: &[String]) -> (Strin
     let units = &index.units;
     let slices = &index.slices;
     let aliases = &index.aliases;
-    let roots: Vec<u32> = roots.iter().map(|r| symbols.intern(r)).chain(index.runtime_roots.iter().copied()).collect();
+    let roots: Vec<u32> = roots
+        .iter()
+        .map(|r| symbols.intern(r))
+        .chain(index.runtime_roots.iter().copied())
+        .collect();
     let live = reach::solve(units, &roots, symbols.total());
     let live_count = live.iter().filter(|v| **v).count();
     // The key of a slice in diagnostics: the first trigger, otherwise the
     // first requirement.
     let key_of = |i: usize| -> &str {
         let u = &units[i];
-        u.triggers.first().or(u.requirements.first()).map(|&s| index.symbols[s as usize].as_str()).unwrap_or("(always)")
+        u.triggers
+            .first()
+            .or(u.requirements.first())
+            .map(|&s| index.symbols[s as usize].as_str())
+            .unwrap_or("(always)")
     };
 
     // `DARTFORGE_JSPROD_DEBUG=1` tells **who** is taking up the file. It is
@@ -1039,7 +1349,8 @@ pub fn prune_with_index(src: &str, index: &SdkIndex, roots: &[String]) -> (Strin
     // discovered that `dart.applyMixin` was being read as a declaration, and
     // not as a call).
     if std::env::var("DARTFORGE_JSPROD_DEBUG").is_ok_and(|v| v != "0") {
-        let mut by_symbol: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let mut by_symbol: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
         for (i, &(start, end, _)) in slices.iter().enumerate() {
             if !live[i] {
                 continue;
@@ -1049,7 +1360,12 @@ pub fn prune_with_index(src: &str, index: &SdkIndex, roots: &[String]) -> (Strin
         let mut v: Vec<(&str, usize)> = by_symbol.into_iter().collect();
         // A tie in size is broken by the symbol (the `HashMap` has no order).
         v.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
-        eprintln!("[jsprod] {} roots, {} symbols, {live_count}/{} live units", roots.len(), symbols.total(), slices.len());
+        eprintln!(
+            "[jsprod] {} roots, {} symbols, {live_count}/{} live units",
+            roots.len(),
+            symbols.total(),
+            slices.len()
+        );
         for (s, n) in v.iter().take(25) {
             eprintln!("[jsprod] {n:>8}  {s}");
         }
@@ -1058,11 +1374,18 @@ pub fn prune_with_index(src: &str, index: &SdkIndex, roots: &[String]) -> (Strin
     // symbol.
     if let Ok(target) = std::env::var("DARTFORGE_JSPROD_TRIGGER") {
         for target in target.split(',') {
-            let Some(d) = symbols.lookup(target) else { continue };
+            let Some(d) = symbols.lookup(target) else {
+                continue;
+            };
             for (i, &(start, end, _)) in slices.iter().enumerate() {
-                if live[i] && (units[i].triggers.contains(&d) || units[i].requirements.contains(&d)) {
+                if live[i] && (units[i].triggers.contains(&d) || units[i].requirements.contains(&d))
+                {
                     let t = &src[start..end];
-                    eprintln!("[jsprod] [{target}] {:>7}B {:?}", end - start, &t[..t.len().min(100)]);
+                    eprintln!(
+                        "[jsprod] [{target}] {:>7}B {:?}",
+                        end - start,
+                        &t[..t.len().min(100)]
+                    );
                 }
             }
         }
@@ -1081,7 +1404,10 @@ pub fn prune_with_index(src: &str, index: &SdkIndex, roots: &[String]) -> (Strin
                 if live[i] && u.refs.contains(&d) && n < 6 {
                     let t = &src[slices[i].0..slices[i].1];
                     let key = key_of(i);
-                    eprintln!("[jsprod] {target} cited by [{key}] {:?}", &t[..t.len().min(110)]);
+                    eprintln!(
+                        "[jsprod] {target} cited by [{key}] {:?}",
+                        &t[..t.len().min(110)]
+                    );
                     n += 1;
                 }
             }
@@ -1090,8 +1416,18 @@ pub fn prune_with_index(src: &str, index: &SdkIndex, roots: &[String]) -> (Strin
     // `DARTFORGE_JSPROD_PATH=core._BigIntImpl` answers who pulled it in.
     if let Ok(target) = std::env::var("DARTFORGE_JSPROD_PATH") {
         for target in target.split(',') {
-            match symbols.lookup(target).and_then(|d| reach::path(units, &roots, symbols.total(), d)) {
-                Some(c) => eprintln!("[jsprod] {target} <- {}", c.iter().rev().map(|&s| symbols.name(s)).collect::<Vec<_>>().join(" <- ")),
+            match symbols
+                .lookup(target)
+                .and_then(|d| reach::path(units, &roots, symbols.total(), d))
+            {
+                Some(c) => eprintln!(
+                    "[jsprod] {target} <- {}",
+                    c.iter()
+                        .rev()
+                        .map(|&s| symbols.name(s))
+                        .collect::<Vec<_>>()
+                        .join(" <- ")
+                ),
                 None => eprintln!("[jsprod] {target}: not reached"),
             }
         }
@@ -1162,16 +1498,27 @@ mod tests {
     #[test]
     fn constant_and_bar_member_references() {
         let mut v = Vec::new();
-        references("C[42] + CT.C7 + async['FutureRecord2|get#wait']", &mut v, false);
+        references(
+            "C[42] + CT.C7 + async['FutureRecord2|get#wait']",
+            &mut v,
+            false,
+        );
         assert!(v.contains(&"C#42".to_string()), "{v:?}");
         assert!(v.contains(&"C#7".to_string()), "{v:?}");
-        assert!(v.contains(&"async.FutureRecord2|get#wait".to_string()), "{v:?}");
+        assert!(
+            v.contains(&"async.FutureRecord2|get#wait".to_string()),
+            "{v:?}"
+        );
     }
 
     #[test]
     fn symbol_table_private_entry_reference() {
         let mut refs = Vec::new();
-        references("this[S$1._head$1] + this[S.$head] + this[S$._private]", &mut refs, false);
+        references(
+            "this[S$1._head$1] + this[S.$head] + this[S$._private]",
+            &mut refs,
+            false,
+        );
         assert!(refs.contains(&"S$1._head$1".to_string()), "{refs:?}");
         assert!(refs.contains(&"S.$head".to_string()), "{refs:?}");
         assert!(refs.contains(&"S$._private".to_string()), "{refs:?}");
@@ -1202,14 +1549,26 @@ mod tests {
 
     #[test]
     fn class_members() {
-        assert_eq!(member_name("  toString() {\n  }").as_deref(), Some("toString"));
-        assert_eq!(member_name("  get length() { return 1; }").as_deref(), Some("length"));
+        assert_eq!(
+            member_name("  toString() {\n  }").as_deref(),
+            Some("toString")
+        );
+        assert_eq!(
+            member_name("  get length() { return 1; }").as_deref(),
+            Some("length")
+        );
         assert_eq!(member_name("  static f(a) {}").as_deref(), Some("f"));
         assert_eq!(member_name("  [_priv](a) {}").as_deref(), Some("_priv"));
         assert_eq!(member_name("  [$add](a) {}").as_deref(), Some("add"));
         assert_eq!(member_name("  ['A|b'](a) {}").as_deref(), Some("A|b"));
-        assert_eq!(member_name("  get [S.$head]() { return this.head; }").as_deref(), Some("head"));
-        assert_eq!(member_name("  get [S$2.$console]() { return x; }").as_deref(), Some("console"));
+        assert_eq!(
+            member_name("  get [S.$head]() { return this.head; }").as_deref(),
+            Some("head")
+        );
+        assert_eq!(
+            member_name("  get [S$2.$console]() { return x; }").as_deref(),
+            Some("console")
+        );
         let mut refs = Vec::new();
         selectors("document[S.$head]; window[S$2.$console];", &mut refs);
         assert!(refs.contains(&"sel:head".to_string()), "{refs:?}");
@@ -1221,10 +1580,19 @@ mod tests {
     /// sites reference, so the whole set erased itself.
     #[test]
     fn call_is_not_declaration() {
-        assert_eq!(qualified_declaration("core.Object = class {};"), Some("core.Object".into()));
-        assert_eq!(qualified_declaration("core.Object[dart.x] = 1;"), Some("core.Object".into()));
+        assert_eq!(
+            qualified_declaration("core.Object = class {};"),
+            Some("core.Object".into())
+        );
+        assert_eq!(
+            qualified_declaration("core.Object[dart.x] = 1;"),
+            Some("core.Object".into())
+        );
         assert_eq!(qualified_declaration("dart.applyMixin(V, M);"), None);
-        assert_eq!(qualified_declaration("dart.setLibraryUri(core.Uri, I[1]);"), None);
+        assert_eq!(
+            qualified_declaration("dart.setLibraryUri(core.Uri, I[1]);"),
+            None
+        );
         assert_eq!(qualified_declaration("core.a === core.b;"), None);
     }
 
@@ -1264,7 +1632,10 @@ mod tests {
         assert!(out.contains("'viva'"), "{out}");
         assert!(!out.contains("'morta'"), "{out}");
         // The list stays syntactically valid (commas put back).
-        assert!(out.contains("dart.defineExtensionMethods(core.C, ["), "{out}");
+        assert!(
+            out.contains("dart.defineExtensionMethods(core.C, ["),
+            "{out}"
+        );
     }
 
     #[test]

@@ -14,9 +14,9 @@
 //! of a nested call (the original walks up a fixed number of nodes).
 //! Written without compiling or running (2026-10-05).
 
+use crate::Edit;
 use crate::actions::CodeAction;
 use crate::project::Project;
-use crate::Edit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::UnitId;
 use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, StmtId, StmtKind, UnaryOp};
@@ -25,9 +25,17 @@ fn action(uri: &str, title: &str, kind: &str, edits: Vec<(Span, String)>) -> Cod
     CodeAction {
         title: title.into(),
         kind: kind.into(),
-        edits: edits.into_iter().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+        edits: edits
+            .into_iter()
+            .map(|(span, text)| Edit {
+                uri: uri.to_string(),
+                span,
+                text,
+            })
+            .collect(),
         diagnostic: None,
-        create_file: None, linked: Default::default(),
+        create_file: None,
+        linked: Default::default(),
     }
 }
 
@@ -37,7 +45,9 @@ const MAX_PRECEDENCE: u32 = 1 << 20;
 
 /// The indentation of the line containing `offset`.
 fn indentation(source: &str, offset: usize) -> &str {
-    let start = source[..offset.min(source.len())].rfind('\n').map_or(0, |i| i + 1);
+    let start = source[..offset.min(source.len())]
+        .rfind('\n')
+        .map_or(0, |i| i + 1);
     let rest = &source[start..];
     &rest[..rest.len() - rest.trim_start_matches([' ', '\t']).len()]
 }
@@ -65,7 +75,10 @@ impl Project {
                     _ => None,
                 };
                 if let Some(new) = comparison {
-                    return (format!("{} {new} {}", text(*left), text(*right)), MAX_PRECEDENCE);
+                    return (
+                        format!("{} {new} {}", text(*left), text(*right)),
+                        MAX_PRECEDENCE,
+                    );
                 }
                 // De Morgan; each side goes in parentheses if it binds more loosely than
                 // the new operator.
@@ -78,15 +91,28 @@ impl Project {
                     let (t, p) = self.invert(unit, x);
                     if p < precedence { format!("({t})") } else { t }
                 };
-                (format!("{} {joins} {}", side(*left), side(*right)), precedence)
+                (
+                    format!("{} {joins} {}", side(*left), side(*right)),
+                    precedence,
+                )
             }
             ExprKind::Is { value, ty, negated } => {
                 let ty_ = a.types[ty.0 as usize].span;
                 let word = if *negated { "is" } else { "is!" };
-                (format!("{} {word} {}", text(*value), source.get(ty_.start..ty_.end).unwrap_or("")), MAX_PRECEDENCE)
+                (
+                    format!(
+                        "{} {word} {}",
+                        text(*value),
+                        source.get(ty_.start..ty_.end).unwrap_or("")
+                    ),
+                    MAX_PRECEDENCE,
+                )
             }
             // `!e`: the operand without the outer parentheses.
-            ExprKind::Unary { op: UnaryOp::Not, operand } => {
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                operand,
+            } => {
                 let mut inside = *operand;
                 while let ExprKind::Parenthesized(x) = &a.expr(inside).kind {
                     inside = *x;
@@ -104,12 +130,25 @@ impl Project {
         let u = self.program().unit(unit);
         let s = u.ast.expr(e).span;
         let text = u.source.get(s.start..s.end).unwrap_or("");
-        let is_bool = self.query.bodies.units[unit.0 as usize].get_type(e) == Some(self.query.core.bool_);
-        (if is_bool { format!("!{text}") } else { text.to_string() }, MAX_PRECEDENCE)
+        let is_bool =
+            self.query.bodies.units[unit.0 as usize].get_type(e) == Some(self.query.core.bool_);
+        (
+            if is_bool {
+                format!("!{text}")
+            } else {
+                text.to_string()
+            },
+            MAX_PRECEDENCE,
+        )
     }
 
     /// The assists of this list with the cursor at `offset` of `unit`.
-    pub(crate) fn condition_assists(&self, uri: &str, unit: UnitId, offset: usize) -> Vec<CodeAction> {
+    pub(crate) fn condition_assists(
+        &self,
+        uri: &str,
+        unit: UnitId,
+        offset: usize,
+    ) -> Vec<CodeAction> {
         let mut output = Vec::new();
         let u = self.program().unit(unit);
         let a = &u.ast;
@@ -124,10 +163,20 @@ impl Project {
         let if_stmt = a
             .stmts
             .iter()
-            .filter(|s| matches!(s.kind, StmtKind::If { .. }) && s.span.start <= offset && offset <= s.span.end)
+            .filter(|s| {
+                matches!(s.kind, StmtKind::If { .. })
+                    && s.span.start <= offset
+                    && offset <= s.span.end
+            })
             .min_by_key(|s| s.span.end - s.span.start);
         if let Some(s) = if_stmt
-            && let StmtKind::If { condition, case_pattern, then, else_, .. } = &s.kind
+            && let StmtKind::If {
+                condition,
+                case_pattern,
+                then,
+                else_,
+                ..
+            } = &s.kind
         {
             let cond = a.expr(*condition).span;
             let then_stmt = a.stmt(*then).span;
@@ -139,14 +188,20 @@ impl Project {
                 && is_block(*then)
                 && is_block(*else_stmt)
             {
-                let in_command = offset < cond.start || (offset > cond.end && offset <= then_stmt.start) || (offset >= then_stmt.end && offset <= a.stmt(*else_stmt).span.start);
+                let in_command = offset < cond.start
+                    || (offset > cond.end && offset <= then_stmt.start)
+                    || (offset >= then_stmt.end && offset <= a.stmt(*else_stmt).span.start);
                 if in_command {
                     let (inverted, _) = self.invert(unit, *condition);
                     output.push(action(
                         uri,
                         "Invert 'if' statement",
                         "refactor.invertIf",
-                        vec![(cond, inverted), (then_stmt, command_text(*else_stmt)), (a.stmt(*else_stmt).span, command_text(*then))],
+                        vec![
+                            (cond, inverted),
+                            (then_stmt, command_text(*else_stmt)),
+                            (a.stmt(*else_stmt).span, command_text(*then)),
+                        ],
                     ));
                 }
             }
@@ -161,16 +216,35 @@ impl Project {
                     _ => Some(*then),
                 };
                 if let Some(internal) = single
-                    && let StmtKind::If { condition: internal_cond, then: body, else_: None, .. } = &a.stmt(internal).kind
+                    && let StmtKind::If {
+                        condition: internal_cond,
+                        then: body,
+                        else_: None,
+                        ..
+                    } = &a.stmt(internal).kind
                 {
                     // `shouldWrapParenthesisBeforeAnd`: a binary expression looser than `&&`.
                     let for_and = |x: ExprId| {
                         let sp = a.expr(x).span;
                         let t = source.get(sp.start..sp.end).unwrap_or("");
-                        if matches!(a.expr(x).kind, ExprKind::Binary { op: BinaryOp::Or | BinaryOp::IfNull, .. }) { format!("({t})") } else { t.to_string() }
+                        if matches!(
+                            a.expr(x).kind,
+                            ExprKind::Binary {
+                                op: BinaryOp::Or | BinaryOp::IfNull,
+                                ..
+                            }
+                        ) {
+                            format!("({t})")
+                        } else {
+                            t.to_string()
+                        }
                     };
                     let prefix = indentation(source, s.span.start);
-                    let eol = if source.contains("\r\n") { "\r\n" } else { "\n" };
+                    let eol = if source.contains("\r\n") {
+                        "\r\n"
+                    } else {
+                        "\n"
+                    };
                     // The statements of the inner body, by whole lines, with one level of
                     // indentation less.
                     let commands: Vec<StmtId> = match &a.stmt(*body).kind {
@@ -179,9 +253,13 @@ impl Project {
                     };
                     let mut new = String::new();
                     if let (Some(first), Some(last)) = (commands.first(), commands.last()) {
-                        let from = source[..a.stmt(*first).span.start].rfind('\n').map_or(0, |i| i + 1);
+                        let from = source[..a.stmt(*first).span.start]
+                            .rfind('\n')
+                            .map_or(0, |i| i + 1);
                         let last_end = a.stmt(*last).span.end;
-                        let until = source[last_end..].find('\n').map_or(source.len(), |i| last_end + i + 1);
+                        let until = source[last_end..]
+                            .find('\n')
+                            .map_or(source.len(), |i| last_end + i + 1);
                         for line in source[from..until].split_inclusive('\n') {
                             new.push_str(line.strip_prefix("  ").unwrap_or(line));
                         }
@@ -204,7 +282,11 @@ impl Project {
             cx.next_conditional(offset).and_then(|n| cx.node_expr(n))
         };
         if let Some(e) = conditional.map(|x| a.expr(x))
-            && let ExprKind::Conditional { condition, then, else_ } = &e.kind
+            && let ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } = &e.kind
         {
             {
                 let snippet = |x: ExprId| {
@@ -212,12 +294,17 @@ impl Project {
                     (s, source.get(s.start..s.end).unwrap_or("").to_string())
                 };
                 let (inverted, _) = self.invert(unit, *condition);
-                let ((span_then, text_then), (span_else, text_else)) = (snippet(*then), snippet(*else_));
+                let ((span_then, text_then), (span_else, text_else)) =
+                    (snippet(*then), snippet(*else_));
                 output.push(action(
                     uri,
                     "Invert conditional expression",
                     "refactor.invertConditional",
-                    vec![(a.expr(*condition).span, inverted), (span_then, text_else), (span_else, text_then)],
+                    vec![
+                        (a.expr(*condition).span, inverted),
+                        (span_then, text_else),
+                        (span_else, text_then),
+                    ],
                 ));
             }
         }
@@ -238,7 +325,11 @@ impl Project {
         let u = self.program().unit(unit);
         let a = &u.ast;
         let source = u.source.as_str();
-        let eol = if source.contains("\r\n") { "\r\n" } else { "\n" };
+        let eol = if source.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
         let expression_text = |x: ExprId| {
             let s = a.expr(x).span;
             source.get(s.start..s.end).unwrap_or("")
@@ -255,10 +346,20 @@ impl Project {
             .stmts
             .iter()
             .enumerate()
-            .filter(|(_, s)| matches!(s.kind, StmtKind::If { .. }) && s.span.start <= offset && offset <= s.span.end)
+            .filter(|(_, s)| {
+                matches!(s.kind, StmtKind::If { .. })
+                    && s.span.start <= offset
+                    && offset <= s.span.end
+            })
             .min_by_key(|(_, s)| s.span.end - s.span.start);
         if let Some((index, s)) = if_stmt
-            && let StmtKind::If { condition, case_pattern, then, else_, .. } = &s.kind
+            && let StmtKind::If {
+                condition,
+                case_pattern,
+                then,
+                else_,
+                ..
+            } = &s.kind
         {
             let id = StmtId(index as u32);
             let cond = a.expr(*condition).span;
@@ -267,15 +368,32 @@ impl Project {
             // single statement) is an `if` without `else`.
             if else_.is_none() && offset <= then_stmt.start {
                 let external = a.stmts.iter().find(|x| match &x.kind {
-                    StmtKind::If { then: t, else_: None, .. } => *t == id || (*t != id && single(*t) == Some(id)),
+                    StmtKind::If {
+                        then: t,
+                        else_: None,
+                        ..
+                    } => *t == id || (*t != id && single(*t) == Some(id)),
                     _ => false,
                 });
                 if let Some(external) = external
-                    && let StmtKind::If { condition: external_cond, .. } = &external.kind
+                    && let StmtKind::If {
+                        condition: external_cond,
+                        ..
+                    } = &external.kind
                 {
                     let for_and = |x: ExprId| {
                         let t = expression_text(x);
-                        if matches!(a.expr(x).kind, ExprKind::Binary { op: BinaryOp::Or | BinaryOp::IfNull, .. }) { format!("({t})") } else { t.to_string() }
+                        if matches!(
+                            a.expr(x).kind,
+                            ExprKind::Binary {
+                                op: BinaryOp::Or | BinaryOp::IfNull,
+                                ..
+                            }
+                        ) {
+                            format!("({t})")
+                        } else {
+                            t.to_string()
+                        }
                     };
                     let prefix = indentation(source, external.span.start);
                     let commands: Vec<StmtId> = match &a.stmt(*then).kind {
@@ -284,9 +402,13 @@ impl Project {
                     };
                     let mut new = String::new();
                     if let (Some(first), Some(last)) = (commands.first(), commands.last()) {
-                        let from = source[..a.stmt(*first).span.start].rfind('\n').map_or(0, |i| i + 1);
+                        let from = source[..a.stmt(*first).span.start]
+                            .rfind('\n')
+                            .map_or(0, |i| i + 1);
                         let last_end = a.stmt(*last).span.end;
-                        let until = source[last_end..].find('\n').map_or(source.len(), |i| last_end + i + 1);
+                        let until = source[last_end..]
+                            .find('\n')
+                            .map_or(source.len(), |i| last_end + i + 1);
                         for line in source[from..until].split_inclusive('\n') {
                             new.push_str(line.strip_prefix("  ").unwrap_or(line));
                         }
@@ -296,7 +418,10 @@ impl Project {
                         uri,
                         "Join 'if' statement with outer 'if' statement",
                         "refactor.joinWithOuterIf",
-                        vec![(external.span, format!("if ({joined}) {{{eol}{new}{prefix}}}"))],
+                        vec![(
+                            external.span,
+                            format!("if ({joined}) {{{eol}{new}{prefix}}}"),
+                        )],
                     ));
                 }
             }
@@ -305,26 +430,48 @@ impl Project {
             if let Some(else_stmt) = else_
                 && case_pattern.is_none()
             {
-                let in_command = offset < cond.start || (offset > cond.end && offset <= then_stmt.start) || (offset >= then_stmt.end && offset <= a.stmt(*else_stmt).span.start);
+                let in_command = offset < cond.start
+                    || (offset > cond.end && offset <= then_stmt.start)
+                    || (offset >= then_stmt.end && offset <= a.stmt(*else_stmt).span.start);
                 if in_command && let (Some(x), Some(y)) = (single(*then), single(*else_stmt)) {
                     let c = expression_text(*condition);
                     let new = match (&a.stmt(x).kind, &a.stmt(y).kind) {
-                        (StmtKind::Return(Some(p)), StmtKind::Return(Some(q))) => {
-                            Some(format!("return {c} ? {} : {};", expression_text(*p), expression_text(*q)))
-                        }
-                        (StmtKind::Expression(p), StmtKind::Expression(q)) => match (&a.expr(*p).kind, &a.expr(*q).kind) {
-                            (
-                                ExprKind::Assign { op: ast::AssignOp::Assign, target: t1, value: v1 },
-                                ExprKind::Assign { op: ast::AssignOp::Assign, target: t2, value: v2 },
-                            ) if expression_text(*t1) == expression_text(*t2) => {
-                                Some(format!("{} = {c} ? {} : {};", expression_text(*t1), expression_text(*v1), expression_text(*v2)))
+                        (StmtKind::Return(Some(p)), StmtKind::Return(Some(q))) => Some(format!(
+                            "return {c} ? {} : {};",
+                            expression_text(*p),
+                            expression_text(*q)
+                        )),
+                        (StmtKind::Expression(p), StmtKind::Expression(q)) => {
+                            match (&a.expr(*p).kind, &a.expr(*q).kind) {
+                                (
+                                    ExprKind::Assign {
+                                        op: ast::AssignOp::Assign,
+                                        target: t1,
+                                        value: v1,
+                                    },
+                                    ExprKind::Assign {
+                                        op: ast::AssignOp::Assign,
+                                        target: t2,
+                                        value: v2,
+                                    },
+                                ) if expression_text(*t1) == expression_text(*t2) => Some(format!(
+                                    "{} = {c} ? {} : {};",
+                                    expression_text(*t1),
+                                    expression_text(*v1),
+                                    expression_text(*v2)
+                                )),
+                                _ => None,
                             }
-                            _ => None,
-                        },
+                        }
                         _ => None,
                     };
                     if let Some(new) = new {
-                        output.push(action(uri, "Replace 'if-else' with conditional ('c ? x : y')", "refactor.convert.ifElseToConditional", vec![(s.span, new)]));
+                        output.push(action(
+                            uri,
+                            "Replace 'if-else' with conditional ('c ? x : y')",
+                            "refactor.convert.ifElseToConditional",
+                            vec![(s.span, new)],
+                        ));
                     }
                 }
             }
@@ -333,33 +480,62 @@ impl Project {
         // `Join variable declaration`: `T v;` followed by `v = e;` in the same
         // block, with the cursor on the assigned name or on the declaration.
         'blocks: for block in a.stmts.iter() {
-            let StmtKind::Block(list) = &block.kind else { continue };
+            let StmtKind::Block(list) = &block.kind else {
+                continue;
+            };
             for pair in list.windows(2) {
                 let (declaration, assignment) = (a.stmt(pair[0]), a.stmt(pair[1]));
-                let StmtKind::Variables(l) = &declaration.kind else { continue };
-                let [variable] = &l.variables[..] else { continue };
+                let StmtKind::Variables(l) = &declaration.kind else {
+                    continue;
+                };
+                let [variable] = &l.variables[..] else {
+                    continue;
+                };
                 if variable.initializer.is_some() {
                     continue;
                 }
-                let StmtKind::Expression(e) = &assignment.kind else { continue };
-                let ExprKind::Assign { op: ast::AssignOp::Assign, target, value } = &a.expr(*e).kind else { continue };
-                let ExprKind::Identifier(n) = &a.expr(*target).kind else { continue };
+                let StmtKind::Expression(e) = &assignment.kind else {
+                    continue;
+                };
+                let ExprKind::Assign {
+                    op: ast::AssignOp::Assign,
+                    target,
+                    value,
+                } = &a.expr(*e).kind
+                else {
+                    continue;
+                };
+                let ExprKind::Identifier(n) = &a.expr(*target).kind else {
+                    continue;
+                };
                 if n.sym != variable.name.sym {
                     continue;
                 }
                 let target_ = a.expr(*target).span;
                 let assigned_name_node = target_.start <= offset && offset <= target_.end;
-                let in_declaration = declaration.span.start <= offset && offset < declaration.span.end;
+                let in_declaration =
+                    declaration.span.start <= offset && offset < declaration.span.end;
                 if !(assigned_name_node || in_declaration) {
                     continue;
                 }
                 // The `=` lies between the target and the value.
-                let Some(k) = source.get(target_.end..a.expr(*value).span.start).and_then(|t| t.find('=')) else { continue };
+                let Some(k) = source
+                    .get(target_.end..a.expr(*value).span.start)
+                    .and_then(|t| t.find('='))
+                else {
+                    continue;
+                };
                 output.push(action(
                     uri,
                     "Join variable declaration",
                     "refactor.joinVariableDeclaration",
-                    vec![(Span { start: variable.name.span.end, end: target_.end + k }, " ".to_string())],
+                    vec![(
+                        Span {
+                            start: variable.name.span.end,
+                            end: target_.end + k,
+                        },
+                        " ".to_string(),
+                    )],
                 ));
                 break 'blocks;
             }
@@ -382,19 +558,30 @@ impl crate::refactorings::Context<'_> {
     /// the selection node.
     pub(crate) fn next_conditional(&self, offset: usize) -> Option<usize> {
         let mut node = self.tree.locate(offset, offset)?;
-        node = self.this_or_parent_of(node, &["MethodInvocation"]).unwrap_or(node);
-        node = self.this_or_parent_of(node, &["AwaitExpression"]).unwrap_or(node);
+        node = self
+            .this_or_parent_of(node, &["MethodInvocation"])
+            .unwrap_or(node);
+        node = self
+            .this_or_parent_of(node, &["AwaitExpression"])
+            .unwrap_or(node);
         let boolean = ["IsExpression", "BinaryExpression", "BooleanLiteral"];
         let boolean_ = if boolean.contains(&self.kind(node)) {
             Some(node)
-        } else if let Some(p) = self.parent(node).filter(|&p| boolean.contains(&self.kind(p))) {
+        } else if let Some(p) = self
+            .parent(node)
+            .filter(|&p| boolean.contains(&self.kind(p)))
+        {
             Some(p)
         } else {
             self.this_or_parent_of(node, &["PrefixExpression"])
         };
         node = boolean_.unwrap_or(node);
-        node = self.this_or_parent_of(node, &["ParenthesizedExpression"]).unwrap_or(node);
-        node = self.this_or_parent_of(node, &["AwaitExpression"]).unwrap_or(node);
+        node = self
+            .this_or_parent_of(node, &["ParenthesizedExpression"])
+            .unwrap_or(node);
+        node = self
+            .this_or_parent_of(node, &["AwaitExpression"])
+            .unwrap_or(node);
         self.this_or_parent_of(node, &["ConditionalExpression"])
     }
 }

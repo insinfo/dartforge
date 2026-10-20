@@ -94,7 +94,11 @@ pub enum ArcError {
     /// count): the collection is aborted without changing anything (§22.1).
     NegativeTrial(Ref),
     /// The audit recounted a different RC.
-    Audit { handle: Ref, rc: u64, recounted: u64 },
+    Audit {
+        handle: Ref,
+        rc: u64,
+        recounted: u64,
+    },
 }
 
 /// Work counters (§22.5, §26.3).
@@ -149,7 +153,10 @@ impl ArcPage {
     /// u64: thanks to that, an index smaller than `blocks` cannot represent a product
     /// that wrapped around the address space.
     fn factors(g: Geometry) -> (u64, u32) {
-        assert!(g.size != 0 && g.size.checked_mul(u64::from(g.blocks)).is_some(), "ARC bug: invalid geometry");
+        assert!(
+            g.size != 0 && g.size.checked_mul(u64::from(g.blocks)).is_some(),
+            "ARC bug: invalid geometry"
+        );
         let offset = g.size.trailing_zeros();
         let odd = g.size >> offset;
         let mut inverse = odd;
@@ -162,7 +169,13 @@ impl ArcPage {
 
     fn new_area(g: Geometry) -> Self {
         let (inverse, offset) = Self::factors(g);
-        Self { geometry: g, inverse, offset, metas: (0..g.blocks).map(|_| None).collect(), occupied: 0 }
+        Self {
+            geometry: g,
+            inverse,
+            offset,
+            metas: (0..g.blocks).map(|_| None).collect(),
+            occupied: 0,
+        }
     }
 
     /// The index of a block start; the rotation moves the bits that are not
@@ -171,7 +184,8 @@ impl ArcPage {
     /// no division or remainder on the query path.
     #[inline]
     fn ix(&self, h: Ref) -> Option<usize> {
-        let d = (h.wrapping_sub(crate::layout::HANDLE_OFFSET) as u64).checked_sub(self.geometry.first)?;
+        let d = (h.wrapping_sub(crate::layout::HANDLE_OFFSET) as u64)
+            .checked_sub(self.geometry.first)?;
         let i = d.wrapping_mul(self.inverse).rotate_right(self.offset);
         (i < u64::from(self.geometry.blocks)).then_some(i as usize)
     }
@@ -289,7 +303,11 @@ impl Table {
         };
         let pg = &mut self.pages[p];
         if pg.geometry != g {
-            assert!(pg.occupied == 0, "ARC bug: page reformatted with {} live metadata entries", pg.occupied);
+            assert!(
+                pg.occupied == 0,
+                "ARC bug: page reformatted with {} live metadata entries",
+                pg.occupied
+            );
             pg.geometry = g;
             (pg.inverse, pg.offset) = ArcPage::factors(g);
             pg.metas.clear();
@@ -307,7 +325,8 @@ impl Table {
         let k = match self.regions.iter().position(|(x, _)| *x == r) {
             Some(k) => k,
             None => {
-                self.regions.push((r, vec![0u32; 1 << REGION_BITS].into_boxed_slice()));
+                self.regions
+                    .push((r, vec![0u32; 1 << REGION_BITS].into_boxed_slice()));
                 self.regions.len() - 1
             }
         };
@@ -341,14 +360,22 @@ impl Table {
             .flat_map(|pg| {
                 let g = pg.geometry;
                 pg.metas.iter().enumerate().filter_map(move |(i, m)| {
-                    m.as_ref().map(|m| ((g.first + i as u64 * g.size) as Ref + crate::layout::HANDLE_OFFSET, m))
+                    m.as_ref().map(|m| {
+                        (
+                            (g.first + i as u64 * g.size) as Ref + crate::layout::HANDLE_OFFSET,
+                            m,
+                        )
+                    })
                 })
             })
             .chain(self.loose.iter().map(|(&h, m)| (h, m)))
     }
 
     fn values_mut(&mut self) -> impl Iterator<Item = &mut MetaArc> + '_ {
-        self.pages.iter_mut().flat_map(|pg| pg.metas.iter_mut().flatten()).chain(self.loose.values_mut())
+        self.pages
+            .iter_mut()
+            .flat_map(|pg| pg.metas.iter_mut().flatten())
+            .chain(self.loose.values_mut())
     }
 }
 
@@ -390,7 +417,10 @@ pub struct ArcHeapState {
 
 impl ArcHeapState {
     pub fn new() -> Self {
-        ArcHeapState { next_generation: 1, ..Default::default() }
+        ArcHeapState {
+            next_generation: 1,
+            ..Default::default()
+        }
     }
 
     /// The metadata of `h`, if managed.
@@ -416,14 +446,30 @@ impl ArcHeapState {
         }
         let generation = self.next_generation;
         // Monotonic generation; overflow is an internal failure, never reuse (§19.1).
-        self.next_generation = self.next_generation.checked_add(1).expect("ARC: generation exhausted");
+        self.next_generation = self
+            .next_generation
+            .checked_add(1)
+            .expect("ARC: generation exhausted");
         self.objects.insert(
             h,
-            MetaArc { generation, rc: 1, state: ArcState::Building, candidate: false, candidate_index: usize::MAX, conditionally_protected: false, immortal: false, deferred: false, side_edges: false },
+            MetaArc {
+                generation,
+                rc: 1,
+                state: ArcState::Building,
+                candidate: false,
+                candidate_index: usize::MAX,
+                conditionally_protected: false,
+                immortal: false,
+                deferred: false,
+                side_edges: false,
+            },
             None,
         );
         self.statistics.registered_set += 1;
-        Ok(ArcId { handle: h, generation })
+        Ok(ArcId {
+            handle: h,
+            generation,
+        })
     }
 
     /// Registers an image object provably alive for the whole image (§19.1): it
@@ -440,8 +486,25 @@ impl ArcHeapState {
     /// ```
     pub fn register_immortal(&mut self, h: Ref) {
         let generation = self.next_generation;
-        self.next_generation = self.next_generation.checked_add(1).expect("ARC: generation exhausted");
-        self.objects.insert(h, MetaArc { generation, rc: 0, state: ArcState::Live, candidate: false, candidate_index: usize::MAX, conditionally_protected: false, immortal: true, deferred: false, side_edges: false }, None);
+        self.next_generation = self
+            .next_generation
+            .checked_add(1)
+            .expect("ARC: generation exhausted");
+        self.objects.insert(
+            h,
+            MetaArc {
+                generation,
+                rc: 0,
+                state: ArcState::Live,
+                candidate: false,
+                candidate_index: usize::MAX,
+                conditionally_protected: false,
+                immortal: true,
+                deferred: false,
+                side_edges: false,
+            },
+            None,
+        );
     }
 
     /// Registers an object that already exists and starts being counted (the young
@@ -471,13 +534,36 @@ impl ArcHeapState {
     pub fn register_live_at(&mut self, h: Ref, geometry: Option<Geometry>) -> ArcId {
         debug_assert!(e_handle(h));
         let generation = self.next_generation;
-        self.next_generation = self.next_generation.checked_add(1).expect("ARC: generation exhausted");
+        self.next_generation = self
+            .next_generation
+            .checked_add(1)
+            .expect("ARC: generation exhausted");
         if self.trace_log {
-            eprintln!("[arc-trace] register {h} already={}", self.objects.contains_key(&h));
+            eprintln!(
+                "[arc-trace] register {h} already={}",
+                self.objects.contains_key(&h)
+            );
         }
-        self.objects.insert(h, MetaArc { generation, rc: 0, state: ArcState::Live, candidate: false, candidate_index: usize::MAX, conditionally_protected: false, immortal: false, deferred: false, side_edges: false }, geometry);
+        self.objects.insert(
+            h,
+            MetaArc {
+                generation,
+                rc: 0,
+                state: ArcState::Live,
+                candidate: false,
+                candidate_index: usize::MAX,
+                conditionally_protected: false,
+                immortal: false,
+                deferred: false,
+                side_edges: false,
+            },
+            geometry,
+        );
         self.statistics.registered_set += 1;
-        ArcId { handle: h, generation }
+        ArcId {
+            handle: h,
+            generation,
+        }
     }
 
     /// Puts `h` in the zero queue if its RC is zero (one registered without
@@ -488,23 +574,33 @@ impl ArcHeapState {
             && m.state == ArcState::Live
             && !m.immortal
         {
-            self.zeros.push(ArcId { handle: h, generation: m.generation });
+            self.zeros.push(ArcId {
+                handle: h,
+                generation: m.generation,
+            });
         }
     }
 
     /// Object `h` is counted and alive (neither dead nor being discarded).
     pub fn alive(&self, h: Ref) -> bool {
-        self.objects.get(&h).is_some_and(|m| matches!(m.state, ArcState::Live | ArcState::Building))
+        self.objects
+            .get(&h)
+            .is_some_and(|m| matches!(m.state, ArcState::Live | ArcState::Building))
     }
 
     /// Object `h` has died (logically) and waits for the reclaimer.
     pub fn dead(&self, h: Ref) -> bool {
-        self.objects.get(&h).is_some_and(|m| m.state == ArcState::Dead)
+        self.objects
+            .get(&h)
+            .is_some_and(|m| m.state == ArcState::Dead)
     }
 
     /// The counted handles still alive.
     pub fn live_set(&self) -> impl Iterator<Item = Ref> + '_ {
-        self.objects.iter().filter(|(_, m)| matches!(m.state, ArcState::Live | ArcState::Building)).map(|(h, _)| h)
+        self.objects
+            .iter()
+            .filter(|(_, m)| matches!(m.state, ArcState::Live | ArcState::Building))
+            .map(|(h, _)| h)
     }
 
     /// Puts the live `h` among the candidates of the next cycle round: an object that
@@ -520,7 +616,10 @@ impl ArcHeapState {
         {
             m.candidate = true;
             m.candidate_index = self.candidates.len();
-            self.candidates.push(ArcId { handle: h, generation: m.generation });
+            self.candidates.push(ArcId {
+                handle: h,
+                generation: m.generation,
+            });
         }
     }
 
@@ -543,7 +642,9 @@ impl ArcHeapState {
     /// Prevents the body filter from excluding an object with side edges. The hint
     /// is conservative until the identity's next registration.
     pub(crate) fn mark_side_edges(&mut self, h: Ref) {
-        if let Some(m) = self.objects.get_mut(&h) { m.side_edges = true; }
+        if let Some(m) = self.objects.get_mut(&h) {
+            m.side_edges = true;
+        }
         self.add_candidate(h);
     }
 
@@ -553,11 +654,16 @@ impl ArcHeapState {
     /// had metadata.
     pub fn decide_young(&mut self, h: Ref) -> bool {
         let without_edges = self.without_edges;
-        let Some(m) = self.objects.get_mut(&h) else { return false };
+        let Some(m) = self.objects.get_mut(&h) else {
+            return false;
+        };
         if m.immortal || m.state != ArcState::Live {
             return true;
         }
-        let id = ArcId { handle: h, generation: m.generation };
+        let id = ArcId {
+            handle: h,
+            generation: m.generation,
+        };
         if m.rc == 0 {
             self.zeros.push(id);
         }
@@ -595,7 +701,9 @@ impl ArcHeapState {
         if !e_handle(h) {
             return Ok(true);
         }
-        let Some(m) = self.objects.get_mut(&h) else { return Ok(false) };
+        let Some(m) = self.objects.get_mut(&h) else {
+            return Ok(false);
+        };
         if m.immortal {
             return Ok(true);
         }
@@ -616,7 +724,9 @@ impl ArcHeapState {
         if !e_handle(h) {
             return Ok(());
         }
-        let Some(m) = self.objects.get_mut(&h) else { return Ok(()) };
+        let Some(m) = self.objects.get_mut(&h) else {
+            return Ok(());
+        };
         if m.immortal {
             return Ok(());
         }
@@ -631,7 +741,10 @@ impl ArcHeapState {
         if self.trace_log {
             eprintln!("[arc-trace] release {h} rc={}", m.rc);
         }
-        let id = ArcId { handle: h, generation: m.generation };
+        let id = ArcId {
+            handle: h,
+            generation: m.generation,
+        };
         if m.rc == 0 {
             self.zeros.push(id);
         } else if !m.candidate && (m.side_edges || !self.without_edges.is_some_and(|f| f(h))) {
@@ -647,7 +760,9 @@ impl ArcHeapState {
     pub fn protect(&mut self, graph: &dyn ArcGraph, h: Ref) {
         let mut stack = vec![h];
         while let Some(x) = stack.pop() {
-            let Some(m) = self.objects.get_mut(&x) else { continue };
+            let Some(m) = self.objects.get_mut(&x) else {
+                continue;
+            };
             if m.conditionally_protected || m.immortal {
                 continue;
             }
@@ -676,13 +791,24 @@ impl ArcHeapState {
     /// not count (the stack, the runtime's frames, the globals). A zero that they see
     /// does not die and stays in the queue for the next drain (the zero-count table
     /// of deferred RC).
-    pub fn drain_zeros(&mut self, graph: &mut dyn ArcGraph, limit: usize, protected: &dyn Fn(Ref) -> bool) -> Result<usize, ArcError> {
+    pub fn drain_zeros(
+        &mut self,
+        graph: &mut dyn ArcGraph,
+        limit: usize,
+        protected: &dyn Fn(Ref) -> bool,
+    ) -> Result<usize, ArcError> {
         let mut done = 0;
         while done < limit {
             let Some(id) = self.zeros.pop() else { break };
             self.statistics.seen_zeros += 1;
             let local = self.objects.locate(id.handle);
-            let Some(m) = self.objects.in_local(local).filter(|m| m.generation == id.generation) else { continue };
+            let Some(m) = self
+                .objects
+                .in_local(local)
+                .filter(|m| m.generation == id.generation)
+            else {
+                continue;
+            };
             if m.state == ArcState::Live && m.rc > 0 {
                 // It went down to zero and back up before the drain: the new
                 // occurrence may close a rootless cycle (the self-cycle `x[i] = x`
@@ -747,7 +873,12 @@ impl ArcHeapState {
     // transaction: releasing exits neither registers nor removes metadata. The
     // collective discard still resolves each handle, without reusing another
     // object's location.
-    fn discard_located(&mut self, graph: &mut dyn ArcGraph, d: &[Ref], local: Option<MetadataLocation>) -> Result<(), ArcError> {
+    fn discard_located(
+        &mut self,
+        graph: &mut dyn ArcGraph,
+        d: &[Ref],
+        local: Option<MetadataLocation>,
+    ) -> Result<(), ArcError> {
         debug_assert!(local.is_none() || d.len() == 1);
         assert!(!self.transaction, "ARC: reentrant discard");
         self.transaction = true;
@@ -755,7 +886,11 @@ impl ArcHeapState {
         // edge is the object's own, the set (one allocation per death) is not
         // built, and the edges are read and cleared in a single walk.
         let single = if d.len() == 1 { Some(d[0]) } else { None };
-        let item_set: HashSet<Ref> = if single.is_some() { HashSet::default() } else { d.iter().copied().collect() };
+        let item_set: HashSet<Ref> = if single.is_some() {
+            HashSet::default()
+        } else {
+            d.iter().copied().collect()
+        };
         let internal = |v: Ref| match single {
             Some(u) => u == v,
             None => item_set.contains(&v),
@@ -771,7 +906,13 @@ impl ArcHeapState {
                 // backlink mutation or candidate-vector access at all.
                 if !self.retain_dead_candidates && m.candidate_index != usize::MAX {
                     let index = std::mem::replace(&mut m.candidate_index, usize::MAX);
-                    Some((ArcId { handle: u, generation: m.generation }, index))
+                    Some((
+                        ArcId {
+                            handle: u,
+                            generation: m.generation,
+                        },
+                        index,
+                    ))
                 } else {
                     None
                 }
@@ -837,19 +978,33 @@ impl ArcHeapState {
     /// dead set, discarded in a batch. No real RC changes before the commit; a
     /// negative trial aborts with a diagnostic. `protected`: the observational roots,
     /// which make objects survive like an external reference.
-    pub fn collect_cycles(&mut self, graph: &mut dyn ArcGraph, protected: &dyn Fn(Ref) -> bool) -> Result<usize, ArcError> {
+    pub fn collect_cycles(
+        &mut self,
+        graph: &mut dyn ArcGraph,
+        protected: &dyn Fn(Ref) -> bool,
+    ) -> Result<usize, ArcError> {
         let candidates = std::mem::take(&mut self.candidates);
         // Detach every old backlink before callbacks can requeue a protected
         // identity into the new vector. Old indices must never name that vector.
         for id in &candidates {
-            if let Some(m) = self.objects.get_mut(&id.handle).filter(|m| m.generation == id.generation) {
+            if let Some(m) = self
+                .objects
+                .get_mut(&id.handle)
+                .filter(|m| m.generation == id.generation)
+            {
                 m.candidate = false;
                 m.candidate_index = usize::MAX;
             }
         }
         let mut seeds: Vec<Ref> = Vec::new();
         for id in candidates {
-            let Some(m) = self.objects.get(&id.handle).filter(|m| m.generation == id.generation) else { continue };
+            let Some(m) = self
+                .objects
+                .get(&id.handle)
+                .filter(|m| m.generation == id.generation)
+            else {
+                continue;
+            };
             if m.state == ArcState::Live && m.rc > 0 && !m.immortal {
                 if protected(id.handle) {
                     self.add_candidate(id.handle);
@@ -870,8 +1025,12 @@ impl ArcHeapState {
         let mut in_r: HashMap<Ref, usize> = HashMap::default();
         let mut stack = seeds;
         while let Some(x) = stack.pop() {
-            let std::collections::hash_map::Entry::Vacant(input) = in_r.entry(x) else { continue };
-            let Some(m) = self.objects.get(&x) else { continue };
+            let std::collections::hash_map::Entry::Vacant(input) = in_r.entry(x) else {
+                continue;
+            };
+            let Some(m) = self.objects.get(&x) else {
+                continue;
+            };
             if m.immortal || m.state == ArcState::Dead {
                 continue;
             }
@@ -905,7 +1064,11 @@ impl ArcHeapState {
         let mut stack: Vec<usize> = Vec::new();
         for (ix, &x) in r.iter().enumerate() {
             let m = &self.objects[&x];
-            if trial[ix] > 0 || m.state == ArcState::Building || m.conditionally_protected || protected(x) {
+            if trial[ix] > 0
+                || m.state == ArcState::Building
+                || m.conditionally_protected
+                || protected(x)
+            {
                 live_set[ix] = true;
                 stack.push(ix);
             }
@@ -932,7 +1095,11 @@ impl ArcHeapState {
                 self.add_candidate(x);
             }
         }
-        let dead_set: Vec<Ref> = r.into_iter().enumerate().filter_map(|(i, x)| (!live_set[i]).then_some(x)).collect();
+        let dead_set: Vec<Ref> = r
+            .into_iter()
+            .enumerate()
+            .filter_map(|(i, x)| (!live_set[i]).then_some(x))
+            .collect();
         if dead_set.is_empty() {
             return Ok(0);
         }
@@ -956,7 +1123,11 @@ impl ArcHeapState {
     pub(crate) fn transfer_dead(&mut self, dest: &mut Vec<Ref>) -> usize {
         let amount = self.dead_set.len();
         for h in &self.dead_set {
-            if self.objects.get(h).is_some_and(|m| m.state == ArcState::Dead) {
+            if self
+                .objects
+                .get(h)
+                .is_some_and(|m| m.state == ArcState::Dead)
+            {
                 self.objects.remove(h);
             }
         }
@@ -994,7 +1165,11 @@ impl ArcHeapState {
             }
             let recounted = count.get(&h).copied().unwrap_or(0);
             if recounted != m.rc {
-                return Err(ArcError::Audit { handle: h, rc: m.rc, recounted });
+                return Err(ArcError::Audit {
+                    handle: h,
+                    rc: m.rc,
+                    recounted,
+                });
             }
         }
         Ok(())
@@ -1022,17 +1197,22 @@ mod tests_mod {
 
     #[test]
     fn index_by_inverse_checks_every_class_byte() {
-        use crate::layout::{PAGE_HEAD, HANDLE_OFFSET, N_CLASSES, PAGE, block_bytes, class_words};
+        use crate::layout::{HANDLE_OFFSET, N_CLASSES, PAGE, PAGE_HEAD, block_bytes, class_words};
         let first = (1u64 << 32) + PAGE_HEAD as u64;
         for class in 1..N_CLASSES {
             let size = block_bytes(class_words(class)) as u64;
             let blocks = ((PAGE - PAGE_HEAD) as u64 / size) as u32;
-            let page = ArcPage::new_area(Geometry { first, size, blocks });
+            let page = ArcPage::new_area(Geometry {
+                first,
+                size,
+                blocks,
+            });
             assert_eq!(page.ix(first as Ref + HANDLE_OFFSET - 1), None);
             for d in 0..=PAGE as u64 {
                 // A deliberate oracle through the original division: every start,
                 // interior and byte beyond the last block.
-                let expected = (d % size == 0 && d / size < u64::from(blocks)).then_some((d / size) as usize);
+                let expected =
+                    (d % size == 0 && d / size < u64::from(blocks)).then_some((d / size) as usize);
                 let h = (first + d) as Ref + HANDLE_OFFSET;
                 assert_eq!(page.ix(h), expected, "class {class}, offset {d}");
             }
@@ -1041,10 +1221,25 @@ mod tests_mod {
 
     #[test]
     fn index_by_inverse_checks_large_sizes_and_u64_bounds() {
-        for size in [1, 2, 3, 24, (1u64 << 32) - 1, 1u64 << 32, (1u64 << 63) - 1, 1u64 << 63, u64::MAX] {
+        for size in [
+            1,
+            2,
+            3,
+            24,
+            (1u64 << 32) - 1,
+            1u64 << 32,
+            (1u64 << 63) - 1,
+            1u64 << 63,
+            u64::MAX,
+        ] {
             let blocks = (u64::MAX / size).min(7) as u32;
-            let page = ArcPage::new_area(Geometry { first: 0, size, blocks });
-            let query = |d: u64| page.ix(d.wrapping_add(crate::layout::HANDLE_OFFSET as u64) as Ref);
+            let page = ArcPage::new_area(Geometry {
+                first: 0,
+                size,
+                blocks,
+            });
+            let query =
+                |d: u64| page.ix(d.wrapping_add(crate::layout::HANDLE_OFFSET as u64) as Ref);
             for i in 0..u64::from(blocks) {
                 let d = i * size;
                 assert_eq!(query(d), Some(i as usize), "size {size}, index {i}");
@@ -1064,11 +1259,26 @@ mod tests_mod {
         let first = (1u64 << 32) + 1024;
         let h = (first + 48) as Ref + crate::layout::HANDLE_OFFSET;
         let mut a = ArcHeapState::new();
-        a.register_live_at(h, Some(Geometry { first, size: 24, blocks: 4 }));
+        a.register_live_at(
+            h,
+            Some(Geometry {
+                first,
+                size: 24,
+                blocks: 4,
+            }),
+        );
         a.review(h);
-        a.drain_zeros(&mut Graph::default(), usize::MAX, &|_| false).unwrap();
+        a.drain_zeros(&mut Graph::default(), usize::MAX, &|_| false)
+            .unwrap();
         a.take_dead();
-        let new = a.register_live_at(h, Some(Geometry { first, size: 48, blocks: 2 }));
+        let new = a.register_live_at(
+            h,
+            Some(Geometry {
+                first,
+                size: 48,
+                blocks: 2,
+            }),
+        );
         a.retain_ref(h).unwrap();
         assert_eq!(a.meta(h).unwrap().generation, new.generation);
         assert_eq!(a.meta(h).unwrap().rc, 1);
@@ -1212,7 +1422,10 @@ mod tests_mod {
         a.release(4).unwrap();
         a.release(2).unwrap();
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
-        assert!(!dead(&a, 2) && !dead(&a, 4), "the RC alone does not close the cycle");
+        assert!(
+            !dead(&a, 2) && !dead(&a, 4),
+            "the RC alone does not close the cycle"
+        );
         assert_eq!(a.collect_cycles(&mut g, &|_| false).unwrap(), 2);
         assert!(dead(&a, 2) && dead(&a, 4));
         assert_eq!(a.statistics.dead_by_cycle, 2);
@@ -1221,7 +1434,9 @@ mod tests_mod {
     #[test]
     fn retain_if_registered_tells_absence_without_hiding_errors() {
         let mut a = ArcHeapState::new();
-        for h in [0, 1, 3] { assert_eq!(a.retain_if_registered(h), Ok(true)); }
+        for h in [0, 1, 3] {
+            assert_eq!(a.retain_if_registered(h), Ok(true));
+        }
         assert_eq!(a.retain_if_registered(2), Ok(false));
         assert_eq!(a.retain_ref(2), Ok(()));
         assert_eq!(a.registered_set(), 0);
@@ -1237,7 +1452,10 @@ mod tests_mod {
         assert_eq!(a.statistics.retains, 1);
         for state in [ArcState::Collecting, ArcState::Dead] {
             a.objects.get_mut(&2).unwrap().state = state;
-            assert_eq!(a.retain_if_registered(2), Err(ArcError::InvalidState(2, state)));
+            assert_eq!(
+                a.retain_if_registered(2),
+                Err(ArcError::InvalidState(2, state))
+            );
             assert_eq!(a.statistics.retains, 1);
         }
         a.register_immortal(4);
@@ -1250,7 +1468,9 @@ mod tests_mod {
     fn dense_survival_preserves_converging_paths_and_repeated_edges() {
         let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         let (x, y, z, w, root) = (2, 0x1_0002, 0x2_0002, 0x3_0002, 0x4_0002);
-        for h in [x, y, z, w, root] { new(&mut a, h); }
+        for h in [x, y, z, w, root] {
+            new(&mut a, h);
+        }
         enable(&mut a, &mut g, root, x);
         enable(&mut a, &mut g, w, x);
         for _ in 0..96 {
@@ -1259,29 +1479,41 @@ mod tests_mod {
             enable(&mut a, &mut g, y, w);
             enable(&mut a, &mut g, z, w);
         }
-        for h in [x, y, z, w] { a.release(h).unwrap(); }
+        for h in [x, y, z, w] {
+            a.release(h).unwrap();
+        }
         let before = g.0.clone();
         let counts: Vec<_> = [x, y, z, w, root].map(|h| a.meta(h).unwrap().rc).into();
         assert_eq!(a.collect_cycles(&mut g, &|_| false).unwrap(), 0);
         assert_eq!(g.0, before);
-        assert_eq!([x, y, z, w, root].map(|h| a.meta(h).unwrap().rc).as_slice(), counts);
+        assert_eq!(
+            [x, y, z, w, root].map(|h| a.meta(h).unwrap().rc).as_slice(),
+            counts
+        );
         a.audit(&g, &[root]).unwrap();
         // The same region, now without an external input, dies at once; all the
         // internal occurrences are cut down, without releasing internal RC.
         a.release(root).unwrap();
         assert_eq!(a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap(), 1);
         assert_eq!(a.collect_cycles(&mut g, &|_| false).unwrap(), 4);
-        for h in [x, y, z, w, root] { assert!(dead(&a, h)); }
+        for h in [x, y, z, w, root] {
+            assert!(dead(&a, h));
+        }
         let dead_set = a.take_dead();
         assert_eq!(dead_set.len(), 5);
-        assert_eq!(dead_set.into_iter().collect::<HashSet<_>>(), [x, y, z, w, root].into_iter().collect::<HashSet<_>>());
+        assert_eq!(
+            dead_set.into_iter().collect::<HashSet<_>>(),
+            [x, y, z, w, root].into_iter().collect::<HashSet<_>>()
+        );
     }
 
     #[test]
     fn dense_trial_preserves_multiplicity_and_external_entry_in_sparse_handles() {
         let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         let (x, y, root) = (2, 0x1_0002, 0x4_0002);
-        for h in [x, y, root] { new(&mut a, h); }
+        for h in [x, y, root] {
+            new(&mut a, h);
+        }
         enable(&mut a, &mut g, x, y);
         enable(&mut a, &mut g, x, y);
         enable(&mut a, &mut g, y, x);
@@ -1309,7 +1541,10 @@ mod tests_mod {
         g.0.insert(y, vec![x]);
         a.add_candidate(x);
         let before = g.0.clone();
-        assert_eq!(a.collect_cycles(&mut g, &|_| false), Err(ArcError::NegativeTrial(y)));
+        assert_eq!(
+            a.collect_cycles(&mut g, &|_| false),
+            Err(ArcError::NegativeTrial(y))
+        );
         assert_eq!(g.0, before);
         for h in [x, y] {
             assert_eq!(a.meta(h).unwrap().rc, 1);
@@ -1330,7 +1565,9 @@ mod tests_mod {
     fn successive_cycles_inherit_neither_survivors_nor_reclaimed_generations() {
         let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
         let (x, y) = (2, 0x1_0002);
-        for h in [x, y] { new(&mut a, h); }
+        for h in [x, y] {
+            new(&mut a, h);
+        }
         enable(&mut a, &mut g, x, y);
         enable(&mut a, &mut g, y, x);
         a.release(y).unwrap();
@@ -1407,17 +1644,24 @@ mod tests_mod {
         a.protect(&g, 4);
         a.release(4).unwrap();
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
-        assert!(!dead(&a, 4), "a conditionally protected object waits for the fixpoint");
+        assert!(
+            !dead(&a, 4),
+            "a conditionally protected object waits for the fixpoint"
+        );
     }
 
     #[test]
     fn protected_root_does_not_expand_trial_and_keeps_candidate() {
         let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
-        for h in [2, 4, 6, 8] { new(&mut a, h); }
+        for h in [2, 4, 6, 8] {
+            new(&mut a, h);
+        }
         for (of, to) in [(2, 4), (4, 2), (4, 6), (6, 8), (8, 6)] {
             enable(&mut a, &mut g, of, to);
         }
-        for h in [2, 4, 6, 8] { a.release(h).unwrap(); }
+        for h in [2, 4, 6, 8] {
+            a.release(h).unwrap();
+        }
         let root = |h| h == 2;
         assert_eq!(a.collect_cycles(&mut g, &root).unwrap(), 0);
         a.audit(&g, &[]).unwrap();
@@ -1425,7 +1669,9 @@ mod tests_mod {
         assert_eq!(a.collect_cycles(&mut g, &root).unwrap(), 0);
         assert_eq!(a.statistics.examined, examined);
         assert_eq!(a.collect_cycles(&mut g, &|_| false).unwrap(), 4);
-        for h in [2, 4, 6, 8] { assert!(dead(&a, h)); }
+        for h in [2, 4, 6, 8] {
+            assert!(dead(&a, h));
+        }
     }
 
     #[test]
@@ -1450,7 +1696,10 @@ mod tests_mod {
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(dead(&a, 6));
         let n = {
-            a.candidates.push(ArcId { handle: 2, generation: a.meta(2).unwrap().generation });
+            a.candidates.push(ArcId {
+                handle: 2,
+                generation: a.meta(2).unwrap().generation,
+            });
             a.collect_cycles(&mut g, &|_| false).unwrap()
         };
         assert_eq!(n, 2);
@@ -1473,7 +1722,10 @@ mod tests_mod {
         a.take_dead();
         // The address is reused: a new generation, the old entry is not valid.
         new(&mut a, 2);
-        a.zeros.push(ArcId { handle: 2, generation: 1 });
+        a.zeros.push(ArcId {
+            handle: 2,
+            generation: 1,
+        });
         a.drain_zeros(&mut g, usize::MAX, &|_| false).unwrap();
         assert!(!dead(&a, 2));
     }
@@ -1483,7 +1735,14 @@ mod tests_mod {
         let (mut a, g) = (ArcHeapState::new(), Graph::default());
         new(&mut a, 2);
         a.retain_ref(2).unwrap();
-        assert!(matches!(a.audit(&g, &[2]), Err(ArcError::Audit { handle: 2, rc: 2, recounted: 1 })));
+        assert!(matches!(
+            a.audit(&g, &[2]),
+            Err(ArcError::Audit {
+                handle: 2,
+                rc: 2,
+                recounted: 1
+            })
+        ));
     }
 
     #[test]
@@ -1494,16 +1753,24 @@ mod tests_mod {
             let h1 = first as Ref + HANDLE_OFFSET;
             let h2 = h1 + 24;
             let h3 = 2; // Hash fallback, even when the others use a page.
-            let geometry = paged.then_some(Geometry { first, size: 24, blocks: 4 });
+            let geometry = paged.then_some(Geometry {
+                first,
+                size: 24,
+                blocks: 4,
+            });
             let (mut a, mut g) = (ArcHeapState::new(), Graph::default());
             let id1 = a.register_live_at(h1, geometry);
             let id2 = a.register_live_at(h2, geometry);
             a.register_live(h3);
-            for h in [h1, h2, h3] { a.retain_ref(h).unwrap(); }
+            for h in [h1, h2, h3] {
+                a.retain_ref(h).unwrap();
+            }
             for (of, to) in [(h1, h2), (h1, h2), (h1, h3), (h2, h3)] {
                 enable(&mut a, &mut g, of, to);
             }
-            for h in [h2, h3, h1] { a.release(h).unwrap(); }
+            for h in [h2, h3, h1] {
+                a.release(h).unwrap();
+            }
             let root = |h| h == h2;
             assert_eq!(a.drain_zeros(&mut g, 1, &root), Ok(1));
             assert_eq!(a.take_dead(), vec![h1]);
@@ -1521,13 +1788,20 @@ mod tests_mod {
             assert_eq!(a.registered_set(), 0);
             // All the page's slots died; another size may occupy the same address.
             // No location crosses this boundary.
-            let new_area = paged.then_some(Geometry { first, size: 48, blocks: 2 });
+            let new_area = paged.then_some(Geometry {
+                first,
+                size: 48,
+                blocks: 2,
+            });
             let current = a.register_live_at(h1, new_area);
             a.retain_ref(h1).unwrap();
             a.zeros.extend([id1, id2]);
             assert_eq!(a.drain_zeros(&mut g, usize::MAX, &|_| false), Ok(0));
             let m = a.meta(h1).unwrap();
-            assert_eq!((m.generation, m.rc, m.candidate), (current.generation, 1, false));
+            assert_eq!(
+                (m.generation, m.rc, m.candidate),
+                (current.generation, 1, false)
+            );
             a.release(h1).unwrap();
             assert_eq!(a.drain_zeros(&mut g, 1, &|_| false), Ok(1));
             assert_eq!(a.take_dead(), vec![h1]);

@@ -16,20 +16,27 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
 use super::rules14::{after_annotations, doc_for, skip_augment};
-use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::ClassId;
-use dartforge_frontend::ast::{self, Annotation, DeclId, DeclKind, FunctionKind, MemberId, MemberKind};
+use dartforge_frontend::ast::{
+    self, Annotation, DeclId, DeclKind, FunctionKind, MemberId, MemberKind,
+};
 use dartforge_frontend::comments::Comments;
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::HashMap;
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !enabled("public_member_api_docs") {
@@ -41,44 +48,93 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // `package.canHavePublicApi` (only a pub package) and `isInLibDir` (by the
     // unit that defines the library).
     let lib = program.library(program.unit(s.unit).library);
-    let Some(file) = lib.units.first().and_then(|x| program.unit(*x).path.clone()) else { return out };
-    let Some(root) = file.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()).map(std::path::Path::to_path_buf) else { return out };
+    let Some(file) = lib
+        .units
+        .first()
+        .and_then(|x| program.unit(*x).path.clone())
+    else {
+        return out;
+    };
+    let Some(root) = file
+        .ancestors()
+        .skip(1)
+        .find(|d| d.join("pubspec.yaml").is_file())
+        .map(std::path::Path::to_path_buf)
+    else {
+        return out;
+    };
     if !file.starts_with(root.join("lib")) {
         return out;
     }
     let comments = Comments::scan(source);
     let is_private = |n: SymbolId| interner.resolve(n).starts_with('_');
-    let is_internal = |metadata: &[Annotation]| metadata.iter().any(|m| dartforge_types::annotations::is_getter_of(program, interner, s.unit, m, "meta", "internal"));
-    let is_documented = |metadata: &[Annotation], pos: usize| doc_for(source, &comments, metadata, pos).is_some();
+    let is_internal = |metadata: &[Annotation]| {
+        metadata.iter().any(|m| {
+            dartforge_types::annotations::is_getter_of(
+                program, interner, s.unit, m, "meta", "internal",
+            )
+        })
+    };
+    let is_documented =
+        |metadata: &[Annotation], pos: usize| doc_for(source, &comments, metadata, pos).is_some();
     let class_of_decl = |d: DeclId| -> Option<ClassId> {
-        (0..program.classes.len()).map(|i| ClassId(i as u32)).find(|c| program.class(*c).decl.is_some_and(|r| r.unit == s.unit && r.decl == d))
+        (0..program.classes.len())
+            .map(|i| ClassId(i as u32))
+            .find(|c| {
+                program
+                    .class(*c)
+                    .decl
+                    .is_some_and(|r| r.unit == s.unit && r.decl == d)
+            })
     };
     // `overriddenMember`: the name among the instance members of the
     // supertypes of the enclosing class (a setter with `_=`).
     let overrides = |class_id: Option<ClassId>, name: SymbolId, setter: bool| -> bool {
-        let Some(class_id) = class_id else { return false };
-        let key = if setter { interner.lookup(&format!("{}_=", interner.resolve(name))) } else { Some(name) };
+        let Some(class_id) = class_id else {
+            return false;
+        };
+        let key = if setter {
+            interner.lookup(&format!("{}_=", interner.resolve(name)))
+        } else {
+            Some(name)
+        };
         let Some(key) = key else { return false };
         let own = program.class(class_id).library;
         let is_private_name = is_private(name);
         s.outline.hierarchy.get(class_id).is_some_and(|h| {
             h.supertypes.keys().any(|sc| {
-                *sc != class_id && program.class(*sc).instance_members.get(&key).is_some_and(|f| !is_private_name || program.function(*f).library == own)
+                *sc != class_id
+                    && program
+                        .class(*sc)
+                        .instance_members
+                        .get(&key)
+                        .is_some_and(|f| !is_private_name || program.function(*f).library == own)
             })
         })
     };
     let mut findings: Vec<Span> = Vec::new();
-    let check = |doc: bool, overridden_member: bool, node: Span, findings: &mut Vec<Span>| -> bool {
-        if !doc && !overridden_member {
-            findings.push(node);
-            return true;
-        }
-        false
-    };
-    let member_pos = |m: MemberId| after_annotations(source, &a.member(m).metadata, a.member(m).span.start);
+    let check =
+        |doc: bool, overridden_member: bool, node: Span, findings: &mut Vec<Span>| -> bool {
+            if !doc && !overridden_member {
+                findings.push(node);
+                return true;
+            }
+            false
+        };
+    let member_pos =
+        |m: MemberId| after_annotations(source, &a.member(m).metadata, a.member(m).span.start);
     let decl_pos = |d: &ast::Decl| {
         let mut pos = after_annotations(source, &d.metadata, d.span.start);
-        if d.augment && matches!(d.kind, DeclKind::Enum(_) | DeclKind::Extension(_) | DeclKind::ExtensionType(_) | DeclKind::Typedef(_) | DeclKind::Mixin(_)) {
+        if d.augment
+            && matches!(
+                d.kind,
+                DeclKind::Enum(_)
+                    | DeclKind::Extension(_)
+                    | DeclKind::ExtensionType(_)
+                    | DeclKind::Typedef(_)
+                    | DeclKind::Mixin(_)
+            )
+        {
             pos = skip_augment(source, pos);
         }
         pos
@@ -90,7 +146,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let mut setters: Vec<MemberId> = Vec::new();
         let mut others: Vec<MemberId> = Vec::new();
         for &m in members {
-            let MemberKind::Method(f) = &a.member(m).kind else { continue };
+            let MemberKind::Method(f) = &a.member(m).kind else {
+                continue;
+            };
             let f = a.function(*f);
             let Some(n) = f.name else { continue };
             if is_private(n.sym) {
@@ -108,7 +166,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         }
         let mut undocumented: Vec<MemberId> = Vec::new();
         let check_method = |m: MemberId, findings: &mut Vec<Span>| -> bool {
-            let MemberKind::Method(f) = &a.member(m).kind else { return false };
+            let MemberKind::Method(f) = &a.member(m).kind else {
+                return false;
+            };
             let f = a.function(*f);
             let Some(n) = f.name else { return false };
             let doc = is_documented(&a.member(m).metadata, member_pos(m));
@@ -126,9 +186,16 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
         }
         for m in setters {
-            let MemberKind::Method(f) = &a.member(m).kind else { continue };
-            let Some(n) = a.function(*f).name else { continue };
-            if getters.get(&n.sym).is_some_and(|g| undocumented.contains(g)) {
+            let MemberKind::Method(f) = &a.member(m).kind else {
+                continue;
+            };
+            let Some(n) = a.function(*f).name else {
+                continue;
+            };
+            if getters
+                .get(&n.sym)
+                .is_some_and(|g| undocumented.contains(g))
+            {
                 check_method(m, findings);
             }
         }
@@ -144,7 +211,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let mut setters: Vec<&ast::Decl> = Vec::new();
         let mut functions: Vec<&ast::Decl> = Vec::new();
         for d in a.decls.iter() {
-            let DeclKind::Function(f) = &d.kind else { continue };
+            let DeclKind::Function(f) = &d.kind else {
+                continue;
+            };
             let f = a.function(*f);
             let Some(n) = f.name else { continue };
             if is_private(n.sym) || interner.resolve(n.sym) == "main" {
@@ -167,14 +236,27 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let mut undocumented: Vec<*const ast::Decl> = Vec::new();
         for n in order {
             let d = getters[&n];
-            if check(is_documented(&d.metadata, decl_pos(d)), false, name(d).map_or(d.span, |x| x.span), &mut findings) {
+            if check(
+                is_documented(&d.metadata, decl_pos(d)),
+                false,
+                name(d).map_or(d.span, |x| x.span),
+                &mut findings,
+            ) {
                 undocumented.push(d as *const ast::Decl);
             }
         }
         for d in setters {
             let Some(n) = name(d) else { continue };
-            if getters.get(&n.sym).is_some_and(|g| undocumented.contains(&(*g as *const ast::Decl))) {
-                check(is_documented(&d.metadata, decl_pos(d)), false, n.span, &mut findings);
+            if getters
+                .get(&n.sym)
+                .is_some_and(|g| undocumented.contains(&(*g as *const ast::Decl)))
+            {
+                check(
+                    is_documented(&d.metadata, decl_pos(d)),
+                    false,
+                    n.span,
+                    &mut findings,
+                );
             }
         }
         for d in functions {
@@ -183,7 +265,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 continue;
             }
             let n = name(d).map_or(d.span, |x| x.span);
-            check(is_documented(&d.metadata, decl_pos(d)), false, n, &mut findings);
+            check(
+                is_documented(&d.metadata, decl_pos(d)),
+                false,
+                n,
+                &mut findings,
+            );
         }
     }
 
@@ -268,7 +355,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let id = DeclId(k as u32);
         let class_id = class_of_decl(id);
         // The parent's `inPrivateMember`, and the top-level declaration's `isInternal`.
-        let (parent_name, members, is_enum, is_extension_type): (Option<SymbolId>, &[MemberId], bool, bool) = match &d.kind {
+        let (parent_name, members, is_enum, is_extension_type): (
+            Option<SymbolId>,
+            &[MemberId],
+            bool,
+            bool,
+        ) = match &d.kind {
             DeclKind::Class(x) => (Some(x.name.sym), &x.members, false, false),
             DeclKind::Mixin(x) => (Some(x.name.sym), &x.members, false, false),
             DeclKind::Enum(x) => (Some(x.name.sym), &x.members, true, false),
@@ -304,7 +396,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             let member = a.member(m);
             match &member.kind {
                 MemberKind::Constructor(kc) => {
-                    if parent_private || kc.name.is_some_and(|n| is_private(n.sym)) || is_enum || parent_effectively_private {
+                    if parent_private
+                        || kc.name.is_some_and(|n| is_private(n.sym))
+                        || is_enum
+                        || parent_effectively_private
+                    {
                         continue;
                     }
                     let node = kc.name.map_or(kc.class_name.span, |n| n.span);
@@ -313,7 +409,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                         None => interner.lookup(""),
                     };
                     let overridden = name.is_some_and(|n| overrides(class_id, n, false));
-                    check(is_documented(&member.metadata, member_pos(m)), overridden, node, &mut findings);
+                    check(
+                        is_documented(&member.metadata, member_pos(m)),
+                        overridden,
+                        node,
+                        &mut findings,
+                    );
                 }
                 MemberKind::Field(l) => {
                     if parent_internal || parent_private || (is_extension_type && !l.static_) {
@@ -342,5 +443,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
 }
 
 fn report(out: &mut Vec<LintReport>, code: &'static LintCode, span: Span) {
-    out.push(LintReport { code, span, args: Vec::new() });
+    out.push(LintReport {
+        code,
+        span,
+        args: Vec::new(),
+    });
 }

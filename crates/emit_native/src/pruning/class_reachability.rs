@@ -184,8 +184,16 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
             .as_deref()
             .ok_or("SDK allocation inventory is unavailable")?;
         let cids = classes.keys().copied().collect();
-        inventory.reconcile(sdk, &definitions, &cids, super::universal_parent::declared(module))
-            .map_err(|detail| format!("SDK inventory does not match the selected image: {detail}"))?;
+        inventory
+            .reconcile(
+                sdk,
+                &definitions,
+                &cids,
+                super::universal_parent::declared(module),
+            )
+            .map_err(|detail| {
+                format!("SDK inventory does not match the selected image: {detail}")
+            })?;
         Some(inventory)
     };
     for (cid, symbol) in &module.table_functions {
@@ -208,8 +216,9 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
         if !module.source_roots.is_empty() || !module.ffi_trampolines.is_empty() {
             return Err(format!("event entry {symbol} has unproved native ingress"));
         }
-        let valid = functions.get(symbol.as_str()).is_some_and(|body|
-            body.return_ty == Type::Ref && body.params.len() == 1 && body.params[0].2 == Type::Ref);
+        let valid = functions.get(symbol.as_str()).is_some_and(|body| {
+            body.return_ty == Type::Ref && body.params.len() == 1 && body.params[0].2 == Type::Ref
+        });
         if !valid {
             return Err(format!("event entry {symbol} has an unproved protocol ABI"));
         }
@@ -229,8 +238,10 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
             Some(body) if body.params.iter().all(|(_, _, ty)| scalar_entry_type(*ty)) => {}
             None if imports.is_some_and(|inventory| inventory.entry(symbol)) => {}
             _ => {
-                let detail = imports.and_then(|inventory| inventory.entry_obligations(symbol))
-                    .map(|detail| format!(": {detail}")).unwrap_or_default();
+                let detail = imports
+                    .and_then(|inventory| inventory.entry_obligations(symbol))
+                    .map(|detail| format!(": {detail}"))
+                    .unwrap_or_default();
                 return Err(format!(
                     "entry root {symbol} has an unproved body or input ABI{detail}"
                 ));
@@ -248,11 +259,20 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     let mut summary = super::hir_summary(module);
     module.closed_class_tables = None;
     if let Some(symbol) = &event_entry {
-        let callback = summary.names.iter().position(|name| name == symbol)
+        let callback = summary
+            .names
+            .iter()
+            .position(|name| name == symbol)
             .ok_or("event entry is missing from the HIR summary")? as u32;
-        let entry = summary.names.iter().position(|name| name == "dartforge_entry")
+        let entry = summary
+            .names
+            .iter()
+            .position(|name| name == "dartforge_entry")
             .ok_or("program entry is missing from the HIR summary")? as u32;
-        let definition = summary.definitions.iter_mut().find(|definition| definition.name == entry)
+        let definition = summary
+            .definitions
+            .iter_mut()
+            .find(|definition| definition.name == entry)
             .ok_or("program entry has no HIR definition")?;
         // Remove only the emitter's automatic loop edge. Actual calls, address
         // exposure, table entries and SDK references stay in the probe graph.
@@ -261,11 +281,18 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     // The tentative lazy roots were used only to construct this probe summary.
     // Publish an active set only after every reachable definition is checked.
     let proof_sdk = imports.map(|inventory| inventory.class_proof_summaries());
-    let mut all: Vec<&Summary> = proof_sdk.as_ref().map_or_else(|| sdk.to_vec(), |summaries| summaries.iter().map(|summary| summary.as_ref()).collect());
+    let mut all: Vec<&Summary> = proof_sdk.as_ref().map_or_else(
+        || sdk.to_vec(),
+        |summaries| summaries.iter().map(|summary| summary.as_ref()).collect(),
+    );
     all.push(&summary);
     let reach = super::reach(&all, true);
     if let Some(symbol) = &event_entry
-        && reach.names.iter().enumerate().any(|(node, name)| name == symbol && reach.live(node as u32))
+        && reach
+            .names
+            .iter()
+            .enumerate()
+            .any(|(node, name)| name == symbol && reach.live(node as u32))
     {
         return Err(format!("event entry {symbol} is exposed outside the loop"));
     }
@@ -302,11 +329,21 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     let closure_targets = closures::targets(module);
     // An implicit closure receiver is a layout witness only when that body
     // cannot also be entered as an ordinary object's protocol method.
-    if module.method_tables.iter().flat_map(|(_, _, methods)| methods.iter())
+    if module
+        .method_tables
+        .iter()
+        .flat_map(|(_, _, methods)| methods.iter())
         .any(|(_, target)| closure_targets.contains(target.as_str()))
-        || module.classes.iter().any(|class|
-            class.vtable.iter().any(|(_, target)| closure_targets.contains(target.as_str()))
-            || class.to_string_symbol.as_ref().is_some_and(|target| closure_targets.contains(target.as_str())))
+        || module.classes.iter().any(|class| {
+            class
+                .vtable
+                .iter()
+                .any(|(_, target)| closure_targets.contains(target.as_str()))
+                || class
+                    .to_string_symbol
+                    .as_ref()
+                    .is_some_and(|target| closure_targets.contains(target.as_str()))
+        })
     {
         return Err("closure entry overlaps an object protocol target".into());
     }
@@ -324,7 +361,10 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                 )
             })?;
         let storage = storage::Proof::new(function).ok_or_else(|| {
-            format!("function {} has unproved field storage or representation", function.symbol)
+            format!(
+                "function {} has unproved field storage or representation",
+                function.symbol
+            )
         })?;
         let stack_slots: HashMap<_, _> = function
             .blocks
@@ -362,19 +402,35 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                         if *ret_ty==Type::Ref && u32::try_from(*cid).ok().zip(usize::try_from(*count).ok()).is_some_and(|(cid,count)|valid_allocation(cid,count)))
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
-                    | Instruction::DeclaredFieldCall { name, args, ret_ty, .. } => {
-                        let declared_field = matches!(instruction, Instruction::DeclaredFieldCall { .. });
-                        (!declared_field || matches!(name.as_str(), "dartforge_object_get" | "dartforge_object_set"))
+                    | Instruction::DeclaredFieldCall {
+                        name, args, ret_ty, ..
+                    } => {
+                        let declared_field =
+                            matches!(instruction, Instruction::DeclaredFieldCall { .. });
+                        (!declared_field
+                            || matches!(
+                                name.as_str(),
+                                "dartforge_object_get" | "dartforge_object_set"
+                            ))
                             && runtime_call(name, args, *ret_ty, *result, &shape)
                             && match name.as_str() {
-                                "dartforge_object_get" => closure_proof.reads.contains(value)
-                                    || matches!(args.as_slice(), [(object, Type::Ref), (index, Type::I64)]
-                                        if storage::index(function, index).is_some_and(|index| storage.read(object, index, *result))),
-                                "dartforge_object_set" => matches!(args.as_slice(), [(object, Type::Ref), (index, Type::I64), _, _]
-                                    if storage::index(function, index).is_some_and(|index| storage.write(object, index, *result))),
-                                "dartforge_value_class" => *result == Type::I64 && matches!(args.as_slice(), [(_, Type::Ref)]),
-                                "dartforge_mark_constant" => matches!(args.as_slice(), [(_, Type::Ref), (getter, Type::I64)]
-                                    if storage::index(function, getter) == Some(0)),
+                                "dartforge_object_get" => {
+                                    closure_proof.reads.contains(value)
+                                        || matches!(args.as_slice(), [(object, Type::Ref), (index, Type::I64)]
+                                        if storage::index(function, index).is_some_and(|index| storage.read(object, index, *result)))
+                                }
+                                "dartforge_object_set" => {
+                                    matches!(args.as_slice(), [(object, Type::Ref), (index, Type::I64), _, _]
+                                    if storage::index(function, index).is_some_and(|index| storage.write(object, index, *result)))
+                                }
+                                "dartforge_value_class" => {
+                                    *result == Type::I64
+                                        && matches!(args.as_slice(), [(_, Type::Ref)])
+                                }
+                                "dartforge_mark_constant" => {
+                                    matches!(args.as_slice(), [(_, Type::Ref), (getter, Type::I64)]
+                                    if storage::index(function, getter) == Some(0))
+                                }
                                 _ => true,
                             }
                     }
@@ -447,7 +503,8 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                         *result == Type::Ptr && shape.operand_type(op) == Some(Type::Ptr)
                     }
                     Instruction::Unbox { op, to } => {
-                        *result == *to && scalar_entry_type(*to)
+                        *result == *to
+                            && scalar_entry_type(*to)
                             && shape.operand_type(op) == Some(Type::Ref)
                     }
                     Instruction::Alloca(ty) => *result == Type::Ptr && *ty != Type::Void,
@@ -501,17 +558,32 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                     | Instruction::ArcStoreStrong { .. } => false,
                     Instruction::LoadIndexed { .. } => false,
                     Instruction::GetField { object, index }
-                    | Instruction::EnvGet { env: object, index } =>
-                        closure_proof.reads.contains(value) || storage.read(object, *index, *result),
+                    | Instruction::EnvGet { env: object, index } => {
+                        closure_proof.reads.contains(value) || storage.read(object, *index, *result)
+                    }
                     Instruction::CellGet { cell } => storage.read(cell, 0, *result),
-                    Instruction::SetField { object, index, .. } => storage.write(object, *index, *result),
+                    Instruction::SetField { object, index, .. } => {
+                        storage.write(object, *index, *result)
+                    }
                     Instruction::CellSet { cell, .. } => storage.write(cell, 0, *result),
-                    Instruction::GetListElement { .. } | Instruction::SetListElement { .. } => false,
-                    Instruction::CheckNotNull(operand) => *result == Type::Ref && shape.operand_type(operand) == Some(Type::Ref),
-                    Instruction::IsClass { object, .. } => *result == Type::I1 && shape.operand_type(object) == Some(Type::Ref),
-                    Instruction::ConcatStrings { parts } => *result == Type::Ref
-                        && parts.iter().all(|part| shape.operand_type(part) == Some(Type::Ref)),
-                    Instruction::Box { .. } | Instruction::Phi { .. } | Instruction::Const(_)
+                    Instruction::GetListElement { .. } | Instruction::SetListElement { .. } => {
+                        false
+                    }
+                    Instruction::CheckNotNull(operand) => {
+                        *result == Type::Ref && shape.operand_type(operand) == Some(Type::Ref)
+                    }
+                    Instruction::IsClass { object, .. } => {
+                        *result == Type::I1 && shape.operand_type(object) == Some(Type::Ref)
+                    }
+                    Instruction::ConcatStrings { parts } => {
+                        *result == Type::Ref
+                            && parts
+                                .iter()
+                                .all(|part| shape.operand_type(part) == Some(Type::Ref))
+                    }
+                    Instruction::Box { .. }
+                    | Instruction::Phi { .. }
+                    | Instruction::Const(_)
                     | Instruction::ConstArray(..) => true,
                     Instruction::Add(..)
                     | Instruction::Sub(..)
@@ -621,15 +693,19 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
     // Complete coverage above establishes an empty callback domain. Publish
     // this transformation only now; failed probes preserve the original loop.
     // prune_hir removes the unreferenced bridge body using the returned graph.
-    if event_entry.is_some() { module.call_dart = None; }
+    if event_entry.is_some() {
+        module.call_dart = None;
+    }
     Ok(reach)
 }
 
 // These representations contain scalar data, not managed inputs or raw packet
 // address capabilities. New HIR representations need an explicit review here.
 fn scalar_entry_type(ty: Type) -> bool {
-    matches!(ty, Type::I1 | Type::I8 | Type::I64 | Type::F64
-        | Type::V4F32 | Type::V4I32 | Type::V2F64)
+    matches!(
+        ty,
+        Type::I1 | Type::I8 | Type::I64 | Type::F64 | Type::V4F32 | Type::V4I32 | Type::V2F64
+    )
 }
 
 /// Explicit creation/field/pending APIs admitted by this closed-image proof.

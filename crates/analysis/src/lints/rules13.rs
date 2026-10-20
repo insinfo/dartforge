@@ -10,14 +10,14 @@
 //! feature, which a 3.6 library does not enable.
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
-    Ast, DeclKind, ExprKind, FunctionBody, FunctionId, ListPatternElement, MemberKind, ParameterKind, PatternId, PatternKind, StmtKind,
-    TypeKind, TypeParameter, TypedefKind,
+    Ast, DeclKind, ExprKind, FunctionBody, FunctionId, ListPatternElement, MemberKind,
+    ParameterKind, PatternId, PatternKind, StmtKind, TypeKind, TypeParameter, TypedefKind,
 };
 use dartforge_intern::Interner;
 
@@ -67,17 +67,29 @@ fn enclosing_containers<'x>(
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
 
     // `avoid_shadowing_type_parameters`.
     if enabled("avoid_shadowing_type_parameters") {
         let mut findings: Vec<(Span, String, &'static str)> = Vec::new();
-        let shadows = |tps: &[TypeParameter], outer: &[TypeParameter], kind: &'static str, findings: &mut Vec<(Span, String, &'static str)>| {
+        let shadows = |tps: &[TypeParameter],
+                       outer: &[TypeParameter],
+                       kind: &'static str,
+                       findings: &mut Vec<(Span, String, &'static str)>| {
             for p in tps {
                 if outer.iter().any(|q| q.name.sym == p.name.sym) {
                     findings.push((p.span, interner.resolve(p.name.sym).to_string(), kind));
@@ -90,8 +102,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             match &d.kind {
                 DeclKind::Class(x) => containers.push((d.span, &x.type_params[..], "class")),
                 DeclKind::Enum(x) => containers.push((d.span, &x.type_params[..], "enum")),
-                DeclKind::Extension(x) => containers.push((d.span, &x.type_params[..], "extension")),
-                DeclKind::ExtensionType(x) => containers.push((d.span, &x.type_params[..], "extension type")),
+                DeclKind::Extension(x) => {
+                    containers.push((d.span, &x.type_params[..], "extension"))
+                }
+                DeclKind::ExtensionType(x) => {
+                    containers.push((d.span, &x.type_params[..], "extension type"))
+                }
                 DeclKind::Mixin(x) => containers.push((d.span, &x.type_params[..], "mixin")),
                 _ => {}
             }
@@ -114,10 +130,13 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 methods.push((*f, a.function(*f).static_));
             }
         }
-        let ancestors = |span: Span| enclosing_containers(a, &containers, &declared, &methods, span);
+        let ancestors =
+            |span: Span| enclosing_containers(a, &containers, &declared, &methods, span);
         // A generic local function, against all ancestors.
         for s in a.stmts.iter() {
-            let StmtKind::Function(f) = &s.kind else { continue };
+            let StmtKind::Function(f) = &s.kind else {
+                continue;
+            };
             let f = a.function(*f);
             if f.type_params.is_empty() {
                 continue;
@@ -180,7 +199,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let mut findings: Vec<(Span, String)> = Vec::new();
         for fid in targets {
             let f = a.function(fid);
-            let (Some(ps), Some(body)) = (&f.parameters, body_region(a, &f.body)) else { continue };
+            let (Some(ps), Some(body)) = (&f.parameters, body_region(a, &f.body)) else {
+                continue;
+            };
             for p in ps.iter() {
                 let Some(n) = p.name else { continue };
                 let decl = n.span.start;
@@ -191,21 +212,31 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 // plain required positional one), or with a default value: never
                 // null at the start; `DefaultFormalParameter` without a default
                 // value: null at the start.
-                let plain = p.kind == ParameterKind::Required && p.function_parameters.is_none() && !p.this_ && !p.super_;
-                let never_null = plain || (p.kind != ParameterKind::Required && p.default_value.is_some());
+                let plain = p.kind == ParameterKind::Required
+                    && p.function_parameters.is_none()
+                    && !p.this_
+                    && !p.super_;
+                let never_null =
+                    plain || (p.kind != ParameterKind::Required && p.default_value.is_some());
                 let starts_null = p.kind != ParameterKind::Required && p.default_value.is_none();
                 if !never_null && !starts_null {
                     continue;
                 }
                 let is_the_param = |e: dartforge_frontend::ast::ExprId| {
-                    matches!(a.expr(e).kind, ExprKind::Identifier(_)) && sem.body.local_declaration(e) == Some(decl)
+                    matches!(a.expr(e).kind, ExprKind::Identifier(_))
+                        && sem.body.local_declaration(e) == Some(decl)
                 };
-                let pattern_is_the_param = |q: PatternId| sem.body.pattern_declarations.get(&q) == Some(&decl);
+                let pattern_is_the_param =
+                    |q: PatternId| sem.body.pattern_declarations.get(&q) == Some(&decl);
                 let name = interner.resolve(n.sym).to_string();
                 let mut already_assigned = false;
                 // In source order (the `RecursiveAstVisitor`).
-                let mut in_body: Vec<(usize, &dartforge_frontend::ast::Expr)> =
-                    a.exprs.iter().enumerate().filter(|(_, e)| within(e.span, body)).collect();
+                let mut in_body: Vec<(usize, &dartforge_frontend::ast::Expr)> = a
+                    .exprs
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| within(e.span, body))
+                    .collect();
                 in_body.sort_by_key(|(_, e)| (e.span.start, std::cmp::Reverse(e.span.end)));
                 for (_, e) in in_body {
                     match &e.kind {
@@ -221,16 +252,25 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                         }
                         // Every postfix and prefix on the parameter (`p++`,
                         // `p!`, `-p`, `!p`).
-                        ExprKind::Unary { operand, .. } if never_null && is_the_param(*operand) => findings.push((e.span, name.clone())),
+                        ExprKind::Unary { operand, .. } if never_null && is_the_param(*operand) => {
+                            findings.push((e.span, name.clone()))
+                        }
                         ExprKind::PatternAssign { pattern, .. } => {
                             let reported = match &a.pattern(*pattern).kind {
-                                PatternKind::Record { fields } | PatternKind::Object { fields, .. } => fields.iter().any(|f| pattern_is_the_param(f.pattern)),
-                                PatternKind::List { elements, .. } => elements.iter().any(|el| match el {
-                                    ListPatternElement::Pattern(q) => pattern_is_the_param(*q),
-                                    // The `RestPatternElement` is not the variable.
-                                    ListPatternElement::Rest(_) => false,
-                                }),
-                                PatternKind::Map { entries, .. } => entries.iter().any(|en| pattern_is_the_param(en.value)),
+                                PatternKind::Record { fields }
+                                | PatternKind::Object { fields, .. } => {
+                                    fields.iter().any(|f| pattern_is_the_param(f.pattern))
+                                }
+                                PatternKind::List { elements, .. } => {
+                                    elements.iter().any(|el| match el {
+                                        ListPatternElement::Pattern(q) => pattern_is_the_param(*q),
+                                        // The `RestPatternElement` is not the variable.
+                                        ListPatternElement::Rest(_) => false,
+                                    })
+                                }
+                                PatternKind::Map { entries, .. } => {
+                                    entries.iter().any(|en| pattern_is_the_param(en.value))
+                                }
                                 _ => false,
                             };
                             if reported {

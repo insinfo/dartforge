@@ -284,7 +284,13 @@ fn modified_sdk(source: &Path, expected: &str) {
         !compiled.js.contains("t$freshListAppend"),
         "modified SDK must retain checked dispatch"
     );
-    assert_eq!(node(&format!("{}\nif (!(globalThis.__sdkAppendCalls > 0)) throw Error('modified SDK body did not execute');",compiled.js)),expected);
+    assert_eq!(
+        node(&format!(
+            "{}\nif (!(globalThis.__sdkAppendCalls > 0)) throw Error('modified SDK body did not execute');",
+            compiled.js
+        )),
+        expected
+    );
 }
 
 #[test]

@@ -7,7 +7,7 @@ mod common;
 
 use common::Project;
 use dartforge_elements::sdk::SdkLayout;
-use dartforge_lsp::{SemanticAnalyzer, SessionStats, Server};
+use dartforge_lsp::{SemanticAnalyzer, Server, SessionStats};
 use serde_json::{Value, json};
 
 fn stats(p: &Project) -> SessionStats {
@@ -125,21 +125,18 @@ fn changed_disk_or_new_file_reloads() {
 fn zero_budget_never_retains() {
     let mut p = Project::new("sessao-orcamento");
     let sdk = SdkLayout::load(&p.root.join("sdk/lib"), "dartdevc").unwrap();
-    p.server =
-        Server::with_analyzer(SemanticAnalyzer::new(Some(sdk)).with_session_budget(0));
+    p.server = Server::with_analyzer(SemanticAnalyzer::new(Some(sdk)).with_session_budget(0));
     p.request("initialize", json!({"capabilities": {}}));
     p.open("lib/a.dart", "int f() => 1;\nint g() => f();\n");
     for _ in 0..3 {
-        assert_eq!(hover(&mut p, "lib/a.dart", 1, 11)["contents"], "int f()\nType: int Function()");
+        assert_eq!(
+            hover(&mut p, "lib/a.dart", 1, 11)["contents"],
+            "int f()\nType: int Function()"
+        );
     }
     let e = stats(&p);
     assert_eq!(
-        (
-            e.loaded,
-            e.reused,
-            e.above_budget,
-            e.retained_source
-        ),
+        (e.loaded, e.reused, e.above_budget, e.retained_source),
         (3, 0, 3, 0),
         "{e:?}"
     );
@@ -154,23 +151,35 @@ fn open_and_close_with_disk_text_keeps_session() {
     let b = "import 'a.dart';\nint h() => f();\n";
     p.write("lib/b.dart", b);
     p.open("lib/a.dart", "int f() => 1;\n");
-    assert_eq!(references(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]);
+    assert_eq!(
+        references(&mut p, "lib/a.dart", 0, 4),
+        vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]
+    );
     let loaded = stats(&p).loaded;
     // `b.dart` opened with the disk text (without rewriting it): the entry stays.
     let uri_b = p.uri("lib/b.dart");
     p.server.receive(json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri_b, "languageId": "dart", "version": 1, "text": b}}}));
     p.server.pump();
-    assert_eq!(references(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]);
+    assert_eq!(
+        references(&mut p, "lib/a.dart", 0, 4),
+        vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]
+    );
     assert_eq!(stats(&p).loaded, loaded, "{:?}", stats(&p));
     // Closed without changes: still there.
     let uri = p.uri("lib/b.dart");
     p.server.receive(json!({"jsonrpc": "2.0", "method": "textDocument/didClose", "params": {"textDocument": {"uri": uri}}}));
     p.server.pump();
-    assert_eq!(references(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]);
+    assert_eq!(
+        references(&mut p, "lib/a.dart", 0, 4),
+        vec!["lib/b.dart:1:11", "lib/a.dart:0:4"]
+    );
     assert_eq!(stats(&p).loaded, loaded, "{:?}", stats(&p));
     // Opened with a different text (one more use): reloads and sees the use.
     p.server.receive(json!({"jsonrpc": "2.0", "method": "textDocument/didOpen", "params": {"textDocument": {"uri": uri_b, "languageId": "dart", "version": 1, "text": "import 'a.dart';\nint h() => f() + f();\n"}}}));
     p.server.pump();
-    assert_eq!(references(&mut p, "lib/a.dart", 0, 4), vec!["lib/b.dart:1:11", "lib/b.dart:1:17", "lib/a.dart:0:4"]);
+    assert_eq!(
+        references(&mut p, "lib/a.dart", 0, 4),
+        vec!["lib/b.dart:1:11", "lib/b.dart:1:17", "lib/a.dart:0:4"]
+    );
     assert!(stats(&p).loaded > loaded);
 }

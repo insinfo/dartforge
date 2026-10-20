@@ -10,7 +10,7 @@
 //! `corpus/diagnostics/projects.json` and `corpus/diagnostics/mutations.jsonl`;
 //! a mutation whose original file changed (hash) is flagged as stale.
 
-use crate::oracle::{FNV_START, Record, OracleSdk, fnv};
+use crate::oracle::{FNV_START, OracleSdk, Record, fnv};
 use dartforge_frontend::ast::{DirectiveKind, ExprKind, TypeKind, UnaryOp};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -28,7 +28,12 @@ pub struct Project {
 
 /// The plan's three projects.
 pub fn default_projects() -> Vec<Project> {
-    let p = |name: &str, c: &str| Project { name: name.into(), path: c.into(), sdk: OracleSdk::V362, oracle: None };
+    let p = |name: &str, c: &str| Project {
+        name: name.into(),
+        path: c.into(),
+        sdk: OracleSdk::V362,
+        oracle: None,
+    };
     vec![
         p("new_sali-core", "C:/MyDartProjects/new_sali/core"),
         p("new_sali-frontend", "C:/MyDartProjects/new_sali/frontend"),
@@ -57,7 +62,12 @@ pub struct Mutation {
 
 impl Mutation {
     pub fn apply(&self, original: &str) -> String {
-        format!("{}{}{}", &original[..self.start], self.insert, &original[self.end..])
+        format!(
+            "{}{}{}",
+            &original[..self.start],
+            self.insert,
+            &original[self.end..]
+        )
     }
 }
 
@@ -103,7 +113,13 @@ pub fn copy(p: &Project, dest: &Path) -> Result<PathBuf, String> {
     let base = orig.parent().expect("parent");
     if let Some(pkgs) = cfg.get_mut("packages").and_then(|v| v.as_array_mut()) {
         for pkg in pkgs {
-            let Some(root) = pkg.get("rootUri").and_then(|v| v.as_str()).map(str::to_string) else { continue };
+            let Some(root) = pkg
+                .get("rootUri")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+            else {
+                continue;
+            };
             let abs = if root.starts_with("file:") {
                 root.clone()
             } else {
@@ -119,7 +135,8 @@ pub fn copy(p: &Project, dest: &Path) -> Result<PathBuf, String> {
     }
     let d = dest.join(".dart_tool/package_config.json");
     std::fs::create_dir_all(d.parent().expect("parent")).map_err(|e| e.to_string())?;
-    std::fs::write(&d, serde_json::to_string_pretty(&cfg).expect("JSON")).map_err(|e| e.to_string())?;
+    std::fs::write(&d, serde_json::to_string_pretty(&cfg).expect("JSON"))
+        .map_err(|e| e.to_string())?;
     Ok(d)
 }
 
@@ -176,21 +193,29 @@ pub fn sites(text: &str, kind: &str) -> Vec<(usize, usize, String)> {
         "type" => {
             for t in &ast.types {
                 if let TypeKind::Named { name, args } = &t.kind
-                    && name.len() == 1 && args.is_empty() && !t.nullable {
-                        match source(t.span) {
-                            "String" => v.push((t.span.start, t.span.end, "int".into())),
-                            "int" => v.push((t.span.start, t.span.end, "String".into())),
-                            _ => {}
-                        }
+                    && name.len() == 1
+                    && args.is_empty()
+                    && !t.nullable
+                {
+                    match source(t.span) {
+                        "String" => v.push((t.span.start, t.span.end, "int".into())),
+                        "int" => v.push((t.span.start, t.span.end, "String".into())),
+                        _ => {}
                     }
+                }
             }
         }
         "bang" => {
             for e in &ast.exprs {
-                if let ExprKind::Unary { op: UnaryOp::NullAssert, .. } = e.kind
-                    && e.span.end > 0 && text.as_bytes().get(e.span.end - 1) == Some(&b'!') {
-                        v.push((e.span.end - 1, e.span.end, String::new()));
-                    }
+                if let ExprKind::Unary {
+                    op: UnaryOp::NullAssert,
+                    ..
+                } = e.kind
+                    && e.span.end > 0
+                    && text.as_bytes().get(e.span.end - 1) == Some(&b'!')
+                {
+                    v.push((e.span.end - 1, e.span.end, String::new()));
+                }
             }
         }
         "await" => {
@@ -216,7 +241,10 @@ pub fn choose(p: &Project, copy_root: &Path, files: &[PathBuf], per_kind: usize)
     // Only `lib/`: it is the owner's code that the editor shows.
     let libs: Vec<&PathBuf> = files
         .iter()
-        .filter(|a| crate::oracle::relative(a, copy_root).is_some_and(|r| r.starts_with("lib/") && !r.ends_with(".g.dart")))
+        .filter(|a| {
+            crate::oracle::relative(a, copy_root)
+                .is_some_and(|r| r.starts_with("lib/") && !r.ends_with(".g.dart"))
+        })
         .collect();
     if libs.is_empty() {
         return out;
@@ -232,7 +260,9 @@ pub fn choose(p: &Project, copy_root: &Path, files: &[PathBuf], per_kind: usize)
             }
             let a = libs[idx];
             idx = (idx + step) % libs.len();
-            let Ok(text) = std::fs::read_to_string(a) else { continue };
+            let Ok(text) = std::fs::read_to_string(a) else {
+                continue;
+            };
             let s = sites(&text, kind);
             if s.is_empty() {
                 continue;

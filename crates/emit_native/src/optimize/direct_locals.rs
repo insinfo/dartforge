@@ -57,9 +57,7 @@ pub(super) fn prune(m: &mut Module) {
                     Instruction::TearOff { code_symbol }
                     | Instruction::AllocClosure { code_symbol, .. } => cite(code_symbol),
                     Instruction::AllocClosureTyped {
-                        code_symbol,
-                        typed,
-                        ..
+                        code_symbol, typed, ..
                     } => {
                         cite(code_symbol);
                         cite(typed);
@@ -87,7 +85,9 @@ pub(super) fn prune(m: &mut Module) {
     let dead_set: HashSet<_> = m
         .functions
         .iter()
-        .filter(|f| m.arc_direct_local_functions.contains(&f.symbol) && !live_set.contains(&f.symbol))
+        .filter(|f| {
+            m.arc_direct_local_functions.contains(&f.symbol) && !live_set.contains(&f.symbol)
+        })
         .map(|f| f.symbol.clone())
         .collect();
     if dead_set.is_empty() {
@@ -101,11 +101,13 @@ pub(super) fn prune(m: &mut Module) {
             .collect();
     }
     m.functions.retain(|f| !dead_set.contains(&f.symbol));
-    m.arc_direct_local_functions.retain(|s| !dead_set.contains(s));
+    m.arc_direct_local_functions
+        .retain(|s| !dead_set.contains(s));
     m.dart_scalar_parameters
         .retain(|s, _| !dead_set.contains(s));
     m.dart_rti_parameters.retain(|s, _| !dead_set.contains(s));
-    m.dart_vector_parameters.retain(|s, _| !dead_set.contains(s));
+    m.dart_vector_parameters
+        .retain(|s, _| !dead_set.contains(s));
     m.dart_ref_returns.retain(|s| !dead_set.contains(s));
     m.arc_sites.retain(|s, _| !dead_set.contains(s));
     m.source_errors.retain(|(s, _)| !dead_set.contains(s));

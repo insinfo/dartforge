@@ -116,10 +116,7 @@ mod tests {
             args: Box::new([]),
             nullable: false,
         });
-        assert_eq!(
-            classify(&table, &hierarchy, Some(marker), unknown),
-            None
-        );
+        assert_eq!(classify(&table, &hierarchy, Some(marker), unknown), None);
     }
 
     #[test]
@@ -143,11 +140,11 @@ mod tests {
             nullable: true,
         });
         let hierarchy = ClassHierarchy::new(1);
-        assert_eq!(
-            classify(&table, &hierarchy, Some(marker), t),
-            Some(true)
-        );
-        let promoted = table.intern(Type::Intersection { param, bound: target });
+        assert_eq!(classify(&table, &hierarchy, Some(marker), t), Some(true));
+        let promoted = table.intern(Type::Intersection {
+            param,
+            bound: target,
+        });
         assert_eq!(
             classify(&table, &hierarchy, Some(marker), promoted),
             Some(true)

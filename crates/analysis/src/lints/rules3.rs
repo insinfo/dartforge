@@ -19,14 +19,14 @@
 //! first comment before a local function.
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
-    CreationKeyword, DeclKind, DirectiveKind, ExprKind, ForInit, FunctionId, FunctionKind, MemberKind, StmtKind, StringPart, TypedefKind,
-    VariableList,
+    CreationKeyword, DeclKind, DirectiveKind, ExprKind, ForInit, FunctionId, FunctionKind,
+    MemberKind, StmtKind, StringPart, TypedefKind, VariableList,
 };
 use dartforge_intern::Interner;
 
@@ -35,23 +35,51 @@ pub fn is_library_name(name: &str) -> bool {
     let inner_char = |x: char| x == '_' || x.is_ascii_lowercase() || x.is_ascii_digit();
     let mut parts = name.split('.');
     let first = parts.next().unwrap_or("");
-    first.chars().all(inner_char) && parts.all(|p| p.chars().next().is_some_and(|x| x.is_ascii_lowercase()) && p.chars().all(inner_char))
+    first.chars().all(inner_char)
+        && parts.all(|p| {
+            p.chars().next().is_some_and(|x| x.is_ascii_lowercase()) && p.chars().all(inner_char)
+        })
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let source = u.source;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
 
     // `unnecessary_new`: at the word `new`.
     if enabled("unnecessary_new") {
         for e in a.exprs.iter() {
-            if matches!(e.kind, ExprKind::InstanceCreation { keyword: Some(CreationKeyword::New), .. }) && source.get(e.span.start..).is_some_and(|t| t.starts_with("new")) {
-                report(&c::UNNECESSARY_NEW, Span { start: e.span.start, end: e.span.start + 3 }, &[]);
+            if matches!(
+                e.kind,
+                ExprKind::InstanceCreation {
+                    keyword: Some(CreationKeyword::New),
+                    ..
+                }
+            ) && source
+                .get(e.span.start..)
+                .is_some_and(|t| t.starts_with("new"))
+            {
+                report(
+                    &c::UNNECESSARY_NEW,
+                    Span {
+                        start: e.span.start,
+                        end: e.span.start + 3,
+                    },
+                    &[],
+                );
             }
         }
     }
@@ -62,8 +90,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             if list.ty.is_some() {
                 return;
             }
-            let code =
-                if of_field { &c::PREFER_TYPING_UNINITIALIZED_VARIABLES_FOR_FIELD } else { &c::PREFER_TYPING_UNINITIALIZED_VARIABLES_FOR_LOCAL_VARIABLE };
+            let code = if of_field {
+                &c::PREFER_TYPING_UNINITIALIZED_VARIABLES_FOR_FIELD
+            } else {
+                &c::PREFER_TYPING_UNINITIALIZED_VARIABLES_FOR_LOCAL_VARIABLE
+            };
             for v in list.variables.iter().filter(|v| v.initializer.is_none()) {
                 report(code, v.name.span, &[]);
             }
@@ -80,7 +111,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         }
         for s in a.stmts.iter() {
             match &s.kind {
-                StmtKind::Variables(l) | StmtKind::For { init: Some(ForInit::Variables(l)), .. } => check(l, false),
+                StmtKind::Variables(l)
+                | StmtKind::For {
+                    init: Some(ForInit::Variables(l)),
+                    ..
+                } => check(l, false),
                 _ => {}
             }
         }
@@ -103,33 +138,58 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 MemberKind::Method(f) => Some(*f),
                 _ => None,
             })
-            .chain(a.decls.iter().filter(|d| d.augment).filter_map(|d| match &d.kind {
-                DeclKind::Function(f) => Some(*f),
-                _ => None,
-            }))
+            .chain(
+                a.decls
+                    .iter()
+                    .filter(|d| d.augment)
+                    .filter_map(|d| match &d.kind {
+                        DeclKind::Function(f) => Some(*f),
+                        _ => None,
+                    }),
+            )
             .collect();
         for (i, f) in a.functions.iter().enumerate() {
             let id = FunctionId(i as u32);
             let Some(name) = f.name else { continue };
-            if f.return_type.is_some() || f.kind == FunctionKind::Setter || augmented.contains(&id) {
+            if f.return_type.is_some() || f.kind == FunctionKind::Setter || augmented.contains(&id)
+            {
                 continue;
             }
             let text = interner.resolve(name.sym);
             if method_fns.contains(&id) {
-                let is_test = (text.starts_with("test_") || text.starts_with("solo_test_")) && sem.is_some_and(super::in_package_test);
+                let is_test = (text.starts_with("test_") || text.starts_with("solo_test_"))
+                    && sem.is_some_and(super::in_package_test);
                 if text != "[]=" && !is_test {
-                    report(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_METHODS, name.span, &[text]);
+                    report(
+                        &c::ALWAYS_DECLARE_RETURN_TYPES_OF_METHODS,
+                        name.span,
+                        &[text],
+                    );
                 }
             } else {
-                report(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_FUNCTIONS, name.span, &[text]);
+                report(
+                    &c::ALWAYS_DECLARE_RETURN_TYPES_OF_FUNCTIONS,
+                    name.span,
+                    &[text],
+                );
             }
         }
         // The old-style `typedef` without a return type.
         for d in a.decls.iter() {
             if let DeclKind::Typedef(x) = &d.kind
-                && matches!(x.kind, TypedefKind::Legacy { return_type: None, .. })
+                && matches!(
+                    x.kind,
+                    TypedefKind::Legacy {
+                        return_type: None,
+                        ..
+                    }
+                )
             {
-                report(&c::ALWAYS_DECLARE_RETURN_TYPES_OF_FUNCTIONS, x.name.span, &[interner.resolve(x.name.sym)]);
+                report(
+                    &c::ALWAYS_DECLARE_RETURN_TYPES_OF_FUNCTIONS,
+                    x.name.span,
+                    &[interner.resolve(x.name.sym)],
+                );
             }
         }
     }
@@ -139,9 +199,20 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             if let DirectiveKind::Library { name } = &d.kind
                 && let (Some(p), Some(last)) = (name.first(), name.last())
             {
-                let text = name.iter().map(|n| interner.resolve(n.sym)).collect::<Vec<_>>().join(".");
+                let text = name
+                    .iter()
+                    .map(|n| interner.resolve(n.sym))
+                    .collect::<Vec<_>>()
+                    .join(".");
                 if !is_library_name(&text) {
-                    report(&c::LIBRARY_NAMES, Span { start: p.span.start, end: last.span.end }, &[text.as_str()]);
+                    report(
+                        &c::LIBRARY_NAMES,
+                        Span {
+                            start: p.span.start,
+                            end: last.span.end,
+                        },
+                        &[text.as_str()],
+                    );
                 }
             }
         }
@@ -152,10 +223,17 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         // `_findComment(metadata, tokenAfterMetadata)`.
         let doc = |metadata: &[dartforge_frontend::ast::Annotation], start: usize| {
             let after = match metadata.last() {
-                Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
+                Some(m) => {
+                    dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end)
+                }
                 None => start,
             };
-            comments.dart_doc(source, after).or_else(|| metadata.iter().rev().find_map(|m| comments.dart_doc(source, m.span.start)))
+            comments.dart_doc(source, after).or_else(|| {
+                metadata
+                    .iter()
+                    .rev()
+                    .find_map(|m| comments.dart_doc(source, m.span.start))
+            })
         };
         let mut docs: Vec<Span> = Vec::new();
         if let Some(first) = u.unit.directives.first() {
@@ -209,9 +287,13 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     if enabled("unnecessary_brace_in_string_interps") {
         let b = source.as_bytes();
         for e in a.exprs.iter() {
-            let ExprKind::String(lit) = &e.kind else { continue };
+            let ExprKind::String(lit) = &e.kind else {
+                continue;
+            };
             for part in lit.parts.iter() {
-                let StringPart::Interpolation(x) = part else { continue };
+                let StringPart::Interpolation(x) = part else {
+                    continue;
+                };
                 let inner = a.expr(*x);
                 let simple = match &inner.kind {
                     ExprKind::Identifier(n) => !interner.resolve(n.sym).contains('$'),
@@ -220,12 +302,26 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 };
                 let (start, end) = (inner.span.start, inner.span.end);
                 // Written exactly as `${x}`.
-                if !simple || start < 2 || b.get(start - 1) != Some(&b'{') || b.get(start - 2) != Some(&b'$') || b.get(end) != Some(&b'}') {
+                if !simple
+                    || start < 2
+                    || b.get(start - 1) != Some(&b'{')
+                    || b.get(start - 2) != Some(&b'$')
+                    || b.get(end) != Some(&b'}')
+                {
                     continue;
                 }
-                let continues = b.get(end + 1).is_some_and(|x| x.is_ascii_alphanumeric() || *x == b'_' || *x == b'$');
+                let continues = b
+                    .get(end + 1)
+                    .is_some_and(|x| x.is_ascii_alphanumeric() || *x == b'_' || *x == b'$');
                 if !continues {
-                    report(&c::UNNECESSARY_BRACE_IN_STRING_INTERPS, Span { start: start - 2, end: end + 1 }, &[]);
+                    report(
+                        &c::UNNECESSARY_BRACE_IN_STRING_INTERPS,
+                        Span {
+                            start: start - 2,
+                            end: end + 1,
+                        },
+                        &[],
+                    );
                 }
             }
         }
@@ -240,33 +336,67 @@ mod tests {
     fn findings(source: &str) -> Vec<(&'static str, String)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
         let mut reports = run(u, &names, &|_| true, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| (r.code.unique, source[r.span.start..r.span.end].to_string())).collect()
+        reports
+            .into_iter()
+            .map(|r| (r.code.unique, source[r.span.start..r.span.end].to_string()))
+            .collect()
     }
 
     #[test]
     fn library_names() {
         assert!(is_library_name("a.b_c") && is_library_name("_a") && is_library_name(""));
         assert!(!is_library_name("A.b") && !is_library_name("a.1b"));
-        assert_eq!(findings("library My.lib;\n"), vec![("library_names", "My.lib".to_string())]);
+        assert_eq!(
+            findings("library My.lib;\n"),
+            vec![("library_names", "My.lib".to_string())]
+        );
     }
 
     #[test]
     fn declarations() {
-        assert_eq!(findings("int g() => 1;\nf() {}\n"), vec![("always_declare_return_types_of_functions", "f".to_string())]);
+        assert_eq!(
+            findings("int g() => 1;\nf() {}\n"),
+            vec![("always_declare_return_types_of_functions", "f".to_string())]
+        );
         assert_eq!(
             findings("class A {\n  var x;\n  m() {}\n  operator []=(int i, int v) {}\n}\n"),
-            vec![("prefer_typing_uninitialized_variables_for_field", "x".to_string()), ("always_declare_return_types_of_methods", "m".to_string())]
+            vec![
+                (
+                    "prefer_typing_uninitialized_variables_for_field",
+                    "x".to_string()
+                ),
+                ("always_declare_return_types_of_methods", "m".to_string())
+            ]
         );
-        assert_eq!(findings("int y = 0;\nvar z;\n"), vec![("prefer_typing_uninitialized_variables_for_local_variable", "z".to_string())]);
-        assert_eq!(findings("/** doc */\nclass A {}\n/// ok\nclass B {}\n"), vec![("slash_for_doc_comments", "/** doc */".to_string())]);
+        assert_eq!(
+            findings("int y = 0;\nvar z;\n"),
+            vec![(
+                "prefer_typing_uninitialized_variables_for_local_variable",
+                "z".to_string()
+            )]
+        );
+        assert_eq!(
+            findings("/** doc */\nclass A {}\n/// ok\nclass B {}\n"),
+            vec![("slash_for_doc_comments", "/** doc */".to_string())]
+        );
     }
 
     #[test]
     fn expressions() {
-        assert_eq!(findings("class A {}\nvar a = new A();\n"), vec![("unnecessary_new", "new".to_string())]);
-        assert_eq!(findings("String f(int x) => '${x} and ${x}y and ${x + 1}';\n"), vec![("unnecessary_brace_in_string_interps", "${x}".to_string())]);
+        assert_eq!(
+            findings("class A {}\nvar a = new A();\n"),
+            vec![("unnecessary_new", "new".to_string())]
+        );
+        assert_eq!(
+            findings("String f(int x) => '${x} and ${x}y and ${x + 1}';\n"),
+            vec![("unnecessary_brace_in_string_interps", "${x}".to_string())]
+        );
     }
 }

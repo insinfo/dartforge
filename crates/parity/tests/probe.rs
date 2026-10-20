@@ -17,21 +17,47 @@ fn d(unique: &str, start: usize, end: usize, args: &[&str]) -> Diagnostic {
 
 #[test]
 fn seven_error_probe_matches_the_oracle() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnostics/sonda");
+    let root =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../corpus/diagnostics/sonda");
     let source = std::fs::read_to_string(root.join("lib/a.dart")).expect("probe");
-    let expected = std::fs::read_to_string(root.join("dart-analyze.json")).expect("recorded oracle");
+    let expected =
+        std::fs::read_to_string(root.join("dart-analyze.json")).expect("recorded oracle");
     let lines = json::LineIndex::new(&source);
     let diags = [
-        d("CompileTimeErrorCode.RETURN_OF_INVALID_TYPE_FROM_FUNCTION", 41, 44, &["String", "int", "f"]),
+        d(
+            "CompileTimeErrorCode.RETURN_OF_INVALID_TYPE_FROM_FUNCTION",
+            41,
+            44,
+            &["String", "int", "f"],
+        ),
         d("CompileTimeErrorCode.UNDEFINED_FUNCTION", 83, 84, &["h"]),
-        d("CompileTimeErrorCode.NOT_ASSIGNED_POTENTIALLY_NON_NULLABLE_LOCAL_VARIABLE", 105, 106, &["y"]),
-        d("CompileTimeErrorCode.ARGUMENT_TYPE_NOT_ASSIGNABLE", 113, 116, &["String", "int", ""]),
+        d(
+            "CompileTimeErrorCode.NOT_ASSIGNED_POTENTIALLY_NON_NULLABLE_LOCAL_VARIABLE",
+            105,
+            106,
+            &["y"],
+        ),
+        d(
+            "CompileTimeErrorCode.ARGUMENT_TYPE_NOT_ASSIGNABLE",
+            113,
+            116,
+            &["String", "int", ""],
+        ),
         d("CompileTimeErrorCode.NON_BOOL_CONDITION", 125, 126, &[]),
-        d("CompileTimeErrorCode.UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE", 148, 154, &["length"]),
+        d(
+            "CompileTimeErrorCode.UNCHECKED_PROPERTY_ACCESS_OF_NULLABLE_VALUE",
+            148,
+            154,
+            &["length"],
+        ),
         d("WarningCode.UNUSED_LOCAL_VARIABLE", 162, 167, &["nunca"]),
     ];
     // Deliberately shuffled order: the reporting order comes from `json::sort`.
-    let mut v: Vec<_> = diags.iter().rev().map(|x| json::to_json("<SONDA>", &lines, x, false)).collect();
+    let mut v: Vec<_> = diags
+        .iter()
+        .rev()
+        .map(|x| json::to_json("<SONDA>", &lines, x, false))
+        .collect();
     json::sort(&mut v);
     assert_eq!(json::write(v), expected.trim_end());
 }

@@ -197,15 +197,34 @@ impl LlvmEmitter<'_> {
             Type::V4I32 => dartforge_runtime::layout::cid::INT32X4,
             _ => dartforge_runtime::layout::cid::FLOAT64X2,
         };
-        writeln!(self.out, "  %bx{v} = bitcast {} {only} to <2 x i64>", from.llvm_ir()).unwrap();
+        writeln!(
+            self.out,
+            "  %bx{v} = bitcast {} {only} to <2 x i64>",
+            from.llvm_ir()
+        )
+        .unwrap();
         if self.module.arc_memory {
-            self.externals.insert("dartforge_arc_box_simd_owned_v1".into(),
-                "declare i64 @dartforge_arc_box_simd_owned_v1(i64, i64, i64) nounwind".into());
-            writeln!(self.out, "  %bl{v} = extractelement <2 x i64> %bx{v}, i32 0").unwrap();
-            writeln!(self.out, "  %bh{v} = extractelement <2 x i64> %bx{v}, i32 1").unwrap();
+            self.externals.insert(
+                "dartforge_arc_box_simd_owned_v1".into(),
+                "declare i64 @dartforge_arc_box_simd_owned_v1(i64, i64, i64) nounwind".into(),
+            );
+            writeln!(
+                self.out,
+                "  %bl{v} = extractelement <2 x i64> %bx{v}, i32 0"
+            )
+            .unwrap();
+            writeln!(
+                self.out,
+                "  %bh{v} = extractelement <2 x i64> %bx{v}, i32 1"
+            )
+            .unwrap();
             writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_box_simd_owned_v1(i64 {cid}, i64 %bl{v}, i64 %bh{v})").unwrap();
         } else {
-            writeln!(self.out, "  %v{v} = call i64 @df.simd_box(<2 x i64> %bx{v}, i64 {cid})").unwrap();
+            writeln!(
+                self.out,
+                "  %v{v} = call i64 @df.simd_box(<2 x i64> %bx{v}, i64 {cid})"
+            )
+            .unwrap();
         }
     }
 
@@ -216,13 +235,18 @@ impl LlvmEmitter<'_> {
         let only = self.coerce(op, Type::Ref);
         writeln!(self.out, "  %ux{v} = add i64 {only}, 14").unwrap();
         writeln!(self.out, "  %up{v} = inttoptr i64 %ux{v} to ptr").unwrap();
-        writeln!(self.out, "  %v{v} = load {}, ptr %up{v}, align 8", to.llvm_ir()).unwrap();
+        writeln!(
+            self.out,
+            "  %v{v} = load {}, ptr %up{v}, align 8",
+            to.llvm_ir()
+        )
+        .unwrap();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use dartforge_runtime::layout::{self, offsets, flags};
+    use dartforge_runtime::layout::{self, flags, offsets};
 
     /// The constants written by hand in [`super::HELPERS`] are those of the contract.
     #[test]
@@ -244,7 +268,10 @@ mod tests {
         assert_eq!(layout::cid::GROWABLE_LIST, 10);
         assert_eq!(layout::cid::LIST, 8);
         // Word 0 of the header of a SIMD value, without the cid.
-        assert_eq!(layout::header_word(layout::state::YOUNG, flags::RAW, 2, 0), 131_585);
+        assert_eq!(
+            layout::header_word(layout::state::YOUNG, flags::RAW, 2, 0),
+            131_585
+        );
         // The `log2` table of the element size per type (4 bits per type).
         let mut table = 0u64;
         for t in 0..=14u8 {
@@ -253,7 +280,10 @@ mod tests {
         }
         assert_eq!(table, 19_214_116_860_268_544);
         for (name, _, _) in super::HELPER_EFFECTS {
-            assert!(super::HELPERS.contains(&format!("@{name}(")), "{name} without a definition");
+            assert!(
+                super::HELPERS.contains(&format!("@{name}(")),
+                "{name} without a definition"
+            );
         }
     }
 }

@@ -8,7 +8,13 @@ mod common;
 use common::{Project, apply};
 use serde_json::{Value, json};
 
-fn actions(p: &mut Project, relative: &str, from: (u32, u32), until: (u32, u32), extra: Value) -> Value {
+fn actions(
+    p: &mut Project,
+    relative: &str,
+    from: (u32, u32),
+    until: (u32, u32),
+    extra: Value,
+) -> Value {
     let mut params = json!({
         "textDocument": {"uri": p.uri(relative)},
         "range": {"start": {"line": from.0, "character": from.1}, "end": {"line": until.0, "character": until.1}},
@@ -25,14 +31,69 @@ fn actions(p: &mut Project, relative: &str, from: (u32, u32), until: (u32, u32),
     let outside = |k: &str| {
         k.starts_with("source")
             || k.starts_with("quickfix.ignore")
-            || (k.starts_with("refactor.") && !["refactor.inline", "refactor.add.typeAnnotation", "refactor.add.showCombinator", "refactor.convert.forEachToForIndex", "refactor.convert.conditionalToIfElse", "refactor.convert.toSingleQuotedString", "refactor.convert.toDoubleQuotedString", "refactor.convert.isNotEmpty", "refactor.convert.toIntLiteral", "refactor.replace.withVar", "refactor.splitIfConjunction", "refactor.add.returnType", "refactor.convert.toNullAware", "refactor.convert.toMultilineString", "refactor.convert.toSpread", "refactor.convert.toIfElement", "refactor.convert.blockComment", "refactor.convert.lineComment", "refactor.convert.relativeToPackageImport", "refactor.convert.packageToRelativeImport", "refactor.convert.partOfToPartUri", "refactor.convert.toMapLiteral", "refactor.convert.toSetLiteral", "refactor.encapsulateField", "refactor.convert.toConstructorFieldParameter", "refactor.shadowField", "refactor.convert.toGenericFunctionSyntax", "refactor.destructureLocalVariableAssignment", "refactor.convert.ifCaseStatement", "refactor.convert.ifCaseStatementChain", "refactor.convert.switchStatement", "refactor.convert.toForElement", "refactor.convert.toSuperParameters", "refactor.convert.classToEnum", "refactor.convert.switchExpression", "refactor.sort.child.properties.last", "refactor.add.diagnosticPropertyReference"].contains(&k) && !k.starts_with("refactor.surround.") && !k.starts_with("refactor.flutter."))
+            || (k.starts_with("refactor.")
+                && ![
+                    "refactor.inline",
+                    "refactor.add.typeAnnotation",
+                    "refactor.add.showCombinator",
+                    "refactor.convert.forEachToForIndex",
+                    "refactor.convert.conditionalToIfElse",
+                    "refactor.convert.toSingleQuotedString",
+                    "refactor.convert.toDoubleQuotedString",
+                    "refactor.convert.isNotEmpty",
+                    "refactor.convert.toIntLiteral",
+                    "refactor.replace.withVar",
+                    "refactor.splitIfConjunction",
+                    "refactor.add.returnType",
+                    "refactor.convert.toNullAware",
+                    "refactor.convert.toMultilineString",
+                    "refactor.convert.toSpread",
+                    "refactor.convert.toIfElement",
+                    "refactor.convert.blockComment",
+                    "refactor.convert.lineComment",
+                    "refactor.convert.relativeToPackageImport",
+                    "refactor.convert.packageToRelativeImport",
+                    "refactor.convert.partOfToPartUri",
+                    "refactor.convert.toMapLiteral",
+                    "refactor.convert.toSetLiteral",
+                    "refactor.encapsulateField",
+                    "refactor.convert.toConstructorFieldParameter",
+                    "refactor.shadowField",
+                    "refactor.convert.toGenericFunctionSyntax",
+                    "refactor.destructureLocalVariableAssignment",
+                    "refactor.convert.ifCaseStatement",
+                    "refactor.convert.ifCaseStatementChain",
+                    "refactor.convert.switchStatement",
+                    "refactor.convert.toForElement",
+                    "refactor.convert.toSuperParameters",
+                    "refactor.convert.classToEnum",
+                    "refactor.convert.switchExpression",
+                    "refactor.sort.child.properties.last",
+                    "refactor.add.diagnosticPropertyReference",
+                ]
+                .contains(&k)
+                && !k.starts_with("refactor.surround.")
+                && !k.starts_with("refactor.flutter."))
             || k == "quickfix.change.to"
-            || ["method", "function", "class", "mixin", "getter", "field", "localVariable", "parameter"]
-                .iter()
-                .any(|s| k == format!("quickfix.create.{s}"))
+            || [
+                "method",
+                "function",
+                "class",
+                "mixin",
+                "getter",
+                "field",
+                "localVariable",
+                "parameter",
+            ]
+            .iter()
+            .any(|s| k == format!("quickfix.create.{s}"))
     };
     match r {
-        Value::Array(l) => Value::Array(l.into_iter().filter(|a| !outside(a["kind"].as_str().unwrap_or(""))).collect()),
+        Value::Array(l) => Value::Array(
+            l.into_iter()
+                .filter(|a| !outside(a["kind"].as_str().unwrap_or("")))
+                .collect(),
+        ),
         other => other,
     }
 }
@@ -115,7 +176,13 @@ fn import_library_from_sdk_and_project() {
     // `r` on the same line also shows up.)
     let r = actions(&mut p, "lib/a.dart", (3, 11), (3, 11), json!({}));
     let import = action(&r, "Import library 'dart:math'");
-    assert_eq!(titles(&r).iter().filter(|t| t.starts_with("Import")).count(), 1);
+    assert_eq!(
+        titles(&r)
+            .iter()
+            .filter(|t| t.starts_with("Import"))
+            .count(),
+        1
+    );
     assert_eq!(import["kind"], "quickfix.import.librarySdk");
     assert_eq!(
         apply(&import["edit"], &uri, text),
@@ -126,8 +193,14 @@ fn import_library_from_sdk_and_project() {
     let r = actions(&mut p, "lib/a.dart", (4, 3), (4, 3), json!({}));
     // Both forms, like `dart language-server` 3.6.2.
     assert_eq!(
-        titles(&r).into_iter().filter(|t| t.starts_with("Import")).collect::<Vec<_>>(),
-        vec!["Import library 'package:projeto/util/soma.dart'", "Import library 'util/soma.dart'"]
+        titles(&r)
+            .into_iter()
+            .filter(|t| t.starts_with("Import"))
+            .collect::<Vec<_>>(),
+        vec![
+            "Import library 'package:projeto/util/soma.dart'",
+            "Import library 'util/soma.dart'"
+        ]
     );
     let import = action(&r, "Import library 'util/soma.dart'");
     assert_eq!(import["kind"], "quickfix.import.libraryProject1");
@@ -190,7 +263,11 @@ fn incomplete_code_still_imports() {
 
 /// UTF-16 line and column of the start of the `n`-th occurrence of `needle`.
 fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
-    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("no {needle:?}")).0;
+    let i = text
+        .match_indices(needle)
+        .nth(n)
+        .unwrap_or_else(|| panic!("no {needle:?}"))
+        .0;
     let before = &text[..i];
     (
         before.matches('\n').count() as u32,
@@ -201,7 +278,8 @@ fn location(text: &str, needle: &str, n: usize) -> (u32, u32) {
 /// Opens, waits for the typed publication and requests the actions at `needle`.
 fn actions_at(p: &mut Project, rel: &str, text: &str, needle: &str) -> Value {
     p.open(rel, text);
-    p.server.await_diagnostics(std::time::Duration::from_secs(120));
+    p.server
+        .await_diagnostics(std::time::Duration::from_secs(120));
     let pos = location(text, needle, 0);
     actions(p, rel, pos, pos, json!({}))
 }
@@ -231,20 +309,34 @@ fn removes_unused_local_and_its_assignments() {
     let text = "void f() {\n  var a = 1, b = 2;\n  var c = 3, d = 4;\n  print(a + d);\n}\n";
     let r = actions_at(&mut p, "lib/b.dart", text, "b = 2");
     assert_eq!(
-        apply(&action(&r, "Remove unused local variable")["edit"], &p.uri("lib/b.dart"), text),
+        apply(
+            &action(&r, "Remove unused local variable")["edit"],
+            &p.uri("lib/b.dart"),
+            text
+        ),
         "void f() {\n  var a = 1;\n  var c = 3, d = 4;\n  print(a + d);\n}\n"
     );
     let pos = location(text, "c = 3", 0);
     let r = actions(&mut p, "lib/b.dart", pos, pos, json!({}));
     assert_eq!(
-        apply(&action(&r, "Remove unused local variable")["edit"], &p.uri("lib/b.dart"), text),
+        apply(
+            &action(&r, "Remove unused local variable")["edit"],
+            &p.uri("lib/b.dart"),
+            text
+        ),
         "void f() {\n  var a = 1, b = 2;\n  var d = 4;\n  print(a + d);\n}\n"
     );
     // Used: nothing to remove from it (the unused `b` on the same line gets its
     // fix, as in Dart, which fixes the diagnostics of the line).
     let pos = location(text, "a = 1", 0);
     let r = actions(&mut p, "lib/b.dart", pos, pos, json!({}));
-    assert!(r.as_array().unwrap().iter().filter(|a| a["title"] == "Remove unused local variable").all(|a| a["diagnostics"][0]["range"]["start"]["character"] != pos.1));
+    assert!(
+        r.as_array()
+            .unwrap()
+            .iter()
+            .filter(|a| a["title"] == "Remove unused local variable")
+            .all(|a| a["diagnostics"][0]["range"]["start"]["character"] != pos.1)
+    );
 }
 
 #[test]
@@ -254,7 +346,10 @@ fn removes_unused_local_function() {
     let r = actions_at(&mut p, "lib/a.dart", text, "g()");
     let a = action(&r, "Remove unused element");
     assert_eq!(a["kind"], "quickfix.remove.unusedElement");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), "void f() {\n  print(2);\n}\n");
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        "void f() {\n  print(2);\n}\n"
+    );
 }
 
 #[test]
@@ -324,14 +419,24 @@ fn stale_version_typed_diagnostic_produces_no_fix() {
     p.change("lib/a.dart", 2, &format!("{text}// fim\n"));
     let pos = location(text, "as int", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert!(!titles(&r).contains(&"Remove unnecessary cast".to_string()), "{r}");
+    assert!(
+        !titles(&r).contains(&"Remove unnecessary cast".to_string()),
+        "{r}"
+    );
     // Once resumed, the publication of version 2 applies again.
     p.server.pause_typed_analysis(false);
-    p.server.await_diagnostics(std::time::Duration::from_secs(120));
+    p.server
+        .await_diagnostics(std::time::Duration::from_secs(120));
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert!(titles(&r).contains(&"Remove unnecessary cast".to_string()), "{r}");
+    assert!(
+        titles(&r).contains(&"Remove unnecessary cast".to_string()),
+        "{r}"
+    );
     // Outside the diagnostic's range, nothing.
-    assert!(!titles(&actions(&mut p, "lib/a.dart", (0, 0), (0, 4), json!({}))).contains(&"Remove unnecessary cast".to_string()));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", (0, 0), (0, 4), json!({})))
+            .contains(&"Remove unnecessary cast".to_string())
+    );
 }
 
 #[test]
@@ -347,9 +452,14 @@ fn versioned_edit_when_client_accepts() {
     let pos = location(text, "x = 1", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     let a = action(&r, "Remove unused local variable");
-    let changes = a["edit"]["documentChanges"].as_array().unwrap_or_else(|| panic!("{a}"));
+    let changes = a["edit"]["documentChanges"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{a}"));
     assert_eq!(changes.len(), 1);
-    assert_eq!(changes[0]["textDocument"], json!({"uri": p.uri("lib/a.dart"), "version": 5}));
+    assert_eq!(
+        changes[0]["textDocument"],
+        json!({"uri": p.uri("lib/a.dart"), "version": 5})
+    );
 }
 
 #[test]
@@ -365,19 +475,58 @@ fn type_annotation_assist() {
     );
     let pos = location(text, "final n", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Add type annotation")["edit"], &p.uri("lib/a.dart"), text), text.replace("final n", "final int n"));
+    assert_eq!(
+        apply(
+            &action(&r, "Add type annotation")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("final n", "final int n")
+    );
     let pos = location(text, "lista =", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Add type annotation")["edit"], &p.uri("lib/a.dart"), text), text.replace("var lista", "List<int> lista"));
+    assert_eq!(
+        apply(
+            &action(&r, "Add type annotation")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("var lista", "List<int> lista")
+    );
     // `dynamic` is not annotated; nor in the initializer.
     let pos = location(text, "d;", 0);
-    assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Add type annotation".to_string()));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({})))
+            .contains(&"Add type annotation".to_string())
+    );
     let pos = location(text, "'x'", 0);
-    assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Add type annotation".to_string()));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({})))
+            .contains(&"Add type annotation".to_string())
+    );
     // `context.only` with `quickfix` excludes the assist; with `refactor`, only it.
     let pos = location(text, "nome =", 0);
-    assert!(titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({"only": ["quickfix"]}))).iter().all(|t| t != "Add type annotation"));
-    assert_eq!(titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({"only": ["refactor"]}))), vec!["Add type annotation"]);
+    assert!(
+        titles(&actions(
+            &mut p,
+            "lib/a.dart",
+            pos,
+            pos,
+            json!({"only": ["quickfix"]})
+        ))
+        .iter()
+        .all(|t| t != "Add type annotation")
+    );
+    assert_eq!(
+        titles(&actions(
+            &mut p,
+            "lib/a.dart",
+            pos,
+            pos,
+            json!({"only": ["refactor"]})
+        )),
+        vec!["Add type annotation"]
+    );
 }
 
 /// L06: the Dart 3.6.2 fixes for more published codes, with the titles and
@@ -453,7 +602,10 @@ fn fixes_for_final_field_abstract_condition_and_element() {
     // A `final` field that is written without being a field (local): no field.
     let text = "void f() {\n  final int w = 1;\n  print(w);\n}\n";
     let r = actions_at(&mut p, "lib/local.dart", text, "w = 1");
-    assert!(!titles(&r).iter().any(|t| t.starts_with("Make field")), "{r}");
+    assert!(
+        !titles(&r).iter().any(|t| t.starts_with("Make field")),
+        "{r}"
+    );
 }
 
 /// L06: `Create file` for the relative URI that does not exist, only for a
@@ -470,23 +622,36 @@ fn create_file_for_missing_uri() {
     let r = actions_at(&mut p, "lib/a.dart", text, "'novo.dart'");
     let a = action(&r, "Create file 'novo.dart'");
     assert_eq!(a["kind"], "quickfix.create.file");
-    let changes = a["edit"]["documentChanges"].as_array().expect("documentChanges");
+    let changes = a["edit"]["documentChanges"]
+        .as_array()
+        .expect("documentChanges");
     // Like `dart language-server` 3.6.2: the `create` (without options) and the
     // content in a separate edit.
-    assert_eq!(changes[0], json!({"kind": "create", "uri": p.uri("lib/novo.dart")}));
+    assert_eq!(
+        changes[0],
+        json!({"kind": "create", "uri": p.uri("lib/novo.dart")})
+    );
     assert_eq!(changes.len(), 2, "{changes:?}");
-    assert_eq!(changes[1]["edits"][0]["newText"], "// TODO Implement this library.");
+    assert_eq!(
+        changes[1]["edits"][0]["newText"],
+        "// TODO Implement this library."
+    );
     let pos = common_pos(text, "'parte.dart'");
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     let a = action(&r, "Create file 'parte.dart'");
-    let changes = a["edit"]["documentChanges"].as_array().expect("documentChanges");
+    let changes = a["edit"]["documentChanges"]
+        .as_array()
+        .expect("documentChanges");
     assert_eq!(changes[0]["uri"], p.uri("lib/parte.dart"));
     assert_eq!(changes[1]["edits"][0]["newText"], "part of 'a.dart';\n\n");
 
     // Without the `create` operation in the client, the fix is not offered.
     let mut p = Project::with_literals("actions-create-without");
     let r = actions_at(&mut p, "lib/a.dart", text, "'novo.dart'");
-    assert!(!titles(&r).iter().any(|t| t.starts_with("Create file")), "{r}");
+    assert!(
+        !titles(&r).iter().any(|t| t.starts_with("Create file")),
+        "{r}"
+    );
 }
 
 fn common_pos(text: &str, needle: &str) -> (u32, u32) {
@@ -501,7 +666,10 @@ fn show_combinator_assist_on_import() {
     let r = actions_at(&mut p, "lib/a.dart", text, "b.dart'");
     let a = action(&r, "Add explicit 'show' combinator");
     assert_eq!(a["kind"], "refactor.add.showCombinator");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("'b.dart';", "'b.dart' show B, E, g, um;"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("'b.dart';", "'b.dart' show B, E, g, um;")
+    );
 }
 
 #[test]
@@ -528,7 +696,10 @@ fn for_index_assist() {
     );
     // Inside the body, outside the header, no.
     let pos = location(text, "print", 0);
-    assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert to for-index loop".to_string()));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({})))
+            .contains(&"Convert to for-index loop".to_string())
+    );
 }
 
 #[test]
@@ -560,7 +731,11 @@ fn conditional_to_if_else_assist() {
     let pos = location(text, "x = c ? 3", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(
-        apply(&action(&r, "Replace conditional with 'if-else'")["edit"], &p.uri("lib/a.dart"), text),
+        apply(
+            &action(&r, "Replace conditional with 'if-else'")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
         "int f(bool c) {
   var x = c ? 1 : 2;
   if (c) {
@@ -575,7 +750,11 @@ fn conditional_to_if_else_assist() {
     let pos = location(text, "return", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(
-        apply(&action(&r, "Replace conditional with 'if-else'")["edit"], &p.uri("lib/a.dart"), text),
+        apply(
+            &action(&r, "Replace conditional with 'if-else'")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
         "int f(bool c) {
   var x = c ? 1 : 2;
   x = c ? 3 : 4;
@@ -596,11 +775,21 @@ fn quotes_assist() {
     let r = actions_at(&mut p, "lib/a.dart", text, "it");
     let a = action(&r, "Convert to double quoted string");
     assert_eq!(a["kind"], "refactor.convert.toDoubleQuotedString");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("'it\\'s \"x\"'", "\"it's \\\"x\\\"\""));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("'it\\'s \"x\"'", "\"it's \\\"x\\\"\"")
+    );
     assert!(!titles(&r).contains(&"Convert to single quoted string".to_string()));
     let pos = location(text, "a $n", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to single quoted string")["edit"], &p.uri("lib/a.dart"), text), text.replace("\"a $n b\"", "'a $n b'"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to single quoted string")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("\"a $n b\"", "'a $n b'")
+    );
 }
 
 #[test]
@@ -609,17 +798,40 @@ fn is_not_empty_and_int_literal_assists() {
     let text = "class C {\n  bool get isEmpty => true;\n  bool get isNotEmpty => false;\n}\nclass D {\n  bool get isEmpty => true;\n}\nvoid f(C c, D d) {\n  print(!c.isEmpty);\n  print(!d.isEmpty);\n  print(1_000.0 + 2e3 + 1.5);\n}\n";
     let r = actions_at(&mut p, "lib/a.dart", text, "isEmpty);\n  print(!d");
     let a = action(&r, "Convert to 'isNotEmpty'");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("!c.isEmpty", "c.isNotEmpty"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("!c.isEmpty", "c.isNotEmpty")
+    );
     let pos = location(text, "isEmpty);\n  print(1", 0);
-    assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert to 'isNotEmpty'".to_string()));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({})))
+            .contains(&"Convert to 'isNotEmpty'".to_string())
+    );
     let pos = location(text, "1_000.0", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to an int literal")["edit"], &p.uri("lib/a.dart"), text), text.replace("1_000.0", "1_000"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to an int literal")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("1_000.0", "1_000")
+    );
     let pos = location(text, "2e3", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to an int literal")["edit"], &p.uri("lib/a.dart"), text), text.replace("2e3", "2000"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to an int literal")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("2e3", "2000")
+    );
     let pos = location(text, "1.5", 0);
-    assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert to an int literal".to_string()));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({})))
+            .contains(&"Convert to an int literal".to_string())
+    );
 }
 
 #[test]
@@ -629,16 +841,36 @@ fn replace_with_var_assist() {
     let r = actions_at(&mut p, "lib/a.dart", text, "List<int> a");
     let a = action(&r, "Replace type annotation with 'var'");
     assert_eq!(a["kind"], "refactor.replace.withVar");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("List<int> a = [1]", "var a = <int>[1]"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("List<int> a = [1]", "var a = <int>[1]")
+    );
     let pos = location(text, "String s", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Replace type annotation with 'var'")["edit"], &p.uri("lib/a.dart"), text), text.replace("final String s", "final s"));
+    assert_eq!(
+        apply(
+            &action(&r, "Replace type annotation with 'var'")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("final String s", "final s")
+    );
     let pos = location(text, "int x", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Replace type annotation with 'var'")["edit"], &p.uri("lib/a.dart"), text), text.replace("int x in", "var x in"));
+    assert_eq!(
+        apply(
+            &action(&r, "Replace type annotation with 'var'")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("int x in", "var x in")
+    );
     // `num` with an `int` initializer: the types differ.
     let pos = location(text, "num n", 0);
-    assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Replace type annotation with 'var'".to_string()));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({})))
+            .contains(&"Replace type annotation with 'var'".to_string())
+    );
 }
 
 #[test]
@@ -654,7 +886,10 @@ fn split_and_condition_assist() {
     );
     // Outside the operator, no.
     let pos = location(text, "a &&", 0);
-    assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Split && condition".to_string()));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({})))
+            .contains(&"Split && condition".to_string())
+    );
 }
 
 #[test]
@@ -664,15 +899,35 @@ fn return_type_assist() {
     let r = actions_at(&mut p, "lib/a.dart", text, "f()");
     let a = action(&r, "Add return type");
     assert_eq!(a["kind"], "refactor.add.returnType");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("f() =>", "int f() =>"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("f() =>", "int f() =>")
+    );
     let pos = location(text, "g =>", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Add return type")["edit"], &p.uri("lib/a.dart"), text), text.replace("get g", "String get g"));
+    assert_eq!(
+        apply(
+            &action(&r, "Add return type")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("get g", "String get g")
+    );
     let pos = location(text, "h(bool", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Add return type")["edit"], &p.uri("lib/a.dart"), text), text.replace("h(bool b)", "Future<int> h(bool b)"));
+    assert_eq!(
+        apply(
+            &action(&r, "Add return type")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("h(bool b)", "Future<int> h(bool b)")
+    );
     let pos = location(text, "k()", 0);
-    assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Add return type".to_string()));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({})))
+            .contains(&"Add return type".to_string())
+    );
 }
 
 #[test]
@@ -682,10 +937,20 @@ fn null_aware_assist() {
     let r = actions_at(&mut p, "lib/a.dart", text, "? null");
     let a = action(&r, "Convert to use '?.'");
     assert_eq!(a["kind"], "refactor.convert.toNullAware");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("a == null ? null : a.n", "a?.n"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("a == null ? null : a.n", "a?.n")
+    );
     let pos = location(text, "? a.m", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to use '?.'")["edit"], &p.uri("lib/a.dart"), text), text.replace("a != null ? a.m() : null", "a?.m()"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to use '?.'")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("a != null ? a.m() : null", "a?.m()")
+    );
 }
 
 #[test]
@@ -694,13 +959,30 @@ fn multiline_and_spread_assists() {
     let text = "void f(List<int> a, List<int>? b) {\n  print('ab');\n  print([1]..addAll(a));\n  print(<int>[]..addAll(b ?? []));\n}\n";
     let r = actions_at(&mut p, "lib/a.dart", text, "ab'");
     let a = action(&r, "Convert to multiline string");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("'ab'", "'''\nab'''"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("'ab'", "'''\nab'''")
+    );
     let pos = location(text, "addAll(a)", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to a spread")["edit"], &p.uri("lib/a.dart"), text), text.replace("[1]..addAll(a)", "[1, ...a]"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to a spread")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("[1]..addAll(a)", "[1, ...a]")
+    );
     let pos = location(text, "addAll(b", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to a spread")["edit"], &p.uri("lib/a.dart"), text), text.replace("<int>[]..addAll(b ?? [])", "<int>[...?b]"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to a spread")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("<int>[]..addAll(b ?? [])", "<int>[...?b]")
+    );
 }
 
 #[test]
@@ -709,18 +991,38 @@ fn element_and_documentation_assists() {
     let text = "/// Um.\n/// Dois.\nvoid f(bool c) {\n  print([1]..add(2));\n  print([c ? 1 : 2]);\n}\n\n/** Tres. */\nvoid g() {}\n";
     let r = actions_at(&mut p, "lib/a.dart", text, "Um.");
     let a = action(&r, "Convert to block documentation comment");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("/// Um.\n/// Dois.", "/**\n * Um.\n * Dois.\n */"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("/// Um.\n/// Dois.", "/**\n * Um.\n * Dois.\n */")
+    );
     let pos = location(text, "Tres", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to line documentation comment")["edit"], &p.uri("lib/a.dart"), text), text.replace("/** Tres. */", "/// Tres."));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to line documentation comment")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("/** Tres. */", "/// Tres.")
+    );
     let pos = location(text, "add(2", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     let a = action(&r, "Inline invocation of 'add'");
     assert_eq!(a["kind"], "refactor.inline");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("[1]..add(2)", "[1, 2]"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("[1]..add(2)", "[1, 2]")
+    );
     let pos = location(text, "? 1", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to an 'if' element")["edit"], &p.uri("lib/a.dart"), text), text.replace("[c ? 1 : 2]", "[if (c) 1 else 2]"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to an 'if' element")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("[c ? 1 : 2]", "[if (c) 1 else 2]")
+    );
 }
 
 #[test]
@@ -728,15 +1030,26 @@ fn import_uri_assists() {
     let mut p = Project::with_literals("acoes-uris");
     p.write("lib/src/b.dart", "int b = 1;\n");
     p.write("lib/c.dart", "int c = 2;\n");
-    let text = "import 'src/b.dart';\nimport 'package:projeto/c.dart';\n\nvoid f() => print([b, c]);\n";
+    let text =
+        "import 'src/b.dart';\nimport 'package:projeto/c.dart';\n\nvoid f() => print([b, c]);\n";
     let r = actions_at(&mut p, "lib/a.dart", text, "src/b");
     let a = action(&r, "Convert to 'package:' import");
     assert_eq!(a["kind"], "refactor.convert.relativeToPackageImport");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("'src/b.dart'", "'package:projeto/src/b.dart'"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("'src/b.dart'", "'package:projeto/src/b.dart'")
+    );
     assert!(!titles(&r).contains(&"Convert to a relative import".to_string()));
     let pos = location(text, "projeto/c", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to a relative import")["edit"], &p.uri("lib/a.dart"), text), text.replace("'package:projeto/c.dart'", "'c.dart'"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to a relative import")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("'package:projeto/c.dart'", "'c.dart'")
+    );
     assert!(!titles(&r).contains(&"Convert to 'package:' import".to_string()));
 }
 
@@ -747,10 +1060,20 @@ fn map_literal_assist() {
     let r = actions_at(&mut p, "lib/a.dart", text, "Map<String");
     let a = action(&r, "Convert to map literal");
     assert_eq!(a["kind"], "refactor.convert.toMapLiteral");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("Map<String, int>()", "<String, int>{}"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("Map<String, int>()", "<String, int>{}")
+    );
     let pos = location(text, "Map();", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to map literal")["edit"], &p.uri("lib/a.dart"), text), text.replace("= Map();", "= {};"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to map literal")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("= Map();", "= {};")
+    );
 }
 
 #[test]
@@ -760,16 +1083,40 @@ fn set_literal_assist() {
     let r = actions_at(&mut p, "lib/a.dart", text, "Set<int>()");
     let a = action(&r, "Convert to set literal");
     assert_eq!(a["kind"], "refactor.convert.toSetLiteral");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("Set<int>()", "<int>{}"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("Set<int>()", "<int>{}")
+    );
     let pos = location(text, "Set.of", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to set literal")["edit"], &p.uri("lib/a.dart"), text), text.replace("Set.of([1, 2])", "{1, 2}"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to set literal")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("Set.of([1, 2])", "{1, 2}")
+    );
     let pos = location(text, "Set();\n  var d", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to set literal")["edit"], &p.uri("lib/a.dart"), text), text.replace("Set<int> c = Set();", "Set<int> c = {};"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to set literal")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("Set<int> c = Set();", "Set<int> c = {};")
+    );
     let pos = location(text, "Set();\n  print", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert to set literal")["edit"], &p.uri("lib/a.dart"), text), text.replace("var d = Set();", "var d = <dynamic>{};"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert to set literal")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("var d = Set();", "var d = <dynamic>{};")
+    );
 }
 
 #[test]
@@ -792,12 +1139,22 @@ fn field_parameter_and_shadow_assists() {
     let r = actions_at(&mut p, "lib/a.dart", text, "v) :");
     let a = action(&r, "Convert to field formal parameter");
     assert_eq!(a["kind"], "refactor.convert.toConstructorFieldParameter");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("A(int v) : x = v;", "A(this.x);"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("A(int v) : x = v;", "A(this.x);")
+    );
     let pos = location(text, "y is", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(
-        apply(&action(&r, "Create a local variable that shadows the field")["edit"], &p.uri("lib/a.dart"), text),
-        text.replace("    if (y is int)", "    var y = this.y;\n    if (y is int)")
+        apply(
+            &action(&r, "Create a local variable that shadows the field")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace(
+            "    if (y is int)",
+            "    var y = this.y;\n    if (y is int)"
+        )
     );
 }
 
@@ -808,13 +1165,29 @@ fn function_syntax_assist() {
     let r = actions_at(&mut p, "lib/a.dart", text, "F<T>");
     let a = action(&r, "Convert into 'Function' syntax");
     assert_eq!(a["kind"], "refactor.convert.toGenericFunctionSyntax");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("typedef int F<T>(T x);", "typedef F<T> = int Function(T x);"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace(
+            "typedef int F<T>(T x);",
+            "typedef F<T> = int Function(T x);"
+        )
+    );
     let pos = location(text, "h(String", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
-    assert_eq!(apply(&action(&r, "Convert into 'Function' syntax")["edit"], &p.uri("lib/a.dart"), text), text.replace("int h(String s)", "int Function(String s) h"));
+    assert_eq!(
+        apply(
+            &action(&r, "Convert into 'Function' syntax")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("int h(String s)", "int Function(String s) h")
+    );
     // `k(x)`: the untyped parameter prevents it.
     let pos = location(text, "k(x)", 0);
-    assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).contains(&"Convert into 'Function' syntax".to_string()));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({})))
+            .contains(&"Convert into 'Function' syntax".to_string())
+    );
 }
 
 #[test]
@@ -822,7 +1195,8 @@ fn surround_with_assist() {
     let mut p = Project::with_literals("acoes-envolver");
     let text = "void f() {\n  print(1);\n  print(2);\n}\n";
     p.open("lib/a.dart", text);
-    p.server.await_diagnostics(std::time::Duration::from_secs(120));
+    p.server
+        .await_diagnostics(std::time::Duration::from_secs(120));
     let from = location(text, "print(1)", 0);
     let until = location(text, "\n}", 0);
     let r = actions(&mut p, "lib/a.dart", from, until, json!({}));
@@ -833,13 +1207,21 @@ fn surround_with_assist() {
         "void f() {\n  if (condition) {\n    print(1);\n    print(2);\n  }\n}\n"
     );
     assert_eq!(
-        apply(&action(&r, "Surround with 'try-catch'")["edit"], &p.uri("lib/a.dart"), text),
+        apply(
+            &action(&r, "Surround with 'try-catch'")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
         "void f() {\n  try {\n    print(1);\n    print(2);\n  } on Exception catch (e) {\n    // TODO\n  }\n}\n"
     );
     assert!(!titles(&r).contains(&"Surround with 'setState'".to_string()));
     // Without a selection, nothing.
     let pos = location(text, "print(1)", 0);
-    assert!(!titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({}))).iter().any(|t| t.starts_with("Surround with")));
+    assert!(
+        !titles(&actions(&mut p, "lib/a.dart", pos, pos, json!({})))
+            .iter()
+            .any(|t| t.starts_with("Surround with"))
+    );
 }
 
 #[test]
@@ -849,12 +1231,20 @@ fn destructure_assist() {
     let r = actions_at(&mut p, "lib/a.dart", text, "a = r");
     let a = action(&r, "Destructure variable assignment");
     assert_eq!(a["kind"], "refactor.destructureLocalVariableAssignment");
-    assert_eq!(apply(&a["edit"], &p.uri("lib/a.dart"), text), text.replace("var a = r;", "var ($1, :n) = r;"));
+    assert_eq!(
+        apply(&a["edit"], &p.uri("lib/a.dart"), text),
+        text.replace("var a = r;", "var ($1, :n) = r;")
+    );
     let pos = location(text, "b = q", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(
-        apply(&action(&r, "Destructure variable assignment")["edit"], &p.uri("lib/a.dart"), text),
-        text.replace("var b = q;", "var P(:x, :y) = q;").replace("print(b.x + b.y);", "print(x + y);")
+        apply(
+            &action(&r, "Destructure variable assignment")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace("var b = q;", "var P(:x, :y) = q;")
+            .replace("print(b.x + b.y);", "print(x + y);")
     );
 }
 
@@ -901,8 +1291,15 @@ fn switch_statement_assist() {
     let pos = location(text, "switch (n)", 0);
     let r = actions(&mut p, "lib/a.dart", pos, pos, json!({}));
     assert_eq!(
-        apply(&action(&r, "Convert to switch statement")["edit"], &p.uri("lib/a.dart"), text),
-        text.replace("  return switch (n) {\n    1 => 10,\n    _ => 20,\n  };", "  switch (n) {\n    case 1:\n      return 10;\n    default:\n      return 20;\n  }")
+        apply(
+            &action(&r, "Convert to switch statement")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
+        text.replace(
+            "  return switch (n) {\n    1 => 10,\n    _ => 20,\n  };",
+            "  switch (n) {\n    case 1:\n      return 10;\n    default:\n      return 20;\n  }"
+        )
     );
 }
 
@@ -915,7 +1312,10 @@ fn for_to_map_assist() {
     assert_eq!(a["kind"], "refactor.convert.toForElement");
     assert_eq!(
         apply(&a["edit"], &p.uri("lib/a.dart"), text),
-        text.replace("Map<int, int>.fromIterable(l, key: (k) => k, value: (v) => v + 1)", "{ for (var e in l) e : e + 1 }")
+        text.replace(
+            "Map<int, int>.fromIterable(l, key: (k) => k, value: (v) => v + 1)",
+            "{ for (var e in l) e : e + 1 }"
+        )
     );
 }
 
@@ -928,7 +1328,10 @@ fn super_parameters_assist() {
     assert_eq!(a["kind"], "refactor.convert.toSuperParameters");
     assert_eq!(
         apply(&a["edit"], &p.uri("lib/a.dart"), text),
-        text.replace("B(int x, {int y = 0}) : super(x, y: y);", "B(super.x, {super.y});")
+        text.replace(
+            "B(int x, {int y = 0}) : super(x, y: y);",
+            "B(super.x, {super.y});"
+        )
     );
 }
 
@@ -943,13 +1346,23 @@ fn class_to_enum_assist() {
         apply(&a["edit"], &p.uri("lib/a.dart"), text),
         "enum _E {\n  c0('a'),\n  c1('b');\n\n  final String code;\n\n  const _E(this.code);\n}\n"
     );
-    let text = "class _E {\n  static const _E c0 = _E();\n  static const _E c1 = _E();\n}\nvoid f() {}\n";
+    let text =
+        "class _E {\n  static const _E c0 = _E();\n  static const _E c1 = _E();\n}\nvoid f() {}\n";
     let r = actions_at(&mut p, "lib/a.dart", text, "_E {");
-    assert!(r.as_array().unwrap().iter().all(|a| a["title"] != "Convert class to an enum"));
+    assert!(
+        r.as_array()
+            .unwrap()
+            .iter()
+            .all(|a| a["title"] != "Convert class to an enum")
+    );
     let text = "class _E {\n  static const a = _E._('a');\n  static const b = _E._('b');\n  final String s;\n  const _E._(this.s);\n}\n";
     let r = actions_at(&mut p, "lib/a.dart", text, "_E {");
     assert_eq!(
-        apply(&action(&r, "Convert class to an enum")["edit"], &p.uri("lib/a.dart"), text),
+        apply(
+            &action(&r, "Convert class to an enum")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
         "enum _E {\n  a._('a'),\n  b._('b');\n\n  final String s;\n  const _E._(this.s);\n}\n"
     );
 }
@@ -968,19 +1381,31 @@ fn switch_expression_assist() {
     let text = "void f(String s) {\n  switch (s) {\n    case 'foo':\n      print('foo');\n    case 'bar':\n      print('bar');\n    default:\n      throw 'unrecognized';\n  }\n}\n";
     let r = actions_at(&mut p, "lib/a.dart", text, "(s)");
     assert_eq!(
-        apply(&action(&r, "Convert to switch expression")["edit"], &p.uri("lib/a.dart"), text),
+        apply(
+            &action(&r, "Convert to switch expression")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
         "void f(String s) {\n  print(switch (s) {\n    'foo' => 'foo',\n    'bar' => 'bar',\n    _ => throw 'unrecognized'\n  });\n}\n"
     );
     let text = "String f(String s) {\n  var name = '';\n  switch (s) {\n    case 'foo':\n      name = 'foo';\n    case 'bar':\n      name = 'bar';\n    default:\n      throw 'unrecognized';\n  }\n  return name;\n}\n";
     let r = actions_at(&mut p, "lib/a.dart", text, "(s)");
     assert_eq!(
-        apply(&action(&r, "Convert to switch expression")["edit"], &p.uri("lib/a.dart"), text),
+        apply(
+            &action(&r, "Convert to switch expression")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
         "String f(String s) {\n  var name = '';\n  name = switch (s) {\n    'foo' => 'foo',\n    'bar' => 'bar',\n    _ => throw 'unrecognized'\n  };\n  return name;\n}\n"
     );
     let text = "int f(String name) {\n  switch (name) {\n    case 'red':\n      return 1;\n  }\n  throw 'Only'\n    ' supports'\n    ' red';\n}\n";
     let r = actions_at(&mut p, "lib/a.dart", text, "switch (name)");
     assert_eq!(
-        apply(&action(&r, "Convert to switch expression")["edit"], &p.uri("lib/a.dart"), text),
+        apply(
+            &action(&r, "Convert to switch expression")["edit"],
+            &p.uri("lib/a.dart"),
+            text
+        ),
         "int f(String name) {\n  return switch (name) {\n    'red' => 1,\n    _ => throw 'Only'\n      ' supports'\n      ' red',\n  };\n}\n"
     );
 }
@@ -993,26 +1418,46 @@ fn flutter_assists_() {
     let uri = p.uri("lib/a.dart");
     // On `Text`: the wrappers.
     let r = actions_at(&mut p, "lib/a.dart", text, "Text(");
-    assert_eq!(apply(&action(&r, "Wrap with Center")["edit"], &uri, text), text.replace("child: Text('a')", "child: Center(child: Text('a'))"));
+    assert_eq!(
+        apply(&action(&r, "Wrap with Center")["edit"], &uri, text),
+        text.replace("child: Text('a')", "child: Center(child: Text('a'))")
+    );
     assert_eq!(
         apply(&action(&r, "Wrap with Padding")["edit"], &uri, text),
         text.replace("child: Text('a')", "child: Padding(\n      padding: const EdgeInsets.all(8.0),\n      child: Text('a'),\n    )")
     );
-    assert_eq!(action(&r, "Wrap with widget...")["kind"], "refactor.flutter.wrap.generic");
+    assert_eq!(
+        action(&r, "Wrap with widget...")["kind"],
+        "refactor.flutter.wrap.generic"
+    );
     action(&r, "Wrap with Column");
     action(&r, "Wrap with Builder");
     // On `Center`: remove (the child stays in place).
     let r = actions_at(&mut p, "lib/a.dart", text, "Center(");
-    assert_eq!(apply(&action(&r, "Remove this widget")["edit"], &uri, text), text.replace("Center(child: Text('a'))", "Text('a')"));
+    assert_eq!(
+        apply(&action(&r, "Remove this widget")["edit"], &uri, text),
+        text.replace("Center(child: Text('a'))", "Text('a')")
+    );
     // On the `child` label: `children: [...]`.
     let r = actions_at(&mut p, "lib/a.dart", text, "child:");
-    assert_eq!(apply(&action(&r, "Convert to children:")["edit"], &uri, text), text.replace("child: Text('a')", "children: [Text('a')]"));
+    assert_eq!(
+        apply(&action(&r, "Convert to children:")["edit"], &uri, text),
+        text.replace("child: Text('a')", "children: [Text('a')]")
+    );
     // Move within the `children` list.
     let list = "import 'package:flutter/widgets.dart';\n\nWidget f() => Column(children: [Text('a'), Text('b')]);\n";
     let uri2 = p.uri("lib/b.dart");
     let r = actions_at(&mut p, "lib/b.dart", list, "Text('b')");
-    assert_eq!(apply(&action(&r, "Move widget up")["edit"], &uri2, list), list.replace("[Text('a'), Text('b')]", "[Text('b'), Text('a')]"));
-    assert!(r.as_array().unwrap().iter().all(|a| a["title"] != "Move widget down"));
+    assert_eq!(
+        apply(&action(&r, "Move widget up")["edit"], &uri2, list),
+        list.replace("[Text('a'), Text('b')]", "[Text('b'), Text('a')]")
+    );
+    assert!(
+        r.as_array()
+            .unwrap()
+            .iter()
+            .all(|a| a["title"] != "Move widget down")
+    );
 }
 
 #[test]
@@ -1036,7 +1481,9 @@ fn flutter_to_stateful_like_analysis_server() {
     let mut p = Project::with_literals("acoes-flutter-stateful-2");
     p.install_flutter();
     let cases: &[(&str, &str, &str)] = &[
-        ("test_simple", r#"
+        (
+            "test_simple",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1057,7 +1504,8 @@ class MyWidget extends StatelessWidget {
     );
   }
 }
-"#, r#"
+"#,
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1083,8 +1531,11 @@ class _MyWidgetState extends State<MyWidget> {
     );
   }
 }
-"#),
-        ("test_fields", r#"
+"#,
+        ),
+        (
+            "test_fields",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1118,7 +1569,8 @@ class MyWidget extends StatelessWidget {
     );
   }
 }
-"#, r#"
+"#,
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1159,8 +1611,11 @@ class _MyWidgetState extends State<MyWidget> {
     );
   }
 }
-"#),
-        ("test_getters", r#"
+"#,
+        ),
+        (
+            "test_getters",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1184,7 +1639,8 @@ class MyWidget extends StatelessWidget {
 
   String get instanceGetter2 => '';
 }
-"#, r#"
+"#,
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1213,8 +1669,11 @@ class _MyWidgetState extends State<MyWidget> {
 
   String get instanceGetter2 => '';
 }
-"#),
-        ("test_methods", r#"
+"#,
+        ),
+        (
+            "test_methods",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1253,7 +1712,8 @@ class MyWidget extends StatelessWidget {
     print('static 2');
   }
 }
-"#, r#"
+"#,
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1298,13 +1758,22 @@ class _MyWidgetState extends State<MyWidget> {
     print('instance 2');
   }
 }
-"#),
+"#,
+        ),
     ];
     for (i, (name, before, after)) in cases.iter().enumerate() {
         let rel = format!("lib/s{i}.dart");
         let uri = p.uri(&rel);
         let r = actions_at(&mut p, &rel, before, "MyWidget extends");
-        assert_eq!(apply(&action(&r, "Convert to StatefulWidget")["edit"], &uri, before), *after, "{name}");
+        assert_eq!(
+            apply(
+                &action(&r, "Convert to StatefulWidget")["edit"],
+                &uri,
+                before
+            ),
+            *after,
+            "{name}"
+        );
     }
 }
 
@@ -1315,7 +1784,9 @@ fn flutter_to_stateless_like_analysis_server() {
     let mut p = Project::with_literals("acoes-flutter-stateless");
     p.install_flutter();
     let cases: &[(&str, &str, &str, Option<&str>)] = &[
-        ("test_comment", r#"
+        (
+            "test_comment",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1344,7 +1815,10 @@ class _MyWidgetState extends State<MyWidget> {
   /// some m
   void m() {}
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1364,8 +1838,12 @@ class MyWidget extends StatelessWidget {
   /// some m
   void m() {}
 }
-"#)),
-        ("test_default_override", r#"
+"#,
+            ),
+        ),
+        (
+            "test_default_override",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1391,7 +1869,10 @@ class _MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1402,8 +1883,12 @@ class MyWidget extends StatelessWidget {
     return Container();
   }
 }
-"#)),
-        ("test_empty", r#"
+"#,
+            ),
+        ),
+        (
+            "test_empty",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1419,7 +1904,10 @@ class _MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1430,8 +1918,12 @@ class MyWidget extends StatelessWidget {
     return Container();
   }
 }
-"#)),
-        ("test_fields", r#"
+"#,
+            ),
+        ),
+        (
+            "test_fields",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1476,7 +1968,10 @@ class _MyWidgetState extends State<MyWidget> {
     );
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1516,8 +2011,12 @@ class MyWidget extends StatelessWidget {
     );
   }
 }
-"#)),
-        ("test_getters", r#"
+"#,
+            ),
+        ),
+        (
+            "test_getters",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1546,7 +2045,10 @@ class _MyWidgetState extends State<MyWidget> {
 
   String get instanceGetter2 => '';
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1570,8 +2072,12 @@ class MyWidget extends StatelessWidget {
 
   static String get staticGetter2 => '';
 }
-"#)),
-        ("test_methods", r#"
+"#,
+            ),
+        ),
+        (
+            "test_methods",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1616,7 +2122,10 @@ class _MyWidgetState extends State<MyWidget> {
     print('instance 2');
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1656,8 +2165,12 @@ class MyWidget extends StatelessWidget {
     print('static 2');
   }
 }
-"#)),
-        ("test_override", r#"
+"#,
+            ),
+        ),
+        (
+            "test_override",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1680,8 +2193,13 @@ class _MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, None),
-        ("test_public", r#"
+"#,
+            r#"yWidget exte"#,
+            None,
+        ),
+        (
+            "test_public",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1697,8 +2215,13 @@ class MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, None),
-        ("test_simple", r#"
+"#,
+            r#"yWidget exte"#,
+            None,
+        ),
+        (
+            "test_simple",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1724,7 +2247,10 @@ class _MyWidgetState extends State<MyWidget> {
     );
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1745,8 +2271,12 @@ class MyWidget extends StatelessWidget {
     );
   }
 }
-"#)),
-        ("test_state_first", r#"
+"#,
+            ),
+        ),
+        (
+            "test_state_first",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class _MyWidgetState extends State<MyWidget> {
@@ -1772,7 +2302,10 @@ class MyWidget extends StatefulWidget {
   @override
   State<MyWidget> createState() => _MyWidgetState();
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -1793,8 +2326,12 @@ class MyWidget extends StatelessWidget {
     );
   }
 }
-"#)),
-        ("test_state_used_anotherWidget", r#"
+"#,
+            ),
+        ),
+        (
+            "test_state_used_anotherWidget",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class FirstWidget extends StatefulWidget {
@@ -1817,8 +2354,13 @@ class _MyWidgetState extends State<FirstWidget> {
     return Container();
   }
 }
-"#, r#"irstWidget e"#, None),
-        ("test_state_used_createState", r#"
+"#,
+            r#"irstWidget e"#,
+            None,
+        ),
+        (
+            "test_state_used_createState",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1836,8 +2378,13 @@ class _MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, None),
-        ("test_state_used_createState_return_stateClass", r#"
+"#,
+            r#"yWidget exte"#,
+            None,
+        ),
+        (
+            "test_state_used_createState_return_stateClass",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1855,8 +2402,13 @@ class _MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, None),
-        ("test_state_used_instanceCreationExpression", r#"
+"#,
+            r#"yWidget exte"#,
+            None,
+        ),
+        (
+            "test_state_used_instanceCreationExpression",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1874,8 +2426,13 @@ class _MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, None),
-        ("test_static_field", r#"
+"#,
+            r#"yWidget exte"#,
+            None,
+        ),
+        (
+            "test_static_field",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1893,8 +2450,13 @@ class _MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, None),
-        ("test_static_method", r#"
+"#,
+            r#"yWidget exte"#,
+            None,
+        ),
+        (
+            "test_static_method",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -1915,8 +2477,13 @@ class _MyWidgetState extends State<MyWidget> {
     print('static 1');
   }
 }
-"#, r#"yWidget exte"#, None),
-        ("test_typeParam_bound", r#"
+"#,
+            r#"yWidget exte"#,
+            None,
+        ),
+        (
+            "test_typeParam_bound",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget<T extends String> extends StatefulWidget {
@@ -1930,7 +2497,10 @@ class _MyWidgetState<T extends String> extends State<MyWidget<T>> {
     return Container();
   }
 }
-"#, r#"yWidget<T ex"#, Some(r#"
+"#,
+            r#"yWidget<T ex"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget<T extends String> extends StatelessWidget {
@@ -1939,8 +2509,12 @@ class MyWidget<T extends String> extends StatelessWidget {
     return Container();
   }
 }
-"#)),
-        ("test_typeParam_different_bound", r#"
+"#,
+            ),
+        ),
+        (
+            "test_typeParam_different_bound",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget<T extends String> extends StatefulWidget {
@@ -1954,8 +2528,13 @@ class _MyWidgetState<T extends List> extends State<MyWidget> {
     return Container();
   }
 }
-"#, r#"yWidget<T ex"#, None),
-        ("test_typeParam_different_name", r#"
+"#,
+            r#"yWidget<T ex"#,
+            None,
+        ),
+        (
+            "test_typeParam_different_name",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget<T> extends StatefulWidget {
@@ -1969,8 +2548,13 @@ class _MyWidgetState<S> extends State<MyWidget<S>> {
     return Container();
   }
 }
-"#, r#"yWidget<T> e"#, None),
-        ("test_typeParam_empty", r#"
+"#,
+            r#"yWidget<T> e"#,
+            None,
+        ),
+        (
+            "test_typeParam_empty",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget<T> extends StatefulWidget {
@@ -1984,7 +2568,10 @@ class _MyWidgetState<T> extends State<MyWidget<T>> {
     return Container();
   }
 }
-"#, r#"yWidget<T> e"#, Some(r#"
+"#,
+            r#"yWidget<T> e"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget<T> extends StatelessWidget {
@@ -1993,14 +2580,21 @@ class MyWidget<T> extends StatelessWidget {
     return Container();
   }
 }
-"#)),
+"#,
+            ),
+        ),
     ];
     let mut failures = Vec::new();
     for (i, (name, before, needle, after)) in cases.iter().enumerate() {
         let rel = format!("lib/s{i}.dart");
         let uri = p.uri(&rel);
         let r = actions_at(&mut p, &rel, before, needle);
-        let found = r.as_array().unwrap().iter().find(|a| a["title"] == "Convert to StatelessWidget").cloned();
+        let found = r
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["title"] == "Convert to StatelessWidget")
+            .cloned();
         match (after, found) {
             (None, None) => {}
             (Some(d), Some(a)) => {
@@ -2009,7 +2603,11 @@ class MyWidget<T> extends StatelessWidget {
                     failures.push(format!("{name}: obtido\n{obtained}\nesperado\n{d}"));
                 }
             }
-            (d, a) => failures.push(format!("{name}: expected {} and got {}", d.is_some(), a.is_some())),
+            (d, a) => failures.push(format!(
+                "{name}: expected {} and got {}",
+                d.is_some(),
+                a.is_some()
+            )),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n----\n"));
@@ -2022,7 +2620,9 @@ fn flutter_to_stateful_full() {
     let mut p = Project::with_literals("acoes-flutter-stateful-3");
     p.install_flutter();
     let cases: &[(&str, &str, &str, Option<&str>)] = &[
-        ("test_comment", r#"
+        (
+            "test_comment",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -2039,7 +2639,10 @@ class MyWidget extends StatelessWidget {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -2062,8 +2665,12 @@ class _MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#)),
-        ("test_comment_documentation", r#"
+"#,
+            ),
+        ),
+        (
+            "test_comment_documentation",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -2080,7 +2687,10 @@ class MyWidget extends StatelessWidget {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -2103,8 +2713,12 @@ class _MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#)),
-        ("test_empty", r#"
+"#,
+            ),
+        ),
+        (
+            "test_empty",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -2113,7 +2727,10 @@ class MyWidget extends StatelessWidget {
     return Container();
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -2127,8 +2744,12 @@ class _MyWidgetState extends State<MyWidget> {
     return Container();
   }
 }
-"#)),
-        ("test_empty_typeParam", r#"
+"#,
+            ),
+        ),
+        (
+            "test_empty_typeParam",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget<T> extends StatelessWidget {
@@ -2137,7 +2758,10 @@ class MyWidget<T> extends StatelessWidget {
     return Container();
   }
 }
-"#, r#"yWidget<T> e"#, Some(r#"
+"#,
+            r#"yWidget<T> e"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget<T> extends StatefulWidget {
@@ -2151,8 +2775,12 @@ class _MyWidgetState<T> extends State<MyWidget<T>> {
     return Container();
   }
 }
-"#)),
-        ("test_fields", r#"
+"#,
+            ),
+        ),
+        (
+            "test_fields",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -2186,7 +2814,10 @@ class MyWidget extends StatelessWidget {
     );
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -2227,8 +2858,12 @@ class _MyWidgetState extends State<MyWidget> {
     );
   }
 }
-"#)),
-        ("test_getters", r#"
+"#,
+            ),
+        ),
+        (
+            "test_getters",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -2252,7 +2887,10 @@ class MyWidget extends StatelessWidget {
 
   String get instanceGetter2 => '';
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -2281,8 +2919,12 @@ class _MyWidgetState extends State<MyWidget> {
 
   String get instanceGetter2 => '';
 }
-"#)),
-        ("test_methods", r#"
+"#,
+            ),
+        ),
+        (
+            "test_methods",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -2321,7 +2963,10 @@ class MyWidget extends StatelessWidget {
     print('static 2');
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -2366,8 +3011,12 @@ class _MyWidgetState extends State<MyWidget> {
     print('instance 2');
   }
 }
-"#)),
-        ("test_noExtraUnderscore", r#"
+"#,
+            ),
+        ),
+        (
+            "test_noExtraUnderscore",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class _MyWidget extends StatelessWidget {
@@ -2376,7 +3025,10 @@ class _MyWidget extends StatelessWidget {
     return Container();
   }
 }
-"#, r#"MyWidget ext"#, Some(r#"
+"#,
+            r#"MyWidget ext"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class _MyWidget extends StatefulWidget {
@@ -2390,8 +3042,12 @@ class _MyWidgetState extends State<_MyWidget> {
     return Container();
   }
 }
-"#)),
-        ("test_simple", r#"
+"#,
+            ),
+        ),
+        (
+            "test_simple",
+            r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatelessWidget {
@@ -2412,7 +3068,10 @@ class MyWidget extends StatelessWidget {
     );
   }
 }
-"#, r#"yWidget exte"#, Some(r#"
+"#,
+            r#"yWidget exte"#,
+            Some(
+                r#"
 import 'package:flutter/widgets.dart';
 
 class MyWidget extends StatefulWidget {
@@ -2438,14 +3097,21 @@ class _MyWidgetState extends State<MyWidget> {
     );
   }
 }
-"#)),
+"#,
+            ),
+        ),
     ];
     let mut failures = Vec::new();
     for (i, (name, before, needle, after)) in cases.iter().enumerate() {
         let rel = format!("lib/s{i}.dart");
         let uri = p.uri(&rel);
         let r = actions_at(&mut p, &rel, before, needle);
-        let found = r.as_array().unwrap().iter().find(|a| a["title"] == "Convert to StatefulWidget").cloned();
+        let found = r
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["title"] == "Convert to StatefulWidget")
+            .cloned();
         match (after, found) {
             (None, None) => {}
             (Some(d), Some(a)) => {
@@ -2454,7 +3120,11 @@ class _MyWidgetState extends State<MyWidget> {
                     failures.push(format!("{name}: obtido\n{obtained}\nesperado\n{d}"));
                 }
             }
-            (d, a) => failures.push(format!("{name}: expected {} and got {}", d.is_some(), a.is_some())),
+            (d, a) => failures.push(format!(
+                "{name}: expected {} and got {}",
+                d.is_some(),
+                a.is_some()
+            )),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n----\n"));
@@ -2467,7 +3137,9 @@ fn diagnostic_reference_like_analysis_server() {
     let mut p = Project::with_literals("acoes-diagnostico");
     p.install_flutter();
     let cases: &[(&str, &str, &str, Option<&str>)] = &[
-        ("test_boolField_debugFillProperties", r#"
+        (
+            "test_boolField_debugFillProperties",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2478,7 +3150,10 @@ class W extends Widget {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"property"#, Some(r#"
+"#,
+            r#"property"#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2490,21 +3165,35 @@ class W extends Widget {
     properties.add(DiagnosticsProperty<bool>('property', property));
   }
 }
-"#)),
-        ("test_notAvailable_mixin", r#"
+"#,
+            ),
+        ),
+        (
+            "test_notAvailable_mixin",
+            r#"
 mixin MyMixin {
   String get foo() {}
 }
-"#, r#"() {}
+"#,
+            r#"() {}
 }
-"#, None),
-        ("test_notAvailable_outsideDiagnosticable", r#"
+"#,
+            None,
+        ),
+        (
+            "test_notAvailable_outsideDiagnosticable",
+            r#"
 class C {
   String get f => '';
 }
-"#, r#" => '';
-"#, None),
-        ("fix_test_boolField", r#"
+"#,
+            r#" => '';
+"#,
+            None,
+        ),
+        (
+            "fix_test_boolField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2518,7 +3207,10 @@ class C extends Widget with Diagnosticable {
     properties.add(DiagnosticsProperty<bool>('absorbing', absorbing));
   }
 }
-"#, r#"ignoringSemantics ="#, Some(r#"
+"#,
+            r#"ignoringSemantics ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2533,8 +3225,12 @@ class C extends Widget with Diagnosticable {
     properties.add(DiagnosticsProperty<bool>('ignoringSemantics', ignoringSemantics));
   }
 }
-"#)),
-        ("fix_test_boolField_empty", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_boolField_empty",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2544,7 +3240,10 @@ class C extends Widget with Diagnosticable {
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
   }
 }
-"#, r#"ignoringSemantics ="#, Some(r#"
+"#,
+            r#"ignoringSemantics ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2555,8 +3254,12 @@ class C extends Widget with Diagnosticable {
     properties.add(DiagnosticsProperty<bool>('ignoringSemantics', ignoringSemantics));
   }
 }
-"#)),
-        ("fix_test_boolField_empty_customParamName", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_boolField_empty_customParamName",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2566,7 +3269,10 @@ class C extends Widget with Diagnosticable {
   void debugFillProperties(DiagnosticPropertiesBuilder props) {
   }
 }
-"#, r#"ignoringSemantics ="#, Some(r#"
+"#,
+            r#"ignoringSemantics ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2577,8 +3283,12 @@ class C extends Widget with Diagnosticable {
     props.add(DiagnosticsProperty<bool>('ignoringSemantics', ignoringSemantics));
   }
 }
-"#)),
-        ("fix_test_boolGetter", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_boolGetter",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2590,7 +3300,10 @@ class C extends Widget with Diagnosticable {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"absorbing ="#, Some(r#"
+"#,
+            r#"absorbing ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2603,8 +3316,12 @@ class C extends Widget with Diagnosticable {
     properties.add(DiagnosticsProperty<bool>('absorbing', absorbing));
   }
 }
-"#)),
-        ("fix_test_doubleField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_doubleField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2615,7 +3332,10 @@ class C extends Widget with Diagnosticable {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"field ="#, Some(r#"
+"#,
+            r#"field ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2627,8 +3347,12 @@ class C extends Widget with Diagnosticable {
     properties.add(DoubleProperty('field', field));
   }
 }
-"#)),
-        ("fix_test_dynamicField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_dynamicField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2639,8 +3363,11 @@ class C extends Widget with Diagnosticable {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"field;
-"#, Some(r#"
+"#,
+            r#"field;
+"#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2652,8 +3379,12 @@ class C extends Widget with Diagnosticable {
     properties.add(DiagnosticsProperty('field', field));
   }
 }
-"#)),
-        ("fix_test_enumField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_enumField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2665,7 +3396,10 @@ class C extends Widget with Diagnosticable {
   }
 }
 enum Foo {bar}
-"#, r#"field ="#, Some(r#"
+"#,
+            r#"field ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2678,8 +3412,12 @@ class C extends Widget with Diagnosticable {
   }
 }
 enum Foo {bar}
-"#)),
-        ("fix_test_functionField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_functionField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
@@ -2692,7 +3430,10 @@ class C extends Widget with Diagnosticable {
   }
 }
 typedef ValueChanged<T> = void Function(T value);
-"#, r#"onChanged ="#, Some(r#"
+"#,
+            r#"onChanged ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widgets.dart';
@@ -2706,8 +3447,12 @@ class C extends Widget with Diagnosticable {
   }
 }
 typedef ValueChanged<T> = void Function(T value);
-"#)),
-        ("fix_test_intField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_intField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2718,7 +3463,10 @@ class C extends Widget with Diagnosticable {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"field ="#, Some(r#"
+"#,
+            r#"field ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2730,15 +3478,22 @@ class C extends Widget with Diagnosticable {
     properties.add(IntProperty('field', field));
   }
 }
-"#)),
-        ("fix_test_iterableField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_iterableField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 class C extends Widget with Diagnosticable {
   Iterable<String> field = [];
 }
-"#, r#"field ="#, Some(r#"
+"#,
+            r#"field ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2751,8 +3506,12 @@ class C extends Widget with Diagnosticable {
     properties.add(IterableProperty<String>('field', field));
   }
 }
-"#)),
-        ("fix_test_listField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_listField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2763,7 +3522,10 @@ class C extends Widget with Diagnosticable {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"field ="#, Some(r#"
+"#,
+            r#"field ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2775,8 +3537,12 @@ class C extends Widget with Diagnosticable {
     properties.add(IterableProperty<List<String>>('field', field));
   }
 }
-"#)),
-        ("fix_test_objectField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_objectField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2787,7 +3553,10 @@ class C extends Widget with Diagnosticable {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"field ="#, Some(r#"
+"#,
+            r#"field ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2799,8 +3568,12 @@ class C extends Widget with Diagnosticable {
     properties.add(DiagnosticsProperty<Object>('field', field));
   }
 }
-"#)),
-        ("fix_test_stringField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_stringField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2811,41 +3584,55 @@ class C extends Widget with Diagnosticable {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"field ="#, Some(r#"
+"#,
+            r#"field ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 class C extends Widget with Diagnosticable {
   String field = '';
-  @override
-  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
-    super.debugFillProperties(properties);
-    properties.add(StringProperty('field', field));
-  }
-}
-"#)),
-        ("fix_test_stringField_noDebugFillProperties", r#"
-import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
-
-class C extends Widget with Diagnosticable {
-  String field = '';
-}
-"#, r#"field ="#, Some(r#"
-import 'package:flutter/foundation.dart';
-import 'package:flutter/widgets.dart';
-
-class C extends Widget with Diagnosticable {
-  String field = '';
-
   @override
   void debugFillProperties(DiagnosticPropertiesBuilder properties) {
     super.debugFillProperties(properties);
     properties.add(StringProperty('field', field));
   }
 }
-"#)),
-        ("fix_test_typeOutOfScopeField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_stringField_noDebugFillProperties",
+            r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  String field = '';
+}
+"#,
+            r#"field ="#,
+            Some(
+                r#"
+import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
+
+class C extends Widget with Diagnosticable {
+  String field = '';
+
+  @override
+  void debugFillProperties(DiagnosticPropertiesBuilder properties) {
+    super.debugFillProperties(properties);
+    properties.add(StringProperty('field', field));
+  }
+}
+"#,
+            ),
+        ),
+        (
+            "fix_test_typeOutOfScopeField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2857,8 +3644,11 @@ class C extends Widget with Diagnosticable {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"onChanged;
-"#, Some(r#"
+"#,
+            r#"onChanged;
+"#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2871,8 +3661,12 @@ class C extends Widget with Diagnosticable {
     properties.add(DiagnosticsProperty<ClassNotInScope<bool>>('onChanged', onChanged));
   }
 }
-"#)),
-        ("fix_test_typeOutOfScopeGetter", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_typeOutOfScopeGetter",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2884,7 +3678,10 @@ class C extends Widget with Diagnosticable {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"onChanged ="#, Some(r#"
+"#,
+            r#"onChanged ="#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2897,8 +3694,12 @@ class C extends Widget with Diagnosticable {
     properties.add(DiagnosticsProperty<ClassNotInScope<bool>>('onChanged', onChanged));
   }
 }
-"#)),
-        ("fix_test_varField", r#"
+"#,
+            ),
+        ),
+        (
+            "fix_test_varField",
+            r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2909,8 +3710,11 @@ class C extends Widget with Diagnosticable {
     super.debugFillProperties(properties);
   }
 }
-"#, r#"field;
-"#, Some(r#"
+"#,
+            r#"field;
+"#,
+            Some(
+                r#"
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -2922,14 +3726,21 @@ class C extends Widget with Diagnosticable {
     properties.add(DiagnosticsProperty('field', field));
   }
 }
-"#)),
+"#,
+            ),
+        ),
     ];
     let mut failures = Vec::new();
     for (i, (name, before, needle, after)) in cases.iter().enumerate() {
         let rel = format!("lib/d{i}.dart");
         let uri = p.uri(&rel);
         let r = actions_at(&mut p, &rel, before, needle);
-        let found = r.as_array().unwrap().iter().find(|a| a["title"] == "Add a debug reference to this property").cloned();
+        let found = r
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["title"] == "Add a debug reference to this property")
+            .cloned();
         match (after, found) {
             (None, None) => {}
             (Some(d), Some(a)) => {
@@ -2938,7 +3749,11 @@ class C extends Widget with Diagnosticable {
                     failures.push(format!("{name}: obtido\n{obtained}\nesperado\n{d}"));
                 }
             }
-            (d, a) => failures.push(format!("{name}: expected {} and got {}", d.is_some(), a.is_some())),
+            (d, a) => failures.push(format!(
+                "{name}: expected {} and got {}",
+                d.is_some(),
+                a.is_some()
+            )),
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n----\n"));
@@ -2963,7 +3778,8 @@ fn snippets_in_assists() {
     let mut p = with_snippets("acoes-snippets");
     let text = "void f() {\n  print(1);\n  print(r'$x');\n}\nint g() => 1;\n";
     p.open("lib/a.dart", text);
-    p.server.await_diagnostics(std::time::Duration::from_secs(120));
+    p.server
+        .await_diagnostics(std::time::Duration::from_secs(120));
     let from = location(text, "print(1)", 0);
     let until = location(text, "\n}", 0);
     let r = actions(&mut p, "lib/a.dart", from, until, json!({}));
@@ -2971,10 +3787,19 @@ fn snippets_in_assists() {
     // text's `$` is escaped.
     let e = &action(&r, "Surround with 'if'")["edit"]["documentChanges"][0]["edits"][0];
     assert_eq!(e["insertTextFormat"], 2);
-    assert_eq!(e["newText"], "  if (${1:condition}) {\n    print(1);\n    print(r'\\$x');\n  }$0\n");
+    assert_eq!(
+        e["newText"],
+        "  if (${1:condition}) {\n    print(1);\n    print(r'\\$x');\n  }$0\n"
+    );
     // Several groups: numbered in text order.
     let e = &action(&r, "Surround with 'for'")["edit"]["documentChanges"][0]["edits"][0];
-    assert!(e["newText"].as_str().unwrap().starts_with("  for (var ${1:v} = ${2:init}; ${3:condition}; ${4:increment}) {\n"), "{e}");
+    assert!(
+        e["newText"]
+            .as_str()
+            .unwrap()
+            .starts_with("  for (var ${1:v} = ${2:init}; ${3:condition}; ${4:increment}) {\n"),
+        "{e}"
+    );
     // `Surround with block` has only text: a plain edit.
     let e = &action(&r, "Surround with block")["edit"]["documentChanges"][0]["edits"][0];
     assert!(e.get("insertTextFormat").is_none(), "{e}");
@@ -3002,7 +3827,8 @@ fn without_the_capability_the_edit_is_plain() {
     );
     let text = "void f() {\n  print(1);\n}\n";
     p.open("lib/a.dart", text);
-    p.server.await_diagnostics(std::time::Duration::from_secs(120));
+    p.server
+        .await_diagnostics(std::time::Duration::from_secs(120));
     let from = location(text, "print(1)", 0);
     let until = location(text, "\n}", 0);
     let r = actions(&mut p, "lib/a.dart", from, until, json!({}));

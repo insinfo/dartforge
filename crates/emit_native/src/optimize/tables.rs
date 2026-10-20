@@ -48,8 +48,8 @@
 //! The pass exposes that edge; it does not insert the owner cleanup yet.
 
 use super::cfg::successors;
-use super::effects::{is_check, instruction_throws, do_not_throw};
-use super::operands::{default_constant, largest_ids, operands, terminator_operands, replace};
+use super::effects::{do_not_throw, instruction_throws, is_check};
+use super::operands::{default_constant, largest_ids, operands, replace, terminator_operands};
 use super::simplify::remove_unreachable;
 use crate::hir::*;
 use crate::llvm::externs::effects_of;
@@ -74,16 +74,24 @@ impl ExceptionPlan {
     /// Queries the sites before publishing tables, checking the identity
     /// of the function. The intermediate passes read the plan without enabling LLVM.
     pub(super) fn function_sites(&self, index: usize, f: &Function) -> &FunctionTables {
-        let (symbol, sites) = self.functions.get(index)
+        let (symbol, sites) = self
+            .functions
+            .get(index)
             .expect("compiler bug: function missing from the exceptional plan");
-        assert_eq!(&f.symbol, symbol, "compiler bug: the order of the functions changed after the exceptional preparation");
+        assert_eq!(
+            &f.symbol, symbol,
+            "compiler bug: the order of the functions changed after the exceptional preparation"
+        );
         sites
     }
 }
 
 /// Exposes landing pads and continuations in the CFG without publishing tables to the emitter.
 pub(super) fn prepare(module: &mut Module) -> ExceptionPlan {
-    assert!(!module.table_exceptions, "compiler bug: exceptional CFG already materialized");
+    assert!(
+        !module.table_exceptions,
+        "compiler bug: exceptional CFG already materialized"
+    );
     let nl = do_not_throw(module);
     // Without a proof of absence of owners, ARC needs a local exit
     // to insert cleanup even when there is no catch/finally in the source.
@@ -94,7 +102,11 @@ pub(super) fn prepare(module: &mut Module) -> ExceptionPlan {
     let uniforms = !(module.arc_memory && crate::target::arc_prepared().unwrap_or(false));
     let mut functions = Vec::with_capacity(module.functions.len());
     for f in &mut module.functions {
-        let sites = if super::valid(f) { from_function(f, &nl, preserve_cleanup, uniforms) } else { FunctionTables::default() };
+        let sites = if super::valid(f) {
+            from_function(f, &nl, preserve_cleanup, uniforms)
+        } else {
+            FunctionTables::default()
+        };
         functions.push((f.symbol.clone(), sites));
     }
     ExceptionPlan { functions }
@@ -103,7 +115,11 @@ pub(super) fn prepare(module: &mut Module) -> ExceptionPlan {
 /// Rebuilds exit decisions over the final HIR and validates the sites before
 /// publishing the tables. Does not run generic simplification on the landing pads.
 pub(super) fn materialize(module: &mut Module, plan: ExceptionPlan) {
-    assert_eq!(plan.functions.len(), module.functions.len(), "compiler bug: the functions changed after the exceptional preparation");
+    assert_eq!(
+        plan.functions.len(),
+        module.functions.len(),
+        "compiler bug: the functions changed after the exceptional preparation"
+    );
     let nl = do_not_throw(module);
     let mut tables = Vec::with_capacity(module.functions.len());
     for (index, f) in module.functions.iter().enumerate() {
@@ -113,12 +129,16 @@ pub(super) fn materialize(module: &mut Module, plan: ExceptionPlan) {
         }
     }
     for (f, (symbol, mut t)) in module.functions.iter_mut().zip(plan.functions) {
-        assert_eq!(f.symbol, symbol, "compiler bug: the order of the functions changed after the exceptional preparation");
+        assert_eq!(
+            f.symbol, symbol,
+            "compiler bug: the order of the functions changed after the exceptional preparation"
+        );
         if super::valid(f) {
             exits(f, &nl, &mut t);
         }
         if let Some(c) = &t.foreign_cleanup {
-            c.check(f, &t).expect("stale foreign cleanup in the materialization");
+            c.check(f, &t)
+                .expect("stale foreign cleanup in the materialization");
         }
         tables.push(t);
     }
@@ -138,7 +158,9 @@ pub(super) fn materialize(module: &mut Module, plan: ExceptionPlan) {
 fn is_site(inst: &Instruction, nl: &HashSet<String>, uniforms: bool) -> bool {
     match inst {
         Instruction::CallStatic { symbol, .. } => {
-            !nl.contains(symbol) && !symbol.starts_with("df.rti.") && !symbol.starts_with("dartforge_")
+            !nl.contains(symbol)
+                && !symbol.starts_with("df.rti.")
+                && !symbol.starts_with("dartforge_")
         }
         Instruction::TypedCall { .. } => true,
         Instruction::CallClosure { .. }
@@ -153,7 +175,10 @@ fn is_site(inst: &Instruction, nl: &HashSet<String>, uniforms: bool) -> bool {
 /// closure call and a call by selector may also return with the exception
 /// pending (`@df_clo_invalido`, the `noSuchMethod` entry).
 fn only_unwinds(inst: &Instruction) -> bool {
-    matches!(inst, Instruction::CallStatic { .. } | Instruction::TypedCall { .. })
+    matches!(
+        inst,
+        Instruction::CallStatic { .. } | Instruction::TypedCall { .. }
+    )
 }
 
 /// The shape that `FnBuilder::emit_call_with_check` gives a site at position
@@ -175,19 +200,31 @@ fn site_check(b: &BasicBlock, i: usize) -> Option<Check> {
         return None;
     }
     let (c, inst_c, _) = &b.instructions[i + 2];
-    let Instruction::ICmp(ICmpOp::Ne, Operand::Val(read_done), Operand::Constant(Constant::Int(0))) = inst_c else {
+    let Instruction::ICmp(ICmpOp::Ne, Operand::Val(read_done), Operand::Constant(Constant::Int(0))) =
+        inst_c
+    else {
         return None;
     };
     if read_done != p {
         return None;
     }
-    let Terminator::CondBranch { cond: Operand::Val(cond), then_block, else_block } = &b.terminator else {
+    let Terminator::CondBranch {
+        cond: Operand::Val(cond),
+        then_block,
+        else_block,
+    } = &b.terminator
+    else {
         return None;
     };
     if cond != c || then_block == else_block {
         return None;
     }
-    Some(Check { p: *p, c: *c, handler: *then_block, continuation: *else_block })
+    Some(Check {
+        p: *p,
+        c: *c,
+        handler: *then_block,
+        continuation: *else_block,
+    })
 }
 
 /// Does the handler only return the default value (the exception exit of a function
@@ -203,16 +240,28 @@ fn site_check(b: &BasicBlock, i: usize) -> Option<Check> {
 fn pure_exit(f: &Function, pos: &HashMap<BlockId, usize>, of: BlockId) -> bool {
     let mut current = of;
     for _ in 0..64 {
-        let Some(&k) = pos.get(&current) else { return false };
+        let Some(&k) = pos.get(&current) else {
+            return false;
+        };
         let b = &f.blocks[k];
-        let rest: Vec<&(ValueId, Instruction, Type)> = b.instructions.iter().filter(|(_, i, _)| !matches!(i, Instruction::Phi { .. })).collect();
+        let rest: Vec<&(ValueId, Instruction, Type)> = b
+            .instructions
+            .iter()
+            .filter(|(_, i, _)| !matches!(i, Instruction::Phi { .. }))
+            .collect();
         match (&rest[..], &b.terminator) {
             ([], Terminator::Return(_)) => return true,
             ([], Terminator::Branch(n)) => current = *n,
-            ([(p, ip, _), (c, ic, _)], Terminator::CondBranch { cond: Operand::Val(cond), then_block, .. })
-                if is_check(ip)
-                    && cond == c
-                    && matches!(ic, Instruction::ICmp(ICmpOp::Ne, Operand::Val(l), Operand::Constant(Constant::Int(0))) if l == p) =>
+            (
+                [(p, ip, _), (c, ic, _)],
+                Terminator::CondBranch {
+                    cond: Operand::Val(cond),
+                    then_block,
+                    ..
+                },
+            ) if is_check(ip)
+                && cond == c
+                && matches!(ic, Instruction::ICmp(ICmpOp::Ne, Operand::Val(l), Operand::Constant(Constant::Int(0))) if l == p) =>
             {
                 current = *then_block;
             }
@@ -268,30 +317,55 @@ fn false_operand() -> Operand {
     Operand::Constant(Constant::Bool(false))
 }
 
-fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool, uniforms: bool) -> FunctionTables {
+fn from_function(
+    f: &mut Function,
+    nl: &HashSet<String>,
+    preserve_cleanup: bool,
+    uniforms: bool,
+) -> FunctionTables {
     let mut t = FunctionTables {
-        checks_stack: f.blocks.iter().any(|b| b.instructions.iter().any(|(_, inst, _)| is_site(inst, nl, uniforms))),
+        checks_stack: f.blocks.iter().any(|b| {
+            b.instructions
+                .iter()
+                .any(|(_, inst, _)| is_site(inst, nl, uniforms))
+        }),
         ..FunctionTables::default()
     };
     let (mut next_v, mut next_b) = largest_ids(f);
     let mut uses = count_uses(f);
-    let mut pos: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(k, b)| (b.id, k)).collect();
+    let mut pos: HashMap<BlockId, usize> = f
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(k, b)| (b.id, k))
+        .collect();
     // One site per iteration: the first of the block. Either it is the last of the block (the
     // checked shape), or the rest of the block goes to a new block, at the end
     // of the list, visited later.
     let mut bi = 0;
     while bi < f.blocks.len() {
-        let Some(i) = f.blocks[bi].instructions.iter().position(|(_, inst, _)| is_site(inst, nl, uniforms)) else {
+        let Some(i) = f.blocks[bi]
+            .instructions
+            .iter()
+            .position(|(_, inst, _)| is_site(inst, nl, uniforms))
+        else {
             bi += 1;
             continue;
         };
         let origin = f.blocks[bi].id;
         let (result, typ, direct) = {
             let (v, inst, ty) = &f.blocks[bi].instructions[i];
-            (*v, crate::llvm::LlvmEmitter::result_type(inst, *ty), only_unwinds(inst))
+            (
+                *v,
+                crate::llvm::LlvmEmitter::result_type(inst, *ty),
+                only_unwinds(inst),
+            )
         };
         let checked = site_check(&f.blocks[bi], i);
-        let pure = !preserve_cleanup && checked.as_ref().is_some_and(|cf| pure_exit(f, &pos, cf.handler));
+        let pure = !preserve_cleanup
+            && checked
+                .as_ref()
+                .is_some_and(|cf| pure_exit(f, &pos, cf.handler));
         match checked {
             // The check goes away: the call unwinds and nobody here handles it.
             Some(cf) if direct && pure => {
@@ -319,12 +393,17 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
             Some(cf) if direct => {
                 next_b += 1;
                 let landing_pad = BlockId(next_b);
-                f.blocks[bi].terminator =
-                    Terminator::CondBranch { cond: false_operand(), then_block: landing_pad, else_block: cf.continuation };
+                f.blocks[bi].terminator = Terminator::CondBranch {
+                    cond: false_operand(),
+                    then_block: landing_pad,
+                    else_block: cf.continuation,
+                };
                 minus(&mut uses, cf.c);
                 if let Some(&kt) = pos.get(&cf.handler) {
                     for (_, inst, _) in &mut f.blocks[kt].instructions {
-                        let Instruction::Phi { incoming, ty } = inst else { continue };
+                        let Instruction::Phi { incoming, ty } = inst else {
+                            continue;
+                        };
                         for (o, op) in incoming.iter_mut() {
                             if *o != origin {
                                 continue;
@@ -371,7 +450,11 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
                 let tail = f.blocks[bi].instructions.split_off(i + 1);
                 let terminator = std::mem::replace(
                     &mut f.blocks[bi].terminator,
-                    Terminator::CondBranch { cond: false_operand(), then_block: landing_pad, else_block: rest },
+                    Terminator::CondBranch {
+                        cond: false_operand(),
+                        then_block: landing_pad,
+                        else_block: rest,
+                    },
                 );
                 // The successors of the block become successors of the rest.
                 for s in successors(&terminator) {
@@ -387,9 +470,17 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
                     }
                 }
                 pos.insert(landing_pad, f.blocks.len());
-                f.blocks.push(BasicBlock { id: landing_pad, instructions: Vec::new(), terminator: Terminator::Branch(rest) });
+                f.blocks.push(BasicBlock {
+                    id: landing_pad,
+                    instructions: Vec::new(),
+                    terminator: Terminator::Branch(rest),
+                });
                 pos.insert(rest, f.blocks.len());
-                f.blocks.push(BasicBlock { id: rest, instructions: tail, terminator });
+                f.blocks.push(BasicBlock {
+                    id: rest,
+                    instructions: tail,
+                    terminator,
+                });
                 if typ != Type::Void {
                     // The result, from here on, is that of the call or the
                     // default (what the throwing function returned).
@@ -402,7 +493,10 @@ fn from_function(f: &mut Function, nl: &HashSet<String>, preserve_cleanup: bool,
                         (
                             new,
                             Instruction::Phi {
-                                incoming: vec![(origin, Operand::Val(result)), (landing_pad, default_constant(typ))],
+                                incoming: vec![
+                                    (origin, Operand::Val(result)),
+                                    (landing_pad, default_constant(typ)),
+                                ],
                                 ty: typ,
                             },
                             typ,
@@ -437,11 +531,17 @@ fn check(f: &Function, t: &FunctionTables) {
     super::arc::check_resumes(f, t).expect("compiler bug: invalid Resume");
     let mut arrivals: HashMap<BlockId, u32> = HashMap::new();
     for b in &f.blocks {
-        let invoked: Vec<BlockId> = b.instructions.iter().filter_map(|(v, _, _)| t.invocations.get(v).copied()).collect();
+        let invoked: Vec<BlockId> = b
+            .instructions
+            .iter()
+            .filter_map(|(v, _, _)| t.invocations.get(v).copied())
+            .collect();
         let branch = match &b.terminator {
-            Terminator::CondBranch { cond: Operand::Constant(Constant::Bool(false)), then_block, else_block }
-                if t.landing_pads.contains(then_block) && then_block != else_block =>
-            {
+            Terminator::CondBranch {
+                cond: Operand::Constant(Constant::Bool(false)),
+                then_block,
+                else_block,
+            } if t.landing_pads.contains(then_block) && then_block != else_block => {
                 Some(*then_block)
             }
             _ => None,
@@ -454,12 +554,13 @@ fn check(f: &Function, t: &FunctionTables) {
         assert!(
             coherent,
             "compiler bug (table exceptions): in {}, block b{} does not match the `invoke` with the landing pad",
-            f.symbol,
-            b.id.0
+            f.symbol, b.id.0
         );
         if branch.is_some() {
             assert!(
-                b.instructions.last().is_some_and(|(v, _, _)| t.invocations.contains_key(v)),
+                b.instructions
+                    .last()
+                    .is_some_and(|(v, _, _)| t.invocations.contains_key(v)),
                 "compiler bug (table exceptions): in {}, block b{} has an instruction after the `invoke`",
                 f.symbol,
                 b.id.0
@@ -482,7 +583,9 @@ fn check(f: &Function, t: &FunctionTables) {
             assert!(
                 (b.instructions.is_empty() && matches!(b.terminator, Terminator::Branch(_)))
                     || (t.exits.get(&b.id) == Some(&ExceptionExit::Resume)
-                        && b.instructions.iter().all(|(_, i, _)| super::arc::resume_instruction(i))
+                        && b.instructions
+                            .iter()
+                            .all(|(_, i, _)| super::arc::resume_instruction(i))
                         && matches!(b.terminator, Terminator::Return(_))),
                 "compiler bug (table exceptions): in {}, landing pad b{} is not just a branch",
                 f.symbol,
@@ -519,33 +622,48 @@ enum Effect {
 
 fn effect(inst: &Instruction, nl: &HashSet<String>) -> Effect {
     match inst {
-        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => match name.as_str() {
-            // The emitter unwinds right after a clear that did not clear (the
-            // isolate's unwinding): on the normal path, it is clear.
-            "dartforge_exception_clear" => Effect::Cleans,
-            "dartforge_exception_throw" => Effect::Links,
-            "dartforge_exception_pending"
-            | "dartforge_exception_peek_ref"
-            | "dartforge_exception_catchable"
-            | "dartforge_stack_trace_get" => Effect::Nothing,
-            _ => {
-                let e = effects_of(name);
-                if e.throws || e.calls_dart { Effect::MayLink } else { Effect::Nothing }
+        Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } => {
+            match name.as_str() {
+                // The emitter unwinds right after a clear that did not clear (the
+                // isolate's unwinding): on the normal path, it is clear.
+                "dartforge_exception_clear" => Effect::Cleans,
+                "dartforge_exception_throw" => Effect::Links,
+                "dartforge_exception_pending"
+                | "dartforge_exception_peek_ref"
+                | "dartforge_exception_catchable"
+                | "dartforge_stack_trace_get" => Effect::Nothing,
+                _ => {
+                    let e = effects_of(name);
+                    if e.throws || e.calls_dart {
+                        Effect::MayLink
+                    } else {
+                        Effect::Nothing
+                    }
+                }
             }
-        },
+        }
         // A Dart function that returns returns without a pending exception (one that
         // throws unwinds); a runtime symbol follows the pending state.
         Instruction::CallStatic { symbol, .. } => {
-            if symbol.starts_with("dartforge_") && !nl.contains(symbol) { Effect::MayLink } else { Effect::Nothing }
+            if symbol.starts_with("dartforge_") && !nl.contains(symbol) {
+                Effect::MayLink
+            } else {
+                Effect::Nothing
+            }
         }
         Instruction::TypedCall { .. } => Effect::Nothing,
         // Emitted as LLVM instructions, without a call: they do not touch the
         // pending state (`effects::instruction_throws` counts them through their surroundings).
-        Instruction::SDiv(..) | Instruction::SRem(..) | Instruction::DoubleToInt(_) | Instruction::CheckNotNull(_) => {
-            Effect::Nothing
-        }
+        Instruction::SDiv(..)
+        | Instruction::SRem(..)
+        | Instruction::DoubleToInt(_)
+        | Instruction::CheckNotNull(_) => Effect::Nothing,
         another => {
-            if instruction_throws(another, nl) { Effect::MayLink } else { Effect::Nothing }
+            if instruction_throws(another, nl) {
+                Effect::MayLink
+            } else {
+                Effect::Nothing
+            }
         }
     }
 }
@@ -556,7 +674,11 @@ fn after(e: Pending, ef: &Effect) -> Pending {
         Effect::Cleans => Pending::Cleans,
         Effect::Links => Pending::Linked,
         Effect::MayLink => {
-            if e == Pending::Linked { Pending::Linked } else { Pending::Maybe }
+            if e == Pending::Linked {
+                Pending::Linked
+            } else {
+                Pending::Maybe
+            }
         }
     }
 }
@@ -564,7 +686,11 @@ fn after(e: Pending, ef: &Effect) -> Pending {
 /// The pending state at the end of the block, given that at the entry, and — when the block
 /// ends by branching on a check that nothing after it changes — the
 /// successors `(with the exception pending, without it)`.
-fn walk(b: &BasicBlock, entry: Pending, nl: &HashSet<String>) -> (Pending, Option<(BlockId, BlockId)>) {
+fn walk(
+    b: &BasicBlock,
+    entry: Pending,
+    nl: &HashSet<String>,
+) -> (Pending, Option<(BlockId, BlockId)>) {
     let mut e = entry;
     let mut check: Option<ValueId> = None;
     for (v, inst, _) in &b.instructions {
@@ -579,16 +705,30 @@ fn walk(b: &BasicBlock, entry: Pending, nl: &HashSet<String>) -> (Pending, Optio
         e = after(e, &ef);
     }
     let branch = match (&b.terminator, check) {
-        (Terminator::CondBranch { cond: Operand::Val(c), then_block, else_block }, Some(p)) if then_block != else_block => {
-            b.instructions.iter().find(|(v, _, _)| v == c).and_then(|(_, inst, _)| match inst {
-                Instruction::ICmp(ICmpOp::Ne, Operand::Val(x), Operand::Constant(Constant::Int(0))) if *x == p => {
-                    Some((*then_block, *else_block))
-                }
-                Instruction::ICmp(ICmpOp::Eq, Operand::Val(x), Operand::Constant(Constant::Int(0))) if *x == p => {
-                    Some((*else_block, *then_block))
-                }
-                _ => None,
-            })
+        (
+            Terminator::CondBranch {
+                cond: Operand::Val(c),
+                then_block,
+                else_block,
+            },
+            Some(p),
+        ) if then_block != else_block => {
+            b.instructions
+                .iter()
+                .find(|(v, _, _)| v == c)
+                .and_then(|(_, inst, _)| match inst {
+                    Instruction::ICmp(
+                        ICmpOp::Ne,
+                        Operand::Val(x),
+                        Operand::Constant(Constant::Int(0)),
+                    ) if *x == p => Some((*then_block, *else_block)),
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        Operand::Val(x),
+                        Operand::Constant(Constant::Int(0)),
+                    ) if *x == p => Some((*else_block, *then_block)),
+                    _ => None,
+                })
         }
         _ => None,
     };
@@ -612,7 +752,12 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
     if n == 0 {
         return;
     }
-    let pos: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(k, b)| (b.id, k)).collect();
+    let pos: HashMap<BlockId, usize> = f
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(k, b)| (b.id, k))
+        .collect();
     let mut entry: Vec<Option<Pending>> = vec![None; n];
     entry[0] = Some(Pending::Cleans);
     for (k, b) in f.blocks.iter().enumerate() {
@@ -627,7 +772,10 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
         let (exit, branch) = walk(b, e, nl);
         let edges: Vec<(BlockId, Pending)> = match branch {
             Some((pending, clean)) => vec![(pending, Pending::Linked), (clean, Pending::Cleans)],
-            None => successors(&b.terminator).into_iter().map(|s| (s, exit)).collect(),
+            None => successors(&b.terminator)
+                .into_iter()
+                .map(|s| (s, exit))
+                .collect(),
         };
         for (target, state) in edges {
             // The landing pad is only reached by unwinding: always set.
@@ -647,7 +795,9 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
         if !matches!(b.terminator, Terminator::Return(_)) {
             continue;
         }
-        if t.exits.get(&b.id) == Some(&ExceptionExit::Resume) { continue; }
+        if t.exits.get(&b.id) == Some(&ExceptionExit::Resume) {
+            continue;
+        }
         match walk(b, e, nl).0 {
             Pending::Cleans => {}
             Pending::Linked => {
@@ -679,7 +829,8 @@ fn exits(f: &mut Function, nl: &HashSet<String>, t: &mut FunctionTables) {
     }
     if !without_effect.is_empty() {
         for b in &mut f.blocks {
-            b.instructions.retain(|(v, _, _)| !without_effect.contains(v));
+            b.instructions
+                .retain(|(v, _, _)| !without_effect.contains(v));
         }
     }
 }
@@ -692,17 +843,31 @@ mod tests {
     fn materialization_preserves_resume_and_checks_cleanup_before_publishing() {
         let mut m = module();
         m.functions[0].blocks[0].terminator = Terminator::CondBranch {
-            cond: Operand::Constant(Constant::Bool(false)), then_block: BlockId(2), else_block: BlockId(1),
+            cond: Operand::Constant(Constant::Bool(false)),
+            then_block: BlockId(2),
+            else_block: BlockId(1),
         };
         m.functions[0].blocks.extend([
-            BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) },
-            BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+            },
         ]);
         let t = FunctionTables {
-            invocations: [(ValueId(0), BlockId(2))].into(), landing_pads: [BlockId(2)].into(),
-            exits: [(BlockId(2), ExceptionExit::Resume)].into(), ..Default::default()
+            invocations: [(ValueId(0), BlockId(2))].into(),
+            landing_pads: [BlockId(2)].into(),
+            exits: [(BlockId(2), ExceptionExit::Resume)].into(),
+            ..Default::default()
         };
-        let plan = ExceptionPlan { functions: vec![(m.functions[0].symbol.clone(), t.clone())] };
+        let plan = ExceptionPlan {
+            functions: vec![(m.functions[0].symbol.clone(), t.clone())],
+        };
         materialize(&mut m, plan);
         assert_eq!(m.tables[0].exits[&BlockId(2)], ExceptionExit::Resume);
         m.functions[0].blocks[2].terminator = Terminator::Return(Some(Operand::Val(ValueId(0))));
@@ -721,7 +886,11 @@ mod tests {
                     id: BlockId(0),
                     instructions: vec![(
                         ValueId(0),
-                        Instruction::CallStatic { symbol: "pode_lancar".into(), args: Vec::new(), ret_ty: Type::Ref },
+                        Instruction::CallStatic {
+                            symbol: "pode_lancar".into(),
+                            args: Vec::new(),
+                            ret_ty: Type::Ref,
+                        },
                         Type::Ref,
                     )],
                     terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
@@ -741,7 +910,12 @@ mod tests {
         assert!(t.exits.is_empty());
         assert!(matches!(m.functions[0].blocks[0].terminator,
             Terminator::CondBranch { then_block, .. } if then_block == landing_pad));
-        let ret = m.functions[0].blocks.iter().find(|b| matches!(b.terminator, Terminator::Return(_))).unwrap().id;
+        let ret = m.functions[0]
+            .blocks
+            .iter()
+            .find(|b| matches!(b.terminator, Terminator::Return(_)))
+            .unwrap()
+            .id;
         materialize(&mut m, plan);
         assert_eq!(m.tables[0].exits[&ret], ExceptionExit::Guard);
     }
@@ -756,22 +930,49 @@ mod tests {
                 if !direct {
                     f.params.push((ValueId(3), "alvo".into(), Type::Ref));
                     f.blocks[0].instructions[0].1 = Instruction::CallClosure {
-                        closure: Operand::Val(ValueId(3)), args: vec![], names: vec![], ret_ty: Type::Ref,
+                        closure: Operand::Val(ValueId(3)),
+                        args: vec![],
+                        names: vec![],
+                        ret_ty: Type::Ref,
                         tuple_types: Operand::Constant(Constant::Null),
                     };
                 }
                 f.blocks[0].instructions.extend([
-                    (ValueId(1), Instruction::CallRuntime {
-                        name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8,
-                    }, Type::I8),
-                    (ValueId(2), Instruction::ICmp(ICmpOp::Ne, Operand::Val(ValueId(1)), Operand::Constant(Constant::Int(0))), Type::I1),
+                    (
+                        ValueId(1),
+                        Instruction::CallRuntime {
+                            name: "dartforge_exception_pending".into(),
+                            args: vec![],
+                            ret_ty: Type::I8,
+                        },
+                        Type::I8,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::ICmp(
+                            ICmpOp::Ne,
+                            Operand::Val(ValueId(1)),
+                            Operand::Constant(Constant::Int(0)),
+                        ),
+                        Type::I1,
+                    ),
                 ]);
                 f.blocks[0].terminator = Terminator::CondBranch {
-                    cond: Operand::Val(ValueId(2)), then_block: BlockId(1), else_block: BlockId(2),
+                    cond: Operand::Val(ValueId(2)),
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
                 };
                 f.blocks.extend([
-                    BasicBlock { id: BlockId(1), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) },
-                    BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) },
+                    BasicBlock {
+                        id: BlockId(1),
+                        instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+                    },
+                    BasicBlock {
+                        id: BlockId(2),
+                        instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+                    },
                 ]);
                 assert!(super::super::valid(f));
                 let plan = prepare(&mut m);
@@ -783,7 +984,9 @@ mod tests {
                     assert!(super::super::valid(&m.functions[0]));
                 }
                 materialize(&mut m, plan);
-                if arc { assert!(m.tables[0].exits.contains_key(&BlockId(1))); }
+                if arc {
+                    assert!(m.tables[0].exits.contains_key(&BlockId(1)));
+                }
             }
         }
     }
@@ -801,12 +1004,25 @@ mod tests {
     fn materialization_recomputes_pending_after_changing_continuation() {
         let mut m = module();
         let plan = prepare(&mut m);
-        let ret = m.functions[0].blocks.iter_mut().find(|b| matches!(b.terminator, Terminator::Return(_))).unwrap();
-        ret.instructions.push((ValueId(100), Instruction::CallRuntime {
-            name: "dartforge_exception_clear".into(), args: Vec::new(), ret_ty: Type::Void,
-        }, Type::Void));
+        let ret = m.functions[0]
+            .blocks
+            .iter_mut()
+            .find(|b| matches!(b.terminator, Terminator::Return(_)))
+            .unwrap();
+        ret.instructions.push((
+            ValueId(100),
+            Instruction::CallRuntime {
+                name: "dartforge_exception_clear".into(),
+                args: Vec::new(),
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        ));
         materialize(&mut m, plan);
-        assert!(m.tables[0].exits.is_empty(), "the continuation now clears the pending flag on both paths");
+        assert!(
+            m.tables[0].exits.is_empty(),
+            "the continuation now clears the pending flag on both paths"
+        );
     }
 
     #[test]
@@ -814,7 +1030,11 @@ mod tests {
     fn rejects_site_that_stopped_terminating_block() {
         let mut m = module();
         let plan = prepare(&mut m);
-        m.functions[0].blocks[0].instructions.push((ValueId(100), Instruction::Alloca(Type::Ref), Type::Ptr));
+        m.functions[0].blocks[0].instructions.push((
+            ValueId(100),
+            Instruction::Alloca(Type::Ref),
+            Type::Ptr,
+        ));
         materialize(&mut m, plan);
     }
 }

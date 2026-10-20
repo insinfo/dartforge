@@ -14,8 +14,12 @@ use dartforge_runtime::{
 #[test]
 fn owned_closure_keeps_context_cell_and_repeated_edges_until_drop() {
     use dartforge_runtime::{abi::*, layout::cid};
-    extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
-    extern "C" fn body(_: i64) -> i64 { 7 }
+    extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 {
+        0
+    }
+    extern "C" fn body(_: i64) -> i64 {
+        7
+    }
     std::thread::spawn(|| {
         dartforge_memory_arc_v1();
         for cycle in [false, true] {
@@ -24,37 +28,53 @@ fn owned_closure_keeps_context_cell_and_repeated_edges_until_drop() {
             dartforge_arc_write_field_ref_v1(cell, 0, value);
             dartforge_arc_release(value);
             let env = dartforge_arc_object_owned_v1(i64::from(cid::CONTEXT), 40);
-            for i in [0, 39] { dartforge_arc_write_field_ref_v1(env, i, cell); }
+            for i in [0, 39] {
+                dartforge_arc_write_field_ref_v1(env, i, cell);
+            }
             dartforge_arc_release(cell);
             let code = input as *const () as usize as i64;
             let typed_one = body as *const () as usize as i64;
             let closure = dartforge_arc_closure_owned_v1(code, env, typed_one, 7);
             assert_eq!(dartforge_arc_observe_heap_v1(env), 3);
             dartforge_arc_release(env);
-            if cycle { dartforge_arc_write_field_ref_v1(env, 38, closure); }
+            if cycle {
+                dartforge_arc_write_field_ref_v1(env, 38, closure);
+            }
             dartforge_arc_collect();
             assert_eq!(dartforge_arc_observe_heap_v1(closure), 3);
-            for h in [env, cell, value] { assert_eq!(dartforge_arc_observe_heap_v1(h), 1); }
+            for h in [env, cell, value] {
+                assert_eq!(dartforge_arc_observe_heap_v1(h), 1);
+            }
             assert_eq!(dartforge_closure_code(closure), code);
             assert_eq!(dartforge_closure_typed(closure, 7), typed_one);
             assert_eq!(dartforge_arc_closure_context_v1(closure), env);
             assert_eq!(dartforge_arc_env_ref_v1(env, 39), cell);
-            assert_eq!(dartforge_unbox_int(dartforge_arc_read_field_ref_v1(cell, 0)), i64::MAX);
+            assert_eq!(
+                dartforge_unbox_int(dartforge_arc_read_field_ref_v1(cell, 0)),
+                i64::MAX
+            );
             dartforge_arc_release(closure);
             dartforge_arc_collect();
-            for h in [closure, env, cell, value] { assert_eq!(dartforge_arc_observe_heap_v1(h), 0); }
+            for h in [closure, env, cell, value] {
+                assert_eq!(dartforge_arc_observe_heap_v1(h), 0);
+            }
         }
-    }).join().unwrap();
+    })
+    .join()
+    .unwrap();
 }
 
 #[test]
 fn borrowed_context_needs_owner_after_closure_release() {
     use dartforge_runtime::abi::*;
-    extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 { 0 }
+    extern "C" fn input(_: i64, _: *const i64, _: *const i64) -> i64 {
+        0
+    }
     std::thread::spawn(|| {
         dartforge_memory_arc_v1();
         let child = dartforge_arc_box_int_owned_v1(i64::MAX);
-        let closure = dartforge_arc_closure_owned_v1(input as *const () as usize as i64, child, 0, 0);
+        let closure =
+            dartforge_arc_closure_owned_v1(input as *const () as usize as i64, child, 0, 0);
         dartforge_arc_release(child);
         let borrowed = dartforge_arc_closure_context_v1(closure);
         assert_eq!(borrowed, child);
@@ -70,7 +90,9 @@ fn borrowed_context_needs_owner_after_closure_release() {
         assert_eq!(dartforge_arc_observe_heap_v1(borrowed), 0);
         let canonical_one = dartforge_tearoff(123);
         assert_eq!(dartforge_arc_closure_context_v1(canonical_one), 0);
-    }).join().unwrap();
+    })
+    .join()
+    .unwrap();
 }
 
 #[test]
@@ -88,7 +110,9 @@ fn nsm_publishes_error_until_clear_without_owner_in_caller() {
         dartforge_exception_clear();
         dartforge_arc_collect();
         assert_eq!(dartforge_arc_observe_heap_v1(error), 0);
-    }).join().unwrap();
+    })
+    .join()
+    .unwrap();
 }
 
 /// The indexed and byte accesses of typed lists and `codeUnitAt` (the runtime
@@ -478,10 +502,7 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
         .iter()
         .find(|c| c.name == "dartforge_arc_global_receive_v1")
         .unwrap();
-    assert_eq!(
-        receive.parameters,
-        &[ParamMode::Native, ParamMode::Consume]
-    );
+    assert_eq!(receive.parameters, &[ParamMode::Native, ParamMode::Consume]);
     assert!(receive.persistent_retention && receive.invalidates_borrows);
     let load = CONTRACTS
         .iter()
@@ -501,10 +522,7 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
         .iter()
         .find(|c| c.name == "dartforge_arc_object_owned_v1")
         .unwrap();
-    assert_eq!(
-        instance.parameters,
-        &[ParamMode::Native, ParamMode::Scalar]
-    );
+    assert_eq!(instance.parameters, &[ParamMode::Native, ParamMode::Scalar]);
     assert_eq!(instance.result, ResultMode::Owned);
     assert!(instance.invalidates_borrows);
     assert!(!instance.may_fail && !instance.calls_dart && !instance.persistent_retention);
@@ -513,10 +531,7 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
         .iter()
         .find(|c| c.name == "dartforge_arc_read_field_scalar_v1")
         .unwrap();
-    assert_eq!(
-        scalar.parameters,
-        &[ParamMode::Borrow, ParamMode::Scalar]
-    );
+    assert_eq!(scalar.parameters, &[ParamMode::Borrow, ParamMode::Scalar]);
     assert_eq!(scalar.result, ResultMode::ScalarI64);
     assert!(
         !scalar.may_fail
@@ -530,17 +545,10 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
             ParamMode::Scalar,
             false,
         ),
-        (
-            "dartforge_arc_write_field_ref_v1",
-            ParamMode::Borrow,
-            true,
-        ),
+        ("dartforge_arc_write_field_ref_v1", ParamMode::Borrow, true),
     ] {
         let c = CONTRACTS.iter().find(|c| c.name == name).unwrap();
-        assert_eq!(
-            c.parameters,
-            &[ParamMode::Borrow, ParamMode::Scalar, value]
-        );
+        assert_eq!(c.parameters, &[ParamMode::Borrow, ParamMode::Scalar, value]);
         assert_eq!(c.result, ResultMode::Void);
         assert_eq!(c.persistent_retention, retention);
         assert!(c.invalidates_borrows && !c.may_fail && !c.calls_dart);
@@ -554,10 +562,7 @@ fn arc_contracts_cover_exports_without_inventing_contracts_for_other_externs() {
         .iter()
         .find(|c| c.name == "dartforge_arc_read_field_ref_v1")
         .unwrap();
-    assert_eq!(
-        ref_read.parameters,
-        &[ParamMode::Borrow, ParamMode::Scalar]
-    );
+    assert_eq!(ref_read.parameters, &[ParamMode::Borrow, ParamMode::Scalar]);
     assert_eq!(ref_read.result, ResultMode::BorrowArg(0));
     assert!(
         !ref_read.may_fail
@@ -635,12 +640,18 @@ fn copied_borrowed_capture_survives_env_and_preserves_pending() {
         dartforge_exception_clear();
         dartforge_arc_collect();
         assert_eq!(dartforge_arc_observe_heap_v1(capture), 0);
-    }).join().unwrap();
+    })
+    .join()
+    .unwrap();
 }
 
 #[test]
 fn callback_code_owners_use_native_metadata_without_managed_ownership() {
-    let mut expected = vec![("dartforge_ffi_callback_owner_new", vec![], ResultMode::ScalarI64)];
+    let mut expected = vec![(
+        "dartforge_ffi_callback_owner_new",
+        vec![],
+        ResultMode::ScalarI64,
+    )];
     for name in [
         "dartforge_ffi_callback_owner_published",
         "dartforge_ffi_callback_owner_prepare_retire",
@@ -649,9 +660,16 @@ fn callback_code_owners_use_native_metadata_without_managed_ownership() {
     ] {
         expected.push((name, vec![ParamMode::Scalar], ResultMode::ScalarI8));
     }
-    expected.push(("dartforge_ffi_register_callback_owned",
-        vec![ParamMode::NativeAddress, ParamMode::Scalar, ParamMode::Native, ParamMode::Scalar],
-        ResultMode::ScalarI8));
+    expected.push((
+        "dartforge_ffi_register_callback_owned",
+        vec![
+            ParamMode::NativeAddress,
+            ParamMode::Scalar,
+            ParamMode::Native,
+            ParamMode::Scalar,
+        ],
+        ResultMode::ScalarI8,
+    ));
     for (name, parameters, result) in expected {
         let contract = CONTRACTS.iter().find(|c| c.name == name).unwrap();
         assert_eq!(contract.parameters, parameters);

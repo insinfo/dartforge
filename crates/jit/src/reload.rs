@@ -259,12 +259,22 @@ impl StableEntry {
         if session.id != self.session {
             return Err(JitError {
                 stage: "lookup",
-                message: format!("the stable entry {} belongs to another JIT session", self.name),
+                message: format!(
+                    "the stable entry {} belongs to another JIT session",
+                    self.name
+                ),
             });
         }
-        session.lljit.call_stable_void(self.address, &self.signature).map_err(|detail| {
-            JitError::new("execute", &format!("could not call the stable entry {}", self.name), detail)
-        })
+        session
+            .lljit
+            .call_stable_void(self.address, &self.signature)
+            .map_err(|detail| {
+                JitError::new(
+                    "execute",
+                    &format!("could not call the stable entry {}", self.name),
+                    detail,
+                )
+            })
     }
 
     /// Calls the `i32 ()` entry of the program with the source SDK.
@@ -272,12 +282,22 @@ impl StableEntry {
         if session.id != self.session {
             return Err(JitError {
                 stage: "lookup",
-                message: format!("the stable entry {} belongs to another JIT session", self.name),
+                message: format!(
+                    "the stable entry {} belongs to another JIT session",
+                    self.name
+                ),
             });
         }
-        session.lljit.call_stable_i32(self.address, &self.signature).map_err(|detail| {
-            JitError::new("execute", &format!("could not call the stable entry {}", self.name), detail)
-        })
+        session
+            .lljit
+            .call_stable_i32(self.address, &self.signature)
+            .map_err(|detail| {
+                JitError::new(
+                    "execute",
+                    &format!("could not call the stable entry {}", self.name),
+                    detail,
+                )
+            })
     }
 
     /// Checks the session of origin and delegates the checked call to the FFI boundary.
@@ -423,7 +443,10 @@ impl JitSession {
     pub fn hot_reload(&mut self, name: &str, fresh_ir: &str) -> Result<HotReloadReport, JitError> {
         if self.poisoned.is_none()
             && !self.reloadables.iter().any(|module| module.name == name)
-            && !self.modules.iter().any(|module| !module.removed && module.name == name)
+            && !self
+                .modules
+                .iter()
+                .any(|module| !module.removed && module.name == name)
         {
             return Err(JitError {
                 stage: "contract",
@@ -534,7 +557,12 @@ impl JitSession {
         ir: &str,
         safepoint: Option<&mut dyn FnMut(ffi::Task)>,
     ) -> Result<HotReloadReport, JitError> {
-        self.install_generation_with_stubs(name, ir, safepoint, StubMaterialization::from_environment())
+        self.install_generation_with_stubs(
+            name,
+            ir,
+            safepoint,
+            StubMaterialization::from_environment(),
+        )
     }
 
     fn install_generation_with_stubs(
@@ -558,24 +586,51 @@ impl JitSession {
         // trampoline, which keeps pointing to the live implementation; the
         // generation's registrations are always its own.
         let empties_list = HashMap::new();
-        let live_list = self.reloadables.iter().find(|m| m.name == name).map_or(&empties_list, |m| &m.published_list);
-        let (generation_ir, kept_fns, mut new_items) =
-            match crate::delta::delta(ir, live_list, &[AREA_PREPARATION, PROGRAM_REGISTRY, RTI_START, LEGACY_RTI_START]) {
-                Some(d) => (std::borrow::Cow::Owned(d.ir), d.kept_fns, d.new_items),
-                None => (std::borrow::Cow::Borrowed(ir), Vec::new(), HashMap::new()),
-            };
+        let live_list = self
+            .reloadables
+            .iter()
+            .find(|m| m.name == name)
+            .map_or(&empties_list, |m| &m.published_list);
+        let (generation_ir, kept_fns, mut new_items) = match crate::delta::delta(
+            ir,
+            live_list,
+            &[
+                AREA_PREPARATION,
+                PROGRAM_REGISTRY,
+                RTI_START,
+                LEGACY_RTI_START,
+            ],
+        ) {
+            Some(d) => (std::borrow::Cow::Owned(d.ir), d.kept_fns, d.new_items),
+            None => (std::borrow::Cow::Borrowed(ir), Vec::new(), HashMap::new()),
+        };
         let phase = Instant::now();
-        let prior_frames = self.reloadables.iter().find(|module| module.name == name)
+        let prior_frames = self
+            .reloadables
+            .iter()
+            .find(|module| module.name == name)
             .map(|module| &module.async_frames)
-            .or_else(|| self.modules.iter().find(|module| !module.removed && module.name == name).map(|module| &module.async_frames))
-            .cloned().unwrap_or_default();
+            .or_else(|| {
+                self.modules
+                    .iter()
+                    .find(|module| !module.removed && module.name == name)
+                    .map(|module| &module.async_frames)
+            })
+            .cloned()
+            .unwrap_or_default();
         let parsed = ffi::parse_module(name, &generation_ir)
             .map_err(|detail| JitError::new("parse-ir", "invalid IR", detail))?;
         self.check_target(&parsed)?;
         self.import_sdk_runtime_data(&parsed)?;
-        let (mut layouts, mut async_frames) = parsed.frame_contract(ir, &prior_frames)
-            .map_err(|message| JitError { stage: "contract", message })?;
-        let callback_registration = parsed.callback_registration_plan(self.lljit.supports_callback_owners());
+        let (mut layouts, mut async_frames) =
+            parsed
+                .frame_contract(ir, &prior_frames)
+                .map_err(|message| JitError {
+                    stage: "contract",
+                    message,
+                })?;
+        let callback_registration =
+            parsed.callback_registration_plan(self.lljit.supports_callback_owners());
         let parse_ir = phase.elapsed();
 
         let phase = Instant::now();
@@ -592,7 +647,9 @@ impl JitSession {
             let mut renames = Vec::new();
             for s in &signatures {
                 let text = s.text();
-                let Some(current) = module.entries.get(&s.name).filter(|e| e.generation > 0) else { continue };
+                let Some(current) = module.entries.get(&s.name).filter(|e| e.generation > 0) else {
+                    continue;
+                };
                 if current.signature.text() == text {
                     continue;
                 }
@@ -649,14 +706,24 @@ impl JitSession {
         // Detecting the collision here is mandatory during promotion: after the
         // simple module is removed, a failure to publish the trampoline leaves
         // the session poisoned and destroys the version that still worked.
-        let occupied: HashSet<&str> = self.modules.iter().enumerate()
+        let occupied: HashSet<&str> = self
+            .modules
+            .iter()
+            .enumerate()
             .filter(|(index, module)| !module.removed && Some(*index) != plain)
             .flat_map(|(_, module)| module.signatures.iter().map(|s| s.name.as_str()))
-            .chain(self.reloadables.iter().enumerate()
-                .filter(|(index, _)| Some(*index) != existing)
-                .flat_map(|(_, module)| module.entries.keys().map(String::as_str)))
+            .chain(
+                self.reloadables
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, _)| Some(*index) != existing)
+                    .flat_map(|(_, module)| module.entries.keys().map(String::as_str)),
+            )
             .collect();
-        if let Some(collision) = signatures.iter().find(|s| occupied.contains(s.name.as_str())) {
+        if let Some(collision) = signatures
+            .iter()
+            .find(|s| occupied.contains(s.name.as_str()))
+        {
             return Err(JitError {
                 stage: "contract",
                 message: format!(
@@ -684,12 +751,26 @@ impl JitSession {
             (None, None) => &[],
         };
         let previous_frames = &prior_frames;
-        crate::frame_layouts::check_domains(previous_layouts, previous_frames, &layouts, &async_frames)
-            .map_err(|message| JitError { stage: "contract", message })?;
-        crate::frame_layouts::check(previous_frames, &async_frames)
-            .map_err(|message| JitError { stage: "contract", message })?;
+        crate::frame_layouts::check_domains(
+            previous_layouts,
+            previous_frames,
+            &layouts,
+            &async_frames,
+        )
+        .map_err(|message| JitError {
+            stage: "contract",
+            message,
+        })?;
+        crate::frame_layouts::check(previous_frames, &async_frames).map_err(|message| {
+            JitError {
+                stage: "contract",
+                message,
+            }
+        })?;
         // Old suspended frames can still reach entries from earlier generations.
-        for (body, fields) in previous_frames { async_frames.insert(body.clone(), *fields); }
+        for (body, fields) in previous_frames {
+            async_frames.insert(body.clone(), *fields);
+        }
         let previous_names: &[(i64, String)] = match (existing, plain) {
             (Some(index), _) => &self.reloadables[index].class_names,
             (None, Some(index)) => &self.modules[index].class_names,
@@ -707,35 +788,58 @@ impl JitSession {
             .filter(|l| fields.iter().any(|n| n.class == l.class))
             .map(|l| l.class)
             .collect();
-        check_contract(&previous, previous_layouts, &signatures, &layouts, &migrated).map_err(|message| {
-            JitError {
+        check_contract(
+            &previous,
+            previous_layouts,
+            &signatures,
+            &layouts,
+            &migrated,
+        )
+        .map_err(|message| JitError {
+            stage: "contract",
+            message,
+        })?;
+        check_class_names(previous_names, &class_names).map_err(|message| JitError {
+            stage: "contract",
+            message,
+        })?;
+        let class_name = |id: i64| {
+            class_names.iter().find(|(c, _)| *c == id).map_or_else(
+                || format!("the class with id {id}"),
+                |(_, n)| format!("class {n}"),
+            )
+        };
+        let plan = crate::migration::plan_fn(previous_fields, &fields, &class_name).map_err(
+            |message| JitError {
                 stage: "contract",
                 message,
-            }
-        })?;
-        check_class_names(previous_names, &class_names).map_err(|message| JitError { stage: "contract", message })?;
-        let class_name = |id: i64| {
-            class_names
-                .iter()
-                .find(|(c, _)| *c == id)
-                .map_or_else(|| format!("the class with id {id}"), |(_, n)| format!("class {n}"))
-        };
-        let plan = crate::migration::plan_fn(previous_fields, &fields, &class_name)
-            .map_err(|message| JitError { stage: "contract", message })?;
+            },
+        )?;
         let encoded_plan = (!plan.is_empty()).then(|| crate::migration::encode(&plan));
         // Publication redoes the program registrations (method tables,
         // RTI rules) when there was already a generation: the running program
         // has those of the previous one. The registration functions are entries of the
         // generation itself; the runtime that receives them is the session's.
         let records = if existing.is_some() {
-            let has = |name_str: &str| signatures.iter().any(|s| s.name == name_str && s.ret == "void" && s.params.is_empty());
+            let has = |name_str: &str| {
+                signatures
+                    .iter()
+                    .any(|s| s.name == name_str && s.ret == "void" && s.params.is_empty())
+            };
             let area = has(AREA_PREPARATION);
             let register = has(PROGRAM_REGISTRY);
-            let rti = [RTI_START, LEGACY_RTI_START].into_iter().find(|symbol| has(symbol));
+            let rti = [RTI_START, LEGACY_RTI_START]
+                .into_iter()
+                .find(|symbol| has(symbol));
             if area || register || rti.is_some() || encoded_plan.is_some() {
                 let runtime = match &self.sdk_dll {
-                    Some(dll) => ffi::ReloadRuntime::from_library(dll)
-                        .map_err(|detail| JitError::new("contract", "the session runtime does not publish generations", detail))?,
+                    Some(dll) => ffi::ReloadRuntime::from_library(dll).map_err(|detail| {
+                        JitError::new(
+                            "contract",
+                            "the session runtime does not publish generations",
+                            detail,
+                        )
+                    })?,
                     None => ffi::ReloadRuntime::embedded(),
                 };
                 if encoded_plan.is_some() && !runtime.migrates() {
@@ -758,11 +862,13 @@ impl JitSession {
         // destructive window of the promotion. A symbol already published by LLJIT, including
         // by another module or by the SDK DLL, can be used normally.
         for global in parsed.external_globals() {
-            self.lljit.lookup(&global).map_err(|detail| JitError::new(
-                "contract",
-                &format!("the external global {global} is not available in this session"),
-                detail,
-            ))?;
+            self.lljit.lookup(&global).map_err(|detail| {
+                JitError::new(
+                    "contract",
+                    &format!("the external global {global} is not available in this session"),
+                    detail,
+                )
+            })?;
         }
         let mut known: Vec<&str> = signatures.iter().map(|s| s.name.as_str()).collect();
         // Other still resident modules are also a valid source of symbols: a
@@ -787,7 +893,10 @@ impl JitSession {
                     !self.is_known_external(reference)
                         && !self.sdk_externals.contains(*reference)
                         && !known.contains(&reference.as_str())
-                        && !self.reloadables.iter().any(|m| m.entries.contains_key(*reference))
+                        && !self
+                            .reloadables
+                            .iter()
+                            .any(|m| m.entries.contains_key(*reference))
                 })
                 .cloned()
                 .collect();
@@ -800,20 +909,36 @@ impl JitSession {
         };
         let mut external = self.sdk_externals.clone();
         external.extend(new_sdk.iter().cloned());
-        check_references(&references, &known, &self.reloadables, &external, self.sdk_dll.is_none()).map_err(|message| JitError {
+        check_references(
+            &references,
+            &known,
+            &self.reloadables,
+            &external,
+            self.sdk_dll.is_none(),
+        )
+        .map_err(|message| JitError {
             stage: "contract",
             message,
         })?;
         if !new_sdk.is_empty() {
-            let dll = self.sdk_dll.as_ref().expect("new exports require the SDK DLL");
-            let published_set = self.lljit.define_symbols_from_dll(dll, &new_sdk, false)
-                .map_err(|detail| JitError::new("sdk", "could not publish new SDK exports", detail))?;
+            let dll = self
+                .sdk_dll
+                .as_ref()
+                .expect("new exports require the SDK DLL");
+            let published_set = self
+                .lljit
+                .define_symbols_from_dll(dll, &new_sdk, false)
+                .map_err(|detail| {
+                    JitError::new("sdk", "could not publish new SDK exports", detail)
+                })?;
             self.sdk_externals.extend(published_set);
         }
         let contract = phase.elapsed();
 
         let generation = existing.map_or(1, |index| self.reloadables[index].generation + 1);
-        let previous_globals = existing.map(|index| self.reloadables[index].globals.clone()).unwrap_or_default();
+        let previous_globals = existing
+            .map(|index| self.reloadables[index].globals.clone())
+            .unwrap_or_default();
         let suffix = format!("$gen{generation}");
         // The implementations have unique stable names across modules; the
         // emitter's `@dfg_*` globals do not. LLJIT uses a single JITDylib,
@@ -821,18 +946,32 @@ impl JitSession {
         let module_index = existing.unwrap_or(self.reloadables.len());
         let global_suffix = format!("$module{module_index}{suffix}");
         let phase = Instant::now();
-        let globals = parsed.version_mutable_globals(&global_suffix)
-            .map_err(|detail| JitError::new("globals", "the generation has state the session cannot reset", detail))?;
+        let globals = parsed
+            .version_mutable_globals(&global_suffix)
+            .map_err(|detail| {
+                JitError::new(
+                    "globals",
+                    "the generation has state the session cannot reset",
+                    detail,
+                )
+            })?;
         for next in &globals {
             if !program_static(&next.logical_name) {
                 continue;
             }
-            if let Some(previous) = previous_globals.iter().find(|g| g.logical_name == next.logical_name)
+            if let Some(previous) = previous_globals
+                .iter()
+                .find(|g| g.logical_name == next.logical_name)
                 && previous.size != next.size
             {
-                return Err(JitError::new("contract", "the layout of a static changed", format!(
-                    "{}: {} to {} bytes", next.logical_name, previous.size, next.size
-                )));
+                return Err(JitError::new(
+                    "contract",
+                    "the layout of a static changed",
+                    format!(
+                        "{}: {} to {} bytes",
+                        next.logical_name, previous.size, next.size
+                    ),
+                ));
             }
         }
         let published = parsed.version_definitions(&suffix);
@@ -840,7 +979,11 @@ impl JitSession {
         self.lljit
             .add_module(&tracker, parsed.into_thread_safe())
             .map_err(|detail| {
-                JitError::new("add-module", "the LLJIT refused the generation module", detail)
+                JitError::new(
+                    "add-module",
+                    "the LLJIT refused the generation module",
+                    detail,
+                )
             })?;
         let add_module = phase.elapsed();
 
@@ -865,7 +1008,11 @@ impl JitSession {
         // with this name exists, `plain_module_index` returns `None`.
         if let Some(index) = plain {
             if self.lljit.retains_callback_code() {
-                return Err(JitError::new("contract", "cannot promote a simple module after publishing native callback code; restart the session", String::new()));
+                return Err(JitError::new(
+                    "contract",
+                    "cannot promote a simple module after publishing native callback code; restart the session",
+                    String::new(),
+                ));
             }
             // Destructive point, and the only one: the stable names still belong to the
             // simple module, and the trampoline module cannot redefine them.
@@ -892,7 +1039,10 @@ impl JitSession {
                 let symbol = CString::new(format!("{SLOT_PREFIX}{}", signature.name))
                     .map_err(|_| JitError {
                         stage: "publish",
-                        message: format!("the name {} does not survive the C boundary", signature.name),
+                        message: format!(
+                            "the name {} does not survive the C boundary",
+                            signature.name
+                        ),
                     })
                     .map_err(|error| self.poison_if(promoted, error))?;
                 pairs.push((symbol, cell.as_ref() as *const AtomicUsize as u64));
@@ -939,7 +1089,11 @@ impl JitSession {
                 }
             });
             if let Err(detail) = result {
-                let error = JitError::new("link", "could not materialize the stable-entry stubs", detail);
+                let error = JitError::new(
+                    "link",
+                    "could not materialize the stable-entry stubs",
+                    detail,
+                );
                 let _ = tracker.remove();
                 let orphans = std::mem::take(&mut slots);
                 self.register_unimplemented(name, orphans, &published, stub_tracker.take());
@@ -982,8 +1136,15 @@ impl JitSession {
         // Looking up the owner slot materializes the generation. Its stable
         // entry symbols must already exist, and no registration executes until
         // publication initializes the slot below.
-        if let Err(detail) = self.lljit.initialize_callback_owner(&tracker, &callback_registration) {
-            let error = JitError::new("callback-owner", "could not initialize callback ownership", detail);
+        if let Err(detail) = self
+            .lljit
+            .initialize_callback_owner(&tracker, &callback_registration)
+        {
+            let error = JitError::new(
+                "callback-owner",
+                "could not initialize callback ownership",
+                detail,
+            );
             let _ = tracker.remove();
             let orphans = std::mem::take(&mut slots);
             self.register_unimplemented(name, orphans, &published, stub_tracker.take());
@@ -999,7 +1160,10 @@ impl JitSession {
             if !program_static(&next.logical_name) {
                 continue;
             }
-            let Some(previous) = previous_globals.iter().find(|g| g.logical_name == next.logical_name) else {
+            let Some(previous) = previous_globals
+                .iter()
+                .find(|g| g.logical_name == next.logical_name)
+            else {
                 continue;
             };
             match self.lljit.global_copy(previous, next) {
@@ -1017,8 +1181,15 @@ impl JitSession {
         // publication (the task only carries addresses).
         let records = match records {
             Some((runtime, area, register, rti)) => {
-                let addr_value = |session: &Self, name_str: &str, request: bool| -> Result<Option<u64>, JitError> {
-                    if request { session.lookup(name_str).map(Some) } else { Ok(None) }
+                let addr_value = |session: &Self,
+                                  name_str: &str,
+                                  request: bool|
+                 -> Result<Option<u64>, JitError> {
+                    if request {
+                        session.lookup(name_str).map(Some)
+                    } else {
+                        Ok(None)
+                    }
                 };
                 Some((
                     runtime,
@@ -1046,7 +1217,11 @@ impl JitSession {
             if let Some(slot) = slots.remove(&signature.name) {
                 module.entries.insert(
                     signature.name.clone(),
-                    Entry { signature: signature.clone(), slot, generation: 0 },
+                    Entry {
+                        signature: signature.clone(),
+                        slot,
+                        generation: 0,
+                    },
                 );
             }
             let entry = module
@@ -1224,7 +1399,9 @@ impl JitSession {
         if reloadable_exists {
             return None;
         }
-        self.modules.iter().rposition(|module| !module.removed && module.name == name)
+        self.modules
+            .iter()
+            .rposition(|module| !module.removed && module.name == name)
     }
 
     /// Poisons the session when the failure happened inside the promotion window.
@@ -1295,7 +1472,10 @@ fn check_contract(
     }
     // A class described by field names in both versions migrates
     // (`migration.rs`); the count alone does not say what corresponds to what.
-    for (class, fields) in previous_layouts.iter().filter(|(c, _)| !migrated.contains(c)) {
+    for (class, fields) in previous_layouts
+        .iter()
+        .filter(|(c, _)| !migrated.contains(c))
+    {
         if let Some((_, new_ones)) = layouts
             .iter()
             .find(|(candidate, new_ones)| candidate == class && new_ones != fields)
@@ -1322,7 +1502,10 @@ const PROGRAM_REGISTRY: &str = "df.register.program";
 /// Names the id, the class of the live version and that of the new code.
 fn check_class_names(previous: &[(i64, String)], new: &[(i64, String)]) -> Result<(), String> {
     for (id, old) in previous {
-        if let Some((_, new)) = new.iter().find(|(candidate, new)| candidate == id && new != old) {
+        if let Some((_, new)) = new
+            .iter()
+            .find(|(candidate, new)| candidate == id && new != old)
+        {
             return Err(format!(
                 "the class with id {id} was {old} and is now {new} (classes inserted or reordered); \
                  the objects already alive in the heap have the old id, so the reload is refused — restart the session"
@@ -1355,9 +1538,12 @@ fn check_references(
             || reference.starts_with("llvm.")
             || sdk_externals.contains(reference)
             || defined.contains(&reference.as_str())
-            || reloadables
-                .iter()
-                .any(|module| module.entries.get(reference).is_some_and(|entry| entry.generation > 0))
+            || reloadables.iter().any(|module| {
+                module
+                    .entries
+                    .get(reference)
+                    .is_some_and(|entry| entry.generation > 0)
+            })
         {
             continue;
         }
@@ -1465,9 +1651,19 @@ mod tests {
     #[test]
     fn class_names_reject_a_renumbered_class() {
         let before = vec![(922, "Contador".to_owned())];
-        let error = check_class_names(&before, &[(922, "Novo".to_owned()), (923, "Contador".to_owned())]).unwrap_err();
+        let error = check_class_names(
+            &before,
+            &[(922, "Novo".to_owned()), (923, "Contador".to_owned())],
+        )
+        .unwrap_err();
         assert!(error.contains("was Contador and is now Novo"), "{error}");
-        assert!(check_class_names(&before, &[(922, "Contador".to_owned()), (923, "Novo".to_owned())]).is_ok());
+        assert!(
+            check_class_names(
+                &before,
+                &[(922, "Contador".to_owned()), (923, "Novo".to_owned())]
+            )
+            .is_ok()
+        );
     }
 
     /// A change in the number of fields of an already constructed class is refused.
@@ -1522,9 +1718,17 @@ mod tests {
         let mut external = HashSet::new();
         external.insert("df.sdk_test".to_owned());
         assert!(check_references(&["df.sdk_test".to_owned()], &[], &[], &external, false).is_ok());
-        let error = check_references(&["df.sdk_missing".to_owned()], &[], &[], &external, false).unwrap_err();
+        let error = check_references(&["df.sdk_missing".to_owned()], &[], &[], &external, false)
+            .unwrap_err();
         assert!(error.contains("df.sdk_missing"), "{error}");
-        let error = check_references(&["dartforge_object_new".to_owned()], &[], &[], &external, false).unwrap_err();
+        let error = check_references(
+            &["dartforge_object_new".to_owned()],
+            &[],
+            &[],
+            &external,
+            false,
+        )
+        .unwrap_err();
         assert!(error.contains("dartforge_object_new"), "{error}");
     }
 
@@ -1533,11 +1737,14 @@ mod tests {
     #[test]
     fn references_reject_unimplemented_trampoline() {
         let mut entries = BTreeMap::new();
-        entries.insert("df_fn_1".to_owned(), Entry {
-            signature: signature("df_fn_1", "i64", &[]),
-            slot: Box::new(AtomicUsize::new(0)),
-            generation: 0,
-        });
+        entries.insert(
+            "df_fn_1".to_owned(),
+            Entry {
+                signature: signature("df_fn_1", "i64", &[]),
+                slot: Box::new(AtomicUsize::new(0)),
+                generation: 0,
+            },
+        );
         let mut modules = vec![Reloadable {
             name: "app".to_owned(),
             generation: 1,
@@ -1574,7 +1781,11 @@ mod tests {
             .add_reloadable_module("app", &ir(1))
             .expect("generation 1");
         assert_eq!(
-            (first_one.generation, first_one.entries, first_one.new_entries),
+            (
+                first_one.generation,
+                first_one.entries,
+                first_one.new_entries
+            ),
             (1, 1, 1)
         );
         assert_eq!(session.stable_entries("app"), vec!["df_fn_0"]);
@@ -1603,31 +1814,50 @@ mod tests {
             ret i64 %result\n}\n\
             define i64 @df_fn_1() { ret i64 9 }\n";
         let mut session = JitSession::new().unwrap();
-        session.install_generation_with_stubs("app", before, None, StubMaterialization::Eager).unwrap();
+        session
+            .install_generation_with_stubs("app", before, None, StubMaterialization::Eager)
+            .unwrap();
         let old = session.stable_entry("df_fn_0").unwrap();
         let old_address = session.lookup("df_fn_0").unwrap();
         assert_eq!(old.call(&session).unwrap(), 7);
 
         // This failure occurs after the real LLVM stub module has materialized,
         // before any implementation pointer is published or invoked.
-        let error = session.install_generation_with_stubs("app", after, None, StubMaterialization::FailAfterEager).unwrap_err();
+        let error = session
+            .install_generation_with_stubs("app", after, None, StubMaterialization::FailAfterEager)
+            .unwrap_err();
         assert_eq!(error.stage, "link");
         assert!(error.message.contains("injected failure"));
         assert_eq!(session.generation("app"), Some(1));
         assert_eq!(session.lookup("df_fn_0").unwrap(), old_address);
         assert_eq!(old.call(&session).unwrap(), 7);
-        assert!(session.stable_entry("df_fn_1").unwrap_err().message.contains("no generation implemented"));
+        assert!(
+            session
+                .stable_entry("df_fn_1")
+                .unwrap_err()
+                .message
+                .contains("no generation implemented")
+        );
         let orphan = &session.reloadables[0].entries["df_fn_1"];
         assert_eq!(orphan.generation, 0);
         assert_eq!(orphan.slot.load(std::sync::atomic::Ordering::Acquire), 0);
         let orphan_address = session.lookup("df_fn_1").unwrap();
 
-        session.install_generation_with_stubs("app", after, None, StubMaterialization::Eager).unwrap();
+        session
+            .install_generation_with_stubs("app", after, None, StubMaterialization::Eager)
+            .unwrap();
         assert_eq!(session.generation("app"), Some(2));
         assert_eq!(session.lookup("df_fn_0").unwrap(), old_address);
         assert_eq!(session.lookup("df_fn_1").unwrap(), orphan_address);
         assert_eq!(old.call(&session).unwrap(), 10);
-        assert_eq!(session.stable_entry("df_fn_1").unwrap().call(&session).unwrap(), 9);
+        assert_eq!(
+            session
+                .stable_entry("df_fn_1")
+                .unwrap()
+                .call(&session)
+                .unwrap(),
+            9
+        );
     }
 
     /// Promotion: a simple module gets trampolines on the first reload.

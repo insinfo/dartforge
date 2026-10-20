@@ -9,7 +9,7 @@
 
 use crate::Hover;
 use crate::dartdoc;
-use crate::project::{Target, Concrete, Denoted, Project, base_name, word};
+use crate::project::{Concrete, Denoted, Project, Target, base_name, word};
 use dartforge_elements::model::{
     ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, UnitId,
 };
@@ -25,10 +25,17 @@ impl Project {
         let u = self.program().unit(unit);
         let name = crate::project::word(&u.source, offset)?;
         let bodies = &self.query.bodies.units[unit.0 as usize];
-        let (i, _) = u.ast.exprs.iter().enumerate().find(|(_, e)| match &e.kind {
-            ast::ExprKind::Identifier(n) | ast::ExprKind::Property { name: n, .. } => n.span == name,
-            _ => false,
-        })?;
+        let (i, _) = u
+            .ast
+            .exprs
+            .iter()
+            .enumerate()
+            .find(|(_, e)| match &e.kind {
+                ast::ExprKind::Identifier(n) | ast::ExprKind::Property { name: n, .. } => {
+                    n.span == name
+                }
+                _ => false,
+            })?;
         let id = ast::ExprId(i as u32);
         if bodies.get_resolved(id).is_some() {
             return None;
@@ -37,7 +44,13 @@ impl Project {
         if !self.query.table.is_invalid(t) {
             return None;
         }
-        Some(Hover { range: name, description: String::new(), ty: Some("InvalidType".to_string()), documentation: None, library: None })
+        Some(Hover {
+            range: name,
+            description: String::new(),
+            ty: Some("InvalidType".to_string()),
+            documentation: None,
+            library: None,
+        })
     }
 
     /// The hover of what `d` denotes in unit `unit`.
@@ -46,20 +59,31 @@ impl Project {
         // `ConstructorName`) shows the creation, the constructor.
         let adjusted;
         let d = match (&d.target, d.concrete, d.expr) {
-            (Target::Top(Element::Class(_)), None, Some(e)) => match self.constructor_by_type(unit, e) {
-                Some(f) => {
-                    adjusted = Denoted { concrete: Some(Concrete::Function(f)), ..d.clone() };
-                    &adjusted
+            (Target::Top(Element::Class(_)), None, Some(e)) => {
+                match self.constructor_by_type(unit, e) {
+                    Some(f) => {
+                        adjusted = Denoted {
+                            concrete: Some(Concrete::Function(f)),
+                            ..d.clone()
+                        };
+                        &adjusted
+                    }
+                    None => d,
                 }
-                None => d,
-            },
+            }
             _ => d,
         };
         // Enum constant declaration: the analyzer has no hover there.
         if d.expr.is_none()
             && let Some(Concrete::Variable(v)) = d.concrete
-            && self.program().variable(v).class.is_some_and(|c| self.program().class(c).enum_constants.contains(&v))
-            && self.variable_name(v).is_some_and(|(u, s)| u == unit && s == d.name)
+            && self
+                .program()
+                .variable(v)
+                .class
+                .is_some_and(|c| self.program().class(c).enum_constants.contains(&v))
+            && self
+                .variable_name(v)
+                .is_some_and(|(u, s)| u == unit && s == d.name)
         {
             return None;
         }
@@ -76,18 +100,20 @@ impl Project {
             }
             // The type parameter declaration (`TypeParameter`) is not a node with a
             // hover in the analyzer.
-            (Target::TypeParameter { unit: u, declaration }, _) if *u == unit && d.name.start == *declaration => return None,
             (
                 Target::TypeParameter {
                     unit: u,
                     declaration,
                 },
                 _,
-            ) => (
-                self.describe_type_parameter(*u, *declaration)?,
-                None,
-                None,
-            ),
+            ) if *u == unit && d.name.start == *declaration => return None,
+            (
+                Target::TypeParameter {
+                    unit: u,
+                    declaration,
+                },
+                _,
+            ) => (self.describe_type_parameter(*u, *declaration)?, None, None),
             (Target::Prefix { .. }, _) => return None,
             (Target::Top(Element::Class(_)), Some(Concrete::Function(f)))
                 if matches!(
@@ -111,9 +137,15 @@ impl Project {
                             .unwrap_or(self.query.outline.functions[f.0 as usize].return_type)
                     })
                     .or_else(|| {
-                        (fe.kind == FunctionKind::Setter && d.expr.is_some_and(|e| self.write_target(unit, e)))
-                            .then(|| self.query.outline.functions[f.0 as usize].parameters.first().map(|q| q.ty))
-                            .flatten()
+                        (fe.kind == FunctionKind::Setter
+                            && d.expr.is_some_and(|e| self.write_target(unit, e)))
+                        .then(|| {
+                            self.query.outline.functions[f.0 as usize]
+                                .parameters
+                                .first()
+                                .map(|q| q.ty)
+                        })
+                        .flatten()
                     })
                     .map(|t| self.query.format(t));
                 (
@@ -127,8 +159,7 @@ impl Project {
                 let ty = self.reference_type(unit, d.expr).or(declared)?;
                 let text_type = self.query.format(ty);
                 let name = self.name(self.program().variable(v).name);
-                let declared =
-                    declared.map_or_else(|| text_type.clone(), |t| self.query.format(t));
+                let declared = declared.map_or_else(|| text_type.clone(), |t| self.query.format(t));
                 (
                     format!("{declared} {name}"),
                     Some(text_type),
@@ -149,23 +180,35 @@ impl Project {
         };
         // `this.x` in a constructor: the hover's element is the parameter.
         let formal_field = d.expr.is_none()
-            && crate::project::parameter_in(&self.program().unit(unit).ast, d.name.start).is_some_and(|(x, _)| x.this_);
+            && crate::project::parameter_in(&self.program().unit(unit).ast, d.name.start)
+                .is_some_and(|(x, _)| x.this_);
         let documentation = self.computed_documentation(unit, d, doc_start, formal_field);
         // Without an expression and outside the declaration (metadata,
         // `show`/`hide`, `[ref]`): the analyzer has no static type to show.
-        let ty = if d.expr.is_none() && !matches!(d.target, Target::Local { .. }) && !self.declaration(d).is_some_and(|(u, s)| u == unit && s == d.name) {
+        let ty = if d.expr.is_none()
+            && !matches!(d.target, Target::Local { .. })
+            && !self
+                .declaration(d)
+                .is_some_and(|(u, s)| u == unit && s == d.name)
+        {
             None
         } else {
             ty
         };
         // `this.x`: the `type` of the `FieldFormalParameterElement` (a
         // `VariableElement`), as in a parameter declaration.
-        let ty = if formal_field { ty.or_else(|| self.field_formal_type(unit, d.name.start)) } else { ty };
+        let ty = if formal_field {
+            ty.or_else(|| self.field_formal_type(unit, d.name.start))
+        } else {
+            ty
+        };
         // Call: the invocation's type (`staticInvokeType`), like Dart.
         let ty = ty.or_else(|| match d.concrete {
             Some(Concrete::Function(f))
-                if matches!(self.program().function(f).kind, FunctionKind::Function | FunctionKind::Operator)
-                    && d.expr.is_some_and(|e| self.is_call_target(unit, e)) =>
+                if matches!(
+                    self.program().function(f).kind,
+                    FunctionKind::Function | FunctionKind::Operator
+                ) && d.expr.is_some_and(|e| self.is_call_target(unit, e)) =>
             {
                 self.reference_type(unit, d.expr)
                     .filter(|t| !matches!(self.query.table.get(*t), Type::Dynamic))
@@ -174,17 +217,25 @@ impl Project {
             // Called local function.
             None if matches!(d.target, Target::Local { .. })
                 && d.expr.is_some_and(|e| self.is_call_target(unit, e))
-                && d.expr.and_then(|e| self.reference_type(unit, Some(e))).is_some_and(|t| matches!(self.query.table.get(t), Type::Function { .. })) =>
+                && d.expr
+                    .and_then(|e| self.reference_type(unit, Some(e)))
+                    .is_some_and(|t| matches!(self.query.table.get(t), Type::Function { .. })) =>
             {
-                self.reference_type(unit, d.expr).map(|t| self.query.format(t))
+                self.reference_type(unit, d.expr)
+                    .map(|t| self.query.format(t))
             }
             _ => None,
         });
         // Creation without `new`/`const`: `(new) ` before the description.
         let mut description = description;
         if let Some(Concrete::Function(f)) = d.concrete
-            && matches!(self.program().function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor)
-            && d.expr.is_some_and(|e| self.is_call_target(unit, e) || self.is_call_target_by_property(unit, e))
+            && matches!(
+                self.program().function(f).kind,
+                FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+            )
+            && d.expr.is_some_and(|e| {
+                self.is_call_target(unit, e) || self.is_call_target_by_property(unit, e)
+            })
         {
             description = format!("(new) {description}");
         }
@@ -196,7 +247,11 @@ impl Project {
             description,
             ty,
             documentation,
-            library: if formal_field { None } else { self.displayed_library(d) },
+            library: if formal_field {
+                None
+            } else {
+                self.displayed_library(d)
+            },
         })
     }
 
@@ -204,7 +259,12 @@ impl Project {
     /// operator read through `target.m`, by the target type's arguments; a
     /// constructor, by those of the created type. Getters, setters and fields go
     /// through `nonSynthetic` and stay as declared.
-    fn member_replacement(&self, unit: UnitId, d: &Denoted, f: FunctionElementId) -> Option<Replacement> {
+    fn member_replacement(
+        &self,
+        unit: UnitId,
+        d: &Denoted,
+        f: FunctionElementId,
+    ) -> Option<Replacement> {
         let p = self.program();
         let fe = p.function(f);
         let class = fe.class?;
@@ -212,34 +272,54 @@ impl Project {
         let ast = &p.unit(unit).ast;
         let bodies = self.query.bodies.units.get(unit.0 as usize)?;
         let ty = match fe.kind {
-            FunctionKind::Function | FunctionKind::Operator if !fe.static_ => match &ast.expr(e).kind {
-                ast::ExprKind::Property { target, .. } => bodies.get_type(*target)?,
-                _ => return None,
-            },
+            FunctionKind::Function | FunctionKind::Operator if !fe.static_ => {
+                match &ast.expr(e).kind {
+                    ast::ExprKind::Property { target, .. } => bodies.get_type(*target)?,
+                    _ => return None,
+                }
+            }
             FunctionKind::Constructor | FunctionKind::SyntheticConstructor => {
                 // The creation: `C(…)`, `C.n(…)`, `p.C(…)` (the call whose target is the
                 // name, or the property on it).
-                let call = ast.exprs.iter().enumerate().find_map(|(i, x)| match &x.kind {
-                    ast::ExprKind::Call { target, .. } if *target == e => Some(i),
-                    ast::ExprKind::Call { target, .. } => match &ast.expr(*target).kind {
-                        ast::ExprKind::Property { target: t2, .. } if *t2 == e => Some(i),
-                        ast::ExprKind::TypeArguments { target: t2, .. } if *t2 == e => Some(i),
+                let call = ast
+                    .exprs
+                    .iter()
+                    .enumerate()
+                    .find_map(|(i, x)| match &x.kind {
+                        ast::ExprKind::Call { target, .. } if *target == e => Some(i),
+                        ast::ExprKind::Call { target, .. } => match &ast.expr(*target).kind {
+                            ast::ExprKind::Property { target: t2, .. } if *t2 == e => Some(i),
+                            ast::ExprKind::TypeArguments { target: t2, .. } if *t2 == e => Some(i),
+                            _ => None,
+                        },
                         _ => None,
-                    },
-                    _ => None,
-                })?;
+                    })?;
                 bodies.get_type(ast::ExprId(call as u32))?
             }
             _ => return None,
         };
         let mut table = self.query.table.clone();
-        let seen = self.query.outline.hierarchy.supertype_of(ty, class, &mut table, &self.query.core)?;
-        let Type::Interface { args, .. } = table.get(seen).clone() else { return None };
-        let params = &self.query.outline.classes.get(class.0 as usize)?.type_params;
+        let seen =
+            self.query
+                .outline
+                .hierarchy
+                .supertype_of(ty, class, &mut table, &self.query.core)?;
+        let Type::Interface { args, .. } = table.get(seen).clone() else {
+            return None;
+        };
+        let params = &self
+            .query
+            .outline
+            .classes
+            .get(class.0 as usize)?
+            .type_params;
         if params.len() != args.len() || params.is_empty() {
             return None;
         }
-        Some((params.iter().copied().zip(args.iter().copied()).collect(), table))
+        Some((
+            params.iter().copied().zip(args.iter().copied()).collect(),
+            table,
+        ))
     }
 
     /// The constructor of `A.n(…)`, `A<T>.n(…)` or `p.A.n(…)` when `e` is the
@@ -249,7 +329,8 @@ impl Project {
         let bodies = self.query.bodies.units.get(unit.0 as usize)?;
         let parent = |x: ast::ExprId| {
             ast.exprs.iter().position(|y| match &y.kind {
-                ast::ExprKind::Property { target, .. } | ast::ExprKind::TypeArguments { target, .. } => *target == x,
+                ast::ExprKind::Property { target, .. }
+                | ast::ExprKind::TypeArguments { target, .. } => *target == x,
                 _ => false,
             })
         };
@@ -260,24 +341,45 @@ impl Project {
         if !matches!(ast.expr(current).kind, ast::ExprKind::Property { .. }) {
             return None;
         }
-        ast.exprs.iter().enumerate().find_map(|(i, y)| match &y.kind {
-            ast::ExprKind::Call { target, .. } if *target == current => match bodies.get_resolved(ast::ExprId(i as u32)) {
-                Some(dartforge_types::Resolved::Constructor(f)) => Some(*f),
+        ast.exprs
+            .iter()
+            .enumerate()
+            .find_map(|(i, y)| match &y.kind {
+                ast::ExprKind::Call { target, .. } if *target == current => {
+                    match bodies.get_resolved(ast::ExprId(i as u32)) {
+                        Some(dartforge_types::Resolved::Constructor(f)) => Some(*f),
+                        _ => None,
+                    }
+                }
                 _ => None,
-            },
-            _ => None,
-        })
+            })
     }
 
     /// The type of `this.x` (that of the parameter in the constructor's outline).
     fn field_formal_type(&self, unit: UnitId, name: usize) -> Option<String> {
         let p = self.program();
         let ast = &p.unit(unit).ast;
-        let (_, crate::project::OwnerParameter::Constructor(m)) = crate::project::parameter_in(ast, name)? else { return None };
-        let MemberKind::Constructor(k) = &ast.member(m).kind else { return None };
-        let i = k.parameters.iter().position(|x| x.name.is_some_and(|n| n.span.start == name))?;
+        let (_, crate::project::OwnerParameter::Constructor(m)) =
+            crate::project::parameter_in(ast, name)?
+        else {
+            return None;
+        };
+        let MemberKind::Constructor(k) = &ast.member(m).kind else {
+            return None;
+        };
+        let i = k
+            .parameters
+            .iter()
+            .position(|x| x.name.is_some_and(|n| n.span.start == name))?;
         let f = self.node_constructor(unit, m)?;
-        let t = self.query.outline.functions.get(f.0 as usize)?.parameters.get(i)?.ty;
+        let t = self
+            .query
+            .outline
+            .functions
+            .get(f.0 as usize)?
+            .parameters
+            .get(i)?
+            .ty;
         Some(self.query.format(t))
     }
 
@@ -288,40 +390,72 @@ impl Project {
     /// setter without one uses the corresponding getter's. Coming from another
     /// class, the documentation gets its `Copied from`. A synthetic field
     /// accessor has no comment.
-    fn computed_documentation(&self, unit: UnitId, d: &Denoted, doc_start: Option<(UnitId, usize)>, formal_field: bool) -> Option<String> {
+    fn computed_documentation(
+        &self,
+        unit: UnitId,
+        d: &Denoted,
+        doc_start: Option<(UnitId, usize)>,
+        formal_field: bool,
+    ) -> Option<String> {
         let p = self.program();
         let seed: Option<Documentable> = if formal_field {
             let (prm, owner) = crate::project::parameter_in(&p.unit(unit).ast, d.name.start)?;
-            let crate::project::OwnerParameter::Constructor(m) = owner else { return None };
+            let crate::project::OwnerParameter::Constructor(m) = owner else {
+                return None;
+            };
             let class = p.function(self.node_constructor(unit, m)?).class?;
             let name = prm.name?.sym;
-            Some(Documentable::Variable(p.class(class).fields.iter().copied().find(|&v| p.variable(v).name == name)?))
+            Some(Documentable::Variable(
+                p.class(class)
+                    .fields
+                    .iter()
+                    .copied()
+                    .find(|&v| p.variable(v).name == name)?,
+            ))
         } else {
             match (&d.target, d.concrete) {
-                (Target::Local { unit: u, declaration }, _) => {
+                (
+                    Target::Local {
+                        unit: u,
+                        declaration,
+                    },
+                    _,
+                ) => {
                     let ast = &p.unit(*u).ast;
                     match crate::project::parameter_in(ast, *declaration)?.1 {
-                        crate::project::OwnerParameter::Function(fid) => match self.node_function(*u, fid) {
-                            Some(f) => Some(Documentable::Function(f)),
-                            // Local function: its comment; a closure has none.
-                            None => {
-                                ast.function(fid).name?;
-                                return dartdoc::documentation(&p.unit(*u).source, ast.function(fid).span.start);
+                        crate::project::OwnerParameter::Function(fid) => {
+                            match self.node_function(*u, fid) {
+                                Some(f) => Some(Documentable::Function(f)),
+                                // Local function: its comment; a closure has none.
+                                None => {
+                                    ast.function(fid).name?;
+                                    return dartdoc::documentation(
+                                        &p.unit(*u).source,
+                                        ast.function(fid).span.start,
+                                    );
+                                }
                             }
-                        },
-                        crate::project::OwnerParameter::Constructor(m) => Some(Documentable::Function(self.node_constructor(*u, m)?)),
+                        }
+                        crate::project::OwnerParameter::Constructor(m) => {
+                            Some(Documentable::Function(self.node_constructor(*u, m)?))
+                        }
                     }
                 }
-                (_, Some(Concrete::Function(f))) => match (p.function(f).kind, p.function(f).variable) {
-                    (FunctionKind::ImplicitAccessor, Some(v)) => Some(Documentable::Variable(v)),
-                    _ => Some(Documentable::Function(f)),
-                },
+                (_, Some(Concrete::Function(f))) => {
+                    match (p.function(f).kind, p.function(f).variable) {
+                        (FunctionKind::ImplicitAccessor, Some(v)) => {
+                            Some(Documentable::Variable(v))
+                        }
+                        _ => Some(Documentable::Function(f)),
+                    }
+                }
                 (_, Some(Concrete::Variable(v))) => Some(Documentable::Variable(v)),
                 _ => None,
             }
         };
         let Some(seed) = seed else {
-            return doc_start.and_then(|(u, start)| dartdoc::documentation(&p.unit(u).source, start));
+            return doc_start
+                .and_then(|(u, start)| dartdoc::documentation(&p.unit(u).source, start));
         };
         let owner = |x: Documentable| match x {
             Documentable::Function(f) => p.function(f).class,
@@ -329,7 +463,11 @@ impl Project {
         };
         let comment = |x: Documentable| -> Option<String> {
             let (u, start) = match x {
-                Documentable::Function(f) if p.function(f).kind == FunctionKind::ImplicitAccessor => return None,
+                Documentable::Function(f)
+                    if p.function(f).kind == FunctionKind::ImplicitAccessor =>
+                {
+                    return None;
+                }
                 Documentable::Function(f) => self.query.function_start(f)?,
                 Documentable::Variable(v) => self.query.variable_start(v)?,
             };
@@ -354,9 +492,16 @@ impl Project {
                     let fe = p.function(f);
                     let name = self.name(fe.name);
                     match fe.kind {
-                        FunctionKind::Function | FunctionKind::Operator => (name.to_string(), vec![FunctionKind::Function]),
+                        FunctionKind::Function | FunctionKind::Operator => {
+                            (name.to_string(), vec![FunctionKind::Function])
+                        }
                         FunctionKind::Getter => (name.to_string(), vec![FunctionKind::Getter]),
-                        FunctionKind::Setter => (name.trim_end_matches("_=").trim_end_matches('=').to_string(), vec![FunctionKind::Setter]),
+                        FunctionKind::Setter => (
+                            name.trim_end_matches("_=")
+                                .trim_end_matches('=')
+                                .to_string(),
+                            vec![FunctionKind::Setter],
+                        ),
                         _ => (name.to_string(), Vec::new()),
                     }
                 }
@@ -385,7 +530,12 @@ impl Project {
                         found_interface.push(m);
                     }
                 }
-                candidates.extend(found_super.into_iter().chain(found_interface).map(Documentable::Function));
+                candidates.extend(
+                    found_super
+                        .into_iter()
+                        .chain(found_interface)
+                        .map(Documentable::Function),
+                );
             }
         }
         let mut documented: Option<(Documentable, String)> = None;
@@ -399,8 +549,16 @@ impl Project {
                 && let Documentable::Function(f) = c
                 && p.function(f).kind == FunctionKind::Setter
                 && let Some(class) = p.function(f).class
-                && let Some(key) = self.query.names.lookup(self.name(p.function(f).name).trim_end_matches("_=").trim_end_matches('='))
-                && let Some(&g) = p.class(class).instance_members.get(&key).or_else(|| p.class(class).static_members.get(&key))
+                && let Some(key) = self.query.names.lookup(
+                    self.name(p.function(f).name)
+                        .trim_end_matches("_=")
+                        .trim_end_matches('='),
+                )
+                && let Some(&g) = p
+                    .class(class)
+                    .instance_members
+                    .get(&key)
+                    .or_else(|| p.class(class).static_members.get(&key))
                 && let Some(text) = comment(Documentable::Function(g))
             {
                 of_getter = Some((Documentable::Function(g), text));
@@ -437,7 +595,13 @@ impl Project {
     }
 
     /// `_addSuperOverrides`.
-    fn override_supers(&self, c: ClassId, with_this: bool, seen: &mut std::collections::HashSet<ClassId>, output: &mut Vec<ClassId>) {
+    fn override_supers(
+        &self,
+        c: ClassId,
+        with_this: bool,
+        seen: &mut std::collections::HashSet<ClassId>,
+        output: &mut Vec<ClassId>,
+    ) {
         if !seen.insert(c) {
             return;
         }
@@ -459,7 +623,13 @@ impl Project {
     }
 
     /// `_addInterfaceOverrides`.
-    fn override_interfaces(&self, c: ClassId, verify: bool, seen: &mut std::collections::HashSet<ClassId>, output: &mut Vec<ClassId>) {
+    fn override_interfaces(
+        &self,
+        c: ClassId,
+        verify: bool,
+        seen: &mut std::collections::HashSet<ClassId>,
+        output: &mut Vec<ClassId>,
+    ) {
         if !seen.insert(c) {
             return;
         }
@@ -476,28 +646,45 @@ impl Project {
 
     /// `_lookupMember`: the method, getter or setter declared in `c` with the
     /// name (a private one only in the same library).
-    fn override_member(&self, c: ClassId, name: &str, kinds: &[FunctionKind], library: dartforge_elements::model::LibraryId) -> Option<FunctionElementId> {
+    fn override_member(
+        &self,
+        c: ClassId,
+        name: &str,
+        kinds: &[FunctionKind],
+        library: dartforge_elements::model::LibraryId,
+    ) -> Option<FunctionElementId> {
         let p = self.program();
         let k = p.class(c);
         if name.starts_with('_') && k.library != library {
             return None;
         }
-        let find = |key: &str, accepts: &dyn Fn(FunctionKind) -> bool| -> Option<FunctionElementId> {
-            let s = self.query.names.lookup(key)?;
-            [k.instance_members.get(&s), k.static_members.get(&s)].into_iter().flatten().copied().find(|&f| accepts(p.function(f).kind))
-        };
+        let find =
+            |key: &str, accepts: &dyn Fn(FunctionKind) -> bool| -> Option<FunctionElementId> {
+                let s = self.query.names.lookup(key)?;
+                [k.instance_members.get(&s), k.static_members.get(&s)]
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .find(|&f| accepts(p.function(f).kind))
+            };
         if kinds.contains(&FunctionKind::Function)
-            && let Some(f) = find(name, &|e| matches!(e, FunctionKind::Function | FunctionKind::Operator))
+            && let Some(f) = find(name, &|e| {
+                matches!(e, FunctionKind::Function | FunctionKind::Operator)
+            })
         {
             return Some(f);
         }
         if kinds.contains(&FunctionKind::Getter)
-            && let Some(f) = find(name, &|e| matches!(e, FunctionKind::Getter | FunctionKind::ImplicitAccessor))
+            && let Some(f) = find(name, &|e| {
+                matches!(e, FunctionKind::Getter | FunctionKind::ImplicitAccessor)
+            })
         {
             return Some(f);
         }
         if kinds.contains(&FunctionKind::Setter)
-            && let Some(f) = find(&format!("{name}_="), &|e| matches!(e, FunctionKind::Setter | FunctionKind::ImplicitAccessor))
+            && let Some(f) = find(&format!("{name}_="), &|e| {
+                matches!(e, FunctionKind::Setter | FunctionKind::ImplicitAccessor)
+            })
         {
             return Some(f);
         }
@@ -506,7 +693,12 @@ impl Project {
 
     /// `e` is the target of a call (`e(…)`).
     fn is_call_target(&self, unit: UnitId, e: ast::ExprId) -> bool {
-        self.program().unit(unit).ast.exprs.iter().any(|x| matches!(&x.kind, ast::ExprKind::Call { target, .. } if *target == e))
+        self.program()
+            .unit(unit)
+            .ast
+            .exprs
+            .iter()
+            .any(|x| matches!(&x.kind, ast::ExprKind::Call { target, .. } if *target == e))
     }
 
     /// `e` is the class of `A.name(…)` (the target of the called property).
@@ -524,12 +716,20 @@ impl Project {
         let lib = match (&d.target, d.concrete) {
             // The variable of a collection `for` has no executable as its
             // `enclosingElement3`: the analyzer shows the library.
-            (Target::Local { unit, declaration }, _) if in_collection_for(&p.unit(*unit).ast, *declaration) => p.unit(*unit).library,
+            (Target::Local { unit, declaration }, _)
+                if in_collection_for(&p.unit(*unit).ast, *declaration) =>
+            {
+                p.unit(*unit).library
+            }
             (Target::Local { .. }, _) | (Target::Prefix { .. }, _) => return None,
             (Target::TypeParameter { unit, declaration }, _) => {
                 // Type parameter of a method or function: local.
                 let ast = &p.unit(*unit).ast;
-                if ast.functions.iter().any(|f| f.type_params.iter().any(|t| t.name.span.start == *declaration)) {
+                if ast.functions.iter().any(|f| {
+                    f.type_params
+                        .iter()
+                        .any(|t| t.name.span.start == *declaration)
+                }) {
                     return None;
                 }
                 p.unit(*unit).library
@@ -547,8 +747,13 @@ impl Project {
         let path = url::Url::parse(uri).ok()?.to_file_path().ok()?;
         let root = crate::project::project_root(&path);
         let relative = dartforge_elements::config::without_verbatim(path.clone());
-        let relative = relative.strip_prefix(dartforge_elements::config::without_verbatim(root.clone())).ok()?;
-        let parts: Vec<String> = relative.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+        let relative = relative
+            .strip_prefix(dartforge_elements::config::without_verbatim(root.clone()))
+            .ok()?;
+        let parts: Vec<String> = relative
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
         // In a package's `lib/`, the analyzer sees the `package:` URI.
         if parts.first().is_some_and(|c| c == "lib")
             && let Some(package) = crate::index::package_name(&root)
@@ -562,24 +767,38 @@ impl Project {
     fn deprecated(&self, d: &Denoted) -> bool {
         let p = self.program();
         let metadata: Option<(UnitId, &[ast::Annotation])> = match (&d.target, d.concrete) {
-            (_, Some(Concrete::Function(f))) => match p.function(f).node {
-                FunctionRef::Function { unit, function } => {
-                    let ast = &p.unit(unit).ast;
-                    ast.decls
+            (_, Some(Concrete::Function(f))) => {
+                match p.function(f).node {
+                    FunctionRef::Function { unit, function } => {
+                        let ast = &p.unit(unit).ast;
+                        ast.decls
                         .iter()
                         .find(|x| matches!(x.kind, DeclKind::Function(g) if g == function))
                         .map(|x| (unit, &x.metadata[..]))
                         .or_else(|| ast.members.iter().find(|m| matches!(m.kind, MemberKind::Method(g) if g == function)).map(|m| (unit, &m.metadata[..])))
+                    }
+                    FunctionRef::Constructor { unit, member } => {
+                        Some((unit, &p.unit(unit).ast.member(member).metadata[..]))
+                    }
+                    FunctionRef::None => None,
                 }
-                FunctionRef::Constructor { unit, member } => Some((unit, &p.unit(unit).ast.member(member).metadata[..])),
-                FunctionRef::None => None,
-            },
-            (Target::Top(Element::Class(c)), None) => p.class(*c).decl.map(|dr| (dr.unit, &p.unit(dr.unit).ast.decl(dr.decl).metadata[..])),
+            }
+            (Target::Top(Element::Class(c)), None) => p
+                .class(*c)
+                .decl
+                .map(|dr| (dr.unit, &p.unit(dr.unit).ast.decl(dr.decl).metadata[..])),
             _ => None,
         };
         metadata.is_some_and(|(u, ms)| {
             let source = &p.unit(u).source;
-            ms.iter().any(|a| a.name.last().is_some_and(|n| matches!(&source[n.span.start..n.span.end], "deprecated" | "Deprecated")))
+            ms.iter().any(|a| {
+                a.name.last().is_some_and(|n| {
+                    matches!(
+                        &source[n.span.start..n.span.end],
+                        "deprecated" | "Deprecated"
+                    )
+                })
+            })
         })
     }
 
@@ -591,7 +810,10 @@ impl Project {
         // The target of an assignment (`x = …`, `x += …`, `o.x = …`): its
         // `writeType` (`_getTypeOfDeclarationOrReference`).
         let ast = &self.program().unit(unit).ast;
-        if let Some(i) = ast.exprs.iter().position(|x| matches!(&x.kind, ast::ExprKind::Assign { target, .. } if *target == e))
+        if let Some(i) = ast
+            .exprs
+            .iter()
+            .position(|x| matches!(&x.kind, ast::ExprKind::Assign { target, .. } if *target == e))
             && let Some(&t) = bodies.write_types.get(&ast::ExprId(i as u32))
         {
             return Some(t);
@@ -613,7 +835,9 @@ impl Project {
         let bodies = &self.query.bodies.units[u.0 as usize];
         // A parameter of a library whose bodies were not inferred (the label of
         // a named argument of an SDK constructor): the outline's type.
-        let declared = bodies.local_type(declaration).or_else(|| self.outline_parameter_type(u, declaration))?;
+        let declared = bodies
+            .local_type(declaration)
+            .or_else(|| self.outline_parameter_type(u, declaration))?;
         // Local function: the written signature.
         if let Some(fid) = unit
             .ast
@@ -624,9 +848,7 @@ impl Project {
             let f = unit.ast.function(ast::FunctionId(fid as u32));
             return Some((self.local_signature(u, f, name, declared), None));
         }
-        let current = self
-            .reference_type(unit_expr, expr)
-            .unwrap_or(declared);
+        let current = self.reference_type(unit_expr, expr).unwrap_or(declared);
         // Parameter: with the delimiters of its kind (`[int b = 0]`,
         // `{required int c}`), like the analyzer's `writeFormalParameter`.
         let mut text = format!("{} {name}", self.query.format(declared));
@@ -640,7 +862,10 @@ impl Project {
             text = match p.kind {
                 ParameterKind::Required => text,
                 ParameterKind::Optional => format!("[{text}{pattern}]"),
-                ParameterKind::Named => format!("{{{}{text}{pattern}}}", if p.required { "required " } else { "" }),
+                ParameterKind::Named => format!(
+                    "{{{}{text}{pattern}}}",
+                    if p.required { "required " } else { "" }
+                ),
             };
         }
         Some((text, Some(self.query.format(current))))
@@ -656,7 +881,14 @@ impl Project {
             crate::project::OwnerParameter::Constructor(mid) => self.node_constructor(u, mid)?,
         };
         let symbol = q.name?.sym;
-        self.query.outline.functions.get(f.0 as usize)?.parameters.iter().find(|x| x.name == Some(symbol)).map(|x| x.ty)
+        self.query
+            .outline
+            .functions
+            .get(f.0 as usize)?
+            .parameters
+            .iter()
+            .find(|x| x.name == Some(symbol))
+            .map(|x| x.ty)
     }
 
     /// Signature of a local function from the inferred type and the tree.
@@ -767,10 +999,15 @@ impl Project {
             };
             items.push((p.kind, text));
         }
-        let (opens_group, separator, end, prefix) =
-            if multiline { (" ", ",", ",
+        let (opens_group, separator, end, prefix) = if multiline {
+            (
+                " ", ",", ",
 ", "
-  ") } else { ("", ", ", "", "") };
+  ",
+            )
+        } else {
+            ("", ", ", "", "")
+        };
         let mut s = String::from("(");
         let mut last: Option<ParameterKind> = None;
         let mut closes = "";
@@ -810,7 +1047,11 @@ impl Project {
 
     /// [`Project::describe_function`] of the substituted `Member` (`map`: the
     /// class's type parameters by the receiver's arguments).
-    fn describe_function_with(&self, f: FunctionElementId, replacement: Option<Replacement>) -> String {
+    fn describe_function_with(
+        &self,
+        f: FunctionElementId,
+        replacement: Option<Replacement>,
+    ) -> String {
         let p = self.program();
         let fe = p.function(f);
         let data = &self.query.outline.functions[f.0 as usize];
@@ -1051,7 +1292,10 @@ enum Documentable {
 
 /// The class's type parameters by the receiver's arguments, with the copy of
 /// the table in which those arguments exist.
-type Replacement = (std::collections::HashMap<dartforge_types::TypeParamId, TypeId>, dartforge_types::TypeTable);
+type Replacement = (
+    std::collections::HashMap<dartforge_types::TypeParamId, TypeId>,
+    dartforge_types::TypeTable,
+);
 
 /// The declaration at `declaration` is a variable of a collection `for`
 /// (`[for (var i = 0; …) …]`, `{for (var x in l) …}`, including through a
@@ -1065,7 +1309,9 @@ fn in_collection_for(ast: &ast::Ast, declaration: usize) -> bool {
         els.iter().any(|el| match el {
             ast::CollectionElement::For { init, body, .. } => {
                 let here = match init {
-                    Some(ast::ForInit::Variables(vl)) => vl.variables.iter().any(|v| v.name.span.start == d),
+                    Some(ast::ForInit::Variables(vl)) => {
+                        vl.variables.iter().any(|v| v.name.span.start == d)
+                    }
                     Some(ast::ForInit::Pattern { pattern, .. }) => node_pattern(ast, *pattern, d),
                     _ => false,
                 };
@@ -1080,13 +1326,18 @@ fn in_collection_for(ast: &ast::Ast, declaration: usize) -> bool {
                 here || scan(ast, std::slice::from_ref(body), d)
             }
             ast::CollectionElement::If { then, else_, .. } => {
-                scan(ast, std::slice::from_ref(then), d) || else_.as_ref().is_some_and(|x| scan(ast, std::slice::from_ref(x), d))
+                scan(ast, std::slice::from_ref(then), d)
+                    || else_
+                        .as_ref()
+                        .is_some_and(|x| scan(ast, std::slice::from_ref(x), d))
             }
             _ => false,
         })
     }
     ast.exprs.iter().any(|e| match &e.kind {
-        ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } => scan(ast, elements, declaration),
+        ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } => {
+            scan(ast, elements, declaration)
+        }
         _ => false,
     })
 }

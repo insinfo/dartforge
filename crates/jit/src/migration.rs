@@ -85,35 +85,67 @@ pub(crate) fn ir_layouts(ir: &str) -> Vec<Layout> {
                         Some(owner) => Some(unescape(owner)?),
                         None => None,
                     };
-                    let mut type_identity = q.next().and_then(unescape).filter(|identity| identity.starts_with("type-v1:") && identity.len() > "type-v1:".len());
+                    let mut type_identity = q.next().and_then(unescape).filter(|identity| {
+                        identity.starts_with("type-v1:") && identity.len() > "type-v1:".len()
+                    });
                     if q.next().is_some() {
                         type_identity = None;
                     }
-                    Some(Field { name, owner: owner.filter(|owner| !owner.is_empty()), nullable: flags.contains('a'), late: flags.contains('l'), ty, type_identity })
+                    Some(Field {
+                        name,
+                        owner: owner.filter(|owner| !owner.is_empty()),
+                        nullable: flags.contains('a'),
+                        late: flags.contains('l'),
+                        ty,
+                        type_identity,
+                    })
                 })
                 .collect::<Option<Vec<_>>>()?;
-            Some(Layout { class, base, fields })
+            Some(Layout {
+                class,
+                base,
+                fields,
+            })
         })
         .collect()
 }
 
 /// The migration of the classes whose layout changed from `before` to `after`, or
 /// the rejection message. `name` gives a class's name by id.
-pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) -> String) -> Result<Vec<Migration>, String> {
+pub(crate) fn plan_fn(
+    before: &[Layout],
+    after: &[Layout],
+    name: &dyn Fn(i64) -> String,
+) -> Result<Vec<Migration>, String> {
     let mut plan = Vec::new();
     for old_gen in before {
-        let Some(new) = after.iter().find(|l| l.class == old_gen.class) else { continue };
+        let Some(new) = after.iter().find(|l| l.class == old_gen.class) else {
+            continue;
+        };
         let class = name(old_gen.class);
         // Display strings such as `Foo` cannot distinguish declarations in
         // different libraries. Check preserved fields even when all displayed
         // layout metadata is unchanged; legacy text alone supplies no proof.
         for field in &new.fields {
-            if let Some(previous) = old_gen.fields.iter().find(|old| old.name == field.name && old.owner == field.owner) {
-                let (Some(old_type), Some(new_type)) = (&previous.type_identity, &field.type_identity) else {
-                    return Err(format!("the type identity of field `{}` of {class} is unavailable; restart the session", field.name));
+            if let Some(previous) = old_gen
+                .fields
+                .iter()
+                .find(|old| old.name == field.name && old.owner == field.owner)
+            {
+                let (Some(old_type), Some(new_type)) =
+                    (&previous.type_identity, &field.type_identity)
+                else {
+                    return Err(format!(
+                        "the type identity of field `{}` of {class} is unavailable; restart the session",
+                        field.name
+                    ));
                 };
                 if old_type != new_type {
-                    let identity_note = if previous.ty == field.ty { "; declaration or structural type identity differs" } else { "" };
+                    let identity_note = if previous.ty == field.ty {
+                        "; declaration or structural type identity differs"
+                    } else {
+                        ""
+                    };
                     return Err(format!(
                         "field `{}` of {class} changed its type ({} to {}{identity_note}); the live objects hold values of the \
                          old type, so the reload is rejected — restart the session",
@@ -131,22 +163,37 @@ pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) ->
         // preserved field still requires the versioned semantic type identity.
         for layout in [old_gen, new] {
             let mut seen = std::collections::HashSet::new();
-            if layout.fields.iter().any(|field| !seen.insert((&field.owner, &field.name))) {
-                return Err(format!("the field identities of {class} are ambiguous; restart the session"));
+            if layout
+                .fields
+                .iter()
+                .any(|field| !seen.insert((&field.owner, &field.name)))
+            {
+                return Err(format!(
+                    "the field identities of {class} are ambiguous; restart the session"
+                ));
             }
         }
-        if !old_gen.fields.is_empty() && !new.fields.is_empty()
+        if !old_gen.fields.is_empty()
+            && !new.fields.is_empty()
             && old_gen.fields.iter().any(|field| field.owner.is_some())
                 != new.fields.iter().any(|field| field.owner.is_some())
         {
-            return Err(format!("the field identity metadata of {class} changed format; restart the session"));
+            return Err(format!(
+                "the field identity metadata of {class} changed format; restart the session"
+            ));
         }
         if new.base != old_gen.base {
-            return Err(format!("the enum fields of {class} changed; the reload is rejected — restart the session"));
+            return Err(format!(
+                "the enum fields of {class} changed; the reload is rejected — restart the session"
+            ));
         }
         let mut origin: Vec<i64> = (0..new.base as i64).collect();
         for c in &new.fields {
-            match old_gen.fields.iter().position(|v| v.name == c.name && v.owner == c.owner) {
+            match old_gen
+                .fields
+                .iter()
+                .position(|v| v.name == c.name && v.owner == c.owner)
+            {
                 Some(i) => {
                     let v = &old_gen.fields[i];
                     if v.late != c.late {
@@ -168,7 +215,10 @@ pub(crate) fn plan_fn(before: &[Layout], after: &[Layout], name: &dyn Fn(i64) ->
                 }
             }
         }
-        plan.push(Migration { class: old_gen.class, origin });
+        plan.push(Migration {
+            class: old_gen.class,
+            origin,
+        });
     }
     Ok(plan)
 }
@@ -190,7 +240,14 @@ mod tests_mod {
     use super::*;
 
     fn field(name: &str, nullable: bool, late: bool, ty: &str) -> Field {
-        Field { name: name.into(), owner: None, nullable, late, ty: ty.into(), type_identity: Some(format!("type-v1:unit-{ty}")) }
+        Field {
+            name: name.into(),
+            owner: None,
+            nullable,
+            late,
+            ty: ty.into(),
+            type_identity: Some(format!("type-v1:unit-{ty}")),
+        }
     }
 
     #[test]
@@ -203,32 +260,76 @@ mod tests_mod {
             field.type_identity = None;
             field
         };
-        assert_eq!(l[0].fields, vec![legacy("valor", false, false, "int"), legacy("rotulo_", true, false, "String?")]);
+        assert_eq!(
+            l[0].fields,
+            vec![
+                legacy("valor", false, false, "int"),
+                legacy("rotulo_", true, false, "String?")
+            ]
+        );
         assert_eq!((l[1].class, l[1].base, l[1].fields.len()), (8, 2, 0));
     }
 
     #[test]
     fn migrates_by_name_and_accepts_nullable_and_late() {
-        let before = [Layout { class: 5, base: 0, fields: vec![field("a", false, false, "int"), field("b", false, false, "String")] }];
+        let before = [Layout {
+            class: 5,
+            base: 0,
+            fields: vec![
+                field("a", false, false, "int"),
+                field("b", false, false, "String"),
+            ],
+        }];
         let after = [Layout {
             class: 5,
             base: 0,
-            fields: vec![field("b", false, false, "String"), field("c", true, false, "int?"), field("d", false, true, "int")],
+            fields: vec![
+                field("b", false, false, "String"),
+                field("c", true, false, "int?"),
+                field("d", false, true, "int"),
+            ],
         }];
         let plan = plan_fn(&before, &after, &|_| "C".into()).expect("aceita");
-        assert_eq!(plan, vec![Migration { class: 5, origin: vec![1, -1, -1] }]);
+        assert_eq!(
+            plan,
+            vec![Migration {
+                class: 5,
+                origin: vec![1, -1, -1]
+            }]
+        );
         assert_eq!(encode(&plan), vec![1, 5, 3, 1, -1, -1]);
     }
 
     #[test]
     fn rejects_new_field_without_value_and_changed_type() {
-        let before = [Layout { class: 5, base: 0, fields: vec![field("a", false, false, "int")] }];
-        let new = [Layout { class: 5, base: 0, fields: vec![field("a", false, false, "int"), field("z", false, false, "int")] }];
+        let before = [Layout {
+            class: 5,
+            base: 0,
+            fields: vec![field("a", false, false, "int")],
+        }];
+        let new = [Layout {
+            class: 5,
+            base: 0,
+            fields: vec![
+                field("a", false, false, "int"),
+                field("z", false, false, "int"),
+            ],
+        }];
         let error = plan_fn(&before, &new, &|_| "C".into()).unwrap_err();
-        assert!(error.contains("the new field `z` of C (int) is neither nullable nor `late`"), "{error}");
-        let ty = [Layout { class: 5, base: 0, fields: vec![field("a", false, false, "String")] }];
+        assert!(
+            error.contains("the new field `z` of C (int) is neither nullable nor `late`"),
+            "{error}"
+        );
+        let ty = [Layout {
+            class: 5,
+            base: 0,
+            fields: vec![field("a", false, false, "String")],
+        }];
         let error = plan_fn(&before, &ty, &|_| "C".into()).unwrap_err();
-        assert!(error.contains("changed its type (int to String)"), "{error}");
+        assert!(
+            error.contains("changed its type (int to String)"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -240,11 +341,29 @@ mod tests_mod {
         };
         let first = owned("base.dart:Base");
         let second = owned("child.dart:Base");
-        let old = Layout { class: 5, base: 0, fields: vec![first.clone(), second.clone()] };
-        let reordered = Layout { class: 5, base: 0, fields: vec![second.clone(), first] };
-        assert_eq!(plan_fn(std::slice::from_ref(&old), &[reordered], &|_| "C".into()).unwrap()[0].origin, vec![1, 0]);
-        let removed = Layout { class: 5, base: 0, fields: vec![second] };
-        assert_eq!(plan_fn(&[old], &[removed], &|_| "C".into()).unwrap()[0].origin, vec![1]);
+        let old = Layout {
+            class: 5,
+            base: 0,
+            fields: vec![first.clone(), second.clone()],
+        };
+        let reordered = Layout {
+            class: 5,
+            base: 0,
+            fields: vec![second.clone(), first],
+        };
+        assert_eq!(
+            plan_fn(std::slice::from_ref(&old), &[reordered], &|_| "C".into()).unwrap()[0].origin,
+            vec![1, 0]
+        );
+        let removed = Layout {
+            class: 5,
+            base: 0,
+            fields: vec![second],
+        };
+        assert_eq!(
+            plan_fn(&[old], &[removed], &|_| "C".into()).unwrap()[0].origin,
+            vec![1]
+        );
         let parsed = ir_layouts("; df.fields 5 0 _value::int:base$2edart$3aBase\n");
         assert_eq!(parsed[0].fields[0].owner.as_deref(), Some("base.dart:Base"));
     }
@@ -252,25 +371,70 @@ mod tests_mod {
     #[test]
     fn ambiguous_legacy_fields_and_changed_identity_format_are_refused() {
         let bare = field("_value", false, false, "int");
-        let old = Layout { class: 5, base: 0, fields: vec![bare.clone(), bare.clone()] };
-        let new = Layout { class: 5, base: 0, fields: vec![bare.clone()] };
-        assert!(plan_fn(std::slice::from_ref(&old), std::slice::from_ref(&new), &|_| "C".into()).unwrap_err().contains("ambiguous"));
-        assert!(plan_fn(std::slice::from_ref(&old), std::slice::from_ref(&old), &|_| "C".into()).unwrap().is_empty());
+        let old = Layout {
+            class: 5,
+            base: 0,
+            fields: vec![bare.clone(), bare.clone()],
+        };
+        let new = Layout {
+            class: 5,
+            base: 0,
+            fields: vec![bare.clone()],
+        };
+        assert!(
+            plan_fn(
+                std::slice::from_ref(&old),
+                std::slice::from_ref(&new),
+                &|_| "C".into()
+            )
+            .unwrap_err()
+            .contains("ambiguous")
+        );
+        assert!(
+            plan_fn(
+                std::slice::from_ref(&old),
+                std::slice::from_ref(&old),
+                &|_| "C".into()
+            )
+            .unwrap()
+            .is_empty()
+        );
         let mut owned = bare;
         owned.owner = Some("main.dart:C".into());
-        let annotated = Layout { class: 5, base: 0, fields: vec![owned] };
+        let annotated = Layout {
+            class: 5,
+            base: 0,
+            fields: vec![owned],
+        };
         for (before, after) in [(new.clone(), annotated.clone()), (annotated, new)] {
-            assert!(plan_fn(&[before], &[after], &|_| "C".into()).unwrap_err().contains("changed format"));
+            assert!(
+                plan_fn(&[before], &[after], &|_| "C".into())
+                    .unwrap_err()
+                    .contains("changed format")
+            );
         }
     }
 
     #[test]
     fn preserved_legacy_empty_unknown_and_trailing_type_metadata_are_refused() {
-        for field in ["value::Foo:main$2edart$3aBox", "value::Foo:main$2edart$3aBox:", "value::Foo:main$2edart$3aBox:type-v2$3aunknown", "value::Foo:main$2edart$3aBox:type-v1$3aI:audit-extra"] {
+        for field in [
+            "value::Foo:main$2edart$3aBox",
+            "value::Foo:main$2edart$3aBox:",
+            "value::Foo:main$2edart$3aBox:type-v2$3aunknown",
+            "value::Foo:main$2edart$3aBox:type-v1$3aI:audit-extra",
+        ] {
             let layouts = ir_layouts(&format!("; df.fields 5 0 {field}\n"));
-            assert_eq!(layouts.len(), 1, "malformed type proof must not discard the layout");
+            assert_eq!(
+                layouts.len(),
+                1,
+                "malformed type proof must not discard the layout"
+            );
             assert!(layouts[0].fields[0].type_identity.is_none());
-            assert!(plan_fn(&layouts, &layouts, &|_| "Box".into()).unwrap_err().contains("type identity"));
+            assert!(
+                plan_fn(&layouts, &layouts, &|_| "Box".into())
+                    .unwrap_err()
+                    .contains("type identity")
+            );
         }
     }
 
@@ -279,17 +443,42 @@ mod tests_mod {
         let mut first = field("value", false, false, "Foo");
         first.owner = Some("main.dart:Box".into());
         first.type_identity = Some("type-v1:I-a.dart-Foo".into());
-        let old = Layout { class: 5, base: 0, fields: vec![first.clone()] };
-        for identity in ["type-v1:I-b.dart-Foo", "type-v1:I-a.dart-Foo-argument", "type-v1:I-a.dart-Foo-nullable"] {
+        let old = Layout {
+            class: 5,
+            base: 0,
+            fields: vec![first.clone()],
+        };
+        for identity in [
+            "type-v1:I-b.dart-Foo",
+            "type-v1:I-a.dart-Foo-argument",
+            "type-v1:I-a.dart-Foo-nullable",
+        ] {
             let mut changed = first.clone();
             changed.type_identity = Some(identity.into());
-            let new = Layout { class: 5, base: 0, fields: vec![changed] };
+            let new = Layout {
+                class: 5,
+                base: 0,
+                fields: vec![changed],
+            };
             let error = plan_fn(std::slice::from_ref(&old), &[new], &|_| "Box".into()).unwrap_err();
-            assert!(error.contains("changed its type") && error.contains("structural type identity differs"), "{error}");
+            assert!(
+                error.contains("changed its type")
+                    && error.contains("structural type identity differs"),
+                "{error}"
+            );
         }
         let mut alias = first;
         alias.ty = "Alias".into();
-        let plan = plan_fn(&[old], &[Layout { class: 5, base: 0, fields: vec![alias] }], &|_| "Box".into()).unwrap();
+        let plan = plan_fn(
+            &[old],
+            &[Layout {
+                class: 5,
+                base: 0,
+                fields: vec![alias],
+            }],
+            &|_| "Box".into(),
+        )
+        .unwrap();
         assert_eq!(plan[0].origin, vec![0]);
     }
 
@@ -331,7 +520,8 @@ mod tests_mod {
             drop(session);
             std::fs::remove_dir_all(dir).unwrap();
         }).unwrap().join().unwrap();
-    }    #[test]
+    }
+    #[test]
     #[ignore = "requires LLVM and the source-built Dart SDK"]
     fn emitted_same_spelling_field_type_change_rejects_before_publication() {
         std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
@@ -380,5 +570,4 @@ mod tests_mod {
             std::fs::remove_dir_all(dir).unwrap();
         }).unwrap().join().unwrap();
     }
-
 }

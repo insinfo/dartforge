@@ -65,7 +65,11 @@ fn devirtualization_arms(func: &Function) -> HashSet<BlockId> {
         .collect();
     let mut arms = HashSet::new();
     for b in &func.blocks {
-        if let Terminator::Switch { val: Operand::Val(v), default, cases } = &b.terminator
+        if let Terminator::Switch {
+            val: Operand::Val(v),
+            default,
+            cases,
+        } = &b.terminator
             && classes.contains(v)
         {
             arms.insert(*default);
@@ -119,11 +123,20 @@ pub fn copyable_with_policy(f: &Function, policy: Option<InlinePolicy>) -> bool 
 /// may throw). Returns whether anything changed.
 #[cfg(test)]
 pub(super) fn inlining_with_origins(
-    func: &mut Function, copies: &HashMap<String, (Function, bool)>,
+    func: &mut Function,
+    copies: &HashMap<String, (Function, bool)>,
     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
 ) -> bool {
-    inlining_with_metadata(func, copies, sources, sites, &HashMap::new(), &mut HashMap::new(), &HashMap::new())
+    inlining_with_metadata(
+        func,
+        copies,
+        sources,
+        sites,
+        &HashMap::new(),
+        &mut HashMap::new(),
+        &HashMap::new(),
+    )
 }
 
 /// Remaps frame-site certificates with exactly the SSA substitution used by
@@ -134,7 +147,8 @@ pub(super) fn inlining_with_origins(
 /// callee above [`ARM_BODY_LIMIT`] out of the arms of a devirtualization
 /// `switch`. The copies stop at [`growth_ceiling`] of the original size.
 pub(super) fn inlining_with_metadata(
-    func: &mut Function, copies: &HashMap<String, (Function, bool)>,
+    func: &mut Function,
+    copies: &HashMap<String, (Function, bool)>,
     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
     frame_sources: &HashMap<String, HashMap<ValueId, (String, usize)>>,
@@ -150,44 +164,66 @@ pub(super) fn inlining_with_metadata(
         let room = ceiling - size(func);
         let found = func.blocks.iter().enumerate().find_map(|(bi, b)| {
             let in_arm = arms.contains(&b.id);
-            b.instructions.iter().enumerate().find_map(|(ii, (_, inst, ty))| {
-                let Instruction::CallStatic { symbol, args, .. } = inst else { return None };
-                let (target, _) = copies.get(symbol)?;
-                if *symbol == func.symbol || target.params.len() != args.len() {
-                    return None;
-                }
-                // The budget: this copy fits in what is left of the growth; in an
-                // arm of a devirtualization `switch`, only a tiny callee or
-                // one with no other call site.
-                let body = size(target);
-                if body > room + 1
-                    || (in_arm && body > ARM_BODY_LIMIT && call_sites.get(symbol).copied() != Some(1))
-                {
-                    return None;
-                }
-                let arguments_ok = target.params.iter().zip(args).all(|((_, _, tp), a)| {
-                    operand_type(a, &types).is_some_and(|ta| ta == *tp || (compatible(*tp, ta) && *tp != Type::Ref))
-                });
-                let target_types = function_types(target);
-                let return_ok = *ty == Type::Void
-                    || target.blocks.iter().all(|b| match &b.terminator {
-                        Terminator::Return(Some(r)) => operand_type(r, &target_types)
-                            .is_some_and(|tr| tr == *ty || (compatible(*ty, tr) && *ty != Type::Ref)),
-                        Terminator::Return(None) => *ty == Type::Ref,
-                        _ => true,
+            b.instructions
+                .iter()
+                .enumerate()
+                .find_map(|(ii, (_, inst, ty))| {
+                    let Instruction::CallStatic { symbol, args, .. } = inst else {
+                        return None;
+                    };
+                    let (target, _) = copies.get(symbol)?;
+                    if *symbol == func.symbol || target.params.len() != args.len() {
+                        return None;
+                    }
+                    // The budget: this copy fits in what is left of the growth; in an
+                    // arm of a devirtualization `switch`, only a tiny callee or
+                    // one with no other call site.
+                    let body = size(target);
+                    if body > room + 1
+                        || (in_arm
+                            && body > ARM_BODY_LIMIT
+                            && call_sites.get(symbol).copied() != Some(1))
+                    {
+                        return None;
+                    }
+                    let arguments_ok = target.params.iter().zip(args).all(|((_, _, tp), a)| {
+                        operand_type(a, &types).is_some_and(|ta| {
+                            ta == *tp || (compatible(*tp, ta) && *tp != Type::Ref)
+                        })
                     });
-                (arguments_ok && return_ok).then_some((bi, ii))
-            })
+                    let target_types = function_types(target);
+                    let return_ok = *ty == Type::Void
+                        || target.blocks.iter().all(|b| match &b.terminator {
+                            Terminator::Return(Some(r)) => operand_type(r, &target_types)
+                                .is_some_and(|tr| {
+                                    tr == *ty || (compatible(*ty, tr) && *ty != Type::Ref)
+                                }),
+                            Terminator::Return(None) => *ty == Type::Ref,
+                            _ => true,
+                        });
+                    (arguments_ok && return_ok).then_some((bi, ii))
+                })
         });
         let Some((bi, ii)) = found else { break };
-        copy(func, (bi, ii), copies, sources, sites, frame_sources, frames);
+        copy(
+            func,
+            (bi, ii),
+            copies,
+            sources,
+            sites,
+            frame_sources,
+            frames,
+        );
         changed = true;
         copied += 1;
     }
     changed
 }
 
-fn copy(func: &mut Function, position: (usize, usize), copies: &HashMap<String, (Function, bool)>,
+fn copy(
+    func: &mut Function,
+    position: (usize, usize),
+    copies: &HashMap<String, (Function, bool)>,
     sources: &HashMap<String, HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>>,
     sites: &mut HashMap<ValueId, crate::optimize::arc::analysis::model::ArcSite>,
     frame_sources: &HashMap<String, HashMap<ValueId, (String, usize)>>,
@@ -196,7 +232,9 @@ fn copy(func: &mut Function, position: (usize, usize), copies: &HashMap<String, 
     let (bi, ii) = position;
     let (mut next_v, mut next_b) = largest_ids(func);
     let (call, args, ty) = match &func.blocks[bi].instructions[ii] {
-        (v, Instruction::CallStatic { symbol, args, .. }, ty) => (*v, (symbol.clone(), args.clone()), *ty),
+        (v, Instruction::CallStatic { symbol, args, .. }, ty) => {
+            (*v, (symbol.clone(), args.clone()), *ty)
+        }
         _ => unreachable!("expected static call"),
     };
     let (sym_name, args) = args;
@@ -244,7 +282,10 @@ fn copy(func: &mut Function, position: (usize, usize), copies: &HashMap<String, 
     // Splits the block of the call.
     let after: Vec<(ValueId, Instruction, Type)> = func.blocks[bi].instructions.split_off(ii + 1);
     func.blocks[bi].instructions.pop();
-    let terminator = std::mem::replace(&mut func.blocks[bi].terminator, Terminator::Branch(blocks[&target.blocks[0].id]));
+    let terminator = std::mem::replace(
+        &mut func.blocks[bi].terminator,
+        Terminator::Branch(blocks[&target.blocks[0].id]),
+    );
     // The successors of the original block now come from the continuation.
     for s in super::cfg::successors(&terminator) {
         if let Some(b) = func.blocks.iter_mut().find(|b| b.id == s) {
@@ -266,7 +307,9 @@ fn copy(func: &mut Function, position: (usize, usize), copies: &HashMap<String, 
         let id = blocks[&b.id];
         let mut instructions = Vec::with_capacity(b.instructions.len());
         for (v, inst, t) in &b.instructions {
-            if !throws && matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear") {
+            if !throws
+                && matches!(inst, Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear")
+            {
                 continue;
             }
             let mut inst = inst.clone();
@@ -282,7 +325,9 @@ fn copy(func: &mut Function, position: (usize, usize), copies: &HashMap<String, 
                     *o = blocks[o];
                 }
             }
-            let Operand::Val(nv) = values[v] else { unreachable!("new value") };
+            let Operand::Val(nv) = values[v] else {
+                unreachable!("new value")
+            };
             instructions.push((nv, inst, *t));
         }
         let mut term = b.terminator.clone();
@@ -298,7 +343,11 @@ fn copy(func: &mut Function, position: (usize, usize), copies: &HashMap<String, 
             returns.push((id, r.clone().unwrap_or(Operand::Constant(Constant::Null))));
             term = Terminator::Branch(continuation);
         }
-        new_set.push(BasicBlock { id, instructions, terminator: term });
+        new_set.push(BasicBlock {
+            id,
+            instructions,
+            terminator: term,
+        });
     }
 
     // The symbolic stack trace (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §13.14):
@@ -322,16 +371,30 @@ fn copy(func: &mut Function, position: (usize, usize), copies: &HashMap<String, 
         });
         let (call_position, parent) = match dc.embedded_positions.get(&call) {
             Some(&(l, c, j)) => ((l, c), Some(j)),
-            None => (dc.positions.get(&call).copied().unwrap_or((dc.line, 0)), None),
+            None => (
+                dc.positions.get(&call).copied().unwrap_or((dc.line, 0)),
+                None,
+            ),
         };
         let k = dc.embedded_set.len() as u32;
-        dc.embedded_set.push(Embedded { name: target.stack_trace_name(), url: dinfo.url.clone(), call: call_position, parent, marks: dinfo.marks });
+        dc.embedded_set.push(Embedded {
+            name: target.stack_trace_name(),
+            url: dinfo.url.clone(),
+            call: call_position,
+            parent,
+            marks: dinfo.marks,
+        });
         for e in &dinfo.embedded_set {
-            dc.embedded_set.push(Embedded { parent: Some(e.parent.map_or(k, |p| k + 1 + p)), ..e.clone() });
+            dc.embedded_set.push(Embedded {
+                parent: Some(e.parent.map_or(k, |p| k + 1 + p)),
+                ..e.clone()
+            });
         }
         for b in &target.blocks {
             for (v, _, _) in &b.instructions {
-                let Some(Operand::Val(new)) = values.get(v) else { continue };
+                let Some(Operand::Val(new)) = values.get(v) else {
+                    continue;
+                };
                 let p = match (dinfo.embedded_positions.get(v), dinfo.positions.get(v)) {
                     (Some(&(l, c, j)), _) => (l, c, k + 1 + j),
                     (None, Some(&(l, c))) => (l, c, k),
@@ -351,12 +414,23 @@ fn copy(func: &mut Function, position: (usize, usize), copies: &HashMap<String, 
         _ => {
             next_v += 1;
             let phi = ValueId(next_v);
-            start.push((phi, Instruction::Phi { incoming: returns.clone(), ty }, ty));
+            start.push((
+                phi,
+                Instruction::Phi {
+                    incoming: returns.clone(),
+                    ty,
+                },
+                ty,
+            ));
             Some(Operand::Val(phi))
         }
     };
     start.extend(after);
-    let cont = BasicBlock { id: continuation, instructions: start, terminator };
+    let cont = BasicBlock {
+        id: continuation,
+        instructions: start,
+        terminator,
+    };
     let pos = bi + 1;
     let n = new_set.len();
     func.blocks.splice(pos..pos, new_set);
@@ -371,12 +445,24 @@ mod policy_tests {
 
     fn candidate(size: usize) -> Function {
         Function {
-            symbol: "candidate".into(), name: "candidate".into(), debug_info: None,
-            params: vec![], return_ty: Type::I64,
-            blocks: vec![BasicBlock { id: BlockId(0),
-                instructions: (0..size).map(|i| (ValueId(i as u32),
-                    Instruction::Const(Constant::Int(i as i64)), Type::I64)).collect(),
-                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(7)))) }],
+            symbol: "candidate".into(),
+            name: "candidate".into(),
+            debug_info: None,
+            params: vec![],
+            return_ty: Type::I64,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: (0..size)
+                    .map(|i| {
+                        (
+                            ValueId(i as u32),
+                            Instruction::Const(Constant::Int(i as i64)),
+                            Type::I64,
+                        )
+                    })
+                    .collect(),
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(7)))),
+            }],
         }
     }
 
@@ -388,18 +474,36 @@ mod policy_tests {
         let larger = candidate(BODY_LIMIT + 1);
         assert!(!copyable(&larger));
         assert!(copyable_with_policy(&larger, Some(InlinePolicy::Prefer)));
-        assert!(!copyable_with_policy(&candidate(BODY_LIMIT * 4), Some(InlinePolicy::Prefer)));
+        assert!(!copyable_with_policy(
+            &candidate(BODY_LIMIT * 4),
+            Some(InlinePolicy::Prefer)
+        ));
         let mut recursive = small;
-        recursive.blocks[0].instructions.push((ValueId(2), Instruction::CallStatic {
-            symbol: recursive.symbol.clone(), args: vec![], ret_ty: Type::I64,
-        }, Type::I64));
-        assert!(!copyable_with_policy(&recursive, Some(InlinePolicy::Prefer)));
+        recursive.blocks[0].instructions.push((
+            ValueId(2),
+            Instruction::CallStatic {
+                symbol: recursive.symbol.clone(),
+                args: vec![],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        ));
+        assert!(!copyable_with_policy(
+            &recursive,
+            Some(InlinePolicy::Prefer)
+        ));
         recursive.blocks[0].instructions.pop();
-        recursive.blocks[0].instructions.push((ValueId(2), Instruction::Alloca(Type::I64), Type::Ptr));
-        assert!(!copyable_with_policy(&recursive, Some(InlinePolicy::Prefer)));
+        recursive.blocks[0].instructions.push((
+            ValueId(2),
+            Instruction::Alloca(Type::I64),
+            Type::Ptr,
+        ));
+        assert!(!copyable_with_policy(
+            &recursive,
+            Some(InlinePolicy::Prefer)
+        ));
     }
 }
-
 
 #[cfg(test)]
 mod frame_site_tests {
@@ -412,26 +516,77 @@ mod frame_site_tests {
             fields: vec![Operand::Constant(Constant::Null); 6],
         };
         let target = Function {
-            symbol: "start".into(), name: "start".into(), params: vec![], return_ty: Type::Ref, debug_info: None,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![(ValueId(0), allocation(), Type::Ref)],
-                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }],
+            symbol: "start".into(),
+            name: "start".into(),
+            params: vec![],
+            return_ty: Type::Ref,
+            debug_info: None,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(ValueId(0), allocation(), Type::Ref)],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+            }],
         };
         let mut caller = Function {
-            symbol: "caller".into(), name: "caller".into(), params: vec![], return_ty: Type::Ref, debug_info: None,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                (ValueId(0), allocation(), Type::Ref),
-                (ValueId(1), Instruction::CallStatic {symbol: "start".into(), args: vec![], ret_ty: Type::Ref}, Type::Ref),
-                (ValueId(2), Instruction::CallStatic {symbol: "start".into(), args: vec![], ret_ty: Type::Ref}, Type::Ref),
-            ], terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) }],
+            symbol: "caller".into(),
+            name: "caller".into(),
+            params: vec![],
+            return_ty: Type::Ref,
+            debug_info: None,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (ValueId(0), allocation(), Type::Ref),
+                    (
+                        ValueId(1),
+                        Instruction::CallStatic {
+                            symbol: "start".into(),
+                            args: vec![],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(2),
+                        Instruction::CallStatic {
+                            symbol: "start".into(),
+                            args: vec![],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+            }],
         };
         let copies = HashMap::from([("start".into(), (target, true))]);
-        let sources = HashMap::from([("start".into(), HashMap::from([(ValueId(0), (body.clone(), 6))]))]);
+        let sources = HashMap::from([(
+            "start".into(),
+            HashMap::from([(ValueId(0), (body.clone(), 6))]),
+        )]);
         let mut frames = HashMap::new();
-        assert!(inlining_with_metadata(&mut caller, &copies, &HashMap::new(), &mut HashMap::new(), &sources, &mut frames, &HashMap::new()));
+        assert!(inlining_with_metadata(
+            &mut caller,
+            &copies,
+            &HashMap::new(),
+            &mut HashMap::new(),
+            &sources,
+            &mut frames,
+            &HashMap::new()
+        ));
         assert_eq!(frames.len(), 2);
-        assert!(!frames.contains_key(&ValueId(0)), "same CID and size do not certify the unrelated allocation");
-        let allocations: Vec<_> = caller.blocks.iter().flat_map(|b| &b.instructions)
-            .filter_map(|(id, inst, _)| matches!(inst, Instruction::AllocObject {..}).then_some(*id)).collect();
+        assert!(
+            !frames.contains_key(&ValueId(0)),
+            "same CID and size do not certify the unrelated allocation"
+        );
+        let allocations: Vec<_> = caller
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .filter_map(|(id, inst, _)| {
+                matches!(inst, Instruction::AllocObject { .. }).then_some(*id)
+            })
+            .collect();
         assert_eq!(allocations.len(), 3);
         for (site, layout) in frames {
             assert!(allocations.contains(&site));

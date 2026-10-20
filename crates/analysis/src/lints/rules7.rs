@@ -20,10 +20,10 @@
 //! line).
 //! Written without compiling or running (2026-10-05).
 
-use super::codes_g as c;
-use super::strings::{comments, decode, literals, Literal};
-use super::rules::LintReport;
 use super::LintCode;
+use super::codes_g as c;
+use super::rules::LintReport;
+use super::strings::{Literal, comments, decode, literals};
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{DirectiveKind, ExprKind, StringLit};
@@ -46,8 +46,14 @@ fn literal_value(source: &str, l: &Literal) -> String {
 /// `unnecessary_string_escapes` in a text part (`visitLexeme`): the places of
 /// the unnecessary backslashes. `last`: the part touches the closing quote.
 fn unnecessary_escapes(source: &str, l: &Literal, part: Span, last: bool, out: &mut Vec<usize>) {
-    let Some(text) = source.get(part.start..part.end) else { return };
-    let (own, other) = if l.single_quoted { ('\'', '"') } else { ('"', '\'') };
+    let Some(text) = source.get(part.start..part.end) else {
+        return;
+    };
+    let (own, other) = if l.single_quoted {
+        ('\'', '"')
+    } else {
+        ('"', '\'')
+    };
     // The string's own quotes in a row: (place, escaped). In a triple-quoted
     // string, up to two in a row do not need the escape.
     let mut pending: Vec<(usize, bool)> = Vec::new();
@@ -105,12 +111,21 @@ fn only_escapes_backslash_and_dollar(content: &str) -> bool {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    _interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    _sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let source = u.source;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
     let rules = [
         "prefer_single_quotes",
@@ -135,7 +150,16 @@ pub fn run(u: Unit<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _s
     let mut add_directive = |lit: &StringLit| all.extend(literals(source, lit.span));
     for d in u.unit.directives.iter() {
         match &d.kind {
-            DirectiveKind::Import { uri, configurations, .. } | DirectiveKind::Export { uri, configurations, .. } => {
+            DirectiveKind::Import {
+                uri,
+                configurations,
+                ..
+            }
+            | DirectiveKind::Export {
+                uri,
+                configurations,
+                ..
+            } => {
                 add_directive(uri);
                 for k in configurations.iter() {
                     add_directive(&k.uri);
@@ -144,24 +168,33 @@ pub fn run(u: Unit<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _s
                     }
                 }
             }
-            DirectiveKind::Part { uri } | DirectiveKind::ImportAugment { uri } | DirectiveKind::AugmentLibrary { uri } => add_directive(uri),
+            DirectiveKind::Part { uri }
+            | DirectiveKind::ImportAugment { uri }
+            | DirectiveKind::AugmentLibrary { uri } => add_directive(uri),
             DirectiveKind::PartOf { uri: Some(uri), .. } => add_directive(uri),
             DirectiveKind::PartOf { uri: None, .. } | DirectiveKind::Library { .. } => {}
         }
     }
     all.sort_by_key(|l| (l.span.start, l.span.end));
     all.dedup();
-    let interpolations: Vec<Span> = all.iter().flat_map(|l| l.interpolations.iter().copied()).collect();
+    let interpolations: Vec<Span> = all
+        .iter()
+        .flat_map(|l| l.interpolations.iter().copied())
+        .collect();
     let inside = |outer: Span, x: Span| outer.start < x.start && x.end <= outer.end;
     // Inside another string's interpolation.
     let nested = |l: &Literal| interpolations.iter().any(|s| inside(*s, l.span));
     // Has another string in one of its interpolations.
-    let contains_string = |l: &Literal| all.iter().any(|o| l.interpolations.iter().any(|s| inside(*s, o.span)));
+    let contains_string = |l: &Literal| {
+        all.iter()
+            .any(|o| l.interpolations.iter().any(|s| inside(*s, o.span)))
+    };
 
     // `prefer_single_quotes` and `prefer_double_quotes` (the `QuoteVisitor`).
-    for (rule, single, code) in
-        [("prefer_single_quotes", true, &c::PREFER_SINGLE_QUOTES), ("prefer_double_quotes", false, &c::PREFER_DOUBLE_QUOTES)]
-    {
+    for (rule, single, code) in [
+        ("prefer_single_quotes", true, &c::PREFER_SINGLE_QUOTES),
+        ("prefer_double_quotes", false, &c::PREFER_DOUBLE_QUOTES),
+    ] {
         if !enabled(rule) {
             continue;
         }
@@ -181,7 +214,11 @@ pub fn run(u: Unit<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _s
     if enabled("avoid_escaping_inner_quotes") {
         for l in all.iter().filter(|l| !l.raw && !l.multiline) {
             let text = literal_value(source, l);
-            let (own, other) = if l.single_quoted { ("'", "\"") } else { ("\"", "'") };
+            let (own, other) = if l.single_quoted {
+                ("'", "\"")
+            } else {
+                ("\"", "'")
+            };
             if text.contains(own) && !text.contains(other) {
                 report(&c::AVOID_ESCAPING_INNER_QUOTES, l.span, &[own, other]);
             }
@@ -197,7 +234,14 @@ pub fn run(u: Unit<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _s
             }
         }
         for place in places {
-            report(&c::UNNECESSARY_STRING_ESCAPES, Span { start: place, end: place + 1 }, &[]);
+            report(
+                &c::UNNECESSARY_STRING_ESCAPES,
+                Span {
+                    start: place,
+                    end: place + 1,
+                },
+                &[],
+            );
         }
     }
     // `use_raw_strings`: only a literal without interpolation.
@@ -212,8 +256,12 @@ pub fn run(u: Unit<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _s
     // spans more than one line starts with a line break.
     if enabled("leading_newlines_in_multiline_strings") {
         for l in all.iter().filter(|l| l.multiline) {
-            let Some(lexeme) = source.get(l.span.start..l.span.end) else { continue };
-            let Some(first) = l.parts.first() else { continue };
+            let Some(lexeme) = source.get(l.span.start..l.span.end) else {
+                continue;
+            };
+            let Some(first) = l.parts.first() else {
+                continue;
+            };
             let head = source.get(first.start..).unwrap_or("");
             if lexeme.contains('\n') && !head.starts_with('\n') && !head.starts_with('\r') {
                 report(&c::LEADING_NEWLINES_IN_MULTILINE_STRINGS, l.span, &[]);
@@ -239,7 +287,9 @@ pub fn run(u: Unit<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _s
                 Some(&next) => next - 1,
                 None => source.len(),
             };
-            let Some(text) = source.get(start..end) else { continue };
+            let Some(text) = source.get(start..end) else {
+                continue;
+            };
             if text.encode_utf16().count() <= 80 {
                 continue;
             }
@@ -247,7 +297,9 @@ pub fn run(u: Unit<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _s
             if i + 1 < line_starts.len() && text.ends_with('\r') {
                 end -= 1;
             }
-            let Some(text) = source.get(start..end) else { continue };
+            let Some(text) = source.get(start..end) else {
+                continue;
+            };
             if text.encode_utf16().count() <= 80 {
                 continue;
             }
@@ -277,7 +329,9 @@ pub fn run(u: Unit<'_>, _interner: &Interner, enabled: &dyn Fn(&str) -> bool, _s
             // Comments: `// ignore:` allows the line; any comment line that
             // looks like a URI or a path allows its own.
             for s in comments(source) {
-                let Some(text) = source.get(s.start..s.end) else { continue };
+                let Some(text) = source.get(s.start..s.end) else {
+                    continue;
+                };
                 let first = line_of(s.start);
                 let mut lines: Vec<&str> = Vec::new();
                 if let Some(rest) = text.strip_prefix("///") {
@@ -320,19 +374,42 @@ mod tests {
     fn only(rule: &str, source: &str) -> Vec<String> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
         let mut reports = run(u, &names, &|r| r == rule, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| source[r.span.start..r.span.end].to_string()).collect()
+        reports
+            .into_iter()
+            .map(|r| source[r.span.start..r.span.end].to_string())
+            .collect()
     }
 
     #[test]
     fn quotes() {
         let source = "import \"dart:io\";\nvar a = \"x\";\nvar b = \"it's\";\nvar c = 'y';\nvar d = \"p$a\";\nvar e = \"q${a == 'x' ? 'y' : \"z\"}\";\n";
-        assert_eq!(only("prefer_single_quotes", source), vec!["\"dart:io\"".to_string(), "\"x\"".to_string(), "\"p$a\"".to_string()]);
-        assert_eq!(only("prefer_double_quotes", "var a = 'x';\nvar b = 'say \"hi\"';\nvar c = \"y\";\n"), vec!["'x'".to_string()]);
         assert_eq!(
-            only("avoid_escaping_inner_quotes", "var a = 'it\\'s';\nvar b = 'it\\'s \"x\"';\nvar c = \"it's\";\n"),
+            only("prefer_single_quotes", source),
+            vec![
+                "\"dart:io\"".to_string(),
+                "\"x\"".to_string(),
+                "\"p$a\"".to_string()
+            ]
+        );
+        assert_eq!(
+            only(
+                "prefer_double_quotes",
+                "var a = 'x';\nvar b = 'say \"hi\"';\nvar c = \"y\";\n"
+            ),
+            vec!["'x'".to_string()]
+        );
+        assert_eq!(
+            only(
+                "avoid_escaping_inner_quotes",
+                "var a = 'it\\'s';\nvar b = 'it\\'s \"x\"';\nvar c = \"it's\";\n"
+            ),
             vec!["'it\\'s'".to_string()]
         );
     }
@@ -341,19 +418,34 @@ mod tests {
     fn escapes() {
         // `\"` in single quotes, `\a`; `\n`, `\'` and `\$` stay.
         assert_eq!(
-            only("unnecessary_string_escapes", "var a = 'x\\\"y\\az\\n\\'\\$';\n"),
+            only(
+                "unnecessary_string_escapes",
+                "var a = 'x\\\"y\\az\\n\\'\\$';\n"
+            ),
             vec!["\\".to_string(), "\\".to_string()]
         );
         // In triple quotes, the string's own quote alone needs no escape.
-        assert_eq!(only("unnecessary_string_escapes", "var a = '''x\\'y''';\n").len(), 1);
+        assert_eq!(
+            only("unnecessary_string_escapes", "var a = '''x\\'y''';\n").len(),
+            1
+        );
         assert!(only("unnecessary_string_escapes", "var a = r'x\\ay';\n").is_empty());
-        assert_eq!(only("use_raw_strings", "var a = 'a\\\\b\\$c';\nvar b = 'a\\\\b\\n';\nvar c = 'abc';\n"), vec!["'a\\\\b\\$c'".to_string()]);
+        assert_eq!(
+            only(
+                "use_raw_strings",
+                "var a = 'a\\\\b\\$c';\nvar b = 'a\\\\b\\n';\nvar c = 'abc';\n"
+            ),
+            vec!["'a\\\\b\\$c'".to_string()]
+        );
     }
 
     #[test]
     fn lines() {
         assert_eq!(
-            only("leading_newlines_in_multiline_strings", "var a = '''x\ny''';\nvar b = '''\nx''';\nvar c = '''x''';\n"),
+            only(
+                "leading_newlines_in_multiline_strings",
+                "var a = '''x\ny''';\nvar b = '''\nx''';\nvar c = '''x''';\n"
+            ),
             vec!["'''x\ny'''".to_string()]
         );
         let long_line = format!("var a = {};\n", "1 + ".repeat(20) + "1");
@@ -361,7 +453,11 @@ mod tests {
         assert_eq!(reports.len(), 1);
         assert_eq!(reports[0].len(), long_line.len() - 1 - 80);
         // A line with a URI in a string or a comment is allowed.
-        let with_uri = format!("var a = 'https://example/{}';\n// see http://{}\n", "x".repeat(80), "y".repeat(80));
+        let with_uri = format!(
+            "var a = 'https://example/{}';\n// see http://{}\n",
+            "x".repeat(80),
+            "y".repeat(80)
+        );
         assert!(only("lines_longer_than_80_chars", &with_uri).is_empty());
     }
 }

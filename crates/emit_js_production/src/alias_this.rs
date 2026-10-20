@@ -41,22 +41,40 @@ impl<'a> Visit<'a> for Collector {
     }
     fn visit_class(&mut self, it: &Class<'a>) {
         // Barrier: the `this` of a class field is not the outer function's.
-        self.stack.push(Frame { body: None, uses: Vec::new() });
+        self.stack.push(Frame {
+            body: None,
+            uses: Vec::new(),
+        });
         walk::walk_class(self, it);
         self.stack.pop();
     }
     fn visit_function(&mut self, it: &Function<'a>, flags: ScopeFlags) {
         let constructor = std::mem::take(&mut self.next_is_constructor);
-        let body = it.body.as_ref().filter(|b| b.directives.is_empty() && !constructor).map(|b| (b.span.start, b.span.end));
-        self.stack.push(Frame { body, uses: Vec::new() });
+        let body = it
+            .body
+            .as_ref()
+            .filter(|b| b.directives.is_empty() && !constructor)
+            .map(|b| (b.span.start, b.span.end));
+        self.stack.push(Frame {
+            body,
+            uses: Vec::new(),
+        });
         walk::walk_function(self, it, flags);
-        let q = self.stack.pop().unwrap_or(Frame { body: None, uses: Vec::new() });
+        let q = self.stack.pop().unwrap_or(Frame {
+            body: None,
+            uses: Vec::new(),
+        });
         if let Some((start, end)) = q.body {
             // Only the `this` of the body: the one in the parameters (default
             // value) runs before the declaration.
-            let uses: Vec<(u32, u32)> = q.uses.into_iter().filter(|(a, _)| *a > start && *a < end).collect();
+            let uses: Vec<(u32, u32)> = q
+                .uses
+                .into_iter()
+                .filter(|(a, _)| *a > start && *a < end)
+                .collect();
             if 3 * uses.len() > 11 {
-                self.edits.push((start + 1, start + 1, "let t$this = this;"));
+                self.edits
+                    .push((start + 1, start + 1, "let t$this = this;"));
                 for (a, b) in uses {
                     self.edits.push((a, b, "t$this"));
                 }
@@ -78,7 +96,11 @@ pub fn apply(source: &str) -> String {
     if !parsed.diagnostics.is_empty() {
         return source.to_string();
     }
-    let mut c = Collector { stack: Vec::new(), next_is_constructor: false, edits: Vec::new() };
+    let mut c = Collector {
+        stack: Vec::new(),
+        next_is_constructor: false,
+        edits: Vec::new(),
+    };
     c.visit_program(&parsed.program);
     if c.edits.is_empty() {
         return source.to_string();
@@ -105,7 +127,9 @@ mod tests {
 
     #[test]
     fn four_citations_become_a_local() {
-        let s = apply("(function () { function f() { return this.a + this.b + this.c + (() => this.d)(); } })();");
+        let s = apply(
+            "(function () { function f() { return this.a + this.b + this.c + (() => this.d)(); } })();",
+        );
         assert!(s.contains("let t$this = this;"), "{s}");
         assert_eq!(s.matches("this").count(), 1 + 5, "{s}");
         assert!(s.contains("t$this.d"), "{s}");

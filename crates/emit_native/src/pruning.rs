@@ -18,12 +18,12 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-pub(crate) mod receiver_provenance;
-mod class_reachability;
-pub(crate) mod assembled_registration;
 pub(crate) mod allocation_inventory;
-pub(crate) mod universal_parent;
 pub(crate) mod arc_ports;
+pub(crate) mod assembled_registration;
+mod class_reachability;
+pub(crate) mod receiver_provenance;
+pub(crate) mod universal_parent;
 
 /// First line of a summary; the number changes with the format.
 const HEADER: &str = "dartforge-poda\t9";
@@ -33,7 +33,14 @@ const HEADER: &str = "dartforge-poda\t9";
 /// callable class and `Function.apply`); the others are the protocol of
 /// `Object` that the runtime reaches through SDK helpers — cheap, because
 /// almost every live class already has them live.
-pub const ROOT_SELECTORS: &[&str] = &["c:call", "c:toString", "c:==", "g:hashCode", "c:noSuchMethod", "g:runtimeType"];
+pub const ROOT_SELECTORS: &[&str] = &[
+    "c:call",
+    "c:toString",
+    "c:==",
+    "g:hashCode",
+    "c:noSuchMethod",
+    "g:runtimeType",
+];
 
 /// Runtime functions that look up in the table by a name that only exists
 /// at run time (§3.7). Cited by a live function, every live table entry
@@ -57,8 +64,10 @@ fn selector_hash(text: &str) -> i64 {
 /// # Panics
 /// Two different selectors with the same hash in the same class.
 pub fn table_pairs(cid: u32, methods: &[(String, String)]) -> Vec<(i64, String, String)> {
-    let mut pairs: Vec<(i64, String, String)> =
-        methods.iter().map(|(s, f)| (selector_hash(s), s.clone(), f.clone())).collect();
+    let mut pairs: Vec<(i64, String, String)> = methods
+        .iter()
+        .map(|(s, f)| (selector_hash(s), s.clone(), f.clone()))
+        .collect();
     pairs.sort();
     for par in pairs.windows(2) {
         assert!(
@@ -98,10 +107,13 @@ fn name_char(c: u8) -> bool {
 
 /// A name written with `@`: without quotes if it allows.
 fn llvm_name(name: &str) -> String {
-    let simple = !name.is_empty()
-        && !name.as_bytes()[0].is_ascii_digit()
-        && name.bytes().all(name_char);
-    if simple { format!("@{name}") } else { format!("@\"{name}\"") }
+    let simple =
+        !name.is_empty() && !name.as_bytes()[0].is_ascii_digit() && name.bytes().all(name_char);
+    if simple {
+        format!("@{name}")
+    } else {
+        format!("@\"{name}\"")
+    }
 }
 
 /// The cited symbols (`@x` and `@"x"`) in `text`, without the `@` and without the quotes.
@@ -140,7 +152,9 @@ fn cited(text: &str) -> impl Iterator<Item = &str> {
 fn define_name(line: &str) -> Option<(&str, bool)> {
     let rest = line.strip_prefix("define ")?;
     let at_sign = rest.find('@')?;
-    let local = rest[..at_sign].split_whitespace().any(|p| p == "internal" || p == "private");
+    let local = rest[..at_sign]
+        .split_whitespace()
+        .any(|p| p == "internal" || p == "private");
     let name = cited(&rest[at_sign..]).next()?;
     Some((name, local))
 }
@@ -168,7 +182,9 @@ fn constant_text(line: &str) -> Option<String> {
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'\\'
-            && let Some(h) = s.get(i + 1..i + 3).and_then(|h| u8::from_str_radix(h, 16).ok())
+            && let Some(h) = s
+                .get(i + 1..i + 3)
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
         {
             v.push(h);
             i += 3;
@@ -266,34 +282,61 @@ impl DeclaredFieldAccess {
     fn payload(&self) -> String {
         let field = &self.declaration;
         serde_json::json!({"uri": field.library_uri, "owner": field.owner, "field": field.name,
-            "final": field.is_final, "late": field.is_late, "slot": field.layout_index,
-            "storage": match field.storage_type {
-                crate::hir::Type::Ref => "ref", crate::hir::Type::I64 => "i64",
-                crate::hir::Type::I8 => "i8", crate::hir::Type::I1 => "i1",
-                crate::hir::Type::F64 => "f64", _ => "unsupported",
-            }}).to_string()
+        "final": field.is_final, "late": field.is_late, "slot": field.layout_index,
+        "storage": match field.storage_type {
+            crate::hir::Type::Ref => "ref", crate::hir::Type::I64 => "i64",
+            crate::hir::Type::I8 => "i8", crate::hir::Type::I1 => "i1",
+            crate::hir::Type::F64 => "f64", _ => "unsupported",
+        }})
+        .to_string()
     }
 
     fn parse(definition: u32, value_id: u32, write: bool, payload: &str) -> Result<Self, String> {
         let bad = || "malformed pruning field declaration".to_string();
         let value: serde_json::Value = serde_json::from_str(payload).map_err(|_| bad())?;
-        let object = value.as_object().filter(|object| object.len() == 7).ok_or_else(bad)?;
-        let string = |key| object.get(key).and_then(|value| value.as_str())
-            .filter(|value| !value.is_empty()).ok_or_else(bad);
-        let storage_type = match string("storage")? {
-            "ref" => crate::hir::Type::Ref, "i64" => crate::hir::Type::I64,
-            "i8" => crate::hir::Type::I8, "i1" => crate::hir::Type::I1,
-            "f64" => crate::hir::Type::F64, _ => return Err(bad()),
+        let object = value
+            .as_object()
+            .filter(|object| object.len() == 7)
+            .ok_or_else(bad)?;
+        let string = |key| {
+            object
+                .get(key)
+                .and_then(|value| value.as_str())
+                .filter(|value| !value.is_empty())
+                .ok_or_else(bad)
         };
-        Ok(Self { definition, value_id, write, declaration: crate::hir::FieldDeclaration {
-            library_uri: string("uri")?.to_string(), owner: string("owner")?.to_string(),
-            name: string("field")?.to_string(),
-            is_final: object.get("final").and_then(|value| value.as_bool()).ok_or_else(bad)?,
-            is_late: object.get("late").and_then(|value| value.as_bool()).ok_or_else(bad)?,
-            layout_index: object.get("slot").and_then(|value| value.as_u64())
-                .and_then(|index| usize::try_from(index).ok()).ok_or_else(bad)?,
-            storage_type,
-        } })
+        let storage_type = match string("storage")? {
+            "ref" => crate::hir::Type::Ref,
+            "i64" => crate::hir::Type::I64,
+            "i8" => crate::hir::Type::I8,
+            "i1" => crate::hir::Type::I1,
+            "f64" => crate::hir::Type::F64,
+            _ => return Err(bad()),
+        };
+        Ok(Self {
+            definition,
+            value_id,
+            write,
+            declaration: crate::hir::FieldDeclaration {
+                library_uri: string("uri")?.to_string(),
+                owner: string("owner")?.to_string(),
+                name: string("field")?.to_string(),
+                is_final: object
+                    .get("final")
+                    .and_then(|value| value.as_bool())
+                    .ok_or_else(bad)?,
+                is_late: object
+                    .get("late")
+                    .and_then(|value| value.as_bool())
+                    .ok_or_else(bad)?,
+                layout_index: object
+                    .get("slot")
+                    .and_then(|value| value.as_u64())
+                    .and_then(|index| usize::try_from(index).ok())
+                    .ok_or_else(bad)?,
+                storage_type,
+            },
+        })
     }
 }
 
@@ -357,7 +400,10 @@ pub struct Summary {
 
 impl Summary {
     fn new(module: &str) -> Summary {
-        Summary { module: module.to_string(), ..Default::default() }
+        Summary {
+            module: module.to_string(),
+            ..Default::default()
+        }
     }
 
     fn id(&mut self, name: &str) -> u32 {
@@ -371,10 +417,18 @@ impl Summary {
     }
 
     pub(crate) fn audited_allocations(&self, definition: u32) -> Option<&[u32]> {
-        let mut records = self.allocation_inventory.iter().filter(|record| record.definition == definition);
+        let mut records = self
+            .allocation_inventory
+            .iter()
+            .filter(|record| record.definition == definition);
         let record = records.next()?;
-        if records.next().is_some() { return None; }
-        match &record.state { AllocationState::Known(classes) => Some(classes), AllocationState::Unknown => None }
+        if records.next().is_some() {
+            return None;
+        }
+        match &record.state {
+            AllocationState::Known(classes) => Some(classes),
+            AllocationState::Unknown => None,
+        }
     }
 
     /// The text of the summary (the format of §3.3).
@@ -401,8 +455,13 @@ impl Summary {
         for record in audits {
             match &record.state {
                 AllocationState::Known(classes) => {
-                    writeln!(s, "I\t{}\tknown\t{}", record.definition,
-                        join(&mut classes.iter().map(u32::to_string))).unwrap();
+                    writeln!(
+                        s,
+                        "I\t{}\tknown\t{}",
+                        record.definition,
+                        join(&mut classes.iter().map(u32::to_string))
+                    )
+                    .unwrap();
                 }
                 AllocationState::Unknown => {
                     writeln!(s, "I\t{}\tunknown\t", record.definition).unwrap();
@@ -410,7 +469,14 @@ impl Summary {
             }
         }
         for t in &self.tables {
-            writeln!(s, "T\t{}\t{}\t{}", t.node, t.cid, join(&mut t.pairs.iter().map(|(h, f)| format!("{h}:{f}")))).unwrap();
+            writeln!(
+                s,
+                "T\t{}\t{}\t{}",
+                t.node,
+                t.cid,
+                join(&mut t.pairs.iter().map(|(h, f)| format!("{h}:{f}")))
+            )
+            .unwrap();
         }
         for e in &self.externals {
             writeln!(s, "X\t{e}").unwrap();
@@ -428,18 +494,41 @@ impl Summary {
             writeln!(s, "E\t{node}\t{selector}\t{cid}").unwrap();
         }
         for field in &self.declared_field_accesses {
-            writeln!(s, "F\t{}\t{}:{}\t{}", field.definition, field.value_id,
-                if field.write { "w" } else { "r" }, field.payload()).unwrap();
+            writeln!(
+                s,
+                "F\t{}\t{}:{}\t{}",
+                field.definition,
+                field.value_id,
+                if field.write { "w" } else { "r" },
+                field.payload()
+            )
+            .unwrap();
         }
         let mut layouts: Vec<_> = self.declared_field_layouts.iter().collect();
         layouts.sort_by_key(|(cid, _)| **cid);
         for (cid, slots) in layouts {
-            let payload: Vec<_> = slots.iter().map(|field| field.as_ref().map_or(serde_json::Value::Null, |field|
-                serde_json::from_str(&DeclaredFieldAccess { definition: 0, value_id: 0, write: false,
-                    declaration: field.clone() }.payload()).expect("field payload is JSON"))).collect();
+            let payload: Vec<_> = slots
+                .iter()
+                .map(|field| {
+                    field.as_ref().map_or(serde_json::Value::Null, |field| {
+                        serde_json::from_str(
+                            &DeclaredFieldAccess {
+                                definition: 0,
+                                value_id: 0,
+                                write: false,
+                                declaration: field.clone(),
+                            }
+                            .payload(),
+                        )
+                        .expect("field payload is JSON")
+                    })
+                })
+                .collect();
             writeln!(s, "L\t{cid}\t{}", serde_json::Value::Array(payload)).unwrap();
         }
-        if self.universal_parent { writeln!(s, "U\t0").unwrap(); }
+        if self.universal_parent {
+            writeln!(s, "U\t0").unwrap();
+        }
         for cid in &self.nominal_classes {
             writeln!(s, "K\t{cid}").unwrap();
         }
@@ -452,7 +541,12 @@ impl Summary {
         for inventory in &self.arc_ports {
             writeln!(s, "V\t{}", inventory.registration).unwrap();
             for port in &inventory.ports {
-                writeln!(s, "B\t{}\t{}\t{}:{}:{}", inventory.registration, port.target, port.kind, port.contract, port.declaration).unwrap();
+                writeln!(
+                    s,
+                    "B\t{}\t{}\t{}:{}:{}",
+                    inventory.registration, port.target, port.kind, port.contract, port.declaration
+                )
+                .unwrap();
             }
         }
         s
@@ -472,7 +566,11 @@ impl Summary {
         let mut r = Summary::new(module);
         let bad = |l: &str| format!("malformed pruning summary: {l:?}");
         let numbers = |c: Option<&str>| -> Result<Vec<u32>, String> {
-            c.unwrap_or_default().split(' ').filter(|x| !x.is_empty()).map(|x| x.parse().map_err(|_| bad(x))).collect()
+            c.unwrap_or_default()
+                .split(' ')
+                .filter(|x| !x.is_empty())
+                .map(|x| x.parse().map_err(|_| bad(x)))
+                .collect()
         };
         for l in lines {
             let mut c = l.splitn(4, '\t');
@@ -483,7 +581,10 @@ impl Summary {
                     r.names.push(n.to_string());
                 }
                 Some("D") => {
-                    let name = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let name = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
                     let refs = numbers(c.next())?;
                     let calls = c
                         .next()
@@ -495,133 +596,291 @@ impl Summary {
                     r.definitions.push(Definition { name, refs, calls });
                 }
                 Some("I") => {
-                    let definition = c.next().and_then(|v| v.parse().ok()).ok_or_else(|| bad(l))?;
+                    let definition = c
+                        .next()
+                        .and_then(|v| v.parse().ok())
+                        .ok_or_else(|| bad(l))?;
                     let state = c.next().ok_or_else(|| bad(l))?;
                     let payload = c.next().ok_or_else(|| bad(l))?;
-                    if c.next().is_some() { return Err(bad(l)); }
+                    if c.next().is_some() {
+                        return Err(bad(l));
+                    }
                     let state = match state {
                         "unknown" if payload.is_empty() => AllocationState::Unknown,
                         "known" => {
                             let classes = numbers(Some(payload))?;
-                            if classes.iter().copied().collect::<HashSet<_>>().len() != classes.len() { return Err(bad(l)); }
+                            if classes.iter().copied().collect::<HashSet<_>>().len()
+                                != classes.len()
+                            {
+                                return Err(bad(l));
+                            }
                             AllocationState::Known(classes)
                         }
                         _ => return Err(bad(l)),
                     };
-                    r.allocation_inventory.push(AllocationRecord { definition, state });
+                    r.allocation_inventory
+                        .push(AllocationRecord { definition, state });
                 }
                 Some("T") => {
-                    let node = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    let cid = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let node = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    let cid = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
                     let mut pairs = Vec::new();
-                    for p in c.next().unwrap_or_default().split(' ').filter(|x| !x.is_empty()) {
+                    for p in c
+                        .next()
+                        .unwrap_or_default()
+                        .split(' ')
+                        .filter(|x| !x.is_empty())
+                    {
                         let (h, f) = p.split_once(':').ok_or_else(|| bad(l))?;
-                        pairs.push((h.parse().map_err(|_| bad(l))?, f.parse().map_err(|_| bad(l))?));
+                        pairs.push((
+                            h.parse().map_err(|_| bad(l))?,
+                            f.parse().map_err(|_| bad(l))?,
+                        ));
                     }
                     r.tables.push(SummarizedTable { node, cid, pairs });
                 }
-                Some("X") => r.externals.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
+                Some("X") => r.externals.push(
+                    c.next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?,
+                ),
                 Some("S") => {
-                    let h = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    r.selectors.push((h, c.next().unwrap_or_default().to_string()));
+                    let h = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    r.selectors
+                        .push((h, c.next().unwrap_or_default().to_string()));
                 }
                 Some("R") => {
-                    let node = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    r.recipes.push((node, c.next().unwrap_or_default().to_string()));
+                    let node = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    r.recipes
+                        .push((node, c.next().unwrap_or_default().to_string()));
                 }
                 Some("C") => {
-                    let node = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    let selector = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    let cone = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let node = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    let selector = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    let cone = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
                     r.receiver_calls.push((node, selector, cone));
                 }
                 Some("E") => {
-                    let node = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    let selector = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    let cid = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let node = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    let selector = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    let cid = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
                     r.exact_receiver_calls.push((node, selector, cid));
                 }
                 Some("F") => {
-                    let definition = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    let (value_id, operation) = c.next().and_then(|value| value.split_once(':')).ok_or_else(|| bad(l))?;
+                    let definition = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    let (value_id, operation) = c
+                        .next()
+                        .and_then(|value| value.split_once(':'))
+                        .ok_or_else(|| bad(l))?;
                     let value_id = value_id.parse().map_err(|_| bad(l))?;
-                    let write = match operation { "w" => true, "r" => false, _ => return Err(bad(l)) };
+                    let write = match operation {
+                        "w" => true,
+                        "r" => false,
+                        _ => return Err(bad(l)),
+                    };
                     let payload = c.next().ok_or_else(|| bad(l))?;
-                    if c.next().is_some() { return Err(bad(l)); }
-                    r.declared_field_accesses.push(DeclaredFieldAccess::parse(definition, value_id, write, payload)?);
+                    if c.next().is_some() {
+                        return Err(bad(l));
+                    }
+                    r.declared_field_accesses.push(DeclaredFieldAccess::parse(
+                        definition, value_id, write, payload,
+                    )?);
                 }
                 Some("L") => {
-                    let cid: u32 = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    let payload: serde_json::Value = serde_json::from_str(c.next().ok_or_else(|| bad(l))?)
-                        .map_err(|_| bad(l))?;
-                    if c.next().is_some() || cid < dartforge_runtime::layout::FIRST_FREE_CID as u32
-                        || r.declared_field_layouts.contains_key(&cid) { return Err(bad(l)); }
+                    let cid: u32 = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    let payload: serde_json::Value =
+                        serde_json::from_str(c.next().ok_or_else(|| bad(l))?)
+                            .map_err(|_| bad(l))?;
+                    if c.next().is_some()
+                        || cid < dartforge_runtime::layout::FIRST_FREE_CID as u32
+                        || r.declared_field_layouts.contains_key(&cid)
+                    {
+                        return Err(bad(l));
+                    }
                     let array = payload.as_array().ok_or_else(|| bad(l))?;
-                    let slots = array.iter().enumerate().map(|(index, field)| {
-                        if field.is_null() { return Ok(None); }
-                        let field = DeclaredFieldAccess::parse(0, 0, false, &field.to_string())?.declaration;
-                        if field.layout_index != index { return Err(bad(l)); }
-                        Ok(Some(field))
-                    }).collect::<Result<Vec<_>, String>>()?;
+                    let slots = array
+                        .iter()
+                        .enumerate()
+                        .map(|(index, field)| {
+                            if field.is_null() {
+                                return Ok(None);
+                            }
+                            let field =
+                                DeclaredFieldAccess::parse(0, 0, false, &field.to_string())?
+                                    .declaration;
+                            if field.layout_index != index {
+                                return Err(bad(l));
+                            }
+                            Ok(Some(field))
+                        })
+                        .collect::<Result<Vec<_>, String>>()?;
                     r.declared_field_layouts.insert(cid, slots);
                 }
                 Some("U") => {
-                    if r.universal_parent || c.next() != Some("0") || c.next().is_some() { return Err(bad(l)); }
+                    if r.universal_parent || c.next() != Some("0") || c.next().is_some() {
+                        return Err(bad(l));
+                    }
                     r.universal_parent = true;
                 }
-                Some("K") => r.nominal_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
-                Some("A") => r.ambiguous_classes.push(c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?),
+                Some("K") => r.nominal_classes.push(
+                    c.next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?,
+                ),
+                Some("A") => r.ambiguous_classes.push(
+                    c.next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?,
+                ),
                 Some("P") => {
-                    let child = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    let parent = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let child = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    let parent = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
                     r.parent_edges.push((child, parent));
                 }
                 Some("V") => {
-                    let registration = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    r.arc_ports.push(arc_ports::Inventory { registration, ports: vec![] });
+                    let registration = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    r.arc_ports.push(arc_ports::Inventory {
+                        registration,
+                        ports: vec![],
+                    });
                 }
                 Some("B") => {
-                    let registration: u32 = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
-                    let target = c.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let registration: u32 = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
+                    let target = c
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
                     let mut data = c.next().ok_or_else(|| bad(l))?.splitn(3, ':');
                     let kind = data.next().ok_or_else(|| bad(l))?.to_string();
-                    let contract = data.next().and_then(|x| x.parse().ok()).ok_or_else(|| bad(l))?;
+                    let contract = data
+                        .next()
+                        .and_then(|x| x.parse().ok())
+                        .ok_or_else(|| bad(l))?;
                     let declaration = data.next().ok_or_else(|| bad(l))?.to_string();
-                    r.arc_ports.iter_mut().find(|i| i.registration == registration).ok_or_else(|| bad(l))?
-                        .ports.push(arc_ports::Port { target, kind, contract, declaration });
+                    r.arc_ports
+                        .iter_mut()
+                        .find(|i| i.registration == registration)
+                        .ok_or_else(|| bad(l))?
+                        .ports
+                        .push(arc_ports::Port {
+                            target,
+                            kind,
+                            contract,
+                            declaration,
+                        });
                 }
                 _ if l.is_empty() => {}
                 _ => return Err(bad(l)),
             }
         }
         let mut allocation_nodes = HashSet::new();
-        if r.allocation_inventory.iter().any(|record|
-            !r.definitions.iter().any(|definition| definition.name == record.definition)
-                || !allocation_nodes.insert(record.definition)) {
-            return Err("pruning summary with duplicate or non-definition allocation audit".to_string());
+        if r.allocation_inventory.iter().any(|record| {
+            !r.definitions
+                .iter()
+                .any(|definition| definition.name == record.definition)
+                || !allocation_nodes.insert(record.definition)
+        }) {
+            return Err(
+                "pruning summary with duplicate or non-definition allocation audit".to_string(),
+            );
         }
         let n = r.names.len() as u32;
-        let outside = r.definitions.iter().any(|d| d.name >= n || d.refs.iter().any(|&x| x >= n))
-            || r.tables.iter().any(|t| t.node >= n || t.pairs.iter().any(|&(_, f)| f >= n))
+        let outside = r
+            .definitions
+            .iter()
+            .any(|d| d.name >= n || d.refs.iter().any(|&x| x >= n))
+            || r.tables
+                .iter()
+                .any(|t| t.node >= n || t.pairs.iter().any(|&(_, f)| f >= n))
             || r.externals.iter().any(|&e| e >= n);
-        let outside = outside || r.receiver_calls.iter().chain(&r.exact_receiver_calls).any(|&(node, _, _)| node >= n)
-            || r.declared_field_accesses.iter().any(|field| field.definition >= n);
+        let outside = outside
+            || r.receiver_calls
+                .iter()
+                .chain(&r.exact_receiver_calls)
+                .any(|&(node, _, _)| node >= n)
+            || r.declared_field_accesses
+                .iter()
+                .any(|field| field.definition >= n);
         if outside {
             return Err("pruning summary with an index outside the names table".to_string());
         }
-        if r.nominal_classes.iter().chain(&r.ambiguous_classes).any(|&cid| u32::try_from(cid).is_err())
-            || r.parent_edges.iter().any(|&(child, parent)| u32::try_from(child).is_err() || u32::try_from(parent).is_err())
-            || r.receiver_calls.iter().chain(&r.exact_receiver_calls).any(|&(_, _, cone)| u32::try_from(cone).is_err())
+        if r.nominal_classes
+            .iter()
+            .chain(&r.ambiguous_classes)
+            .any(|&cid| u32::try_from(cid).is_err())
+            || r.parent_edges.iter().any(|&(child, parent)| {
+                u32::try_from(child).is_err() || u32::try_from(parent).is_err()
+            })
+            || r.receiver_calls
+                .iter()
+                .chain(&r.exact_receiver_calls)
+                .any(|&(_, _, cone)| u32::try_from(cone).is_err())
         {
             return Err("pruning summary with an invalid nominal class identity".to_string());
         }
         let mut accesses = HashSet::new();
-        if r.declared_field_accesses.iter().any(|field|
-            !r.definitions.iter().any(|definition| definition.name == field.definition)
-                || !accesses.insert((field.definition, field.value_id))) {
-            return Err("pruning field access without a unique definition/SSA identity".to_string());
+        if r.declared_field_accesses.iter().any(|field| {
+            !r.definitions
+                .iter()
+                .any(|definition| definition.name == field.definition)
+                || !accesses.insert((field.definition, field.value_id))
+        }) {
+            return Err(
+                "pruning field access without a unique definition/SSA identity".to_string(),
+            );
         }
-        if r.declared_field_layouts.keys().any(|&cid| r.ambiguous_classes.contains(&i64::from(cid))) {
+        if r.declared_field_layouts
+            .keys()
+            .any(|&cid| r.ambiguous_classes.contains(&i64::from(cid)))
+        {
             return Err("pruning declared layout uses an ambiguous physical CID".to_string());
         }
         if r.universal_parent && !universal_parent::summarized(&r) {
@@ -650,15 +909,27 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     let mut seln_strings: HashMap<&str, String> = HashMap::new();
     let mut descriptors: HashMap<&str, (i64, &str)> = HashMap::new();
     let mut recipes: Vec<(&str, String)> = Vec::new();
-    let universal_parent = ir.lines().filter(|line| *line == "; df.universal-parent 0").count() == 1;
+    let universal_parent = ir
+        .lines()
+        .filter(|line| *line == "; df.universal-parent 0")
+        .count()
+        == 1;
     let mut nominal_classes = Vec::new();
     let mut ambiguous_classes = Vec::new();
     let mut parent_edges = Vec::new();
     for l in ir.lines() {
-        if let Some(cid) = l.strip_prefix("; df.cone-class ").and_then(|v| v.parse::<u32>().ok()).map(i64::from) {
+        if let Some(cid) = l
+            .strip_prefix("; df.cone-class ")
+            .and_then(|v| v.parse::<u32>().ok())
+            .map(i64::from)
+        {
             nominal_classes.push(cid);
         }
-        if let Some(cid) = l.strip_prefix("; df.cone-ambiguous ").and_then(|v| v.parse::<u32>().ok()).map(i64::from) {
+        if let Some(cid) = l
+            .strip_prefix("; df.cone-ambiguous ")
+            .and_then(|v| v.parse::<u32>().ok())
+            .map(i64::from)
+        {
             ambiguous_classes.push(cid);
         }
         if let Some(edge) = l.strip_prefix("; df.cone-parent ") {
@@ -704,7 +975,13 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
     ambiguous_classes.dedup();
     r.ambiguous_classes = ambiguous_classes;
     r.parent_edges = parent_edges;
-    let key = |n: &str| if locals.contains(n) { format!("{module}#{n}") } else { n.to_string() };
+    let key = |n: &str| {
+        if locals.contains(n) {
+            format!("{module}#{n}")
+        } else {
+            n.to_string()
+        }
+    };
     let mut seen_selectors: HashSet<i64> = HashSet::new();
     // Step 2: the definitions.
     let mut current: Option<Definition> = None;
@@ -718,14 +995,18 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                 continue;
             }
             if let Some(classes) = l.trim().strip_prefix("; df.selector-exact ") {
-                receiver_exact = classes.split(',').map(|cid| cid.parse::<u32>().ok().map(i64::from)).collect();
+                receiver_exact = classes
+                    .split(',')
+                    .map(|cid| cid.parse::<u32>().ok().map(i64::from))
+                    .collect();
                 receiver_cone = None;
                 continue;
             }
             if l == "}" {
                 receiver_cone = None;
                 receiver_exact = None;
-                r.definitions.push(current.take().expect("current definition"));
+                r.definitions
+                    .push(current.take().expect("current definition"));
                 continue;
             }
             let call = if l.contains("@df.selector(") {
@@ -739,7 +1020,8 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
             let exact = receiver_exact.take();
             if let Some((h, seln)) = call {
                 if let Some(classes) = &exact {
-                    r.exact_receiver_calls.extend(classes.iter().map(|&cid| (d.name, h, cid)));
+                    r.exact_receiver_calls
+                        .extend(classes.iter().map(|&cid| (d.name, h, cid)));
                 } else if let Some(cone) = cone {
                     r.receiver_calls.push((d.name, h, cone));
                 } else {
@@ -753,7 +1035,8 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                     if let Some(without_t) = t.strip_prefix('t') {
                         let h2 = selector_hash(without_t);
                         if let Some(classes) = &exact {
-                            r.exact_receiver_calls.extend(classes.iter().map(|&cid| (d.name, h2, cid)));
+                            r.exact_receiver_calls
+                                .extend(classes.iter().map(|&cid| (d.name, h2, cid)));
                         } else if let Some(cone) = cone {
                             r.receiver_calls.push((d.name, h2, cone));
                         } else {
@@ -782,9 +1065,17 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
             let refs = refs.iter().map(|x| r.id(x)).collect();
             if l.trim_end().ends_with('}') {
                 // A function on a single line.
-                r.definitions.push(Definition { name, refs, calls: Vec::new() });
+                r.definitions.push(Definition {
+                    name,
+                    refs,
+                    calls: Vec::new(),
+                });
             } else {
-                current = Some(Definition { name, refs, calls: Vec::new() });
+                current = Some(Definition {
+                    name,
+                    refs,
+                    calls: Vec::new(),
+                });
             }
             continue;
         }
@@ -801,7 +1092,11 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
             }
             let refs: Vec<String> = cited(rest).map(key).collect();
             let refs = refs.iter().map(|x| r.id(x)).collect();
-            r.definitions.push(Definition { name: node, refs, calls: Vec::new() });
+            r.definitions.push(Definition {
+                name: node,
+                refs,
+                calls: Vec::new(),
+            });
         }
     }
     for (cid, sym_name, methods) in externals {
@@ -816,8 +1111,16 @@ pub fn summarize(ir: &str, module: &str, externals: &[ModuleTable]) -> Summary {
                 (h, r.id(&f))
             })
             .collect();
-        r.definitions.push(Definition { name: function, refs: vec![node], calls: Vec::new() });
-        r.tables.push(SummarizedTable { node, cid: i64::from(*cid), pairs });
+        r.definitions.push(Definition {
+            name: function,
+            refs: vec![node],
+            calls: Vec::new(),
+        });
+        r.tables.push(SummarizedTable {
+            node,
+            cid: i64::from(*cid),
+            pairs,
+        });
         r.externals.push(function);
     }
     for (n, t) in recipes {
@@ -885,11 +1188,21 @@ fn number_in(b: &[u8], mut i: usize) -> Option<(i64, usize)> {
     while b.get(i).is_some_and(u8::is_ascii_digit) {
         i += 1;
     }
-    std::str::from_utf8(&b[ini..i]).ok()?.parse().ok().map(|n| (n, i))
+    std::str::from_utf8(&b[ini..i])
+        .ok()?
+        .parse()
+        .ok()
+        .map(|n| (n, i))
 }
 
 /// The letter (or `S<rti>.`) of a native type `C<id>` in the FFI key.
-fn ffi_letter(b: &[u8], i: usize, letters: &HashMap<i64, char>, composites: &HashSet<i64>, s: &mut String) -> Option<i64> {
+fn ffi_letter(
+    b: &[u8],
+    i: usize,
+    letters: &HashMap<i64, char>,
+    composites: &HashSet<i64>,
+    s: &mut String,
+) -> Option<i64> {
     if b.get(i) != Some(&b'C') {
         return None;
     }
@@ -913,7 +1226,12 @@ fn ffi_letter(b: &[u8], i: usize, letters: &HashMap<i64, char>, composites: &Has
 /// `NativeCallable` (the front end's FFI transformer rejects a
 /// generic one), so every signature the program asks of the runtime is
 /// written in a recipe of the call site (§3.14).
-pub fn recipe_ffi_keys(text: &str, letters: &HashMap<i64, char>, composites: &HashSet<i64>, exit: &mut HashSet<String>) {
+pub fn recipe_ffi_keys(
+    text: &str,
+    letters: &HashMap<i64, char>,
+    composites: &HashSet<i64>,
+    exit: &mut HashSet<String>,
+) {
     let b = text.as_bytes();
     // The part of the key of the term `b[i..f]`.
     let part = |i: usize, f: usize, s: &mut String| -> Option<()> {
@@ -927,15 +1245,16 @@ pub fn recipe_ffi_keys(text: &str, letters: &HashMap<i64, char>, composites: &Ha
         if j >= f || b[j] != b'<' {
             return Some(());
         }
-        let types: Vec<(usize, usize)> = if b.get(j + 1) == Some(&b'R') && b.get(j + 2) == Some(&b'<') {
-            let (v, end) = terms_until(b, j + 3, b';')?;
-            if b.get(end + 1) != Some(&b'>') {
-                return None;
-            }
-            v
-        } else {
-            vec![(j + 1, term_end(b, j + 1)?)]
-        };
+        let types: Vec<(usize, usize)> =
+            if b.get(j + 1) == Some(&b'R') && b.get(j + 2) == Some(&b'<') {
+                let (v, end) = terms_until(b, j + 3, b';')?;
+                if b.get(end + 1) != Some(&b'>') {
+                    return None;
+                }
+                v
+            } else {
+                vec![(j + 1, term_end(b, j + 1)?)]
+            };
         for (a, _) in types {
             let before = s.len();
             ffi_letter(b, a, letters, composites, s)?;
@@ -980,7 +1299,6 @@ pub fn recipe_ffi_keys(text: &str, letters: &HashMap<i64, char>, composites: &Ha
         }
     }
 }
-
 
 /// Why a node is live (the first time it came in).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1082,7 +1400,8 @@ impl Graph {
                 g.calls[n].extend_from_slice(&d.calls);
             }
             g.nominal_classes.extend(r.nominal_classes.iter().copied());
-            g.ambiguous_classes.extend(r.ambiguous_classes.iter().copied());
+            g.ambiguous_classes
+                .extend(r.ambiguous_classes.iter().copied());
             for &(child, parent) in &r.parent_edges {
                 g.parent_edges.entry(child).or_default().push(parent);
             }
@@ -1151,8 +1470,11 @@ impl Graph {
         let mut exact_callers = HashMap::new();
         let mut pair_callers = HashMap::new();
         let mut receiver_cache = HashMap::new();
-        let mut matches = |cid, cone| *receiver_cache.entry((cid, cone))
-            .or_insert_with(|| self.receiver_matches(cid, cone));
+        let mut matches = |cid, cone| {
+            *receiver_cache
+                .entry((cid, cone))
+                .or_insert_with(|| self.receiver_matches(cid, cone))
+        };
         for (i, n) in self.names.iter().enumerate() {
             if Self::root(n) && self.defined.contains(&(i as u32)) {
                 queue.push((i as u32, Cause::Root));
@@ -1164,7 +1486,10 @@ impl Graph {
             unrestricted.insert(hash);
             unrestricted_callers.insert(hash, None);
         }
-        let by_name: HashSet<u32> = CALL_BY_NAME.iter().filter_map(|n| self.index.get(*n).copied()).collect();
+        let by_name: HashSet<u32> = CALL_BY_NAME
+            .iter()
+            .filter_map(|n| self.index.get(*n).copied())
+            .collect();
         while let Some((node, cause)) = queue.pop() {
             if causes.contains_key(&node) {
                 continue;
@@ -1221,7 +1546,9 @@ impl Graph {
                             pair_callers.entry((table, hash)).or_insert(Some(node));
                             queue.push((function, Cause::Table(table, hash)));
                             false
-                        } else { true }
+                        } else {
+                            true
+                        }
                     });
                 }
             }
@@ -1232,10 +1559,16 @@ impl Graph {
                     } else if unrestricted.contains(&h) {
                         Some(unrestricted_callers[&h])
                     } else {
-                        let nominal = cones.get(&h).and_then(|values| values.iter()
-                            .filter(|&&cone| matches(self.tables[&node].0, cone))
-                            .map(|&cone| cone_callers[&(h, cone)]).min());
-                        let exact = exact_classes.get(&h).filter(|classes| classes.contains(&self.tables[&node].0))
+                        let nominal = cones.get(&h).and_then(|values| {
+                            values
+                                .iter()
+                                .filter(|&&cone| matches(self.tables[&node].0, cone))
+                                .map(|&cone| cone_callers[&(h, cone)])
+                                .min()
+                        });
+                        let exact = exact_classes
+                            .get(&h)
+                            .filter(|classes| classes.contains(&self.tables[&node].0))
                             .map(|_| exact_callers[&(h, self.tables[&node].0)]);
                         nominal.into_iter().chain(exact).min().map(Some)
                     };
@@ -1247,9 +1580,20 @@ impl Graph {
                     }
                 }
             }
-            queue.extend(self.refs[node as usize].iter().map(|&r| (r, Cause::Ref(node))));
+            queue.extend(
+                self.refs[node as usize]
+                    .iter()
+                    .map(|&r| (r, Cause::Ref(node))),
+            );
         }
-        Reach { names: self.names, causes, callees, pair_callers, all_pairs: all, strings: self.strings }
+        Reach {
+            names: self.names,
+            causes,
+            callees,
+            pair_callers,
+            all_pairs: all,
+            strings: self.strings,
+        }
     }
 }
 
@@ -1305,27 +1649,52 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     let mut all: Vec<&Summary> = summaries.to_vec();
     all.push(&program);
     let reachability = reach(&all, prune);
-    let index: HashMap<&str, u32> = reachability.names.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
-    let mut st = Statistics { nodes: reachability.names.len(), live_nodes: reachability.causes.len(), ..Default::default() };
-    // The live pairs of a table, written as in the IR.
-    let live_pairs = |node: Option<u32>, pairs: &[(i64, String)], st: &mut Statistics| -> Vec<(i64, String)> {
-        st.tables += 1;
-        st.pairs += pairs.len();
-        if !node.is_some_and(|n| reachability.live(n)) {
-            return Vec::new();
-        }
-        st.live_tables += 1;
-        let table = node.expect("live table has a graph identity");
-        let v: Vec<(i64, String)> = pairs.iter()
-            .filter(|(h, _)| reachability.live_table_pair(table, *h)).cloned().collect();
-        st.live_pairs += v.len();
-        v
+    let index: HashMap<&str, u32> = reachability
+        .names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i as u32))
+        .collect();
+    let mut st = Statistics {
+        nodes: reachability.names.len(),
+        live_nodes: reachability.causes.len(),
+        ..Default::default()
     };
+    // The live pairs of a table, written as in the IR.
+    let live_pairs =
+        |node: Option<u32>, pairs: &[(i64, String)], st: &mut Statistics| -> Vec<(i64, String)> {
+            st.tables += 1;
+            st.pairs += pairs.len();
+            if !node.is_some_and(|n| reachability.live(n)) {
+                return Vec::new();
+            }
+            st.live_tables += 1;
+            let table = node.expect("live table has a graph identity");
+            let v: Vec<(i64, String)> = pairs
+                .iter()
+                .filter(|(h, _)| reachability.live_table_pair(table, *h))
+                .cloned()
+                .collect();
+            st.live_pairs += v.len();
+            v
+        };
     // The functions of the tables the program defines.
-    let externals: HashSet<&str> =
-        summaries.iter().flat_map(|r| r.externals.iter().map(move |&e| r.names[e as usize].as_str())).collect();
-    let arc_registrations: HashSet<&str> = all.iter().flat_map(|r| r.arc_ports.iter()
-        .map(|inventory| r.names[inventory.registration as usize].as_str())).collect();
+    let externals: HashSet<&str> = summaries
+        .iter()
+        .flat_map(|r| {
+            r.externals
+                .iter()
+                .map(move |&e| r.names[e as usize].as_str())
+        })
+        .collect();
+    let arc_registrations: HashSet<&str> = all
+        .iter()
+        .flat_map(|r| {
+            r.arc_ports
+                .iter()
+                .map(|inventory| r.names[inventory.registration as usize].as_str())
+        })
+        .collect();
     let mut declared_set: HashSet<String> = HashSet::new();
     let mut exit = String::with_capacity(ir.len() + ir.len() / 4);
     // With pruning, the program definitions the fixpoint did not reach
@@ -1336,8 +1705,14 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
         if !prune {
             return false;
         }
-        let key = if local { format!("{PROGRAM}#{n}") } else { n.to_string() };
-        index.get(key.as_str()).is_some_and(|&node| !reachability.live(node))
+        let key = if local {
+            format!("{PROGRAM}#{n}")
+        } else {
+            n.to_string()
+        };
+        index
+            .get(key.as_str())
+            .is_some_and(|&node| !reachability.live(node))
     };
     let mut skipping = false;
     for l in ir.split_inclusive('\n') {
@@ -1377,13 +1752,23 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
             }
             declared_set.insert(n.to_string());
             if table {
-                let (cid, pairs) = line_table(rest).ok_or_else(|| format!("unreadable method table in the program: {n}"))?;
-                let pairs: Vec<(i64, String)> = pairs.into_iter().map(|(h, f)| (h, llvm_name(&f))).collect();
-                let key = if local { format!("{PROGRAM}#{n}") } else { n.to_string() };
+                let (cid, pairs) = line_table(rest)
+                    .ok_or_else(|| format!("unreadable method table in the program: {n}"))?;
+                let pairs: Vec<(i64, String)> =
+                    pairs.into_iter().map(|(h, f)| (h, llvm_name(&f))).collect();
+                let key = if local {
+                    format!("{PROGRAM}#{n}")
+                } else {
+                    n.to_string()
+                };
                 let live_set = live_pairs(index.get(key.as_str()).copied(), &pairs, &mut st);
                 let prefix = &without_end[..without_end.len() - rest.len()];
                 let constant = rest.find("constant ").map_or(0, |i| i + "constant ".len());
-                exit.push_str(&table_line(&format!("{prefix}{}", &rest[..constant]), cid, &live_set));
+                exit.push_str(&table_line(
+                    &format!("{prefix}{}", &rest[..constant]),
+                    cid,
+                    &live_set,
+                ));
                 continue;
             }
         }
@@ -1393,19 +1778,33 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
     // witness; a declaration-only SDK summary is not a body certificate.
     let tables_start = exit.len();
     // The tables of the summaries.
-    exit.push_str("\n; SDK method tables assembled at link time (docs/NATIVO-PODA-DE-TABELAS.md)\n");
+    exit.push_str(
+        "\n; SDK method tables assembled at link time (docs/NATIVO-PODA-DE-TABELAS.md)\n",
+    );
     let mut declare: Vec<String> = Vec::new();
     // (cid, table function) of every assembled table, for the startup registration.
     let mut registrations: Vec<(i64, String)> = Vec::new();
     for r in summaries {
-        let table_of: HashMap<u32, &SummarizedTable> = r.tables.iter().map(|t| (t.node, t)).collect();
+        let table_of: HashMap<u32, &SummarizedTable> =
+            r.tables.iter().map(|t| (t.node, t)).collect();
         for &e in &r.externals {
             let function = &r.names[e as usize];
-            let Some(t) = r.index.get(&format!("{function}$d")).and_then(|node| table_of.get(node)) else {
-                return Err(format!("the summary of {} cites table {function} without its content", r.module));
+            let Some(t) = r
+                .index
+                .get(&format!("{function}$d"))
+                .and_then(|node| table_of.get(node))
+            else {
+                return Err(format!(
+                    "the summary of {} cites table {function} without its content",
+                    r.module
+                ));
             };
             let node = &r.names[t.node as usize];
-            let pairs: Vec<(i64, String)> = t.pairs.iter().map(|&(h, f)| (h, llvm_name(&r.names[f as usize]))).collect();
+            let pairs: Vec<(i64, String)> = t
+                .pairs
+                .iter()
+                .map(|&(h, f)| (h, llvm_name(&r.names[f as usize])))
+                .collect();
             let live_set = live_pairs(index.get(node.as_str()).copied(), &pairs, &mut st);
             for (_, f) in &live_set {
                 let name = f.trim_start_matches('@').trim_matches('"');
@@ -1414,8 +1813,17 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
                 }
             }
             let data = llvm_name(node);
-            exit.push_str(&table_line(&format!("{data} = private unnamed_addr constant "), t.cid, &live_set));
-            writeln!(exit, "define ptr {}() {{\nb0:\n  ret ptr {data}\n}}", llvm_name(function)).unwrap();
+            exit.push_str(&table_line(
+                &format!("{data} = private unnamed_addr constant "),
+                t.cid,
+                &live_set,
+            ));
+            writeln!(
+                exit,
+                "define ptr {}() {{\nb0:\n  ret ptr {data}\n}}",
+                llvm_name(function)
+            )
+            .unwrap();
             registrations.push((t.cid, llvm_name(function)));
         }
     }
@@ -1426,16 +1834,32 @@ pub fn assemble(ir: &str, summaries: &[&Summary], prune: bool) -> Result<Assembl
         registrations.sort();
         registrations.dedup();
         let tables_end = exit.len();
-        assembled_registration::emit(&mut exit, REGISTRATION, &registrations, tables_start..tables_end, &mut declared_set);
+        assembled_registration::emit(
+            &mut exit,
+            REGISTRATION,
+            &registrations,
+            tables_start..tables_end,
+            &mut declared_set,
+        );
     }
     arc_ports::assemble(&mut exit, &all, &reachability, prune, &mut declared_set)?;
     st.time = t0.elapsed();
-    Ok(Assembly { ir: exit, statistics: st, reachability })
+    Ok(Assembly {
+        ir: exit,
+        statistics: st,
+        reachability,
+    })
 }
 
 /// The "why did this stay" report (§3.10): one line per live node.
 pub fn report(reachability: &Reach) -> String {
-    let text = |h: i64| reachability.strings.get(&h).cloned().unwrap_or_else(|| h.to_string());
+    let text = |h: i64| {
+        reachability
+            .strings
+            .get(&h)
+            .cloned()
+            .unwrap_or_else(|| h.to_string())
+    };
     let name = |i: u32| reachability.names[i as usize].as_str();
     let mut lines: Vec<String> = reachability
         .causes
@@ -1444,7 +1868,12 @@ pub fn report(reachability: &Reach) -> String {
             Cause::Root => format!("{}\troot\t-\t-\t-", name(node)),
             Cause::Ref(p) => format!("{}\tref\t{}\t-\t-", name(node), name(*p)),
             Cause::Table(t, h) => {
-                let who = reachability.pair_callers.get(&(*t, *h)).copied().flatten().map_or("root", name);
+                let who = reachability
+                    .pair_callers
+                    .get(&(*t, *h))
+                    .copied()
+                    .flatten()
+                    .map_or("root", name);
                 format!("{}\ttable\t{}\t{}\t{}", name(node), name(*t), text(*h), who)
             }
         })
@@ -1494,7 +1923,8 @@ pub fn assemble_production(ir: &str, files: &[PathBuf], timings: bool) -> Result
     let m = assemble(ir, &refs, prune)?;
     if let Some(file) = std::env::var_os("DARTFORGE_WHY") {
         let file = Path::new(&file);
-        std::fs::write(file, report(&m.reachability)).map_err(|e| format!("{}: {e}", file.display()))?;
+        std::fs::write(file, report(&m.reachability))
+            .map_err(|e| format!("{}: {e}", file.display()))?;
     }
     if timings {
         let e = m.statistics;
@@ -1547,24 +1977,48 @@ fn hir_summary_body(m: &crate::hir::Module) -> Summary {
     HIR_BODY_BUILDS.with(|count| count.set(count.get() + 1));
     use crate::hir::{Constant, Instruction, Operand};
     let registry_closed = receiver_provenance::registry::closed(&[m]);
-    let provenance = if receiver_provenance::enabled() && registry_closed { receiver_provenance::analyze(&[m]) } else { receiver_provenance::Provenance::default() };
+    let provenance = if receiver_provenance::enabled() && registry_closed {
+        receiver_provenance::analyze(&[m])
+    } else {
+        receiver_provenance::Provenance::default()
+    };
     let mut r = Summary::new("programa");
-    r.declared_field_layouts = m.declared_field_layouts.iter()
+    r.declared_field_layouts = m
+        .declared_field_layouts
+        .iter()
         .filter(|(cid, _)| !m.pruning_ambiguous_class_ids.contains(cid))
-        .map(|(cid, fields)| (*cid, fields.clone())).collect();
+        .map(|(cid, fields)| (*cid, fields.clone()))
+        .collect();
     r.universal_parent = universal_parent::declared(m);
-    r.nominal_classes = m.pruning_class_ids.iter().map(|&cid| i64::from(cid)).collect();
+    r.nominal_classes = m
+        .pruning_class_ids
+        .iter()
+        .map(|&cid| i64::from(cid))
+        .collect();
     r.nominal_classes.sort_unstable();
-    r.ambiguous_classes = m.pruning_ambiguous_class_ids.iter().map(|&cid| i64::from(cid)).collect();
+    r.ambiguous_classes = m
+        .pruning_ambiguous_class_ids
+        .iter()
+        .map(|&cid| i64::from(cid))
+        .collect();
     r.ambiguous_classes.sort_unstable();
-    r.parent_edges = m.subtyping_edges.iter().map(|&(child, parent)| (i64::from(child), i64::from(parent))).collect();
+    r.parent_edges = m
+        .subtyping_edges
+        .iter()
+        .map(|&(child, parent)| (i64::from(child), i64::from(parent)))
+        .collect();
     r.parent_edges.sort_unstable();
     r.parent_edges.dedup();
     let mut seen_selectors: HashSet<i64> = HashSet::new();
-    let mut selector = |r: &mut Summary, d: &mut Definition, text: &str, cone: Option<i64>, exact: Option<&receiver_provenance::Classes>| {
+    let mut selector = |r: &mut Summary,
+                        d: &mut Definition,
+                        text: &str,
+                        cone: Option<i64>,
+                        exact: Option<&receiver_provenance::Classes>| {
         let h = selector_hash(text);
         if let Some(classes) = exact {
-            r.exact_receiver_calls.extend(classes.iter().map(|&cid| (d.name, h, i64::from(cid))));
+            r.exact_receiver_calls
+                .extend(classes.iter().map(|&cid| (d.name, h, i64::from(cid))));
         } else if let Some(cone) = cone {
             r.receiver_calls.push((d.name, h, cone));
         } else {
@@ -1577,7 +2031,8 @@ fn hir_summary_body(m: &crate::hir::Module) -> Summary {
         if let Some(without_t) = text.strip_prefix('t') {
             let h2 = selector_hash(without_t);
             if let Some(classes) = exact {
-                r.exact_receiver_calls.extend(classes.iter().map(|&cid| (d.name, h2, i64::from(cid))));
+                r.exact_receiver_calls
+                    .extend(classes.iter().map(|&cid| (d.name, h2, i64::from(cid))));
             } else if let Some(cone) = cone {
                 r.receiver_calls.push((d.name, h2, cone));
             } else {
@@ -1589,7 +2044,10 @@ fn hir_summary_body(m: &crate::hir::Module) -> Summary {
         }
     };
     for f in &m.functions {
-        let mut d = Definition { name: r.id(&f.symbol), ..Default::default() };
+        let mut d = Definition {
+            name: r.id(&f.symbol),
+            ..Default::default()
+        };
         let mut names: Vec<&str> = Vec::new();
         // The `Constant::Function`s of the operands (the visitor does not borrow the
         // operand beyond the call).
@@ -1597,25 +2055,40 @@ fn hir_summary_body(m: &crate::hir::Module) -> Summary {
         let mut recipes: Vec<String> = Vec::new();
         for b in &f.blocks {
             for (value_id, inst, _) in &b.instructions {
-                if let Instruction::DeclaredFieldCall { declaration, name, .. } = inst {
+                if let Instruction::DeclaredFieldCall {
+                    declaration, name, ..
+                } = inst
+                {
                     r.declared_field_accesses.push(DeclaredFieldAccess {
-                        definition: d.name, value_id: value_id.0,
-                        write: name == "dartforge_object_set", declaration: declaration.clone(),
+                        definition: d.name,
+                        value_id: value_id.0,
+                        write: name == "dartforge_object_set",
+                        declaration: declaration.clone(),
                     });
                 }
                 match inst {
                     // The RTI recipes with a function type (§3.14).
-                    Instruction::Const(Constant::String(t)) if t.contains("F<") => recipes.push(t.clone()),
-                    Instruction::AllocObject { class_id, .. } if m.closed_class_tables.is_some() => {
-                        if let Some(table) = m.table_functions.get(class_id) { names.push(table); }
+                    Instruction::Const(Constant::String(t)) if t.contains("F<") => {
+                        recipes.push(t.clone())
+                    }
+                    Instruction::AllocObject { class_id, .. }
+                        if m.closed_class_tables.is_some() =>
+                    {
+                        if let Some(table) = m.table_functions.get(class_id) {
+                            names.push(table);
+                        }
                     }
                     Instruction::CallStatic { symbol, .. } => names.push(symbol),
-                    Instruction::AllocClosure { code_symbol, .. } | Instruction::TearOff { code_symbol } => names.push(code_symbol),
-                    Instruction::AllocClosureTyped { code_symbol, typed, .. } => {
+                    Instruction::AllocClosure { code_symbol, .. }
+                    | Instruction::TearOff { code_symbol } => names.push(code_symbol),
+                    Instruction::AllocClosureTyped {
+                        code_symbol, typed, ..
+                    } => {
                         names.push(code_symbol);
                         names.push(typed);
                     }
-                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
+                    Instruction::CallRuntime { name, args, .. }
+                    | Instruction::DeclaredFieldCall { name, args, .. } => {
                         names.push(name);
                         // The allocation cites the method table of the class
                         // (`dartforge_object_new_t`, `llvm/mod.rs`).
@@ -1626,12 +2099,30 @@ fn hir_summary_body(m: &crate::hir::Module) -> Summary {
                             names.push(t);
                         }
                     }
-                    Instruction::CallSelector { selector: s, recv, .. } | Instruction::CallSelectorForward { selector: s, recv, .. } => {
-                        let cone = m.pruning_this_receivers.get(&f.symbol).filter(|_| registry_closed)
-                            .filter(|(parameter, _)| f.params.iter().any(|(id, _, ty)| id == parameter && *ty == crate::hir::Type::Ref))
+                    Instruction::CallSelector {
+                        selector: s, recv, ..
+                    }
+                    | Instruction::CallSelectorForward {
+                        selector: s, recv, ..
+                    } => {
+                        let cone = m
+                            .pruning_this_receivers
+                            .get(&f.symbol)
+                            .filter(|_| registry_closed)
+                            .filter(|(parameter, _)| {
+                                f.params.iter().any(|(id, _, ty)| {
+                                    id == parameter && *ty == crate::hir::Type::Ref
+                                })
+                            })
                             .filter(|(parameter, _)| recv == &Operand::Val(*parameter))
                             .map(|(_, cid)| i64::from(*cid));
-                        let exact = if let Operand::Val(value) = recv { provenance.values_for(f).and_then(|values| values.get(value)) } else { None };
+                        let exact = if let Operand::Val(value) = recv {
+                            provenance
+                                .values_for(f)
+                                .and_then(|values| values.get(value))
+                        } else {
+                            None
+                        };
                         selector(&mut r, &mut d, s, cone, exact);
                     }
                     Instruction::FunctionTable(v) => names.extend(v.iter().map(String::as_str)),
@@ -1639,7 +2130,9 @@ fn hir_summary_body(m: &crate::hir::Module) -> Summary {
                 }
                 crate::optimize::operands::operands(inst, &mut |o| match o {
                     Operand::Constant(Constant::Function(s)) => functions.push(s.clone()),
-                    Operand::Constant(Constant::String(t)) if t.contains("F<") => recipes.push(t.clone()),
+                    Operand::Constant(Constant::String(t)) if t.contains("F<") => {
+                        recipes.push(t.clone())
+                    }
                     _ => {}
                 });
             }
@@ -1649,7 +2142,11 @@ fn hir_summary_body(m: &crate::hir::Module) -> Summary {
                 }
             });
         }
-        d.refs = names.into_iter().chain(functions.iter().map(String::as_str)).map(|n| r.id(n)).collect();
+        d.refs = names
+            .into_iter()
+            .chain(functions.iter().map(String::as_str))
+            .map(|n| r.id(n))
+            .collect();
         r.recipes.extend(recipes.into_iter().map(|t| (d.name, t)));
         r.definitions.push(d);
     }
@@ -1673,8 +2170,16 @@ fn hir_summary_body(m: &crate::hir::Module) -> Summary {
             refs.extend(class.to_string_symbol.iter().map(|symbol| r.id(symbol)));
             refs.extend(class.vtable.iter().map(|(_, symbol)| r.id(symbol)));
         }
-        r.definitions.push(Definition { name: function, refs, calls: Vec::new() });
-        r.tables.push(SummarizedTable { node, cid: i64::from(*cid), pairs });
+        r.definitions.push(Definition {
+            name: function,
+            refs,
+            calls: Vec::new(),
+        });
+        r.tables.push(SummarizedTable {
+            node,
+            cid: i64::from(*cid),
+            pairs,
+        });
     }
     r
 }
@@ -1688,21 +2193,47 @@ fn add_hir_entry(m: &crate::hir::Module, live_ffis: Option<&HashSet<String>>, r:
     roots.extend(m.record.iter().cloned());
     roots.extend(m.start_rti.iter().cloned());
     roots.extend(m.call_dart.iter().cloned());
-    let eager_class = |cid: u32| m.closed_class_tables.as_ref().is_none_or(|classes|
-        classes.contains(&cid) || m.runtime_cids.contains(&i64::from(cid)));
-    roots.extend(m.method_tables.iter().filter(|(cid, _, _)| eager_class(*cid)).map(|(_, s, _)| s.clone()));
-    roots.extend(m.table_functions.iter().filter(|(cid, _)| eager_class(**cid)).map(|(_, s)|s.clone()));
+    let eager_class = |cid: u32| {
+        m.closed_class_tables.as_ref().is_none_or(|classes| {
+            classes.contains(&cid) || m.runtime_cids.contains(&i64::from(cid))
+        })
+    };
+    roots.extend(
+        m.method_tables
+            .iter()
+            .filter(|(cid, _, _)| eager_class(*cid))
+            .map(|(_, s, _)| s.clone()),
+    );
+    roots.extend(
+        m.table_functions
+            .iter()
+            .filter(|(cid, _)| eager_class(**cid))
+            .map(|(_, s)| s.clone()),
+    );
     for c in m.classes.iter().filter(|_| m.closed_class_tables.is_none()) {
         roots.extend(c.to_string_symbol.iter().cloned());
         roots.extend(c.vtable.iter().map(|(_, s)| s.clone()));
     }
     let live_ffi = |k: &str| live_ffis.is_none_or(|v| v.contains(k));
-    roots.extend(m.ffi_trampolines.iter().filter(|(k, _)| live_ffi(k)).map(|(_, s)| s.clone()));
-    roots.extend(m.ffi_callbacks.iter().filter(|c| live_ffi(&c.key)).map(|c| c.body.clone()));
+    roots.extend(
+        m.ffi_trampolines
+            .iter()
+            .filter(|(k, _)| live_ffi(k))
+            .map(|(_, s)| s.clone()),
+    );
+    roots.extend(
+        m.ffi_callbacks
+            .iter()
+            .filter(|c| live_ffi(&c.key))
+            .map(|c| c.body.clone()),
+    );
     roots.extend(m.helpers.iter().map(|(_, s)| s.clone()));
     roots.extend(m.source_roots.iter().cloned());
     roots.extend(m.globals.iter().map(|(_, _, s)| s.clone()));
-    let mut entry = Definition { name: r.id("dartforge_entry"), ..Default::default() };
+    let mut entry = Definition {
+        name: r.id("dartforge_entry"),
+        ..Default::default()
+    };
     entry.refs = roots.iter().map(|n| r.id(n)).collect();
     r.definitions.push(entry);
 }
@@ -1771,7 +2302,8 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
     // recipes: the fixpoint repeats until the keys stop growing.
     let letters: HashMap<i64, char> = m.ffi_types.iter().copied().collect();
     let composites: HashSet<i64> = m.ffi_composites.iter().map(|c| c.rti).collect();
-    let prune_ffi = !m.ffi_trampolines.is_empty() && !std::env::var("DARTFORGE_NO_FFI_PRUNING").is_ok_and(|v| v == "1");
+    let prune_ffi = !m.ffi_trampolines.is_empty()
+        && !std::env::var("DARTFORGE_NO_FFI_PRUNING").is_ok_and(|v| v == "1");
     let mut live_ffis: HashSet<String> = HashSet::new();
     let mut snapshot = HirSummarySnapshot::new(m);
     let mut reachability_rounds = 0;
@@ -1784,11 +2316,19 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
         if !prune_ffi {
             break reachability;
         }
-        let index: HashMap<&str, u32> = reachability.names.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
+        let index: HashMap<&str, u32> = reachability
+            .names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.as_str(), i as u32))
+            .collect();
         let before = live_ffis.len();
         for r in &all {
             for (node, t) in &r.recipes {
-                if index.get(r.names[*node as usize].as_str()).is_some_and(|&i| reachability.live(i)) {
+                if index
+                    .get(r.names[*node as usize].as_str())
+                    .is_some_and(|&i| reachability.live(i))
+                {
                     recipe_ffi_keys(t, &letters, &composites, &mut live_ffis);
                 }
             }
@@ -1803,10 +2343,22 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
         m.ffi_trampolines.retain(|(k, _)| live_ffis.contains(k));
         m.ffi_callbacks.retain(|c| live_ffis.contains(&c.key));
     }
-    if let Some(narrowed) = class_reachability::narrow(m, sdk) { reachability = narrowed; }
-    let index: HashMap<&str, u32> = reachability.names.iter().enumerate().map(|(i, n)| (n.as_str(), i as u32)).collect();
+    if let Some(narrowed) = class_reachability::narrow(m, sdk) {
+        reachability = narrowed;
+    }
+    let index: HashMap<&str, u32> = reachability
+        .names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.as_str(), i as u32))
+        .collect();
     let live = |n: &str| index.get(n).is_none_or(|&i| reachability.live(i));
-    let mut e = HirPruning { functions: m.functions.len(), ffi: (live_ffis.len(), prune_ffi), reachability_rounds, ..Default::default() };
+    let mut e = HirPruning {
+        functions: m.functions.len(),
+        ffi: (live_ffis.len(), prune_ffi),
+        reachability_rounds,
+        ..Default::default()
+    };
     let mut removed_set: HashSet<String> = HashSet::new();
     m.functions.retain(|f| {
         let stays = live(&f.symbol) || f.symbol.starts_with("dartforge_");
@@ -1816,21 +2368,31 @@ pub fn prune_hir(m: &mut crate::hir::Module, sdk: &[&Summary]) -> HirPruning {
         stays
     });
     e.live_functions = m.functions.len();
-    m.dart_scalar_parameters.retain(|sym_name, _| !removed_set.contains(sym_name));
-    m.dart_rti_parameters.retain(|sym_name, _| !removed_set.contains(sym_name));
-    m.dart_vector_parameters.retain(|sym_name, _| !removed_set.contains(sym_name));
-    m.arc_uniform_returns.retain(|sym_name| !removed_set.contains(sym_name));
-    m.dart_ref_returns.retain(|sym_name| !removed_set.contains(sym_name));
-    m.arc_direct_local_functions.retain(|sym_name| !removed_set.contains(sym_name));
-    m.arc_sites.retain(|sym_name, _| !removed_set.contains(sym_name));
-    m.arc_shared_functions.retain(|sym_name| !removed_set.contains(sym_name));
+    m.dart_scalar_parameters
+        .retain(|sym_name, _| !removed_set.contains(sym_name));
+    m.dart_rti_parameters
+        .retain(|sym_name, _| !removed_set.contains(sym_name));
+    m.dart_vector_parameters
+        .retain(|sym_name, _| !removed_set.contains(sym_name));
+    m.arc_uniform_returns
+        .retain(|sym_name| !removed_set.contains(sym_name));
+    m.dart_ref_returns
+        .retain(|sym_name| !removed_set.contains(sym_name));
+    m.arc_direct_local_functions
+        .retain(|sym_name| !removed_set.contains(sym_name));
+    m.arc_sites
+        .retain(|sym_name, _| !removed_set.contains(sym_name));
+    m.arc_shared_functions
+        .retain(|sym_name| !removed_set.contains(sym_name));
     // The table pair whose selector nobody calls goes away, and so does that of the function that left
     // (the entry of a live pair is always reached).
     for (_, table, pairs) in &mut m.method_tables {
         e.pairs += pairs.len();
         let node = index.get(format!("{table}$d").as_str()).copied();
-        pairs.retain(|(s, f)| node.is_none_or(|n| reachability.live_table_pair(n, selector_hash(s)))
-            && !removed_set.contains(f));
+        pairs.retain(|(s, f)| {
+            node.is_none_or(|n| reachability.live_table_pair(n, selector_hash(s)))
+                && !removed_set.contains(f)
+        });
         e.live_pairs += pairs.len();
     }
     e
@@ -1853,9 +2415,12 @@ mod tests {
              define i64 @C.morto(i64 %t) {\n  ret i64 1\n}\n\
              define internal i64 @df.class(i64 %h) {\n  ret i64 0\n}\n\
              define i64 @aloca() {\n  %v = call i64 @dartforge_object_new_t(i64 200, i64 0, ptr @df.mt.C)\n  ret i64 %v\n}\n\
-             declare ptr @df.mt.C()\n"
+             declare ptr @df.mt.C()\n",
         );
-        let methods = vec![("c:usado".to_string(), "C.usado$c".to_string()), ("c:morto".to_string(), "C.morto$c".to_string())];
+        let methods = vec![
+            ("c:usado".to_string(), "C.usado$c".to_string()),
+            ("c:morto".to_string(), "C.morto$c".to_string()),
+        ];
         summarize(&ir, "dart:x", &[(200, "df.mt.C".to_string(), methods)])
     }
 
@@ -1877,7 +2442,8 @@ mod tests {
 
     #[test]
     fn cited_reads_plain_and_quoted_names() {
-        let v: Vec<&str> = cited("  call void @f(ptr @\"df.s.1\", ptr @g.h$c, i64 %x) ; @").collect();
+        let v: Vec<&str> =
+            cited("  call void @f(ptr @\"df.s.1\", ptr @g.h$c, i64 %x) ; @").collect();
         assert_eq!(v, vec!["f", "df.s.1", "g.h$c"]);
         assert_eq!(llvm_name("df.dart$3acore.x"), "@df.dart$3acore.x");
         assert_eq!(llvm_name("a b"), "@\"a b\"");
@@ -1906,7 +2472,11 @@ mod tests {
     fn typed_selector_also_calls_untyped() {
         let ir = program("tc:usado");
         let r = summarize(&ir, "p", &[]);
-        let main = r.definitions.iter().find(|d| r.names[d.name as usize] == "main").unwrap();
+        let main = r
+            .definitions
+            .iter()
+            .find(|d| r.names[d.name as usize] == "main")
+            .unwrap();
         assert!(main.calls.contains(&h("tc:usado")));
         assert!(main.calls.contains(&h("c:usado")));
     }
@@ -1919,14 +2489,24 @@ mod tests {
         let with = "define i32 @main() {\n  call void @df.register.sdk_tables()\n  ret i32 0\n}\ndeclare void @df.register.sdk_tables()\n";
         let m = assemble(with, &[&s], true).unwrap();
         let ir = &m.ir;
-        assert!(!ir.contains("declare void @df.register.sdk_tables()"), "{ir}");
+        assert!(
+            !ir.contains("declare void @df.register.sdk_tables()"),
+            "{ir}"
+        );
         assert!(
             ir.contains("define void @df.register.sdk_tables() {\nb0:\n  call void @dartforge_register_table(i64 200, ptr @df.mt.C)\n  ret void\n}\n"),
             "{ir}"
         );
-        assert!(ir.contains("declare void @dartforge_register_table(i64, ptr)"), "{ir}");
+        assert!(
+            ir.contains("declare void @dartforge_register_table(i64, ptr)"),
+            "{ir}"
+        );
         let without = assemble("define i32 @main() {\n  ret i32 0\n}\n", &[&s], true).unwrap();
-        assert!(!without.ir.contains("df.register.sdk_tables"), "{}", without.ir);
+        assert!(
+            !without.ir.contains("df.register.sdk_tables"),
+            "{}",
+            without.ir
+        );
     }
 
     #[test]
@@ -1938,12 +2518,31 @@ mod tests {
         assert!(!ir.contains("ptr @C.morto$c"), "{ir}");
         assert!(ir.contains("declare i64 @C.usado$c(i64, ptr, ptr)"));
         assert!(ir.contains("define ptr @df.mt.C()"));
-        assert!(!ir.contains("declare ptr @df.mt.C()"), "the declaration of the table function goes away: {ir}");
+        assert!(
+            !ir.contains("declare ptr @df.mt.C()"),
+            "the declaration of the table function goes away: {ir}"
+        );
         // Nobody cites `df.mt.P`: the program table comes out empty.
-        assert!(ir.contains("@df.mt.P$d = private unnamed_addr constant { i64, i64 } { i64 300, i64 0 }"), "{ir}");
-        assert!(!m.reachability.live(m.reachability.names.iter().position(|n| n == "C.morto").unwrap() as u32));
+        assert!(
+            ir.contains(
+                "@df.mt.P$d = private unnamed_addr constant { i64, i64 } { i64 300, i64 0 }"
+            ),
+            "{ir}"
+        );
+        assert!(
+            !m.reachability.live(
+                m.reachability
+                    .names
+                    .iter()
+                    .position(|n| n == "C.morto")
+                    .unwrap() as u32
+            )
+        );
         let e = m.statistics;
-        assert_eq!((e.tables, e.live_tables, e.pairs, e.live_pairs), (2, 1, 3, 1));
+        assert_eq!(
+            (e.tables, e.live_tables, e.pairs, e.live_pairs),
+            (2, 1, 3, 1)
+        );
     }
 
     #[test]
@@ -1955,12 +2554,20 @@ mod tests {
             h("tc:usado")
         );
         let r = summarize(&ir, "programa", &[]);
-        let main = r.definitions.iter().find(|d| r.names[d.name as usize] == "main").unwrap();
+        let main = r
+            .definitions
+            .iter()
+            .find(|d| r.names[d.name as usize] == "main")
+            .unwrap();
         assert!(main.calls.contains(&h("tc:usado")), "{:?}", main.calls);
         // The fallback of the typed selector.
         assert!(main.calls.contains(&h("c:usado")), "{:?}", main.calls);
         // The descriptor is cited (it stays live with its caller).
-        assert!(main.refs.iter().any(|&i| r.names[i as usize] == "programa#df.seld.0"));
+        assert!(
+            main.refs
+                .iter()
+                .any(|&i| r.names[i as usize] == "programa#df.seld.0")
+        );
     }
 
     /// An HIR module: `main` calls `f` and the selector `c:used`; nobody cites `g`;
@@ -1973,13 +2580,25 @@ mod tests {
             debug_info: None,
             params: Vec::new(),
             return_ty: Type::Void,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions, terminator: Terminator::Return(None) }],
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions,
+                terminator: Terminator::Return(None),
+            }],
         };
         let mut m = Module::new();
         m.functions.push(function(
             "dart_main",
             vec![
-                (ValueId(0), Instruction::CallStatic { symbol: "f".into(), args: Vec::new(), ret_ty: Type::Void }, Type::Void),
+                (
+                    ValueId(0),
+                    Instruction::CallStatic {
+                        symbol: "f".into(),
+                        args: Vec::new(),
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ),
                 (
                     ValueId(1),
                     Instruction::CallSelector {
@@ -2002,7 +2621,10 @@ mod tests {
         m.method_tables = vec![(
             300,
             "df.mt.P".into(),
-            vec![("c:usado".into(), "P.usado$c".into()), ("c:morto".into(), "P.morto$c".into())],
+            vec![
+                ("c:usado".into(), "P.usado$c".into()),
+                ("c:morto".into(), "P.morto$c".into()),
+            ],
         )];
         m
     }
@@ -2014,8 +2636,10 @@ mod tests {
         m.dart_scalar_parameters.insert("g".into(), HashSet::new());
         m.dart_rti_parameters.insert("f".into(), HashSet::new());
         m.dart_rti_parameters.insert("g".into(), HashSet::new());
-        m.dart_vector_parameters.insert("f".into(), Default::default());
-        m.dart_vector_parameters.insert("g".into(), Default::default());
+        m.dart_vector_parameters
+            .insert("f".into(), Default::default());
+        m.dart_vector_parameters
+            .insert("g".into(), Default::default());
         m.arc_uniform_returns.extend(["f".into(), "g".into()]);
         m.arc_shared_functions.extend(["f".into(), "g".into()]);
         let e = prune_hir(&mut m, &[]);
@@ -2031,15 +2655,24 @@ mod tests {
         assert!(!m.arc_shared_functions.contains("g"));
         let names: Vec<&str> = m.functions.iter().map(|f| f.symbol.as_str()).collect();
         assert_eq!(names, vec!["dart_main", "f", "P.usado$c"], "{e:?}");
-        assert_eq!(m.method_tables[0].2, vec![("c:usado".to_string(), "P.usado$c".to_string())]);
-        assert_eq!((e.functions, e.live_functions, e.pairs, e.live_pairs), (5, 3, 2, 1));
+        assert_eq!(
+            m.method_tables[0].2,
+            vec![("c:usado".to_string(), "P.usado$c".to_string())]
+        );
+        assert_eq!(
+            (e.functions, e.live_functions, e.pairs, e.live_pairs),
+            (5, 3, 2, 1)
+        );
         let f = m.functions[1].clone();
         let mut dead_sdk = f.clone();
         dead_sdk.symbol = "df.dart$3acore.dead".into();
         m.functions = vec![f, dead_sdk];
-        m.dart_scalar_parameters.insert("df.dart$3acore.dead".into(), HashSet::new());
-        m.dart_rti_parameters.insert("df.dart$3acore.dead".into(), HashSet::new());
-        m.dart_vector_parameters.insert("df.dart$3acore.dead".into(), Default::default());
+        m.dart_scalar_parameters
+            .insert("df.dart$3acore.dead".into(), HashSet::new());
+        m.dart_rti_parameters
+            .insert("df.dart$3acore.dead".into(), HashSet::new());
+        m.dart_vector_parameters
+            .insert("df.dart$3acore.dead".into(), Default::default());
         m.arc_uniform_returns.insert("df.dart$3acore.dead".into());
         m.arc_shared_functions.insert("df.dart$3acore.dead".into());
         crate::source::prune(&mut m);
@@ -2079,7 +2712,10 @@ mod tests {
         assert!(!ir.contains("define i64 @P.nunca$c"), "{ir}");
         assert!(!ir.contains("define internal i64 @df.class"), "{ir}");
         assert!(ir.contains("define i32 @main()"), "{ir}");
-        assert!(ir.contains("@df.seln.0 = private"), "the text of the selector that main cites stays: {ir}");
+        assert!(
+            ir.contains("@df.seln.0 = private"),
+            "the text of the selector that main cites stays: {ir}"
+        );
         let e = m.statistics;
         assert_eq!(e.pruned_functions, 3, "{ir}");
         // Without pruning, nothing goes away.
@@ -2109,7 +2745,10 @@ mod tests {
         let s = sdk();
         let m = assemble(&program("c:usado"), &[&s], true).unwrap();
         let r = report(&m.reachability);
-        assert!(r.contains("C.usado$c\ttable\tdf.mt.C$d\tc:usado\tmain\n"), "{r}");
+        assert!(
+            r.contains("C.usado$c\ttable\tdf.mt.C$d\tc:usado\tmain\n"),
+            "{r}"
+        );
         assert!(r.contains("main\troot\t"), "{r}");
         assert!(r.contains("aloca\tref\tmain\t"), "{r}");
     }
@@ -2141,7 +2780,10 @@ mod ffi_tests {
     use super::*;
 
     fn keys(text: &str) -> Vec<String> {
-        let letters: HashMap<i64, char> = [(703, 'i'), (719, 'p'), (737, 'v'), (736, '*'), (698, 'd')].into_iter().collect();
+        let letters: HashMap<i64, char> =
+            [(703, 'i'), (719, 'p'), (737, 'v'), (736, '*'), (698, 'd')]
+                .into_iter()
+                .collect();
         let composites: HashSet<i64> = [900].into_iter().collect();
         let mut s = HashSet::new();
         recipe_ffi_keys(text, &letters, &composites, &mut s);
@@ -2157,7 +2799,10 @@ mod ffi_tests {
         assert_eq!(keys("L<C597<F<0;C737;0;;>>,F<0;D;0;;>>"), vec!["v_"]);
         // Struct by value and variadics.
         assert_eq!(keys("F<0;C900;1;C719?;>"), vec!["S900._p"]);
-        assert_eq!(keys("F<0;C703;2;C719,C736<R<C703,C698;>>;>"), vec!["i_p*id"]);
+        assert_eq!(
+            keys("F<0;C703;2;C719,C736<R<C703,C698;>>;>"),
+            vec!["i_p*id"]
+        );
         assert_eq!(keys("F<0;C703;2;C719,C736<C698>;>"), vec!["i_p*d"]);
         // They are not native signatures: a Dart type, a generic one, optional, named.
         assert!(keys("F<0;D;1;C703;>").is_empty());
@@ -2190,22 +2835,32 @@ mod receiver_cone_tests {
         let hash = selector_hash("c:unary-");
         let mut sdk = Summary::new("sdk");
         let caller = sdk.id("sdk.unaryCaller");
-        sdk.definitions.push(Definition { name: caller, ..Default::default() });
+        sdk.definitions.push(Definition {
+            name: caller,
+            ..Default::default()
+        });
         sdk.receiver_calls.push((caller, hash, 10));
         sdk.nominal_classes = vec![0, 10];
         sdk.parent_edges.push((10, 0));
-        let table = table_line("@df.mt.Unrelated$d = private unnamed_addr constant ",
-            20, &[(hash, "@Unrelated.unary$c".into())]);
-        let ir = format!("; df.cone-class 0\n; df.cone-class 20\n; df.cone-parent 20 0\n\
+        let table = table_line(
+            "@df.mt.Unrelated$d = private unnamed_addr constant ",
+            20,
+            &[(hash, "@Unrelated.unary$c".into())],
+        );
+        let ir = format!(
+            "; df.cone-class 0\n; df.cone-class 20\n; df.cone-parent 20 0\n\
             {table}\
             define ptr @df.mt.Unrelated() {{\n ret ptr @df.mt.Unrelated$d\n}}\n\
             define i64 @Unrelated.unary$c(i64 %this, ptr %args, ptr %desc) {{\n ret i64 %this\n}}\n\
             define i32 @main() {{\n %t = call ptr @df.mt.Unrelated()\n\
-              call void @sdk.unaryCaller()\n ret i32 0\n}}\n");
+              call void @sdk.unaryCaller()\n ret i32 0\n}}\n"
+        );
         let assembled = assemble(&ir, &[&sdk], true).unwrap();
         assert!(!assembled.ir.contains("define i64 @Unrelated.unary$c"));
-        assert!(!assembled.ir.contains("ptr @Unrelated.unary$c"),
-            "A selector called for another class cannot resurrect a pruned table entry");
+        assert!(
+            !assembled.ir.contains("ptr @Unrelated.unary$c"),
+            "A selector called for another class cannot resurrect a pruned table entry"
+        );
         assert!(assembled.ir.contains("{ i64 20, i64 0 }"));
 
         // An ordinary unknown receiver must retain the body and table entry.
@@ -2223,20 +2878,43 @@ mod receiver_cone_tests {
         for cid in [10, 11, 12, 13, 20, 777] {
             let node = summary.id(&format!("table.{cid}"));
             let function = summary.id(&format!("length.{cid}"));
-            summary.tables.push(SummarizedTable { node, cid, pairs: vec![(selector, function)] });
-            summary.definitions.push(Definition { name: function, ..Default::default() });
+            summary.tables.push(SummarizedTable {
+                node,
+                cid,
+                pairs: vec![(selector, function)],
+            });
+            summary.definitions.push(Definition {
+                name: function,
+                ..Default::default()
+            });
             refs.push(node);
         }
-        summary.definitions.push(Definition { name: main, refs, calls: Vec::new() });
+        summary.definitions.push(Definition {
+            name: main,
+            refs,
+            calls: Vec::new(),
+        });
         summary.receiver_calls.push((main, selector, cone));
         summary.nominal_classes = vec![0, 10, 11, 12, 13, 20, 30];
         // 12 uses a mixin; 13 implements the receiver interface. Both must stay.
-        summary.parent_edges = vec![(10, 0), (11, 10), (12, 10), (12, 30), (13, 10), (20, 0), (30, 0)];
+        summary.parent_edges = vec![
+            (10, 0),
+            (11, 10),
+            (12, 10),
+            (12, 30),
+            (13, 10),
+            (20, 0),
+            (30, 0),
+        ];
         summary
     }
 
     fn reached(result: &Reach, name: &str) -> bool {
-        result.names.iter().position(|n| n == name).is_some_and(|i| result.live(i as u32))
+        result
+            .names
+            .iter()
+            .position(|n| n == name)
+            .is_some_and(|i| result.live(i as u32))
     }
 
     #[test]
@@ -2263,12 +2941,26 @@ mod receiver_cone_tests {
         let result = reach(&[&summary], true);
         assert!(reached(&result, "length.10"));
         assert!(reached(&result, "length.11"));
-        for cid in [12, 13, 20, 777] { assert!(!reached(&result, &format!("length.{cid}"))); }
+        for cid in [12, 13, 20, 777] {
+            assert!(!reached(&result, &format!("length.{cid}")));
+        }
         // Unknown calls still dominate precise facts and preserve every table.
-        summary.definitions.iter_mut().find(|d| d.name == caller).unwrap().calls.push(selector);
+        summary
+            .definitions
+            .iter_mut()
+            .find(|d| d.name == caller)
+            .unwrap()
+            .calls
+            .push(selector);
         let result = reach(&[&summary], true);
-        for cid in [10, 11, 12, 13, 20, 777] { assert!(reached(&result, &format!("length.{cid}"))); }
-        for entry in ["E\t999999\t1\t10\n", "E\t0\t1\t-1\n", "E\t0\t1\t4294967296\n"] {
+        for cid in [10, 11, 12, 13, 20, 777] {
+            assert!(reached(&result, &format!("length.{cid}")));
+        }
+        for entry in [
+            "E\t999999\t1\t10\n",
+            "E\t0\t1\t-1\n",
+            "E\t0\t1\t4294967296\n",
+        ] {
             assert!(Summary::from_string(&format!("{}{entry}", summary.to_text())).is_err());
         }
     }
@@ -2276,26 +2968,67 @@ mod receiver_cone_tests {
     #[test]
     fn actual_hir_and_llvm_use_the_same_allocation_receiver_classes() {
         use crate::hir::*;
-        let function = Function { symbol: "main".into(), name: "main".into(), params: vec![], return_ty: Type::Ref,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                (ValueId(0), Instruction::AllocList { elements: vec![] }, Type::Ref),
-                (ValueId(1), Instruction::CallSelector { selector: "g:length".into(), recv: Operand::Val(ValueId(0)), args: vec![], names: vec![], tuple_types: Operand::Constant(Constant::Int(0)) }, Type::Ref),
-            ], terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }], debug_info: None };
-        let module = Module { functions: vec![function], ..Module::default() };
+        let function = Function {
+            symbol: "main".into(),
+            name: "main".into(),
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![
+                    (
+                        ValueId(0),
+                        Instruction::AllocList { elements: vec![] },
+                        Type::Ref,
+                    ),
+                    (
+                        ValueId(1),
+                        Instruction::CallSelector {
+                            selector: "g:length".into(),
+                            recv: Operand::Val(ValueId(0)),
+                            args: vec![],
+                            names: vec![],
+                            tuple_types: Operand::Constant(Constant::Int(0)),
+                        },
+                        Type::Ref,
+                    ),
+                ],
+                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+            }],
+            debug_info: None,
+        };
+        let module = Module {
+            functions: vec![function],
+            ..Module::default()
+        };
         let hir = hir_summary(&module);
         let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
         assert!(ir.contains("; df.selector-exact 10"));
         let llvm = summarize(&ir, "programa", &[]);
-        let triples = |summary: &Summary| summary.exact_receiver_calls.iter().map(|&(node, selector, cid)| (summary.names[node as usize].clone(), selector, cid)).collect::<Vec<_>>();
+        let triples = |summary: &Summary| {
+            summary
+                .exact_receiver_calls
+                .iter()
+                .map(|&(node, selector, cid)| (summary.names[node as usize].clone(), selector, cid))
+                .collect::<Vec<_>>()
+        };
         assert_eq!(triples(&hir), triples(&llvm));
-        assert_eq!(triples(&hir), vec![("main".into(), selector_hash("g:length"), 10)]);
+        assert_eq!(
+            triples(&hir),
+            vec![("main".into(), selector_hash("g:length"), 10)]
+        );
     }
 
     #[test]
     fn malformed_or_detached_exact_ir_annotations_remain_unrestricted() {
         let selector = selector_hash("g:length");
-        for annotation in ["; df.selector-exact invalid", "; df.selector-exact 10\n  %other = add i64 1, 2"] {
-            let ir = format!("define i64 @main() {{\n  {annotation}\n  %f = call ptr @df.selector(ptr %cache, i64 %this, i64 {selector}, ptr @df.seln.0, i64 8)\n  ret i64 0\n}}\n");
+        for annotation in [
+            "; df.selector-exact invalid",
+            "; df.selector-exact 10\n  %other = add i64 1, 2",
+        ] {
+            let ir = format!(
+                "define i64 @main() {{\n  {annotation}\n  %f = call ptr @df.selector(ptr %cache, i64 %this, i64 {selector}, ptr @df.seln.0, i64 8)\n  ret i64 0\n}}\n"
+            );
             let summary = summarize(&ir, "sdk", &[]);
             assert!(summary.exact_receiver_calls.is_empty());
             assert!(summary.definitions[0].calls.contains(&selector));
@@ -2306,15 +3039,32 @@ mod receiver_cone_tests {
     fn unknown_receiver_call_overrides_restricted_calls_without_order_dependence() {
         let mut summary = fixture(10);
         let later = summary.id("unknown-caller");
-        summary.definitions.push(Definition { name: later, refs: Vec::new(), calls: vec![selector_hash("g:length")] });
-        summary.definitions.iter_mut().find(|d| summary.names[d.name as usize] == "main").unwrap().refs.push(later);
+        summary.definitions.push(Definition {
+            name: later,
+            refs: Vec::new(),
+            calls: vec![selector_hash("g:length")],
+        });
+        summary
+            .definitions
+            .iter_mut()
+            .find(|d| summary.names[d.name as usize] == "main")
+            .unwrap()
+            .refs
+            .push(later);
         for reverse in [false, true] {
-            if reverse { summary.definitions.reverse(); }
+            if reverse {
+                summary.definitions.reverse();
+            }
             let result = reach(&[&summary], true);
             assert!(reached(&result, "length.20"));
             let evidence = report(&result);
-            assert!(evidence.lines().find(|line| line.starts_with("length.20\t"))
-                .unwrap().ends_with("\tunknown-caller"));
+            assert!(
+                evidence
+                    .lines()
+                    .find(|line| line.starts_with("length.20\t"))
+                    .unwrap()
+                    .ends_with("\tunknown-caller")
+            );
         }
     }
 
@@ -2354,7 +3104,11 @@ mod receiver_cone_tests {
         let summary = summarize(&ir, "sdk", &[]);
         assert_eq!(summary.receiver_calls.len(), 1);
         assert_eq!(summary.receiver_calls[0].2, 10);
-        assert!(summary.definitions[0].calls.contains(&selector_hash("g:length")));
+        assert!(
+            summary.definitions[0]
+                .calls
+                .contains(&selector_hash("g:length"))
+        );
         assert_eq!(summary.nominal_classes, vec![10]);
         assert_eq!(summary.parent_edges, vec![(10, 0)]);
     }
@@ -2364,42 +3118,71 @@ mod receiver_cone_tests {
         // Check the actual SDK summary, including both uniform getter adapters.
         // Whole programs have other unknown g:length sites, so exclusion here
         // concerns this proven call only, not every call in the SDK graph.
-        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
-            let sdk = crate::sdk_module::compiled_sdk_in_profile(crate::sdk_tests(),
-                &crate::driver::NativeDriverOptions::default().clang,
-                crate::sdk_module::SdkProfile::Production).unwrap();
-            let summaries = read_summaries(&sdk.summaries).unwrap();
-            let core = summaries.iter().find(|s| s.module == "dart:core").unwrap();
-            let hash = selector_hash("g:length");
-            let mut expected_cone = None;
-            for suffix in ["", "$g", "$c"] {
-                let symbol = format!("df.dart$3acore.StringBuffer.isEmpty{suffix}");
-                let node = core.names.iter().position(|name| name == &symbol).unwrap() as u32;
-                let definition = core.definitions.iter().find(|d| d.name == node).unwrap();
-                assert!(!definition.calls.contains(&hash), "unrestricted getter: {symbol}");
-                let call = core.receiver_calls.iter().find(|&&(n, h, _)| n == node && h == hash)
-                    .expect("SDK getter must preserve its actual formal receiver");
-                if let Some(cone) = expected_cone { assert_eq!(call.2, cone); }
-                expected_cone = Some(call.2);
-                assert!(core.nominal_classes.contains(&call.2));
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                let sdk = crate::sdk_module::compiled_sdk_in_profile(
+                    crate::sdk_tests(),
+                    &crate::driver::NativeDriverOptions::default().clang,
+                    crate::sdk_module::SdkProfile::Production,
+                )
+                .unwrap();
+                let summaries = read_summaries(&sdk.summaries).unwrap();
+                let core = summaries.iter().find(|s| s.module == "dart:core").unwrap();
+                let hash = selector_hash("g:length");
+                let mut expected_cone = None;
+                for suffix in ["", "$g", "$c"] {
+                    let symbol = format!("df.dart$3acore.StringBuffer.isEmpty{suffix}");
+                    let node = core.names.iter().position(|name| name == &symbol).unwrap() as u32;
+                    let definition = core.definitions.iter().find(|d| d.name == node).unwrap();
+                    assert!(
+                        !definition.calls.contains(&hash),
+                        "unrestricted getter: {symbol}"
+                    );
+                    let call = core
+                        .receiver_calls
+                        .iter()
+                        .find(|&&(n, h, _)| n == node && h == hash)
+                        .expect("SDK getter must preserve its actual formal receiver");
+                    if let Some(cone) = expected_cone {
+                        assert_eq!(call.2, cone);
+                    }
+                    expected_cone = Some(call.2);
+                    assert!(core.nominal_classes.contains(&call.2));
 
-                // Project the real call into an otherwise controlled graph:
-                // its class/subclasses stay, an unrelated closed class does not,
-                // and an unknown runtime identity remains conservative.
-                let mut controlled = fixture(call.2);
-                for cid in &mut controlled.nominal_classes { if *cid == 10 { *cid = call.2; } }
-                for (child, parent) in &mut controlled.parent_edges {
-                    if *child == 10 { *child = call.2; }
-                    if *parent == 10 { *parent = call.2; }
+                    // Project the real call into an otherwise controlled graph:
+                    // its class/subclasses stay, an unrelated closed class does not,
+                    // and an unknown runtime identity remains conservative.
+                    let mut controlled = fixture(call.2);
+                    for cid in &mut controlled.nominal_classes {
+                        if *cid == 10 {
+                            *cid = call.2;
+                        }
+                    }
+                    for (child, parent) in &mut controlled.parent_edges {
+                        if *child == 10 {
+                            *child = call.2;
+                        }
+                        if *parent == 10 {
+                            *parent = call.2;
+                        }
+                    }
+                    controlled
+                        .tables
+                        .iter_mut()
+                        .find(|t| t.cid == 10)
+                        .unwrap()
+                        .cid = call.2;
+                    let result = reach(&[&controlled], true);
+                    assert!(reached(&result, "length.10"));
+                    assert!(reached(&result, "length.11"));
+                    assert!(reached(&result, "length.777"));
+                    assert!(!reached(&result, "length.20"));
                 }
-                controlled.tables.iter_mut().find(|t| t.cid == 10).unwrap().cid = call.2;
-                let result = reach(&[&controlled], true);
-                assert!(reached(&result, "length.10"));
-                assert!(reached(&result, "length.11"));
-                assert!(reached(&result, "length.777"));
-                assert!(!reached(&result, "length.20"));
-            }
-        }).unwrap().join().unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }
 
@@ -2409,19 +3192,47 @@ mod declared_field_summary_tests {
     use crate::hir::*;
 
     fn module() -> Module {
-        let declaration = FieldDeclaration { library_uri: "dart:convert".into(), owner: "Base64Codec".into(),
-            name: "_encoder".into(), is_final: true, is_late: false, layout_index: 0, storage_type: Type::Ref };
-        let field = Instruction::CallRuntime { name: "dartforge_object_get".into(),
-            args: vec![(Operand::Val(ValueId(0)), Type::Ref),
-                (Operand::Constant(Constant::Int(0)), Type::I64)], ret_ty: Type::Ref }
-            .with_field_declaration(Some(declaration.clone()));
-        Module { functions: vec![Function { symbol: "getter".into(), name: "getter".into(),
-            params: vec![(ValueId(0), "this".into(), Type::Ref)], return_ty: Type::Ref, debug_info: None,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![(ValueId(1), field, Type::Ref)],
-                terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }],
-        }], declared_field_layouts: HashMap::from([(128, vec![Some(declaration)])]),
-            classes: vec![ClassDef { id: 128, name: "Base64Codec".into(), field_count: 1,
-                vtable: vec![], to_string_symbol: None }], ..Module::default() }
+        let declaration = FieldDeclaration {
+            library_uri: "dart:convert".into(),
+            owner: "Base64Codec".into(),
+            name: "_encoder".into(),
+            is_final: true,
+            is_late: false,
+            layout_index: 0,
+            storage_type: Type::Ref,
+        };
+        let field = Instruction::CallRuntime {
+            name: "dartforge_object_get".into(),
+            args: vec![
+                (Operand::Val(ValueId(0)), Type::Ref),
+                (Operand::Constant(Constant::Int(0)), Type::I64),
+            ],
+            ret_ty: Type::Ref,
+        }
+        .with_field_declaration(Some(declaration.clone()));
+        Module {
+            functions: vec![Function {
+                symbol: "getter".into(),
+                name: "getter".into(),
+                params: vec![(ValueId(0), "this".into(), Type::Ref)],
+                return_ty: Type::Ref,
+                debug_info: None,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(ValueId(1), field, Type::Ref)],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                }],
+            }],
+            declared_field_layouts: HashMap::from([(128, vec![Some(declaration)])]),
+            classes: vec![ClassDef {
+                id: 128,
+                name: "Base64Codec".into(),
+                field_count: 1,
+                vtable: vec![],
+                to_string_symbol: None,
+            }],
+            ..Module::default()
+        }
     }
 
     #[test]
@@ -2438,7 +3249,10 @@ mod declared_field_summary_tests {
         let access = &parsed.declared_field_accesses[0];
         assert_eq!(parsed.names[access.definition as usize], "getter");
         assert_eq!(access.value_id, 1);
-        assert_eq!(access.declaration.identity(), ("dart:convert", "Base64Codec", "_encoder"));
+        assert_eq!(
+            access.declaration.identity(),
+            ("dart:convert", "Base64Codec", "_encoder")
+        );
         assert_eq!(access.declaration.storage_type, Type::Ref);
         assert_eq!(before_ir, crate::llvm::LlvmEmitter::new(&module).emit_all());
     }
@@ -2446,11 +3260,23 @@ mod declared_field_summary_tests {
     #[test]
     fn persistent_field_facts_refuse_corruption_and_old_schema() {
         let summary = hir_summary(&module()).to_text();
-        assert!(Summary::from_string(&summary.replace("dartforge-poda\t9", "dartforge-poda\t8")).is_err());
-        assert!(Summary::from_string(&summary.replace("\"storage\":\"ref\"", "\"storage\":\"ptr\"")).is_err());
-        let record = summary.lines().find(|line| line.starts_with("F\t")).unwrap();
+        assert!(
+            Summary::from_string(&summary.replace("dartforge-poda\t9", "dartforge-poda\t8"))
+                .is_err()
+        );
+        assert!(
+            Summary::from_string(&summary.replace("\"storage\":\"ref\"", "\"storage\":\"ptr\""))
+                .is_err()
+        );
+        let record = summary
+            .lines()
+            .find(|line| line.starts_with("F\t"))
+            .unwrap();
         assert!(Summary::from_string(&format!("{summary}{record}\n")).is_err());
-        let layout = summary.lines().find(|line| line.starts_with("L\t")).unwrap();
+        let layout = summary
+            .lines()
+            .find(|line| line.starts_with("L\t"))
+            .unwrap();
         assert!(Summary::from_string(&format!("{summary}{layout}\n")).is_err());
         assert!(Summary::from_string(&summary.replace("L\t128\t", "L\t0\t")).is_err());
         assert!(Summary::from_string(&summary.replace("\"slot\":0", "\"slot\":1")).is_err());
@@ -2460,49 +3286,97 @@ mod declared_field_summary_tests {
     }
     #[test]
     fn actual_sdk_base64_declarations_survive_summary_roundtrip() {
-        std::thread::Builder::new().stack_size(64 << 20).spawn(|| {
-            use dartforge_types::table::{CoreTypes, TypeTable};
-            let directory = tempfile::tempdir().unwrap();
-            let entry = directory.path().join("main.dart");
-            std::fs::write(&entry, "import 'dart:convert'; void main() { print(base64.encode([65])); }").unwrap();
-            let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
-            let mut interner = dartforge_intern::Interner::new();
-            let (program, diagnostics) = dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
-            assert!(diagnostics.is_empty());
-            let mut table = TypeTable::new();
-            let core = CoreTypes::init(&mut table, &program, &interner);
-            let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
-            let libraries: Vec<_> = program.libraries.iter().enumerate()
-                .filter(|(_, library)| matches!(library.uri.as_str(), "dart:core" | "dart:convert"))
-                .map(|(index, _)| dartforge_elements::model::LibraryId(index as u32)).collect();
-            let (bodies, _) = dartforge_types::infer_library_bodies(&program, &interner, &mut table,
-                &core, &mut outline, &libraries);
-            let convert = libraries.iter().copied().find(|id| program.library(*id).uri == "dart:convert").unwrap();
-            let context = crate::context::Context::new(&program, &interner, &table, &core, &outline, &bodies)
-                .with_source_sdk().only_the_library(convert);
-            let module = crate::lower::lower_program(&context);
-            assert!(module.errors.is_empty(), "{:?}", module.errors);
-            let summary = hir_summary(&module);
-            let fields: Vec<_> = summary.declared_field_accesses.iter()
-                .filter(|field| field.declaration.identity() == ("dart:convert", "Base64Codec", "_encoder"))
-                .collect();
-            assert!(fields.iter().any(|field| field.write));
-            assert!(fields.iter().any(|field| !field.write));
-            assert!(fields.iter().all(|field| field.declaration.is_final
-                && !field.declaration.is_late && field.declaration.layout_index == 0
-                && field.declaration.storage_type == Type::Ref));
-            let path = directory.path().join("convert.poda");
-            std::fs::write(&path, summary.to_text()).unwrap();
-            let parsed = Summary::from_string(&std::fs::read_to_string(&path).unwrap()).unwrap();
-            assert_eq!(summary.declared_field_accesses, parsed.declared_field_accesses);
-            assert_eq!(summary.declared_field_layouts, parsed.declared_field_layouts);
-            let class = module.classes.iter().find(|class| class.name == "Base64Codec").unwrap();
-            let layout = parsed.declared_field_layouts.get(&class.id).unwrap();
-            assert_eq!(layout.len(), class.field_count);
-            assert_eq!(layout[0].as_ref().unwrap().identity(), ("dart:convert", "Base64Codec", "_encoder"));
-        }).unwrap().join().unwrap();
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(|| {
+                use dartforge_types::table::{CoreTypes, TypeTable};
+                let directory = tempfile::tempdir().unwrap();
+                let entry = directory.path().join("main.dart");
+                std::fs::write(
+                    &entry,
+                    "import 'dart:convert'; void main() { print(base64.encode([65])); }",
+                )
+                .unwrap();
+                let sdk = crate::sdk_module::load_native_sdk(crate::sdk_tests()).unwrap();
+                let mut interner = dartforge_intern::Interner::new();
+                let (program, diagnostics) =
+                    dartforge_elements::load::load_lenient(&entry, &sdk, None, &mut interner);
+                assert!(diagnostics.is_empty());
+                let mut table = TypeTable::new();
+                let core = CoreTypes::init(&mut table, &program, &interner);
+                let (mut outline, _) =
+                    dartforge_types::resolve_outline(&program, &interner, &mut table, &core);
+                let libraries: Vec<_> = program
+                    .libraries
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, library)| {
+                        matches!(library.uri.as_str(), "dart:core" | "dart:convert")
+                    })
+                    .map(|(index, _)| dartforge_elements::model::LibraryId(index as u32))
+                    .collect();
+                let (bodies, _) = dartforge_types::infer_library_bodies(
+                    &program,
+                    &interner,
+                    &mut table,
+                    &core,
+                    &mut outline,
+                    &libraries,
+                );
+                let convert = libraries
+                    .iter()
+                    .copied()
+                    .find(|id| program.library(*id).uri == "dart:convert")
+                    .unwrap();
+                let context = crate::context::Context::new(
+                    &program, &interner, &table, &core, &outline, &bodies,
+                )
+                .with_source_sdk()
+                .only_the_library(convert);
+                let module = crate::lower::lower_program(&context);
+                assert!(module.errors.is_empty(), "{:?}", module.errors);
+                let summary = hir_summary(&module);
+                let fields: Vec<_> = summary
+                    .declared_field_accesses
+                    .iter()
+                    .filter(|field| {
+                        field.declaration.identity() == ("dart:convert", "Base64Codec", "_encoder")
+                    })
+                    .collect();
+                assert!(fields.iter().any(|field| field.write));
+                assert!(fields.iter().any(|field| !field.write));
+                assert!(fields.iter().all(|field| field.declaration.is_final
+                    && !field.declaration.is_late
+                    && field.declaration.layout_index == 0
+                    && field.declaration.storage_type == Type::Ref));
+                let path = directory.path().join("convert.poda");
+                std::fs::write(&path, summary.to_text()).unwrap();
+                let parsed =
+                    Summary::from_string(&std::fs::read_to_string(&path).unwrap()).unwrap();
+                assert_eq!(
+                    summary.declared_field_accesses,
+                    parsed.declared_field_accesses
+                );
+                assert_eq!(
+                    summary.declared_field_layouts,
+                    parsed.declared_field_layouts
+                );
+                let class = module
+                    .classes
+                    .iter()
+                    .find(|class| class.name == "Base64Codec")
+                    .unwrap();
+                let layout = parsed.declared_field_layouts.get(&class.id).unwrap();
+                assert_eq!(layout.len(), class.field_count);
+                assert_eq!(
+                    layout[0].as_ref().unwrap().identity(),
+                    ("dart:convert", "Base64Codec", "_encoder")
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
-
 }
 
 #[cfg(test)]

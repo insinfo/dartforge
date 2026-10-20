@@ -33,7 +33,10 @@ fn uses_list(text: &str) -> impl Iterator<Item = &str> {
             if b[i] == b'%' {
                 let begin = i + 1;
                 let mut end = begin;
-                while end < b.len() && (b[end].is_ascii_alphanumeric() || matches!(b[end], b'.' | b'_' | b'$' | b'-')) {
+                while end < b.len()
+                    && (b[end].is_ascii_alphanumeric()
+                        || matches!(b[end], b'.' | b'_' | b'$' | b'-'))
+                {
                     end += 1;
                 }
                 i = end.max(begin);
@@ -101,7 +104,9 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
         .iter()
         .filter(|l| {
             l.contains("= getelementptr ")
-                && (l.ends_with("i64 360") || l.ends_with("i64 368") || selections.iter().any(|s| l.ends_with(&format!("i64 %{s}"))))
+                && (l.ends_with("i64 360")
+                    || l.ends_with("i64 368")
+                    || selections.iter().any(|s| l.ends_with(&format!("i64 %{s}"))))
         })
         .filter_map(|l| defined(l))
         .collect();
@@ -110,7 +115,9 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
         .filter(|l| {
             l.contains("!invariant.load")
                 || l.contains("= load i64, ptr %")
-                    && uses_list(&l[l.find("= load").unwrap_or(0)..]).next().is_some_and(|p| canonicals.contains(p))
+                    && uses_list(&l[l.find("= load").unwrap_or(0)..])
+                        .next()
+                        .is_some_and(|p| canonicals.contains(p))
         })
         .filter_map(|l| defined(l))
         .collect();
@@ -120,10 +127,14 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
     // the other).
     let mut phis = Vec::new();
     let mut equal: std::collections::HashMap<&str, (&str, &str)> = std::collections::HashMap::new();
-    let mut branches: std::collections::HashMap<&str, (&str, &str)> = std::collections::HashMap::new();
+    let mut branches: std::collections::HashMap<&str, (&str, &str)> =
+        std::collections::HashMap::new();
     let mut block = "";
     for l in line_list {
-        if !l.starts_with(' ') && !l.starts_with("define") && let Some(k) = l.find(':') {
+        if !l.starts_with(' ')
+            && !l.starts_with("define")
+            && let Some(k) = l.find(':')
+        {
             block = &l[..k];
             continue;
         }
@@ -150,16 +161,30 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
                 .filter_map(|pair| {
                     let mut x = pair.split(',');
                     let value = x.next()?.trim().strip_prefix('%')?;
-                    let of = x.next()?.trim().trim_end_matches(']').trim().strip_prefix('%')?;
+                    let of = x
+                        .next()?
+                        .trim()
+                        .trim_end_matches(']')
+                        .trim()
+                        .strip_prefix('%')?;
                     Some((value, of))
                 })
                 .collect();
-            phis.push(Phi { value: d, block, entries });
+            phis.push(Phi {
+                value: d,
+                block,
+                entries,
+            });
         }
     }
     loop {
         let before = invariants.len();
-        for Phi { value: d, block, entries } in &phis {
+        for Phi {
+            value: d,
+            block,
+            entries,
+        } in &phis
+        {
             if invariants.contains(d) || entries.is_empty() {
                 continue;
             }
@@ -167,7 +192,10 @@ fn without_invariants<'a>(line_list: &[&'a str], mut refs: HashSet<&'a str>) -> 
                 invariants.contains(value)
                     || branches.get(of).is_some_and(|(c, v)| {
                         v == block
-                            && equal.get(c).is_some_and(|(a, b)| (*a == value && invariants.contains(b)) || (*b == value && invariants.contains(a)))
+                            && equal.get(c).is_some_and(|(a, b)| {
+                                (*a == value && invariants.contains(b))
+                                    || (*b == value && invariants.contains(a))
+                            })
                     })
             };
             if entries.iter().all(|(value, of)| canonical_one(value, of)) {
@@ -258,7 +286,9 @@ fn check_function(line_list: &[&str], offset: usize) -> Result<(), String> {
             }
         }
         if is_statepoint {
-            let live_set: HashSet<&str> = deopt_operand(body).map(|d| uses_list(d).collect()).unwrap_or_default();
+            let live_set: HashSet<&str> = deopt_operand(body)
+                .map(|d| uses_list(d).collect())
+                .unwrap_or_default();
             // C1: the `Ref` argument is live in the call.
             for name in uses_list(without_operands(body)).filter(|x| refs.contains(x)) {
                 if !live_set.contains(name) {
@@ -267,7 +297,11 @@ fn check_function(line_list: &[&str], offset: usize) -> Result<(), String> {
                     ));
                 }
             }
-            points.push(Point { live_set, after: HashSet::new(), line: n });
+            points.push(Point {
+                live_set,
+                after: HashSet::new(),
+                line: n,
+            });
         }
         if let Some(d) = def {
             for p in &mut points {
@@ -303,13 +337,24 @@ b0:
     #[test]
     fn finds_planted_violations() {
         let other_one = "  %sp2 = call token (i64, i32, ptr, i32, i32, ...) @llvm.experimental.gc.statepoint.p0(i64 0, i32 0, ptr elementtype(void ()) @h, i32 0, i32 0, i32 0, i32 0) [ \"deopt\"(i64 %v1) ]\n  ret i64 %v3";
-        let without_root = BOM.replace(r#"[ "deopt"(i64 %v1) ]"#, r#"[ "deopt"() ]"#).replace("  ret i64 %v3", other_one);
+        let without_root = BOM
+            .replace(r#"[ "deopt"(i64 %v1) ]"#, r#"[ "deopt"() ]"#)
+            .replace("  ret i64 %v3", other_one);
         assert_ne!(without_root, BOM);
         // The later use, without the value among the arguments.
-        let only_after = without_root.replace("i32 1, i32 0, i64 %v1, i32 0, i32 0)", "i32 0, i32 0, i32 0, i32 0)");
-        assert!(check(&only_after).unwrap_err().contains("used after"), "{only_after}");
+        let only_after = without_root.replace(
+            "i32 1, i32 0, i64 %v1, i32 0, i32 0)",
+            "i32 0, i32 0, i32 0, i32 0)",
+        );
+        assert!(
+            check(&only_after).unwrap_err().contains("used after"),
+            "{only_after}"
+        );
         // The argument without a root.
-        assert!(check(&without_root).unwrap_err().contains("argument"), "{without_root}");
+        assert!(
+            check(&without_root).unwrap_err().contains("argument"),
+            "{without_root}"
+        );
     }
 
     /// A value defined after the statepoint does not need to be in it; a new label
@@ -373,9 +418,18 @@ b2:
 
     #[test]
     fn reads_names_and_operand() {
-        assert_eq!(uses_list("add i64 %v1, %v2.i").collect::<Vec<_>>(), ["v1", "v2.i"]);
+        assert_eq!(
+            uses_list("add i64 %v1, %v2.i").collect::<Vec<_>>(),
+            ["v1", "v2.i"]
+        );
         assert_eq!(defined("  %v3 = add i64 1, 2"), Some("v3"));
-        assert_eq!(deopt_operand("call void @g() [ \"deopt\"(i64 %v1, i64 %v2) ]"), Some("i64 %v1, i64 %v2"));
-        assert_eq!(without_operands("call void @g(i64 %v3) [ \"deopt\"(i64 %v1) ]"), "call void @g(i64 %v3)");
+        assert_eq!(
+            deopt_operand("call void @g() [ \"deopt\"(i64 %v1, i64 %v2) ]"),
+            Some("i64 %v1, i64 %v2")
+        );
+        assert_eq!(
+            without_operands("call void @g(i64 %v3) [ \"deopt\"(i64 %v1) ]"),
+            "call void @g(i64 %v3)"
+        );
     }
 }

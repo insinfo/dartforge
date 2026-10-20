@@ -3,13 +3,16 @@
 //! return type inference"), local functions, untyped top-level variables and
 //! metadata.
 
+use super::BodyInferrer;
 use super::body::{Body, FunctionCtx, Local};
 use super::expr::{self, declare_local, infer, infer_free};
 use super::statements;
-use super::BodyInferrer;
 use crate::codes::*;
 use crate::table::{Type, TypeId, TypeParamId};
-use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, UnitId, VariableId, VariableRef};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, UnitId, VariableId,
+    VariableRef,
+};
 use dartforge_frontend::ast::{self, AsyncModifier, ExprId, FunctionBody};
 use std::collections::HashMap;
 
@@ -28,8 +31,12 @@ impl<'a> BodyInferrer<'a> {
         let element = match m {
             AsyncModifier::None => return r,
             AsyncModifier::Async => None,
-            AsyncModifier::SyncStar => self.as_instance_of(r, self.core.iterable_class).map(|a| a[0]),
-            AsyncModifier::AsyncStar => self.as_instance_of(r, self.core.stream_class).map(|a| a[0]),
+            AsyncModifier::SyncStar => self
+                .as_instance_of(r, self.core.iterable_class)
+                .map(|a| a[0]),
+            AsyncModifier::AsyncStar => {
+                self.as_instance_of(r, self.core.stream_class).map(|a| a[0])
+            }
         };
         if let Some(e) = element {
             return e;
@@ -43,7 +50,13 @@ impl<'a> BodyInferrer<'a> {
 /// `error_verifier.dart:640-651`): the default value against the parameter's
 /// type (`checkForAssignableExpressionAtType`, `INVALID_ASSIGNMENT`; a `void`
 /// value is `USE_OF_VOID_RESULT`).
-fn assignable_default_value(inf: &mut BodyInferrer<'_>, cx: &Body, d: ast::ExprId, td: TypeId, t: TypeId) {
+fn assignable_default_value(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    d: ast::ExprId,
+    td: TypeId,
+    t: TypeId,
+) {
     if matches!(inf.table.get(t), Type::Void) {
         return;
     }
@@ -52,7 +65,13 @@ fn assignable_default_value(inf: &mut BodyInferrer<'_>, cx: &Body, d: ast::ExprI
 
 /// Declares the parameters of a written list, with the given types; infers
 /// the default values. `so_inicializadores` marks `this.x`/`super.x`.
-fn declare_parameters(inf: &mut BodyInferrer<'_>, cx: &mut Body, params: &[ast::Parameter], types: &[TypeId], skip_initializers: bool) {
+fn declare_parameters(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    params: &[ast::Parameter],
+    types: &[TypeId],
+    skip_initializers: bool,
+) {
     for (i, p) in params.iter().enumerate() {
         let t = types.get(i).copied().unwrap_or(inf.core.dynamic_);
         if let Some(d) = p.default_value {
@@ -66,10 +85,13 @@ fn declare_parameters(inf: &mut BodyInferrer<'_>, cx: &mut Body, params: &[ast::
             // A written type that does not resolve: `dynamic` without being `dynamic`.
             if matches!(inf.table.get(t), Type::Dynamic)
                 && let Some(x) = p.ty
-                    && let ast::TypeKind::Named { name, .. } = &inf.program.unit(cx.unit).ast.ty(x).kind
-                        && !name.last().is_some_and(|k| inf.interner.resolve(k.sym) == "dynamic") {
-                            inf.invalid_locals.insert((cx.unit, n.span.start));
-                        }
+                && let ast::TypeKind::Named { name, .. } = &inf.program.unit(cx.unit).ast.ty(x).kind
+                && !name
+                    .last()
+                    .is_some_and(|k| inf.interner.resolve(k.sym) == "dynamic")
+            {
+                inf.invalid_locals.insert((cx.unit, n.span.start));
+            }
             // `this.x` and `super.x` introduce final locals in the initializer list
             // (`FieldFormalParameterElementImpl.isFinal`,
             // `SuperFormalParameterElementImpl.isFinal`, 3.6.2
@@ -78,7 +100,15 @@ fn declare_parameters(inf: &mut BodyInferrer<'_>, cx: &mut Body, params: &[ast::
             declare_local(
                 inf,
                 cx,
-                Local { name: n.sym, ty: t, final_, late: false, const_: false, offset: n.span.start, local_function: false },
+                Local {
+                    name: n.sym,
+                    ty: t,
+                    final_,
+                    late: false,
+                    const_: false,
+                    offset: n.span.start,
+                    local_function: false,
+                },
                 true,
             );
         }
@@ -107,7 +137,18 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
             let ctx_ret = inf.declared_return_context(ret, af.modifier);
             let executable = inf.declared_executable(f);
             let legal_return = legal_return_type(inf, unit, af.return_type, af.modifier, ret);
-            cx.functions.push(FunctionCtx { closure_imposed: None, modifier: af.modifier, the_return: Some(ret), return_context: ctx_ret, returned: Vec::new(), empty_return: false, valueless_returns: Vec::new(), returned_expressions: Vec::new(), executable, legal_return });
+            cx.functions.push(FunctionCtx {
+                closure_imposed: None,
+                modifier: af.modifier,
+                the_return: Some(ret),
+                return_context: ctx_ret,
+                returned: Vec::new(),
+                empty_return: false,
+                valueless_returns: Vec::new(),
+                returned_expressions: Vec::new(),
+                executable,
+                legal_return,
+            });
             function_body(inf, &mut cx, &af.body, af.modifier, ret, None);
             // `checkForBodyMayCompleteNormally` at the function/method name.
             // A setter is not checked: the element has a `void` return (the written
@@ -127,7 +168,11 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
             }
         }
         FunctionRef::Constructor { unit, member } => {
-            let ast::MemberKind::Constructor(ctor) = &inf.program.unit(unit).ast.member(member).kind else { return };
+            let ast::MemberKind::Constructor(ctor) =
+                &inf.program.unit(unit).ast.member(member).kind
+            else {
+                return;
+            };
             let data = inf.outline.functions[f.0 as usize].clone();
             let mut cx = Body::to_function(inf, f, unit);
             cx.root = super::body::Root::Constructor(member);
@@ -153,19 +198,39 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
             }
             // A repeated `this` part (or the extension type's) sees the primary's
             // parameters.
-            let of_primary = if ctor.primary_body_part { the_primary_parameters(inf, f) } else { Vec::new() };
+            let of_primary = if ctor.primary_body_part {
+                the_primary_parameters(inf, f)
+            } else {
+                Vec::new()
+            };
             for &(n, t, final_, _) in &of_primary {
-                super::expr::declare_local(inf, &mut cx, Local { name: n.sym, ty: t, final_, late: false, const_: false, offset: n.span.start, local_function: false }, true);
+                super::expr::declare_local(
+                    inf,
+                    &mut cx,
+                    Local {
+                        name: n.sym,
+                        ty: t,
+                        final_,
+                        late: false,
+                        const_: false,
+                        offset: n.span.start,
+                        local_function: false,
+                    },
+                    true,
+                );
             }
             // The primary's parameters, protected in the initializers (the body
             // declares new locals).
             if (is_primary_constructor(inf.program, f) || !of_primary.is_empty())
                 && let Some(scope) = cx.scopes.last()
             {
-                let ids: Vec<_> = scope.iter().filter_map(|(_, n)| match n {
-                    super::body::MemberName::Local(id) => Some(*id),
-                    _ => None,
-                }).collect();
+                let ids: Vec<_> = scope
+                    .iter()
+                    .filter_map(|(_, n)| match n {
+                        super::body::MemberName::Local(id) => Some(*id),
+                        _ => None,
+                    })
+                    .collect();
                 cx.primary_parameters.extend(ids);
             }
             // Initializers do not see the members through the implicit `this`;
@@ -176,7 +241,8 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
             cx.the_static = true;
             // A dead fragment that starts inside an initializer runs to the end
             // of the constructor (`flowEnd` of the `ConstructorDeclaration`).
-            cx.flow_ends.push(inf.program.unit(unit).ast.member(member).span.end);
+            cx.flow_ends
+                .push(inf.program.unit(unit).ast.member(member).span.end);
             for init in ctor.initializers.iter() {
                 initializer(inf, &mut cx, fe.class, init, &ctor.parameters, fe.const_, f);
             }
@@ -212,15 +278,29 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
                         continue;
                     }
                     let Some(n) = p.name else { continue };
-                    let field = inf.program.class(c).fields.iter().copied().find(|&v| inf.program.variable(v).name == n.sym);
+                    let field = inf
+                        .program
+                        .class(c)
+                        .fields
+                        .iter()
+                        .copied()
+                        .find(|&v| inf.program.variable(v).name == n.sym);
                     let Some(v) = field else { continue };
                     if inf.program.variable(v).static_ {
                         continue;
                     }
-                    let (Some(&pt), ft) = (types.get(i), inf.variable_type(v)) else { continue };
+                    let (Some(&pt), ft) = (types.get(i), inf.variable_type(v)) else {
+                        continue;
+                    };
                     if !inf.sub(pt, ft) {
-                        let start = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
-                        let sp = dartforge_diagnostics::Span { start, end: n.span.end };
+                        let start = p
+                            .metadata
+                            .first()
+                            .map_or(p.span.start, |m| m.span.start.min(p.span.start));
+                        let sp = dartforge_diagnostics::Span {
+                            start,
+                            end: n.span.end,
+                        };
                         inf.warning_with_args(
                             dartforge_diagnostics::codes::compile_time_error::FIELD_INITIALIZING_FORMAL_NOT_ASSIGNABLE,
                             sp,
@@ -241,13 +321,29 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
                 }
                 if let Some(n) = &p.name {
                     let t = types.get(i).copied().unwrap_or(inf.core.dynamic_);
-                    let id = cx2.declare(Local { name: n.sym, ty: t, final_: p.final_, late: false, const_: false, offset: n.span.start, local_function: false });
+                    let id = cx2.declare(Local {
+                        name: n.sym,
+                        ty: t,
+                        final_: p.final_,
+                        late: false,
+                        const_: false,
+                        offset: n.span.start,
+                        local_function: false,
+                    });
                     cx2.flow.initialize(id);
                 }
             }
             for &(n, t, final_, initiator) in &of_primary {
                 if !initiator {
-                    let id = cx2.declare(Local { name: n.sym, ty: t, final_, late: false, const_: false, offset: n.span.start, local_function: false });
+                    let id = cx2.declare(Local {
+                        name: n.sym,
+                        ty: t,
+                        final_,
+                        late: false,
+                        const_: false,
+                        offset: n.span.start,
+                        local_function: false,
+                    });
                     cx2.flow.initialize(id);
                 }
             }
@@ -255,12 +351,34 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
             let ret = if fe.factory { data.return_type } else { v };
             let ctx_ret = ret;
             // Generative constructor: `return e;` is `return_in_generative_constructor`.
-            let executable = if fe.factory { inf.declared_executable(f) } else { None };
-            cx2.functions.push(FunctionCtx { closure_imposed: None, modifier: AsyncModifier::None, the_return: Some(ret), return_context: ctx_ret, returned: Vec::new(), empty_return: false, valueless_returns: Vec::new(), returned_expressions: Vec::new(), executable, legal_return: true });
+            let executable = if fe.factory {
+                inf.declared_executable(f)
+            } else {
+                None
+            };
+            cx2.functions.push(FunctionCtx {
+                closure_imposed: None,
+                modifier: AsyncModifier::None,
+                the_return: Some(ret),
+                return_context: ctx_ret,
+                returned: Vec::new(),
+                empty_return: false,
+                valueless_returns: Vec::new(),
+                returned_expressions: Vec::new(),
+                executable,
+                legal_return: true,
+            });
             // `flowEnd(ConstructorDeclaration)`: the analyzer does not trim the
             // constructor at the last statement; the fragment goes to its end.
             let end = inf.program.unit(unit).ast.member(member).span.end;
-            function_body(inf, &mut cx2, &ctor.body, AsyncModifier::None, ret, Some(end));
+            function_body(
+                inf,
+                &mut cx2,
+                &ctor.body,
+                AsyncModifier::None,
+                ret,
+                Some(end),
+            );
             // A generative constructor with `=> e`: `verifyExpressionFunctionBody`
             // (3.6.2 `return_type_verifier.dart:45-52`, `:134-200`) checks `e` against
             // the constructor's `returnType`, the class's type over its own type
@@ -270,11 +388,14 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
             // (The unelaborated `this` part, in the extension type, keeps the
             // `primary_body_part` mark; in the class and the enum it is the elaborated k2.)
             let primary = ctor.primary_body_part
-                || fe.class.and_then(|c| inf.program.class(c).decl).is_some_and(|d| match &inf.program.unit(d.unit).ast.decl(d.decl).kind {
-                    ast::DeclKind::Class(k) => k.primary_constructor == Some(member),
-                    ast::DeclKind::Enum(k) => k.primary_constructor == Some(member),
-                    _ => false,
-                });
+                || fe
+                    .class
+                    .and_then(|c| inf.program.class(c).decl)
+                    .is_some_and(|d| match &inf.program.unit(d.unit).ast.decl(d.decl).kind {
+                        ast::DeclKind::Class(k) => k.primary_constructor == Some(member),
+                        ast::DeclKind::Enum(k) => k.primary_constructor == Some(member),
+                        _ => false,
+                    });
             if !fe.factory
                 && !primary
                 && let FunctionBody::Expression(x) = ctor.body
@@ -288,7 +409,8 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
                     the_return: Some(tc),
                     return_context: tc,
                     returned: Vec::new(),
-                    empty_return: false, valueless_returns: Vec::new(),
+                    empty_return: false,
+                    valueless_returns: Vec::new(),
                     returned_expressions: Vec::new(),
                     executable: inf.declared_executable(f),
                     legal_return: true,
@@ -311,8 +433,15 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
                 }
                 _ => false,
             };
-            if fe.factory && matches!(ctor.body, FunctionBody::Block(_)) && cx2.flow.reachable && !with_modifier {
-                let where_ = dartforge_diagnostics::Span { start: ctor.class_name.span.start, end: ctor.name.map_or(ctor.class_name.span.end, |n| n.span.end) };
+            if fe.factory
+                && matches!(ctor.body, FunctionBody::Block(_))
+                && cx2.flow.reachable
+                && !with_modifier
+            {
+                let where_ = dartforge_diagnostics::Span {
+                    start: ctor.class_name.span.start,
+                    end: ctor.name.map_or(ctor.class_name.span.end, |n| n.span.end),
+                };
                 body_completes_normally(inf, Some(ret), Some(ret), AsyncModifier::None, where_);
             }
         }
@@ -321,11 +450,26 @@ pub(crate) fn infer_declared_function(inf: &mut BodyInferrer<'_>, f: FunctionEle
 }
 
 /// A constructor initializer.
-fn initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, cls: Option<ClassId>, init: &ast::Initializer, params: &[ast::Parameter], const_constructor: bool, current: FunctionElementId) {
+fn initializer(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    cls: Option<ClassId>,
+    init: &ast::Initializer,
+    params: &[ast::Parameter],
+    const_constructor: bool,
+    current: FunctionElementId,
+) {
     let u = inf.core.unknown;
     match init {
         ast::Initializer::Field { name, value, .. } => {
-            let field = cls.and_then(|c| inf.program.class(c).fields.iter().copied().find(|&v| inf.program.variable(v).name == name.sym));
+            let field = cls.and_then(|c| {
+                inf.program
+                    .class(c)
+                    .fields
+                    .iter()
+                    .copied()
+                    .find(|&v| inf.program.variable(v).name == name.sym)
+            });
             let t = field.map(|v| inf.variable_type(v)).unwrap_or(u);
             let tv = infer(inf, cx, *value, t);
             // `checkForFieldInitializerNotAssignable`
@@ -338,27 +482,56 @@ fn initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, cls: Option<ClassId>, 
                     }
                 } else {
                     use dartforge_diagnostics::codes::compile_time_error as c;
-                    let code = if const_constructor { c::CONST_FIELD_INITIALIZER_NOT_ASSIGNABLE } else { c::FIELD_INITIALIZER_NOT_ASSIGNABLE };
+                    let code = if const_constructor {
+                        c::CONST_FIELD_INITIALIZER_NOT_ASSIGNABLE
+                    } else {
+                        c::FIELD_INITIALIZER_NOT_ASSIGNABLE
+                    };
                     let sp = inf.span_expr(cx.unit, *value);
                     let since = inf.diagnostics.len();
-                    inf.warning_with_args(code, sp, &[crate::display::Arg::Type_(tv), crate::display::Arg::Type_(t)]);
+                    inf.warning_with_args(
+                        code,
+                        sp,
+                        &[
+                            crate::display::Arg::Type_(tv),
+                            crate::display::Arg::Type_(t),
+                        ],
+                    );
                     inf.attach_non_promotion(since, cx, Some(*value), sp);
                 }
             }
         }
-        ast::Initializer::Super { span, constructor, arguments } => {
+        ast::Initializer::Super {
+            span,
+            constructor,
+            arguments,
+        } => {
             super_initializer(inf, cx, cls, *span, *constructor, arguments, params);
         }
-        ast::Initializer::Redirect { span, constructor, arguments } => {
+        ast::Initializer::Redirect {
+            span,
+            constructor,
+            arguments,
+        } => {
             redirecting_initializer(inf, cls, *span, *constructor, current);
             let tgt = cls.map(|c| {
                 let ps = inf.outline.classes[c.0 as usize].type_params.clone();
-                let args: Vec<TypeId> = ps.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
+                let args: Vec<TypeId> = ps
+                    .iter()
+                    .map(|&p| {
+                        inf.table.intern(Type::TypeParameter {
+                            param: p,
+                            nullable: false,
+                        })
+                    })
+                    .collect();
                 (c, args.into_boxed_slice())
             });
             call_constructor_of(inf, cx, tgt, *constructor, arguments, &[], *span);
         }
-        ast::Initializer::Assert { condition, message, .. } => {
+        ast::Initializer::Assert {
+            condition, message, ..
+        } => {
             let (_, if_false) = expr::assert_condition(inf, cx, *condition);
             if let Some(m) = message {
                 // The message runs where the condition is false (without
@@ -428,20 +601,41 @@ enum InScope {
     None_,
 }
 
-fn name_in_constructor_scope(inf: &BodyInferrer<'_>, unit: UnitId, cls: Option<ClassId>, params: &[ast::Parameter], the_name: dartforge_intern::SymbolId) -> InScope {
-    if params.iter().any(|p| p.name.is_some_and(|n| n.sym == the_name)) {
+fn name_in_constructor_scope(
+    inf: &BodyInferrer<'_>,
+    unit: UnitId,
+    cls: Option<ClassId>,
+    params: &[ast::Parameter],
+    the_name: dartforge_intern::SymbolId,
+) -> InScope {
+    if params
+        .iter()
+        .any(|p| p.name.is_some_and(|n| n.sym == the_name))
+    {
         return InScope::Other;
     }
     if let Some(c) = cls {
-        if let Some(&p) = inf.outline.classes[c.0 as usize].type_params.iter().find(|&&p| inf.table.param(p).name == the_name) {
+        if let Some(&p) = inf.outline.classes[c.0 as usize]
+            .type_params
+            .iter()
+            .find(|&&p| inf.table.param(p).name == the_name)
+        {
             return InScope::TypeParam(p);
         }
         let setter_key = inf.setter_key(the_name);
-        if inf.lexical_declared_member(Some(c), None, the_name, setter_key).is_some() {
+        if inf
+            .lexical_declared_member(Some(c), None, the_name, setter_key)
+            .is_some()
+        {
             return InScope::Other;
         }
         let ce = inf.program.class(c);
-        if ce.enum_constants.iter().chain(ce.fields.iter()).any(|&v| inf.program.variable(v).name == the_name) {
+        if ce
+            .enum_constants
+            .iter()
+            .chain(ce.fields.iter())
+            .any(|&v| inf.program.variable(v).name == the_name)
+        {
             return InScope::Other;
         }
     }
@@ -463,13 +657,19 @@ fn name_in_constructor_scope(inf: &BodyInferrer<'_>, unit: UnitId, cls: Option<C
 }
 
 /// The type that a type element designates (`_resolveToElement`).
-fn element_type(inf: &mut BodyInferrer<'_>, el: Element, the_name: dartforge_intern::SymbolId) -> TargetType {
+fn element_type(
+    inf: &mut BodyInferrer<'_>,
+    el: Element,
+    the_name: dartforge_intern::SymbolId,
+) -> TargetType {
     match el {
         Element::Class(c) => TargetType::Class(c),
         Element::Typedef(td) => {
             let tgt = inf.outline.typedefs[td.0 as usize].target_type;
             match inf.table.get(tgt).clone() {
-                Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => TargetType::Class(class),
+                Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
+                    TargetType::Class(class)
+                }
                 Type::TypeParameter { .. } => TargetType::ParameterAlias,
                 _ if inf.is_dynamic(tgt) => TargetType::Dynamic,
                 _ if inf.table.is_invalid(tgt) => TargetType::Nothing,
@@ -481,10 +681,18 @@ fn element_type(inf: &mut BodyInferrer<'_>, el: Element, the_name: dartforge_int
 }
 
 /// Resolves the written target of `= …` in the constructor's scope.
-fn resolve_written_target(inf: &mut BodyInferrer<'_>, unit: UnitId, cls: Option<ClassId>, params: &[ast::Parameter], red: &ast::RedirectTarget) -> Option<WrittenTarget> {
+fn resolve_written_target(
+    inf: &mut BodyInferrer<'_>,
+    unit: UnitId,
+    cls: Option<ClassId>,
+    params: &[ast::Parameter],
+    red: &ast::RedirectTarget,
+) -> Option<WrittenTarget> {
     let (names, written): (Vec<ast::Name>, Option<ast::Name>) = {
         let node = inf.program.unit(unit).ast.ty(red.ty);
-        let ast::TypeKind::Named { name, .. } = &node.kind else { return None };
+        let ast::TypeKind::Named { name, .. } = &node.kind else {
+            return None;
+        };
         (name.to_vec(), red.constructor)
     };
     let without_new = |inf: &BodyInferrer<'_>, s: Option<dartforge_intern::SymbolId>| match s {
@@ -492,40 +700,61 @@ fn resolve_written_target(inf: &mut BodyInferrer<'_>, unit: UnitId, cls: Option<
         x => x,
     };
     // (prefix, type name, constructor name)
-    let (prefix, typ, ctor): (Option<ast::Name>, ast::Name, Option<ast::Name>) = match (names.as_slice(), written) {
-        ([a], c) => (None, *a, c),
-        ([a, b], None) => {
-            // `A.b`: the parser does not tell `prefix.Type` from
-            // `Type.the_constructor`; the resolver rewrites to the second when the first
-            // designates a class or alias.
-            match name_in_constructor_scope(inf, unit, cls, params, a.sym) {
-                InScope::Element(Element::Class(_) | Element::Typedef(_)) => (None, *a, Some(*b)),
-                _ => (Some(*a), *b, None),
+    let (prefix, typ, ctor): (Option<ast::Name>, ast::Name, Option<ast::Name>) =
+        match (names.as_slice(), written) {
+            ([a], c) => (None, *a, c),
+            ([a, b], None) => {
+                // `A.b`: the parser does not tell `prefix.Type` from
+                // `Type.the_constructor`; the resolver rewrites to the second when the first
+                // designates a class or alias.
+                match name_in_constructor_scope(inf, unit, cls, params, a.sym) {
+                    InScope::Element(Element::Class(_) | Element::Typedef(_)) => {
+                        (None, *a, Some(*b))
+                    }
+                    _ => (Some(*a), *b, None),
+                }
             }
-        }
-        ([a, b], Some(c)) => (Some(*a), *b, Some(c)),
-        ([a, b, c], None) => (Some(*a), *b, Some(*c)),
-        _ => return None,
-    };
+            ([a, b], Some(c)) => (Some(*a), *b, Some(c)),
+            ([a, b, c], None) => (Some(*a), *b, Some(*c)),
+            _ => return None,
+        };
     let the_constructor = without_new(inf, ctor.map(|n| n.sym));
     let mut cited_name: String = match prefix {
-        Some(p) => format!("{}.{}", inf.interner.resolve(p.sym), inf.interner.resolve(typ.sym)),
+        Some(p) => format!(
+            "{}.{}",
+            inf.interner.resolve(p.sym),
+            inf.interner.resolve(typ.sym)
+        ),
         None => inf.interner.resolve(typ.sym).to_string(),
     };
     if let Some(c) = ctor {
         cited_name.push('.');
         cited_name.push_str(inf.interner.resolve(c.sym));
     }
-    let type_range = dartforge_diagnostics::Span { start: prefix.map_or(typ.span.start, |p| p.span.start), end: typ.span.end };
+    let type_range = dartforge_diagnostics::Span {
+        start: prefix.map_or(typ.span.start, |p| p.span.start),
+        end: typ.span.end,
+    };
     let target_type = match prefix {
         None => match name_in_constructor_scope(inf, unit, cls, params, typ.sym) {
             InScope::Element(el) => element_type(inf, el, typ.sym),
-            InScope::TypeParam(p) => TargetType::NoConstructors(inf.table.intern(Type::TypeParameter { param: p, nullable: false })),
+            InScope::TypeParam(p) => {
+                TargetType::NoConstructors(inf.table.intern(Type::TypeParameter {
+                    param: p,
+                    nullable: false,
+                }))
+            }
             InScope::Builtin if inf.interner.resolve(typ.sym) == "dynamic" => TargetType::Dynamic,
             InScope::Builtin => TargetType::NoConstructors(inf.core.never),
             InScope::Prefix | InScope::Other => TargetType::NonClass(typ.sym),
             InScope::None_ => {
-                if crate::scope::should_ignore_undefined(inf.program, inf.interner, unit, None, typ.sym) {
+                if crate::scope::should_ignore_undefined(
+                    inf.program,
+                    inf.interner,
+                    unit,
+                    None,
+                    typ.sym,
+                ) {
                     TargetType::Nothing
                 } else {
                     TargetType::NonClass(typ.sym)
@@ -533,13 +762,32 @@ fn resolve_written_target(inf: &mut BodyInferrer<'_>, unit: UnitId, cls: Option<
             }
         },
         Some(p) => match name_in_constructor_scope(inf, unit, cls, params, p.sym) {
-            InScope::Prefix => match inf.program.lookup_prefixed_in_unit(unit, p.sym, typ.sym).and_then(|b| b.getter) {
+            InScope::Prefix => match inf
+                .program
+                .lookup_prefixed_in_unit(unit, p.sym, typ.sym)
+                .and_then(|b| b.getter)
+            {
                 Some(el) => element_type(inf, el, typ.sym),
-                None if crate::scope::should_ignore_undefined(inf.program, inf.interner, unit, Some(p.sym), typ.sym) => TargetType::Nothing,
+                None if crate::scope::should_ignore_undefined(
+                    inf.program,
+                    inf.interner,
+                    unit,
+                    Some(p.sym),
+                    typ.sym,
+                ) =>
+                {
+                    TargetType::Nothing
+                }
                 None => TargetType::NonClass(typ.sym),
             },
             InScope::None_ => {
-                if crate::scope::should_ignore_undefined(inf.program, inf.interner, unit, Some(p.sym), typ.sym) {
+                if crate::scope::should_ignore_undefined(
+                    inf.program,
+                    inf.interner,
+                    unit,
+                    Some(p.sym),
+                    typ.sym,
+                ) {
                     TargetType::Nothing
                 } else {
                     TargetType::NonClass(typ.sym)
@@ -550,7 +798,13 @@ fn resolve_written_target(inf: &mut BodyInferrer<'_>, unit: UnitId, cls: Option<
             _ => TargetType::ShadowedPrefix,
         },
     };
-    Some(WrittenTarget { ty: target_type, constructor: the_constructor, cited_name, type_range, prefix })
+    Some(WrittenTarget {
+        ty: target_type,
+        constructor: the_constructor,
+        cited_name,
+        type_range,
+        prefix,
+    })
 }
 
 /// The constructor that a target designates (`lookUpConstructor`: with the
@@ -564,7 +818,12 @@ enum Constructor {
     Implicit,
 }
 
-fn find_constructor(inf: &BodyInferrer<'_>, tgt: ClassId, the_name: Option<dartforge_intern::SymbolId>, lib: dartforge_elements::model::LibraryId) -> Option<Constructor> {
+fn find_constructor(
+    inf: &BodyInferrer<'_>,
+    tgt: ClassId,
+    the_name: Option<dartforge_intern::SymbolId>,
+    lib: dartforge_elements::model::LibraryId,
+) -> Option<Constructor> {
     let key = the_name.or(inf.sym.empty)?;
     if inf.interner.resolve(key).starts_with('_') && inf.program.class(tgt).library != lib {
         return None;
@@ -583,7 +842,9 @@ fn find_constructor(inf: &BodyInferrer<'_>, tgt: ClassId, the_name: Option<dartf
                 let ce = inf.program.class(c);
                 match ce.kind {
                     ClassKind::MixinApplication => c = ce.supertype_class?,
-                    ClassKind::Class | ClassKind::Enum if ce.constructors.is_empty() => return Some(Constructor::Implicit),
+                    ClassKind::Class | ClassKind::Enum if ce.constructors.is_empty() => {
+                        return Some(Constructor::Implicit);
+                    }
                     _ => return None,
                 }
             }
@@ -638,8 +899,12 @@ fn factory_and_const(inf: &BodyInferrer<'_>, tgt: ClassId, c: Constructor) -> (b
 fn constructor_type(inf: &mut BodyInferrer<'_>, tgt: ClassId, c: Constructor) -> TypeId {
     let this = inf.class_this_type(tgt);
     let sig = match c {
-        Constructor::Declared(f) if !matches!(inf.program.function(f).node, FunctionRef::None) => inf.outline.functions[f.0 as usize].signature,
-        Constructor::Implicit if inf.program.class(tgt).kind == ClassKind::ExtensionType => inf.primary_signature(tgt),
+        Constructor::Declared(f) if !matches!(inf.program.function(f).node, FunctionRef::None) => {
+            inf.outline.functions[f.0 as usize].signature
+        }
+        Constructor::Implicit if inf.program.class(tgt).kind == ClassKind::ExtensionType => {
+            inf.primary_signature(tgt)
+        }
         _ => inf.table.intern(Type::Function {
             type_params: Box::new([]),
             ret: this,
@@ -652,9 +917,20 @@ fn constructor_type(inf: &mut BodyInferrer<'_>, tgt: ClassId, c: Constructor) ->
     // The class's type parameters stay free (`ConstructorElement.type` has
     // no type parameters of its own).
     match inf.table.get(sig).clone() {
-        Type::Function { positional, optional, named, nullable, .. } => {
-            inf.table.intern(Type::Function { type_params: Box::new([]), ret: this, positional, optional, named, nullable })
-        }
+        Type::Function {
+            positional,
+            optional,
+            named,
+            nullable,
+            ..
+        } => inf.table.intern(Type::Function {
+            type_params: Box::new([]),
+            ret: this,
+            positional,
+            optional,
+            named,
+            nullable,
+        }),
         _ => sig,
     }
 }
@@ -662,15 +938,24 @@ fn constructor_type(inf: &mut BodyInferrer<'_>, tgt: ClassId, c: Constructor) ->
 /// `redirectedConstructor?.declaration` of a declared constructor: the
 /// target of `= …` or of the `this(...)` (the first one), when it is a
 /// declared constructor.
-pub(crate) fn redirected_constructor(inf: &mut BodyInferrer<'_>, f: FunctionElementId) -> Option<FunctionElementId> {
+pub(crate) fn redirected_constructor(
+    inf: &mut BodyInferrer<'_>,
+    f: FunctionElementId,
+) -> Option<FunctionElementId> {
     let fe = inf.program.function(f);
-    let FunctionRef::Constructor { unit, member } = fe.node else { return None };
+    let FunctionRef::Constructor { unit, member } = fe.node else {
+        return None;
+    };
     let cls = fe.class;
     let lib = fe.library;
-    let ast::MemberKind::Constructor(ctor) = &inf.program.unit(unit).ast.member(member).kind else { return None };
+    let ast::MemberKind::Constructor(ctor) = &inf.program.unit(unit).ast.member(member).kind else {
+        return None;
+    };
     if let Some(red) = &ctor.redirect {
         let tgt = resolve_written_target(inf, unit, cls, &ctor.parameters, red)?;
-        let TargetType::Class(c) = tgt.ty else { return None };
+        let TargetType::Class(c) = tgt.ty else {
+            return None;
+        };
         return match find_constructor(inf, c, tgt.constructor, lib)? {
             Constructor::Declared(g) => Some(g),
             Constructor::Implicit => None,
@@ -699,25 +984,36 @@ pub(crate) fn redirected_constructor(inf: &mut BodyInferrer<'_>, f: FunctionElem
 /// (`scope_context.dart:406-430`: `ConstructorInitializerScope` in the
 /// initializers, `PrimaryParameterScope` in the body), with the parameters
 /// visible. Yields (name, type, final, `this.`/`super.`/declaring).
-fn the_primary_parameters(inf: &mut BodyInferrer<'_>, f: FunctionElementId) -> Vec<(ast::Name, TypeId, bool, bool)> {
+fn the_primary_parameters(
+    inf: &mut BodyInferrer<'_>,
+    f: FunctionElementId,
+) -> Vec<(ast::Name, TypeId, bool, bool)> {
     let program = inf.program;
-    let Some(c) = program.function(f).class else { return Vec::new() };
-    let Some(d) = program.class(c).decl else { return Vec::new() };
-    let ast = &program.unit(d.unit).ast;
-    let k2 = match &ast.decl(d.decl).kind {
-        ast::DeclKind::Class(x) => x.primary_constructor,
-        ast::DeclKind::Enum(x) => x.primary_constructor,
-        ast::DeclKind::ExtensionType(x) => {
-            let n = x.representation_name;
-            let field = program.class(c).fields.iter().copied().find(|&v| program.variable(v).name == n.sym && !program.variable(v).static_);
-            let t = match field {
-                Some(v) => inf.variable_type(v),
-                None => inf.core.dynamic_,
-            };
-            return vec![(n, t, true, true)];
-        }
-        _ => None,
+    let Some(c) = program.function(f).class else {
+        return Vec::new();
     };
+    let Some(d) = program.class(c).decl else {
+        return Vec::new();
+    };
+    let ast = &program.unit(d.unit).ast;
+    let k2 =
+        match &ast.decl(d.decl).kind {
+            ast::DeclKind::Class(x) => x.primary_constructor,
+            ast::DeclKind::Enum(x) => x.primary_constructor,
+            ast::DeclKind::ExtensionType(x) => {
+                let n = x.representation_name;
+                let field =
+                    program.class(c).fields.iter().copied().find(|&v| {
+                        program.variable(v).name == n.sym && !program.variable(v).static_
+                    });
+                let t = match field {
+                    Some(v) => inf.variable_type(v),
+                    None => inf.core.dynamic_,
+                };
+                return vec![(n, t, true, true)];
+            }
+            _ => None,
+        };
     let Some(k2) = k2 else { return Vec::new() };
     let Some(g) = program
         .class(c)
@@ -731,8 +1027,14 @@ fn the_primary_parameters(inf: &mut BodyInferrer<'_>, f: FunctionElementId) -> V
     if g == f {
         return Vec::new();
     }
-    let ast::MemberKind::Constructor(kc) = &ast.member(k2).kind else { return Vec::new() };
-    let types: Vec<TypeId> = inf.outline.functions[g.0 as usize].parameters.iter().map(|p| p.ty).collect();
+    let ast::MemberKind::Constructor(kc) = &ast.member(k2).kind else {
+        return Vec::new();
+    };
+    let types: Vec<TypeId> = inf.outline.functions[g.0 as usize]
+        .parameters
+        .iter()
+        .map(|p| p.ty)
+        .collect();
     kc.parameters
         .iter()
         .enumerate()
@@ -747,8 +1049,13 @@ fn the_primary_parameters(inf: &mut BodyInferrer<'_>, f: FunctionElementId) -> V
 /// `f` is the (elaborated) primary constructor of a class or enum: its
 /// redirection is `PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT` and does not enter
 /// the `RECURSIVE_CONSTRUCTOR_REDIRECT` chain.
-fn is_primary_constructor(program: &dartforge_elements::model::Program, f: FunctionElementId) -> bool {
-    let FunctionRef::Constructor { unit, member } = program.function(f).node else { return false };
+fn is_primary_constructor(
+    program: &dartforge_elements::model::Program,
+    f: FunctionElementId,
+) -> bool {
+    let FunctionRef::Constructor { unit, member } = program.function(f).node else {
+        return false;
+    };
     program.unit(unit).ast.decls.iter().any(|d| match &d.kind {
         ast::DeclKind::Class(x) => x.primary_constructor == Some(member),
         ast::DeclKind::Enum(x) => x.primary_constructor == Some(member),
@@ -789,11 +1096,19 @@ pub(crate) fn redirects_in_cycle(inf: &mut BodyInferrer<'_>, f: FunctionElementI
 /// (`redirect_to_non_class`,
 /// `redirect_to_type_alias_expands_to_type_parameter`,
 /// `prefix_shadowed_by_local_declaration`).
-fn redirecting_factory_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, red: &ast::RedirectTarget, f_current: FunctionElementId, ctor: &ast::Constructor) {
+fn redirecting_factory_target(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    red: &ast::RedirectTarget,
+    f_current: FunctionElementId,
+    ctor: &ast::Constructor,
+) {
     use dartforge_diagnostics::codes::compile_time_error as ce;
     let fe = inf.program.function(f_current);
     let (owner, lib, current_const) = (fe.class, fe.library, fe.const_);
-    let Some(tgt) = resolve_written_target(inf, cx.unit, owner, &ctor.parameters, red) else { return };
+    let Some(tgt) = resolve_written_target(inf, cx.unit, owner, &ctor.parameters, red) else {
+        return;
+    };
     let cls = match tgt.ty {
         TargetType::Class(c) => c,
         TargetType::NonClass(the_name) => {
@@ -802,7 +1117,11 @@ fn redirecting_factory_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, red: &a
             return;
         }
         TargetType::ParameterAlias => {
-            inf.warning_with_code(ce::REDIRECT_TO_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER, tgt.type_range, &[]);
+            inf.warning_with_code(
+                ce::REDIRECT_TO_TYPE_ALIAS_EXPANDS_TO_TYPE_PARAMETER,
+                tgt.type_range,
+                &[],
+            );
             return;
         }
         TargetType::ShadowedPrefix => {
@@ -815,7 +1134,11 @@ fn redirecting_factory_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, red: &a
         TargetType::NoConstructors(t) => {
             if !redirects_in_cycle(inf, f_current) {
                 let displayed = inf.table.format(t, inf.interner, inf.program);
-                inf.warning_with_code(ce::REDIRECT_TO_MISSING_CONSTRUCTOR, red.span, &[&tgt.cited_name, &displayed]);
+                inf.warning_with_code(
+                    ce::REDIRECT_TO_MISSING_CONSTRUCTOR,
+                    red.span,
+                    &[&tgt.cited_name, &displayed],
+                );
             }
             return;
         }
@@ -828,10 +1151,16 @@ fn redirecting_factory_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, red: &a
         ast::TypeKind::Named { args, .. } => args.to_vec(),
         _ => Vec::new(),
     };
-    let written_args: Vec<TypeId> = written_ones.iter().map(|&x| inf.type_argument_type(cx, x)).collect();
+    let written_args: Vec<TypeId> = written_ones
+        .iter()
+        .map(|&x| inf.type_argument_type(cx, x))
+        .collect();
     let n_params = inf.outline.classes[cls.0 as usize].type_params.len();
     if !written_ones.is_empty() && written_ones.len() != n_params {
-        let text = inf.interner.resolve(inf.program.class(cls).name).to_string();
+        let text = inf
+            .interner
+            .resolve(inf.program.class(cls).name)
+            .to_string();
         let sp = inf.program.unit(cx.unit).ast.ty(red.ty).span;
         inf.report_type_arguments(&text, n_params, written_ones.len(), sp);
     }
@@ -843,22 +1172,40 @@ fn redirecting_factory_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, red: &a
             inf.warning_with_code(ce::REDIRECT_TO_NON_CONST_CONSTRUCTOR, red.span, &[]);
         }
         let ce_target = inf.program.class(cls);
-        if matches!(ce_target.kind, ClassKind::Class | ClassKind::MixinApplication) && ce_target.modifiers.abstract_ && !factory {
-            let mut the_name = owner.map(|d| inf.interner.resolve(inf.program.class(d).name).to_string()).unwrap_or_default();
+        if matches!(
+            ce_target.kind,
+            ClassKind::Class | ClassKind::MixinApplication
+        ) && ce_target.modifiers.abstract_
+            && !factory
+        {
+            let mut the_name = owner
+                .map(|d| inf.interner.resolve(inf.program.class(d).name).to_string())
+                .unwrap_or_default();
             if let Some(n) = ctor.name {
                 the_name.push('.');
                 the_name.push_str(inf.interner.resolve(n.sym));
             }
             let target_class = inf.interner.resolve(ce_target.name).to_string();
-            inf.warning_with_code(ce::REDIRECT_TO_ABSTRACT_CLASS_CONSTRUCTOR, red.span, &[&the_name, &target_class]);
+            inf.warning_with_code(
+                ce::REDIRECT_TO_ABSTRACT_CLASS_CONSTRUCTOR,
+                red.span,
+                &[&the_name, &target_class],
+            );
         }
         // `_checkForInvalidGenerativeConstructorReference`.
         if inf.program.class(cls).kind == ClassKind::Enum && !factory {
-            inf.warning(INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR.template.to_string(), red.span);
+            inf.warning(
+                INVALID_REFERENCE_TO_GENERATIVE_ENUM_CONSTRUCTOR
+                    .template
+                    .to_string(),
+                red.span,
+            );
         }
     }
     // 2. Cycle, or the target's rules.
-    if finding.is_some_and(|c| matches!(c, Constructor::Declared(_))) && redirects_in_cycle(inf, f_current) {
+    if finding.is_some_and(|c| matches!(c, Constructor::Declared(_)))
+        && redirects_in_cycle(inf, f_current)
+    {
         inf.warning_with_code(ce::RECURSIVE_FACTORY_REDIRECT, red.span, &[]);
         return;
     }
@@ -868,7 +1215,11 @@ fn redirecting_factory_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, red: &a
         // without written arguments).
         let typ = inf.class_this_type(cls);
         let displayed = inf.table.format(typ, inf.interner, inf.program);
-        inf.warning_with_code(ce::REDIRECT_TO_MISSING_CONSTRUCTOR, red.span, &[&tgt.cited_name, &displayed]);
+        inf.warning_with_code(
+            ce::REDIRECT_TO_MISSING_CONSTRUCTOR,
+            red.span,
+            &[&tgt.cited_name, &displayed],
+        );
         return;
     };
     let Some(owner) = owner else { return };
@@ -887,9 +1238,11 @@ fn redirecting_factory_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, red: &a
     let written_via_alias = match &inf.program.unit(cx.unit).ast.ty(red.ty).kind {
         ast::TypeKind::Named { name, .. } => {
             let binding = if name.len() == 2 {
-                inf.program.lookup_prefixed_in_unit(cx.unit, name[0].sym, name[1].sym)
+                inf.program
+                    .lookup_prefixed_in_unit(cx.unit, name[0].sym, name[1].sym)
             } else {
-                name.first().and_then(|n| inf.program.lookup_in_unit(cx.unit, n.sym))
+                name.first()
+                    .and_then(|n| inf.program.lookup_in_unit(cx.unit, n.sym))
             };
             matches!(binding.and_then(|b| b.getter), Some(Element::Typedef(_)))
         }
@@ -901,11 +1254,22 @@ fn redirecting_factory_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, red: &a
         inf.diagnostics.truncate(n_diag);
         inf.warning_units.truncate(n_units);
         match inf.table.get(t).clone() {
-            Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } if class == cls => args.to_vec(),
+            Type::Interface { class, args, .. }
+            | Type::ExtensionType {
+                decl: class, args, ..
+            } if class == cls => args.to_vec(),
             _ => return,
         }
     } else if target_params.is_empty() || (written_ones.is_empty() && cls == owner) {
-        target_params.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false })).collect()
+        target_params
+            .iter()
+            .map(|&p| {
+                inf.table.intern(Type::TypeParameter {
+                    param: p,
+                    nullable: false,
+                })
+            })
+            .collect()
     } else if !written_ones.is_empty() {
         if written_args.len() == target_params.len() {
             written_args
@@ -926,12 +1290,22 @@ fn redirecting_factory_target(inf: &mut BodyInferrer<'_>, cx: &mut Body, red: &a
     let of = constructor_type(inf, cls, c);
     let of = inf.subst(of, &target_map);
     let for_ = constructor_type(inf, owner, Constructor::Declared(f_current));
-    let (Type::Function { ret: ret_of, .. }, Type::Function { ret: ret_for, .. }) = (inf.table.get(of).clone(), inf.table.get(for_).clone()) else { return };
+    let (Type::Function { ret: ret_of, .. }, Type::Function { ret: ret_for, .. }) =
+        (inf.table.get(of).clone(), inf.table.get(for_).clone())
+    else {
+        return;
+    };
     if !inf.assignable(ret_of, ret_for) {
-        let (a, b) = (inf.table.format(ret_of, inf.interner, inf.program), inf.table.format(ret_for, inf.interner, inf.program));
+        let (a, b) = (
+            inf.table.format(ret_of, inf.interner, inf.program),
+            inf.table.format(ret_for, inf.interner, inf.program),
+        );
         inf.warning_with_code(ce::REDIRECT_TO_INVALID_RETURN_TYPE, red.span, &[&a, &b]);
     } else if !inf.sub(of, for_) {
-        let (a, b) = (inf.table.format(of, inf.interner, inf.program), inf.table.format(for_, inf.interner, inf.program));
+        let (a, b) = (
+            inf.table.format(of, inf.interner, inf.program),
+            inf.table.format(for_, inf.interner, inf.program),
+        );
         inf.warning_with_code(ce::REDIRECT_TO_INVALID_FUNCTION_TYPE, red.span, &[&a, &b]);
     }
 }
@@ -953,8 +1327,15 @@ fn analyzer_supertype(inf: &mut BodyInferrer<'_>, c: ClassId) -> Option<(ClassId
         return None;
     }
     if let Some(t) = inf.outline.classes[c.0 as usize].supertype
-        && let Type::Interface { class: s, nullable: false, .. } = inf.table.get(t).clone()
-        && matches!(inf.program.class(s).kind, ClassKind::Class | ClassKind::MixinApplication)
+        && let Type::Interface {
+            class: s,
+            nullable: false,
+            ..
+        } = inf.table.get(t).clone()
+        && matches!(
+            inf.program.class(s).kind,
+            ClassKind::Class | ClassKind::MixinApplication
+        )
         && Some(s) != inf.core.function_class
         && Some(s) != inf.core.null_class
     {
@@ -965,8 +1346,12 @@ fn analyzer_supertype(inf: &mut BodyInferrer<'_>, c: ClassId) -> Option<(ClassId
 
 /// `shouldIgnoreUndefinedNamedType` of the written `extends` of `c`.
 fn ignored_extends(inf: &BodyInferrer<'_>, c: ClassId) -> bool {
-    let Some((u, t)) = inf.program.class(c).supertype else { return false };
-    let ast::TypeKind::Named { name, .. } = &inf.program.unit(u).ast.ty(t).kind else { return false };
+    let Some((u, t)) = inf.program.class(c).supertype else {
+        return false;
+    };
+    let ast::TypeKind::Named { name, .. } = &inf.program.unit(u).ast.ty(t).kind else {
+        return false;
+    };
     let (prefix, the_name) = match name.as_ref() {
         [a] => (None, a.sym),
         [p, a] => (Some(p.sym), a.sym),
@@ -985,30 +1370,69 @@ fn only_factories(inf: &BodyInferrer<'_>, s: ClassId) -> bool {
         while let Some(b) = base {
             let be = inf.program.class(b);
             if be.kind != ClassKind::MixinApplication {
-                return !(be.constructors.is_empty() || be.constructors.values().any(|&f| !inf.program.function(f).factory));
+                return !(be.constructors.is_empty()
+                    || be
+                        .constructors
+                        .values()
+                        .any(|&f| !inf.program.function(f).factory));
             }
             base = be.supertype_class;
         }
         return true;
     }
-    !ce.constructors.is_empty() && ce.constructors.values().all(|&f| inf.program.function(f).factory)
+    !ce.constructors.is_empty()
+        && ce
+            .constructors
+            .values()
+            .all(|&f| inf.program.function(f).factory)
 }
 
 /// The parameters of a found constructor: the AST node (with the unit) and
 /// the outline types, in the same order.
-fn constructor_parameters<'a>(inf: &BodyInferrer<'a>, k: Constructor) -> Option<(UnitId, &'a ast::Constructor, Vec<crate::resolve::ParameterTypeData>)> {
-    let Constructor::Declared(f) = k else { return None };
+fn constructor_parameters<'a>(
+    inf: &BodyInferrer<'a>,
+    k: Constructor,
+) -> Option<(
+    UnitId,
+    &'a ast::Constructor,
+    Vec<crate::resolve::ParameterTypeData>,
+)> {
+    let Constructor::Declared(f) = k else {
+        return None;
+    };
     let the_program: &'a dartforge_elements::model::Program = inf.program;
-    let FunctionRef::Constructor { unit, member } = the_program.function(f).node else { return None };
-    let ast::MemberKind::Constructor(ctor) = &the_program.unit(unit).ast.member(member).kind else { return None };
-    Some((unit, ctor, inf.outline.functions[f.0 as usize].parameters.to_vec()))
+    let FunctionRef::Constructor { unit, member } = the_program.function(f).node else {
+        return None;
+    };
+    let ast::MemberKind::Constructor(ctor) = &the_program.unit(unit).ast.member(member).kind else {
+        return None;
+    };
+    Some((
+        unit,
+        ctor,
+        inf.outline.functions[f.0 as usize].parameters.to_vec(),
+    ))
 }
 
 /// The required positionals and the names of the `required` named ones.
-fn constructor_required(inf: &BodyInferrer<'_>, k: Constructor) -> (usize, Vec<dartforge_intern::SymbolId>) {
-    let Some((_, ctor, _)) = constructor_parameters(inf, k) else { return (0, Vec::new()) };
-    let positional_args = ctor.parameters.iter().filter(|p| p.kind == ast::ParameterKind::Required).count();
-    let named_args = ctor.parameters.iter().filter(|p| p.kind == ast::ParameterKind::Named && p.required).filter_map(|p| p.external_name().map(|n| n.sym)).collect();
+fn constructor_required(
+    inf: &BodyInferrer<'_>,
+    k: Constructor,
+) -> (usize, Vec<dartforge_intern::SymbolId>) {
+    let Some((_, ctor, _)) = constructor_parameters(inf, k) else {
+        return (0, Vec::new());
+    };
+    let positional_args = ctor
+        .parameters
+        .iter()
+        .filter(|p| p.kind == ast::ParameterKind::Required)
+        .count();
+    let named_args = ctor
+        .parameters
+        .iter()
+        .filter(|p| p.kind == ast::ParameterKind::Named && p.required)
+        .filter_map(|p| p.external_name().map(|n| n.sym))
+        .collect();
     (positional_args, named_args)
 }
 
@@ -1019,7 +1443,13 @@ fn constructor_required(inf: &BodyInferrer<'_>, k: Constructor) -> (usize, Vec<d
 /// substituted `ConstructorMember`).
 /// `without_return`: the element's display in 3.13.4 does not include the return
 /// type (`'A.named()'`, not `'A A.named()'`).
-fn display_constructor(inf: &mut BodyInferrer<'_>, tgt: ClassId, k: Constructor, typ: TypeId, without_return: bool) -> String {
+fn display_constructor(
+    inf: &mut BodyInferrer<'_>,
+    tgt: ClassId,
+    k: Constructor,
+    typ: TypeId,
+    without_return: bool,
+) -> String {
     let mut s = String::new();
     if !without_return {
         s.push_str(&inf.table.format(typ, inf.interner, inf.program));
@@ -1098,7 +1528,15 @@ fn display_constructor(inf: &mut BodyInferrer<'_>, tgt: ClassId, k: Constructor,
 /// factory in a superclass that has some generative one; then the arguments
 /// against the constructor (except with the `extends` silenced by
 /// `shouldIgnoreUndefinedNamedType`).
-fn super_initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, cls: Option<ClassId>, span: dartforge_diagnostics::Span, constructor: Option<ast::Name>, arguments: &ast::Arguments, params: &[ast::Parameter]) {
+fn super_initializer(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    cls: Option<ClassId>,
+    span: dartforge_diagnostics::Span,
+    constructor: Option<ast::Name>,
+    arguments: &ast::Arguments,
+    params: &[ast::Parameter],
+) {
     use dartforge_diagnostics::codes::compile_time_error as ce;
     let sup = cls.and_then(|c| analyzer_supertype(inf, c).map(|s| (c, s)));
     let Some((c, (s, st))) = sup else {
@@ -1117,9 +1555,17 @@ fn super_initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, cls: Option<Clas
         match constructor {
             Some(n) => {
                 let the_name = inf.interner.resolve(n.sym).to_string();
-                inf.warning_with_code(ce::UNDEFINED_CONSTRUCTOR_IN_INITIALIZER, span, &[&displayed, &the_name]);
+                inf.warning_with_code(
+                    ce::UNDEFINED_CONSTRUCTOR_IN_INITIALIZER,
+                    span,
+                    &[&displayed, &the_name],
+                );
             }
-            None => inf.warning_with_code(ce::UNDEFINED_CONSTRUCTOR_IN_INITIALIZER_DEFAULT, span, &[&displayed]),
+            None => inf.warning_with_code(
+                ce::UNDEFINED_CONSTRUCTOR_IN_INITIALIZER_DEFAULT,
+                span,
+                &[&displayed],
+            ),
         }
         for a in arguments.args.iter() {
             infer_free(inf, cx, a.value);
@@ -1127,7 +1573,8 @@ fn super_initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, cls: Option<Clas
         return;
     };
     if factory_and_const(inf, s, k).0 && !only_factories(inf, s) {
-        let v313 = inf.program.reference(cx.unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
+        let v313 =
+            inf.program.reference(cx.unit) == dartforge_diagnostics::AnalyzerReference::V3_13;
         let displayed = display_constructor(inf, s, k, st, v313);
         inf.warning_with_code(ce::NON_GENERATIVE_CONSTRUCTOR, span, &[&displayed]);
     }
@@ -1156,7 +1603,13 @@ fn super_initializer(inf: &mut BodyInferrer<'_>, cx: &mut Body, cls: Option<Clas
 /// `PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT` (the parser) and exits
 /// (`_checkForConflictingPrimaryConstructorInitializers`,
 /// `error_verifier.dart:3984-3999`): none of these.
-fn redirecting_initializer(inf: &mut BodyInferrer<'_>, cls: Option<ClassId>, span: dartforge_diagnostics::Span, constructor: Option<ast::Name>, current: FunctionElementId) {
+fn redirecting_initializer(
+    inf: &mut BodyInferrer<'_>,
+    cls: Option<ClassId>,
+    span: dartforge_diagnostics::Span,
+    constructor: Option<ast::Name>,
+    current: FunctionElementId,
+) {
     use dartforge_diagnostics::codes::compile_time_error as ce;
     let Some(c) = cls else { return };
     if is_primary_constructor(inf.program, current) {
@@ -1167,10 +1620,12 @@ fn redirecting_initializer(inf: &mut BodyInferrer<'_>, cls: Option<ClassId>, spa
         Some(x) => Some(x),
         None => inf.sym.empty,
     };
-    let finding = key.and_then(|k| inf.constructor_or_primary(c, k)).map(|f| match f {
-        Some(f) => Constructor::Declared(f),
-        None => Constructor::Implicit,
-    });
+    let finding = key
+        .and_then(|k| inf.constructor_or_primary(c, k))
+        .map(|f| match f {
+            Some(f) => Constructor::Declared(f),
+            None => Constructor::Implicit,
+        });
     let fe = inf.program.function(current);
     let (current_factory, current_const) = (fe.factory, fe.const_);
     if !current_factory {
@@ -1182,10 +1637,18 @@ fn redirecting_initializer(inf: &mut BodyInferrer<'_>, cls: Option<ClassId>, spa
                     the_name.push('.');
                     the_name.push_str(inf.interner.resolve(n.sym));
                 }
-                inf.warning_with_code(ce::REDIRECT_GENERATIVE_TO_MISSING_CONSTRUCTOR, span, &[&the_name, &class_name]);
+                inf.warning_with_code(
+                    ce::REDIRECT_GENERATIVE_TO_MISSING_CONSTRUCTOR,
+                    span,
+                    &[&the_name, &class_name],
+                );
             }
             Some(k) if factory_and_const(inf, c, k).0 => {
-                inf.warning_with_code(ce::REDIRECT_GENERATIVE_TO_NON_GENERATIVE_CONSTRUCTOR, span, &[]);
+                inf.warning_with_code(
+                    ce::REDIRECT_GENERATIVE_TO_NON_GENERATIVE_CONSTRUCTOR,
+                    span,
+                    &[],
+                );
             }
             Some(_) => {}
         }
@@ -1194,7 +1657,13 @@ fn redirecting_initializer(inf: &mut BodyInferrer<'_>, cls: Option<ClassId>, spa
         && current_const
         && !factory_and_const(inf, c, k).1
     {
-        let sp = constructor.map_or(dartforge_diagnostics::Span { start: span.start, end: span.start + 4 }, |n| n.span);
+        let sp = constructor.map_or(
+            dartforge_diagnostics::Span {
+                start: span.start,
+                end: span.start + 4,
+            },
+            |n| n.span,
+        );
         inf.warning_with_code(ce::REDIRECT_TO_NON_CONST_CONSTRUCTOR, sp, &[]);
     }
 }
@@ -1218,7 +1687,11 @@ fn in_superclass_cycle(inf: &BodyInferrer<'_>, c: ClassId) -> bool {
     false
 }
 
-fn super_constructor(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructor) -> Option<(ClassId, TypeId, Constructor)> {
+fn super_constructor(
+    inf: &mut BodyInferrer<'_>,
+    c: ClassId,
+    ctor: &ast::Constructor,
+) -> Option<(ClassId, TypeId, Constructor)> {
     let the_name = ctor
         .initializers
         .iter()
@@ -1250,7 +1723,10 @@ fn super_constructor(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constru
             }
             return Some((s, st, Constructor::Declared(f)));
         }
-        return (Some(key) == inf.sym.empty && ce.constructors.is_empty() && ce.kind == ClassKind::Class).then_some((s, st, Constructor::Implicit));
+        return (Some(key) == inf.sym.empty
+            && ce.constructors.is_empty()
+            && ce.kind == ClassKind::Class)
+            .then_some((s, st, Constructor::Implicit));
     }
     None
 }
@@ -1264,12 +1740,25 @@ fn super_constructor(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constru
 /// `super.` ones, a named one by name) `super_formal_parameter_without_associated_*`;
 /// with it and the written type outside its type,
 /// `super_formal_parameter_type_is_not_subtype_of_associated`. At the name.
-fn super_parameters(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructor, types: &[TypeId]) {
+fn super_parameters(
+    inf: &mut BodyInferrer<'_>,
+    c: ClassId,
+    ctor: &ast::Constructor,
+    types: &[TypeId],
+) {
     use dartforge_diagnostics::codes::compile_time_error as ce;
-    if ctor.factory || ctor.external || ctor.initializers.iter().any(|i| matches!(i, ast::Initializer::Redirect { .. })) {
+    if ctor.factory
+        || ctor.external
+        || ctor
+            .initializers
+            .iter()
+            .any(|i| matches!(i, ast::Initializer::Redirect { .. }))
+    {
         return;
     }
-    if inf.program.class(c).kind == ClassKind::ExtensionType || !ctor.parameters.iter().any(|p| p.super_) {
+    if inf.program.class(c).kind == ClassKind::ExtensionType
+        || !ctor.parameters.iter().any(|p| p.super_)
+    {
         return;
     }
     // A superclass in an inheritance cycle is cut (it becomes `Object`), and an
@@ -1278,58 +1767,72 @@ fn super_parameters(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
     // reports.
     let cycle = in_superclass_cycle(inf, c);
     let without_parameters = cycle || inf.program.class(c).kind == ClassKind::Enum;
-    let associated = if cycle { None } else { super_constructor(inf, c, ctor) };
+    let associated = if cycle {
+        None
+    } else {
+        super_constructor(inf, c, ctor)
+    };
     // In 3.13.4 (`error_verifier.dart:2391-2408` of the main checkout), without
     // the `superConstructor` the check stops; in 3.6.2 each `super.x` reports.
     let unit_id = inf.program.class(c).decl.map(|d| d.unit);
-    let v313 = unit_id.is_some_and(|u| inf.program.reference(u) == dartforge_diagnostics::AnalyzerReference::V3_13);
+    let v313 = unit_id.is_some_and(|u| {
+        inf.program.reference(u) == dartforge_diagnostics::AnalyzerReference::V3_13
+    });
     if associated.is_none() && v313 && !without_parameters {
         return;
     }
     // The parameters of the associated constructor, as seen by the supertype.
-    let (positional_args, named_args): (Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId)>) = match associated {
-        Some((s, st, k)) => {
-            let map = match inf.table.get(st).clone() {
-                Type::Interface { args, .. } => {
-                    let ps = inf.outline.classes[s.0 as usize].type_params.clone();
-                    (ps.len() == args.len()).then(|| inf.map(&ps, &args))
-                }
-                _ => None,
-            };
-            let mut pos = Vec::new();
-            let mut the_named = Vec::new();
-            if let Some((_, k_ast, data)) = constructor_parameters(inf, k) {
-                for (i, p) in k_ast.parameters.iter().enumerate() {
-                    let mut t = data.get(i).map_or(inf.core.dynamic_, |d| d.ty);
-                    if let Some(m) = &map {
-                        t = inf.subst(t, m);
+    let (positional_args, named_args): (Vec<TypeId>, Vec<(dartforge_intern::SymbolId, TypeId)>) =
+        match associated {
+            Some((s, st, k)) => {
+                let map = match inf.table.get(st).clone() {
+                    Type::Interface { args, .. } => {
+                        let ps = inf.outline.classes[s.0 as usize].type_params.clone();
+                        (ps.len() == args.len()).then(|| inf.map(&ps, &args))
                     }
-                    match p.kind {
-                        ast::ParameterKind::Named => {
-                            if let Some(n) = p.external_name() {
-                                the_named.push((n.sym, t));
-                            }
+                    _ => None,
+                };
+                let mut pos = Vec::new();
+                let mut the_named = Vec::new();
+                if let Some((_, k_ast, data)) = constructor_parameters(inf, k) {
+                    for (i, p) in k_ast.parameters.iter().enumerate() {
+                        let mut t = data.get(i).map_or(inf.core.dynamic_, |d| d.ty);
+                        if let Some(m) = &map {
+                            t = inf.subst(t, m);
                         }
-                        _ => pos.push(t),
+                        match p.kind {
+                            ast::ParameterKind::Named => {
+                                if let Some(n) = p.external_name() {
+                                    the_named.push((n.sym, t));
+                                }
+                            }
+                            _ => pos.push(t),
+                        }
                     }
                 }
+                (pos, the_named)
             }
-            (pos, the_named)
-        }
-        None => (Vec::new(), Vec::new()),
-    };
+            None => (Vec::new(), Vec::new()),
+        };
     // The positional's index is the element's `indexIn` (`element.dart:9318-9323`):
     // in 3.6.2, two same-named `super._` are the same element by location, and the
     // second gets the first's index.
-    let super_names: Vec<Option<dartforge_intern::SymbolId>> =
-        ctor.parameters.iter().filter(|p| p.super_).map(|p| p.name.map(|n| n.sym)).collect();
+    let super_names: Vec<Option<dartforge_intern::SymbolId>> = ctor
+        .parameters
+        .iter()
+        .filter(|p| p.super_)
+        .map(|p| p.name.map(|n| n.sym))
+        .collect();
     let mut idx = 0usize;
     for (i, p) in ctor.parameters.iter().enumerate() {
         if !p.super_ {
             continue;
         }
         let element_index = match p.name {
-            Some(n) if !v313 => super_names.iter().position(|s| *s == Some(n.sym)).unwrap_or(idx),
+            Some(n) if !v313 => super_names
+                .iter()
+                .position(|s| *s == Some(n.sym))
+                .unwrap_or(idx),
             _ => idx,
         };
         let Some(n) = p.name else {
@@ -1338,13 +1841,20 @@ fn super_parameters(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
         };
         let tgt = if p.kind == ast::ParameterKind::Named {
             let external = p.external_name().map_or(n.sym, |x| x.sym);
-            named_args.iter().find(|(m, _)| *m == external).map(|(_, t)| *t)
+            named_args
+                .iter()
+                .find(|(m, _)| *m == external)
+                .map(|(_, t)| *t)
         } else {
             positional_args.get(element_index).copied()
         };
         idx += 1;
         let Some(associated_type) = tgt else {
-            let code = if p.kind == ast::ParameterKind::Named { ce::SUPER_FORMAL_PARAMETER_WITHOUT_ASSOCIATED_NAMED } else { ce::SUPER_FORMAL_PARAMETER_WITHOUT_ASSOCIATED_POSITIONAL };
+            let code = if p.kind == ast::ParameterKind::Named {
+                ce::SUPER_FORMAL_PARAMETER_WITHOUT_ASSOCIATED_NAMED
+            } else {
+                ce::SUPER_FORMAL_PARAMETER_WITHOUT_ASSOCIATED_POSITIONAL
+            };
             inf.warning_with_code(code, n.span, &[]);
             continue;
         };
@@ -1357,7 +1867,10 @@ fn super_parameters(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
             inf.warning_with_args(
                 ce::SUPER_FORMAL_PARAMETER_TYPE_IS_NOT_SUBTYPE_OF_ASSOCIATED,
                 n.span,
-                &[crate::display::Arg::Type_(own), crate::display::Arg::Type_(associated_type)],
+                &[
+                    crate::display::Arg::Type_(own),
+                    crate::display::Arg::Type_(associated_type),
+                ],
             );
         }
     }
@@ -1370,7 +1883,12 @@ fn super_parameters(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Construc
 /// primary, the `this` of the body part when there is one, otherwise from the first
 /// token (the `const`, if written) to the constructor name
 /// (`PrimaryConstructorDeclaration.errorRange`).
-fn implicit_super_range(inf: &BodyInferrer<'_>, ctor: &ast::Constructor, unit: UnitId, member: ast::MemberId) -> dartforge_diagnostics::Span {
+fn implicit_super_range(
+    inf: &BodyInferrer<'_>,
+    ctor: &ast::Constructor,
+    unit: UnitId,
+    member: ast::MemberId,
+) -> dartforge_diagnostics::Span {
     use dartforge_diagnostics::Span;
     if inf.program.reference(unit) != dartforge_diagnostics::AnalyzerReference::V3_13 {
         return ctor.class_name.span;
@@ -1383,15 +1901,25 @@ fn implicit_super_range(inf: &BodyInferrer<'_>, ctor: &ast::Constructor, unit: U
     });
     if !primary {
         let end = ctor.name.map_or(ctor.class_name.span.end, |n| n.span.end);
-        return Span { start: ctor.class_name.span.start, end };
+        return Span {
+            start: ctor.class_name.span.start,
+            end,
+        };
     }
     let ms = u.ast.member(member).span;
     if ms.start != ctor.class_name.span.start && u.source[ms.start..].starts_with("this") {
-        return Span { start: ms.start, end: ms.start + 4 };
+        return Span {
+            start: ms.start,
+            end: ms.start + 4,
+        };
     }
     let start = if ctor.const_ {
         let before = u.source[..ctor.class_name.span.start].trim_end();
-        if before.ends_with("const") { before.len() - "const".len() } else { ctor.class_name.span.start }
+        if before.ends_with("const") {
+            before.len() - "const".len()
+        } else {
+            ctor.class_name.span.start
+        }
     } else {
         ctor.class_name.span.start
     };
@@ -1412,15 +1940,28 @@ fn implicit_super_range(inf: &BodyInferrer<'_>, ctor: &ast::Constructor, unit: U
 /// `super.x` give (`implicit_super_initializer_missing_arguments`; without
 /// `super-parameters`, `no_default_super_constructor`). At the class name
 /// (up to the constructor name in the last two).
-fn implicit_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructor, unit: UnitId, member: ast::MemberId) {
+fn implicit_super(
+    inf: &mut BodyInferrer<'_>,
+    c: ClassId,
+    ctor: &ast::Constructor,
+    unit: UnitId,
+    member: ast::MemberId,
+) {
     use dartforge_diagnostics::codes::compile_time_error as ce;
     if ctor.factory || ctor.external {
         return;
     }
-    if ctor.initializers.iter().any(|i| matches!(i, ast::Initializer::Super { .. } | ast::Initializer::Redirect { .. })) {
+    if ctor.initializers.iter().any(|i| {
+        matches!(
+            i,
+            ast::Initializer::Super { .. } | ast::Initializer::Redirect { .. }
+        )
+    }) {
         return;
     }
-    let Some((s, st)) = analyzer_supertype(inf, c) else { return };
+    let Some((s, st)) = analyzer_supertype(inf, c) else {
+        return;
+    };
     if only_factories(inf, s) {
         return;
     }
@@ -1429,7 +1970,11 @@ fn implicit_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructo
     // `superElement.unnamedConstructor`: without the accessibility test.
     let Some(k) = find_constructor(inf, s, None, inf.program.class(s).library) else {
         let the_name = inf.interner.resolve(inf.program.class(s).name).to_string();
-        inf.warning_with_code(ce::UNDEFINED_CONSTRUCTOR_IN_INITIALIZER_DEFAULT, typ, &[&the_name]);
+        inf.warning_with_code(
+            ce::UNDEFINED_CONSTRUCTOR_IN_INITIALIZER_DEFAULT,
+            typ,
+            &[&the_name],
+        );
         return;
     };
     if factory_and_const(inf, s, k).0 {
@@ -1442,30 +1987,61 @@ fn implicit_super(inf: &mut BodyInferrer<'_>, c: ClassId, ctor: &ast::Constructo
         return;
     }
     let (positional_args, mut named_args) = constructor_required(inf, k);
-    let range = dartforge_diagnostics::Span { start: typ.start, end: ctor.name.map_or(typ.end, |n| n.span.end) };
+    let range = dartforge_diagnostics::Span {
+        start: typ.start,
+        end: ctor.name.map_or(typ.end, |n| n.span.end),
+    };
     let displayed = inf.table.format(st, inf.interner, inf.program);
-    let super_parameters_of = inf.program.library(lib).features.version() >= dartforge_frontend::features::LanguageVersion::new(2, 17);
+    let super_parameters_of = inf.program.library(lib).features.version()
+        >= dartforge_frontend::features::LanguageVersion::new(2, 17);
     if !super_parameters_of {
         if positional_args != 0 || !named_args.is_empty() {
-            inf.warning_with_code(ce::NO_DEFAULT_SUPER_CONSTRUCTOR_EXPLICIT, range, &[&displayed]);
+            inf.warning_with_code(
+                ce::NO_DEFAULT_SUPER_CONSTRUCTOR_EXPLICIT,
+                range,
+                &[&displayed],
+            );
         }
         return;
     }
-    let super_positional_args = ctor.parameters.iter().filter(|p| p.super_ && p.kind != ast::ParameterKind::Named).count();
-    let super_named_args: Vec<dartforge_intern::SymbolId> = ctor.parameters.iter().filter(|p| p.super_ && p.kind == ast::ParameterKind::Named).filter_map(|p| p.external_name().map(|n| n.sym)).collect();
+    let super_positional_args = ctor
+        .parameters
+        .iter()
+        .filter(|p| p.super_ && p.kind != ast::ParameterKind::Named)
+        .count();
+    let super_named_args: Vec<dartforge_intern::SymbolId> = ctor
+        .parameters
+        .iter()
+        .filter(|p| p.super_ && p.kind == ast::ParameterKind::Named)
+        .filter_map(|p| p.external_name().map(|n| n.sym))
+        .collect();
     named_args.retain(|n| !super_named_args.contains(n));
     if positional_args > super_positional_args || !named_args.is_empty() {
-        inf.warning_with_code(ce::IMPLICIT_SUPER_INITIALIZER_MISSING_ARGUMENTS, range, &[&displayed]);
+        inf.warning_with_code(
+            ce::IMPLICIT_SUPER_INITIALIZER_MISSING_ARGUMENTS,
+            range,
+            &[&displayed],
+        );
     }
 }
 
 /// `super(...)`/`this(...)`: invokes the constructor of the instantiated
 /// class. The current constructor's `super.x` parameters are implicit
 /// arguments (positional ones after the explicit ones; named ones by name).
-fn call_constructor_of(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: Option<(ClassId, Box<[TypeId]>)>, the_name: Option<ast::Name>, args: &ast::Arguments, params: &[ast::Parameter], span: dartforge_diagnostics::Span) {
+fn call_constructor_of(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    tgt: Option<(ClassId, Box<[TypeId]>)>,
+    the_name: Option<ast::Name>,
+    args: &ast::Arguments,
+    params: &[ast::Parameter],
+    span: dartforge_diagnostics::Span,
+) {
     let u = inf.core.unknown;
     let key = the_name.map(|n| n.sym).or(inf.sym.empty);
-    let f = tgt.as_ref().and_then(|(c, _)| key.and_then(|k| inf.program.class(*c).constructors.get(&k).copied()));
+    let f = tgt
+        .as_ref()
+        .and_then(|(c, _)| key.and_then(|k| inf.program.class(*c).constructors.get(&k).copied()));
     match (tgt, f) {
         (Some((c, targs)), Some(f)) => {
             let sig = inf.outline.functions[f.0 as usize].signature;
@@ -1490,14 +2066,20 @@ fn call_constructor_of(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: Option<(C
                     format!("{}.new", inf.table.format(ret, inf.interner, inf.program))
                 }
             };
-            let super_positional_args = params.iter().filter(|p| p.super_ && p.kind != ast::ParameterKind::Named).count();
+            let super_positional_args = params
+                .iter()
+                .filter(|p| p.super_ && p.kind != ast::ParameterKind::Named)
+                .count();
             // `POSITIONAL_SUPER_FORMAL_PARAMETER_WITH_POSITIONAL_ARGUMENT`
             // (`verifySuperFormalParameters`,
             // an611:src/error/super_formal_parameters_verifier.dart:22-33): at the
             // name of each positional `super.x`, if the `super(...)` has a positional
             // argument.
             if args.args.iter().any(|a| a.name.is_none()) {
-                for p in params.iter().filter(|p| p.super_ && p.kind != ast::ParameterKind::Named) {
+                for p in params
+                    .iter()
+                    .filter(|p| p.super_ && p.kind != ast::ParameterKind::Named)
+                {
                     if let Some(n) = p.name {
                         inf.warning_with_code(
                             dartforge_diagnostics::codes::compile_time_error::POSITIONAL_SUPER_FORMAL_PARAMETER_WITH_POSITIONAL_ARGUMENT,
@@ -1507,8 +2089,11 @@ fn call_constructor_of(inf: &mut BodyInferrer<'_>, cx: &mut Body, tgt: Option<(C
                     }
                 }
             }
-            let super_named_args: Vec<_> =
-                params.iter().filter(|p| p.super_ && p.kind == ast::ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+            let super_named_args: Vec<_> = params
+                .iter()
+                .filter(|p| p.super_ && p.kind == ast::ParameterKind::Named)
+                .filter_map(|p| p.name.map(|n| n.sym))
+                .collect();
             inf.arity_target = Some(super::calls::ArityTarget {
                 name: Some(cited_name),
                 entity: Some(span),
@@ -1540,7 +2125,11 @@ fn function_body(
     let _ = (m, ret);
     match body {
         FunctionBody::Expression(e) => {
-            let ctx = cx.functions.last().map(|f| f.return_context).unwrap_or(inf.core.unknown);
+            let ctx = cx
+                .functions
+                .last()
+                .map(|f| f.return_context)
+                .unwrap_or(inf.core.unknown);
             let t = infer(inf, cx, *e, ctx);
             if let Some(fc) = cx.functions.last().cloned() {
                 verify_expression_return(inf, cx, &fc, *e, t);
@@ -1561,14 +2150,26 @@ fn function_body(
 /// `Future<Never>` to be a subtype of it, `async*` `Stream<Never>`, `sync*`
 /// `Iterable<Never>`, and a generator cannot be `void`; the report goes on the
 /// written type. Returns `hasLegalReturnType`.
-fn legal_return_type(inf: &mut BodyInferrer<'_>, unit: UnitId, written: Option<ast::TypeId>, m: AsyncModifier, ret: TypeId) -> bool {
+fn legal_return_type(
+    inf: &mut BodyInferrer<'_>,
+    unit: UnitId,
+    written: Option<ast::TypeId>,
+    m: AsyncModifier,
+    ret: TypeId,
+) -> bool {
     use dartforge_diagnostics::codes::compile_time_error as ce;
     let Some(written) = written else { return true };
     let (cls, code) = match m {
         AsyncModifier::None => return true,
         AsyncModifier::Async => (inf.core.future_class, ce::ILLEGAL_ASYNC_RETURN_TYPE),
-        AsyncModifier::AsyncStar => (inf.core.stream_class, ce::ILLEGAL_ASYNC_GENERATOR_RETURN_TYPE),
-        AsyncModifier::SyncStar => (inf.core.iterable_class, ce::ILLEGAL_SYNC_GENERATOR_RETURN_TYPE),
+        AsyncModifier::AsyncStar => (
+            inf.core.stream_class,
+            ce::ILLEGAL_ASYNC_GENERATOR_RETURN_TYPE,
+        ),
+        AsyncModifier::SyncStar => (
+            inf.core.iterable_class,
+            ce::ILLEGAL_SYNC_GENERATOR_RETURN_TYPE,
+        ),
     };
     let generator = matches!(m, AsyncModifier::AsyncStar | AsyncModifier::SyncStar);
     let illegal = if generator && matches!(inf.table.get(ret), Type::Void) {
@@ -1593,7 +2194,13 @@ fn legal_return_type(inf: &mut BodyInferrer<'_>, unit: UnitId, written: Option<a
 /// `BODY_MIGHT_COMPLETE_NORMALLY`; a nullable one whose base (`futureOrBase`)
 /// is not `dynamic`, `_`, `void` or `Null`,
 /// `BODY_MIGHT_COMPLETE_NORMALLY_NULLABLE`.
-fn body_completes_normally(inf: &mut BodyInferrer<'_>, imposed: Option<TypeId>, context: Option<TypeId>, m: AsyncModifier, where_: dartforge_diagnostics::Span) {
+fn body_completes_normally(
+    inf: &mut BodyInferrer<'_>,
+    imposed: Option<TypeId>,
+    context: Option<TypeId>,
+    m: AsyncModifier,
+    where_: dartforge_diagnostics::Span,
+) {
     use dartforge_diagnostics::codes::{compile_time_error as ce, warning as w};
     let Some(rt) = context else { return };
     if matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) || inf.the_is_unknown(rt) {
@@ -1616,7 +2223,11 @@ fn body_completes_normally(inf: &mut BodyInferrer<'_>, imposed: Option<TypeId>, 
         if bottom > 32 {
             return false;
         }
-        if inf.is_dynamic(t) || inf.table.is_invalid(t) || inf.the_is_unknown(t) || matches!(inf.table.get(t), Type::Void | Type::Null) {
+        if inf.is_dynamic(t)
+            || inf.table.is_invalid(t)
+            || inf.the_is_unknown(t)
+            || matches!(inf.table.get(t), Type::Void | Type::Null)
+        {
             return true;
         }
         match inf.table.get(t).clone() {
@@ -1626,48 +2237,89 @@ fn body_completes_normally(inf: &mut BodyInferrer<'_>, imposed: Option<TypeId>, 
         }
     }
     if !is_nullable(inf, rt, 0) {
-        inf.warning_with_args(ce::BODY_MIGHT_COMPLETE_NORMALLY, where_, &[crate::display::Arg::Type_(rt)]);
+        inf.warning_with_args(
+            ce::BODY_MIGHT_COMPLETE_NORMALLY,
+            where_,
+            &[crate::display::Arg::Type_(rt)],
+        );
         return;
     }
     let mut base = rt;
     while let Type::FutureOr { arg, .. } = inf.table.get(base) {
         base = *arg;
     }
-    if inf.is_dynamic(base) || inf.table.is_invalid(base) || inf.the_is_unknown(base) || matches!(inf.table.get(base), Type::Void | Type::Null) {
+    if inf.is_dynamic(base)
+        || inf.table.is_invalid(base)
+        || inf.the_is_unknown(base)
+        || matches!(inf.table.get(base), Type::Void | Type::Null)
+    {
         return;
     }
-    inf.warning_with_args(w::BODY_MIGHT_COMPLETE_NORMALLY_NULLABLE, where_, &[crate::display::Arg::Type_(rt)]);
+    inf.warning_with_args(
+        w::BODY_MIGHT_COMPLETE_NORMALLY_NULLABLE,
+        where_,
+        &[crate::display::Arg::Type_(rt)],
+    );
 }
 
 /// `_checkForFutureCatchErrorOnError` (`an611:src/generated/resolver.dart:3971-4006`):
 /// a function expression without a return context, a direct positional argument
 /// of `x.catchError(...)` with `x` a `Future<T>`: the `{` reports
 /// `BODY_MIGHT_COMPLETE_NORMALLY_CATCH_ERROR` with the base of `FutureOr<T>`.
-fn catch_error_without_return(inf: &mut BodyInferrer<'_>, cx: &Body, e: ExprId, where_: dartforge_diagnostics::Span) {
-    let dartforge_frontend::parents::Parent::Expr(call) = inf.parent_of(cx.unit, e) else { return };
+fn catch_error_without_return(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    e: ExprId,
+    where_: dartforge_diagnostics::Span,
+) {
+    let dartforge_frontend::parents::Parent::Expr(call) = inf.parent_of(cx.unit, e) else {
+        return;
+    };
     let a = &inf.program.unit(cx.unit).ast;
-    let ast::ExprKind::Call { target, arguments } = &a.expr(call).kind else { return };
-    if !arguments.args.iter().any(|x| x.value == e && x.name.is_none()) {
+    let ast::ExprKind::Call { target, arguments } = &a.expr(call).kind else {
+        return;
+    };
+    if !arguments
+        .args
+        .iter()
+        .any(|x| x.value == e && x.name.is_none())
+    {
         return;
     }
-    let ast::ExprKind::Property { target: tgt, name, .. } = &a.expr(*target).kind else { return };
+    let ast::ExprKind::Property {
+        target: tgt, name, ..
+    } = &a.expr(*target).kind
+    else {
+        return;
+    };
     if inf.interner.resolve(name.sym) != "catchError" {
         return;
     }
-    let Some(recv) = inf.body_types.units[cx.unit.0 as usize].get_type(*tgt) else { return };
+    let Some(recv) = inf.body_types.units[cx.unit.0 as usize].get_type(*tgt) else {
+        return;
+    };
     if !matches!(inf.table.get(recv), Type::Interface { .. }) {
         return;
     }
-    let Some(args) = inf.as_instance_of(recv, inf.core.future_class) else { return };
+    let Some(args) = inf.as_instance_of(recv, inf.core.future_class) else {
+        return;
+    };
     let Some(&t) = args.first() else { return };
     let mut base = t;
     while let Type::FutureOr { arg, .. } = inf.table.get(base) {
         base = *arg;
     }
-    if inf.is_dynamic(base) || inf.the_is_unknown(base) || matches!(inf.table.get(base), Type::Void | Type::Null) {
+    if inf.is_dynamic(base)
+        || inf.the_is_unknown(base)
+        || matches!(inf.table.get(base), Type::Void | Type::Null)
+    {
         return;
     }
-    inf.warning_with_args(dartforge_diagnostics::codes::warning::BODY_MIGHT_COMPLETE_NORMALLY_CATCH_ERROR, where_, &[crate::display::Arg::Type_(base)]);
+    inf.warning_with_args(
+        dartforge_diagnostics::codes::warning::BODY_MIGHT_COMPLETE_NORMALLY_CATCH_ERROR,
+        where_,
+        &[crate::display::Arg::Type_(base)],
+    );
 }
 
 /// Type of an untyped top-level variable/field: an override (a field that
@@ -1677,13 +2329,14 @@ pub(crate) fn infer_untyped_variable_type(inf: &mut BodyInferrer<'_>, vid: Varia
     // Override of an inherited member (instance fields).
     if !v.static_
         && let Some(c) = v.class
-            && let Some(t) = overlay_type(inf, c, vid) {
-                if let Some((unit, init)) = inf.initializer(vid) {
-                    let mut cx = Body::to_variable(inf, vid, unit);
-                    infer(inf, &mut cx, init, t);
-                }
-                return t;
-            }
+        && let Some(t) = overlay_type(inf, c, vid)
+    {
+        if let Some((unit, init)) = inf.initializer(vid) {
+            let mut cx = Body::to_variable(inf, vid, unit);
+            infer(inf, &mut cx, init, t);
+        }
+        return t;
+    }
     match inf.initializer(vid) {
         Some((unit, init)) => {
             let mut cx = Body::to_variable(inf, vid, unit);
@@ -1705,7 +2358,10 @@ pub(crate) fn infer_untyped_variable_type(inf: &mut BodyInferrer<'_>, vid: Varia
                 let d = &inf.outline.variables[vid.0 as usize];
                 match d.declared_type.or(d.inferred) {
                     Some(t) => t,
-                    None => v.class.map(|c| inf.class_this_type(c)).unwrap_or(inf.core.dynamic_),
+                    None => v
+                        .class
+                        .map(|c| inf.class_this_type(c))
+                        .unwrap_or(inf.core.dynamic_),
                 }
             }
             _ => inf.core.dynamic_,
@@ -1717,7 +2373,9 @@ pub(crate) fn infer_untyped_variable_type(inf: &mut BodyInferrer<'_>, vid: Varia
 /// generative or unnamed (`buildEnumSyntheticConstructors`).
 fn enum_has_synthetic(inf: &BodyInferrer<'_>, c: ClassId) -> bool {
     let k = inf.program.class(c);
-    !k.constructors.iter().any(|(the_name, &f)| !inf.program.function(f).factory || inf.interner.resolve(*the_name).is_empty())
+    !k.constructors.iter().any(|(the_name, &f)| {
+        !inf.program.function(f).factory || inf.interner.resolve(*the_name).is_empty()
+    })
 }
 
 /// The implicit type of a generic enum constant without written type
@@ -1725,10 +2383,18 @@ fn enum_has_synthetic(inf: &BodyInferrer<'_>, c: ClassId) -> bool {
 /// (the synthetic initialization of `ElementBuilder`, typed like an untyped
 /// field). The inference is speculative: its warnings come out when the enum
 /// declaration is visited.
-fn enum_constant_type(inf: &mut BodyInferrer<'_>, vid: VariableId, unit: UnitId, decl: ast::DeclId, index: usize) -> Option<TypeId> {
+fn enum_constant_type(
+    inf: &mut BodyInferrer<'_>,
+    vid: VariableId,
+    unit: UnitId,
+    decl: ast::DeclId,
+    index: usize,
+) -> Option<TypeId> {
     let c = inf.program.variable(vid).class?;
     let program = inf.program;
-    let ast::DeclKind::Enum(en) = &program.unit(unit).ast.decl(decl).kind else { return None };
+    let ast::DeclKind::Enum(en) = &program.unit(unit).ast.decl(decl).kind else {
+        return None;
+    };
     let k = en.constants.get(index)?;
     let args = k.arguments.as_ref()?;
     let key = match k.constructor.map(|n| n.sym) {
@@ -1772,7 +2438,8 @@ fn overlay_type(inf: &mut BodyInferrer<'_>, c: ClassId, vid: VariableId) -> Opti
 fn overlay_type_at(inf: &mut BodyInferrer<'_>, c: ClassId, vid: VariableId) -> Option<TypeId> {
     let v = inf.program.variable(vid);
     let final_ = v.final_ || v.const_;
-    let (getters, setters, n_getter, n_setter) = inf.overridden_getters_and_setters(c, v.library, v.name);
+    let (getters, setters, n_getter, n_setter) =
+        inf.overridden_getters_and_setters(c, v.library, v.name);
     match (getters.is_empty(), setters.is_empty(), n_setter) {
         (false, true, _) => Some(inf.combined_getter_type(c, &getters, n_getter)),
         (true, false, Some(ns)) => Some(inf.combined_setter_type(c, &setters, ns)),
@@ -1802,11 +2469,19 @@ fn context_function(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<TypeId> {
 }
 
 /// Function expression (closure) in context `ctx`.
-pub(crate) fn function_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::FunctionId, ctx: TypeId, e: ExprId) -> TypeId {
+pub(crate) fn function_expression(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    fid: ast::FunctionId,
+    ctx: TypeId,
+    e: ExprId,
+) -> TypeId {
     // `wasFunctionTypeSupplied` (`function_expression_resolver.dart:35`): the
     // context, as it arrived, is a function type.
     if matches!(inf.table.get(ctx), Type::Function { .. }) {
-        inf.body_types.units[cx.unit.0 as usize].with_function_type.insert(fid);
+        inf.body_types.units[cx.unit.0 as usize]
+            .with_function_type
+            .insert(fid);
     }
     let (t, _) = function_literal(inf, cx, fid, ctx, None, Some(e));
     t
@@ -1814,7 +2489,14 @@ pub(crate) fn function_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid
 
 /// Infers a literal or local function. `local` is the id of the local
 /// function (declared before, for recursive calls).
-fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::FunctionId, ctx: TypeId, local: Option<crate::resolved::LocalId>, expression: Option<ExprId>) -> (TypeId, ()) {
+fn function_literal(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    fid: ast::FunctionId,
+    ctx: TypeId,
+    local: Option<crate::resolved::LocalId>,
+    expression: Option<ExprId>,
+) -> (TypeId, ()) {
     let af = inf.program.unit(cx.unit).ast.function(fid);
     let u = inf.core.unknown;
     let ctx_fn = context_function(inf, ctx);
@@ -1842,9 +2524,13 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
         cx.written_in_body = Some(match cx.root {
             // The whole member, including writes to its own parameters (R-FLU-07
             // rule 2; `base ??= const {}` and then the closure).
-            super::body::Root::Function(f) => statements::separately_written_names(inf, cx.unit, &a.function(f).body),
+            super::body::Root::Function(f) => {
+                statements::separately_written_names(inf, cx.unit, &a.function(f).body)
+            }
             super::body::Root::Constructor(m) => match &a.member(m).kind {
-                ast::MemberKind::Constructor(c) => statements::separately_written_names(inf, cx.unit, &c.body),
+                ast::MemberKind::Constructor(c) => {
+                    statements::separately_written_names(inf, cx.unit, &c.body)
+                }
                 _ => Default::default(),
             },
             super::body::Root::Nothing => Default::default(),
@@ -1883,7 +2569,12 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
     // Type parameters of the function literal.
     let mut tps: Vec<TypeParamId> = Vec::new();
     for tp in af.type_params.iter() {
-        let p = inf.table.alloc_type_param(tp.name.sym, crate::table::TypeParamOwner::GenericFunctionType, inf.core.object_nullable, crate::table::Variance::Unspecified);
+        let p = inf.table.alloc_type_param(
+            tp.name.sym,
+            crate::table::TypeParamOwner::GenericFunctionType,
+            inf.core.object_nullable,
+            crate::table::Variance::Unspecified,
+        );
         inf.table.without_default_type.insert(p);
         cx.declare_type_param(tp.name.sym, p);
         tps.push(p);
@@ -1896,16 +2587,33 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
     }
     // Function context with the type parameters renamed to ours.
     let (cpos, copt, cnamed, cret) = match ctx_fn.map(|t| inf.table.get(t).clone()) {
-        Some(Type::Function { type_params, ret, positional, optional, named, .. }) => {
+        Some(Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        }) => {
             let map: HashMap<TypeParamId, TypeId> = if type_params.len() == tps.len() {
-                type_params.iter().copied().zip(tps.iter().map(|&p| inf.table.intern(Type::TypeParameter { param: p, nullable: false }))).collect()
+                type_params
+                    .iter()
+                    .copied()
+                    .zip(tps.iter().map(|&p| {
+                        inf.table.intern(Type::TypeParameter {
+                            param: p,
+                            nullable: false,
+                        })
+                    }))
+                    .collect()
             } else {
                 HashMap::new()
             };
             let s = |inf: &mut BodyInferrer<'_>, t: TypeId| inf.subst(t, &map);
             let pos: Vec<TypeId> = positional.iter().map(|&t| s(inf, t)).collect();
             let opt: Vec<TypeId> = optional.iter().map(|&t| s(inf, t)).collect();
-            let named: Vec<(dartforge_intern::SymbolId, TypeId, bool)> = named.iter().map(|(n, t, r)| (*n, s(inf, *t), *r)).collect();
+            let named: Vec<(dartforge_intern::SymbolId, TypeId, bool)> =
+                named.iter().map(|(n, t, r)| (*n, s(inf, *t), *r)).collect();
             let r = s(inf, ret);
             (pos, opt, named, Some(r))
         }
@@ -1952,7 +2660,12 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
             let written = inf.written_parameter_type(cx.unit, cx.lib, p, &scope);
             inf.in_static_member = static_before;
             let from_ctx = match p.kind {
-                ast::ParameterKind::Named => p.name.and_then(|n| cnamed.iter().find(|(s, _, _)| *s == n.sym).map(|(_, t, _)| *t)),
+                ast::ParameterKind::Named => p.name.and_then(|n| {
+                    cnamed
+                        .iter()
+                        .find(|(s, _, _)| *s == n.sym)
+                        .map(|(_, t, _)| *t)
+                }),
                 _ => {
                     let t = all_ctx.get(ipos).copied();
                     ipos += 1;
@@ -1987,11 +2700,23 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
                 // functions: an optional one without a default whose type is potentially
                 // non-nullable (the element's, inferred from the context if not written).
                 use dartforge_diagnostics::codes::compile_time_error as ce;
-                let annotated = p.metadata.iter().any(|a| a.name.last().is_some_and(|n| inf.interner.resolve(n.sym) == "required"));
+                let annotated = p.metadata.iter().any(|a| {
+                    a.name
+                        .last()
+                        .is_some_and(|n| inf.interner.resolve(n.sym) == "required")
+                });
                 if annotated {
-                    inf.warning_with_code(ce::MISSING_DEFAULT_VALUE_FOR_PARAMETER_WITH_ANNOTATION, the_name.span, &[]);
+                    inf.warning_with_code(
+                        ce::MISSING_DEFAULT_VALUE_FOR_PARAMETER_WITH_ANNOTATION,
+                        the_name.span,
+                        &[],
+                    );
                 } else {
-                    let code = if p.kind == ast::ParameterKind::Optional { ce::MISSING_DEFAULT_VALUE_FOR_PARAMETER_POSITIONAL } else { ce::MISSING_DEFAULT_VALUE_FOR_PARAMETER };
+                    let code = if p.kind == ast::ParameterKind::Optional {
+                        ce::MISSING_DEFAULT_VALUE_FOR_PARAMETER_POSITIONAL
+                    } else {
+                        ce::MISSING_DEFAULT_VALUE_FOR_PARAMETER
+                    };
                     let text = inf.interner.resolve(the_name.sym).to_string();
                     inf.warning_with_code(code, the_name.span, &[&text]);
                 }
@@ -2009,7 +2734,15 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
                 declare_local(
                     inf,
                     cx,
-                    Local { name: n.sym, ty: t, final_: p.final_, late: false, const_: false, offset: n.span.start, local_function: false },
+                    Local {
+                        name: n.sym,
+                        ty: t,
+                        final_: p.final_,
+                        late: false,
+                        const_: false,
+                        offset: n.span.start,
+                        local_function: false,
+                    },
                     true,
                 );
             }
@@ -2026,8 +2759,12 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
             let s = cret.unwrap_or(u);
             let k = match m {
                 AsyncModifier::None => s,
-                AsyncModifier::AsyncStar => inf.as_schema_instance_of(s, inf.core.stream_class).unwrap_or(u),
-                AsyncModifier::SyncStar => inf.as_schema_instance_of(s, inf.core.iterable_class).unwrap_or(u),
+                AsyncModifier::AsyncStar => inf
+                    .as_schema_instance_of(s, inf.core.stream_class)
+                    .unwrap_or(u),
+                AsyncModifier::SyncStar => inf
+                    .as_schema_instance_of(s, inf.core.iterable_class)
+                    .unwrap_or(u),
                 AsyncModifier::Async => {
                     let fv = inf.future_value_type_schema(s);
                     inf.future_or(fv)
@@ -2072,7 +2809,18 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
     } else {
         None
     };
-    cx.functions.push(FunctionCtx { closure_imposed, modifier: m, the_return: declared, return_context: ctx_ret, returned: Vec::new(), empty_return: false, valueless_returns: Vec::new(), returned_expressions: Vec::new(), executable, legal_return });
+    cx.functions.push(FunctionCtx {
+        closure_imposed,
+        modifier: m,
+        the_return: declared,
+        return_context: ctx_ret,
+        returned: Vec::new(),
+        empty_return: false,
+        valueless_returns: Vec::new(),
+        returned_expressions: Vec::new(),
+        executable,
+        legal_return,
+    });
     let saved_jumps = std::mem::take(&mut cx.jumps);
     let saved_cascades = std::mem::take(&mut cx.cascades);
     let saved_targets = std::mem::take(&mut cx.cascade_targets);
@@ -2103,7 +2851,10 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
                     (Some(_), Some(n)) => n.span,
                     _ => {
                         let begin = inf.program.unit(cx.unit).ast.stmt(*s).span.start;
-                        dartforge_diagnostics::Span { start: begin, end: begin + 1 }
+                        dartforge_diagnostics::Span {
+                            start: begin,
+                            end: begin + 1,
+                        }
                     }
                 };
                 body_completes_normally(inf, imposed, imposed.map(|_| ctx_ret), m, where_);
@@ -2136,7 +2887,8 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
             let mut t = match body_t {
                 Some(t) => t,
                 None => {
-                    if completes && !matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar) {
+                    if completes && !matches!(m, AsyncModifier::SyncStar | AsyncModifier::AsyncStar)
+                    {
                         inf.core.null
                     } else {
                         inf.core.never
@@ -2166,7 +2918,8 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
             let r = inf.greatest_closure_of(ctx_ret);
             let wrap = |inf: &mut BodyInferrer<'_>, t: TypeId| {
                 let s = if matches!(inf.table.get(r), Type::Void)
-                    || (m == AsyncModifier::Async && matches!(inf.table.get(r), Type::FutureOr { arg, .. } if matches!(inf.table.get(*arg), Type::Void)))
+                    || (m == AsyncModifier::Async
+                        && matches!(inf.table.get(r), Type::FutureOr { arg, .. } if matches!(inf.table.get(*arg), Type::Void)))
                 {
                     inf.core.void_
                 } else if inf.sub(t, r) {
@@ -2189,8 +2942,13 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
             // return type (the inferred one, already adjusted to the context); a
             // `=> e` with a flattened `void` return accepts any expression
             // (`verifyExpressionFunctionBody`, `return_type_verifier.dart:45-52`).
-            let flattened = if m == AsyncModifier::Async { inf.flatten(static_) } else { static_ };
-            let void_arrow = matches!(af.body, FunctionBody::Expression(_)) && matches!(inf.table.get(flattened), Type::Void);
+            let flattened = if m == AsyncModifier::Async {
+                inf.flatten(static_)
+            } else {
+                static_
+            };
+            let void_arrow = matches!(af.body, FunctionBody::Expression(_))
+                && matches!(inf.table.get(flattened), Type::Void);
             if fc.executable.is_none() && !generator && !void_arrow {
                 closure_returns(inf, cx, &fc, static_, static_);
             }
@@ -2198,10 +2956,18 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
             // the closure's return type, the inferred one: `return;` where it (the
             // future value, in `async`) is not `void`, `dynamic` or `Null`.
             if fc.executable.is_none() && !generator && !fc.valueless_returns.is_empty() {
-                let tv = if m == AsyncModifier::Async { inf.future_value_type(static_) } else { static_ };
+                let tv = if m == AsyncModifier::Async {
+                    inf.future_value_type(static_)
+                } else {
+                    static_
+                };
                 if !matches!(inf.table.get(tv), Type::Void | Type::Dynamic | Type::Null) {
                     for &sp in &fc.valueless_returns {
-                        inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::RETURN_WITHOUT_VALUE, sp, &[]);
+                        inf.warning_with_code(
+                            dartforge_diagnostics::codes::compile_time_error::RETURN_WITHOUT_VALUE,
+                            sp,
+                            &[],
+                        );
                     }
                 }
             }
@@ -2213,7 +2979,11 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
             // context's whole return type (`Iterable<num>? Function()` gives
             // `Iterable<num>?`).
             if generator && body_t.is_none() {
-                let mut e = if fc.returned.is_empty() { inf.core.null } else { inf.core.never };
+                let mut e = if fc.returned.is_empty() {
+                    inf.core.null
+                } else {
+                    inf.core.never
+                };
                 for &y in &fc.returned {
                     e = inf.up(y, e);
                 }
@@ -2243,7 +3013,9 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
             named: named.clone().into_boxed_slice(),
             nullable: false,
         });
-        inf.body_types.units[cx.unit.0 as usize].function_runtime_types.insert(fid, fe);
+        inf.body_types.units[cx.unit.0 as usize]
+            .function_runtime_types
+            .insert(fid, fe);
     }
     let ft = inf.table.intern(Type::Function {
         type_params: tps.into_boxed_slice(),
@@ -2258,7 +3030,11 @@ fn function_literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid: ast::Functio
 
 impl<'a> BodyInferrer<'a> {
     /// `S` is `C<S1>` (without subtypes): `S1`.
-    pub(crate) fn as_schema_instance_of(&mut self, s: TypeId, c: Option<ClassId>) -> Option<TypeId> {
+    pub(crate) fn as_schema_instance_of(
+        &mut self,
+        s: TypeId,
+        c: Option<ClassId>,
+    ) -> Option<TypeId> {
         let c = c?;
         match self.table.get(s) {
             Type::Interface { class, args, .. } if *class == c && args.len() == 1 => Some(args[0]),
@@ -2272,7 +3048,15 @@ pub(crate) fn the_local_function(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid:
     let af = inf.program.unit(cx.unit).ast.function(fid);
     let Some(the_name) = af.name else { return };
     let d = inf.core.dynamic_;
-    let id = cx.declare(Local { name: the_name.sym, ty: d, final_: true, late: false, const_: false, offset: the_name.span.start, local_function: true });
+    let id = cx.declare(Local {
+        name: the_name.sym,
+        ty: d,
+        final_: true,
+        late: false,
+        const_: false,
+        offset: the_name.span.start,
+        local_function: true,
+    });
     cx.local_functions.insert(id);
     cx.flow.initialize(id);
     let u = inf.core.unknown;
@@ -2282,7 +3066,9 @@ pub(crate) fn the_local_function(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid:
     inf.body_types.units[cx.unit.0 as usize].set_local_type(the_name.span.start, t);
     // A local function with a written return (`parent.returnType?.type`).
     if let Some(rt) = inf.program.unit(cx.unit).ast.function(fid).return_type
-        && let Some(&return_) = inf.body_types.units[cx.unit.0 as usize].annotation_types.get(&rt)
+        && let Some(&return_) = inf.body_types.units[cx.unit.0 as usize]
+            .annotation_types
+            .get(&rt)
     {
         unnecessary_set(inf, cx.unit, fid, return_);
     }
@@ -2292,7 +3078,9 @@ pub(crate) fn the_local_function(inf: &mut BodyInferrer<'_>, cx: &mut Body, fid:
 fn void_return(inf: &BodyInferrer<'_>, t: TypeId) -> bool {
     match inf.table.get(t) {
         Type::Void => true,
-        Type::Interface { class, args, .. } if Some(*class) == inf.core.future_class => args.len() == 1 && matches!(inf.table.get(args[0]), Type::Void),
+        Type::Interface { class, args, .. } if Some(*class) == inf.core.future_class => {
+            args.len() == 1 && matches!(inf.table.get(args[0]), Type::Void)
+        }
         Type::FutureOr { arg, .. } => matches!(inf.table.get(*arg), Type::Void),
         _ => false,
     }
@@ -2303,16 +3091,30 @@ fn void_return(inf: &BodyInferrer<'_>, t: TypeId) -> bool {
 /// is a set literal and the return (that of the parameter receiving the
 /// closure, or the declaration's written one) is `void`, `Future<void>` or
 /// `FutureOr<void>`; at the literal.
-pub(crate) fn unnecessary_set(inf: &mut BodyInferrer<'_>, unit: UnitId, fid: ast::FunctionId, return_: TypeId) {
+pub(crate) fn unnecessary_set(
+    inf: &mut BodyInferrer<'_>,
+    unit: UnitId,
+    fid: ast::FunctionId,
+    return_: TypeId,
+) {
     let a = &inf.program.unit(unit).ast;
-    let ast::FunctionBody::Expression(e) = a.function(fid).body else { return };
+    let ast::FunctionBody::Expression(e) = a.function(fid).body else {
+        return;
+    };
     if !matches!(a.expr(e).kind, ast::ExprKind::SetOrMap { .. }) || !void_return(inf, return_) {
         return;
     }
-    let Some(t) = inf.body_types.units[unit.0 as usize].get_type(e) else { return };
-    if matches!(inf.table.get(t), Type::Interface { class, .. } if Some(*class) == inf.core.set_class) {
+    let Some(t) = inf.body_types.units[unit.0 as usize].get_type(e) else {
+        return;
+    };
+    if matches!(inf.table.get(t), Type::Interface { class, .. } if Some(*class) == inf.core.set_class)
+    {
         let sp = inf.span_expr(unit, e);
-        inf.warning_with_code(dartforge_diagnostics::codes::warning::UNNECESSARY_SET_LITERAL, sp, &[]);
+        inf.warning_with_code(
+            dartforge_diagnostics::codes::warning::UNNECESSARY_SET_LITERAL,
+            sp,
+            &[],
+        );
     }
 }
 
@@ -2368,13 +3170,22 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
                     .and_then(|i| inf.outline.typedefs.get(i))
                     .map(|x| x.type_params.to_vec())
                     .unwrap_or_default(),
-                _ => cls.and_then(|c| inf.outline.classes.get(c.0 as usize)).map(|x| x.type_params.to_vec()).unwrap_or_default(),
+                _ => cls
+                    .and_then(|c| inf.outline.classes.get(c.0 as usize))
+                    .map(|x| x.type_params.to_vec())
+                    .unwrap_or_default(),
             }
         } else {
             Vec::new()
         };
-        let scope: Vec<(dartforge_intern::SymbolId, TypeParamId)> =
-            if ids.len() == tps.len() { tps.iter().map(|tp| tp.name.sym).zip(ids.iter().copied()).collect() } else { Vec::new() };
+        let scope: Vec<(dartforge_intern::SymbolId, TypeParamId)> = if ids.len() == tps.len() {
+            tps.iter()
+                .map(|tp| tp.name.sym)
+                .zip(ids.iter().copied())
+                .collect()
+        } else {
+            Vec::new()
+        };
         for tp in tps.iter() {
             for m in tp.metadata.iter() {
                 validate_annotation(inf, unit, None, m);
@@ -2407,16 +3218,28 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
                     match declared {
                         Some(f) if inf.program.function(f).factory => {
                             let sp = k.constructor.map_or(k.name.span, |n| n.span);
-                            inf.warning_with_code(ce::ENUM_CONSTANT_INVOKES_FACTORY_CONSTRUCTOR, sp, &[]);
+                            inf.warning_with_code(
+                                ce::ENUM_CONSTANT_INVOKES_FACTORY_CONSTRUCTOR,
+                                sp,
+                                &[],
+                            );
                         }
                         Some(_) => {}
                         None if synthetic => {}
                         None => match k.constructor {
                             Some(n) => {
                                 let the_name = inf.interner.resolve(n.sym).to_string();
-                                inf.warning_with_code(ce::UNDEFINED_ENUM_CONSTRUCTOR_NAMED, n.span, &[&the_name]);
+                                inf.warning_with_code(
+                                    ce::UNDEFINED_ENUM_CONSTRUCTOR_NAMED,
+                                    n.span,
+                                    &[&the_name],
+                                );
                             }
-                            None => inf.warning_with_code(ce::UNDEFINED_ENUM_CONSTRUCTOR_UNNAMED, k.name.span, &[]),
+                            None => inf.warning_with_code(
+                                ce::UNDEFINED_ENUM_CONSTRUCTOR_UNNAMED,
+                                k.name.span,
+                                &[],
+                            ),
                         },
                     }
                     // `TypeArgumentsVerifier.checkEnumConstantDeclaration`
@@ -2425,16 +3248,23 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
                     let resolved = declared.is_some() || synthetic;
                     let the_expected = inf.program.class(c).type_params.len();
                     if resolved
-                        && let (Some(&first), Some(&last)) = (k.type_args.first(), k.type_args.last())
+                        && let (Some(&first), Some(&last)) =
+                            (k.type_args.first(), k.type_args.last())
                         && k.type_args.len() != the_expected
                     {
                         let source = &inf.program.unit(unit).source;
                         let arg_start = a.ty(first).span.start;
                         let arg_end = a.ty(last).span.end;
                         let start = source[..arg_start].rfind('<').unwrap_or(arg_start);
-                        let end = source[arg_end..].find('>').map_or(arg_end, |i| arg_end + i + 1);
+                        let end = source[arg_end..]
+                            .find('>')
+                            .map_or(arg_end, |i| arg_end + i + 1);
                         let (e, d) = (the_expected.to_string(), k.type_args.len().to_string());
-                        inf.warning_with_code(ce::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ENUM, dartforge_diagnostics::Span { start, end }, &[&e, &d]);
+                        inf.warning_with_code(
+                            ce::WRONG_NUMBER_OF_TYPE_ARGUMENTS_ENUM,
+                            dartforge_diagnostics::Span { start, end },
+                            &[&e, &d],
+                        );
                     }
                 }
                 if let Some(args) = &k.arguments {
@@ -2444,7 +3274,12 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
                         let explicit = if k.type_args.is_empty() {
                             None
                         } else {
-                            Some(k.type_args.iter().map(|&t| inf.type_argument_type(&cx, t)).collect())
+                            Some(
+                                k.type_args
+                                    .iter()
+                                    .map(|&t| inf.type_argument_type(&cx, t))
+                                    .collect(),
+                            )
                         };
                         let u = inf.core.unknown;
                         let enum_name = inf.interner.resolve(en.name.sym).to_string();
@@ -2455,11 +3290,21 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
                         // constructor's type arguments (written or inferred), at the written
                         // argument or at the name.
                         let params = inf.outline.classes[c.0 as usize].type_params.to_vec();
-                        if let Some(types) = inf.body_types.units[unit.0 as usize].instantiation(args.span.start).map(|x| x.to_vec())
+                        if let Some(types) = inf.body_types.units[unit.0 as usize]
+                            .instantiation(args.span.start)
+                            .map(|x| x.to_vec())
                             && types.len() == params.len()
                         {
                             let nodes = k.type_args.to_vec();
-                            super::calls::check_explicit_bounds(inf, unit, &params, &types, &nodes, k.name.span, None);
+                            super::calls::check_explicit_bounds(
+                                inf,
+                                unit,
+                                &params,
+                                &types,
+                                &nodes,
+                                k.name.span,
+                                None,
+                            );
                         }
                     } else if key == inf.sym.empty && enum_has_synthetic(inf, c) {
                         // Implicit unnamed constructor `const E()`: the arguments go through its
@@ -2483,15 +3328,30 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
                         let params = inf.outline.classes[c.0 as usize].type_params.to_vec();
                         if !k.type_args.is_empty() && k.type_args.len() == params.len() {
                             let nodes = k.type_args.to_vec();
-                            let types: Vec<TypeId> = nodes.iter().map(|&t| inf.type_argument_type(&cx, t)).collect();
-                            super::calls::check_explicit_bounds(inf, unit, &params, &types, &nodes, k.name.span, None);
+                            let types: Vec<TypeId> = nodes
+                                .iter()
+                                .map(|&t| inf.type_argument_type(&cx, t))
+                                .collect();
+                            super::calls::check_explicit_bounds(
+                                inf,
+                                unit,
+                                &params,
+                                &types,
+                                &nodes,
+                                k.name.span,
+                                None,
+                            );
                         }
                     } else {
                         for x in args.args.iter() {
                             infer_free(inf, &mut cx, x.value);
                         }
                     }
-                } else if let Some(f) = inf.sym.empty.and_then(|v| inf.program.class(c).constructors.get(&v).copied()) {
+                } else if let Some(f) = inf
+                    .sym
+                    .empty
+                    .and_then(|v| inf.program.class(c).constructors.get(&v).copied())
+                {
                     let enum_name = inf.interner.resolve(en.name.sym).to_string();
                     super::calls::arity_without_arguments(inf, f, enum_name, k.name.span);
                 }
@@ -2514,7 +3374,13 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
     // container's scope (`ResolverVisitor` visits the metadata inside the
     // class or extension scope), where a setter-only member hides an outer
     // getter of the same name.
-    let mut owners: std::collections::HashMap<u32, (Option<ClassId>, Option<dartforge_elements::model::ExtensionId>)> = std::collections::HashMap::new();
+    let mut owners: std::collections::HashMap<
+        u32,
+        (
+            Option<ClassId>,
+            Option<dartforge_elements::model::ExtensionId>,
+        ),
+    > = std::collections::HashMap::new();
     for (di, d) in a.decls.iter().enumerate() {
         let members: &[ast::MemberId] = match &d.kind {
             ast::DeclKind::Class(x) => &x.members,
@@ -2522,13 +3388,21 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
             ast::DeclKind::Enum(x) => &x.members,
             ast::DeclKind::Extension(x) => &x.members,
             ast::DeclKind::ExtensionType(x) => &x.members,
-            ast::DeclKind::Typedef(_) | ast::DeclKind::Function(_) | ast::DeclKind::Variables(_) => &[],
+            ast::DeclKind::Typedef(_)
+            | ast::DeclKind::Function(_)
+            | ast::DeclKind::Variables(_) => &[],
         };
         let owner = match &d.kind {
             ast::DeclKind::Extension(_) => {
                 let decl = ast::DeclId(di as u32);
-                let x = inf.program.extension_of_decl(unit, decl).map(|e| e.0 as usize);
-                (None, x.map(|i| dartforge_elements::model::ExtensionId(i as u32)))
+                let x = inf
+                    .program
+                    .extension_of_decl(unit, decl)
+                    .map(|e| e.0 as usize);
+                (
+                    None,
+                    x.map(|i| dartforge_elements::model::ExtensionId(i as u32)),
+                )
             }
             _ => decl_class(inf, unit, d),
         };
@@ -2545,11 +3419,17 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
         let access = {
             use dartforge_diagnostics::codes::compile_time_error as ce;
             match &mb.kind {
-                ast::MemberKind::Constructor(k) if k.factory => Some(ce::INSTANCE_MEMBER_ACCESS_FROM_FACTORY),
+                ast::MemberKind::Constructor(k) if k.factory => {
+                    Some(ce::INSTANCE_MEMBER_ACCESS_FROM_FACTORY)
+                }
                 ast::MemberKind::Constructor(_) => None,
-                ast::MemberKind::Field(v) if v.static_ || !v.late => Some(ce::IMPLICIT_THIS_REFERENCE_IN_INITIALIZER),
+                ast::MemberKind::Field(v) if v.static_ || !v.late => {
+                    Some(ce::IMPLICIT_THIS_REFERENCE_IN_INITIALIZER)
+                }
                 ast::MemberKind::Field(_) => None,
-                ast::MemberKind::Method(f) if a.function(*f).static_ => Some(ce::INSTANCE_MEMBER_ACCESS_FROM_STATIC),
+                ast::MemberKind::Method(f) if a.function(*f).static_ => {
+                    Some(ce::INSTANCE_MEMBER_ACCESS_FROM_STATIC)
+                }
                 ast::MemberKind::Method(_) => None,
             }
         };
@@ -2567,14 +3447,19 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
     }
     // Top-level functions and methods (local ones and literals see locals
     // that the annotation may cite: they stay without name validation).
-    let the_declared: std::collections::HashMap<u32, (Option<ClassId>, Option<dartforge_elements::model::ExtensionId>)> = inf
-        .program
-        .index()
-        .unit_functions[unit.0 as usize]
+    let the_declared: std::collections::HashMap<
+        u32,
+        (
+            Option<ClassId>,
+            Option<dartforge_elements::model::ExtensionId>,
+        ),
+    > = inf.program.index().unit_functions[unit.0 as usize]
         .iter()
         .map(|&k| inf.program.function(k))
         .filter_map(|fe| match fe.node {
-            dartforge_elements::model::FunctionRef::Function { unit: u, function } if u == unit => Some((function.0, (fe.class, fe.extension))),
+            dartforge_elements::model::FunctionRef::Function { unit: u, function } if u == unit => {
+                Some((function.0, (fe.class, fe.extension)))
+            }
             _ => None,
         })
         .collect();
@@ -2583,19 +3468,29 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
         // A method's type parameters see the container's scope: the class's, or
         // the extension's, with its static members (`@A(foo) T` in a method of an
         // extension with `static foo()`).
-        let (owner, owner_extension) = the_declared.get(&(i as u32)).copied().unwrap_or((None, None));
+        let (owner, owner_extension) = the_declared
+            .get(&(i as u32))
+            .copied()
+            .unwrap_or((None, None));
         // The function's own type parameters are also in scope.
-        let scope: Vec<(dartforge_intern::SymbolId, TypeParamId)> = if f.type_params.iter().any(|tp| !tp.metadata.is_empty()) {
-            let fid = inf.program.function_of_node(unit, ast::FunctionId(i as u32)).map(|x| x.0 as usize);
-            match fid.and_then(|x| inf.outline.functions.get(x)) {
-                Some(data) if data.type_params.len() == f.type_params.len() => {
-                    f.type_params.iter().map(|tp| tp.name.sym).zip(data.type_params.iter().copied()).collect()
+        let scope: Vec<(dartforge_intern::SymbolId, TypeParamId)> =
+            if f.type_params.iter().any(|tp| !tp.metadata.is_empty()) {
+                let fid = inf
+                    .program
+                    .function_of_node(unit, ast::FunctionId(i as u32))
+                    .map(|x| x.0 as usize);
+                match fid.and_then(|x| inf.outline.functions.get(x)) {
+                    Some(data) if data.type_params.len() == f.type_params.len() => f
+                        .type_params
+                        .iter()
+                        .map(|tp| tp.name.sym)
+                        .zip(data.type_params.iter().copied())
+                        .collect(),
+                    _ => Vec::new(),
                 }
-                _ => Vec::new(),
-            }
-        } else {
-            Vec::new()
-        };
+            } else {
+                Vec::new()
+            };
         for tp in f.type_params.iter() {
             for m in tp.metadata.iter() {
                 if validate {
@@ -2637,7 +3532,14 @@ pub(crate) fn infer_unit_metadata(inf: &mut BodyInferrer<'_>, unit: UnitId) {
     }
 }
 
-fn decl_class(inf: &BodyInferrer<'_>, unit: UnitId, d: &ast::Decl) -> (Option<ClassId>, Option<dartforge_elements::model::ExtensionId>) {
+fn decl_class(
+    inf: &BodyInferrer<'_>,
+    unit: UnitId,
+    d: &ast::Decl,
+) -> (
+    Option<ClassId>,
+    Option<dartforge_elements::model::ExtensionId>,
+) {
     let lib = inf.program.unit(unit).library;
     let the_name = match &d.kind {
         ast::DeclKind::Class(c) => Some(c.name.sym),
@@ -2646,7 +3548,10 @@ fn decl_class(inf: &BodyInferrer<'_>, unit: UnitId, d: &ast::Decl) -> (Option<Cl
         ast::DeclKind::ExtensionType(e) => Some(e.name.sym),
         _ => None,
     };
-    match the_name.and_then(|n| inf.program.library(lib).declared.get(&n)).and_then(|b| b.getter) {
+    match the_name
+        .and_then(|n| inf.program.library(lib).declared.get(&n))
+        .and_then(|b| b.getter)
+    {
         Some(Element::Class(c)) => (Some(c), None),
         _ => (None, None),
     }
@@ -2664,7 +3569,10 @@ enum InAnnotation {
     Other,
 }
 
-fn classify_in_annotation(inf: &BodyInferrer<'_>, b: Option<dartforge_elements::model::Binding>) -> InAnnotation {
+fn classify_in_annotation(
+    inf: &BodyInferrer<'_>,
+    b: Option<dartforge_elements::model::Binding>,
+) -> InAnnotation {
     use dartforge_elements::model::FunctionKind as K;
     match b.and_then(|b| b.getter) {
         None => InAnnotation::Nothing,
@@ -2676,7 +3584,9 @@ fn classify_in_annotation(inf: &BodyInferrer<'_>, b: Option<dartforge_elements::
         Some(Element::Function(f)) => {
             let fe = inf.program.function(f);
             match (fe.kind, fe.variable) {
-                (K::ImplicitAccessor, Some(v)) => InAnnotation::Getter(Some(inf.program.variable(v).const_)),
+                (K::ImplicitAccessor, Some(v)) => {
+                    InAnnotation::Getter(Some(inf.program.variable(v).const_))
+                }
                 (K::Getter, _) => InAnnotation::Getter(None),
                 _ => InAnnotation::Other,
             }
@@ -2697,10 +3607,15 @@ fn static_getter(
     let (statics, fields) = match (cls, ext) {
         (Some(c), _) => {
             let k = inf.program.class(c);
-            if k.enum_constants.iter().any(|&v| inf.program.variable(v).name == the_name) {
+            if k.enum_constants
+                .iter()
+                .any(|&v| inf.program.variable(v).name == the_name)
+            {
                 return Some(Some(true));
             }
-            if k.kind == dartforge_elements::model::ClassKind::Enum && inf.interner.resolve(the_name) == "values" {
+            if k.kind == dartforge_elements::model::ClassKind::Enum
+                && inf.interner.resolve(the_name) == "values"
+            {
                 return Some(Some(true));
             }
             (&k.static_members, k.fields.clone())
@@ -2730,7 +3645,12 @@ fn static_getter(
 /// `INVALID_ANNOTATION` at an annotation that is neither a reference to a
 /// constant nor an invocation of a constant constructor. Names are resolved in
 /// the library's scope (the class's, only when it is known).
-pub(crate) fn validate_annotation(inf: &mut BodyInferrer<'_>, unit: UnitId, cls: Option<ClassId>, m: &ast::Annotation) {
+pub(crate) fn validate_annotation(
+    inf: &mut BodyInferrer<'_>,
+    unit: UnitId,
+    cls: Option<ClassId>,
+    m: &ast::Annotation,
+) {
     validate_annotation_at(inf, unit, cls, None, m);
 }
 
@@ -2772,7 +3692,9 @@ pub(crate) fn validate_annotation_at(
     }
     let b1 = inf.program.lookup_in_unit(unit, n1.sym);
     let mut e1 = classify_in_annotation(inf, b1);
-    if matches!(e1, InAnnotation::Nothing) && inf.program.prefixes_in_unit(unit).contains_key(&n1.sym) {
+    if matches!(e1, InAnnotation::Nothing)
+        && inf.program.prefixes_in_unit(unit).contains_key(&n1.sym)
+    {
         e1 = InAnnotation::Prefix;
     }
     // For a prefix: the second name resolved in it, and the third is the
@@ -2802,12 +3724,17 @@ pub(crate) fn validate_annotation_at(
         }
         InAnnotation::Class(k) => {
             let kind = inf.program.class(k).kind;
-            let is_class = matches!(kind, dartforge_elements::model::ClassKind::Class | dartforge_elements::model::ClassKind::MixinApplication);
+            let is_class = matches!(
+                kind,
+                dartforge_elements::model::ClassKind::Class
+                    | dartforge_elements::model::ClassKind::MixinApplication
+            );
             // `C.new` is the unnamed constructor.
             let ctor = |inf: &BodyInferrer<'_>, n: Option<ast::Name>| {
                 let n = n.filter(|n| inf.interner.resolve(n.sym) != "new");
                 let key = n.map(|n| n.sym).or(inf.sym.empty);
-                key.and_then(|ch| inf.program.class(k).constructors.get(&ch).copied()).is_some()
+                key.and_then(|ch| inf.program.class(k).constructors.get(&ch).copied())
+                    .is_some()
             };
             if kind == dartforge_elements::model::ClassKind::ExtensionType {
                 // The (primary) constructor of an extension type: the model does not put
@@ -2836,12 +3763,13 @@ pub(crate) fn validate_annotation_at(
                 let const_constructor = |inf: &BodyInferrer<'_>, n: Option<ast::Name>| -> bool {
                     let n = n.filter(|n| inf.interner.resolve(n.sym) != "new");
                     let key = n.map(|n| n.sym).or(inf.sym.empty);
-                    key
-                        .and_then(|ch| inf.program.class(k).constructors.get(&ch).copied())
+                    key.and_then(|ch| inf.program.class(k).constructors.get(&ch).copied())
                         .is_some_and(|f| inf.program.function(inf.program.public(f)).const_)
                 };
                 let of_member = match mem {
-                    Some(n) => static_getter(inf, Some(k), None, n.sym).map(|g| g != Some(true) || args),
+                    Some(n) => {
+                        static_getter(inf, Some(k), None, n.sym).map(|g| g != Some(true) || args)
+                    }
                     None => None,
                 };
                 match of_member {
@@ -2849,17 +3777,23 @@ pub(crate) fn validate_annotation_at(
                     None => {
                         let found = ctor(inf, mem);
                         if found && !args && is_class && const_constructor(inf, mem) {
-                            inf.warning_with_code(c::NO_ANNOTATION_CONSTRUCTOR_ARGUMENTS, span, &[]);
+                            inf.warning_with_code(
+                                c::NO_ANNOTATION_CONSTRUCTOR_ARGUMENTS,
+                                span,
+                                &[],
+                            );
                         }
                         !found
                     }
                 }
             }
         }
-        InAnnotation::Extension(x) => match mem.and_then(|n| static_getter(inf, None, Some(x), n.sym)) {
-            Some(g) => g != Some(true) || args,
-            None => true,
-        },
+        InAnnotation::Extension(x) => {
+            match mem.and_then(|n| static_getter(inf, None, Some(x), n.sym)) {
+                Some(g) => g != Some(true) || args,
+                None => true,
+            }
+        }
         InAnnotation::Getter(g) => g != Some(true) || args,
         // Alias (`_typeAliasConstructorInvocation`/`_typeAliasGetter`, 3.6.2
         // `annotation_resolver.dart:274-285`, `:307-318`, `:383-413`): with
@@ -2867,7 +3801,11 @@ pub(crate) fn validate_annotation_at(
         // without a report here); otherwise the target's getter by the second
         // name: without it (`@V`, or a function alias), `INVALID_ANNOTATION`.
         InAnnotation::Alias(td) => {
-            let tgt = inf.outline.typedefs.get(td.0 as usize).map(|d| d.target_type);
+            let tgt = inf
+                .outline
+                .typedefs
+                .get(td.0 as usize)
+                .map(|d| d.target_type);
             let target_class = tgt.and_then(|t| match inf.table.get(t) {
                 Type::Interface { class, .. } => Some(*class),
                 _ => None,
@@ -2892,13 +3830,24 @@ pub(crate) fn validate_annotation_at(
 }
 
 /// An annotation: `@x`, `@C(args)`, `@C.the_name(args)`, `@p.C(args)`.
-fn annotation(inf: &mut BodyInferrer<'_>, unit: UnitId, cls: Option<ClassId>, _ext: Option<dartforge_elements::model::ExtensionId>, m: &ast::Annotation) {
+fn annotation(
+    inf: &mut BodyInferrer<'_>,
+    unit: UnitId,
+    cls: Option<ClassId>,
+    _ext: Option<dartforge_elements::model::ExtensionId>,
+    m: &ast::Annotation,
+) {
     validate_annotation(inf, unit, cls, m);
     unvalidated_annotation(inf, unit, cls, m);
 }
 
 /// The annotation's arguments (inference), without name validation.
-fn unvalidated_annotation(inf: &mut BodyInferrer<'_>, unit: UnitId, cls: Option<ClassId>, m: &ast::Annotation) {
+fn unvalidated_annotation(
+    inf: &mut BodyInferrer<'_>,
+    unit: UnitId,
+    cls: Option<ClassId>,
+    m: &ast::Annotation,
+) {
     unvalidated_annotation_with(inf, unit, cls, None, m, &[]);
 }
 
@@ -2935,12 +3884,25 @@ fn annotation_arguments(
     let names: Vec<dartforge_intern::SymbolId> = m.name.iter().map(|n| n.sym).collect();
     // Class and constructor.
     let (c, ctor) = match names.as_slice() {
-        [c] => (inf.program.lookup_in_unit(unit, *c).and_then(|b| b.getter), None),
+        [c] => (
+            inf.program.lookup_in_unit(unit, *c).and_then(|b| b.getter),
+            None,
+        ),
         [a, b] => match inf.program.lookup_in_unit(unit, *a).and_then(|x| x.getter) {
             Some(el @ Element::Class(_)) => (Some(el), Some(*b)),
-            _ => (inf.program.lookup_prefixed_in_unit(unit, *a, *b).and_then(|x| x.getter), None),
+            _ => (
+                inf.program
+                    .lookup_prefixed_in_unit(unit, *a, *b)
+                    .and_then(|x| x.getter),
+                None,
+            ),
         },
-        [p, c, n] => (inf.program.lookup_prefixed_in_unit(unit, *p, *c).and_then(|x| x.getter), Some(*n)),
+        [p, c, n] => (
+            inf.program
+                .lookup_prefixed_in_unit(unit, *p, *c)
+                .and_then(|x| x.getter),
+            Some(*n),
+        ),
         _ => (None, None),
     };
     let u = inf.core.unknown;
@@ -2951,7 +3913,10 @@ fn annotation_arguments(
         Some(Element::Typedef(td)) => {
             let tgt = inf.outline.typedefs[td.0 as usize].target_type;
             match inf.table.get(tgt).clone() {
-                Type::Interface { class, .. } => (Some(Element::Class(class)), Some(inf.outline.typedefs[td.0 as usize].type_params.to_vec())),
+                Type::Interface { class, .. } => (
+                    Some(Element::Class(class)),
+                    Some(inf.outline.typedefs[td.0 as usize].type_params.to_vec()),
+                ),
                 _ => (c, None),
             }
         }
@@ -2963,11 +3928,18 @@ fn annotation_arguments(
             let explicit: Option<Vec<TypeId>> = if m.type_args.is_empty() {
                 None
             } else {
-                Some(m.type_args.iter().map(|&t| inf.type_argument_type(&cx, t)).collect())
+                Some(
+                    m.type_args
+                        .iter()
+                        .map(|&t| inf.type_argument_type(&cx, t))
+                        .collect(),
+                )
             };
             // `AnnotationInferrer`'s `_needsTypeArgumentBoundsCheck`.
             if let Some(ex) = &explicit {
-                let params = alias_params.clone().unwrap_or_else(|| inf.outline.classes[c.0 as usize].type_params.to_vec());
+                let params = alias_params
+                    .clone()
+                    .unwrap_or_else(|| inf.outline.classes[c.0 as usize].type_params.to_vec());
                 // `_reportWrongNumberOfTypeArguments` (`invocation_inferrer.dart:316-327`)
                 // with `AnnotationInferrer`'s code: `{0}` is the constructor's raw function
                 // type, at the `<…>` list.
@@ -2979,14 +3951,33 @@ fn annotation_arguments(
                     let mut raw = inf.constructor_signature(c, f);
                     if alias_params.is_some()
                         && let Some(Element::Typedef(td)) = c_original
-                        && let Type::Interface { args: target_args, .. } = inf.table.get(inf.outline.typedefs[td.0 as usize].target_type).clone()
+                        && let Type::Interface {
+                            args: target_args, ..
+                        } = inf
+                            .table
+                            .get(inf.outline.typedefs[td.0 as usize].target_type)
+                            .clone()
                     {
                         let formals = inf.outline.classes[c.0 as usize].type_params.to_vec();
                         let map = inf.map(&formals, &target_args);
                         raw = inf.subst(raw, &map);
                     }
-                    if let Type::Function { ret, positional, optional, named, .. } = inf.table.get(raw).clone() {
-                        raw = inf.table.intern(Type::Function { type_params: params.clone().into_boxed_slice(), ret, positional, optional, named, nullable: false });
+                    if let Type::Function {
+                        ret,
+                        positional,
+                        optional,
+                        named,
+                        ..
+                    } = inf.table.get(raw).clone()
+                    {
+                        raw = inf.table.intern(Type::Function {
+                            type_params: params.clone().into_boxed_slice(),
+                            ret,
+                            positional,
+                            optional,
+                            named,
+                            nullable: false,
+                        });
                     }
                     let text = inf.table.format(raw, inf.interner, inf.program);
                     let (n, d) = (params.len().to_string(), ex.len().to_string());
@@ -2994,7 +3985,9 @@ fn annotation_arguments(
                 }
                 if ex.len() == params.len() {
                     let (ex, nodes) = (ex.clone(), m.type_args.to_vec());
-                    super::calls::check_explicit_bounds(inf, unit, &params, &ex, &nodes, m.span, None);
+                    super::calls::check_explicit_bounds(
+                        inf, unit, &params, &ex, &nodes, m.span, None,
+                    );
                 }
             }
             if alias_params.is_some() {
@@ -3007,7 +4000,10 @@ fn annotation_arguments(
             // `identifier` of the prefixed name (`@A.the_name` → `the_name`, `@p.A` → `A`),
             // or `<the_name>.new`; `MISSING_REQUIRED_ARGUMENT` goes at the constructor's
             // identifier, or at the class's.
-            let prefix0 = m.name.first().is_some_and(|n| inf.program.prefixes_in_unit(unit).contains_key(&n.sym));
+            let prefix0 = m
+                .name
+                .first()
+                .is_some_and(|n| inf.program.prefixes_in_unit(unit).contains_key(&n.sym));
             let cited_name = match m.name.as_slice() {
                 [a] => format!("{}.new", inf.interner.resolve(a.sym)),
                 [a, b] if !m.type_args.is_empty() && !prefix0 => {
@@ -3038,8 +4034,15 @@ fn annotation_arguments(
 /// (wrapped: `displayed`): `RETURN_OF_INVALID_TYPE_FROM_CLOSURE`
 /// (`an611:src/error/return_type_verifier.dart:150-170`), with the returned
 /// type and the closure's.
-fn closure_returns(inf: &mut BodyInferrer<'_>, cx: &Body, fc: &FunctionCtx, r: TypeId, displayed: TypeId) {
-    let is_void_dyn = |inf: &BodyInferrer<'_>, x: TypeId| matches!(inf.table.get(x), Type::Void | Type::Dynamic);
+fn closure_returns(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    fc: &FunctionCtx,
+    r: TypeId,
+    displayed: TypeId,
+) {
+    let is_void_dyn =
+        |inf: &BodyInferrer<'_>, x: TypeId| matches!(inf.table.get(x), Type::Void | Type::Dynamic);
     for &(e, s) in &fc.returned_expressions {
         let error = match fc.modifier {
             AsyncModifier::None => {
@@ -3074,9 +4077,19 @@ fn closure_returns(inf: &mut BodyInferrer<'_>, cx: &Body, fc: &FunctionCtx, r: T
 /// `=> e`: the analyzer's `verifyExpressionFunctionBody`: a return (after
 /// `flatten` in `async`) of `void` accepts any expression; the rest is the
 /// `return e;` rule ([`verify_return`]).
-fn verify_expression_return(inf: &mut BodyInferrer<'_>, cx: &Body, fc: &FunctionCtx, e: ExprId, t: TypeId) {
+fn verify_expression_return(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    fc: &FunctionCtx,
+    e: ExprId,
+    t: TypeId,
+) {
     let Some(r) = fc.the_return else { return };
-    let flattened = if fc.modifier == AsyncModifier::None { r } else { inf.flatten(r) };
+    let flattened = if fc.modifier == AsyncModifier::None {
+        r
+    } else {
+        inf.flatten(r)
+    };
     if matches!(inf.table.get(flattened), Type::Void) {
         return;
     }
@@ -3087,14 +4100,25 @@ fn verify_expression_return(inf: &mut BodyInferrer<'_>, cx: &Body, fc: &Function
 /// with `e` of type `S` in an executable with declared return `T`. In
 /// generators, closures and generative constructors nothing comes out of
 /// here.
-pub(crate) fn verify_return(inf: &mut BodyInferrer<'_>, cx: &Body, fc: &FunctionCtx, e: ExprId, s: TypeId) {
+pub(crate) fn verify_return(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    fc: &FunctionCtx,
+    e: ExprId,
+    s: TypeId,
+) {
     // `_checkReturnExpression`: with an illegal declared return, nothing.
     if !fc.legal_return {
         return;
     }
-    let (Some(t), Some(exe)) = (fc.the_return, fc.executable.as_ref()) else { return };
-    let is_void_dyn = |inf: &BodyInferrer<'_>, x: TypeId| matches!(inf.table.get(x), Type::Void | Type::Dynamic);
-    let is_void_dyn_null = |inf: &BodyInferrer<'_>, x: TypeId| matches!(inf.table.get(x), Type::Void | Type::Dynamic | Type::Null);
+    let (Some(t), Some(exe)) = (fc.the_return, fc.executable.as_ref()) else {
+        return;
+    };
+    let is_void_dyn =
+        |inf: &BodyInferrer<'_>, x: TypeId| matches!(inf.table.get(x), Type::Void | Type::Dynamic);
+    let is_void_dyn_null = |inf: &BodyInferrer<'_>, x: TypeId| {
+        matches!(inf.table.get(x), Type::Void | Type::Dynamic | Type::Null)
+    };
     let error = match fc.modifier {
         AsyncModifier::None => {
             if matches!(inf.table.get(t), Type::Void) && !is_void_dyn_null(inf, s) {
@@ -3148,13 +4172,29 @@ pub(crate) fn verify_return(inf: &mut BodyInferrer<'_>, cx: &Body, fc: &Function
 
 /// `T` is a record with a single positional field, `S` is not a record and
 /// `e` is a parenthesized expression: the field's type.
-fn single_record_field(inf: &BodyInferrer<'_>, cx: &Body, t: TypeId, s: TypeId, e: ExprId) -> Option<TypeId> {
-    let Type::Record { positional, named, .. } = inf.table.get(t) else { return None };
-    if positional.len() != 1 || !named.is_empty() || matches!(inf.table.get(s), Type::Record { .. }) {
+fn single_record_field(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    t: TypeId,
+    s: TypeId,
+    e: ExprId,
+) -> Option<TypeId> {
+    let Type::Record {
+        positional, named, ..
+    } = inf.table.get(t)
+    else {
+        return None;
+    };
+    if positional.len() != 1 || !named.is_empty() || matches!(inf.table.get(s), Type::Record { .. })
+    {
         return None;
     }
     let field = positional[0];
-    matches!(inf.program.unit(cx.unit).ast.expr(e).kind, ast::ExprKind::Parenthesized(_)).then_some(field)
+    matches!(
+        inf.program.unit(cx.unit).ast.expr(e).kind,
+        ast::ExprKind::Parenthesized(_)
+    )
+    .then_some(field)
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -3165,28 +4205,54 @@ impl<'a> BodyInferrer<'a> {
         match self.table.get(t).clone() {
             Type::Void | Type::Dynamic => t,
             Type::FutureOr { arg, .. } => arg,
-            Type::Interface { class, args, .. } if Some(class) == self.core.future_class && args.len() == 1 => args[0],
+            Type::Interface { class, args, .. }
+                if Some(class) == self.core.future_class && args.len() == 1 =>
+            {
+                args[0]
+            }
             _ => self.core.object_nullable,
         }
     }
 
     /// Kind and display name of a declared executable.
-    pub(crate) fn declared_executable(&self, f: FunctionElementId) -> Option<super::body::Executable> {
-        use super::body::{ExecutableKind as E, Executable};
+    pub(crate) fn declared_executable(
+        &self,
+        f: FunctionElementId,
+    ) -> Option<super::body::Executable> {
+        use super::body::{Executable, ExecutableKind as E};
         let fe = self.program.function(f);
         let the_name = self.interner.resolve(fe.name);
         if matches!(fe.node, FunctionRef::Constructor { .. }) {
-            let cls = self.interner.resolve(self.program.class(fe.class?).name).to_string();
-            let the_name = if the_name.is_empty() || the_name == "new" { cls } else { format!("{cls}.{the_name}") };
-            return Some(Executable { kind: E::Constructor, name: the_name });
+            let cls = self
+                .interner
+                .resolve(self.program.class(fe.class?).name)
+                .to_string();
+            let the_name = if the_name.is_empty() || the_name == "new" {
+                cls
+            } else {
+                format!("{cls}.{the_name}")
+            };
+            return Some(Executable {
+                kind: E::Constructor,
+                name: the_name,
+            });
         }
         let the_kind = match fe.kind {
-            FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => E::Function,
+            FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => {
+                E::Function
+            }
             _ if fe.class.is_some() || fe.extension.is_some() => E::Method,
             _ => E::Function,
         };
         // A setter is displayed without the key's `=`; `operator ==` stays as is.
-        let the_name = if fe.kind == FunctionKind::Setter { the_name.strip_suffix('=').unwrap_or(the_name) } else { the_name };
-        Some(Executable { kind: the_kind, name: the_name.to_string() })
+        let the_name = if fe.kind == FunctionKind::Setter {
+            the_name.strip_suffix('=').unwrap_or(the_name)
+        } else {
+            the_name
+        };
+        Some(Executable {
+            kind: the_kind,
+            name: the_name.to_string(),
+        })
     }
 }

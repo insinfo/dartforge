@@ -48,9 +48,11 @@ fn the_required(p: &ast::Parameter, a: &ast::Ast, interner: &Interner) -> Option
         match &m.arguments {
             None if names.last() == Some(&"required") => return Some(None),
             Some(args) if names.contains(&"Required") => {
-                let reason = args.args.iter().find(|x| x.name.is_none()).and_then(|x| match &a.expr(x.value).kind {
-                    ExprKind::String(lit) => dartforge_elements::load::string_lit_value(lit),
-                    _ => None,
+                let reason = args.args.iter().find(|x| x.name.is_none()).and_then(|x| {
+                    match &a.expr(x.value).kind {
+                        ExprKind::String(lit) => dartforge_elements::load::string_lit_value(lit),
+                        _ => None,
+                    }
                 });
                 return Some(reason.filter(|m| !m.is_empty()));
             }
@@ -61,7 +63,12 @@ fn the_required(p: &ast::Parameter, a: &ast::Ast, interner: &Interner) -> Option
 }
 
 /// The `missing_required_param`s of unit `u`.
-pub fn missing_required(program: &Program, interner: &Interner, body: &UnitBodyTypes, u: UnitId) -> Vec<Diagnostic> {
+pub fn missing_required(
+    program: &Program,
+    interner: &Interner,
+    body: &UnitBodyTypes,
+    u: UnitId,
+) -> Vec<Diagnostic> {
     let mut out = Vec::new();
     // Without either of the two interned annotations, nothing to do.
     if interner.lookup("required").is_none() && interner.lookup("Required").is_none() {
@@ -71,7 +78,11 @@ pub fn missing_required(program: &Program, interner: &Interner, body: &UnitBodyT
     let resolved = |e: ast::ExprId| body.get_resolved(e);
     let function_of = |r: &Resolved| match r {
         Resolved::Constructor(f) | Resolved::Element(Element::Function(f)) => Some(*f),
-        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => Some(*f),
+        Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }
+        | Resolved::ExtensionMember { member: f, .. } => Some(*f),
         _ => None,
     };
     for (i, e) in a.exprs.iter().enumerate() {
@@ -80,38 +91,73 @@ pub fn missing_required(program: &Program, interner: &Interner, body: &UnitBodyT
         // method name, or the whole constructor name.
         let (f, args_list, entity): (FunctionElementId, &ast::Arguments, Span) = match &e.kind {
             ExprKind::Call { target, arguments } => {
-                let Some(r) = resolved(*target).or_else(|| resolved(id)) else { continue };
+                let Some(r) = resolved(*target).or_else(|| resolved(id)) else {
+                    continue;
+                };
                 let Some(f) = function_of(r) else { continue };
                 let entity = match (&a.expr(*target).kind, r) {
                     (_, Resolved::Constructor(_)) => a.expr(*target).span,
-                    (ExprKind::Identifier(n), _) | (ExprKind::Property { name: n, .. }, _) => n.span,
+                    (ExprKind::Identifier(n), _) | (ExprKind::Property { name: n, .. }, _) => {
+                        n.span
+                    }
                     _ => continue,
                 };
                 (f, arguments, entity)
             }
-            ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
-                let Some(Resolved::Constructor(f)) = resolved(id) else { continue };
+            ExprKind::InstanceCreation {
+                ty,
+                constructor,
+                arguments,
+                ..
+            } => {
+                let Some(Resolved::Constructor(f)) = resolved(id) else {
+                    continue;
+                };
                 let typ = &a.types[ty.0 as usize];
                 // Without the type arguments: the type name and the constructor name.
                 let type_end = match &typ.kind {
-                    TypeKind::Named { name, .. } => name.last().map_or(typ.span.end, |n| n.span.end),
+                    TypeKind::Named { name, .. } => {
+                        name.last().map_or(typ.span.end, |n| n.span.end)
+                    }
                     _ => typ.span.end,
                 };
                 let end = constructor.map_or(typ.span.end.max(type_end), |k| k.span.end);
-                (*f, arguments, Span { start: typ.span.start, end })
+                (
+                    *f,
+                    arguments,
+                    Span {
+                        start: typ.span.start,
+                        end,
+                    },
+                )
             }
             _ => continue,
         };
-        let Some((list, tree)) = params_list(program, f) else { continue };
-        for p in list.iter().filter(|p| p.kind == ParameterKind::Named && !p.required) {
+        let Some((list, tree)) = params_list(program, f) else {
+            continue;
+        };
+        for p in list
+            .iter()
+            .filter(|p| p.kind == ParameterKind::Named && !p.required)
+        {
             let Some(the_name) = p.name else { continue };
-            let Some(reason) = the_required(p, tree, interner) else { continue };
-            if args_list.args.iter().any(|x| x.name.is_some_and(|n| n.sym == the_name.sym)) {
+            let Some(reason) = the_required(p, tree, interner) else {
+                continue;
+            };
+            if args_list
+                .args
+                .iter()
+                .any(|x| x.name.is_some_and(|n| n.sym == the_name.sym))
+            {
                 continue;
             }
             let text = interner.resolve(the_name.sym);
             out.push(match reason {
-                Some(m) => Diagnostic::with_code(w::MISSING_REQUIRED_PARAM_WITH_DETAILS, entity, [text, m.as_str()]),
+                Some(m) => Diagnostic::with_code(
+                    w::MISSING_REQUIRED_PARAM_WITH_DETAILS,
+                    entity,
+                    [text, m.as_str()],
+                ),
                 None => Diagnostic::with_code(w::MISSING_REQUIRED_PARAM, entity, [text]),
             });
         }

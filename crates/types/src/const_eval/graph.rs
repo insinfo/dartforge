@@ -94,7 +94,9 @@ impl Walker {
                 self.dependencies[no] = Some(deps);
             }
             let next_ = frames[top].next;
-            let dep = self.dependencies[no].as_ref().and_then(|d| d.get(next_).copied());
+            let dep = self.dependencies[no]
+                .as_ref()
+                .and_then(|d| d.get(next_).copied());
             match dep {
                 Some(dep) => {
                     frames[top].next += 1;
@@ -149,13 +151,23 @@ impl Walker {
     }
 
     /// The start of `strongConnect(no)`: numbers the node and pushes it.
-    fn open(&mut self, no: usize, counter: &mut u32, stack: &mut Vec<usize>, frames: &mut Vec<Frame>) {
+    fn open(
+        &mut self,
+        no: usize,
+        counter: &mut u32,
+        stack: &mut Vec<usize>,
+        frames: &mut Vec<Frame>,
+    ) {
         self.ensure(no);
         self.index[no] = *counter;
         self.less[no] = *counter;
         *counter += 1;
         stack.push(no);
-        frames.push(Frame { no, next: 0, trivial: false });
+        frames.push(Frame {
+            no,
+            next: 0,
+            trivial: false,
+        });
     }
 }
 
@@ -180,7 +192,13 @@ mod tests {
             for &c in constructors {
                 constructor[c] = true;
             }
-            Test { edges, evaluated: vec![false; n], constructor, simple: Vec::new(), cycles: Vec::new() }
+            Test {
+                edges,
+                evaluated: vec![false; n],
+                constructor,
+                simple: Vec::new(),
+                cycles: Vec::new(),
+            }
         }
 
         fn run(&mut self, order: &[usize]) {

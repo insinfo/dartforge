@@ -25,7 +25,11 @@ fn without_incremental(name: &str) -> Project {
 /// (line, column) of the `n`-th occurrence (0: the first) of `needle` in
 /// `text`, plus `delta` columns (ASCII).
 fn position(text: &str, needle: &str, n: usize, delta: u32) -> (u32, u32) {
-    let i = text.match_indices(needle).nth(n).unwrap_or_else(|| panic!("no {needle}")).0;
+    let i = text
+        .match_indices(needle)
+        .nth(n)
+        .unwrap_or_else(|| panic!("no {needle}"))
+        .0;
     let before = &text[..i];
     let line = before.matches('\n').count() as u32;
     let column = before.rsplit('\n').next().unwrap().len() as u32;
@@ -39,7 +43,12 @@ fn responses(p: &mut Project, l: u32, c: u32) -> Vec<Value> {
     let project = p.uri("");
     let root = project.trim_end_matches('/').trim_end_matches("projeto");
     let mut v = Vec::new();
-    for method in ["textDocument/hover", "textDocument/definition", "textDocument/documentHighlight", "textDocument/completion"] {
+    for method in [
+        "textDocument/hover",
+        "textDocument/definition",
+        "textDocument/documentHighlight",
+        "textDocument/completion",
+    ] {
         let r = p.in_position(method, "lib/a.dart", l, c, json!({}))["result"].clone();
         v.push(serde_json::from_str(&r.to_string().replace(root, "RAIZ/")).unwrap());
     }
@@ -158,7 +167,12 @@ void main() {
 
 /// The sampled positions of a text.
 fn samples(text: &str) -> Vec<(u32, u32)> {
-    let mut v = vec![position(text, "b.valor", 0, 2), position(text, "B()", 1, 0), position(text, "total", 1, 0), position(text, "xs", 1, 1)];
+    let mut v = vec![
+        position(text, "b.valor", 0, 2),
+        position(text, "B()", 1, 0),
+        position(text, "total", 1, 0),
+        position(text, "xs", 1, 1),
+    ];
     if text.contains("  b.\n") {
         v.push(position(text, "  b.\n", 0, 4));
     }
@@ -175,11 +189,22 @@ fn body_and_signature_edits_match_from_scratch() {
     hot.open("lib/a.dart", V0);
     cold.open("lib/a.dart", V0);
     for (l, c) in samples(V0) {
-        assert_eq!(responses(&mut hot, l, c), responses(&mut cold, l, c), "V0 at {l}:{c}");
+        assert_eq!(
+            responses(&mut hot, l, c),
+            responses(&mut cold, l, c),
+            "V0 at {l}:{c}"
+        );
     }
     let mut version = 1;
     let mut swaps = 0;
-    for (text, body) in [(V1, true), (V2, true), (V3, false), (V2, false), (V1, true), (V0, true)] {
+    for (text, body) in [
+        (V1, true),
+        (V2, true),
+        (V3, false),
+        (V2, false),
+        (V1, true),
+        (V0, true),
+    ] {
         version += 1;
         let before = hot.server.analyzer().session_stats();
         hot.change("lib/a.dart", version, text);
@@ -187,16 +212,28 @@ fn body_and_signature_edits_match_from_scratch() {
         let after = hot.server.analyzer().session_stats();
         if body {
             swaps += 1;
-            assert_eq!((after.body_swaps, after.invalidated), (swaps, before.invalidated), "{after:?}");
+            assert_eq!(
+                (after.body_swaps, after.invalidated),
+                (swaps, before.invalidated),
+                "{after:?}"
+            );
         } else {
             assert_eq!(after.body_swaps, swaps, "{after:?}");
         }
         for (l, c) in samples(text) {
             let r = responses(&mut hot, l, c);
-            assert_eq!(r, responses(&mut cold, l, c), "version {version} at {l}:{c}");
+            assert_eq!(
+                r,
+                responses(&mut cold, l, c),
+                "version {version} at {l}:{c}"
+            );
             // Speculative completion undoes the swap: the retained state answers the
             // same after it.
-            assert_eq!(responses(&mut hot, l, c), r, "repeated, version {version} at {l}:{c}");
+            assert_eq!(
+                responses(&mut hot, l, c),
+                r,
+                "repeated, version {version} at {l}:{c}"
+            );
         }
     }
     // Body edits without reloading: the warm session loaded less.
@@ -214,20 +251,39 @@ fn directives_and_shape_drop_session() {
     // A new directive.
     p.change("lib/a.dart", 2, &format!("import 'dart:math';\n{V0}"));
     let d = p.server.analyzer().session_stats();
-    assert_eq!((d.invalidated, d.body_swaps), (e.invalidated + 1, 0), "{d:?}");
+    assert_eq!(
+        (d.invalidated, d.body_swaps),
+        (e.invalidated + 1, 0),
+        "{d:?}"
+    );
     responses(&mut p, 2, 4);
     // A new declaration (shape).
-    p.change("lib/a.dart", 3, &format!("import 'dart:math';\n{V0}int z() => 0;\n"));
+    p.change(
+        "lib/a.dart",
+        3,
+        &format!("import 'dart:math';\n{V0}int z() => 0;\n"),
+    );
     let f = p.server.analyzer().session_stats();
-    assert_eq!((f.invalidated, f.body_swaps), (d.invalidated + 1, 0), "{f:?}");
+    assert_eq!(
+        (f.invalidated, f.body_swaps),
+        (d.invalidated + 1, 0),
+        "{f:?}"
+    );
     // A body that leaks (open brace): refuses or swaps, never a response
     // different from the one from scratch.
     responses(&mut p, 2, 4);
-    let leaks = format!("import 'dart:math';\n{}int z() => 0;\n", V0.replace("return total;", "return total; {"));
+    let leaks = format!(
+        "import 'dart:math';\n{}int z() => 0;\n",
+        V0.replace("return total;", "return total; {")
+    );
     p.change("lib/a.dart", 4, &leaks);
     let mut cold = without_incremental("incremental-vaza");
     cold.open("lib/a.dart", &leaks);
     for (l, c) in [(2, 4), (21, 9)] {
-        assert_eq!(responses(&mut p, l, c), responses(&mut cold, l, c), "{l}:{c}");
+        assert_eq!(
+            responses(&mut p, l, c),
+            responses(&mut cold, l, c),
+            "{l}:{c}"
+        );
     }
 }

@@ -42,15 +42,29 @@ pub(crate) fn comments(source: &str) -> Vec<Comment> {
             }
         }
         let Some(k) = doc else { continue };
-        let tokens: Vec<Span> = chain[k..].iter().map(|&(i, f)| Span { start: i, end: f }).collect();
+        let tokens: Vec<Span> = chain[k..]
+            .iter()
+            .map(|&(i, f)| Span { start: i, end: f })
+            .collect();
         let (start, first_end) = chain[k];
         let end = if source[start..].starts_with("///") {
-            tokens.iter().filter(|s| source[s.start..s.end].starts_with("///")).map(|s| s.end).next_back().unwrap_or(first_end)
+            tokens
+                .iter()
+                .filter(|s| source[s.start..s.end].starts_with("///"))
+                .map(|s| s.end)
+                .next_back()
+                .unwrap_or(first_end)
         } else {
             first_end
         };
-        let references = dartforge_frontend::doc_references::references(source, &tokens).into_iter().map(|r| r.parts).collect();
-        output.push(Comment { span: Span { start, end }, references });
+        let references = dartforge_frontend::doc_references::references(source, &tokens)
+            .into_iter()
+            .map(|r| r.parts)
+            .collect();
+        output.push(Comment {
+            span: Span { start, end },
+            references,
+        });
     }
     output
 }

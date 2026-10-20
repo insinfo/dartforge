@@ -2,7 +2,7 @@
 //! Consumes explicit constraints, still without HIR extraction/SDK summaries.
 //! The absence of a constraint does not certify the absence of program effects.
 
-use super::model::{PointSet, AbstractNode};
+use super::model::{AbstractNode, PointSet};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
 
@@ -144,18 +144,12 @@ impl PointsToResult {
 /// assert_eq!(r.variable(0), r.variable(1));
 /// # Ok::<(), String>(())
 /// ```
-pub fn solve(
-    n: usize,
-    limit: usize,
-    constraints: &[Constraint],
-) -> Result<PointsToResult, String> {
+pub fn solve(n: usize, limit: usize, constraints: &[Constraint]) -> Result<PointsToResult, String> {
     let mut dependents = vec![Vec::new(); n];
     let mut readers: BTreeMap<ArcField, Vec<usize>> = BTreeMap::new();
     for (id, r) in constraints.iter().enumerate() {
         let (uses, dest) = match r {
-            Constraint::Seed { dest, .. } | Constraint::Unknown { dest } => {
-                (vec![], Some(*dest))
-            }
+            Constraint::Seed { dest, .. } | Constraint::Unknown { dest } => (vec![], Some(*dest)),
             Constraint::Copy { origin, dest } => (vec![*origin], Some(*dest)),
             Constraint::Write { object, value, .. }
             | Constraint::WriteBySchema { object, value, .. } => (vec![*object, *value], None),
@@ -180,8 +174,8 @@ pub fn solve(
                 (vec![*object], Some(*dest))
             }
         };
-        if let Constraint::ReadBySchema { schemas, .. }
-        | Constraint::WriteBySchema { schemas, .. } = r
+        if let Constraint::ReadBySchema { schemas, .. } | Constraint::WriteBySchema { schemas, .. } =
+            r
             && schemas
                 .values()
                 .any(|cs| cs.iter().enumerate().any(|(i, c)| c.position as usize != i))
@@ -440,13 +434,11 @@ pub fn verify(
                 .ok_or_else(|| format!("points-to verifier: index in constraint {id}"))
         };
         let valid = match constraint {
-            Constraint::Seed { dest, node } => {
-                variable(*dest)?.nodes().is_none_or(|nodes| nodes.contains(node))
-            }
+            Constraint::Seed { dest, node } => variable(*dest)?
+                .nodes()
+                .is_none_or(|nodes| nodes.contains(node)),
             Constraint::Unknown { dest } => variable(*dest)?.nodes().is_none(),
-            Constraint::Copy { origin, dest } => {
-                includes(variable(*dest)?, variable(*origin)?)
-            }
+            Constraint::Copy { origin, dest } => includes(variable(*dest)?, variable(*origin)?),
             Constraint::UnknownField { field } => r.opaque_fields.contains(field),
             Constraint::Write {
                 object,
@@ -541,9 +533,7 @@ pub fn verify(
             }
         };
         if !valid {
-            return Err(format!(
-                "points-to verifier: constraint {id} not satisfied"
-            ));
+            return Err(format!("points-to verifier: constraint {id} not satisfied"));
         }
     }
     Ok(())
@@ -680,14 +670,8 @@ mod tests {
                 dest: 6,
                 node: node("b"),
             },
-            Constraint::Copy {
-                origin: 5,
-                dest: 0,
-            },
-            Constraint::Copy {
-                origin: 6,
-                dest: 0,
-            },
+            Constraint::Copy { origin: 5, dest: 0 },
+            Constraint::Copy { origin: 6, dest: 0 },
             Constraint::Seed {
                 dest: 1,
                 node: node("x"),
@@ -715,8 +699,7 @@ mod tests {
             r.variables[3] = PointSet::empty(8);
             assert!(verify(8, 8, &rs, &r).is_err());
             r = solve(8, 8, &rs).unwrap();
-            r.fields
-                .insert((node("b"), field("B")), PointSet::empty(8));
+            r.fields.insert((node("b"), field("B")), PointSet::empty(8));
             assert!(verify(8, 8, &rs, &r).is_err());
             rs.reverse();
         }
@@ -790,10 +773,7 @@ mod tests {
                 dest: 0,
                 node: node("a"),
             },
-            Constraint::Copy {
-                origin: 0,
-                dest: 1,
-            },
+            Constraint::Copy { origin: 0, dest: 1 },
             Constraint::Unknown { dest: 2 },
         ];
         let mut r = solve(3, 8, &rs).unwrap();
@@ -902,10 +882,7 @@ mod tests {
                 for (w, reachable) in row.iter_mut().enumerate() {
                     if mask & (1 << (3 * v + w)) != 0 {
                         *reachable = true;
-                        rs.push(Constraint::Copy {
-                            origin: v,
-                            dest: w,
-                        });
+                        rs.push(Constraint::Copy { origin: v, dest: w });
                     }
                 }
             }
@@ -956,10 +933,7 @@ mod tests {
                 field: field("L"),
                 value: 1,
             },
-            Constraint::Copy {
-                origin: 0,
-                dest: 2,
-            },
+            Constraint::Copy { origin: 0, dest: 2 },
             Constraint::Seed {
                 dest: 0,
                 node: node("a"),
@@ -1059,17 +1033,7 @@ mod tests {
 
     #[test]
     fn invalid_indices_are_errors_and_never_empty_facts() {
-        assert!(
-            solve(
-                1,
-                8,
-                &[Constraint::Copy {
-                    origin: 1,
-                    dest: 0
-                }]
-            )
-            .is_err()
-        );
+        assert!(solve(1, 8, &[Constraint::Copy { origin: 1, dest: 0 }]).is_err());
         assert!(
             solve(
                 1,

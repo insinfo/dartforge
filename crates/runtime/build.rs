@@ -131,7 +131,10 @@ fn main() {
     // Both `staticlib`s come out of `crates/runtime_static`.
     let aot = std::env::var_os("CARGO_FEATURE_AOT").is_some();
     let dll = std::env::var_os("CARGO_FEATURE_DLL").is_some();
-    assert!(!(aot && dll), "the runtime's aot and dll features are mutually exclusive");
+    assert!(
+        !(aot && dll),
+        "the runtime's aot and dll features are mutually exclusive"
+    );
     if dll {
         println!("cargo::rustc-cfg=dartforge_runtime_dll");
     } else if !aot {
@@ -165,7 +168,11 @@ fn main() {
     sorted.dedup();
     assert!(
         names.len() - sorted.len() == 1
-            && names.iter().filter(|name| name.as_str() == "dartforge_personality").count() == 2
+            && names
+                .iter()
+                .filter(|name| name.as_str() == "dartforge_personality")
+                .count()
+                == 2
             || sorted.len() == names.len(),
         "the runtime defines some #[unsafe(no_mangle)] symbol twice"
     );
@@ -188,7 +195,12 @@ fn main() {
     );
     for name in &names {
         // Unix only, as in [`table`].
-        if matches!(name.as_str(), "dartforge_unwind_object" | "dartforge_unwind_failed" | "dartforge_personality_cleanup_itanium") {
+        if matches!(
+            name.as_str(),
+            "dartforge_unwind_object"
+                | "dartforge_unwind_failed"
+                | "dartforge_personality_cleanup_itanium"
+        ) {
             output.push_str("    #[cfg(unix)]\n");
         }
         output.push_str(&format!("    \"{name}\",\n"));
@@ -198,7 +210,12 @@ fn main() {
          pub fn table() -> Vec<(&'static str, usize)> {\n    vec![\n",
     );
     for name in &names {
-        if matches!(name.as_str(), "dartforge_unwind_object" | "dartforge_unwind_failed" | "dartforge_personality_cleanup_itanium") {
+        if matches!(
+            name.as_str(),
+            "dartforge_unwind_object"
+                | "dartforge_unwind_failed"
+                | "dartforge_personality_cleanup_itanium"
+        ) {
             output.push_str("        #[cfg(unix)]\n");
         }
         output.push_str(&format!(
@@ -209,20 +226,31 @@ fn main() {
     // @Native for the reserved ABI needs the runtime that serves the program, not a
     // same-named one in the host executable of an RTLD_LOCAL library. The same
     // selection is generated in the Cargo module and in the AOT's standalone text.
-    let mut resolver = String::from("fn runtime_native_address(name: &str) -> Option<usize> {\n    match name {\n");
+    let mut resolver = String::from(
+        "fn runtime_native_address(name: &str) -> Option<usize> {\n    match name {\n",
+    );
     for name in &names {
-        if matches!(name.as_str(), "dartforge_unwind_object" | "dartforge_unwind_failed" | "dartforge_personality_cleanup_itanium") {
+        if matches!(
+            name.as_str(),
+            "dartforge_unwind_object"
+                | "dartforge_unwind_failed"
+                | "dartforge_personality_cleanup_itanium"
+        ) {
             resolver.push_str("        #[cfg(unix)]\n");
         }
-        resolver.push_str(&format!("        \"{name}\" => Some({name} as *const () as usize),\n"));
+        resolver.push_str(&format!(
+            "        \"{name}\" => Some({name} as *const () as usize),\n"
+        ));
     }
     resolver.push_str("        _ => None,\n    }\n}\n");
     text.insert_str(0, &resolver);
     abi.push_str(&resolver);
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     std::fs::write(out.join("symbols.rs"), output).expect("write symbols.rs");
-    std::fs::write(out.join("effects.rs"), effects_table(&manifest, &names)).expect("write effects.rs");
-    std::fs::write(out.join("ownership.rs"), ownership_table(&manifest, &names)).expect("write ownership.rs");
+    std::fs::write(out.join("effects.rs"), effects_table(&manifest, &names))
+        .expect("write effects.rs");
+    std::fs::write(out.join("ownership.rs"), ownership_table(&manifest, &names))
+        .expect("write ownership.rs");
     std::fs::write(out.join("runtime_main.rs"), text).expect("write runtime_main.rs");
     std::fs::write(out.join("abi.rs"), abi).expect("write abi.rs");
 }
@@ -259,7 +287,9 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
             // Constant module bytes (a UTF-8 name), the same native address.
             ("bytes:native", false) => ("*const u8", "ParamMode::NativeAddress"),
             ("vector:native", false) => ("*const i64", "ParamMode::StaticVector"),
-            ("table:native", false) => ("extern \"C\" fn() -> *const i64", "ParamMode::StaticTable"),
+            ("table:native", false) => {
+                ("extern \"C\" fn() -> *const i64", "ParamMode::StaticTable")
+            }
             ("ref:owned", true) => ("i64", "ResultMode::Owned"),
             ("i64:scalar", true) => ("i64", "ResultMode::ScalarI64"),
             ("f64:scalar", true) => ("f64", "ResultMode::ScalarF64"),
@@ -332,12 +362,22 @@ fn ownership_table(manifest: &std::path::Path, names: &[String]) -> String {
             _ => panic!("ownership.tsv: invalid mark {s}"),
         };
         let calls_dart = c[5] == "pending-dart";
-        assert!(!calls_dart || mark(c[4]), "ownership.tsv: Dart reentry requires borrow invalidation");
+        assert!(
+            !calls_dart || mark(c[4]),
+            "ownership.tsv: Dart reentry requires borrow invalidation"
+        );
         assert!(
             line_list
                 .insert(
                     c[0],
-                    (parameters, result, mark(c[3]), mark(c[4]), may_fail, calls_dart)
+                    (
+                        parameters,
+                        result,
+                        mark(c[3]),
+                        mark(c[4]),
+                        may_fail,
+                        calls_dart
+                    )
                 )
                 .is_none(),
             "ownership.tsv: duplicate symbol {}",
@@ -447,7 +487,8 @@ pub const CONTRACTS: &[Contract] = &[
 fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
     let file_path = manifest.join("effects.tsv");
     println!("cargo::rerun-if-changed={}", file_path.display());
-    let text = std::fs::read_to_string(&file_path).unwrap_or_else(|e| panic!("read {}: {e}", file_path.display()));
+    let text = std::fs::read_to_string(&file_path)
+        .unwrap_or_else(|e| panic!("read {}: {e}", file_path.display()));
     let mut line_list: Vec<(String, bool, bool, bool)> = Vec::new();
     for (n, line) in text.lines().enumerate() {
         let line = line.trim_end();
@@ -458,18 +499,34 @@ fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
         let mark = |i: usize| match fields.get(i).copied() {
             Some("0") => false,
             Some("1") => true,
-            _ => panic!("effects.tsv:{}: the line is `name<TAB>collects<TAB>throws<TAB>runs_dart`, with marks 0 or 1", n + 1),
+            _ => panic!(
+                "effects.tsv:{}: the line is `name<TAB>collects<TAB>throws<TAB>runs_dart`, with marks 0 or 1",
+                n + 1
+            ),
         };
-        assert!(fields.len() == 4, "effects.tsv:{}: four TAB-separated fields", n + 1);
+        assert!(
+            fields.len() == 4,
+            "effects.tsv:{}: four TAB-separated fields",
+            n + 1
+        );
         let (collection, throws, runs_dart) = (mark(1), mark(2), mark(3));
-        assert!(!runs_dart || (collection && throws), "effects.tsv:{}: runs_dart = 1 requires collects = 1 and throws = 1", n + 1);
+        assert!(
+            !runs_dart || (collection && throws),
+            "effects.tsv:{}: runs_dart = 1 requires collects = 1 and throws = 1",
+            n + 1
+        );
         line_list.push((fields[0].to_string(), collection, throws, runs_dart));
     }
     line_list.sort();
     for pair in line_list.windows(2) {
-        assert!(pair[0].0 != pair[1].0, "effects.tsv: `{}` appears twice", pair[0].0);
+        assert!(
+            pair[0].0 != pair[1].0,
+            "effects.tsv: `{}` appears twice",
+            pair[0].0
+        );
     }
-    let in_table: std::collections::BTreeSet<&str> = line_list.iter().map(|l| l.0.as_str()).collect();
+    let in_table: std::collections::BTreeSet<&str> =
+        line_list.iter().map(|l| l.0.as_str()).collect();
     let in_runtime: std::collections::BTreeSet<&str> = names.iter().map(String::as_str).collect();
     let without_line: Vec<&&str> = in_runtime.difference(&in_table).collect();
     let without_extern: Vec<&&str> = in_table.difference(&in_runtime).collect();
@@ -486,7 +543,9 @@ fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
          pub const EFFECTS: &[(&str, bool, bool, bool)] = &[\n",
     );
     for (name, collection, throws, runs_dart) in &line_list {
-        output.push_str(&format!("    (\"{name}\", {collection}, {throws}, {runs_dart}),\n"));
+        output.push_str(&format!(
+            "    (\"{name}\", {collection}, {throws}, {runs_dart}),\n"
+        ));
     }
     output.push_str("];\n");
     output
@@ -497,7 +556,18 @@ fn effects_table(manifest: &std::path::Path, names: &[String]) -> String {
 /// space (docs/NATIVO-ESPACO-UNIFICADO.md §3.1–§3.3) adds the layout contract, the
 /// object space and the per-kind views; the compressed form of the RTI table
 /// (`rti_table`) serves the compiler and the runtime.
-const MODULES: &[&str] = &["heap", "hash", "arc", "layout", "space", "text", "boxes", "lists", "typed_lists", "rti_table"];
+const MODULES: &[&str] = &[
+    "heap",
+    "hash",
+    "arc",
+    "layout",
+    "space",
+    "text",
+    "boxes",
+    "lists",
+    "typed_lists",
+    "rti_table",
+];
 
 /// Every `src/*.rs` is `lib.rs`, one of the [`MODULES`] or a listed fragment.
 fn check_list(src: &std::path::Path) {
@@ -582,7 +652,9 @@ mod ownership_tests {
             assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
         }
         std::fs::write(root.join("ownership.tsv"), good).unwrap();
-        assert!(ownership_table(&root, &names).contains("const _: unsafe extern \"C\" fn(i64) -> () = crate::abi::dartforge_arc_retain;"));
+        assert!(ownership_table(&root, &names).contains(
+            "const _: unsafe extern \"C\" fn(i64) -> () = crate::abi::dartforge_arc_retain;"
+        ));
         std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
         assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
         std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
@@ -597,10 +669,16 @@ mod ownership_tests {
             assert!(generated.contains("may_fail: true"));
         }
         std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t1\n").unwrap();
-        let reentry = good.replace("normal", "pending-dart").replace("\t1\t0\t", "\t1\t1\t");
+        let reentry = good
+            .replace("normal", "pending-dart")
+            .replace("\t1\t0\t", "\t1\t1\t");
         std::fs::write(root.join("ownership.tsv"), &reentry).unwrap();
         assert!(ownership_table(&root, &names).contains("calls_dart: true"));
-        std::fs::write(root.join("ownership.tsv"), reentry.replace("\t1\t1\t", "\t1\t0\t")).unwrap();
+        std::fs::write(
+            root.join("ownership.tsv"),
+            reentry.replace("\t1\t1\t", "\t1\t0\t"),
+        )
+        .unwrap();
         assert!(std::panic::catch_unwind(|| ownership_table(&root, &names)).is_err());
         std::fs::write(root.join("ownership.tsv"), &reentry).unwrap();
         std::fs::write(root.join("effects.tsv"), "dartforge_arc_retain\t1\t1\t0\n").unwrap();
@@ -609,7 +687,11 @@ mod ownership_tests {
         // integer or pointer in place of the function that returns the static table.
         let factory = "dartforge_arc_object_owned_t_v1".to_string();
         std::fs::write(root.join("effects.tsv"), format!("{factory}\t1\t0\t0\n")).unwrap();
-        std::fs::write(root.join("ownership.tsv"), format!("{factory}\ti64:native,i64:scalar,table:native\tref:owned\t0\t1\tnormal\n")).unwrap();
+        std::fs::write(
+            root.join("ownership.tsv"),
+            format!("{factory}\ti64:native,i64:scalar,table:native\tref:owned\t0\t1\tnormal\n"),
+        )
+        .unwrap();
         let generated = ownership_table(&root, &[factory]);
         assert!(generated.contains("const _: unsafe extern \"C\" fn(i64, i64, extern \"C\" fn() -> *const i64) -> i64 = crate::abi::dartforge_arc_object_owned_t_v1;"));
         assert!(generated.contains("ParamMode::StaticTable"));

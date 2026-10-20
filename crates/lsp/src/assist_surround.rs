@@ -15,19 +15,28 @@
 //! | `Surround with 'try-finally'` | `refactor.surround.tryFinally` |
 //! | `Surround with 'while'` | `refactor.surround.while` |
 
+use crate::Edit;
 use crate::actions::CodeAction;
 use crate::analyzer_tree::Mark;
 use crate::refactorings::Context;
-use crate::refactorings_exec::{Text, ONE_INDENT};
-use crate::Edit;
+use crate::refactorings_exec::{ONE_INDENT, Text};
 
 impl Context<'_> {
     /// `ClassElement.isState`: the class extends, directly or indirectly,
     /// Flutter's `State` (`package:flutter/src/widgets/framework.dart`).
     fn class_and_state(&self, n: usize) -> bool {
-        let Some(declaration) = self.with_parents(n).find(|&k| self.kind(k) == "ClassDeclaration") else { return false };
-        let Mark::Decl(d) = self.tree.nodes[declaration].mark else { return false };
-        let Some(class) = self.declaration_class(self.unit, d) else { return false };
+        let Some(declaration) = self
+            .with_parents(n)
+            .find(|&k| self.kind(k) == "ClassDeclaration")
+        else {
+            return false;
+        };
+        let Mark::Decl(d) = self.tree.nodes[declaration].mark else {
+            return false;
+        };
+        let Some(class) = self.declaration_class(self.unit, d) else {
+            return false;
+        };
         let prog = self.p.program();
         let mut current = prog.class(class).supertype_class;
         let mut seen = std::collections::HashSet::new();
@@ -36,7 +45,9 @@ impl Context<'_> {
                 break;
             }
             let ce = prog.class(c);
-            if self.p.name(ce.name) == "State" && prog.library(ce.library).uri == "package:flutter/src/widgets/framework.dart" {
+            if self.p.name(ce.name) == "State"
+                && prog.library(ce.library).uri == "package:flutter/src/widgets/framework.dart"
+            {
                 return true;
             }
             current = ce.supertype_class;
@@ -48,7 +59,9 @@ impl Context<'_> {
     pub(crate) fn wrap_commands(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
         let mut output = Vec::new();
         // The covered node cannot be the unit (top-level declarations).
-        let Some(node) = self.tree.locate(start, end) else { return output };
+        let Some(node) = self.tree.locate(start, end) else {
+            return output;
+        };
         if self.kind(node) == "CompilationUnit" {
             return output;
         }
@@ -56,7 +69,9 @@ impl Context<'_> {
         let analysis = self.analyze(start, end);
         let selected = &analysis.selected;
         if selected.is_empty()
-            || !selected.iter().all(|&s| self.is_command(s) && self.parent(s).is_some_and(|p| self.kind(p) == "Block"))
+            || !selected.iter().all(|&s| {
+                self.is_command(s) && self.parent(s).is_some_and(|p| self.kind(p) == "Block")
+            })
         {
             return output;
         }
@@ -73,9 +88,27 @@ impl Context<'_> {
             title: "Surround with block".into(),
             kind: "refactor.surround.block".into(),
             edits: vec![
-                Edit { uri: uri.to_string(), span: dartforge_diagnostics::Span { start: range.start, end: range.start }, text: format!("{old}{{{eol}") },
-                Edit { uri: uri.to_string(), span: range, text: indented.clone() },
-                Edit { uri: uri.to_string(), span: dartforge_diagnostics::Span { start: range.end, end: range.end }, text: format!("{old}}}{eol}") },
+                Edit {
+                    uri: uri.to_string(),
+                    span: dartforge_diagnostics::Span {
+                        start: range.start,
+                        end: range.start,
+                    },
+                    text: format!("{old}{{{eol}"),
+                },
+                Edit {
+                    uri: uri.to_string(),
+                    span: range,
+                    text: indented.clone(),
+                },
+                Edit {
+                    uri: uri.to_string(),
+                    span: dartforge_diagnostics::Span {
+                        start: range.end,
+                        end: range.end,
+                    },
+                    text: format!("{old}}}{eol}"),
+                },
             ],
             diagnostic: None,
             create_file: None,
@@ -85,7 +118,11 @@ impl Context<'_> {
             let a = CodeAction {
                 title: title.into(),
                 kind: kind.into(),
-                edits: vec![Edit { uri: uri.to_string(), span: range, text: e.text.clone() }],
+                edits: vec![Edit {
+                    uri: uri.to_string(),
+                    span: range,
+                    text: e.text.clone(),
+                }],
                 diagnostic: None,
                 create_file: None,
                 linked: Default::default(),
@@ -146,13 +183,23 @@ impl Context<'_> {
             .linked("CATCH", "// TODO", &[])
             .here()
             .write(&format!("{eol}{old}}}{eol}"));
-        action("Surround with 'try-catch'", "refactor.surround.tryCatch", &e);
+        action(
+            "Surround with 'try-catch'",
+            "refactor.surround.tryCatch",
+            &e,
+        );
         let mut e = crate::snippets::Write::default();
-        e.write(&format!("{old}try {{{eol}{indented}{old}}} finally {{{eol}{new}"))
-            .linked("FINALLY", "// TODO", &[])
-            .here()
-            .write(&format!("{eol}{old}}}{eol}"));
-        action("Surround with 'try-finally'", "refactor.surround.tryFinally", &e);
+        e.write(&format!(
+            "{old}try {{{eol}{indented}{old}}} finally {{{eol}{new}"
+        ))
+        .linked("FINALLY", "// TODO", &[])
+        .here()
+        .write(&format!("{eol}{old}}}{eol}"));
+        action(
+            "Surround with 'try-finally'",
+            "refactor.surround.tryFinally",
+            &e,
+        );
         let mut e = crate::snippets::Write::default();
         e.write(&format!("{old}while ("))
             .linked("CONDITION", "condition", &[])

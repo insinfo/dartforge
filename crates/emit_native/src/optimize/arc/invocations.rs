@@ -15,15 +15,31 @@ pub(super) fn prepare(
     super::ssa::verify(f)?;
     let mut pendings = HashMap::new();
     for b in &f.blocks {
-        let Terminator::CondBranch { then_block, .. } = b.terminator else { continue };
-        let Some((v, Instruction::CallStatic { symbol, .. }, _)) = b.instructions
-            .len().checked_sub(3).map(|i| &b.instructions[i]) else { continue };
+        let Terminator::CondBranch { then_block, .. } = b.terminator else {
+            continue;
+        };
+        let Some((v, Instruction::CallStatic { symbol, .. }, _)) = b
+            .instructions
+            .len()
+            .checked_sub(3)
+            .map(|i| &b.instructions[i])
+        else {
+            continue;
+        };
         if do_not_throw.contains(symbol) || plan.tables.invocations.contains_key(v) {
             continue;
         }
         if super::classification::check_pending(b, *v, then_block).is_some() {
-            if plan.tokens.pendings.get(v).is_some_and(|previous| *previous != then_block) {
-                return Err(format!("{}: v{}: pending exit conflicts with the CFG", f.symbol, v.0));
+            if plan
+                .tokens
+                .pendings
+                .get(v)
+                .is_some_and(|previous| *previous != then_block)
+            {
+                return Err(format!(
+                    "{}: v{}: pending exit conflicts with the CFG",
+                    f.symbol, v.0
+                ));
             }
             pendings.insert(*v, then_block);
         }
@@ -71,8 +87,8 @@ pub(super) fn prepare(
         .max()
         .map_or(0, |b| u64::from(b) + 1);
     let mut reserve = || -> Result<BlockId, String> {
-        let id =
-            u32::try_from(next_item).map_err(|_| "block IDs exhausted while preparing a Dart invoke")?;
+        let id = u32::try_from(next_item)
+            .map_err(|_| "block IDs exhausted while preparing a Dart invoke")?;
         next_item += 1;
         Ok(BlockId(id))
     };
@@ -114,12 +130,34 @@ pub(super) fn prepare(
                 // Exceptions by check: the guard the lowering would emit
                 // (an optimization removed it assuming the callee throws nothing);
                 // the exit returns the default value with the pending exception.
-                let p = ValueId(u32::try_from(next_val).map_err(|_| "SSA IDs exhausted while preparing a Dart guard")?);
-                let c = ValueId(p.0.checked_add(1).ok_or("SSA IDs exhausted while preparing a Dart guard")?);
+                let p = ValueId(
+                    u32::try_from(next_val)
+                        .map_err(|_| "SSA IDs exhausted while preparing a Dart guard")?,
+                );
+                let c = ValueId(
+                    p.0.checked_add(1)
+                        .ok_or("SSA IDs exhausted while preparing a Dart guard")?,
+                );
                 next_val = u64::from(c.0) + 1;
                 f.blocks[current].instructions.extend([
-                    (p, Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: vec![], ret_ty: Type::I8 }, Type::I8),
-                    (c, Instruction::ICmp(ICmpOp::Ne, Operand::Val(p), Operand::Constant(Constant::Int(0))), Type::I1),
+                    (
+                        p,
+                        Instruction::CallRuntime {
+                            name: "dartforge_exception_pending".into(),
+                            args: vec![],
+                            ret_ty: Type::I8,
+                        },
+                        Type::I8,
+                    ),
+                    (
+                        c,
+                        Instruction::ICmp(
+                            ICmpOp::Ne,
+                            Operand::Val(p),
+                            Operand::Constant(Constant::Int(0)),
+                        ),
+                        Type::I1,
+                    ),
                 ]);
                 f.blocks[current].terminator = Terminator::CondBranch {
                     cond: Operand::Val(c),
@@ -433,36 +471,68 @@ mod tests {
             let caller = &mut functions[0];
             caller.blocks[0].instructions.pop();
             caller.blocks[0].instructions.extend([
-                (ValueId(3), Instruction::CallRuntime {
-                    name: "dartforge_exception_pending".into(),
-                    args: vec![], ret_ty: if case == 2 { Type::I64 } else { Type::I8 },
-                }, if case == 2 { Type::I64 } else { Type::I8 }),
-                (ValueId(4), Instruction::ICmp(
-                    if case == 1 { ICmpOp::Eq } else { ICmpOp::Ne },
-                    Operand::Val(ValueId(3)), Operand::Constant(Constant::Int(0)),
-                ), Type::I1),
+                (
+                    ValueId(3),
+                    Instruction::CallRuntime {
+                        name: "dartforge_exception_pending".into(),
+                        args: vec![],
+                        ret_ty: if case == 2 { Type::I64 } else { Type::I8 },
+                    },
+                    if case == 2 { Type::I64 } else { Type::I8 },
+                ),
+                (
+                    ValueId(4),
+                    Instruction::ICmp(
+                        if case == 1 { ICmpOp::Eq } else { ICmpOp::Ne },
+                        Operand::Val(ValueId(3)),
+                        Operand::Constant(Constant::Int(0)),
+                    ),
+                    Type::I1,
+                ),
             ]);
             caller.blocks[0].terminator = Terminator::CondBranch {
-                cond: Operand::Val(ValueId(4)), then_block: BlockId(2), else_block: BlockId(1),
+                cond: Operand::Val(ValueId(4)),
+                then_block: BlockId(2),
+                else_block: BlockId(1),
             };
             caller.blocks.extend([
-                BasicBlock { id: BlockId(1), instructions: vec![],
-                    terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))) },
-                BasicBlock { id: BlockId(2), instructions: vec![
-                    (ValueId(5), Instruction::CallRuntime {
-                        name: "dartforge_exception_clear".into(), args: vec![], ret_ty: Type::Void,
-                    }, Type::Void),
-                ], terminator: Terminator::Return(Some(if case == 3 {
-                    Operand::Val(ValueId(2))
-                } else { Operand::Constant(Constant::Null) })) },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(2)))),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![(
+                        ValueId(5),
+                        Instruction::CallRuntime {
+                            name: "dartforge_exception_clear".into(),
+                            args: vec![],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    )],
+                    terminator: Terminator::Return(Some(if case == 3 {
+                        Operand::Val(ValueId(2))
+                    } else {
+                        Operand::Constant(Constant::Null)
+                    })),
+                },
             ]);
             if case == 4 {
-                plans.get_mut("caller").unwrap().tokens.pendings.insert(ValueId(2), BlockId(1));
+                plans
+                    .get_mut("caller")
+                    .unwrap()
+                    .tokens
+                    .pendings
+                    .insert(ValueId(2), BlockId(1));
             }
             let mut m = Module::new();
             m.arc_memory = case != 5;
             m.functions = functions;
-            if case == 6 { m.functions.reverse(); }
+            if case == 6 {
+                m.functions.reverse();
+            }
             let before = format!("{m:?}/{plans:?}");
             let result = prepare_arc_dart_module(&mut m, &mut plans);
             if (1..5).contains(&case) {
@@ -483,17 +553,33 @@ mod tests {
             assert!(!m.table_exceptions);
             assert!(m.tables.is_empty());
             let caller = m.functions.iter().find(|f| f.symbol == "caller").unwrap();
-            assert!(matches!(&caller.blocks[0].terminator,
-                Terminator::CondBranch { cond: Operand::Val(ValueId(4)), then_block: BlockId(2), .. }));
+            assert!(matches!(
+                &caller.blocks[0].terminator,
+                Terminator::CondBranch {
+                    cond: Operand::Val(ValueId(4)),
+                    then_block: BlockId(2),
+                    ..
+                }
+            ));
             let catch = caller.blocks.iter().find(|b| b.id == BlockId(2)).unwrap();
             assert!(catch.instructions.iter().any(|(_, i, _)| matches!(i,
                 Instruction::CallRuntime { name, .. } if name == "dartforge_exception_clear")));
-            assert!(catch.instructions.iter().any(|(_, i, _)| matches!(i,
-                Instruction::ArcDrop { value: Operand::Val(ValueId(1)) })));
-            assert!(!catch.instructions.iter().any(|(_, i, _)| matches!(i,
-                Instruction::ArcDrop { value: Operand::Val(ValueId(2)) })));
-            assert!(matches!(catch.terminator,
-                Terminator::Return(Some(Operand::Constant(Constant::Null)))));
+            assert!(catch.instructions.iter().any(|(_, i, _)| matches!(
+                i,
+                Instruction::ArcDrop {
+                    value: Operand::Val(ValueId(1))
+                }
+            )));
+            assert!(!catch.instructions.iter().any(|(_, i, _)| matches!(
+                i,
+                Instruction::ArcDrop {
+                    value: Operand::Val(ValueId(2))
+                }
+            )));
+            assert!(matches!(
+                catch.terminator,
+                Terminator::Return(Some(Operand::Constant(Constant::Null)))
+            ));
             let verified = format!("{m:?}/{plans:?}");
             assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             assert_eq!(format!("{m:?}/{plans:?}"), verified);
@@ -528,13 +614,7 @@ mod tests {
     fn resume_clears_owners_without_transferring_result_and_rejects_changing_exception() {
         let (mut functions, mut plans) = set();
         prepare_arc_dart_functions(&mut functions, &mut plans).unwrap();
-        for mode in plans
-            .get_mut("caller")
-            .unwrap()
-            .tables
-            .exits
-            .values_mut()
-        {
+        for mode in plans.get_mut("caller").unwrap().tables.exits.values_mut() {
             *mode = ExceptionExit::Resume;
         }
         let before = format!("{functions:?}");

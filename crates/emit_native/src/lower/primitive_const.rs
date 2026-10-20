@@ -90,15 +90,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ExprKind::Bool(b) => Some(Primitive::Bool(*b)),
             ExprKind::Parenthesized(x) => self.evaluate_primitive(unit, *x, prof),
-            ExprKind::Unary { op: UnaryOp::Neg, operand } => match self.evaluate_primitive(unit, *operand, prof)? {
+            ExprKind::Unary {
+                op: UnaryOp::Neg,
+                operand,
+            } => match self.evaluate_primitive(unit, *operand, prof)? {
                 Primitive::Int(v) => Some(Primitive::Int(v.wrapping_neg())),
                 Primitive::Double(v) => Some(Primitive::Double(-v)),
                 Primitive::Bool(_) => None,
             },
             ExprKind::Binary { op, left, right } => {
-                let (Primitive::Int(a), Primitive::Int(b)) =
-                    (self.evaluate_primitive(unit, *left, prof)?, self.evaluate_primitive(unit, *right, prof)?)
-                else {
+                let (Primitive::Int(a), Primitive::Int(b)) = (
+                    self.evaluate_primitive(unit, *left, prof)?,
+                    self.evaluate_primitive(unit, *right, prof)?,
+                ) else {
                     return None;
                 };
                 let r = match op {
@@ -115,17 +119,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Some(Primitive::Int(r))
             }
             ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
-                let Resolved::Constructor(fid) = self.ctx.get_resolved(unit, e)? else { return None; };
+                let Resolved::Constructor(fid) = self.ctx.get_resolved(unit, e)? else {
+                    return None;
+                };
                 let (kind, has) = self.environment_factory(*fid)?;
                 let key = arguments.args.iter().find(|a| a.name.is_none())?.value;
                 self.environment_key(unit, key, 0)?;
                 match self.environment_value(unit, key, kind, has) {
                     Some(Constant::Bool(value)) => Some(Primitive::Bool(value)),
                     _ => {
-                        if let Some(default) = arguments.args.iter().find(|a| a.name.is_some_and(|n| self.ctx.symbol_name(n.sym) == "defaultValue")) {
+                        if let Some(default) = arguments.args.iter().find(|a| {
+                            a.name
+                                .is_some_and(|n| self.ctx.symbol_name(n.sym) == "defaultValue")
+                        }) {
                             self.evaluate_primitive(unit, default.value, prof + 1)
                         } else {
-                            match kind { "bool" => Some(Primitive::Bool(false)), "int" => Some(Primitive::Int(0)), _ => None }
+                            match kind {
+                                "bool" => Some(Primitive::Bool(false)),
+                                "int" => Some(Primitive::Int(0)),
+                                _ => None,
+                            }
                         }
                     }
                 }
@@ -133,9 +146,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Identifier(_) | ExprKind::Property { .. } => {
                 let target = match self.ctx.get_resolved(unit, e)? {
                     Resolved::Element(Element::Variable(v)) => *v,
-                    Resolved::Member { member: MemberRef::Variable(v), .. } => *v,
-                    Resolved::Member { member: MemberRef::Function(f), .. }
-                    | Resolved::Element(Element::Function(f)) => self.ctx.program.functions[f.0 as usize].variable?,
+                    Resolved::Member {
+                        member: MemberRef::Variable(v),
+                        ..
+                    } => *v,
+                    Resolved::Member {
+                        member: MemberRef::Function(f),
+                        ..
+                    }
+                    | Resolved::Element(Element::Function(f)) => {
+                        self.ctx.program.functions[f.0 as usize].variable?
+                    }
                     _ => return None,
                 };
                 let var = &self.ctx.program.variables[target.0 as usize];

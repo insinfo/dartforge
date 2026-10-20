@@ -7,7 +7,7 @@ use crate::codes::*;
 use crate::hierarchy::ClassHierarchy;
 use crate::ops::substitute;
 use crate::resolved::{LocalId, MemberRef, Resolved};
-use crate::subtyping::{is_subtype, SubtypeEnv};
+use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, Type, TypeId, TypeParamId, TypeTable};
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_elements::model::{
@@ -186,7 +186,10 @@ impl ScopeStack {
     /// Looks up a local variable by name in the current block.
     pub fn find_local_in_current_block(&mut self, name: SymbolId) -> Option<&mut LocalVarInfo> {
         if let Some(block) = self.blocks.last_mut() {
-            block.locals.iter_mut().find(|l| l.enabled && l.name == name)
+            block
+                .locals
+                .iter_mut()
+                .find(|l| l.enabled && l.name == name)
         } else {
             None
         }
@@ -283,7 +286,9 @@ impl ScopeStack {
         }
 
         // 5. Instance members of the enclosing class (if not a static context)
-        if !self.is_static_context && let Some(class_id) = self.enclosing_class {
+        if !self.is_static_context
+            && let Some(class_id) = self.enclosing_class
+        {
             let class_elem = &program.classes[class_id.0 as usize];
 
             // Looks up members declared in the class
@@ -294,9 +299,11 @@ impl ScopeStack {
                     via_super: false,
                 });
             }
-            if let Some(&field_id) = class_elem.fields.iter().find(|&&f| {
-                program.variables[f.0 as usize].name == name
-            }) {
+            if let Some(&field_id) = class_elem
+                .fields
+                .iter()
+                .find(|&&f| program.variables[f.0 as usize].name == name)
+            {
                 return Some(Resolved::Member {
                     class: class_id,
                     member: MemberRef::Variable(field_id),
@@ -315,9 +322,11 @@ impl ScopeStack {
                             via_super: false,
                         });
                     }
-                    if let Some(&field_id) = super_elem.fields.iter().find(|&&f| {
-                        program.variables[f.0 as usize].name == name
-                    }) {
+                    if let Some(&field_id) = super_elem
+                        .fields
+                        .iter()
+                        .find(|&&f| program.variables[f.0 as usize].name == name)
+                    {
                         return Some(Resolved::Member {
                             class: super_cls,
                             member: MemberRef::Variable(field_id),
@@ -386,19 +395,19 @@ impl<'a> MemberResolver<'a> {
 
         match t {
             // dynamic receiver: everything is resolved dynamically
-            Type::Dynamic => {
-                Some((Resolved::Dynamic, self.core.dynamic_))
-            }
+            Type::Dynamic => Some((Resolved::Dynamic, self.core.dynamic_)),
             // Class / mixin / enum interface type
-            Type::Interface { class, args, .. } => {
-                self.lookup_in_class(class, &args, name, is_setter, false)
-                    .or_else(|| self.lookup_extension_member(receiver_ty, name, is_setter, current_library))
-            }
+            Type::Interface { class, args, .. } => self
+                .lookup_in_class(class, &args, name, is_setter, false)
+                .or_else(|| {
+                    self.lookup_extension_member(receiver_ty, name, is_setter, current_library)
+                }),
             // Extension type
-            Type::ExtensionType { decl, args, .. } => {
-                self.lookup_in_extension_type(decl, &args, name, is_setter)
-                    .or_else(|| self.lookup_extension_member(receiver_ty, name, is_setter, current_library))
-            }
+            Type::ExtensionType { decl, args, .. } => self
+                .lookup_in_extension_type(decl, &args, name, is_setter)
+                .or_else(|| {
+                    self.lookup_extension_member(receiver_ty, name, is_setter, current_library)
+                }),
             // Function type: member `.call` resolves to the function type itself
             Type::Function { .. } => {
                 let call_sym = self.interner.lookup("call");
@@ -414,25 +423,31 @@ impl<'a> MemberResolver<'a> {
                 }
             }
             // Record type: positional fields `$1`, `$2` or named ones
-            Type::Record { positional, named, .. } => {
-                self.lookup_in_record(&positional, &named, name)
-                    .or_else(|| {
-                        if let Some(rec_cid) = self.core.record_class {
-                            self.lookup_in_class(rec_cid, &[], name, is_setter, false)
-                        } else {
-                            None
-                        }
-                    })
-            }
+            Type::Record {
+                positional, named, ..
+            } => self
+                .lookup_in_record(&positional, &named, name)
+                .or_else(|| {
+                    if let Some(rec_cid) = self.core.record_class {
+                        self.lookup_in_class(rec_cid, &[], name, is_setter, false)
+                    } else {
+                        None
+                    }
+                }),
             // Never type: any access has type Never
-            Type::Never => {
-                Some((Resolved::Dynamic, self.core.never))
-            }
+            Type::Never => Some((Resolved::Dynamic, self.core.never)),
             _ => {
                 // Fallback to Object
                 if let Some(obj_cid) = self.core.object_class {
                     self.lookup_in_class(obj_cid, &[], name, is_setter, false)
-                        .or_else(|| self.lookup_extension_member(receiver_ty, name, is_setter, current_library))
+                        .or_else(|| {
+                            self.lookup_extension_member(
+                                receiver_ty,
+                                name,
+                                is_setter,
+                                current_library,
+                            )
+                        })
                 } else {
                     None
                 }
@@ -460,11 +475,12 @@ impl<'a> MemberResolver<'a> {
             if is_setter {
                 if func_elem.kind == FunctionKind::Setter {
                     let member_ty = self.get_instantiated_function_type(func_id, class_id, args);
-                    let val_ty = if let Type::Function { positional, .. } = self.table.get(member_ty) {
-                        positional.first().copied().unwrap_or(self.core.dynamic_)
-                    } else {
-                        member_ty
-                    };
+                    let val_ty =
+                        if let Type::Function { positional, .. } = self.table.get(member_ty) {
+                            positional.first().copied().unwrap_or(self.core.dynamic_)
+                        } else {
+                            member_ty
+                        };
                     return Some((
                         Resolved::Member {
                             class: class_id,
@@ -476,7 +492,10 @@ impl<'a> MemberResolver<'a> {
                 }
             } else if func_elem.kind != FunctionKind::Setter {
                 let member_ty = self.get_instantiated_function_type(func_id, class_id, args);
-                let ty = if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
+                let ty = if matches!(
+                    func_elem.kind,
+                    FunctionKind::Getter | FunctionKind::ImplicitAccessor
+                ) {
                     if let Type::Function { ret, .. } = self.table.get(member_ty) {
                         *ret
                     } else {
@@ -497,13 +516,18 @@ impl<'a> MemberResolver<'a> {
         }
 
         // Looks for fields / variables
-        if let Some(&var_id) = class_elem.fields.iter().find(|&&f| {
-            self.program.variables[f.0 as usize].name == name
-        }) {
+        if let Some(&var_id) = class_elem
+            .fields
+            .iter()
+            .find(|&&f| self.program.variables[f.0 as usize].name == name)
+        {
             let var_elem = &self.program.variables[var_id.0 as usize];
             if !is_setter || (!var_elem.final_ && !var_elem.const_) {
                 let var_data = &self.outline.variables[var_id.0 as usize];
-                let base_ty = var_data.declared_type.or(var_data.inferred).unwrap_or(self.core.dynamic_);
+                let base_ty = var_data
+                    .declared_type
+                    .or(var_data.inferred)
+                    .unwrap_or(self.core.dynamic_);
                 let subst_ty = self.substitute_class_type_params(class_id, args, base_ty);
                 return Some((
                     Resolved::Member {
@@ -518,7 +542,8 @@ impl<'a> MemberResolver<'a> {
 
         // 2. Looks in the instantiated transitive hierarchy
         {
-            for (super_cls, super_ty) in ordered_supertypes(self.program, self.hierarchy, class_id) {
+            for (super_cls, super_ty) in ordered_supertypes(self.program, self.hierarchy, class_id)
+            {
                 let super_elem = &self.program.classes[super_cls.0 as usize];
 
                 if let Some(&func_id) = super_elem.instance_members.get(&name) {
@@ -540,7 +565,9 @@ impl<'a> MemberResolver<'a> {
                                 super_cls,
                                 &final_super_args,
                             );
-                            let val_ty = if let Type::Function { positional, .. } = self.table.get(member_ty) {
+                            let val_ty = if let Type::Function { positional, .. } =
+                                self.table.get(member_ty)
+                            {
                                 positional.first().copied().unwrap_or(self.core.dynamic_)
                             } else {
                                 member_ty
@@ -570,7 +597,10 @@ impl<'a> MemberResolver<'a> {
                             super_cls,
                             &final_super_args,
                         );
-                        let ty = if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
+                        let ty = if matches!(
+                            func_elem.kind,
+                            FunctionKind::Getter | FunctionKind::ImplicitAccessor
+                        ) {
                             if let Type::Function { ret, .. } = self.table.get(member_ty) {
                                 *ret
                             } else {
@@ -590,13 +620,18 @@ impl<'a> MemberResolver<'a> {
                     }
                 }
 
-                if let Some(&var_id) = super_elem.fields.iter().find(|&&f| {
-                    self.program.variables[f.0 as usize].name == name
-                }) {
+                if let Some(&var_id) = super_elem
+                    .fields
+                    .iter()
+                    .find(|&&f| self.program.variables[f.0 as usize].name == name)
+                {
                     let var_elem = &self.program.variables[var_id.0 as usize];
                     if !is_setter || (!var_elem.final_ && !var_elem.const_) {
                         let var_data = &self.outline.variables[var_id.0 as usize];
-                        let base_ty = var_data.declared_type.or(var_data.inferred).unwrap_or(self.core.dynamic_);
+                        let base_ty = var_data
+                            .declared_type
+                            .or(var_data.inferred)
+                            .unwrap_or(self.core.dynamic_);
                         let mapping = self.build_class_substitution_map(class_id, args);
                         let subst_ty = substitute(base_ty, &mapping, self.table);
                         return Some((
@@ -617,24 +652,42 @@ impl<'a> MemberResolver<'a> {
         // from a class literal, so this is the last resort.
         if !via_super {
             let class_elem = &self.program.classes[class_id.0 as usize];
-            if let Some(&var_id) = class_elem.enum_constants.iter().find(|&&v| self.program.variables[v.0 as usize].name == name)
-                && !is_setter {
-                    let ty = self.table.intern(Type::Interface { class: class_id, args: Box::new([]), nullable: false });
-                    return Some((
-                        Resolved::Member { class: class_id, member: MemberRef::Variable(var_id), via_super },
-                        ty,
-                    ));
-                }
+            if let Some(&var_id) = class_elem
+                .enum_constants
+                .iter()
+                .find(|&&v| self.program.variables[v.0 as usize].name == name)
+                && !is_setter
+            {
+                let ty = self.table.intern(Type::Interface {
+                    class: class_id,
+                    args: Box::new([]),
+                    nullable: false,
+                });
+                return Some((
+                    Resolved::Member {
+                        class: class_id,
+                        member: MemberRef::Variable(var_id),
+                        via_super,
+                    },
+                    ty,
+                ));
+            }
             if let Some(&func_id) = class_elem.static_members.get(&name) {
                 let func_elem = &self.program.functions[func_id.0 as usize];
-                if is_setter && func_elem.kind != FunctionKind::Setter && func_elem.kind != FunctionKind::ImplicitAccessor {
+                if is_setter
+                    && func_elem.kind != FunctionKind::Setter
+                    && func_elem.kind != FunctionKind::ImplicitAccessor
+                {
                     return None;
                 }
                 let ty = match func_elem.kind {
                     FunctionKind::ImplicitAccessor => match func_elem.variable {
                         Some(vid) => {
                             let var_data = &self.outline.variables[vid.0 as usize];
-                            var_data.declared_type.or(var_data.inferred).unwrap_or(self.core.dynamic_)
+                            var_data
+                                .declared_type
+                                .or(var_data.inferred)
+                                .unwrap_or(self.core.dynamic_)
                         }
                         None => self.core.dynamic_,
                     },
@@ -647,10 +700,19 @@ impl<'a> MemberResolver<'a> {
                     _ => self.outline.functions[func_id.0 as usize].signature,
                 };
                 let member = match func_elem.variable {
-                    Some(vid) if func_elem.kind == FunctionKind::ImplicitAccessor => MemberRef::Variable(vid),
+                    Some(vid) if func_elem.kind == FunctionKind::ImplicitAccessor => {
+                        MemberRef::Variable(vid)
+                    }
                     _ => MemberRef::Function(func_id),
                 };
-                return Some((Resolved::Member { class: class_id, member, via_super }, ty));
+                return Some((
+                    Resolved::Member {
+                        class: class_id,
+                        member,
+                        via_super,
+                    },
+                    ty,
+                ));
             }
         }
 
@@ -676,11 +738,12 @@ impl<'a> MemberResolver<'a> {
             if is_setter {
                 if func_elem.kind == FunctionKind::Setter {
                     let member_ty = self.get_instantiated_function_type(func_id, decl, args);
-                    let val_ty = if let Type::Function { positional, .. } = self.table.get(member_ty) {
-                        positional.first().copied().unwrap_or(self.core.dynamic_)
-                    } else {
-                        member_ty
-                    };
+                    let val_ty =
+                        if let Type::Function { positional, .. } = self.table.get(member_ty) {
+                            positional.first().copied().unwrap_or(self.core.dynamic_)
+                        } else {
+                            member_ty
+                        };
                     return Some((
                         Resolved::Member {
                             class: decl,
@@ -692,7 +755,10 @@ impl<'a> MemberResolver<'a> {
                 }
             } else if func_elem.kind != FunctionKind::Setter {
                 let member_ty = self.get_instantiated_function_type(func_id, decl, args);
-                let ty = if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
+                let ty = if matches!(
+                    func_elem.kind,
+                    FunctionKind::Getter | FunctionKind::ImplicitAccessor
+                ) {
                     if let Type::Function { ret, .. } = self.table.get(member_ty) {
                         *ret
                     } else {
@@ -719,7 +785,9 @@ impl<'a> MemberResolver<'a> {
                     Type::Interface { args, .. } => args.clone(),
                     _ => Box::new([]),
                 };
-                if let Some(found) = self.lookup_in_class(super_cls, &super_args, name, is_setter, false) {
+                if let Some(found) =
+                    self.lookup_in_class(super_cls, &super_args, name, is_setter, false)
+                {
                     return Some(found);
                 }
             }
@@ -797,7 +865,10 @@ impl<'a> MemberResolver<'a> {
                 } else {
                     sig
                 }
-            } else if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
+            } else if matches!(
+                func_elem.kind,
+                FunctionKind::Getter | FunctionKind::ImplicitAccessor
+            ) {
                 if let Type::Function { ret, .. } = self.table.get(sig) {
                     *ret
                 } else {
@@ -821,7 +892,9 @@ impl<'a> MemberResolver<'a> {
             let on_best = candidates[best_idx].2;
             let on_current = candidates[i].2;
             let mut env = SubtypeEnv::new(self.table, self.hierarchy, self.core);
-            if is_subtype(on_current, on_best, &mut env) && !is_subtype(on_best, on_current, &mut env) {
+            if is_subtype(on_current, on_best, &mut env)
+                && !is_subtype(on_best, on_current, &mut env)
+            {
                 best_idx = i;
             }
         }
@@ -835,7 +908,10 @@ impl<'a> MemberResolver<'a> {
             } else {
                 sig
             }
-        } else if matches!(func_elem.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) {
+        } else if matches!(
+            func_elem.kind,
+            FunctionKind::Getter | FunctionKind::ImplicitAccessor
+        ) {
             if let Type::Function { ret, .. } = self.table.get(sig) {
                 *ret
             } else {
@@ -910,16 +986,21 @@ pub fn should_ignore_undefined(
         let u = program.unit(uid);
         for (i, d) in u.unit.directives.iter().enumerate() {
             match &d.kind {
-                ast::DirectiveKind::Import { prefix, combinators, .. } => {
+                ast::DirectiveKind::Import {
+                    prefix,
+                    combinators,
+                    ..
+                } => {
                     if prefix.map(|p| p.sym) != the_prefix {
                         continue;
                     }
                     // `importedLibrary?.isSynthetic != false`: no library loaded
                     // for the directive.
-                    let synthetic = !lib
-                        .imports
-                        .iter()
-                        .any(|im| im.unit == uid && im.directive == i && !program.library(im.library).units.is_empty());
+                    let synthetic = !lib.imports.iter().any(|im| {
+                        im.unit == uid
+                            && im.directive == i
+                            && !program.library(im.library).units.is_empty()
+                    });
                     if !synthetic {
                         continue;
                     }
@@ -938,14 +1019,28 @@ pub fn should_ignore_undefined(
                         return true;
                     }
                 }
-                ast::DirectiveKind::Part { uri } if the_prefix.is_none() && interner.resolve(the_name).starts_with("_$") => {
-                    let Some(text) = dartforge_elements::load::string_lit_value(uri) else { continue };
+                ast::DirectiveKind::Part { uri }
+                    if the_prefix.is_none() && interner.resolve(the_name).starts_with("_$") =>
+                {
+                    let Some(text) = dartforge_elements::load::string_lit_value(uri) else {
+                        continue;
+                    };
                     // `file_paths.isGenerated`, for a part whose file does not exist.
-                    let generated = [".g.dart", ".pb.dart", ".pbenum.dart", ".pbserver.dart", ".pbjson.dart", ".template.dart"]
-                        .iter()
-                        .any(|s| text.ends_with(s));
-                    let exists =
-                        text.contains(':') || u.path.as_ref().and_then(|p| p.parent()).is_none_or(|d| d.join(&text).is_file());
+                    let generated = [
+                        ".g.dart",
+                        ".pb.dart",
+                        ".pbenum.dart",
+                        ".pbserver.dart",
+                        ".pbjson.dart",
+                        ".template.dart",
+                    ]
+                    .iter()
+                    .any(|s| text.ends_with(s));
+                    let exists = text.contains(':')
+                        || u.path
+                            .as_ref()
+                            .and_then(|p| p.parent())
+                            .is_none_or(|d| d.join(&text).is_file());
                     if generated && !exists {
                         return true;
                     }
@@ -979,13 +1074,16 @@ pub fn ambiguous_libraries(
         })
     };
     let mut elements: Vec<Element> = Vec::new();
-    for i in imports.iter().filter(|i| i.prefix == the_prefix && passes(&i.combinators)) {
+    for i in imports
+        .iter()
+        .filter(|i| i.prefix == the_prefix && passes(&i.combinators))
+    {
         if let Some(b) = program.library(i.library).exported.get(&the_name)
             && let Some(el) = b.getter.or(b.setter)
-                && !elements.contains(&el)
-            {
-                elements.push(el);
-            }
+            && !elements.contains(&el)
+        {
+            elements.push(el);
+        }
     }
     let library = |el: Element| match el {
         Element::Class(c) => Some(program.class(c).library),
@@ -1002,7 +1100,15 @@ pub fn ambiguous_libraries(
         if !imports.iter().any(|i| i.library == l) {
             let mut indirect: Vec<String> = imports
                 .iter()
-                .filter(|i| passes(&i.combinators) && program.library(i.library).exported.get(&the_name).and_then(|b| b.getter.or(b.setter)) == Some(el))
+                .filter(|i| {
+                    passes(&i.combinators)
+                        && program
+                            .library(i.library)
+                            .exported
+                            .get(&the_name)
+                            .and_then(|b| b.getter.or(b.setter))
+                            == Some(el)
+                })
                 .map(|i| program.library(i.library).uri.clone())
                 .collect();
             if !indirect.is_empty() {

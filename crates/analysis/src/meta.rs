@@ -32,9 +32,12 @@
 
 use dartforge_diagnostics::codes::{hint as h, warning as w};
 use dartforge_diagnostics::{Code, Diagnostic, Span};
-use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionRef, LibraryId, Program, UnitId, VariableRef};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, FunctionRef, LibraryId, Program, UnitId, VariableRef,
+};
 use dartforge_frontend::ast::{
-    self, Combinator, DeclKind, DirectiveKind, ExprKind, FunctionBody, FunctionKind, MemberKind, ParameterKind, StmtKind, TypeKind,
+    self, Combinator, DeclKind, DirectiveKind, ExprKind, FunctionBody, FunctionKind, MemberKind,
+    ParameterKind, StmtKind, TypeKind,
 };
 use dartforge_intern::{Interner, SymbolId};
 
@@ -42,12 +45,20 @@ use dartforge_intern::{Interner, SymbolId};
 #[derive(Clone, Copy)]
 enum Target<'a> {
     TopLevel(&'a ast::Decl),
-    Member { member: &'a ast::Member, owner: &'a ast::Decl },
-    Constant { constant: &'a ast::EnumConstant, owner: &'a ast::Decl },
+    Member {
+        member: &'a ast::Member,
+        owner: &'a ast::Decl,
+    },
+    Constant {
+        constant: &'a ast::EnumConstant,
+        owner: &'a ast::Decl,
+    },
     Directive,
     /// `FormalParameter`; `optional` is `isOptional` (optional positional or
     /// named without `required`).
-    Param { optional: bool },
+    Param {
+        optional: bool,
+    },
     /// `TypeParameter` (a `Declaration` with the name).
     TypeParam(ast::Name),
     /// `FunctionDeclaration` local.
@@ -76,34 +87,70 @@ impl<'a> Ctx<'a> {
     }
 
     fn report(&mut self, code: Code, span: Span, args: &[&str]) {
-        self.out.push((self.unit, Diagnostic::with_code(code, span, args.iter().copied())));
+        self.out.push((
+            self.unit,
+            Diagnostic::with_code(code, span, args.iter().copied()),
+        ));
     }
 
     /// `node.name`: the annotation's identifier (one or two parts; with three,
     /// the third is the constructor name), the position and the text.
     fn annotation_name(&self, m: &ast::Annotation) -> (Span, String) {
-        let parts = if m.name.len() >= 3 { &m.name[..2] } else { &m.name[..] };
+        let parts = if m.name.len() >= 3 {
+            &m.name[..2]
+        } else {
+            &m.name[..]
+        };
         let span = match (parts.first(), parts.last()) {
-            (Some(p), Some(u)) => Span { start: p.span.start, end: u.span.end },
+            (Some(p), Some(u)) => Span {
+                start: p.span.start,
+                end: u.span.end,
+            },
             _ => m.span,
         };
-        (span, parts.iter().map(|n| self.text(*n)).collect::<Vec<_>>().join("."))
+        (
+            span,
+            parts
+                .iter()
+                .map(|n| self.text(*n))
+                .collect::<Vec<_>>()
+                .join("."),
+        )
     }
 
     /// `_isPackageMetaGetter` (and the `_isTopGetter` of `angular.meta`).
     fn is_getter_of(&self, m: &ast::Annotation, library: &str, name: &str) -> bool {
-        dartforge_types::annotations::is_getter_of(self.program, self.interner, self.unit, m, library, name)
+        dartforge_types::annotations::is_getter_of(
+            self.program,
+            self.interner,
+            self.unit,
+            m,
+            library,
+            name,
+        )
     }
 
     /// `_isConstructor`.
     fn is_constructor_of(&self, m: &ast::Annotation, library: &str, class: &str) -> bool {
-        dartforge_types::annotations::is_constructor_of(self.program, self.interner, self.unit, m, library, class)
+        dartforge_types::annotations::is_constructor_of(
+            self.program,
+            self.interner,
+            self.unit,
+            m,
+            library,
+            class,
+        )
     }
 
     /// The range of a `VariableDeclaration`: from the name to the end of the
     /// initializer.
     fn variable_span(&self, v: &ast::Variable) -> Span {
-        Span { start: v.name.span.start, end: v.initializer.map_or(v.name.span.end, |e| self.a.expr(e).span.end) }
+        Span {
+            start: v.name.span.start,
+            end: v
+                .initializer
+                .map_or(v.name.span.end, |e| self.a.expr(e).span.end),
+        }
     }
 
     /// The name of the element declared by a top-level declaration.
@@ -132,7 +179,9 @@ impl<'a> Ctx<'a> {
             Target::Constant { constant, .. } => Some(self.text(constant.name)),
             Target::TypeParam(n) => Some(self.text(n)),
             Target::LocalFunction(f) => f.name.map(|n| self.text(n)),
-            Target::Directive | Target::Param { .. } | Target::Representation | Target::Other => None,
+            Target::Directive | Target::Param { .. } | Target::Representation | Target::Other => {
+                None
+            }
         }
     }
 
@@ -159,7 +208,9 @@ impl<'a> Ctx<'a> {
             ExprKind::InstanceCreation { .. } | ExprKind::Null => true,
             ExprKind::Call { target, .. } => match &self.a.expr(*target).kind {
                 ExprKind::Identifier(n) => upper(*n),
-                ExprKind::Property { target, .. } => matches!(&self.a.expr(*target).kind, ExprKind::Identifier(n) if upper(*n)),
+                ExprKind::Property { target, .. } => {
+                    matches!(&self.a.expr(*target).kind, ExprKind::Identifier(n) if upper(*n))
+                }
                 _ => false,
             },
             _ => false,
@@ -168,12 +219,23 @@ impl<'a> Ctx<'a> {
 
     /// `_checkFactory`.
     fn factory(&mut self, target: Target<'a>) {
-        let Target::Member { member, .. } = target else { return };
-        let MemberKind::Method(f) = &member.kind else { return };
+        let Target::Member { member, .. } = target else {
+            return;
+        };
+        let MemberKind::Method(f) = &member.kind else {
+            return;
+        };
         let func = self.a.function(*f);
         let Some(name) = func.name else { return };
-        if func.return_type.is_some_and(|t| matches!(self.a.types[t.0 as usize].kind, TypeKind::Void)) {
-            self.report(w::INVALID_FACTORY_METHOD_DECL, name.span, &[self.text(name)]);
+        if func
+            .return_type
+            .is_some_and(|t| matches!(self.a.types[t.0 as usize].kind, TypeKind::Void))
+        {
+            self.report(
+                w::INVALID_FACTORY_METHOD_DECL,
+                name.span,
+                &[self.text(name)],
+            );
             return;
         }
         let ok = match &func.body {
@@ -181,15 +243,23 @@ impl<'a> Ctx<'a> {
             FunctionBody::Empty | FunctionBody::Native(_) => true,
             FunctionBody::Expression(e) => self.is_factory_expr(*e),
             FunctionBody::Block(s) => match &self.a.stmts[s.0 as usize].kind {
-                StmtKind::Block(stmts) => stmts.last().is_some_and(|u| match &self.a.stmts[u.0 as usize].kind {
-                    StmtKind::Return(Some(e)) => self.is_factory_expr(*e),
-                    _ => false,
-                }),
+                StmtKind::Block(stmts) => {
+                    stmts
+                        .last()
+                        .is_some_and(|u| match &self.a.stmts[u.0 as usize].kind {
+                            StmtKind::Return(Some(e)) => self.is_factory_expr(*e),
+                            _ => false,
+                        })
+                }
                 _ => false,
             },
         };
         if !ok {
-            self.report(w::INVALID_FACTORY_METHOD_IMPL, name.span, &[self.text(name)]);
+            self.report(
+                w::INVALID_FACTORY_METHOD_IMPL,
+                name.span,
+                &[self.text(name)],
+            );
         }
     }
 
@@ -207,8 +277,11 @@ impl<'a> Ctx<'a> {
         }
         let private = self.target_name(target).is_some_and(|n| n.starts_with('_'));
         let private_class = match target {
-            Target::Member { member, owner } if matches!(member.kind, MemberKind::Constructor(_)) => {
-                self.top_level_name(owner).is_some_and(|n| n.starts_with('_'))
+            Target::Member { member, owner }
+                if matches!(member.kind, MemberKind::Constructor(_)) =>
+            {
+                self.top_level_name(owner)
+                    .is_some_and(|n| n.starts_with('_'))
             }
             _ => false,
         };
@@ -230,7 +303,11 @@ impl<'a> Ctx<'a> {
                 MemberKind::Method(f) => {
                     let func = self.a.function(*f);
                     let is_abstract = matches!(func.body, FunctionBody::Empty) && !func.external;
-                    !(matches!(owner.kind, DeclKind::Extension(_) | DeclKind::ExtensionType(_)) || func.static_ || is_abstract)
+                    !(matches!(
+                        owner.kind,
+                        DeclKind::Extension(_) | DeclKind::ExtensionType(_)
+                    ) || func.static_
+                        || is_abstract)
                 }
                 MemberKind::Constructor(_) => false,
             },
@@ -245,15 +322,23 @@ impl<'a> Ctx<'a> {
     /// `_checkRedeclare`.
     fn redeclare(&mut self, m: &ast::Annotation, target: Target<'a>) {
         let valid = match target {
-            Target::Member { member, owner } if matches!(owner.kind, DeclKind::ExtensionType(_)) => match &member.kind {
-                MemberKind::Method(f) => !self.a.function(*f).static_,
-                _ => true,
-            },
+            Target::Member { member, owner }
+                if matches!(owner.kind, DeclKind::ExtensionType(_)) =>
+            {
+                match &member.kind {
+                    MemberKind::Method(f) => !self.a.function(*f).static_,
+                    _ => true,
+                }
+            }
             _ => false,
         };
         if !valid {
             let (span, text) = self.annotation_name(m);
-            self.report(w::INVALID_ANNOTATION_TARGET, span, &[text.as_str(), "instance members of extension types"]);
+            self.report(
+                w::INVALID_ANNOTATION_TARGET,
+                span,
+                &[text.as_str(), "instance members of extension types"],
+            );
         }
     }
 
@@ -262,7 +347,9 @@ impl<'a> Ctx<'a> {
     fn reopen(&mut self, m: &ast::Annotation, class: Option<ClassId>) {
         let Some(c) = class else { return };
         let e = self.program.class(c);
-        let Some(s) = e.supertype_class.map(|s| self.program.class(s)) else { return };
+        let Some(s) = e.supertype_class.map(|s| self.program.class(s)) else {
+            return;
+        };
         if s.kind != ClassKind::Class {
             return;
         }
@@ -288,9 +375,19 @@ impl<'a> Ctx<'a> {
             return;
         }
         let Some(args) = &m.arguments else { return };
-        let Some(arg) = args.args.iter().find(|x| x.name.is_some_and(|n| self.text(n) == "parameterDefined")) else { return };
-        let ExprKind::String(lit) = &self.a.expr(arg.value).kind else { return };
-        let Some(requested) = dartforge_elements::load::string_lit_value(lit) else { return };
+        let Some(arg) = args
+            .args
+            .iter()
+            .find(|x| x.name.is_some_and(|n| self.text(n) == "parameterDefined"))
+        else {
+            return;
+        };
+        let ExprKind::String(lit) = &self.a.expr(arg.value).kind else {
+            return;
+        };
+        let Some(requested) = dartforge_elements::load::string_lit_value(lit) else {
+            return;
+        };
         let function = match target {
             Target::TopLevel(d) => match &d.kind {
                 DeclKind::Function(f) => Some(self.a.function(*f)),
@@ -303,12 +400,21 @@ impl<'a> Ctx<'a> {
             _ => None,
         };
         let Some(func) = function else { return };
-        let (Some(name), Some(params)) = (func.name, &func.parameters) else { return };
-        if params.iter().any(|p| p.name.is_some_and(|n| self.text(n) == requested)) {
+        let (Some(name), Some(params)) = (func.name, &func.parameters) else {
+            return;
+        };
+        if params
+            .iter()
+            .any(|p| p.name.is_some_and(|n| self.text(n) == requested))
+        {
             return;
         }
         let span = self.a.expr(arg.value).span;
-        self.report(w::UNDEFINED_REFERENCED_PARAMETER, span, &[requested.as_str(), self.text(name)]);
+        self.report(
+            w::UNDEFINED_REFERENCED_PARAMETER,
+            span,
+            &[requested.as_str(), self.text(name)],
+        );
     }
 
     /// `_checkVisibility`.
@@ -319,7 +425,11 @@ impl<'a> Ctx<'a> {
                 let name = self.text(v.name);
                 if top_level {
                     if name.starts_with('_') {
-                        self.report(w::INVALID_VISIBILITY_ANNOTATION, on_name, &[name, text.as_str()]);
+                        self.report(
+                            w::INVALID_VISIBILITY_ANNOTATION,
+                            on_name,
+                            &[name, text.as_str()],
+                        );
                     }
                     // A top-level variable is not overridden.
                     if for_overriding {
@@ -330,17 +440,26 @@ impl<'a> Ctx<'a> {
                         self.report(w::INVALID_VISIBLE_FOR_OVERRIDING_ANNOTATION, on_name, &[]);
                     }
                     if name.starts_with('_') {
-                        self.report(w::INVALID_VISIBILITY_ANNOTATION, on_name, &[name, text.as_str()]);
+                        self.report(
+                            w::INVALID_VISIBILITY_ANNOTATION,
+                            on_name,
+                            &[name, text.as_str()],
+                        );
                     }
                 }
             }
             return;
         }
         // A directive is not a declaration: nothing.
-        let Some(name) = self.target_name(target) else { return };
+        let Some(name) = self.target_name(target) else {
+            return;
+        };
         let instance = match target {
             Target::Member { member, owner } => match &member.kind {
-                MemberKind::Method(f) => !self.a.function(*f).static_ && !matches!(owner.kind, DeclKind::ExtensionType(_)),
+                MemberKind::Method(f) => {
+                    !self.a.function(*f).static_
+                        && !matches!(owner.kind, DeclKind::ExtensionType(_))
+                }
                 _ => false,
             },
             _ => false,
@@ -349,7 +468,11 @@ impl<'a> Ctx<'a> {
             self.report(w::INVALID_VISIBLE_FOR_OVERRIDING_ANNOTATION, on_name, &[]);
         }
         if name.starts_with('_') {
-            self.report(w::INVALID_VISIBILITY_ANNOTATION, on_name, &[name, text.as_str()]);
+            self.report(
+                w::INVALID_VISIBILITY_ANNOTATION,
+                on_name,
+                &[name, text.as_str()],
+            );
         }
     }
 
@@ -361,7 +484,13 @@ impl<'a> Ctx<'a> {
             _ => None,
         };
         let valid = owner.is_some_and(|d| {
-            matches!(d.kind, DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_)) && d.metadata.iter().any(|x| self.is_getter_of(x, "angular.meta", "visibleForTemplate"))
+            matches!(
+                d.kind,
+                DeclKind::Class(_) | DeclKind::Enum(_) | DeclKind::Mixin(_)
+            ) && d
+                .metadata
+                .iter()
+                .any(|x| self.is_getter_of(x, "angular.meta", "visibleForTemplate"))
         });
         if !valid {
             let (span, _) = self.annotation_name(m);
@@ -400,15 +529,32 @@ impl<'a> Ctx<'a> {
     /// The `TargetKind`s of the `@Target({...})` of class `c` (an annotation's
     /// class): the names of the constants, in written order.
     fn class_target_kinds(&self, c: ClassId) -> Vec<&'a str> {
-        let Some(d) = self.program.class(c).decl else { return Vec::new() };
+        let Some(d) = self.program.class(c).decl else {
+            return Vec::new();
+        };
         let a = &self.program.unit(d.unit).ast;
         let mut out = Vec::new();
         for m in a.decl(d.decl).metadata.iter() {
-            if !dartforge_types::annotations::is_constructor_of(self.program, self.interner, d.unit, m, "meta_meta", "Target") {
+            if !dartforge_types::annotations::is_constructor_of(
+                self.program,
+                self.interner,
+                d.unit,
+                m,
+                "meta_meta",
+                "Target",
+            ) {
                 continue;
             }
-            let Some(first) = m.arguments.as_ref().and_then(|args| args.args.iter().find(|x| x.name.is_none())) else { continue };
-            let ExprKind::SetOrMap { elements, .. } = &a.expr(first.value).kind else { continue };
+            let Some(first) = m
+                .arguments
+                .as_ref()
+                .and_then(|args| args.args.iter().find(|x| x.name.is_none()))
+            else {
+                continue;
+            };
+            let ExprKind::SetOrMap { elements, .. } = &a.expr(first.value).kind else {
+                continue;
+            };
             for el in elements.iter() {
                 if let ast::CollectionElement::Expression(e) = el
                     && let ExprKind::Property { name, .. } = &a.expr(*e).kind
@@ -428,12 +574,20 @@ impl<'a> Ctx<'a> {
         let simple = |n: ast::Name| program.lookup_in_unit(u, n.sym).and_then(|b| b.getter);
         let (element, constructor) = match &m.name[..] {
             [n] => (simple(*n)?, None),
-            [p, n] => match program.lookup_prefixed_in_unit(u, p.sym, n.sym).and_then(|b| b.getter) {
+            [p, n] => match program
+                .lookup_prefixed_in_unit(u, p.sym, n.sym)
+                .and_then(|b| b.getter)
+            {
                 Some(e) => (e, None),
                 // `Class.constructor`.
                 None => (simple(*p)?, Some(*n)),
             },
-            [p, n, k] => (program.lookup_prefixed_in_unit(u, p.sym, n.sym).and_then(|b| b.getter)?, Some(*k)),
+            [p, n, k] => (
+                program
+                    .lookup_prefixed_in_unit(u, p.sym, n.sym)
+                    .and_then(|b| b.getter)?,
+                Some(*k),
+            ),
             _ => return None,
         };
         match element {
@@ -454,18 +608,24 @@ impl<'a> Ctx<'a> {
                     _ => return None,
                 };
                 let variable_span = program.variable(v);
-                let VariableRef::TopLevel { unit, decl, index } = variable_span.node else { return None };
+                let VariableRef::TopLevel { unit, decl, index } = variable_span.node else {
+                    return None;
+                };
                 let a = &program.unit(unit).ast;
-                let DeclKind::Variables(list) = &a.decl(decl).kind else { return None };
+                let DeclKind::Variables(list) = &a.decl(decl).kind else {
+                    return None;
+                };
                 let type_name: ast::Name = match list.ty.map(|t| &a.types[t.0 as usize].kind) {
                     Some(TypeKind::Named { name, .. }) => *name.last()?,
                     _ => {
                         let initializer = list.variables.get(index)?.initializer?;
                         match &a.expr(initializer).kind {
-                            ExprKind::InstanceCreation { ty, .. } => match &a.types[ty.0 as usize].kind {
-                                TypeKind::Named { name, .. } => *name.last()?,
-                                _ => return None,
-                            },
+                            ExprKind::InstanceCreation { ty, .. } => {
+                                match &a.types[ty.0 as usize].kind {
+                                    TypeKind::Named { name, .. } => *name.last()?,
+                                    _ => return None,
+                                }
+                            }
                             ExprKind::Call { target, .. } => match &a.expr(*target).kind {
                                 ExprKind::Identifier(n) => *n,
                                 ExprKind::Property { target, .. } => match &a.expr(*target).kind {
@@ -478,8 +638,13 @@ impl<'a> Ctx<'a> {
                         }
                     }
                 };
-                match program.lookup_in_unit(unit, type_name.sym).and_then(|b| b.getter)? {
-                    Element::Class(c) => Some((c, self.interner.resolve(variable_span.name).to_string())),
+                match program
+                    .lookup_in_unit(unit, type_name.sym)
+                    .and_then(|b| b.getter)?
+                {
+                    Element::Class(c) => {
+                        Some((c, self.interner.resolve(variable_span.name).to_string()))
+                    }
                     _ => None,
                 }
             }
@@ -491,7 +656,9 @@ impl<'a> Ctx<'a> {
     /// `:505-568`): the annotation whose class has `@Target({...})` on a target
     /// that is of none of the kinds.
     fn kinds(&mut self, m: &ast::Annotation, target: Target<'a>) {
-        let Some((class, name)) = self.annotation_class(m) else { return };
+        let Some((class, name)) = self.annotation_class(m) else {
+            return;
+        };
         let kinds = self.class_target_kinds(class);
         if kinds.is_empty() {
             return;
@@ -500,7 +667,12 @@ impl<'a> Ctx<'a> {
         // `overridableMember`: an instance field or method of a class,
         // extension type or mixin.
         let overridable = match target {
-            Target::Member { member, owner } if matches!(owner.kind, DeclKind::Class(_) | DeclKind::ExtensionType(_) | DeclKind::Mixin(_)) => {
+            Target::Member { member, owner }
+                if matches!(
+                    owner.kind,
+                    DeclKind::Class(_) | DeclKind::ExtensionType(_) | DeclKind::Mixin(_)
+                ) =>
+            {
                 match &member.kind {
                     MemberKind::Field(l) => !l.static_,
                     MemberKind::Method(f) => !self.a.function(*f).static_,
@@ -536,7 +708,9 @@ impl<'a> Ctx<'a> {
                 },
                 Target::Constant { .. } => has("enumValue"),
                 Target::Directive => has("directive") || (self.first_directive && has("library")),
-                Target::Param { optional } => has("parameter") || (optional && has("optionalParameter")),
+                Target::Param { optional } => {
+                    has("parameter") || (optional && has("optionalParameter"))
+                }
                 Target::TypeParam(_) => has("typeParameter"),
                 Target::LocalFunction(f) => match f.kind {
                     FunctionKind::Getter => has("getter"),
@@ -560,7 +734,11 @@ impl<'a> Ctx<'a> {
             n => format!("{}, or {}", names[..n - 1].join(", "), names[n - 1]),
         };
         let (span, _) = self.annotation_name(m);
-        self.report(w::INVALID_ANNOTATION_TARGET, span, &[name.as_str(), list.as_str()]);
+        self.report(
+            w::INVALID_ANNOTATION_TARGET,
+            span,
+            &[name.as_str(), list.as_str()],
+        );
     }
 
     /// `checkAnnotation`: an annotation, by the first role that matches, and
@@ -584,7 +762,11 @@ impl<'a> Ctx<'a> {
             "visibleForOverriding",
             "visibleOutsideTemplate",
         ];
-        if !m.name.iter().any(|n| NAMES.contains(&self.interner.resolve(n.sym))) {
+        if !m
+            .name
+            .iter()
+            .any(|n| NAMES.contains(&self.interner.resolve(n.sym)))
+        {
             self.kinds(m, target);
             return;
         }
@@ -607,9 +789,13 @@ impl<'a> Ctx<'a> {
             }
         } else if self.is_getter_of(m, "meta", "redeclare") {
             self.redeclare(m, target);
-        } else if self.is_constructor_of(m, "meta", "UseResult") || self.is_getter_of(m, "meta", "useResult") {
+        } else if self.is_constructor_of(m, "meta", "UseResult")
+            || self.is_getter_of(m, "meta", "useResult")
+        {
             self.use_result(m, target);
-        } else if self.is_getter_of(m, "angular.meta", "visibleForTemplate") || self.is_getter_of(m, "meta", "visibleForTesting") {
+        } else if self.is_getter_of(m, "angular.meta", "visibleForTemplate")
+            || self.is_getter_of(m, "meta", "visibleForTesting")
+        {
             self.visibility(m, target, false);
         } else if self.is_getter_of(m, "meta", "visibleForOverriding") {
             self.visibility(m, target, true);
@@ -651,14 +837,19 @@ impl<'a> Ctx<'a> {
     /// `_checkRequiredParameter`: `@required` where it makes no sense.
     fn params(&mut self, list: &[ast::Parameter]) {
         for p in list {
-            if !p.metadata.iter().any(|m| self.is_constructor_of(m, "meta", "Required") || self.is_getter_of(m, "meta", "required")) {
+            if !p.metadata.iter().any(|m| {
+                self.is_constructor_of(m, "meta", "Required")
+                    || self.is_getter_of(m, "meta", "required")
+            }) {
                 continue;
             }
             let name = p.name.map_or("", |n| self.text(n));
             let code = match p.kind {
                 ParameterKind::Optional => w::INVALID_REQUIRED_OPTIONAL_POSITIONAL_PARAM,
                 ParameterKind::Required => w::INVALID_REQUIRED_POSITIONAL_PARAM,
-                ParameterKind::Named if p.default_value.is_some() => w::INVALID_REQUIRED_NAMED_PARAM,
+                ParameterKind::Named if p.default_value.is_some() => {
+                    w::INVALID_REQUIRED_NAMED_PARAM
+                }
                 ParameterKind::Named => continue,
             };
             self.report(code, p.span, &[name]);
@@ -679,7 +870,12 @@ fn members_of(d: &ast::Decl) -> &[ast::MemberId] {
 
 /// The class, or something it inherits from (mixins, interfaces,
 /// superclass), is `@immutable` (`isOrInheritsImmutable`).
-fn is_immutable(program: &Program, interner: &Interner, c: ClassId, seen: &mut Vec<ClassId>) -> bool {
+fn is_immutable(
+    program: &Program,
+    interner: &Interner,
+    c: ClassId,
+    seen: &mut Vec<ClassId>,
+) -> bool {
     if seen.contains(&c) {
         return false;
     }
@@ -692,12 +888,26 @@ fn is_immutable(program: &Program, interner: &Interner, c: ClassId, seen: &mut V
             .decl(d.decl)
             .metadata
             .iter()
-            .any(|m| dartforge_types::annotations::is_getter_of(program, interner, d.unit, m, "meta", "immutable"))
+            .any(|m| {
+                dartforge_types::annotations::is_getter_of(
+                    program,
+                    interner,
+                    d.unit,
+                    m,
+                    "meta",
+                    "immutable",
+                )
+            })
     });
     annotated_decl
-        || e.mixin_classes.iter().any(|m| is_immutable(program, interner, *m, seen))
-        || e.interface_classes.iter().any(|m| is_immutable(program, interner, *m, seen))
-        || e.supertype_class.is_some_and(|s| is_immutable(program, interner, s, seen))
+        || e.mixin_classes
+            .iter()
+            .any(|m| is_immutable(program, interner, *m, seen))
+        || e.interface_classes
+            .iter()
+            .any(|m| is_immutable(program, interner, *m, seen))
+        || e.supertype_class
+            .is_some_and(|s| is_immutable(program, interner, s, seen))
 }
 
 /// `Class.field` of each non-final instance field of the class.
@@ -738,9 +948,13 @@ fn element_unit(program: &Program, e: Element) -> Option<UnitId> {
 }
 
 fn top_level_annotations(program: &Program, e: Element) -> &[ast::Annotation] {
-    let from_decl = |unit: UnitId, decl: ast::DeclId| &program.unit(unit).ast.decl(decl).metadata[..];
+    let from_decl =
+        |unit: UnitId, decl: ast::DeclId| &program.unit(unit).ast.decl(decl).metadata[..];
     match e {
-        Element::Class(c) => program.class(c).decl.map_or(&[][..], |d| from_decl(d.unit, d.decl)),
+        Element::Class(c) => program
+            .class(c)
+            .decl
+            .map_or(&[][..], |d| from_decl(d.unit, d.decl)),
         Element::Typedef(t) => {
             let d = program.typedef(t).decl;
             from_decl(d.unit, d.decl)
@@ -778,29 +992,63 @@ fn top_level_annotations(program: &Program, e: Element) -> &[ast::Annotation] {
 /// (`invalid_export_of_internal_element`), or a function whose signature uses
 /// an `@internal` `typedef` (`invalid_export_of_internal_element_indirectly`).
 /// The bounds of the function's type parameters are not looked at.
-fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out: &mut Vec<(UnitId, Diagnostic)>) {
+fn internal_exports(
+    program: &Program,
+    lib: LibraryId,
+    interner: &Interner,
+    out: &mut Vec<(UnitId, Diagnostic)>,
+) {
     if interner.lookup("internal").is_none() {
         return;
     }
     // `ElementAnnotation.isInternal`: the `internal` getter of `package:meta`
     // (a package's own `const internal = …` is not it).
     let internal = |u: Option<UnitId>, m: &[ast::Annotation]| {
-        u.is_some_and(|u| m.iter().any(|x| dartforge_types::annotations::is_getter_of(program, interner, u, x, "meta", "internal")))
+        u.is_some_and(|u| {
+            m.iter().any(|x| {
+                dartforge_types::annotations::is_getter_of(
+                    program, interner, u, x, "meta", "internal",
+                )
+            })
+        })
     };
     let library = program.library(lib);
     for exp in library.exports.iter() {
-        let Some(directive) = program.unit(exp.unit).unit.directives.get(exp.directive) else { continue };
+        let Some(directive) = program.unit(exp.unit).unit.directives.get(exp.directive) else {
+            continue;
+        };
         let target = program.library(exp.library);
         // The exported library itself is `@internal`.
-        let from_library = target
-            .units
-            .first()
-            .and_then(|u| program.unit(*u).unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::Library { .. })));
+        let from_library = target.units.first().and_then(|u| {
+            program
+                .unit(*u)
+                .unit
+                .directives
+                .iter()
+                .find(|d| matches!(d.kind, DirectiveKind::Library { .. }))
+        });
         if let Some(d) = from_library
             && internal(target.units.first().copied(), &d.metadata)
         {
-            let name = target.name.as_ref().map(|parts| parts.iter().map(|s| interner.resolve(*s)).collect::<Vec<_>>().join(".")).unwrap_or_default();
-            out.push((exp.unit, Diagnostic::with_code(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, directive.span, [name.as_str()])));
+            let name = target
+                .name
+                .as_ref()
+                .map(|parts| {
+                    parts
+                        .iter()
+                        .map(|s| interner.resolve(*s))
+                        .collect::<Vec<_>>()
+                        .join(".")
+                })
+                .unwrap_or_default();
+            out.push((
+                exp.unit,
+                Diagnostic::with_code(
+                    w::INVALID_EXPORT_OF_INTERNAL_ELEMENT,
+                    directive.span,
+                    [name.as_str()],
+                ),
+            ));
         }
         // The namespace the directive exports, in name order.
         let mut names: Vec<SymbolId> = target
@@ -816,34 +1064,63 @@ fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out:
             .collect();
         names.sort_by_key(|k| interner.resolve(*k).to_string());
         for k in names {
-            let Some(binding) = target.exported.get(&k) else { continue };
+            let Some(binding) = target.exported.get(&k) else {
+                continue;
+            };
             let text = interner.resolve(k);
-            for e in binding.getter.into_iter().chain(binding.setter.filter(|s| Some(*s) != binding.getter)) {
+            for e in binding
+                .getter
+                .into_iter()
+                .chain(binding.setter.filter(|s| Some(*s) != binding.getter))
+            {
                 if internal(element_unit(program, e), top_level_annotations(program, e)) {
-                    out.push((exp.unit, Diagnostic::with_code(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT, directive.span, [text])));
+                    out.push((
+                        exp.unit,
+                        Diagnostic::with_code(
+                            w::INVALID_EXPORT_OF_INTERNAL_ELEMENT,
+                            directive.span,
+                            [text],
+                        ),
+                    ));
                     continue;
                 }
                 // A function: the written types of the signature that are an
                 // `@internal` `typedef`.
                 let Element::Function(f) = e else { continue };
-                let FunctionRef::Function { unit, function } = program.function(f).node else { continue };
+                let FunctionRef::Function { unit, function } = program.function(f).node else {
+                    continue;
+                };
                 let a = &program.unit(unit).ast;
                 let func = a.function(function);
-                let types = func.parameters.iter().flat_map(|ps| ps.iter()).filter_map(|p| p.ty).chain(func.return_type);
+                let types = func
+                    .parameters
+                    .iter()
+                    .flat_map(|ps| ps.iter())
+                    .filter_map(|p| p.ty)
+                    .chain(func.return_type);
                 for t in types {
-                    let ast::TypeKind::Named { name, .. } = &a.types[t.0 as usize].kind else { continue };
+                    let ast::TypeKind::Named { name, .. } = &a.types[t.0 as usize].kind else {
+                        continue;
+                    };
                     let found = match &name[..] {
                         [n] => program.lookup_in_unit(unit, n.sym),
                         [p, n] => program.lookup_prefixed_in_unit(unit, p.sym, n.sym),
                         _ => None,
                     };
                     if let Some(alias @ Element::Typedef(td)) = found.and_then(|b| b.getter)
-                        && internal(element_unit(program, alias), top_level_annotations(program, alias))
+                        && internal(
+                            element_unit(program, alias),
+                            top_level_annotations(program, alias),
+                        )
                     {
                         let alias_name = interner.resolve(program.typedef(td).name);
                         out.push((
                             exp.unit,
-                            Diagnostic::with_code(w::INVALID_EXPORT_OF_INTERNAL_ELEMENT_INDIRECTLY, directive.span, [alias_name, text]),
+                            Diagnostic::with_code(
+                                w::INVALID_EXPORT_OF_INTERNAL_ELEMENT_INDIRECTLY,
+                                directive.span,
+                                [alias_name, text],
+                            ),
                         ));
                     }
                 }
@@ -858,9 +1135,24 @@ fn internal_exports(program: &Program, lib: LibraryId, interner: &Interner, out:
 /// `ElementAnnotation.targetKinds` of an annotation of unit `u`: the kinds of
 /// the `@Target({...})` of the annotation's class (that of the called
 /// constructor, or that of the constant's value), without repetition.
-pub(crate) fn annotation_target_kinds(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Vec<String> {
-    let ctx = Ctx { program, interner, a: &program.unit(u).ast, unit: u, in_public_api: false, first_directive: false, out: Vec::new() };
-    let Some((class, _)) = ctx.annotation_class(m) else { return Vec::new() };
+pub(crate) fn annotation_target_kinds(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    m: &ast::Annotation,
+) -> Vec<String> {
+    let ctx = Ctx {
+        program,
+        interner,
+        a: &program.unit(u).ast,
+        unit: u,
+        in_public_api: false,
+        first_directive: false,
+        out: Vec::new(),
+    };
+    let Some((class, _)) = ctx.annotation_class(m) else {
+        return Vec::new();
+    };
     let mut v: Vec<String> = Vec::new();
     for k in ctx.class_target_kinds(class) {
         if is_known_display(k) && !v.iter().any(|x| x == k) {
@@ -875,17 +1167,32 @@ fn is_known_display(name: &str) -> bool {
     Ctx::kind_display(name).is_some()
 }
 
-pub fn check(program: &Program, lib: LibraryId, interner: &Interner, in_public_api: bool) -> Vec<(UnitId, Diagnostic)> {
+pub fn check(
+    program: &Program,
+    lib: LibraryId,
+    interner: &Interner,
+    in_public_api: bool,
+) -> Vec<(UnitId, Diagnostic)> {
     let library = program.library(lib);
     let mut out: Vec<(UnitId, Diagnostic)> = Vec::new();
     // This library's classes, by declaration.
     let class_of = |u: UnitId, d: ast::DeclId| {
-        program.class_of_decl(u, d).filter(|c| program.class(*c).library == lib)
+        program
+            .class_of_decl(u, d)
+            .filter(|c| program.class(*c).library == lib)
     };
     for &u in &library.units {
         let unit = program.unit(u);
         let a = &unit.ast;
-        let mut ctx = Ctx { program, interner, a, unit: u, in_public_api, first_directive: false, out: Vec::new() };
+        let mut ctx = Ctx {
+            program,
+            interner,
+            a,
+            unit: u,
+            in_public_api,
+            first_directive: false,
+            out: Vec::new(),
+        };
         for (index, directive) in unit.unit.directives.iter().enumerate() {
             ctx.first_directive = index == 0;
             for m in directive.metadata.iter() {
@@ -901,14 +1208,28 @@ pub fn check(program: &Program, lib: LibraryId, interner: &Interner, in_public_a
             if let DeclKind::Enum(x) = &decl.kind {
                 for constant in x.constants.iter() {
                     for m in constant.metadata.iter() {
-                        ctx.annotation(m, Target::Constant { constant, owner: decl }, None);
+                        ctx.annotation(
+                            m,
+                            Target::Constant {
+                                constant,
+                                owner: decl,
+                            },
+                            None,
+                        );
                     }
                 }
             }
             for &mid in members_of(decl) {
                 let member = a.member(mid);
                 for m in member.metadata.iter() {
-                    ctx.annotation(m, Target::Member { member, owner: decl }, None);
+                    ctx.annotation(
+                        m,
+                        Target::Member {
+                            member,
+                            owner: decl,
+                        },
+                        None,
+                    );
                 }
                 if let MemberKind::Constructor(k) = &member.kind {
                     ctx.params(&k.parameters);
@@ -986,7 +1307,12 @@ pub fn check(program: &Program, lib: LibraryId, interner: &Interner, in_public_a
             }
         }
         for t in a.types.iter() {
-            if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
+            if let TypeKind::Function {
+                type_params,
+                parameters,
+                ..
+            } = &t.kind
+            {
                 ctx.type_param_annotations(type_params);
                 ctx.param_annotations(parameters);
             }
@@ -1001,7 +1327,11 @@ pub fn check(program: &Program, lib: LibraryId, interner: &Interner, in_public_a
             }
         }
         for s in a.stmts.iter() {
-            if let StmtKind::ForIn { target: ast::ForInTarget::Declared { metadata, .. }, .. } = &s.kind {
+            if let StmtKind::ForIn {
+                target: ast::ForInTarget::Declared { metadata, .. },
+                ..
+            } = &s.kind
+            {
                 for m in metadata.iter() {
                     ctx.annotation(m, Target::Other, None);
                 }
@@ -1015,7 +1345,11 @@ pub fn check(program: &Program, lib: LibraryId, interner: &Interner, in_public_a
     // `import_deferred_library_with_load_function`: the deferred import of a
     // library that exports `loadLibrary`, on the whole directive.
     if let Some(sym) = interner.lookup("loadLibrary") {
-        for imp in library.imports.iter().filter(|i| i.deferred && i.prefix.is_some()) {
+        for imp in library
+            .imports
+            .iter()
+            .filter(|i| i.deferred && i.prefix.is_some())
+        {
             let exports = program.library(imp.library).exported.contains_key(&sym)
                 && imp.combinators.iter().all(|c| match c {
                     Combinator::Show(ns) => ns.iter().any(|n| n.sym == sym),
@@ -1025,7 +1359,14 @@ pub fn check(program: &Program, lib: LibraryId, interner: &Interner, in_public_a
             if let (true, Some(d)) = (exports, directive)
                 && matches!(d.kind, DirectiveKind::Import { .. })
             {
-                out.push((imp.unit, Diagnostic::with_code(h::IMPORT_DEFERRED_LIBRARY_WITH_LOAD_FUNCTION, d.span, std::iter::empty::<&str>())));
+                out.push((
+                    imp.unit,
+                    Diagnostic::with_code(
+                        h::IMPORT_DEFERRED_LIBRARY_WITH_LOAD_FUNCTION,
+                        d.span,
+                        std::iter::empty::<&str>(),
+                    ),
+                ));
             }
         }
     }

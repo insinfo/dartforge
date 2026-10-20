@@ -17,8 +17,8 @@ use crate::const_eval::evaluation::Engine;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, Resolved};
 use crate::table::{CoreTypes, TypeTable};
-use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::Diagnostic;
+use dartforge_diagnostics::codes::warning as w;
 use dartforge_elements::model::{LibraryId, Program, UnitId};
 use dartforge_frontend::ast::{self, CreationKeyword, ExprId, ExprKind};
 use dartforge_intern::Interner;
@@ -54,7 +54,9 @@ pub fn literal_constructors(
     let mut candidates: Vec<Candidate> = Vec::new();
     for &lib in libs {
         for &u in &program.library(lib).units {
-            let Some(body) = bodies.units.get(u.0 as usize) else { continue };
+            let Some(body) = bodies.units.get(u.0 as usize) else {
+                continue;
+            };
             let unit = program.unit(u);
             let a = &unit.ast;
             // `InstanceCreationExpression.isConst`: also without the keyword in a
@@ -63,12 +65,23 @@ pub fn literal_constructors(
             for (k, e) in a.exprs.iter().enumerate() {
                 let id = ExprId(k as u32);
                 let (with_new, the_name) = match &e.kind {
-                    ExprKind::InstanceCreation { keyword, ty, constructor, .. } => {
+                    ExprKind::InstanceCreation {
+                        keyword,
+                        ty,
+                        constructor,
+                        ..
+                    } => {
                         if matches!(keyword, Some(CreationKeyword::Const)) {
                             continue;
                         }
-                        let ast::TypeKind::Named { name, .. } = &a.ty(*ty).kind else { continue };
-                        let typ = name.iter().map(|n| interner.resolve(n.sym)).collect::<Vec<_>>().join(".");
+                        let ast::TypeKind::Named { name, .. } = &a.ty(*ty).kind else {
+                            continue;
+                        };
+                        let typ = name
+                            .iter()
+                            .map(|n| interner.resolve(n.sym))
+                            .collect::<Vec<_>>()
+                            .join(".");
                         let the_name = match constructor {
                             Some(c) => format!("{typ}.{}", interner.resolve(c.sym)),
                             None => typ,
@@ -81,19 +94,38 @@ pub fn literal_constructors(
                         if !matches!(body.get_resolved(id), Some(Resolved::Constructor(_))) {
                             continue;
                         }
-                        (false, written_name(interner, a, *target).unwrap_or_default())
+                        (
+                            false,
+                            written_name(interner, a, *target).unwrap_or_default(),
+                        )
                     }
                     _ => continue,
                 };
-                let Some(Resolved::Constructor(f)) = body.get_resolved(id) else { continue };
-                let Some(where_) = crate::phase_result::function_unit(program, *f) else { continue };
+                let Some(Resolved::Constructor(f)) = body.get_resolved(id) else {
+                    continue;
+                };
+                let Some(where_) = crate::phase_result::function_unit(program, *f) else {
+                    continue;
+                };
                 let marked = crate::phase_result::function_annotations(program, *f)
                     .iter()
-                    .any(|m| crate::phase_result::meta_annotation(program, interner, where_, m, "literal"));
+                    .any(|m| {
+                        crate::phase_result::meta_annotation(
+                            program, interner, where_, m, "literal",
+                        )
+                    });
                 let implicitly_const = !with_new
-                    && parents.get_or_insert_with(|| crate::typed_lints::unit_parents(program, u)).in_constant_context(a, id);
+                    && parents
+                        .get_or_insert_with(|| crate::typed_lints::unit_parents(program, u))
+                        .in_constant_context(a, id);
                 if marked && !implicitly_const {
-                    candidates.push(Candidate { unit: u, lib, expr: id, name: the_name, with_new });
+                    candidates.push(Candidate {
+                        unit: u,
+                        lib,
+                        expr: id,
+                        name: the_name,
+                        with_new,
+                    });
                 }
             }
         }
@@ -101,12 +133,24 @@ pub fn literal_constructors(
     if candidates.is_empty() {
         return out;
     }
-    let mut engine = Engine::new(program, interner, table, core, outline, bodies, the_inferred);
+    let mut engine = Engine::new(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        bodies,
+        the_inferred,
+    );
     for c in candidates {
         if !crate::const_eval::verifier::creation_can_be_const(&mut engine, c.lib, c.unit, c.expr) {
             continue;
         }
-        let code = if c.with_new { w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR_USING_NEW } else { w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR };
+        let code = if c.with_new {
+            w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR_USING_NEW
+        } else {
+            w::NON_CONST_CALL_TO_LITERAL_CONSTRUCTOR
+        };
         let span = program.unit(c.unit).ast.expr(c.expr).span;
         out.push((c.unit, Diagnostic::with_code(code, span, [c.name.as_str()])));
     }
@@ -118,7 +162,11 @@ pub fn literal_constructors(
 fn written_name(interner: &Interner, a: &ast::Ast, e: ExprId) -> Option<String> {
     match &a.expr(e).kind {
         ExprKind::Identifier(n) => Some(interner.resolve(n.sym).to_string()),
-        ExprKind::Property { target, name, .. } => Some(format!("{}.{}", written_name(interner, a, *target)?, interner.resolve(name.sym))),
+        ExprKind::Property { target, name, .. } => Some(format!(
+            "{}.{}",
+            written_name(interner, a, *target)?,
+            interner.resolve(name.sym)
+        )),
         ExprKind::TypeArguments { target, .. } => written_name(interner, a, *target),
         _ => None,
     }

@@ -4,8 +4,8 @@
 
 use super::isp::{Flags, Initial, Isp};
 use super::*;
-use dartforge_elements::model::UnitId;
 use crate::analyzer_tree::Binding;
+use dartforge_elements::model::UnitId;
 use dartforge_frontend::token::Op;
 
 /// The text of an argument `completionLocation`.
@@ -44,7 +44,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// without their own `visit`: the `SimpleAstVisitor` does nothing).
     pub(super) fn visit(&mut self, n: usize) {
         match self.kind(n) {
-            "AdjacentStrings" | "DoubleLiteral" | "IntegerLiteral" | "StringInterpolation" => self.visit_parent_if_node_or_before(n),
+            "AdjacentStrings" | "DoubleLiteral" | "IntegerLiteral" | "StringInterpolation" => {
+                self.visit_parent_if_node_or_before(n)
+            }
             "Annotation" => self.v_annotation(n),
             "ArgumentList" => self.v_argument_list(n),
             "AsExpression" => self.v_as(n),
@@ -60,8 +62,15 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             "BinaryExpression" => self.v_binary(n),
             "Block" => self.v_block(n),
-            "BooleanLiteral" | "NullLiteral" | "ConstructorReference" | "ExtensionOverride" | "FunctionExpressionInvocation" | "FunctionReference"
-            | "SymbolLiteral" | "ThisExpression" | "TypeLiteral" => self.for_expression(n, false, false),
+            "BooleanLiteral"
+            | "NullLiteral"
+            | "ConstructorReference"
+            | "ExtensionOverride"
+            | "FunctionExpressionInvocation"
+            | "FunctionReference"
+            | "SymbolLiteral"
+            | "ThisExpression"
+            | "TypeLiteral" => self.for_expression(n, false, false),
             "BreakStatement" | "ContinueStatement" => self.v_break_continue(n),
             "CascadeExpression" => {
                 self.local("CascadeExpression_cascadeSection");
@@ -76,13 +85,19 @@ impl<'a, 'c> Isp<'a, 'c> {
             "ClassDeclaration" => self.v_class(n),
             "CommentReference" => {
                 self.local("CommentReference_identifier");
-                self.dh(Flags { prefer_without_invocation: true, ..Flags::default() });
+                self.dh(Flags {
+                    prefer_without_invocation: true,
+                    ..Flags::default()
+                });
                 self.lexical_dh(n);
             }
             "CompilationUnit" => self.v_unit(n),
             "ConditionalExpression" => self.v_conditional(n),
             "ConstantPattern" => {
-                if self.children(n).first().is_some_and(|&f| self.kind(f) == "SimpleIdentifier")
+                if self
+                    .children(n)
+                    .first()
+                    .is_some_and(|&f| self.kind(f) == "SimpleIdentifier")
                     && let Some(p) = self.parent(n)
                 {
                     self.visit(p);
@@ -165,7 +180,11 @@ impl<'a, 'c> Isp<'a, 'c> {
             "InterpolationExpression" => {
                 self.local("InterpolationExpression_expression");
                 let is_static = self.static_context(n);
-                self.dh(Flags { is_static, non_void: true, ..Flags::default() });
+                self.dh(Flags {
+                    is_static,
+                    non_void: true,
+                    ..Flags::default()
+                });
                 self.lexical_dh(n);
             }
             "IsExpression" => self.v_is(n),
@@ -293,7 +312,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                 if let Some(t) = self.child(n, "NamedType")
                     && self.covers_node(t)
                 {
-                    self.dh(Flags { ty: true, ..Flags::default() });
+                    self.dh(Flags {
+                        ty: true,
+                        ..Flags::default()
+                    });
                     self.lexical_dh(n);
                 }
             }
@@ -317,10 +339,20 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_forExpression`.
     pub(super) fn for_expression(&mut self, n: usize, assignable: bool, non_void: bool) {
         let is_expr = super::isp::EXPRESSION_KINDS.contains(&self.kind(n));
-        let constant = is_expr && (self.constant_context(n) || self.parent(n).is_some_and(|p| self.kind(p) == "DefaultFormalParameter"));
+        let constant = is_expr
+            && (self.constant_context(n)
+                || self
+                    .parent(n)
+                    .is_some_and(|p| self.kind(p) == "DefaultFormalParameter"));
         let is_static = self.static_context(n);
         self.kw_expression(Some(n), constant, is_static);
-        self.dh(Flags { assignable, constant, non_void, is_static, ..Flags::default() });
+        self.dh(Flags {
+            assignable,
+            constant,
+            non_void,
+            is_static,
+            ..Flags::default()
+        });
         self.lexical_dh(n);
     }
 
@@ -338,7 +370,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.kw("void");
             }
         }
-        if self.kind(n) == "NamedType" && let Some(prefix) = self.child(n, "ImportPrefixReference") {
+        if self.kind(n) == "NamedType"
+            && let Some(prefix) = self.child(n, "ImportPrefixReference")
+        {
             if self.import_prefix(prefix).is_some() {
                 self.dh(Flags {
                     extensible: o.extensible,
@@ -373,7 +407,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         let text = &self.source[self.start(n)..self.end(n)];
         let name = text.trim_end_matches('.').trim();
         let s = self.query.names.lookup(name)?;
-        self.query.program.library(self.library()).prefixes.contains_key(&s).then_some(s)
+        self.query
+            .program
+            .library(self.library())
+            .prefixes
+            .contains_key(&s)
+            .then_some(s)
     }
 
     /// `_forPattern`.
@@ -389,7 +428,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                         && self.kind(id) == "SimpleIdentifier"
                         && self.offset < self.start(id)
                     {
-                        self.dh(Flags { ty: true, ..Flags::default() });
+                        self.dh(Flags {
+                            ty: true,
+                            ..Flags::default()
+                        });
                         self.lexical_dh(n);
                         return;
                     }
@@ -398,7 +440,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                     // The name `_` is the pattern's last token.
                     let name = self.end(p).saturating_sub(1);
                     if self.offset < name {
-                        self.dh(Flags { ty: true, ..Flags::default() });
+                        self.dh(Flags {
+                            ty: true,
+                            ..Flags::default()
+                        });
                         self.lexical_dh(n);
                         return;
                     }
@@ -408,11 +453,16 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         if let Some(c) = covered
             && self.kind(c) == "SimpleIdentifier"
-            && self.parent(c).is_some_and(|p| self.kind(p) == "ConstantPattern")
+            && self
+                .parent(c)
+                .is_some_and(|p| self.kind(p) == "ConstantPattern")
         {
             self.kw_pattern();
             self.prefers_constants = true;
-            self.dh(Flags { non_void: true, ..Flags::default() });
+            self.dh(Flags {
+                non_void: true,
+                ..Flags::default()
+            });
             self.lexical_dh(n);
             return;
         }
@@ -435,13 +485,21 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.kw_pattern();
         self.prefers_constants = true;
         let is_static = self.static_context(n);
-        self.dh(Flags { constant, is_static, object_pattern: true, ..Flags::default() });
+        self.dh(Flags {
+            constant,
+            is_static,
+            object_pattern: true,
+            ..Flags::default()
+        });
         self.lexical_dh(n);
     }
 
     /// `_forAnnotation`.
     pub(super) fn for_annotation(&mut self, n: usize) {
-        self.dh(Flags { constant: true, ..Flags::default() });
+        self.dh(Flags {
+            constant: true,
+            ..Flags::default()
+        });
         self.lexical_dh(n);
     }
 
@@ -460,7 +518,10 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_forClassMember`.
     pub(super) fn for_class_member(&mut self, c: usize) {
         self.class_member_kw();
-        self.dh(Flags { ty: true, ..Flags::default() });
+        self.dh(Flags {
+            ty: true,
+            ..Flags::default()
+        });
         self.lexical_dh(c);
         let class = self.node_class(c);
         self.suggest_overrides(class, false);
@@ -469,28 +530,40 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_forEnumMember`.
     pub(super) fn for_enum_member(&mut self, c: usize) {
         self.enum_member_kw();
-        self.dh(Flags { ty: true, ..Flags::default() });
+        self.dh(Flags {
+            ty: true,
+            ..Flags::default()
+        });
         self.lexical_dh(c);
     }
 
     /// `_forExtensionMember`.
     pub(super) fn for_extension_member(&mut self, c: usize) {
         self.extension_member_kw(false);
-        self.dh(Flags { ty: true, ..Flags::default() });
+        self.dh(Flags {
+            ty: true,
+            ..Flags::default()
+        });
         self.lexical_dh(c);
     }
 
     /// `_forExtensionTypeMember`.
     pub(super) fn for_extension_type_member(&mut self, c: usize) {
         self.extension_type_member_kw(false);
-        self.dh(Flags { ty: true, ..Flags::default() });
+        self.dh(Flags {
+            ty: true,
+            ..Flags::default()
+        });
         self.lexical_dh(c);
     }
 
     /// `_forMixinMember`.
     pub(super) fn for_mixin_member(&mut self, c: usize) {
         self.mixin_member_kw();
-        self.dh(Flags { ty: true, ..Flags::default() });
+        self.dh(Flags {
+            ty: true,
+            ..Flags::default()
+        });
         self.lexical_dh(c);
         let class = self.node_class(c);
         self.suggest_overrides(class, false);
@@ -498,7 +571,11 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The elements of a collection literal (without the `TypeArgumentList`).
     pub(super) fn literal_elements(&self, lit: usize) -> Vec<usize> {
-        self.children(lit).iter().copied().filter(|&f| self.kind(f) != "TypeArgumentList").collect()
+        self.children(lit)
+            .iter()
+            .copied()
+            .filter(|&f| self.kind(f) != "TypeArgumentList")
+            .collect()
     }
 
     /// `_forCollectionElement`.
@@ -507,18 +584,26 @@ impl<'a, 'c> Isp<'a, 'c> {
         let constant = self.constant_context(literal) || self.starts_with_const(literal);
         self.collection_element_kw(literal, elements, constant, is_static);
         let previous = self.element_before(elements);
-        self.dh(Flags { is_static, constant, ..Flags::default() });
+        self.dh(Flags {
+            is_static,
+            constant,
+            ..Flags::default()
+        });
         self.lexical_dh(previous.unwrap_or(literal));
     }
 
     /// `_forCombinator`: the names exported by the directive's library, minus
     /// those already listed (except the one under the cursor).
     pub(super) fn for_combinator(&mut self, n: usize) {
-        let Some(directive) = self.parent(n) else { return };
+        let Some(directive) = self.parent(n) else {
+            return;
+        };
         if !matches!(self.kind(directive), "ImportDirective" | "ExportDirective") {
             return;
         }
-        let Some(lib) = self.directive_library(directive) else { return };
+        let Some(lib) = self.directive_library(directive) else {
+            return;
+        };
         let covered = self.covered_node();
         let excluded: HashSet<String> = self
             .children(n)
@@ -527,7 +612,10 @@ impl<'a, 'c> Isp<'a, 'c> {
             .filter(|&k| Some(k) != covered)
             .map(|k| self.source[self.start(k)..self.end(k)].to_string())
             .collect();
-        self.dh(Flags { prefer_without_invocation: true, ..Flags::default() });
+        self.dh(Flags {
+            prefer_without_invocation: true,
+            ..Flags::default()
+        });
         self.library_dh(lib, &excluded);
     }
 
@@ -538,19 +626,31 @@ impl<'a, 'c> Isp<'a, 'c> {
         let p = &self.query.program;
         let u = p.unit(self.unit);
         let lib = p.library(u.library);
-        let index = u.unit.directives.iter().position(|x| x.span.start == target)?;
+        let index = u
+            .unit
+            .directives
+            .iter()
+            .position(|x| x.span.start == target)?;
         lib.imports
             .iter()
             .filter(|i| i.unit == self.unit && i.directive == index)
             .map(|i| i.library)
-            .chain(lib.exports.iter().filter(|e| e.unit == self.unit && e.directive == index).map(|e| e.library))
+            .chain(
+                lib.exports
+                    .iter()
+                    .filter(|e| e.unit == self.unit && e.directive == index)
+                    .map(|e| e.library),
+            )
             .next()
     }
 
     /// `_forCompilationUnitDeclaration`.
     pub(super) fn for_unit_declaration(&mut self) {
         self.unit_declaration_kw();
-        self.dh(Flags { ty: true, ..Flags::default() });
+        self.dh(Flags {
+            ty: true,
+            ..Flags::default()
+        });
         self.lexical_dh(0);
     }
 
@@ -576,10 +676,15 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_forConstantExpression`.
     pub(super) fn for_expression_constant(&mut self, n: usize) {
-        let in_const = super::isp::EXPRESSION_KINDS.contains(&self.kind(n)) && self.constant_context(n);
+        let in_const =
+            super::isp::EXPRESSION_KINDS.contains(&self.kind(n)) && self.constant_context(n);
         self.constant_expression_kw(in_const);
         let is_static = self.static_context(n);
-        self.dh(Flags { constant: true, is_static, ..Flags::default() });
+        self.dh(Flags {
+            constant: true,
+            is_static,
+            ..Flags::default()
+        });
         self.lexical_dh(n);
     }
 
@@ -592,12 +697,22 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// The field of `x = e` (`fieldName.staticElement`).
-    pub(super) fn initializer_field(&self, ctor: usize, init: usize) -> Option<dartforge_elements::model::VariableId> {
-        let ast::Initializer::Field { name, .. } = self.real_initializer(init)? else { return None };
+    pub(super) fn initializer_field(
+        &self,
+        ctor: usize,
+        init: usize,
+    ) -> Option<dartforge_elements::model::VariableId> {
+        let ast::Initializer::Field { name, .. } = self.real_initializer(init)? else {
+            return None;
+        };
         let class = self.parent(ctor).and_then(|c| self.node_class(c))?;
         let text = self.real_name(*name);
         let p = &self.query.program;
-        p.class(class).fields.iter().copied().find(|&v| self.query.name(p.variable(v).name) == text)
+        p.class(class)
+            .fields
+            .iter()
+            .copied()
+            .find(|&v| self.query.name(p.variable(v).name) == text)
     }
 
     /// `_forMemberAccess`.
@@ -605,24 +720,43 @@ impl<'a, 'c> Isp<'a, 'c> {
         if only_super {
             // `request.target.dotTarget is SuperExpression`: the containing method
             // gives `superMatches` and `isNoSuchMethod`.
-            self.super_method = self.ancestor(n, &["MethodDeclaration"]).and_then(|m| self.real_function(m)).and_then(|f| f.name).map(|x| self.real_name(x).to_string());
+            self.super_method = self
+                .ancestor(n, &["MethodDeclaration"])
+                .and_then(|m| self.real_function(m))
+                .and_then(|f| f.name)
+                .map(|x| self.real_name(x).to_string());
         }
         let assignable = self.must_be_assignable(n);
         let constant = self.constant_context(n);
-        let non_void = self.parent(n).is_some_and(|p| self.kind(p) == "ArgumentList");
-        self.dh(Flags { assignable, constant, non_void, ..Flags::default() });
+        let non_void = self
+            .parent(n)
+            .is_some_and(|p| self.kind(p) == "ArgumentList");
+        self.dh(Flags {
+            assignable,
+            constant,
+            non_void,
+            ..Flags::default()
+        });
         self.dh_instance_members(ty, only_super);
     }
 
     /// `_computeMustBeAssignable`: the node is the left side of an assignment
     /// and the cursor is on the operator's line.
     pub(super) fn must_be_assignable(&self, n: usize) -> bool {
-        let Some(p) = self.parent(n) else { return false };
+        let Some(p) = self.parent(n) else {
+            return false;
+        };
         if self.kind(p) != "AssignmentExpression" || self.children(p).first() != Some(&n) {
             return false;
         }
-        let Some(op) = self.tok_after(self.end(n)) else { return false };
-        let line = |o: usize| self.source[..o.min(self.source.len())].matches('\n').count();
+        let Some(op) = self.tok_after(self.end(n)) else {
+            return false;
+        };
+        let line = |o: usize| {
+            self.source[..o.min(self.source.len())]
+                .matches('\n')
+                .count()
+        };
         line(self.offset) == line(self.span_tok(op).start)
     }
 
@@ -673,15 +807,23 @@ impl<'a, 'c> Isp<'a, 'c> {
         let excluded = self.field_names(pattern);
         match self.kind(pattern) {
             "ObjectPattern" => {
-                let ty = self.child(pattern, "NamedType").and_then(|t| self.type_node_type(t));
+                let ty = self
+                    .child(pattern, "NamedType")
+                    .and_then(|t| self.type_node_type(t));
                 if let Some(t) = ty {
-                    self.dh(Flags { non_void: true, ..Flags::default() });
+                    self.dh(Flags {
+                        non_void: true,
+                        ..Flags::default()
+                    });
                     self.dh_getters(t, &excluded);
                 }
             }
             "RecordPattern" => {
                 if let Some(t) = self.matched_type(pattern) {
-                    self.dh(Flags { non_void: true, ..Flags::default() });
+                    self.dh(Flags {
+                        non_void: true,
+                        ..Flags::default()
+                    });
                     self.dh_getters(t, &excluded);
                 }
             }
@@ -710,7 +852,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         // `:var x`: the name of the subpattern's variable.
         let sub = self.children(c).iter().copied().find(|&k| k != name)?;
         if self.kind(sub) == "DeclaredVariablePattern" {
-            return self.variable_pattern_name(sub).map(|j| self.text_tok(j).to_string());
+            return self
+                .variable_pattern_name(sub)
+                .map(|j| self.text_tok(j).to_string());
         }
         None
     }
@@ -721,40 +865,78 @@ impl<'a, 'c> Isp<'a, 'c> {
         let Binding::Type(tid) = self.link(t) else {
             // The `NamedType` the tree builds for a creation without `new` (`A()`,
             // `A.n()`): the created type.
-            let name = self.parent(t).filter(|&p| self.kind(p) == "ConstructorName")?;
-            let creation = self.parent(name).filter(|&p| self.kind(p) == "InstanceCreationExpression")?;
-            let Binding::Expr(e) = self.link(creation) else { return None };
+            let name = self
+                .parent(t)
+                .filter(|&p| self.kind(p) == "ConstructorName")?;
+            let creation = self
+                .parent(name)
+                .filter(|&p| self.kind(p) == "InstanceCreationExpression")?;
+            let Binding::Expr(e) = self.link(creation) else {
+                return None;
+            };
             return self.static_type(e);
         };
         let s = self.a.ty(tid).span;
         let (start, end) = (self.map(s.start), self.map_end(s.end));
         let ast_c = &self.query.program.unit(self.unit).ast;
-        let id = ast_c.types.iter().position(|x| x.span.start == start && x.span.end == end).map(|i| ast::TypeId(i as u32))?;
+        let id = ast_c
+            .types
+            .iter()
+            .position(|x| x.span.start == start && x.span.end == end)
+            .map(|i| ast::TypeId(i as u32))?;
         let bodies = &self.query.bodies.units[self.unit.0 as usize];
-        bodies.annotation_types.get(&id).copied().or_else(|| self.query.outline.written_types.get(&(self.unit, id)).copied())
+        bodies.annotation_types.get(&id).copied().or_else(|| {
+            self.query
+                .outline
+                .written_types
+                .get(&(self.unit, id))
+                .copied()
+        })
     }
 
     /// The `matchedValueType` of a pattern.
     pub(super) fn matched_type(&self, pattern: usize) -> Option<TypeId> {
-        let Binding::Pattern(pid) = self.link(pattern) else { return None };
+        let Binding::Pattern(pid) = self.link(pattern) else {
+            return None;
+        };
         let s = self.a.pattern(pid).span;
         let (start, end) = (self.map(s.start), self.map_end(s.end));
         let ast_c = &self.query.program.unit(self.unit).ast;
         let bodies = &self.query.bodies.units[self.unit.0 as usize];
-        ast_c.patterns.iter().enumerate().find(|(_, x)| x.span.start == start && x.span.end == end).and_then(|(i, _)| bodies.matched_types.get(&ast::PatternId(i as u32)).copied())
+        ast_c
+            .patterns
+            .iter()
+            .enumerate()
+            .find(|(_, x)| x.span.start == start && x.span.end == end)
+            .and_then(|(i, _)| bodies.matched_types.get(&ast::PatternId(i as u32)).copied())
     }
 
     /// `_forRedirectingConstructorInvocation`.
     pub(super) fn for_redirecting_invocation(&mut self, ctor: usize) {
-        let Some(container) = self.parent(ctor) else { return };
-        if !matches!(self.kind(container), "ClassDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration") {
+        let Some(container) = self.parent(ctor) else {
+            return;
+        };
+        if !matches!(
+            self.kind(container),
+            "ClassDeclaration" | "EnumDeclaration" | "ExtensionTypeDeclaration"
+        ) {
             return;
         }
-        let Some(class) = self.node_class(container) else { return };
-        let Some(this) = self.class_this_type(class) else { return };
-        let name = self.real_constructor(ctor).and_then(|k| k.name).map(|n| self.real_name(n).to_string());
+        let Some(class) = self.node_class(container) else {
+            return;
+        };
+        let Some(this) = self.class_this_type(class) else {
+            return;
+        };
+        let name = self
+            .real_constructor(ctor)
+            .and_then(|k| k.name)
+            .map(|n| self.real_name(n).to_string());
         let constant = self.real_constructor(ctor).is_some_and(|k| k.const_);
-        self.dh(Flags { constant, ..Flags::default() });
+        self.dh(Flags {
+            constant,
+            ..Flags::default()
+        });
         self.dh_type_constructor_names(this, name);
     }
 
@@ -770,13 +952,25 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_forIncompletePrecedingClassMember`.
     pub(super) fn previous_incomplete_member(&mut self, m: usize) -> bool {
-        let Some(i) = self.tok_after(self.start(m)) else { return false };
+        let Some(i) = self.tok_after(self.start(m)) else {
+            return false;
+        };
         if self.offset > self.span_tok(i).end {
             return false;
         }
-        let Some(previous) = self.previous_member(m) else { return false };
+        let Some(previous) = self.previous_member(m) else {
+            return false;
+        };
         if self.kind(previous) == "MethodDeclaration" {
-            let body = self.children(previous).iter().copied().find(|&k| matches!(self.kind(k), "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"));
+            let body = self.children(previous).iter().copied().find(|&k| {
+                matches!(
+                    self.kind(k),
+                    "BlockFunctionBody"
+                        | "ExpressionFunctionBody"
+                        | "EmptyFunctionBody"
+                        | "NativeFunctionBody"
+                )
+            });
             // The whole body synthetic: the method without a body in the text.
             if body.is_none() {
                 self.local("ClassDeclaration_member");
@@ -789,23 +983,33 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_forIncompletePrecedingStatement`.
     pub(super) fn previous_incomplete_command(&mut self, s: usize) -> bool {
-        let Some(i) = self.tok_after(self.start(s)) else { return false };
+        let Some(i) = self.tok_after(self.start(s)) else {
+            return false;
+        };
         if self.offset > self.span_tok(i).end {
             return false;
         }
-        let Some(previous) = self.previous_command(s) else { return false };
+        let Some(previous) = self.previous_command(s) else {
+            return false;
+        };
         match self.kind(previous) {
             "IfStatement" => {
-                if self.word_in("else", self.start(previous), self.end(previous)).is_none() {
+                if self
+                    .word_in("else", self.start(previous), self.end(previous))
+                    .is_none()
+                {
                     self.kw("else");
                     return false;
                 }
             }
             "TryStatement"
-                if self.word_in("finally", self.start(previous), self.end(previous)).is_none() => {
-                    self.v_try(previous);
-                    return self.children_of(previous, &["CatchClause"]).is_empty();
-                }
+                if self
+                    .word_in("finally", self.start(previous), self.end(previous))
+                    .is_none() =>
+            {
+                self.v_try(previous);
+                return self.children_of(previous, &["CatchClause"]).is_empty();
+            }
             _ => {}
         }
         false
@@ -836,7 +1040,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
             }
             "ImportDirective" => {
-                let has_semicolon = self.tok_before(self.end(previous)).is_some_and(|i| self.is_op(i, Op::Semicolon));
+                let has_semicolon = self
+                    .tok_before(self.end(previous))
+                    .is_some_and(|i| self.is_op(i, Op::Semicolon));
                 if !has_semicolon {
                     self.v_import(previous);
                     return true;
@@ -849,8 +1055,20 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The body of a function/method (the body node).
     pub(super) fn function_body(&self, n: usize) -> Option<usize> {
-        let expr = if self.kind(n) == "FunctionDeclaration" { self.child(n, "FunctionExpression")? } else { n };
-        self.children(expr).iter().copied().find(|&k| matches!(self.kind(k), "BlockFunctionBody" | "ExpressionFunctionBody" | "EmptyFunctionBody" | "NativeFunctionBody"))
+        let expr = if self.kind(n) == "FunctionDeclaration" {
+            self.child(n, "FunctionExpression")?
+        } else {
+            n
+        };
+        self.children(expr).iter().copied().find(|&k| {
+            matches!(
+                self.kind(k),
+                "BlockFunctionBody"
+                    | "ExpressionFunctionBody"
+                    | "EmptyFunctionBody"
+                    | "NativeFunctionBody"
+            )
+        })
     }
 
     /// The declaration has no body (synthetic `{` and `}`).
@@ -880,22 +1098,32 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_handledPossibleClosure`.
     pub(super) fn handled_possible_closure(&mut self, e: usize) -> bool {
-        let Some(next) = self.tok_after(self.end(e)) else { return false };
+        let Some(next) = self.tok_after(self.end(e)) else {
+            return false;
+        };
         if self.offset > self.span_tok(next).start {
             return false;
         }
         match self.kind(e) {
             "ParenthesizedExpression" => {
-                if self.children(e).first().is_some_and(|&f| self.kind(f) == "SimpleIdentifier") {
+                if self
+                    .children(e)
+                    .first()
+                    .is_some_and(|&f| self.kind(f) == "SimpleIdentifier")
+                {
                     self.body_modifiers_kw(None);
                     return true;
                 }
             }
             "RecordLiteral"
-                if self.children(e).iter().all(|&f| self.kind(f) == "SimpleIdentifier") => {
-                    self.body_modifiers_kw(None);
-                    return true;
-                }
+                if self
+                    .children(e)
+                    .iter()
+                    .all(|&f| self.kind(f) == "SimpleIdentifier") =>
+            {
+                self.body_modifiers_kw(None);
+                return true;
+            }
             _ => {}
         }
         false
@@ -906,7 +1134,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         if self.parent(decl) != Some(0) {
             return false;
         }
-        let Some(first) = self.tok_after(self.start(decl)) else { return false };
+        let Some(first) = self.tok_after(self.start(decl)) else {
+            return false;
+        };
         let first_node = self.offset <= self.span_tok(first).end;
         if first_node {
             let (before, _) = self.member_neighbors(decl);
@@ -927,7 +1157,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `TopLevelVariableDeclaration.isSingleIdentifier`: a word followed by the
     /// `;` that fasta would create (here: no `;` in the text).
     pub(super) fn loose_top_declaration(&self, decl: usize) -> bool {
-        let Some(i) = self.tok_after(self.start(decl)) else { return false };
+        let Some(i) = self.tok_after(self.start(decl)) else {
+            return false;
+        };
         if !self.word(i) {
             return false;
         }
@@ -938,17 +1170,25 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_locationFor(argumentList, isNamed)`.
     pub(super) fn argument_location(&self, list: usize, named: bool) -> String {
         let parent = self.parent(list).map_or("", |p| self.kind(p));
-        format!("ArgumentList_{}_{}", argument_role(parent), if named { "named" } else { "unnamed" })
+        format!(
+            "ArgumentList_{}_{}",
+            argument_role(parent),
+            if named { "named" } else { "unnamed" }
+        )
     }
 
     /// `_tryAnnotationAtEndOfClassBody`: the displaced token is the `}` and the
     /// two before it are `@` and an identifier.
     pub(super) fn annotation_at_body_end(&mut self, decl: usize) -> bool {
-        let Some(key) = self.tok_after(self.offset) else { return false };
+        let Some(key) = self.tok_after(self.offset) else {
+            return false;
+        };
         if !self.is_op(key, Op::RBrace) {
             return false;
         }
-        let Some(id) = key.checked_sub(1) else { return false };
+        let Some(id) = key.checked_sub(1) else {
+            return false;
+        };
         if !self.is_identifier(id) || id == 0 || !self.is_op(id - 1, Op::At) {
             return false;
         }
@@ -978,7 +1218,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_visitForEachParts`.
     pub(super) fn visit_for_each_parts(&mut self, n: usize) {
-        let Some(at) = self.word_in("in", self.start(n), self.end(n)) else { return };
+        let Some(at) = self.word_in("in", self.start(n), self.end(n)) else {
+            return;
+        };
         let s = self.span_tok(at);
         if self.covers(s.start, s.end) {
             let previous = at.checked_sub(1);
@@ -993,7 +1235,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         } else {
             self.kw("await");
             let is_static = self.static_context(n);
-            self.dh(Flags { is_static, ..Flags::default() });
+            self.dh(Flags {
+                is_static,
+                ..Flags::default()
+            });
             self.lexical_dh(n);
         }
     }
@@ -1023,14 +1268,38 @@ impl<'a, 'c> Isp<'a, 'c> {
                 .collect()
         };
         let by_type = |t: TypeId| -> Option<Vec<InvokedParameter>> {
-            let Type::Function { positional, optional, named, .. } = query.table.get(t).clone() else { return None };
+            let Type::Function {
+                positional,
+                optional,
+                named,
+                ..
+            } = query.table.get(t).clone()
+            else {
+                return None;
+            };
             let mut v: Vec<InvokedParameter> = positional
                 .iter()
                 .chain(optional.iter())
-                .map(|&t| InvokedParameter { name: String::new(), named: false, required: false, ty: t, widget: false, annotated_required: false, type_names: Vec::new() })
+                .map(|&t| InvokedParameter {
+                    name: String::new(),
+                    named: false,
+                    required: false,
+                    ty: t,
+                    widget: false,
+                    annotated_required: false,
+                    type_names: Vec::new(),
+                })
                 .collect();
             for (n, t, r) in named.iter() {
-                v.push(InvokedParameter { name: query.name(*n).to_string(), named: true, required: *r, ty: *t, widget: false, annotated_required: false, type_names: Vec::new() });
+                v.push(InvokedParameter {
+                    name: query.name(*n).to_string(),
+                    named: true,
+                    required: *r,
+                    ty: *t,
+                    widget: false,
+                    annotated_required: false,
+                    type_names: Vec::new(),
+                });
             }
             Some(v)
         };
@@ -1052,7 +1321,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                     let function = match bodies.get_resolved(a) {
                         Some(Resolved::Element(Element::Function(f))) => Some(*f),
-                        Some(Resolved::Member { member: MemberRef::Function(f), .. }) => Some(*f),
+                        Some(Resolved::Member {
+                            member: MemberRef::Function(f),
+                            ..
+                        }) => Some(*f),
                         Some(Resolved::ExtensionMember { member, .. }) => Some(*member),
                         _ => None,
                     };
@@ -1067,7 +1339,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
                 None
             }
-            "Annotation" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "EnumConstantArguments" => {
+            "Annotation"
+            | "SuperConstructorInvocation"
+            | "RedirectingConstructorInvocation"
+            | "EnumConstantArguments" => {
                 let f = self.invoked_constructor(parent)?;
                 Some(self.enriched(by_element(f), f))
             }
@@ -1076,14 +1351,22 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// The declared parameters of an executable in the AST (that of its unit).
-    pub(super) fn parameters_ast(&self, f: FunctionElementId) -> Option<(UnitId, &[ast::Parameter])> {
+    pub(super) fn parameters_ast(
+        &self,
+        f: FunctionElementId,
+    ) -> Option<(UnitId, &[ast::Parameter])> {
         let p = &self.query.program;
         match p.function(f).node {
-            dartforge_elements::model::FunctionRef::Function { unit, function } => Some((unit, p.unit(unit).ast.function(function).parameters.as_deref()?)),
-            dartforge_elements::model::FunctionRef::Constructor { unit, member } => match &p.unit(unit).ast.member(member).kind {
-                ast::MemberKind::Constructor(k) => Some((unit, &k.parameters[..])),
-                _ => None,
-            },
+            dartforge_elements::model::FunctionRef::Function { unit, function } => Some((
+                unit,
+                p.unit(unit).ast.function(function).parameters.as_deref()?,
+            )),
+            dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
+                match &p.unit(unit).ast.member(member).kind {
+                    ast::MemberKind::Constructor(k) => Some((unit, &k.parameters[..])),
+                    _ => None,
+                }
+            }
             dartforge_elements::model::FunctionRef::None => None,
         }
     }
@@ -1094,7 +1377,14 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn written_type_names(&self, u: UnitId, prm: &ast::Parameter) -> Vec<String> {
         let unit = self.query.program.unit(u);
         let names = |ps: &[ast::Parameter]| -> Vec<String> {
-            ps.iter().filter(|x| x.kind != ast::ParameterKind::Named).map(|x| x.name.map(|n| self.query.name(n.sym).to_string()).unwrap_or_default()).collect()
+            ps.iter()
+                .filter(|x| x.kind != ast::ParameterKind::Named)
+                .map(|x| {
+                    x.name
+                        .map(|n| self.query.name(n.sym).to_string())
+                        .unwrap_or_default()
+                })
+                .collect()
         };
         if let Some(fps) = &prm.function_parameters {
             return names(fps);
@@ -1107,17 +1397,33 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// Completes the parameters through the element: `widget`, `@required` and
     /// the names of the written function type.
-    pub(super) fn enriched(&self, mut v: Vec<InvokedParameter>, f: FunctionElementId) -> Vec<InvokedParameter> {
+    pub(super) fn enriched(
+        &self,
+        mut v: Vec<InvokedParameter>,
+        f: FunctionElementId,
+    ) -> Vec<InvokedParameter> {
         let p = &self.query.program;
-        let widget = matches!(p.function(f).kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) && p.function(f).class.is_some_and(|c| self.is_widget(c));
+        let widget = matches!(
+            p.function(f).kind,
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+        ) && p.function(f).class.is_some_and(|c| self.is_widget(c));
         let declared: Vec<(UnitId, &ast::Parameter)> = match self.parameters_ast(f) {
-            Some((u, ps)) => ps.iter().filter(|x| x.external_name().is_some()).map(|x| (u, x)).collect(),
+            Some((u, ps)) => ps
+                .iter()
+                .filter(|x| x.external_name().is_some())
+                .map(|x| (u, x))
+                .collect(),
             None => Vec::new(),
         };
         for (i, x) in v.iter_mut().enumerate() {
             x.widget = widget;
             if let Some(&(u, prm)) = declared.get(i) {
-                x.annotated_required = prm.metadata.iter().any(|m| m.arguments.is_none() && m.name.last().is_some_and(|n| self.query.name(n.sym) == "required"));
+                x.annotated_required = prm.metadata.iter().any(|m| {
+                    m.arguments.is_none()
+                        && m.name
+                            .last()
+                            .is_some_and(|n| self.query.name(n.sym) == "required")
+                });
                 x.type_names = self.written_type_names(u, prm);
             }
         }
@@ -1126,15 +1432,33 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The names of the function type written on the parameters of `f` (the
     /// parameters came from the type, in order: positional, optional, named).
-    pub(super) fn element_names(&self, mut v: Vec<InvokedParameter>, f: FunctionElementId) -> Vec<InvokedParameter> {
-        let Some((u, ps)) = self.parameters_ast(f) else { return v };
-        let positional: Vec<&ast::Parameter> = ps.iter().filter(|x| x.kind != ast::ParameterKind::Named).collect();
+    pub(super) fn element_names(
+        &self,
+        mut v: Vec<InvokedParameter>,
+        f: FunctionElementId,
+    ) -> Vec<InvokedParameter> {
+        let Some((u, ps)) = self.parameters_ast(f) else {
+            return v;
+        };
+        let positional: Vec<&ast::Parameter> = ps
+            .iter()
+            .filter(|x| x.kind != ast::ParameterKind::Named)
+            .collect();
         let mut k = 0usize;
         for x in v.iter_mut() {
             if x.named {
-                if let Some(prm) = ps.iter().find(|q| q.kind == ast::ParameterKind::Named && q.external_name().is_some_and(|n| self.query.name(n.sym) == x.name)) {
+                if let Some(prm) = ps.iter().find(|q| {
+                    q.kind == ast::ParameterKind::Named
+                        && q.external_name()
+                            .is_some_and(|n| self.query.name(n.sym) == x.name)
+                }) {
                     x.type_names = self.written_type_names(u, prm);
-                    x.annotated_required = prm.metadata.iter().any(|m| m.arguments.is_none() && m.name.last().is_some_and(|n| self.query.name(n.sym) == "required"));
+                    x.annotated_required = prm.metadata.iter().any(|m| {
+                        m.arguments.is_none()
+                            && m.name
+                                .last()
+                                .is_some_and(|n| self.query.name(n.sym) == "required")
+                    });
                 }
             } else {
                 if let Some(prm) = positional.get(k) {
@@ -1156,7 +1480,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 continue;
             }
             let cl = p.class(x);
-            if self.query.name(cl.name) == "Widget" && p.library(cl.library).uri == "package:flutter/src/widgets/framework.dart" {
+            if self.query.name(cl.name) == "Widget"
+                && p.library(cl.library).uri == "package:flutter/src/widgets/framework.dart"
+            {
                 return true;
             }
             stack.extend(cl.supertype_class);
@@ -1175,31 +1501,66 @@ impl<'a, 'c> Isp<'a, 'c> {
                 let ctor = self.parent(n)?;
                 let container = self.parent(ctor)?;
                 let class = self.node_class(container)?;
-                let (ast::Initializer::Super { constructor, .. } | ast::Initializer::Redirect { constructor, .. }) = self.real_initializer(n)? else {
+                let (ast::Initializer::Super { constructor, .. }
+                | ast::Initializer::Redirect { constructor, .. }) = self.real_initializer(n)?
+                else {
                     return None;
                 };
-                let target = if self.kind(n) == "SuperConstructorInvocation" { p.class(class).supertype_class? } else { class };
-                let name = constructor.map(|k| self.real_name(k).to_string()).unwrap_or_default();
-                p.class(target).constructors().into_iter().find(|(s, _)| self.query.name(*s) == name).map(|(_, f)| f)
+                let target = if self.kind(n) == "SuperConstructorInvocation" {
+                    p.class(class).supertype_class?
+                } else {
+                    class
+                };
+                let name = constructor
+                    .map(|k| self.real_name(k).to_string())
+                    .unwrap_or_default();
+                p.class(target)
+                    .constructors()
+                    .into_iter()
+                    .find(|(s, _)| self.query.name(*s) == name)
+                    .map(|(_, f)| f)
             }
             "EnumConstantArguments" => {
                 let constant = self.parent(n)?;
                 let e = self.parent(constant)?;
                 let class = self.node_class(e)?;
-                let name = self.child(n, "ConstructorSelector").map(|s| self.source[self.start(s)..self.end(s)].trim_start_matches('.').trim().to_string()).unwrap_or_default();
-                p.class(class).constructors().into_iter().find(|(s, _)| self.query.name(*s) == name).map(|(_, f)| f)
+                let name = self
+                    .child(n, "ConstructorSelector")
+                    .map(|s| {
+                        self.source[self.start(s)..self.end(s)]
+                            .trim_start_matches('.')
+                            .trim()
+                            .to_string()
+                    })
+                    .unwrap_or_default();
+                p.class(class)
+                    .constructors()
+                    .into_iter()
+                    .find(|(s, _)| self.query.name(*s) == name)
+                    .map(|(_, f)| f)
             }
             "Annotation" => {
                 let text = self.source[self.start(n)..self.end(n)].trim_start_matches('@');
-                let name: String = text.chars().take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$' || *c == '.').collect();
+                let name: String = text
+                    .chars()
+                    .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$' || *c == '.')
+                    .collect();
                 let parts: Vec<&str> = name.split('.').collect();
                 let lib = p.library(self.library());
-                let class = parts.first().and_then(|n0| self.query.names.lookup(n0)).and_then(|s| lib.scope.get(&s)).and_then(|b| match b.getter {
-                    Some(Element::Class(c)) => Some(c),
-                    _ => None,
-                })?;
+                let class = parts
+                    .first()
+                    .and_then(|n0| self.query.names.lookup(n0))
+                    .and_then(|s| lib.scope.get(&s))
+                    .and_then(|b| match b.getter {
+                        Some(Element::Class(c)) => Some(c),
+                        _ => None,
+                    })?;
                 let ctor = parts.get(1).copied().unwrap_or("");
-                p.class(class).constructors().into_iter().find(|(s, _)| self.query.name(*s) == ctor).map(|(_, f)| f)
+                p.class(class)
+                    .constructors()
+                    .into_iter()
+                    .find(|(s, _)| self.query.name(*s) == ctor)
+                    .map(|(_, f)| f)
             }
             _ => None,
         }
@@ -1224,20 +1585,32 @@ impl<'a, 'c> Isp<'a, 'c> {
         self.local("Annotation_name");
         self.for_annotation(n);
         // `@over^` followed by a blank line: an override request.
-        let Some(m) = self.real_annotation(n) else { return };
+        let Some(m) = self.real_annotation(n) else {
+            return;
+        };
         let without_constructor = m.name.len() == 1 && m.arguments.is_none();
         if !without_constructor {
             return;
         }
         let Some(decl) = self.parent(n) else { return };
-        let Some(container) = self.parent(decl) else { return };
+        let Some(container) = self.parent(decl) else {
+            return;
+        };
         if !super::isp::is_declaration(self.kind(container)) {
             return;
         }
         let name = m.name[0];
-        let Some(id) = self.tok_at(name.span.start) else { return };
-        let Some(next) = self.tok_after(name.span.end) else { return };
-        let line = |o: usize| self.source[..o.min(self.source.len())].matches('\n').count();
+        let Some(id) = self.tok_at(name.span.start) else {
+            return;
+        };
+        let Some(next) = self.tok_after(name.span.end) else {
+            return;
+        };
+        let line = |o: usize| {
+            self.source[..o.min(self.source.len())]
+                .matches('\n')
+                .count()
+        };
         if line(self.span_tok(next).start) > line(name.span.start) + 1 {
             self.try_annotation_override(id, container);
         }
@@ -1245,7 +1618,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `ast::Annotation` of an `Annotation` node.
     pub(super) fn real_annotation(&self, n: usize) -> Option<&'a ast::Annotation> {
-        let Binding::Annotation(end) = self.link(n) else { return None };
+        let Binding::Annotation(end) = self.link(n) else {
+            return None;
+        };
         let mut all = self
             .a
             .decls
@@ -1254,17 +1629,32 @@ impl<'a, 'c> Isp<'a, 'c> {
             .chain(self.a.members.iter().flat_map(|m| m.metadata.iter()))
             .chain(self.cu.directives.iter().flat_map(|d| d.metadata.iter()))
             .chain(self.a.local_metadata.iter().flat_map(|(_, m)| m.iter()))
-            .chain(self.a.functions.iter().flat_map(|f| f.parameters.iter().flatten()).flat_map(|p| p.metadata.iter()))
-            .chain(self.a.members.iter().flat_map(|m| match &m.kind {
-                ast::MemberKind::Constructor(k) => k.parameters.iter().flat_map(|p| p.metadata.iter()).collect::<Vec<_>>(),
-                _ => Vec::new(),
+            .chain(
+                self.a
+                    .functions
+                    .iter()
+                    .flat_map(|f| f.parameters.iter().flatten())
+                    .flat_map(|p| p.metadata.iter()),
+            )
+            .chain(self.a.members.iter().flat_map(|m| {
+                match &m.kind {
+                    ast::MemberKind::Constructor(k) => k
+                        .parameters
+                        .iter()
+                        .flat_map(|p| p.metadata.iter())
+                        .collect::<Vec<_>>(),
+                    _ => Vec::new(),
+                }
             }));
         all.find(|m| crate::analyzer_tree::address(*m) == end)
     }
 
     pub(super) fn v_argument_list(&mut self, n: usize) {
         let opens = self.start(n);
-        let closes = self.tok_before(self.end(n)).filter(|&i| self.is_op(i, Op::RParen)).map_or(self.end(n), |i| self.span_tok(i).start);
+        let closes = self
+            .tok_before(self.end(n))
+            .filter(|&i| self.is_op(i, Op::RParen))
+            .map_or(self.end(n), |i| self.span_tok(i).start);
         if self.offset <= opens {
             if let Some(p) = self.parent(n) {
                 self.visit(p);
@@ -1283,7 +1673,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         let mut before = None;
         let mut after = None;
         for &a in &arguments {
-            if self.offset < self.start(a) || (self.offset == self.start(a) && before.is_some_and(|p| self.end(p) == self.offset)) {
+            if self.offset < self.start(a)
+                || (self.offset == self.start(a)
+                    && before.is_some_and(|p| self.end(p) == self.offset))
+            {
                 after = Some(a);
                 break;
             }
@@ -1306,7 +1699,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         for (i, &a) in arguments.iter().enumerate() {
             if self.kind(a) == "NamedExpression" {
                 if let Some(r) = self.child(a, "Label") {
-                    used.insert(self.source[self.start(r)..self.end(r)].trim_end_matches(':').trim().to_string());
+                    used.insert(
+                        self.source[self.start(r)..self.end(r)]
+                            .trim_end_matches(':')
+                            .trim()
+                            .to_string(),
+                    );
                 }
             } else if i < index {
                 positional += 1;
@@ -1378,14 +1776,21 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `isFollowedByComma`.
     pub(super) fn followed_by_comma(&self, n: usize) -> bool {
-        self.tok_after(self.end(n)).is_some_and(|i| self.is_op(i, Op::Comma))
+        self.tok_after(self.end(n))
+            .is_some_and(|i| self.is_op(i, Op::Comma))
     }
 
     pub(super) fn v_as(&mut self, n: usize) {
-        let Some(&expr) = self.children(n).first() else { return };
+        let Some(&expr) = self.children(n).first() else {
+            return;
+        };
         if self.offset <= self.end(expr) {
             let is_static = self.static_context(n);
-            self.dh(Flags { non_void: true, is_static, ..Flags::default() });
+            self.dh(Flags {
+                non_void: true,
+                is_static,
+                ..Flags::default()
+            });
             self.lexical_dh(n);
             return;
         }
@@ -1401,10 +1806,19 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
         }
         let ty = self.children(n).get(1).copied();
-        let covers_start = ty.is_some_and(|t| self.tok_after(self.start(t)).is_some_and(|i| self.covers(self.span_tok(i).start, self.span_tok(i).end)));
+        let covers_start = ty.is_some_and(|t| {
+            self.tok_after(self.start(t))
+                .is_some_and(|i| self.covers(self.span_tok(i).start, self.span_tok(i).end))
+        });
         if ty.is_none() || covers_start {
             self.local("AsExpression_type");
-            self.for_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
+            self.for_type(
+                n,
+                TypeOptions {
+                    non_void: true,
+                    ..TypeOptions::default()
+                },
+            );
         }
     }
 
@@ -1452,18 +1866,23 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_binary(&mut self, n: usize) {
-        let (Some(&l), Some(&r)) = (self.children(n).first(), self.children(n).get(1)) else { return };
+        let (Some(&l), Some(&r)) = (self.children(n).first(), self.children(n).get(1)) else {
+            return;
+        };
         let op = self.source[self.end(l)..self.start(r)].trim().to_string();
         self.local(&format!("BinaryExpression_{op}_rightOperand"));
         self.for_expression(n, false, true);
     }
 
     pub(super) fn v_block(&mut self, n: usize) {
-        let left = self.tok_at(self.start(n)).filter(|&i| self.is_op(i, Op::LBrace));
+        let left = self
+            .tok_at(self.start(n))
+            .filter(|&i| self.is_op(i, Op::LBrace));
         if left.is_none()
-            && let Some(p) = self.parent(n) {
-                self.visit(p);
-            }
+            && let Some(p) = self.parent(n)
+        {
+            self.visit(p);
+        }
         if self.offset <= self.start(n) {
             if let Some(p) = self.parent(n)
                 && self.kind(p) == "BlockFunctionBody"
@@ -1478,7 +1897,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         if let Some(previous) = self.element_before(&commands) {
             match self.kind(previous) {
                 "TryStatement" => {
-                    if self.word_in("finally", self.start(previous), self.end(previous)).is_none() {
+                    if self
+                        .word_in("finally", self.start(previous), self.end(previous))
+                        .is_none()
+                    {
                         self.kw("on");
                         self.kw("catch");
                         self.kw("finally");
@@ -1488,9 +1910,12 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                 }
                 "IfStatement"
-                    if self.word_in("else", self.start(previous), self.end(previous)).is_none() => {
-                        self.kw("else");
-                    }
+                    if self
+                        .word_in("else", self.start(previous), self.end(previous))
+                        .is_none() =>
+                {
+                    self.kw("else");
+                }
                 _ => {}
             }
         }
@@ -1501,14 +1926,21 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_break_continue(&mut self, n: usize) {
-        let Some(word) = self.tok_after(self.start(n)) else { return };
+        let Some(word) = self.tok_after(self.start(n)) else {
+            return;
+        };
         let end_word = self.span_tok(word).end;
         let is_break = self.kind(n) == "BreakStatement";
         if self.offset <= end_word {
             self.local("Block_statement");
             self.kw(if is_break { "break" } else { "continue" });
         } else {
-            let pv = self.tok_before(self.end(n)).filter(|&i| self.is_op(i, Op::Semicolon)).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
+            let pv = self
+                .tok_before(self.end(n))
+                .filter(|&i| self.is_op(i, Op::Semicolon))
+                .map_or(self.synthetic(self.end(n)).start, |i| {
+                    self.span_tok(i).start
+                });
             if self.offset <= pv {
                 self.labels(n);
             }
@@ -1522,14 +1954,22 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.kw("as");
         } else {
             self.local("CastPattern_type");
-            self.for_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
+            self.for_type(
+                n,
+                TypeOptions {
+                    non_void: true,
+                    ..TypeOptions::default()
+                },
+            );
         }
     }
 
     pub(super) fn v_catch(&mut self, n: usize) {
         let on = self.word_in("on", self.start(n), self.end(n));
         let catch = self.word_in("catch", self.start(n), self.end(n));
-        let body = self.child(n, "Block").map_or(self.end(n), |b| self.start(b));
+        let body = self
+            .child(n, "Block")
+            .map_or(self.end(n), |b| self.start(b));
         if let Some(o) = on {
             if self.offset <= self.span_tok(o).end {
                 self.kw("on");
@@ -1557,7 +1997,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let Some(d) = self.real_decl(n) else { return };
-        let ast::DeclKind::Class(x) = &d.kind else { return };
+        let ast::DeclKind::Class(x) = &d.kind else {
+            return;
+        };
         let class_kw = self.word_in("class", self.start(n), x.name.span.start);
         let (left, dir, left_s, dir_s) = self.keys(n);
         if let Some(k) = class_kw {
@@ -1580,7 +2022,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                 return;
             }
             self.local("ClassDeclaration_member");
-            let members = self.children_of(n, &["FieldDeclaration", "MethodDeclaration", "ConstructorDeclaration"]);
+            let members = self.children_of(
+                n,
+                &[
+                    "FieldDeclaration",
+                    "MethodDeclaration",
+                    "ConstructorDeclaration",
+                ],
+            );
             let previous = self.element_before(&members);
             let tok = match previous {
                 Some(m) => self.tok_after(self.start(m)),
@@ -1593,7 +2042,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.for_class_member(n);
             if let Some(m) = previous
                 && self.kind(m) == "MethodDeclaration"
-                && self.function_body(m).is_none_or(|c| self.kind(c) == "EmptyFunctionBody")
+                && self
+                    .function_body(m)
+                    .is_none_or(|c| self.kind(c) == "EmptyFunctionBody")
             {
                 let body = self.function_body(m);
                 self.body_modifiers_kw(body);
@@ -1631,7 +2082,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_constructor(&mut self, n: usize) {
-        let Some(k) = self.real_constructor(n) else { return };
+        let Some(k) = self.real_constructor(n) else {
+            return;
+        };
         if self.offset <= k.class_name.span.end {
             self.local("ClassDeclaration_member");
             if let Some(p) = self.parent(n) {
@@ -1639,8 +2092,12 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             return;
         }
-        let after_parameters = self.child(n, "FormalParameterList").map_or(k.class_name.span.end, |l| self.end(l));
-        let separator = self.tok_after(after_parameters).filter(|&i| self.is_op(i, Op::Colon) || self.is_op(i, Op::Assign));
+        let after_parameters = self
+            .child(n, "FormalParameterList")
+            .map_or(k.class_name.span.end, |l| self.end(l));
+        let separator = self
+            .tok_after(after_parameters)
+            .filter(|&i| self.is_op(i, Op::Colon) || self.is_op(i, Op::Assign));
         let Some(sep) = separator else { return };
         if self.is_op(sep, Op::Colon) {
             let body = self.function_body(n).map_or(self.end(n), |c| self.start(c));
@@ -1649,9 +2106,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.for_constructor_initializer(n, None);
             }
         } else {
-            let Some(f) = self.declared_constructor(n) else { return };
+            let Some(f) = self.declared_constructor(n) else {
+                return;
+            };
             let constant = self.query.program.function(f).const_;
-            self.dh(Flags { constant, ..Flags::default() });
+            self.dh(Flags {
+                constant,
+                ..Flags::default()
+            });
             self.dh_redirections(f);
         }
     }
@@ -1662,7 +2124,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let equal = self.op_in(Op::Assign, self.start(n), self.end(n));
-        let after_equal = equal.map_or(self.synthetic(self.start(n)).start, |i| self.span_tok(i).start);
+        let after_equal = equal.map_or(self.synthetic(self.start(n)).start, |i| {
+            self.span_tok(i).start
+        });
         if self.offset <= after_equal {
             self.local("ConstructorDeclaration_initializer");
             self.for_constructor_initializer(ctor, Some(n));
@@ -1673,18 +2137,28 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_constructor_name(&mut self, n: usize) {
-        let Some(ty) = self.child(n, "NamedType") else { return };
+        let Some(ty) = self.child(n, "NamedType") else {
+            return;
+        };
         let parent = self.parent(n);
         if parent.is_some_and(|p| self.kind(p) == "ConstructorReference") {
             if let Some(c) = self.named_type_class(ty) {
-                self.dh(Flags { prefer_without_invocation: true, ..Flags::default() });
+                self.dh(Flags {
+                    prefer_without_invocation: true,
+                    ..Flags::default()
+                });
                 self.dh_element_constructor_names(c);
                 self.static_dh(Element::Class(c));
             }
             return;
         }
-        let Some(t) = self.type_node_type(ty) else { return };
-        if !matches!(self.query.table.get(t), Type::Interface { .. } | Type::ExtensionType { .. }) {
+        let Some(t) = self.type_node_type(ty) else {
+            return;
+        };
+        if !matches!(
+            self.query.table.get(t),
+            Type::Interface { .. } | Type::ExtensionType { .. }
+        ) {
             return;
         }
         if let Some(p) = parent
@@ -1694,7 +2168,11 @@ impl<'a, 'c> Isp<'a, 'c> {
             && k.redirect.is_some()
         {
             let exclude = k.name.map(|x| self.real_name(x).to_string());
-            self.dh(Flags { constant: k.const_, prefer_without_invocation: true, ..Flags::default() });
+            self.dh(Flags {
+                constant: k.const_,
+                prefer_without_invocation: true,
+                ..Flags::default()
+            });
             self.dh_type_constructor_names(t, exclude);
             return;
         }
@@ -1716,21 +2194,51 @@ impl<'a, 'c> Isp<'a, 'c> {
         if !self.has_feature(super::isp::Feature::EnhancedEnums) {
             return;
         }
-        let Some(args) = self.parent(n).filter(|&a| self.kind(a) == "EnumConstantArguments") else { return };
-        let Some(constant) = self.parent(args).filter(|&c| self.kind(c) == "EnumConstantDeclaration") else { return };
-        let Some(e) = self.parent(constant).filter(|&e| self.kind(e) == "EnumDeclaration") else { return };
-        let Some(class) = self.node_class(e) else { return };
-        self.dh(Flags { unnamed_as_new: true, ..Flags::default() });
+        let Some(args) = self
+            .parent(n)
+            .filter(|&a| self.kind(a) == "EnumConstantArguments")
+        else {
+            return;
+        };
+        let Some(constant) = self
+            .parent(args)
+            .filter(|&c| self.kind(c) == "EnumConstantDeclaration")
+        else {
+            return;
+        };
+        let Some(e) = self
+            .parent(constant)
+            .filter(|&e| self.kind(e) == "EnumDeclaration")
+        else {
+            return;
+        };
+        let Some(class) = self.node_class(e) else {
+            return;
+        };
+        self.dh(Flags {
+            unnamed_as_new: true,
+            ..Flags::default()
+        });
         self.dh_element_constructor_names(class);
     }
 
     pub(super) fn v_declared_variable_pattern(&mut self, n: usize) {
         let name = self.variable_pattern_name(n);
-        let ty = self.child(n, "NamedType").or_else(|| self.children(n).first().copied());
-        let word = self.tok_after(self.start(n)).filter(|&i| matches!(self.text_tok(i), "var" | "final"));
+        let ty = self
+            .child(n, "NamedType")
+            .or_else(|| self.children(n).first().copied());
+        let word = self
+            .tok_after(self.start(n))
+            .filter(|&i| matches!(self.text_tok(i), "var" | "final"));
         let Some(name) = name else {
             if ty.is_none() && word.is_none() {
-                self.for_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
+                self.for_type(
+                    n,
+                    TypeOptions {
+                        non_void: true,
+                        ..TypeOptions::default()
+                    },
+                );
                 return;
             }
             self.for_name_in_variable_pattern(n);
@@ -1741,14 +2249,18 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.for_name_in_variable_pattern(n);
             return;
         }
-        if word.is_some()
-            && ty.is_none() && self.offset < s.start {
-                self.dh(Flags { ty: true, ..Flags::default() });
-                self.lexical_dh(n);
-                return;
-            }
+        if word.is_some() && ty.is_none() && self.offset < s.start {
+            self.dh(Flags {
+                ty: true,
+                ..Flags::default()
+            });
+            self.lexical_dh(n);
+            return;
+        }
         let parent = self.parent(n);
-        let has_when = parent.is_some_and(|p| self.kind(p) == "GuardedPattern" && self.child(p, "WhenClause").is_some());
+        let has_when = parent.is_some_and(|p| {
+            self.kind(p) == "GuardedPattern" && self.child(p, "WhenClause").is_some()
+        });
         if !has_when {
             self.kw("when");
         }
@@ -1767,7 +2279,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_do(&mut self, n: usize) {
-        let Some(word) = self.tok_after(self.start(n)) else { return };
+        let Some(word) = self.tok_after(self.start(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
             self.for_command(n);
@@ -1775,8 +2289,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let body = self.children(n).first().copied();
         let after_body = body.map_or(self.span_tok(word).end, |c| self.end(c));
-        let Some(opens) = self.op_in(Op::LParen, after_body, self.end(n)) else { return };
-        let closes = self.pair(opens).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
+        let Some(opens) = self.op_in(Op::LParen, after_body, self.end(n)) else {
+            return;
+        };
+        let closes = self
+            .pair(opens)
+            .map_or(self.synthetic(self.end(n)).start, |i| {
+                self.span_tok(i).start
+            });
         if self.span_tok(opens).end <= self.offset && self.offset <= closes {
             let condition = self.children(n).get(1).copied();
             let ok = match condition {
@@ -1800,7 +2320,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                         && i > 0
                     {
                         let previous = commands[i - 1];
-                        if self.kind(previous) == "TryStatement" && self.word_in("finally", self.start(previous), self.end(previous)).is_none() {
+                        if self.kind(previous) == "TryStatement"
+                            && self
+                                .word_in("finally", self.start(previous), self.end(previous))
+                                .is_none()
+                        {
                             self.try_clauses_kw(true);
                             if self.children_of(previous, &["CatchClause"]).is_empty() {
                                 return;
@@ -1809,7 +2333,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                 }
                 "IfStatement" => {
-                    let then = self.children(p).iter().copied().find(|&k| super::isp::is_command(self.kind(k)));
+                    let then = self
+                        .children(p)
+                        .iter()
+                        .copied()
+                        .find(|&k| super::isp::is_command(self.kind(k)));
                     if then == Some(n) {
                         self.local("IfStatement_thenStatement");
                     } else {
@@ -1829,8 +2357,12 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let Some(d) = self.real_decl(n) else { return };
-        let ast::DeclKind::Enum(x) = &d.kind else { return };
-        let Some(enum_kw) = self.word_in("enum", self.start(n), x.name.span.start) else { return };
+        let ast::DeclKind::Enum(x) = &d.kind else {
+            return;
+        };
+        let Some(enum_kw) = self.word_in("enum", self.start(n), x.name.span.start) else {
+            return;
+        };
         if self.offset < self.span_tok(enum_kw).start {
             return;
         }
@@ -1852,8 +2384,15 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         // The `;` after the constants.
-        let last_constant = self.children_of(n, &["EnumConstantDeclaration"]).last().copied();
-        let pv = self.op_in(Op::Semicolon, last_constant.map_or(left.end, |c| self.end(c)), dir.start);
+        let last_constant = self
+            .children_of(n, &["EnumConstantDeclaration"])
+            .last()
+            .copied();
+        let pv = self.op_in(
+            Op::Semicolon,
+            last_constant.map_or(left.end, |c| self.end(c)),
+            dir.start,
+        );
         if let Some(p) = pv
             && self.offset >= self.span_tok(p).end
         {
@@ -1863,7 +2402,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_expression_body(&mut self, n: usize) {
-        let Some(&expr) = self.children(n).first() else { return };
+        let Some(&expr) = self.children(n).first() else {
+            return;
+        };
         let arrow = self.op_in(Op::Arrow, self.start(n), self.start(expr));
         if let Some(s) = arrow
             && self.offset >= self.span_tok(s).end
@@ -1881,13 +2422,16 @@ impl<'a, 'c> Isp<'a, 'c> {
         } else {
             self.local("Block_statement");
         }
-        if self.previous_incomplete_command(n) && self.loose_command(n)
+        if self.previous_incomplete_command(n)
+            && self.loose_command(n)
             && let Some(a) = self.previous_command(n)
-                && self.kind(a) == "TryStatement"
-            {
-                return;
-            }
-        let pv = self.tok_before(self.end(n)).filter(|&i| self.is_op(i, Op::Semicolon));
+            && self.kind(a) == "TryStatement"
+        {
+            return;
+        }
+        let pv = self
+            .tok_before(self.end(n))
+            .filter(|&i| self.is_op(i, Op::Semicolon));
         if let Some(p) = pv
             && self.offset >= self.span_tok(p).end
         {
@@ -1916,7 +2460,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                     && self.offset <= self.end(target)
                 {
                     let is_static = self.static_context(n);
-                    self.dh(Flags { non_void: true, is_static, ..Flags::default() });
+                    self.dh(Flags {
+                        non_void: true,
+                        is_static,
+                        ..Flags::default()
+                    });
                     self.lexical_dh(n);
                 }
             }
@@ -1938,10 +2486,18 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
             }
             "PrefixedIdentifier" => {
-                let (Some(&p), Some(&id)) = (self.children(expr).first(), self.children(expr).get(1)) else { return };
+                let (Some(&p), Some(&id)) =
+                    (self.children(expr).first(), self.children(expr).get(1))
+                else {
+                    return;
+                };
                 if self.offset <= self.end(p) {
                     let is_static = self.static_context(n);
-                    self.dh(Flags { non_void: true, is_static, ..Flags::default() });
+                    self.dh(Flags {
+                        non_void: true,
+                        is_static,
+                        ..Flags::default()
+                    });
                     self.lexical_dh(n);
                 } else if self.offset <= self.end(id) {
                 } else {
@@ -1965,26 +2521,44 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `ExpressionStatement.isSingleIdentifier`: a word without `;` in the text.
     pub(super) fn loose_command(&self, n: usize) -> bool {
-        let Some(i) = self.tok_after(self.start(n)) else { return false };
+        let Some(i) = self.tok_after(self.start(n)) else {
+            return false;
+        };
         self.word(i) && self.tok_before(self.end(n)) == Some(i)
     }
 
     pub(super) fn v_extends(&mut self, n: usize) {
-        let Some(word) = self.tok_after(self.start(n)) else { return };
+        let Some(word) = self.tok_after(self.start(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(word).end {
             self.kw("extends");
             return;
         }
         let Some(t) = self.child(n, "NamedType") else {
             self.local("ExtendsClause_superclass");
-            self.for_type(n, TypeOptions { extensible: true, ..TypeOptions::default() });
+            self.for_type(
+                n,
+                TypeOptions {
+                    extensible: true,
+                    ..TypeOptions::default()
+                },
+            );
             return;
         };
-        let name_start = self.child(t, "ImportPrefixReference").map_or(self.start(t), |p| self.end(p));
+        let name_start = self
+            .child(t, "ImportPrefixReference")
+            .map_or(self.start(t), |p| self.end(p));
         let name = self.tok_after(name_start);
         if name.is_some_and(|i| self.covers(self.span_tok(i).start, self.span_tok(i).end)) {
             self.local("ExtendsClause_superclass");
-            self.for_type(n, TypeOptions { extensible: true, ..TypeOptions::default() });
+            self.for_type(
+                n,
+                TypeOptions {
+                    extensible: true,
+                    ..TypeOptions::default()
+                },
+            );
         }
     }
 
@@ -1994,8 +2568,12 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let Some(d) = self.real_decl(n) else { return };
-        let ast::DeclKind::Extension(x) = &d.kind else { return };
-        let Some(ext) = self.word_in("extension", self.start(n), self.end(n)) else { return };
+        let ast::DeclKind::Extension(x) = &d.kind else {
+            return;
+        };
+        let Some(ext) = self.word_in("extension", self.start(n), self.end(n)) else {
+            return;
+        };
         if self.offset < self.span_tok(ext).start {
             return;
         }
@@ -2051,12 +2629,15 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let Some(d) = self.real_decl(n) else { return };
-        let ast::DeclKind::ExtensionType(x) = &d.kind else { return };
+        let ast::DeclKind::ExtensionType(x) = &d.kind else {
+            return;
+        };
         let (left, dir, left_s, dir_s) = self.keys(n);
         if self.offset <= x.name.span.end {
             self.ih(false);
             self.top_name_ih(left_s && dir_s);
-        } else if self.offset >= x.representation_span.end && (self.offset <= left.start || left_s) {
+        } else if self.offset >= x.representation_span.end && (self.offset <= left.start || left_s)
+        {
             self.kw("implements");
         } else if self.offset >= left.end && self.offset <= dir.start {
             self.local("ExtensionTypeDeclaration_member");
@@ -2071,22 +2652,37 @@ impl<'a, 'c> Isp<'a, 'c> {
         {
             self.local("ClassDeclaration_member");
         }
-        let Some(list) = self.child(n, "VariableDeclarationList") else { return };
-        let Some(l) = self.real_list(list) else { return };
+        let Some(list) = self.child(n, "VariableDeclarationList") else {
+            return;
+        };
+        let Some(l) = self.real_list(list) else {
+            return;
+        };
         match l.ty {
             None => {
-                let Some(first) = l.variables.first() else { return };
+                let Some(first) = l.variables.first() else {
+                    return;
+                };
                 self.local("FieldDeclaration_fields");
                 let name = first.name;
                 let text = self.real_name(name);
                 let is_word = ANALYZER_PUB_WORDS.contains(&text);
                 if l.variables.len() == 1 && is_word && self.offset > name.span.end {
                     self.field_declaration_kw(n, Some(text));
-                    self.dh(Flags { ty: true, ..Flags::default() });
+                    self.dh(Flags {
+                        ty: true,
+                        ..Flags::default()
+                    });
                     self.lexical_dh(n);
                 } else if self.offset < name.span.start {
                     self.field_declaration_kw(n, None);
-                    self.for_type(n, TypeOptions { non_void: first.initializer.is_some(), ..TypeOptions::default() });
+                    self.for_type(
+                        n,
+                        TypeOptions {
+                            non_void: first.initializer.is_some(),
+                            ..TypeOptions::default()
+                        },
+                    );
                 } else if self.offset <= name.span.end {
                     self.field_declaration_kw(n, None);
                 }
@@ -2107,7 +2703,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                         self.field_declaration_kw(n, None);
                         self.local("ClassDeclaration_member");
                         self.kw("var");
-                        self.dh(Flags { ty: true, ..Flags::default() });
+                        self.dh(Flags {
+                            ty: true,
+                            ..Flags::default()
+                        });
                         self.lexical_dh(n);
                     }
                 }
@@ -2118,7 +2717,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `FieldDeclaration.isSingleIdentifier`: a word and no other token (the
     /// synthetic `;`).
     pub(super) fn loose_field(&self, n: usize) -> bool {
-        let Some(i) = self.first_after_annotations(n) else { return false };
+        let Some(i) = self.first_after_annotations(n) else {
+            return false;
+        };
         self.word(i) && self.tok_before(self.end(n)) == Some(i)
     }
 
@@ -2127,13 +2728,22 @@ impl<'a, 'c> Isp<'a, 'c> {
         if ctor.is_some_and(|c| self.kind(c) == "FormalParameterList") {
             ctor = ctor.and_then(|c| self.parent(c));
         }
-        let Some(c) = ctor.filter(|&c| self.kind(c) == "ConstructorDeclaration") else { return };
-        let field = self.real_parameter(n).and_then(|p| p.name).and_then(|name| {
-            let class = self.parent(c).and_then(|k| self.node_class(k))?;
-            let text = self.real_name(name);
-            let pr = &self.query.program;
-            pr.class(class).fields.iter().copied().find(|&v| self.query.name(pr.variable(v).name) == text)
-        });
+        let Some(c) = ctor.filter(|&c| self.kind(c) == "ConstructorDeclaration") else {
+            return;
+        };
+        let field = self
+            .real_parameter(n)
+            .and_then(|p| p.name)
+            .and_then(|name| {
+                let class = self.parent(c).and_then(|k| self.node_class(k))?;
+                let text = self.real_name(name);
+                let pr = &self.query.program;
+                pr.class(class)
+                    .fields
+                    .iter()
+                    .copied()
+                    .find(|&v| self.query.name(pr.variable(v).name) == text)
+            });
         self.dh(Flags::default());
         self.dh_fields_for_initializers(c, field);
     }
@@ -2170,7 +2780,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `FormalParameter.isIncomplete`.
     pub(super) fn incomplete_parameter(&self, n: usize) -> bool {
-        let Some(p) = self.real_parameter(n) else { return false };
+        let Some(p) = self.real_parameter(n) else {
+            return false;
+        };
         match p.name {
             None => return true,
             Some(name) => {
@@ -2180,7 +2792,15 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
         }
         if self.kind(n) == "DefaultFormalParameter" {
-            let separator = self.op_in(Op::Assign, self.start(n), self.end(n).max(self.start(n) + 1)).or_else(|| self.op_in(Op::Colon, self.start(n), self.end(n).max(self.start(n) + 1)));
+            let separator = self
+                .op_in(
+                    Op::Assign,
+                    self.start(n),
+                    self.end(n).max(self.start(n) + 1),
+                )
+                .or_else(|| {
+                    self.op_in(Op::Colon, self.start(n), self.end(n).max(self.start(n) + 1))
+                });
             if separator.is_some() && p.default_value.is_none() {
                 return true;
             }
@@ -2214,7 +2834,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_for(&mut self, n: usize) {
-        let Some(word) = self.word_in("for", self.start(n), self.end(n)) else { return };
+        let Some(word) = self.word_in("for", self.start(n), self.end(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
             self.for_command(n);
@@ -2229,17 +2851,29 @@ impl<'a, 'c> Isp<'a, 'c> {
         };
         if self.offset >= ab && self.offset <= fe {
             self.local("ForStatement_forLoopParts");
-            let Some(&parts) = self.children(n).first() else { return };
+            let Some(&parts) = self.children(n).first() else {
+                return;
+            };
             match self.kind(parts) {
                 "ForEachPartsWithDeclaration" => {
                     if let Some(d) = self.child(parts, "DeclaredIdentifier") {
                         let name = self.tok_before(self.end(d)).unwrap_or(0);
                         if self.offset < self.span_tok(name).start {
-                            let ty = self.child(d, "NamedType").or_else(|| self.children_of(d, &["GenericFunctionType", "RecordTypeAnnotation"]).first().copied());
+                            let ty = self.child(d, "NamedType").or_else(|| {
+                                self.children_of(
+                                    d,
+                                    &["GenericFunctionType", "RecordTypeAnnotation"],
+                                )
+                                .first()
+                                .copied()
+                            });
                             let ok = match ty {
                                 None => true,
                                 Some(t) if self.kind(t) == "NamedType" => {
-                                    let name_t = self.tok_after(self.child(t, "ImportPrefixReference").map_or(self.start(t), |p| self.end(p)));
+                                    let name_t = self.tok_after(
+                                        self.child(t, "ImportPrefixReference")
+                                            .map_or(self.start(t), |p| self.end(p)),
+                                    );
                                     name_t.is_some_and(|i| self.offset <= self.span_tok(i).end)
                                 }
                                 _ => false,
@@ -2262,8 +2896,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                     if let Some(list) = self.child(parts, "VariableDeclarationList")
                         && let Some(l) = self.real_list(list)
                     {
-                        let word_list = self.tok_after(self.start(list)).filter(|&i| matches!(self.text_tok(i), "var" | "final" | "const"));
-                        let p1 = self.op_in(Op::Semicolon, self.end(list), self.end(parts).max(self.offset + 1));
+                        let word_list = self
+                            .tok_after(self.start(list))
+                            .filter(|&i| matches!(self.text_tok(i), "var" | "final" | "const"));
+                        let p1 = self.op_in(
+                            Op::Semicolon,
+                            self.end(list),
+                            self.end(parts).max(self.offset + 1),
+                        );
                         if l.variables.len() == 1 && word_list.is_some() && p1.is_none() {
                             let after = word_list.map(|i| i + 1);
                             if let Some(d) = after
@@ -2277,7 +2917,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                         if let Some(t) = l.ty {
                             let ts = self.a.ty(t).span;
                             if self.covers(ts.start, ts.end)
-                                && let Some(node_t) = self.children(list).iter().copied().find(|&k| self.link(k) == Binding::Type(t))
+                                && let Some(node_t) = self
+                                    .children(list)
+                                    .iter()
+                                    .copied()
+                                    .find(|&k| self.link(k) == Binding::Type(t))
                             {
                                 self.visit(node_t);
                             }
@@ -2285,9 +2929,19 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                 }
                 "ForPartsWithExpression" => {
-                    let p1 = self.op_in(Op::Semicolon, self.start(parts), self.end(parts).max(self.offset + 1));
-                    let initialization = self.tree.for_parts.get(&parts).and_then(|p| p.initialization);
-                    if p1.is_none() && initialization.is_some_and(|i| self.kind(i) == "SimpleIdentifier") {
+                    let p1 = self.op_in(
+                        Op::Semicolon,
+                        self.start(parts),
+                        self.end(parts).max(self.offset + 1),
+                    );
+                    let initialization = self
+                        .tree
+                        .for_parts
+                        .get(&parts)
+                        .and_then(|p| p.initialization);
+                    if p1.is_none()
+                        && initialization.is_some_and(|i| self.kind(i) == "SimpleIdentifier")
+                    {
                         self.kw("final");
                         self.kw("var");
                         self.for_type(n, TypeOptions::default());
@@ -2305,13 +2959,16 @@ impl<'a, 'c> Isp<'a, 'c> {
         if self.offset == self.start(n) {
             self.for_unit_member_before(n);
         }
-        let Some(f) = self.real_function(n) else { return };
+        let Some(f) = self.real_function(n) else {
+            return;
+        };
         let Some(name) = f.name else { return };
         let one_token = match f.return_type {
             None => true,
             Some(r) => {
                 let s = self.a.ty(r).span;
-                self.tok_after(s.start).is_some_and(|i| self.span_tok(i).end == s.end)
+                self.tok_after(s.start)
+                    .is_some_and(|i| self.span_tok(i).end == s.end)
             }
         };
         if one_token && self.offset <= name.span.start {
@@ -2344,19 +3001,30 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.for_unit_member_before(n);
             return;
         }
-        let Some(td) = self.word_in("typedef", self.start(n), self.end(n)) else { return };
+        let Some(td) = self.word_in("typedef", self.start(n), self.end(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(td).end {
             self.local("CompilationUnit_declaration");
             self.kw("typedef");
-        } else if self.toks.get(td + 1).is_some_and(|t| self.offset <= t.span.end) {
-            self.dh(Flags { ty: true, ..Flags::default() });
+        } else if self
+            .toks
+            .get(td + 1)
+            .is_some_and(|t| self.offset <= t.span.end)
+        {
+            self.dh(Flags {
+                ty: true,
+                ..Flags::default()
+            });
             self.lexical_dh(n);
         }
     }
 
     pub(super) fn v_function_parameter(&mut self, n: usize) {
         self.local("FormalParameterList_parameter");
-        let Some(p) = self.real_parameter(n) else { return };
+        let Some(p) = self.real_parameter(n) else {
+            return;
+        };
         match p.ty {
             Some(r) if self.offset <= self.a.ty(r).span.end => {
                 if let Some(list) = self.parameter_list_of(n) {
@@ -2364,7 +3032,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
                 self.for_type(n, TypeOptions::default());
             }
-            None if p.name.is_some_and(|nm| self.offset < nm.span.start) => self.for_type(n, TypeOptions::default()),
+            None if p.name.is_some_and(|nm| self.offset < nm.span.start) => {
+                self.for_type(n, TypeOptions::default())
+            }
             _ => {}
         }
     }
@@ -2390,7 +3060,12 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let equal = self.op_in(Op::Assign, self.start(n), self.end(n));
-        let pv = self.tok_before(self.end(n)).filter(|&i| self.is_op(i, Op::Semicolon)).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
+        let pv = self
+            .tok_before(self.end(n))
+            .filter(|&i| self.is_op(i, Op::Semicolon))
+            .map_or(self.synthetic(self.end(n)).start, |i| {
+                self.span_tok(i).start
+            });
         if let Some(i) = equal
             && self.offset >= self.span_tok(i).end
             && self.offset <= pv
@@ -2401,10 +3076,14 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_if_element(&mut self, n: usize) {
-        let Some(&expr) = self.children(n).first() else { return };
+        let Some(&expr) = self.children(n).first() else {
+            return;
+        };
         let opens = self.op_in(Op::LParen, self.start(n), self.start(expr) + 1);
         let closes = opens.and_then(|a| self.pair(a));
-        let fe = closes.map_or(self.synthetic(self.end(expr)).start, |i| self.span_tok(i).start);
+        let fe = closes.map_or(self.synthetic(self.end(expr)).start, |i| {
+            self.span_tok(i).start
+        });
         let case = self.child(n, "CaseClause");
         if self.offset > self.end(expr) && self.offset <= fe {
             match case {
@@ -2415,7 +3094,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 Some(c) => {
                     let gp = self.child(c, "GuardedPattern");
                     if gp.is_some_and(|g| self.has_when(g)) {
-                        let without_expression = gp.and_then(|g| self.child(g, "WhenClause")).is_none_or(|w| self.children(w).is_empty());
+                        let without_expression = gp
+                            .and_then(|g| self.child(g, "WhenClause"))
+                            .is_none_or(|w| self.children(w).is_empty());
                         if without_expression {
                             let is_static = self.static_context(n);
                             self.kw_expression(Some(n), false, is_static);
@@ -2459,15 +3140,21 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_if(&mut self, n: usize) {
-        let Some(word) = self.tok_after(self.start(n)) else { return };
+        let Some(word) = self.tok_after(self.start(n)) else {
+            return;
+        };
         let opens = self.op_in(Op::LParen, self.span_tok(word).end, self.end(n));
         let closes = opens.and_then(|a| self.pair(a));
         if opens.is_some() && closes.is_none() {
             self.kw("is");
             return;
         }
-        let Some(&expr) = self.children(n).first() else { return };
-        let fe = closes.map_or(self.synthetic(self.end(expr)).start, |i| self.span_tok(i).start);
+        let Some(&expr) = self.children(n).first() else {
+            return;
+        };
+        let fe = closes.map_or(self.synthetic(self.end(expr)).start, |i| {
+            self.span_tok(i).start
+        });
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
             self.for_command(n);
@@ -2481,7 +3168,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 Some(c) => {
                     let gp = self.child(c, "GuardedPattern");
                     if gp.is_some_and(|g| self.has_when(g)) {
-                        let without_expression = gp.and_then(|g| self.child(g, "WhenClause")).is_none_or(|w| self.children(w).is_empty());
+                        let without_expression = gp
+                            .and_then(|g| self.child(g, "WhenClause"))
+                            .is_none_or(|w| self.children(w).is_empty());
                         if without_expression {
                             self.for_expression(n, false, false);
                         }
@@ -2491,11 +3180,18 @@ impl<'a, 'c> Isp<'a, 'c> {
                             && let Some(&p) = self.children(g).first()
                             && self.kind(p) == "ConstantPattern"
                             && let Some(&e) = self.children(p).first()
-                            && matches!(self.kind(e), "SimpleIdentifier" | "PrefixedIdentifier" | "TypeLiteral")
+                            && matches!(
+                                self.kind(e),
+                                "SimpleIdentifier" | "PrefixedIdentifier" | "TypeLiteral"
+                            )
                             && self.end(e) < self.offset
                             && self.is_type_literal(e)
                         {
-                            let name = self.source[self.start(e)..self.end(e)].rsplit('.').next().unwrap_or("").to_string();
+                            let name = self.source[self.start(e)..self.end(e)]
+                                .rsplit('.')
+                                .next()
+                                .unwrap_or("")
+                                .to_string();
                             self.ih(false);
                             self.type_name_ih(&name);
                         }
@@ -2506,7 +3202,8 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.local("IfStatement_condition");
             self.for_expression(n, false, true);
         } else if closes.is_some_and(|f| self.offset >= self.span_tok(f).end) {
-            let else_ = closes.and_then(|f| self.word_in("else", self.span_tok(f).end, self.end(n)));
+            let else_ =
+                closes.and_then(|f| self.word_in("else", self.span_tok(f).end, self.end(n)));
             if else_.is_none_or(|e| self.offset <= self.span_tok(e).start) {
                 self.local("IfStatement_thenStatement");
             } else {
@@ -2518,8 +3215,13 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The expression is a `TypeLiteral` (the name resolves to a type).
     pub(super) fn is_type_literal(&self, e: usize) -> bool {
-        let Some(id) = self.real_expr(e) else { return false };
-        matches!(self.resolved(id), Some(Resolved::Element(Element::Class(_) | Element::Typedef(_))))
+        let Some(id) = self.real_expr(e) else {
+            return false;
+        };
+        matches!(
+            self.resolved(id),
+            Some(Resolved::Element(Element::Class(_) | Element::Typedef(_)))
+        )
     }
 
     pub(super) fn v_implements(&mut self, n: usize) {
@@ -2529,18 +3231,39 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.kw("implements");
         } else {
             self.local("ImplementsClause_interface");
-            self.for_type(n, TypeOptions { implementable: true, ..TypeOptions::default() });
+            self.for_type(
+                n,
+                TypeOptions {
+                    implementable: true,
+                    ..TypeOptions::default()
+                },
+            );
         }
     }
 
     pub(super) fn v_import(&mut self, n: usize) {
-        let Some(word) = self.word_in("import", self.start(n), self.end(n)) else { return };
+        let Some(word) = self.word_in("import", self.start(n), self.end(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(word).end {
             self.local("CompilationUnit_directive");
             self.for_unit_member_before(n);
             return;
         }
-        let Some(uri) = self.children_of(n, &["SimpleStringLiteral", "StringInterpolation", "AdjacentStrings"]).first().copied() else { return };
+        let Some(uri) = self
+            .children_of(
+                n,
+                &[
+                    "SimpleStringLiteral",
+                    "StringInterpolation",
+                    "AdjacentStrings",
+                ],
+            )
+            .first()
+            .copied()
+        else {
+            return;
+        };
         if self.offset <= self.start(uri) {
             return;
         }
@@ -2556,21 +3279,36 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let name_start = self.end(n);
-        let name = self.tok_after(name_start).filter(|&i| self.span_tok(i).start < self.end(parent).max(name_start + 1));
+        let name = self
+            .tok_after(name_start)
+            .filter(|&i| self.span_tok(i).start < self.end(parent).max(name_start + 1));
         let name_off = name.map_or(self.synthetic(name_start).start, |i| self.span_tok(i).start);
         if self.offset > name_off {
             return;
         }
         self.local("PropertyAccess_propertyName");
         if let Some(p) = self.import_prefix(n) {
-            let creation = self.parent(parent).and_then(|x| self.parent(x)).is_some_and(|x| self.kind(x) == "InstanceCreationExpression");
-            self.dh(Flags { exclude_type_names: creation, ty: !creation, non_void: creation, ..Flags::default() });
+            let creation = self
+                .parent(parent)
+                .and_then(|x| self.parent(x))
+                .is_some_and(|x| self.kind(x) == "InstanceCreationExpression");
+            self.dh(Flags {
+                exclude_type_names: creation,
+                ty: !creation,
+                non_void: creation,
+                ..Flags::default()
+            });
             self.dh_by_prefix(p);
             return;
         }
         // Not a prefix: the "prefix" is a value (`x.^ y`) or a type.
-        let text = self.source[self.start(n)..self.end(n)].trim_end_matches('.').trim().to_string();
-        let Some(s) = self.query.names.lookup(&text) else { return };
+        let text = self.source[self.start(n)..self.end(n)]
+            .trim_end_matches('.')
+            .trim()
+            .to_string();
+        let Some(s) = self.query.names.lookup(&text) else {
+            return;
+        };
         let lib = self.query.program.library(self.library());
         let el = lib.scope.get(&s).and_then(|b| b.getter);
         match el {
@@ -2591,7 +3329,14 @@ impl<'a, 'c> Isp<'a, 'c> {
             Some(Element::Function(f)) => {
                 let fe = self.query.program.function(f);
                 let data = &self.query.outline.functions[f.0 as usize];
-                let t = if matches!(fe.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) { data.return_type } else { data.signature };
+                let t = if matches!(
+                    fe.kind,
+                    FunctionKind::Getter | FunctionKind::ImplicitAccessor
+                ) {
+                    data.return_type
+                } else {
+                    data.signature
+                };
                 self.dh(Flags::default());
                 self.dh_instance_members(t, false);
             }
@@ -2609,10 +3354,19 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             return;
         }
-        let Some(&target) = self.children(n).first() else { return };
-        let opens = self.op_in(Op::LBracket, self.end(target), self.end(n)).or_else(|| self.op_in(Op::QuestionDot, self.end(target), self.end(n)).map(|i| i + 1));
+        let Some(&target) = self.children(n).first() else {
+            return;
+        };
+        let opens = self
+            .op_in(Op::LBracket, self.end(target), self.end(n))
+            .or_else(|| {
+                self.op_in(Op::QuestionDot, self.end(target), self.end(n))
+                    .map(|i| i + 1)
+            });
         let Some(a) = opens else { return };
-        let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
+        let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| {
+            self.span_tok(i).start
+        });
         if self.offset >= self.span_tok(a).end && self.offset <= closes {
             self.local("IndexExpression_index");
             self.for_expression(n, false, true);
@@ -2620,7 +3374,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_creation(&mut self, n: usize) {
-        let word = self.tok_after(self.start(n)).filter(|&i| matches!(self.text_tok(i), "new" | "const"));
+        let word = self
+            .tok_after(self.start(n))
+            .filter(|&i| matches!(self.text_tok(i), "new" | "const"));
         match word {
             Some(k) if self.offset > self.span_tok(k).end => {
                 let name = self.child(n, "ConstructorName");
@@ -2640,8 +3396,12 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_is(&mut self, n: usize) {
-        let Some(&expr) = self.children(n).first() else { return };
-        let Some(op) = self.word_in("is", self.end(expr), self.end(n)) else { return };
+        let Some(&expr) = self.children(n).first() else {
+            return;
+        };
+        let Some(op) = self.word_in("is", self.end(expr), self.end(n)) else {
+            return;
+        };
         let s = self.span_tok(op);
         if self.covers(s.start, s.end) {
             self.kw("is");
@@ -2649,13 +3409,18 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.for_expression(n, false, false);
         } else if self.offset > s.end {
             self.local("IsExpression_type");
-            self.dh(Flags { ty: true, ..Flags::default() });
+            self.dh(Flags {
+                ty: true,
+                ..Flags::default()
+            });
             self.lexical_dh(n);
         }
     }
 
     pub(super) fn v_label(&mut self, n: usize) {
-        let name_end = self.tok_after(self.start(n)).map_or(self.start(n), |i| self.span_tok(i).end);
+        let name_end = self
+            .tok_after(self.start(n))
+            .map_or(self.start(n), |i| self.span_tok(i).end);
         if self.offset >= name_end
             && let Some(p) = self.parent(n)
             && self.kind(p) == "NamedExpression"
@@ -2675,11 +3440,25 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_collection_literal(&mut self, n: usize) {
-        let opens = self.op_in(if self.kind(n) == "ListLiteral" { Op::LBracket } else { Op::LBrace }, self.start(n), self.end(n));
+        let opens = self.op_in(
+            if self.kind(n) == "ListLiteral" {
+                Op::LBracket
+            } else {
+                Op::LBrace
+            },
+            self.start(n),
+            self.end(n),
+        );
         let Some(a) = opens else { return };
-        let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
+        let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| {
+            self.span_tok(i).start
+        });
         if self.offset >= self.span_tok(a).end && self.offset <= closes {
-            self.local(if self.kind(n) == "ListLiteral" { "ListLiteral_element" } else { "SetOrMapLiteral_element" });
+            self.local(if self.kind(n) == "ListLiteral" {
+                "ListLiteral_element"
+            } else {
+                "SetOrMapLiteral_element"
+            });
             let elements = self.literal_elements(n);
             self.for_collection_element(n, &elements);
         }
@@ -2692,19 +3471,26 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             return;
         }
-        let Some(&key) = self.children(n).first() else { return };
+        let Some(&key) = self.children(n).first() else {
+            return;
+        };
         if let Some(s) = self.op_in(Op::Colon, self.end(key), self.end(n))
             && self.offset >= self.span_tok(s).end
         {
             self.local("MapLiteralEntry_value");
             let is_static = self.static_context(n);
-            self.dh(Flags { is_static, ..Flags::default() });
+            self.dh(Flags {
+                is_static,
+                ..Flags::default()
+            });
             self.lexical_dh(n);
         }
     }
 
     pub(super) fn v_map_pattern_entry(&mut self, n: usize) {
-        let Some(&key) = self.children(n).first() else { return };
+        let Some(&key) = self.children(n).first() else {
+            return;
+        };
         let sep = self.op_in(Op::Colon, self.end(key), self.end(n).max(self.end(key) + 1));
         if sep.is_none_or(|s| self.offset <= self.span_tok(s).start) {
             if let Some(p) = self.parent(n) {
@@ -2718,7 +3504,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     pub(super) fn v_method(&mut self, n: usize) {
         self.local("ClassDeclaration_member");
-        let Some(f) = self.real_function(n) else { return };
+        let Some(f) = self.real_function(n) else {
+            return;
+        };
         let first = self.first_after_annotations(n);
         let previous = first.and_then(|i| i.checked_sub(1));
         let start = previous.map_or(self.start(n), |i| self.span_tok(i).start);
@@ -2731,7 +3519,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let body = self.function_body(n);
         let body_start = body.map_or(self.synthetic(self.end(n)).start, |c| self.start(c));
-        let before_body = self.tok_before(body_start).map_or(body_start, |i| self.span_tok(i).end);
+        let before_body = self
+            .tok_before(body_start)
+            .map_or(body_start, |i| self.span_tok(i).end);
         if self.offset >= before_body && self.offset <= body_start {
             if f.modifier == ast::AsyncModifier::None {
                 self.body_modifiers_kw(body);
@@ -2754,9 +3544,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         // The `.`/`?.`/`..` operator before the method name.
         let name = self.children_of(n, &["SimpleIdentifier"]).last().copied();
-        let operator = name.and_then(|m| self.tok_before(self.start(m))).filter(|&i| {
-            self.is_op(i, Op::Dot) || self.is_op(i, Op::QuestionDot) || self.is_op(i, Op::DotDot) || self.is_op(i, Op::QuestionDotDot)
-        });
+        let operator = name
+            .and_then(|m| self.tok_before(self.start(m)))
+            .filter(|&i| {
+                self.is_op(i, Op::Dot)
+                    || self.is_op(i, Op::QuestionDot)
+                    || self.is_op(i, Op::DotDot)
+                    || self.is_op(i, Op::QuestionDotDot)
+            });
         let Some(op) = operator else {
             if self.covers_node(n) {
                 let parent = self.parent(n);
@@ -2790,29 +3585,56 @@ impl<'a, 'c> Isp<'a, 'c> {
         };
         let cascade = self.is_op(op, Op::DotDot) || self.is_op(op, Op::QuestionDotDot);
         let name_end = name.map_or(self.end(n), |m| self.end(m));
-        if (cascade && self.offset == self.span_tok(op).start + 1) || (self.offset >= self.span_tok(op).end && self.offset <= name_end) {
-            let target = self.children(n).first().copied().filter(|&a| Some(a) != name);
+        if (cascade && self.offset == self.span_tok(op).start + 1)
+            || (self.offset >= self.span_tok(op).end && self.offset <= name_end)
+        {
+            let target = self
+                .children(n)
+                .first()
+                .copied()
+                .filter(|&a| Some(a) != name);
             // A class or import prefix as the target has no `staticType` in the
             // analyzer (`Uri.decodeComponent(…)` lists no `Type` members), and
             // `A.n(…)` that invokes a constructor is an `InstanceCreationExpression`
             // (`AstRewriter.methodInvocation`: the class has a constructor with the
             // name written in the real text): its name lists the constructors.
-            let target_element = target.and_then(|a| self.real_expr(a)).and_then(|e| self.resolved(e));
-            let type_or_prefix = matches!(target_element, Some(Resolved::Prefix(_) | Resolved::Element(Element::Class(_) | Element::Typedef(_) | Element::Extension(_) | Element::Prefix(..))));
+            let target_element = target
+                .and_then(|a| self.real_expr(a))
+                .and_then(|e| self.resolved(e));
+            let type_or_prefix = matches!(
+                target_element,
+                Some(
+                    Resolved::Prefix(_)
+                        | Resolved::Element(
+                            Element::Class(_)
+                                | Element::Typedef(_)
+                                | Element::Extension(_)
+                                | Element::Prefix(..)
+                        )
+                )
+            );
             if !cascade
                 && let Some(Resolved::Element(Element::Class(c))) = target_element
                 && let Some(m) = name
-                && self.query.names.lookup(&self.source[self.start(m)..self.end(m)]).is_some_and(|s| self.query.program.class(c).constructors.contains_key(&s))
+                && self
+                    .query
+                    .names
+                    .lookup(&self.source[self.start(m)..self.end(m)])
+                    .is_some_and(|s| self.query.program.class(c).constructors.contains_key(&s))
             {
                 self.dh(Flags::default());
                 self.dh_class_constructor_names(c);
                 return;
             }
-            let ty = target.and_then(|a| self.real_expr(a)).and_then(|e| self.static_type(e)).filter(|_| !type_or_prefix);
+            let ty = target
+                .and_then(|a| self.real_expr(a))
+                .and_then(|e| self.static_type(e))
+                .filter(|_| !type_or_prefix);
             if let Some(t) = ty {
                 self.for_member_access(n, t, false);
             }
-            let without_type = ty.is_none_or(|t| self.query.table.is_invalid(t) || self.is_type_type(t));
+            let without_type =
+                ty.is_none_or(|t| self.query.table.is_invalid(t) || self.is_type_type(t));
             if without_type
                 && let Some(a) = target
                 && matches!(self.kind(a), "SimpleIdentifier" | "PrefixedIdentifier")
@@ -2836,7 +3658,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.dh_by_prefix(p);
             return;
         }
-        let Some(e) = self.real_expr(target) else { return };
+        let Some(e) = self.real_expr(target) else {
+            return;
+        };
         match self.resolved(e) {
             Some(Resolved::Element(Element::Class(c))) => {
                 self.dh(Flags::default());
@@ -2856,8 +3680,12 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let Some(d) = self.real_decl(n) else { return };
-        let ast::DeclKind::Mixin(x) = &d.kind else { return };
-        let Some(m) = self.word_in("mixin", self.start(n), x.name.span.start) else { return };
+        let ast::DeclKind::Mixin(x) = &d.kind else {
+            return;
+        };
+        let Some(m) = self.word_in("mixin", self.start(n), x.name.span.start) else {
+            return;
+        };
         if self.offset < self.span_tok(m).start {
             self.mixin_modifiers_kw(n);
             return;
@@ -2882,10 +3710,19 @@ impl<'a, 'c> Isp<'a, 'c> {
                 return;
             }
             self.for_mixin_member(n);
-            let members = self.children_of(n, &["FieldDeclaration", "MethodDeclaration", "ConstructorDeclaration"]);
+            let members = self.children_of(
+                n,
+                &[
+                    "FieldDeclaration",
+                    "MethodDeclaration",
+                    "ConstructorDeclaration",
+                ],
+            );
             if let Some(m) = self.element_before(&members)
                 && self.kind(m) == "MethodDeclaration"
-                && self.function_body(m).is_none_or(|c| self.kind(c) == "EmptyFunctionBody")
+                && self
+                    .function_body(m)
+                    .is_none_or(|c| self.kind(c) == "EmptyFunctionBody")
             {
                 let body = self.function_body(m);
                 self.body_modifiers_kw(body);
@@ -2904,8 +3741,12 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_named_expression(&mut self, n: usize) {
-        let Some(label) = self.child(n, "Label") else { return };
-        let name_end = self.tok_after(self.start(label)).map_or(self.start(label), |i| self.span_tok(i).end);
+        let Some(label) = self.child(n, "Label") else {
+            return;
+        };
+        let name_end = self
+            .tok_after(self.start(label))
+            .map_or(self.start(label), |i| self.span_tok(i).end);
         let name_text = self.source[self.start(label)..name_end].to_string();
         if self.offset <= name_end {
             let Some(parent) = self.parent(n) else { return };
@@ -2917,11 +3758,18 @@ impl<'a, 'c> Isp<'a, 'c> {
                         let mut used: HashSet<String> = HashSet::new();
                         for &a in self.children(parent) {
                             if let Some(r) = self.child(a, "Label") {
-                                used.insert(self.source[self.start(r)..self.end(r)].trim_end_matches(':').trim().to_string());
+                                used.insert(
+                                    self.source[self.start(r)..self.end(r)]
+                                        .trim_end_matches(':')
+                                        .trim()
+                                        .to_string(),
+                                );
                             }
                         }
                         used.remove(&name_text);
-                        let colon = self.tok_after(name_end).is_none_or(|i| !self.is_op(i, Op::Colon));
+                        let colon = self
+                            .tok_after(name_end)
+                            .is_none_or(|i| !self.is_op(i, Op::Colon));
                         for p in parameters {
                             if p.named && !used.contains(&p.name) {
                                 self.suggest_named_argument(&p, colon, false, None);
@@ -2936,7 +3784,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 _ => {}
             }
         } else if self.offset >= self.end(label) {
-            let in_arguments = self.parent(n).is_some_and(|p| self.kind(p) == "ArgumentList");
+            let in_arguments = self
+                .parent(n)
+                .is_some_and(|p| self.kind(p) == "ArgumentList");
             if in_arguments {
                 self.local("ArgumentList_method_named");
             }
@@ -2957,9 +3807,15 @@ impl<'a, 'c> Isp<'a, 'c> {
         // `prefix.x^ print(0);` recovered as a variable declaration.
         if let Some(p) = self.child(n, "ImportPrefixReference")
             && let Some(prefix) = self.import_prefix(p)
-            && let Some(list) = self.parent(n).filter(|&l| self.kind(l) == "VariableDeclarationList")
-            && let Some(cmd) = self.parent(list).filter(|&c| self.kind(c) == "VariableDeclarationStatement")
-            && !self.tok_before(self.end(cmd)).is_some_and(|i| self.is_op(i, Op::Semicolon))
+            && let Some(list) = self
+                .parent(n)
+                .filter(|&l| self.kind(l) == "VariableDeclarationList")
+            && let Some(cmd) = self
+                .parent(list)
+                .filter(|&c| self.kind(c) == "VariableDeclarationStatement")
+            && !self
+                .tok_before(self.end(cmd))
+                .is_some_and(|i| self.is_op(i, Op::Semicolon))
         {
             self.dh(Flags::default());
             self.dh_by_prefix(prefix);
@@ -2973,30 +3829,55 @@ impl<'a, 'c> Isp<'a, 'c> {
                 _ => {}
             }
         }
-        let creation = self.parent(n).and_then(|p| self.parent(p)).is_some_and(|x| self.kind(x) == "InstanceCreationExpression");
-        self.for_type(n, TypeOptions { exclude_type_names: creation, ..TypeOptions::default() });
+        let creation = self
+            .parent(n)
+            .and_then(|p| self.parent(p))
+            .is_some_and(|x| self.kind(x) == "InstanceCreationExpression");
+        self.for_type(
+            n,
+            TypeOptions {
+                exclude_type_names: creation,
+                ..TypeOptions::default()
+            },
+        );
     }
 
     pub(super) fn v_object_pattern(&mut self, n: usize) {
         let opens = self.op_in(Op::LParen, self.start(n), self.end(n));
         let Some(a) = opens else { return };
-        let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
+        let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| {
+            self.span_tok(i).start
+        });
         if self.span_tok(a).end <= self.offset && self.offset <= closes {
             self.local("ObjectPattern_fieldName");
             let excluded = self.field_names(n);
-            if let Some(t) = self.child(n, "NamedType").and_then(|t| self.type_node_type(t)) {
-                self.dh(Flags { non_void: true, ..Flags::default() });
+            if let Some(t) = self
+                .child(n, "NamedType")
+                .and_then(|t| self.type_node_type(t))
+            {
+                self.dh(Flags {
+                    non_void: true,
+                    ..Flags::default()
+                });
                 self.dh_getters(t, &excluded);
             }
         }
     }
 
     pub(super) fn v_parens(&mut self, n: usize) {
-        let Some(&expr) = self.children(n).first() else { return };
-        if matches!(self.kind(expr), "SimpleIdentifier" | "PrefixedIdentifier" | "PropertyAccess")
-            && let Some(f) = self.tok_before(self.end(n)).filter(|&i| self.is_op(i, Op::RParen))
+        let Some(&expr) = self.children(n).first() else {
+            return;
+        };
+        if matches!(
+            self.kind(expr),
+            "SimpleIdentifier" | "PrefixedIdentifier" | "PropertyAccess"
+        ) && let Some(f) = self
+            .tok_before(self.end(n))
+            .filter(|&i| self.is_op(i, Op::RParen))
             && self.offset == self.span_tok(f).start
-            && self.tok_after(self.end(expr)).is_some_and(|i| self.is_identifier(i) && i < f)
+            && self
+                .tok_after(self.end(expr))
+                .is_some_and(|i| self.is_identifier(i) && i < f)
         {
             self.kw("is");
             return;
@@ -3012,7 +3893,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         let name = self.child(n, "PatternFieldName");
         let parent = self.parent(n);
         if let Some(nm) = name {
-            let colon = self.tok_before(self.end(nm)).map_or(self.end(nm), |i| self.span_tok(i).start);
+            let colon = self
+                .tok_before(self.end(nm))
+                .map_or(self.end(nm), |i| self.span_tok(i).start);
             if self.offset <= colon {
                 if parent.is_some_and(|p| self.kind(p) == "ObjectPattern") {
                     self.local("ObjectPattern_fieldName");
@@ -3031,8 +3914,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                     self.local("ObjectPattern_fieldName");
                     let p = parent.unwrap_or(n);
                     let excluded = self.field_names(p);
-                    if let Some(t) = self.child(p, "NamedType").and_then(|t| self.type_node_type(t)) {
-                        self.dh(Flags { non_void: true, ..Flags::default() });
+                    if let Some(t) = self
+                        .child(p, "NamedType")
+                        .and_then(|t| self.type_node_type(t))
+                    {
+                        self.dh(Flags {
+                            non_void: true,
+                            ..Flags::default()
+                        });
                         self.dh_getters(t, &excluded);
                     }
                 }
@@ -3043,7 +3932,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 _ => {}
             },
             Some(nm) => {
-                let has_name = self.tok_after(self.start(nm)).is_some_and(|i| self.word(i) && self.span_tok(i).end <= self.end(nm));
+                let has_name = self
+                    .tok_after(self.start(nm))
+                    .is_some_and(|i| self.word(i) && self.span_tok(i).end <= self.end(nm));
                 self.local("PatternField_pattern");
                 if !has_name {
                     self.for_variable_pattern();
@@ -3058,7 +3949,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_pattern_field_name(&mut self, n: usize) {
-        let colon = self.tok_before(self.end(n)).map_or(self.end(n), |i| self.span_tok(i).start);
+        let colon = self
+            .tok_before(self.end(n))
+            .map_or(self.end(n), |i| self.span_tok(i).start);
         if self.offset <= colon {
             let external = self.parent(n).and_then(|p| self.parent(p));
             if external.is_some_and(|x| self.kind(x) == "ObjectPattern") {
@@ -3075,15 +3968,21 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_postfix(&mut self, n: usize) {
-        let Some(&operand) = self.children(n).first() else { return };
-        let op = self.source[self.end(operand)..self.end(n)].trim().to_string();
+        let Some(&operand) = self.children(n).first() else {
+            return;
+        };
+        let op = self.source[self.end(operand)..self.end(n)]
+            .trim()
+            .to_string();
         self.local(&format!("PrefixExpression_{op}_operand"));
         let assignable = op == "++" || op == "--";
         self.for_expression(n, assignable, false);
     }
 
     pub(super) fn v_prefixed_identifier(&mut self, n: usize) {
-        let (Some(&prefix), Some(&id)) = (self.children(n).first(), self.children(n).get(1)) else { return };
+        let (Some(&prefix), Some(&id)) = (self.children(n).first(), self.children(n).get(1)) else {
+            return;
+        };
         let dot = self.end(prefix);
         if self.offset <= dot {
             self.for_expression(n, false, false);
@@ -3094,16 +3993,29 @@ impl<'a, 'c> Isp<'a, 'c> {
         let ty = self.real_expr(prefix).and_then(|e| self.static_type(e));
         // Import prefix or class name: the `staticType` is null in the analyzer.
         let element = self.real_expr(prefix).and_then(|e| self.resolved(e));
-        let is_type_or_prefix = matches!(element, Some(Resolved::Prefix(_) | Resolved::Element(Element::Class(_) | Element::Typedef(_) | Element::Extension(_))));
+        let is_type_or_prefix = matches!(
+            element,
+            Some(
+                Resolved::Prefix(_)
+                    | Resolved::Element(
+                        Element::Class(_) | Element::Typedef(_) | Element::Extension(_)
+                    )
+            )
+        );
         match ty {
             Some(t) if !is_type_or_prefix => {
                 let only_super = self.kind(prefix) == "SuperExpression";
                 self.for_member_access(n, t, only_super);
             }
             _ => {
-                let assignable = self.parent(n).is_some_and(|p| self.kind(p) == "AssignmentExpression" && self.children(p).first() == Some(&n));
+                let assignable = self.parent(n).is_some_and(|p| {
+                    self.kind(p) == "AssignmentExpression" && self.children(p).first() == Some(&n)
+                });
                 if let Some(p) = self.import_prefix(prefix) {
-                    self.dh(Flags { assignable, ..Flags::default() });
+                    self.dh(Flags {
+                        assignable,
+                        ..Flags::default()
+                    });
                     self.dh_by_prefix(p);
                 } else if let Some(el) = element {
                     let element = match el {
@@ -3112,7 +4024,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                     };
                     if let Some(e) = element {
                         let prefer = matches!(e, Element::Class(_)) && self.preferred_tear_off();
-                        self.dh(Flags { assignable, prefer_without_invocation: prefer, ..Flags::default() });
+                        self.dh(Flags {
+                            assignable,
+                            prefer_without_invocation: prefer,
+                            ..Flags::default()
+                        });
                         self.static_dh(e);
                     }
                 }
@@ -3123,19 +4039,28 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `request.shouldSuggestTearOff(element)`: the context is a function type
     /// (suggests the constructor tear-off).
     pub(super) fn preferred_tear_off(&self) -> bool {
-        self.context_type.is_some_and(|t| matches!(self.query.table.get(t), Type::Function { .. }))
+        self.context_type
+            .is_some_and(|t| matches!(self.query.table.get(t), Type::Function { .. }))
     }
 
     pub(super) fn v_prefix(&mut self, n: usize) {
         self.local("PropertyAccess_propertyName");
-        let op = self.tok_after(self.start(n)).map(|i| self.text_tok(i)).unwrap_or("");
+        let op = self
+            .tok_after(self.start(n))
+            .map(|i| self.text_tok(i))
+            .unwrap_or("");
         let assignable = op == "++" || op == "--";
         self.for_expression(n, assignable, false);
     }
 
     pub(super) fn v_property_access(&mut self, n: usize) {
-        let (Some(&target), name) = (self.children(n).first(), self.children(n).get(1).copied()) else { return };
-        let operator = name.and_then(|m| self.tok_before(self.start(m))).or_else(|| self.tok_after(self.end(target)));
+        let (Some(&target), name) = (self.children(n).first(), self.children(n).get(1).copied())
+        else {
+            return;
+        };
+        let operator = name
+            .and_then(|m| self.tok_before(self.start(m)))
+            .or_else(|| self.tok_after(self.end(target)));
         let Some(op) = operator else { return };
         if self.offset <= self.span_tok(op).start {
             self.for_expression(n, false, false);
@@ -3143,7 +4068,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         self.local("PropertyAccess_propertyName");
         let parent = self.parent(n);
-        if self.kind(target) == "ThisExpression" && parent.is_some_and(|p| self.kind(p) == "ConstructorFieldInitializer") {
+        if self.kind(target) == "ThisExpression"
+            && parent.is_some_and(|p| self.kind(p) == "ConstructorFieldInitializer")
+        {
             if let Some(p) = parent {
                 self.visit(p);
             }
@@ -3155,22 +4082,34 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.for_member_access(n, t, only_super);
         }
         let cascade = self.is_op(op, Op::DotDot) || self.is_op(op, Op::QuestionDotDot);
-        let without_type = ty.is_none_or(|t| self.query.table.is_invalid(t) || self.is_type_type(t));
-        if without_type && matches!(self.kind(target), "SimpleIdentifier" | "PrefixedIdentifier") && (!cascade || self.offset == self.span_tok(op).start + 1) {
+        let without_type =
+            ty.is_none_or(|t| self.query.table.is_invalid(t) || self.is_type_type(t));
+        if without_type
+            && matches!(self.kind(target), "SimpleIdentifier" | "PrefixedIdentifier")
+            && (!cascade || self.offset == self.span_tok(op).start + 1)
+        {
             self.static_or_prefix(target);
         }
     }
 
     pub(super) fn v_record_pattern(&mut self, n: usize) {
-        let opens = self.tok_at(self.start(n)).filter(|&i| self.is_op(i, Op::LParen));
+        let opens = self
+            .tok_at(self.start(n))
+            .filter(|&i| self.is_op(i, Op::LParen));
         let Some(a) = opens else { return };
         if self.offset == self.span_tok(a).start {
             self.local("ObjectPattern_type");
-            self.dh(Flags { ty: true, non_void: true, ..Flags::default() });
+            self.dh(Flags {
+                ty: true,
+                non_void: true,
+                ..Flags::default()
+            });
             self.lexical_dh(n);
             return;
         }
-        let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
+        let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| {
+            self.span_tok(i).start
+        });
         if self.span_tok(a).end <= self.offset && self.offset <= closes {
             self.local("PatternField_pattern");
             self.kw("dynamic");
@@ -3179,11 +4118,17 @@ impl<'a, 'c> Isp<'a, 'c> {
             let target = fields.iter().copied().find(|&c| self.end(c) >= self.offset);
             if let Some(c) = target
                 && let Some(nm) = self.child(c, "PatternFieldName")
-                && self.offset <= self.tok_before(self.end(nm)).map_or(self.end(nm), |i| self.span_tok(i).start)
+                && self.offset
+                    <= self
+                        .tok_before(self.end(nm))
+                        .map_or(self.end(nm), |i| self.span_tok(i).start)
                 && let Some(t) = self.matched_type(n)
             {
                 let excluded = self.field_names(n);
-                self.dh(Flags { non_void: true, ..Flags::default() });
+                self.dh(Flags {
+                    non_void: true,
+                    ..Flags::default()
+                });
                 self.dh_getters(t, &excluded);
             }
         }
@@ -3204,7 +4149,10 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             return;
         }
-        let closes = self.tok_before(self.end(n)).filter(|&i| self.is_op(i, Op::RParen)).map_or(self.end(n), |i| self.span_tok(i).start);
+        let closes = self
+            .tok_before(self.end(n))
+            .filter(|&i| self.is_op(i, Op::RParen))
+            .map_or(self.end(n), |i| self.span_tok(i).start);
         if self.offset <= closes {
             self.local("RecordTypeAnnotation_positionalFields");
             self.for_type(n, TypeOptions::default());
@@ -3231,15 +4179,24 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_redirecting_invocation(&mut self, n: usize) {
-        let Some(ctor) = self.parent(n).filter(|&c| self.kind(c) == "ConstructorDeclaration") else { return };
+        let Some(ctor) = self
+            .parent(n)
+            .filter(|&c| self.kind(c) == "ConstructorDeclaration")
+        else {
+            return;
+        };
         self.local("ConstructorDeclaration_initializer");
-        let Some(this) = self.tok_after(self.start(n)) else { return };
+        let Some(this) = self.tok_after(self.start(n)) else {
+            return;
+        };
         let list = self.child(n, "ArgumentList");
         if self.offset <= self.span_tok(this).end && list.is_none() {
             self.constructor_initializer_kw(ctor, Some(n));
             return;
         }
-        let dot = self.tok_after(self.span_tok(this).end).filter(|&i| self.is_op(i, Op::Dot));
+        let dot = self
+            .tok_after(self.span_tok(this).end)
+            .filter(|&i| self.is_op(i, Op::Dot));
         if let Some(p) = dot
             && self.offset >= self.span_tok(p).end
             && self.offset <= list.map_or(self.synthetic(self.end(n)).start, |l| self.start(l))
@@ -3249,7 +4206,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_relational_pattern(&mut self, n: usize) {
-        let Some(op) = self.tok_after(self.start(n)) else { return };
+        let Some(op) = self.tok_after(self.start(n)) else {
+            return;
+        };
         let operand = self.children(n).first().copied();
         let next = op + 1;
         if self.is_op(op, Op::Lt) && operand.is_none() && self.is_op(next, Op::Gt) {
@@ -3266,11 +4225,19 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_representation(&mut self, n: usize) {
-        let Some(d) = self.parent(n).and_then(|p| self.real_decl(p)) else { return };
-        let ast::DeclKind::ExtensionType(x) = &d.kind else { return };
+        let Some(d) = self.parent(n).and_then(|p| self.real_decl(p)) else {
+            return;
+        };
+        let ast::DeclKind::ExtensionType(x) = &d.kind else {
+            return;
+        };
         let name = x.representation_name;
         if self.offset <= name.span.end {
-            let ty = self.children(n).iter().copied().find(|&k| self.link(k) == Binding::Type(x.representation_type));
+            let ty = self
+                .children(n)
+                .iter()
+                .copied()
+                .find(|&k| self.link(k) == Binding::Type(x.representation_type));
             match ty {
                 None => {
                     let opens = self.op_in(Op::LParen, self.start(n), self.end(n));
@@ -3280,7 +4247,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                         self.for_annotation(n);
                     } else {
                         self.local("RepresentationDeclaration_fieldType");
-                        self.dh(Flags { ty: true, ..Flags::default() });
+                        self.dh(Flags {
+                            ty: true,
+                            ..Flags::default()
+                        });
                         self.lexical_dh(n);
                     }
                 }
@@ -3299,7 +4269,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_return(&mut self, n: usize) {
-        let Some(word) = self.tok_after(self.start(n)) else { return };
+        let Some(word) = self.tok_after(self.start(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
             self.for_command(n);
@@ -3311,7 +4283,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_simple_parameter(&mut self, n: usize) {
-        let Some(p) = self.real_parameter(n) else { return };
+        let Some(p) = self.real_parameter(n) else {
+            return;
+        };
         let list = self.parameter_list_of(n);
         if let Some(name) = p.name
             && self.one_token_parameter(n)
@@ -3333,26 +4307,38 @@ impl<'a, 'c> Isp<'a, 'c> {
         match p.ty {
             Some(t) => {
                 self.local("FormalParameterList_parameter");
-                let node_t = self.children(n).iter().copied().find(|&k| self.link(k) == Binding::Type(t));
+                let node_t = self
+                    .children(n)
+                    .iter()
+                    .copied()
+                    .find(|&k| self.link(k) == Binding::Type(t));
                 if let Some(nt) = node_t
                     && self.kind(nt) == "NamedType"
                     && let Some(pr) = self.child(nt, "ImportPrefixReference")
                     && let Some(prefix) = self.import_prefix(pr)
                 {
                     let name_t = self.tok_after(self.end(pr));
-                    if name_t.is_some_and(|i| self.covers(self.span_tok(i).start, self.span_tok(i).end)) {
-                        self.dh(Flags { ty: true, ..Flags::default() });
+                    if name_t
+                        .is_some_and(|i| self.covers(self.span_tok(i).start, self.span_tok(i).end))
+                    {
+                        self.dh(Flags {
+                            ty: true,
+                            ..Flags::default()
+                        });
                         self.dh_by_prefix(prefix);
                     }
                 }
                 let ts = self.a.ty(t).span;
                 let first = self.tok_after(ts.start);
-                if first.is_some_and(|i| self.covers(self.span_tok(i).start, self.span_tok(i).end)) {
+                if first.is_some_and(|i| self.covers(self.span_tok(i).start, self.span_tok(i).end))
+                {
                     if let Some(l) = list {
                         self.formal_parameter_kw(l);
                     }
                     self.for_type(n, TypeOptions::default());
-                } else if let ast::TypeKind::Function { return_type: None, .. } = &self.a.ty(t).kind
+                } else if let ast::TypeKind::Function {
+                    return_type: None, ..
+                } = &self.a.ty(t).kind
                     && let Some(f) = self.word_in("Function", ts.start, ts.end)
                     && self.offset < self.span_tok(f).start
                 {
@@ -3360,7 +4346,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
             }
             None => {
-                let word = self.tok_after(self.start(n)).filter(|&i| matches!(self.text_tok(i), "final" | "var" | "const"));
+                let word = self
+                    .tok_after(self.start(n))
+                    .filter(|&i| matches!(self.text_tok(i), "final" | "var" | "const"));
                 if let Some(k) = word
                     && self.offset <= self.span_tok(k).end
                 {
@@ -3378,13 +4366,23 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `FormalParameter.isSingleIdentifier`: a single token, a word.
     pub(super) fn one_token_parameter(&self, n: usize) -> bool {
-        let Some(i) = self.tok_after(self.start(n)) else { return false };
+        let Some(i) = self.tok_after(self.start(n)) else {
+            return false;
+        };
         self.word(i) && self.span_tok(i).end == self.end(n)
     }
 
     pub(super) fn v_simple_string(&mut self, n: usize) {
         if let Some(p) = self.parent(n)
-            && matches!(self.kind(p), "Configuration" | "PartOfDirective" | "ImportDirective" | "ExportDirective" | "PartDirective" | "AugmentationImportDirective")
+            && matches!(
+                self.kind(p),
+                "Configuration"
+                    | "PartOfDirective"
+                    | "ImportDirective"
+                    | "ExportDirective"
+                    | "PartDirective"
+                    | "AugmentationImportDirective"
+            )
         {
             self.uris(n);
             return;
@@ -3393,41 +4391,66 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_super_invocation(&mut self, n: usize) {
-        let Some(ctor) = self.parent(n).filter(|&c| self.kind(c) == "ConstructorDeclaration") else { return };
+        let Some(ctor) = self
+            .parent(n)
+            .filter(|&c| self.kind(c) == "ConstructorDeclaration")
+        else {
+            return;
+        };
         self.local("ConstructorDeclaration_initializer");
-        let Some(sup) = self.tok_after(self.start(n)) else { return };
+        let Some(sup) = self.tok_after(self.start(n)) else {
+            return;
+        };
         let list = self.child(n, "ArgumentList");
         if self.offset <= self.span_tok(sup).end && list.is_none() {
             self.constructor_initializer_kw(ctor, Some(n));
             return;
         }
-        let dot = self.tok_after(self.span_tok(sup).end).filter(|&i| self.is_op(i, Op::Dot));
+        let dot = self
+            .tok_after(self.span_tok(sup).end)
+            .filter(|&i| self.is_op(i, Op::Dot));
         if let Some(p) = dot
             && self.offset >= self.span_tok(p).end
             && self.offset <= list.map_or(self.synthetic(self.end(n)).start, |l| self.start(l))
         {
-            let Some(container) = self.parent(ctor) else { return };
+            let Some(container) = self.parent(ctor) else {
+                return;
+            };
             if !matches!(self.kind(container), "ClassDeclaration" | "EnumDeclaration") {
                 return;
             }
-            let Some(class) = self.node_class(container) else { return };
-            let supertype = self.query.outline.classes.get(class.0 as usize).and_then(|d| d.supertype);
+            let Some(class) = self.node_class(container) else {
+                return;
+            };
+            let supertype = self
+                .query
+                .outline
+                .classes
+                .get(class.0 as usize)
+                .and_then(|d| d.supertype);
             if let Some(st) = supertype {
                 let constant = self.real_constructor(ctor).is_some_and(|k| k.const_);
-                self.dh(Flags { constant, ..Flags::default() });
+                self.dh(Flags {
+                    constant,
+                    ..Flags::default()
+                });
                 self.dh_type_constructor_names(st, None);
             }
         }
     }
 
     pub(super) fn v_default(&mut self, n: usize) {
-        let Some(k) = self.word_in("default", self.start(n), self.end(n)) else { return };
+        let Some(k) = self.word_in("default", self.start(n), self.end(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(k).start {
             self.local("SwitchMember_statement");
             self.kw("case");
             self.kw_and_text("default", ":");
         } else if self.offset <= self.span_tok(k).end {
-            let colon = self.tok_after(self.span_tok(k).end).is_some_and(|i| self.is_op(i, Op::Colon));
+            let colon = self
+                .tok_after(self.span_tok(k).end)
+                .is_some_and(|i| self.is_op(i, Op::Colon));
             if !colon {
                 self.kw_and_text("default", ":");
             } else {
@@ -3450,7 +4473,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         let after = closes.map_or(self.start(n), |f| self.span_tok(f).end);
         let key = self.op_in(Op::LBrace, after, self.end(n));
         if let Some(c) = key {
-            let end = self.pair(c).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
+            let end = self.pair(c).map_or(self.synthetic(self.end(n)).start, |i| {
+                self.span_tok(i).start
+            });
             if self.offset >= self.span_tok(c).end && self.offset <= end {
                 self.local("SwitchExpression_body");
                 self.for_pattern(n, true);
@@ -3460,14 +4485,22 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     pub(super) fn v_switch_expression_case(&mut self, n: usize) {
         let gp = self.child(n, "GuardedPattern");
-        let arrow = self.op_in(Op::Arrow, gp.map_or(self.start(n), |g| self.end(g)), self.end(n).max(self.offset + 1));
+        let arrow = self.op_in(
+            Op::Arrow,
+            gp.map_or(self.start(n), |g| self.end(g)),
+            self.end(n).max(self.offset + 1),
+        );
         if arrow.is_none() {
             self.local("SwitchExpression_body");
             self.for_pattern(n, true);
             return;
         }
-        let Some(expr) = self.children(n).iter().copied().find(|&k| Some(k) != gp) else { return };
-        let one_token = self.tok_after(self.start(expr)).is_some_and(|i| self.span_tok(i).end == self.end(expr));
+        let Some(expr) = self.children(n).iter().copied().find(|&k| Some(k) != gp) else {
+            return;
+        };
+        let one_token = self
+            .tok_after(self.start(expr))
+            .is_some_and(|i| self.span_tok(i).end == self.end(expr));
         if one_token {
             self.local("SwitchExpressionCase_expression");
             self.for_expression(expr, false, false);
@@ -3476,17 +4509,29 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     pub(super) fn v_pattern_case(&mut self, n: usize) {
         let covered = self.covered_node();
-        let Some(case) = self.tok_after(self.start(n)) else { return };
+        let Some(case) = self.tok_after(self.start(n)) else {
+            return;
+        };
         let gp = self.child(n, "GuardedPattern");
-        let colon = self.op_in(Op::Colon, gp.map_or(self.span_tok(case).end, |g| self.end(g)), self.end(n).max(self.offset + 1));
-        let dp = colon.map_or(self.synthetic(gp.map_or(self.span_tok(case).end, |g| self.end(g))).start, |i| self.span_tok(i).start);
+        let colon = self.op_in(
+            Op::Colon,
+            gp.map_or(self.span_tok(case).end, |g| self.end(g)),
+            self.end(n).max(self.offset + 1),
+        );
+        let dp = colon.map_or(
+            self.synthetic(gp.map_or(self.span_tok(case).end, |g| self.end(g)))
+                .start,
+            |i| self.span_tok(i).start,
+        );
         if self.offset <= self.span_tok(case).end {
             self.kw("case");
         } else if self.offset <= dp {
             self.local("SwitchPatternCase_pattern");
             if let Some(c) = covered
                 && self.kind(c) == "NamedType"
-                && self.parent(c).is_some_and(|p| self.kind(p) == "ObjectPattern")
+                && self
+                    .parent(c)
+                    .is_some_and(|p| self.kind(p) == "ObjectPattern")
             {
                 self.local("ObjectPattern_type");
                 self.visit(c);
@@ -3499,12 +4544,19 @@ impl<'a, 'c> Isp<'a, 'c> {
                     && self.kind(id) == "SimpleIdentifier"
                     && self.offset < self.start(id)
                 {
-                    self.dh(Flags { ty: true, ..Flags::default() });
+                    self.dh(Flags {
+                        ty: true,
+                        ..Flags::default()
+                    });
                     self.lexical_dh(n);
                     return;
                 }
-                if self.kind(p) == "WildcardPattern" && self.offset < self.end(p).saturating_sub(1) {
-                    self.dh(Flags { ty: true, ..Flags::default() });
+                if self.kind(p) == "WildcardPattern" && self.offset < self.end(p).saturating_sub(1)
+                {
+                    self.dh(Flags {
+                        ty: true,
+                        ..Flags::default()
+                    });
                     self.lexical_dh(n);
                     return;
                 }
@@ -3513,7 +4565,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                     && self.is_type_literal(e)
                     && self.end(e) < self.offset
                 {
-                    let name = self.source[self.start(e)..self.end(e)].rsplit('.').next().unwrap_or("").to_string();
+                    let name = self.source[self.start(e)..self.end(e)]
+                        .rsplit('.')
+                        .next()
+                        .unwrap_or("")
+                        .to_string();
                     self.ih(false);
                     self.type_name_ih(&name);
                     return;
@@ -3541,12 +4597,16 @@ impl<'a, 'c> Isp<'a, 'c> {
                     _ => {}
                 }
             }
-            let previous = colon.and_then(|d| d.checked_sub(1)).or_else(|| self.tok_before(dp));
+            let previous = colon
+                .and_then(|d| d.checked_sub(1))
+                .or_else(|| self.tok_before(dp));
             let Some(prev) = previous else { return };
             let word = self.is_keyword(prev).then(|| self.text_tok(prev));
             match word {
                 None => {
-                    if colon.is_none() || self.covers(self.span_tok(prev).start, self.span_tok(prev).end) {
+                    if colon.is_none()
+                        || self.covers(self.span_tok(prev).start, self.span_tok(prev).end)
+                    {
                         self.kw("final");
                         self.kw("var");
                         match pattern {
@@ -3571,8 +4631,16 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
         } else {
             self.local("SwitchMember_statement");
-            let commands: Vec<usize> = self.children(n).iter().copied().filter(|&k| super::isp::is_command(self.kind(k))).collect();
-            if commands.first().is_none_or(|&c| self.offset <= self.start(c)) {
+            let commands: Vec<usize> = self
+                .children(n)
+                .iter()
+                .copied()
+                .filter(|&k| super::isp::is_command(self.kind(k)))
+                .collect();
+            if commands
+                .first()
+                .is_none_or(|&c| self.offset <= self.start(c))
+            {
                 self.kw("case");
                 self.kw_and_text("default", ":");
             }
@@ -3581,7 +4649,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_switch(&mut self, n: usize) {
-        let Some(word) = self.tok_after(self.start(n)) else { return };
+        let Some(word) = self.tok_after(self.start(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
             self.for_command(n);
@@ -3598,11 +4668,16 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let after = closes.map_or(self.span_tok(word).end, |f| self.span_tok(f).end);
-        let Some(c) = self.op_in(Op::LBrace, after, self.end(n)) else { return };
-        let end = self.pair(c).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
+        let Some(c) = self.op_in(Op::LBrace, after, self.end(n)) else {
+            return;
+        };
+        let end = self.pair(c).map_or(self.synthetic(self.end(n)).start, |i| {
+            self.span_tok(i).start
+        });
         if self.offset >= self.span_tok(c).end && self.offset <= end {
             self.local("SwitchMember_statement");
-            let members = self.children_of(n, &["SwitchCase", "SwitchDefault", "SwitchPatternCase"]);
+            let members =
+                self.children_of(n, &["SwitchCase", "SwitchDefault", "SwitchPatternCase"]);
             self.kw("case");
             self.kw_and_text("default", ":");
             if !members.is_empty() {
@@ -3624,9 +4699,15 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.for_unit_member_before(n);
             return;
         }
-        let Some(list_node) = self.child(n, "VariableDeclarationList") else { return };
-        let Some(list) = self.real_list(list_node) else { return };
-        let Some(first) = list.variables.first() else { return };
+        let Some(list_node) = self.child(n, "VariableDeclarationList") else {
+            return;
+        };
+        let Some(list) = self.real_list(list_node) else {
+            return;
+        };
+        let Some(first) = list.variables.first() else {
+            return;
+        };
         if self.offset > first.name.span.end {
             if list.ty.is_none() {
                 let text = self.real_name(first.name).to_string();
@@ -3635,7 +4716,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             return;
         }
-        let external = self.word_in("external", self.start(n), first.name.span.start).is_some();
+        let external = self
+            .word_in("external", self.start(n), first.name.span.start)
+            .is_some();
         if !external {
             self.kw("external");
         }
@@ -3656,12 +4739,17 @@ impl<'a, 'c> Isp<'a, 'c> {
                 self.local("CompilationUnit_declaration");
             }
         }
-        self.dh(Flags { ty: true, ..Flags::default() });
+        self.dh(Flags {
+            ty: true,
+            ..Flags::default()
+        });
         self.lexical_dh(n);
     }
 
     pub(super) fn v_try(&mut self, n: usize) {
-        let Some(word) = self.tok_after(self.start(n)) else { return };
+        let Some(word) = self.tok_after(self.start(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
             self.for_command(n);
@@ -3691,17 +4779,41 @@ impl<'a, 'c> Isp<'a, 'c> {
             // `Future<void^>` in a class body: fasta invents `() {}`.
             let closes = self.tok_before(self.end(list));
             let next = closes.and_then(|f| self.toks.get(f + 1));
-            let without_parens = next.is_none_or(|t| t.kind != dartforge_frontend::token::Kind::Op(Op::LParen));
-            let ghost_method = self.parent(list).is_some_and(|m| self.kind(m) == "MethodDeclaration" && self.child(m, "FormalParameterList").is_none());
+            let without_parens =
+                next.is_none_or(|t| t.kind != dartforge_frontend::token::Kind::Op(Op::LParen));
+            let ghost_method = self.parent(list).is_some_and(|m| {
+                self.kind(m) == "MethodDeclaration"
+                    && self.child(m, "FormalParameterList").is_none()
+            });
             if without_parens && ghost_method {
                 self.local("TypeParameter_bound");
-                self.for_type(n, TypeOptions { excluded: vec![list], ..TypeOptions::default() });
+                self.for_type(
+                    n,
+                    TypeOptions {
+                        excluded: vec![list],
+                        ..TypeOptions::default()
+                    },
+                );
                 return;
             }
         }
-        let Some(name) = self.tok_after(self.start(n)) else { return };
-        let name = if self.children(n).iter().any(|&k| self.kind(k) == "Annotation") {
-            self.tok_after(self.children(n).iter().filter(|&&k| self.kind(k) == "Annotation").map(|&k| self.end(k)).max().unwrap_or(self.start(n))).unwrap_or(name)
+        let Some(name) = self.tok_after(self.start(n)) else {
+            return;
+        };
+        let name = if self
+            .children(n)
+            .iter()
+            .any(|&k| self.kind(k) == "Annotation")
+        {
+            self.tok_after(
+                self.children(n)
+                    .iter()
+                    .filter(|&&k| self.kind(k) == "Annotation")
+                    .map(|&k| self.end(k))
+                    .max()
+                    .unwrap_or(self.start(n)),
+            )
+            .unwrap_or(name)
         } else {
             name
         };
@@ -3714,13 +4826,24 @@ impl<'a, 'c> Isp<'a, 'c> {
             Some(e) if self.offset <= self.span_tok(e).end => self.kw("extends"),
             Some(_) => {
                 self.local("TypeParameter_bound");
-                self.for_type(n, TypeOptions { non_void: true, ..TypeOptions::default() });
+                self.for_type(
+                    n,
+                    TypeOptions {
+                        non_void: true,
+                        ..TypeOptions::default()
+                    },
+                );
             }
         }
     }
 
     pub(super) fn v_variable_declaration(&mut self, n: usize) {
-        let Some(list_node) = self.parent(n).filter(|&l| self.kind(l) == "VariableDeclarationList") else { return };
+        let Some(list_node) = self
+            .parent(n)
+            .filter(|&l| self.kind(l) == "VariableDeclarationList")
+        else {
+            return;
+        };
         let grandparent = self.parent(list_node);
         let grandparent_kind = grandparent.map(|a| self.kind(a));
         match grandparent_kind {
@@ -3732,22 +4855,31 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             Some("ForPartsWithDeclarations") => {
                 let list = self.real_list(list_node);
-                let has_equal = self.real_variable(n).is_some_and(|v| v.initializer.is_some());
+                let has_equal = self
+                    .real_variable(n)
+                    .is_some_and(|v| v.initializer.is_some());
                 if !has_equal
                     && list.is_some_and(|l| l.variables.len() == 1)
-                    && list.and_then(|l| l.ty).is_some_and(|t| matches!(self.a.ty(t).kind, ast::TypeKind::Record { .. }))
+                    && list
+                        .and_then(|l| l.ty)
+                        .is_some_and(|t| matches!(self.a.ty(t).kind, ast::TypeKind::Record { .. }))
                 {
                     self.kw("in");
                 }
             }
             Some("TopLevelVariableDeclaration")
-                if self.handled_recovery(grandparent.unwrap_or(n)) => {
-                    return;
-                }
+                if self.handled_recovery(grandparent.unwrap_or(n)) =>
+            {
+                return;
+            }
             _ => {}
         }
-        let Some(v) = self.real_variable(n) else { return };
-        let Some(list) = self.real_list(list_node) else { return };
+        let Some(v) = self.real_variable(n) else {
+            return;
+        };
+        let Some(list) = self.real_list(list_node) else {
+            return;
+        };
         if self.offset <= v.name.span.end {
             let container = grandparent.and_then(|a| self.parent(a));
             match list.ty {
@@ -3764,8 +4896,15 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                 }
                 Some(t) => {
-                    let private = matches!(grandparent_kind, Some("FieldDeclaration" | "TopLevelVariableDeclaration"));
-                    let node_t = self.children(list_node).iter().copied().find(|&k| self.link(k) == Binding::Type(t));
+                    let private = matches!(
+                        grandparent_kind,
+                        Some("FieldDeclaration" | "TopLevelVariableDeclaration")
+                    );
+                    let node_t = self
+                        .children(list_node)
+                        .iter()
+                        .copied()
+                        .find(|&k| self.link(k) == Binding::Type(t));
                     self.ih(private);
                     self.ih_variable(node_t);
                 }
@@ -3774,13 +4913,16 @@ impl<'a, 'c> Isp<'a, 'c> {
                 let a = grandparent.unwrap_or(n);
                 self.local("FieldDeclaration_fields");
                 let start_a = self.start(a);
-                let before_name = |s: &Self, p: &str| s.word_in(p, start_a, v.name.span.start).is_some();
+                let before_name =
+                    |s: &Self, p: &str| s.word_in(p, start_a, v.name.span.start).is_some();
                 if !before_name(self, "external") {
                     self.kw("external");
                 }
                 if !before_name(self, "static") {
                     self.kw("static");
-                    if container.is_some_and(|c| matches!(self.kind(c), "ClassDeclaration" | "MixinDeclaration")) {
+                    if container.is_some_and(|c| {
+                        matches!(self.kind(c), "ClassDeclaration" | "MixinDeclaration")
+                    }) {
                         if !before_name(self, "abstract") {
                             self.kw("abstract");
                         }
@@ -3788,11 +4930,16 @@ impl<'a, 'c> Isp<'a, 'c> {
                             self.kw("covariant");
                         }
                     }
-                    if !list.late && container.is_none_or(|c| self.kind(c) != "ExtensionDeclaration") {
+                    if !list.late
+                        && container.is_none_or(|c| self.kind(c) != "ExtensionDeclaration")
+                    {
                         self.kw("late");
                     }
                 }
-                if self.first_after_annotations(a).is_some_and(|i| self.span_tok(i).start == v.name.span.start) {
+                if self
+                    .first_after_annotations(a)
+                    .is_some_and(|i| self.span_tok(i).start == v.name.span.start)
+                {
                     self.kw("const");
                     if container.is_some_and(|c| self.kind(c) == "ClassDeclaration") {
                         self.kw("factory");
@@ -3809,12 +4956,19 @@ impl<'a, 'c> Isp<'a, 'c> {
                         Some("MixinDeclaration") => self.local("MixinDeclaration_member"),
                         _ => {}
                     }
-                    let class = container.filter(|&c| matches!(self.kind(c), "ClassDeclaration" | "MixinDeclaration")).and_then(|c| self.node_class(c));
+                    let class = container
+                        .filter(|&c| {
+                            matches!(self.kind(c), "ClassDeclaration" | "MixinDeclaration")
+                        })
+                        .and_then(|c| self.node_class(c));
                     self.suggest_overrides(class, false);
                 }
             } else if grandparent_kind == Some("TopLevelVariableDeclaration") {
                 let a = grandparent.unwrap_or(n);
-                if self.word_in("external", self.start(a), v.name.span.start).is_none() {
+                if self
+                    .word_in("external", self.start(a), v.name.span.start)
+                    .is_none()
+                {
                     self.kw("external");
                 }
                 if !list.late && container.is_none_or(|c| self.kind(c) != "ExtensionDeclaration") {
@@ -3829,16 +4983,26 @@ impl<'a, 'c> Isp<'a, 'c> {
             if equal.is_some_and(|i| self.offset >= self.span_tok(i).end) {
                 self.local("VariableDeclaration_initializer");
                 self.for_expression(n, false, true);
-                if let Some(t) = self.local_type(v.name.span.start).or_else(|| list.ty.and_then(|t| {
-                    let node = self.children(list_node).iter().copied().find(|&k| self.link(k) == Binding::Type(t))?;
-                    self.type_node_type(node)
-                })) && matches!(self.query.table.get(t), Type::Function { .. })
+                if let Some(t) = self.local_type(v.name.span.start).or_else(|| {
+                    list.ty.and_then(|t| {
+                        let node = self
+                            .children(list_node)
+                            .iter()
+                            .copied()
+                            .find(|&k| self.link(k) == Binding::Type(t))?;
+                        self.type_node_type(node)
+                    })
+                }) && matches!(self.query.table.get(t), Type::Function { .. })
                 {
                     let names: Vec<String> = match list.ty.map(|x| &self.a.ty(x).kind) {
                         Some(ast::TypeKind::Function { parameters, .. }) => parameters
                             .iter()
                             .filter(|x| x.kind != ast::ParameterKind::Named)
-                            .map(|x| x.name.map(|n| self.real_name(n).to_string()).unwrap_or_default())
+                            .map(|x| {
+                                x.name
+                                    .map(|n| self.real_name(n).to_string())
+                                    .unwrap_or_default()
+                            })
                             .collect(),
                         _ => Vec::new(),
                     };
@@ -3856,7 +5020,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     pub(super) fn v_variable_list(&mut self, n: usize) {
         let Some(l) = self.real_list(n) else { return };
-        let Some(first) = l.variables.first() else { return };
+        let Some(first) = l.variables.first() else {
+            return;
+        };
         if self.offset <= first.name.span.end {
             let type_covers = l.ty.is_some_and(|t| {
                 let s = self.a.ty(t).span;
@@ -3865,7 +5031,10 @@ impl<'a, 'c> Isp<'a, 'c> {
             if (l.ty.is_none() || type_covers) && !l.var_ {
                 self.local("VariableDeclarationList_type");
                 self.for_type(n, TypeOptions::default());
-            } else if l.ty.is_some_and(|t| matches!(self.a.ty(t).kind, ast::TypeKind::Record { .. })) {
+            } else if l
+                .ty
+                .is_some_and(|t| matches!(self.a.ty(t).kind, ast::TypeKind::Record { .. }))
+            {
                 self.kw("in");
             }
         }
@@ -3888,14 +5057,20 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     pub(super) fn v_while(&mut self, n: usize) {
-        let Some(word) = self.tok_after(self.start(n)) else { return };
+        let Some(word) = self.tok_after(self.start(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
             self.for_command(n);
             return;
         }
-        let Some(a) = self.op_in(Op::LParen, self.span_tok(word).end, self.end(n)) else { return };
-        let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| self.span_tok(i).start);
+        let Some(a) = self.op_in(Op::LParen, self.span_tok(word).end, self.end(n)) else {
+            return;
+        };
+        let closes = self.pair(a).map_or(self.synthetic(self.end(n)).start, |i| {
+            self.span_tok(i).start
+        });
         if self.span_tok(a).end <= self.offset && self.offset <= closes {
             let condition = self.children(n).first().copied();
             let ok = match condition {
@@ -3911,8 +5086,12 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     pub(super) fn v_with(&mut self, n: usize) {
         let parent = self.parent(n);
-        let Some(w) = self.tok_after(self.start(n)) else { return };
-        if self.offset <= self.span_tok(w).start && parent.is_some_and(|p| self.kind(p) == "ClassDeclaration") {
+        let Some(w) = self.tok_after(self.start(n)) else {
+            return;
+        };
+        if self.offset <= self.span_tok(w).start
+            && parent.is_some_and(|p| self.kind(p) == "ClassDeclaration")
+        {
             if let Some(p) = parent {
                 self.class_declaration_kw(p);
             }
@@ -3920,18 +5099,28 @@ impl<'a, 'c> Isp<'a, 'c> {
             self.kw("with");
         } else {
             self.local("WithClause_mixinType");
-            self.for_type(n, TypeOptions { mixable: true, ..TypeOptions::default() });
+            self.for_type(
+                n,
+                TypeOptions {
+                    mixable: true,
+                    ..TypeOptions::default()
+                },
+            );
         }
     }
 
     pub(super) fn v_yield(&mut self, n: usize) {
-        let Some(word) = self.tok_after(self.start(n)) else { return };
+        let Some(word) = self.tok_after(self.start(n)) else {
+            return;
+        };
         if self.offset <= self.span_tok(word).end {
             self.local("Block_statement");
             self.kw("yield");
             return;
         }
-        let pv = self.tok_before(self.end(n)).filter(|&i| self.is_op(i, Op::Semicolon));
+        let pv = self
+            .tok_before(self.end(n))
+            .filter(|&i| self.is_op(i, Op::Semicolon));
         if pv.is_none_or(|p| self.offset <= self.span_tok(p).end) {
             self.local("YieldStatement_expression");
             self.for_expression(n, false, false);

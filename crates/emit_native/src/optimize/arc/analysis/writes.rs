@@ -231,13 +231,7 @@ fn extract<'a>(
         call(s).map(|(callee, ret, writes)| {
             let paths = match ret {
                 ArcHeapReturn::Aliases { parameters, null } => ReturnPaths {
-                    paths: Some(
-                        parameters
-                            .iter()
-                            .copied()
-                            .map(SummaryPath::root)
-                            .collect(),
-                    ),
+                    paths: Some(parameters.iter().copied().map(SummaryPath::root).collect()),
                     null: *null,
                 },
                 ArcHeapReturn::UnknownValue => ReturnPaths::unknown(),
@@ -305,7 +299,11 @@ pub(super) fn extract_with_origins<'a>(
         .collect();
     let mut value_list: Vec<_> = types.keys().copied().collect();
     value_list.sort_by_key(|v| v.0);
-    let ids: HashMap<_, _> = value_list.iter().enumerate().map(|(i, v)| (*v, i)).collect();
+    let ids: HashMap<_, _> = value_list
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (*v, i))
+        .collect();
     let mut aliases = vec![Some(BTreeSet::new()); ids.len()];
     let mut nulls = vec![false; ids.len()];
     let mut opaque_writes = false;
@@ -917,9 +915,7 @@ mod tests {
         g.blocks[0].instructions.push((
             ValueId(2),
             Instruction::ArcStoreStrong {
-                slot: StrongSlot::Global {
-                    symbol: "g".into(),
-                },
+                slot: StrongSlot::Global { symbol: "g".into() },
                 value: Operand::Val(ValueId(1)),
                 mode: StrongStoreMode::Copy,
             },
@@ -986,9 +982,7 @@ mod tests {
                     root: Some(0),
                 },
                 _ => Instruction::ArcStoreStrong {
-                    slot: StrongSlot::Global {
-                        symbol: "g".into(),
-                    },
+                    slot: StrongSlot::Global { symbol: "g".into() },
                     value: Operand::Val(ValueId(0)),
                     mode: if variant == 1 {
                         StrongStoreMode::Copy
@@ -1015,10 +1009,7 @@ mod tests {
                 r["pub"].1.publication_inclusions,
                 PublicationInclusions::Known(BTreeMap::from([(
                     EscapeCause::Global("g".into()),
-                    Some(BTreeSet::from([
-                        SummaryPath::root(0),
-                        SummaryPath::root(1)
-                    ]))
+                    Some(BTreeSet::from([SummaryPath::root(0), SummaryPath::root(1)]))
                 )]))
             );
             let r = super::super::calls::solve(&m, &HashSet::from(["pub"]), 2).unwrap();
@@ -1211,13 +1202,9 @@ mod tests {
             if order {
                 m.functions.reverse();
             }
-            let r = super::super::calls::solve(&m, &HashSet::from(["rec", "sem_base"]), 3)
-                .unwrap();
+            let r = super::super::calls::solve(&m, &HashSet::from(["rec", "sem_base"]), 3).unwrap();
             assert_eq!(r["rec"].1.return_paths, ReturnPaths::unknown());
-            assert_eq!(
-                r["sem_base"].1.return_paths,
-                ReturnPaths::unknown()
-            );
+            assert_eq!(r["sem_base"].1.return_paths, ReturnPaths::unknown());
         }
     }
 
@@ -1377,10 +1364,7 @@ mod tests {
         m.arc_memory = true;
         m.functions.push(f);
         let r = super::super::calls::solve(&m, &HashSet::from(["recursivo"]), 4).unwrap();
-        assert_eq!(
-            r["recursivo"].1.write_inclusions,
-            WriteInclusions::Exceeded
-        );
+        assert_eq!(r["recursivo"].1.write_inclusions, WriteInclusions::Exceeded);
         let mut f = link("phi_crescente", false);
         f.params.push((ValueId(5), "cond".into(), Type::I1));
         f.blocks = vec![
@@ -1596,10 +1580,7 @@ mod tests {
             extract(&f, 4, |_| None).unwrap(),
             expected_set(&[(0, 0), (0, 1), (1, 0), (1, 1)])
         );
-        assert_eq!(
-            extract(&f, 3, |_| None).unwrap(),
-            WriteInclusions::Exceeded
-        );
+        assert_eq!(extract(&f, 3, |_| None).unwrap(), WriteInclusions::Exceeded);
         // A null path does not become an allocation or a fresh argument.
         let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 else {
             unreachable!()

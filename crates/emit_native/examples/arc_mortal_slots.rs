@@ -85,10 +85,7 @@ fn main() -> Result<(), String> {
             // inlines the body, the close of the emitted frame precedes the collection.
             (call("produzir_mortal", vec![]), Type::Void),
             (call("dartforge_arc_collect", vec![]), Type::Void),
-            (
-                call("prova_conferir_fraca", vec![integer(1)]),
-                Type::Void,
-            ),
+            (call("prova_conferir_fraca", vec![integer(1)]), Type::Void),
             (
                 Instruction::ArcStoreStrong {
                     slot: global,
@@ -98,10 +95,7 @@ fn main() -> Result<(), String> {
                 Type::Void,
             ),
             (call("dartforge_arc_collect", vec![]), Type::Void),
-            (
-                call("prova_conferir_fraca", vec![integer(0)]),
-                Type::Void,
-            ),
+            (call("prova_conferir_fraca", vec![integer(0)]), Type::Void),
             (call("prova_fechar_fraca", vec![]), Type::Void),
         ],
     ));

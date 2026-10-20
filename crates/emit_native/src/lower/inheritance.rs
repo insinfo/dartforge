@@ -80,7 +80,6 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         SuperMember::Sdk
     }
 
-
     /// `super.name` inside a `mixin` M: the target is what comes after M in the
     /// linearization of the **dynamic** class of `this` (specification §12.3:
     /// each application of M has its own superclass). The mixin code is
@@ -108,7 +107,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             {
                 continue;
             }
-            let Some(id) = self.ctx.class_id_of(kid) else { continue };
+            let Some(id) = self.ctx.class_id_of(kid) else {
+                continue;
+            };
             if !super::members::linearization(self.ctx, kid).contains(&mixin) {
                 continue;
             }
@@ -159,8 +160,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 distinct.push(*a);
             }
         }
-        let blocks: Vec<(SuperMember, BlockId)> = distinct.iter().map(|a| (*a, self.new_block())).collect();
-        let block_of = |a: SuperMember| blocks.iter().find(|(x, _)| *x == a).map(|(_, b)| *b).expect("block");
+        let blocks: Vec<(SuperMember, BlockId)> =
+            distinct.iter().map(|a| (*a, self.new_block())).collect();
+        let block_of = |a: SuperMember| {
+            blocks
+                .iter()
+                .find(|(x, _)| *x == a)
+                .map(|(_, b)| *b)
+                .expect("block")
+        };
         let join = self.new_block();
         self.terminate(Terminator::Switch {
             val: cls,
@@ -185,44 +193,61 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if entries.is_empty() {
             return Operand::Constant(Constant::Null);
         }
-        self.emit(Instruction::Phi { incoming: entries, ty: Type::Ref }, Type::Ref)
+        self.emit(
+            Instruction::Phi {
+                incoming: entries,
+                ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
     /// `super.name(args)`.
-    pub fn call_super_method(&mut self, name: SymbolId, evaluated: &[Evaluated], span: Span) -> Operand {
+    pub fn call_super_method(
+        &mut self,
+        name: SymbolId,
+        evaluated: &[Evaluated],
+        span: Span,
+    ) -> Operand {
         let Some(this) = self.this_for_super(span) else {
             return Operand::Constant(Constant::Null);
         };
-        self.with_super_target(this, name, false, span, &mut |s, target, this| match target {
-            SuperMember::Function(f) => {
-                if s.ctx.program.functions[f].kind == FunctionKind::Getter {
-                    let v = s.call_direct(f, Some(this), Vec::new());
-                    return s.call_function_value(v, evaluated);
+        self.with_super_target(
+            this,
+            name,
+            false,
+            span,
+            &mut |s, target, this| match target {
+                SuperMember::Function(f) => {
+                    if s.ctx.program.functions[f].kind == FunctionKind::Getter {
+                        let v = s.call_direct(f, Some(this), Vec::new());
+                        return s.call_function_value(v, evaluated);
+                    }
+                    let args = s.match_args(f, evaluated);
+                    s.call_direct(f, Some(this), args)
                 }
-                let args = s.match_args(f, evaluated);
-                s.call_direct(f, Some(this), args)
-            }
-            SuperMember::Field(v) => {
-                let x = s.read_field_with_late_direct(this, v, span);
-                s.call_function_value(x, evaluated)
-            }
-            SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
-            SuperMember::Sdk => match s.ctx.symbol_name(name) {
-                "toString" => s.emit(
-                    Instruction::CallRuntime {
-                        name: "dartforge_to_string_handle".to_string(),
-                        args: vec![(this, Type::Ref)],
-                        ret_ty: Type::Ref,
-                    },
-                    Type::Ref,
-                ),
-                "noSuchMethod" => s.throw_nsm("noSuchMethod"),
-                other => {
-                    let n = other.to_string();
-                    s.unsupported(&format!("SDK `super.{n}`"), span)
+                SuperMember::Field(v) => {
+                    let x = s.read_field_with_late_direct(this, v, span);
+                    s.call_function_value(x, evaluated)
                 }
+                SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
+                SuperMember::Sdk => match s.ctx.symbol_name(name) {
+                    "toString" => s.emit(
+                        Instruction::CallRuntime {
+                            name: "dartforge_to_string_handle".to_string(),
+                            args: vec![(this, Type::Ref)],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    ),
+                    "noSuchMethod" => s.throw_nsm("noSuchMethod"),
+                    other => {
+                        let n = other.to_string();
+                        s.unsupported(&format!("SDK `super.{n}`"), span)
+                    }
+                },
             },
-        })
+        )
     }
 
     /// `super.name` lido.
@@ -230,22 +255,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(this) = self.this_for_super(span) else {
             return Operand::Constant(Constant::Null);
         };
-        self.with_super_target(this, name, false, span, &mut |s, target, this| match target {
-            SuperMember::Function(f) => {
-                if s.ctx.program.functions[f].kind == FunctionKind::Getter {
-                    s.call_direct(f, Some(this), Vec::new())
-                } else {
-                    // Tear-off of `super.m`: binds to the superclass method.
-                    s.method_tearoff(this, f, span)
+        self.with_super_target(
+            this,
+            name,
+            false,
+            span,
+            &mut |s, target, this| match target {
+                SuperMember::Function(f) => {
+                    if s.ctx.program.functions[f].kind == FunctionKind::Getter {
+                        s.call_direct(f, Some(this), Vec::new())
+                    } else {
+                        // Tear-off of `super.m`: binds to the superclass method.
+                        s.method_tearoff(this, f, span)
+                    }
                 }
-            }
-            SuperMember::Field(v) => s.read_field_with_late_direct(this, v, span),
-            SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
-            SuperMember::Sdk => {
-                let n = s.ctx.symbol_name(name).to_string();
-                s.unsupported(&format!("SDK `super.{n}`"), span)
-            }
-        })
+                SuperMember::Field(v) => s.read_field_with_late_direct(this, v, span),
+                SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
+                SuperMember::Sdk => {
+                    let n = s.ctx.symbol_name(name).to_string();
+                    s.unsupported(&format!("SDK `super.{n}`"), span)
+                }
+            },
+        )
     }
 
     /// `super.name = v`.
@@ -254,22 +285,28 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Operand::Constant(Constant::Null);
         };
         let v2 = value.clone();
-        self.with_super_target(this, name, true, span, &mut |s, target, this| match target {
-            SuperMember::Function(f) => {
-                let args = s.match_args(f, &[(None, v2.clone())]);
-                s.call_direct(f, Some(this), args);
-                v2.clone()
-            }
-            SuperMember::Field(v) => {
-                s.store_field(this, v, v2.clone(), span);
-                v2.clone()
-            }
-            SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
-            SuperMember::Sdk => {
-                let n = s.ctx.symbol_name(name).to_string();
-                s.unsupported(&format!("SDK `super.{n} =`"), span)
-            }
-        });
+        self.with_super_target(
+            this,
+            name,
+            true,
+            span,
+            &mut |s, target, this| match target {
+                SuperMember::Function(f) => {
+                    let args = s.match_args(f, &[(None, v2.clone())]);
+                    s.call_direct(f, Some(this), args);
+                    v2.clone()
+                }
+                SuperMember::Field(v) => {
+                    s.store_field(this, v, v2.clone(), span);
+                    v2.clone()
+                }
+                SuperMember::OfMixin => s.unsupported("`super` inside a mixin", span),
+                SuperMember::Sdk => {
+                    let n = s.ctx.symbol_name(name).to_string();
+                    s.unsupported(&format!("SDK `super.{n} =`"), span)
+                }
+            },
+        );
         value
     }
 
@@ -283,13 +320,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let equality = op_name_str == "==";
         let op_name = op_name_str.to_string();
-        self.with_super_target(this, sym, false, span, &mut |s, target, this| match target {
-            SuperMember::Function(f) => {
-                let args = s.match_args(f, &[(None, right.clone())]);
-                s.call_direct(f, Some(this), args)
-            }
-            _ if equality => s.identical(this, right.clone()),
-            _ => s.unsupported(&format!("`super {op_name}`"), span),
-        })
+        self.with_super_target(
+            this,
+            sym,
+            false,
+            span,
+            &mut |s, target, this| match target {
+                SuperMember::Function(f) => {
+                    let args = s.match_args(f, &[(None, right.clone())]);
+                    s.call_direct(f, Some(this), args)
+                }
+                _ if equality => s.identical(this, right.clone()),
+                _ => s.unsupported(&format!("`super {op_name}`"), span),
+            },
+        )
     }
 }

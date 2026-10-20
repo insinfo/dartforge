@@ -386,7 +386,8 @@ impl ClassElement {
     /// functions in that order), which does not depend on the interning order
     /// of the names.
     pub fn constructors(&self) -> Vec<(SymbolId, FunctionElementId)> {
-        let mut v: Vec<(SymbolId, FunctionElementId)> = self.constructors.iter().map(|(&s, &f)| (s, f)).collect();
+        let mut v: Vec<(SymbolId, FunctionElementId)> =
+            self.constructors.iter().map(|(&s, &f)| (s, f)).collect();
         v.sort_by_key(|&(_, f)| f);
         v
     }
@@ -566,7 +567,9 @@ impl Program {
                     l.push(id);
                 }
                 let unit = match f.node {
-                    FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => unit,
+                    FunctionRef::Function { unit, .. } | FunctionRef::Constructor { unit, .. } => {
+                        unit
+                    }
                     FunctionRef::None => continue,
                 };
                 if let Some(l) = x.unit_functions.get_mut(unit.0 as usize) {
@@ -595,7 +598,11 @@ impl Program {
 
     /// The element of the function (or method) declared by node `function`
     /// of unit `unit`: the first one, in id order.
-    pub fn function_of_node(&self, unit: UnitId, function: FunctionId) -> Option<FunctionElementId> {
+    pub fn function_of_node(
+        &self,
+        unit: UnitId,
+        function: FunctionId,
+    ) -> Option<FunctionElementId> {
         let l = self.index().unit_functions.get(unit.0 as usize)?;
         l.iter().copied().find(|&f| matches!(self.function(f).node, FunctionRef::Function { unit: u, function: g } if u == unit && g == function))
     }
@@ -603,19 +610,31 @@ impl Program {
     /// The class declared by node `decl` of unit `unit` (the first one, in id
     /// order).
     pub fn class_of_decl(&self, unit: UnitId, decl: DeclId) -> Option<ClassId> {
-        self.index().unit_classes.get(unit.0 as usize)?.get(&decl).copied()
+        self.index()
+            .unit_classes
+            .get(unit.0 as usize)?
+            .get(&decl)
+            .copied()
     }
 
     /// The typedef declared by node `decl` of unit `unit` (the first one, in
     /// id order).
     pub fn typedef_of_decl(&self, unit: UnitId, decl: DeclId) -> Option<TypedefId> {
-        self.index().unit_typedefs.get(unit.0 as usize)?.get(&decl).copied()
+        self.index()
+            .unit_typedefs
+            .get(unit.0 as usize)?
+            .get(&decl)
+            .copied()
     }
 
     /// The extension declared by node `decl` of unit `unit` (the first one,
     /// in id order).
     pub fn extension_of_decl(&self, unit: UnitId, decl: DeclId) -> Option<ExtensionId> {
-        self.index().unit_extensions.get(unit.0 as usize)?.get(&decl).copied()
+        self.index()
+            .unit_extensions
+            .get(unit.0 as usize)?
+            .get(&decl)
+            .copied()
     }
 
     /// The variable whose node is `node` (the first one, in id order).
@@ -627,7 +646,11 @@ impl Program {
 
     /// The element of the constructor declared by member `member` of unit
     /// `unit`: the first one, in id order.
-    pub fn constructor_of_member(&self, unit: UnitId, member: MemberId) -> Option<FunctionElementId> {
+    pub fn constructor_of_member(
+        &self,
+        unit: UnitId,
+        member: MemberId,
+    ) -> Option<FunctionElementId> {
         let l = self.index().unit_functions.get(unit.0 as usize)?;
         l.iter().copied().find(|&f| matches!(self.function(f).node, FunctionRef::Constructor { unit: u, member: m } if u == unit && m == member))
     }
@@ -639,7 +662,12 @@ impl Program {
     /// The reference of a library, for the rules that belong to the whole
     /// library (merging homonymous classes): the highest among its units'.
     pub fn library_reference(&self, l: LibraryId) -> dartforge_diagnostics::AnalyzerReference {
-        self.library(l).units.iter().map(|&u| self.unit(u).reference).max().unwrap_or_default()
+        self.library(l)
+            .units
+            .iter()
+            .map(|&u| self.unit(u).reference)
+            .max()
+            .unwrap_or_default()
     }
     pub fn library(&self, id: LibraryId) -> &Library {
         &self.libraries[id.0 as usize]
@@ -674,7 +702,11 @@ impl Program {
     /// location): the checkers compute the representative's interface and walk
     /// each declaration's tree.
     pub fn class_representative(&self, c: ClassId) -> ClassId {
-        match self.library(self.class(c).library).representative.get(&Element::Class(c)) {
+        match self
+            .library(self.class(c).library)
+            .representative
+            .get(&Element::Class(c))
+        {
             Some(Element::Class(r)) => *r,
             _ => c,
         }
@@ -695,7 +727,9 @@ impl Program {
     /// T1: does class `c` have a homonym of the same kind in the library (is it
     /// one of the repeated declarations, the first included)?
     pub fn class_with_homonym(&self, c: ClassId) -> bool {
-        self.library(self.class(c).library).representative.contains_key(&Element::Class(c))
+        self.library(self.class(c).library)
+            .representative
+            .contains_key(&Element::Class(c))
     }
 
     /// The library really has augmentations: the `augmentations` (or `macros`)
@@ -705,7 +739,8 @@ impl Program {
     /// filter applies (T1.1 f).
     pub fn library_has_augmentations(&self, lib: LibraryId) -> bool {
         let f = self.library(lib).features;
-        f.has(dartforge_frontend::Feature::Augmentations) || f.has(dartforge_frontend::Feature::Macros)
+        f.has(dartforge_frontend::Feature::Augmentations)
+            || f.has(dartforge_frontend::Feature::Macros)
     }
 
     /// The syntactic members of a class: those of the introductory declaration
@@ -741,22 +776,32 @@ impl Program {
     /// representation).
     pub fn variable_name(&self, v: VariableId) -> Option<(UnitId, Span)> {
         match self.variable(v).node {
-            VariableRef::TopLevel { unit, decl, index } => match &self.unit(unit).ast.decl(decl).kind {
-                ast::DeclKind::Variables(l) => Some((unit, l.variables.get(index)?.name.span)),
-                _ => None,
-            },
-            VariableRef::Field { unit, member, index } => match &self.unit(unit).ast.member(member).kind {
+            VariableRef::TopLevel { unit, decl, index } => {
+                match &self.unit(unit).ast.decl(decl).kind {
+                    ast::DeclKind::Variables(l) => Some((unit, l.variables.get(index)?.name.span)),
+                    _ => None,
+                }
+            }
+            VariableRef::Field {
+                unit,
+                member,
+                index,
+            } => match &self.unit(unit).ast.member(member).kind {
                 ast::MemberKind::Field(l) => Some((unit, l.variables.get(index)?.name.span)),
                 _ => None,
             },
-            VariableRef::EnumConstant { unit, decl, index } => match &self.unit(unit).ast.decl(decl).kind {
-                ast::DeclKind::Enum(e) => Some((unit, e.constants.get(index)?.name.span)),
-                _ => None,
-            },
-            VariableRef::Representation { unit, decl } => match &self.unit(unit).ast.decl(decl).kind {
-                ast::DeclKind::ExtensionType(x) => Some((unit, x.representation_name.span)),
-                _ => None,
-            },
+            VariableRef::EnumConstant { unit, decl, index } => {
+                match &self.unit(unit).ast.decl(decl).kind {
+                    ast::DeclKind::Enum(e) => Some((unit, e.constants.get(index)?.name.span)),
+                    _ => None,
+                }
+            }
+            VariableRef::Representation { unit, decl } => {
+                match &self.unit(unit).ast.decl(decl).kind {
+                    ast::DeclKind::ExtensionType(x) => Some((unit, x.representation_name.span)),
+                    _ => None,
+                }
+            }
             VariableRef::None => None,
         }
     }
@@ -769,11 +814,17 @@ impl Program {
     pub fn non_synthetic_function_name(&self, f: FunctionElementId) -> Option<(UnitId, Span)> {
         let fe = self.function(f);
         match fe.node {
-            FunctionRef::Function { unit, function } => Some((unit, self.unit(unit).ast.function(function).name?.span)),
-            FunctionRef::Constructor { unit, member } => match &self.unit(unit).ast.member(member).kind {
-                ast::MemberKind::Constructor(k) => Some((unit, k.name.unwrap_or(k.class_name).span)),
-                _ => None,
-            },
+            FunctionRef::Function { unit, function } => {
+                Some((unit, self.unit(unit).ast.function(function).name?.span))
+            }
+            FunctionRef::Constructor { unit, member } => {
+                match &self.unit(unit).ast.member(member).kind {
+                    ast::MemberKind::Constructor(k) => {
+                        Some((unit, k.name.unwrap_or(k.class_name).span))
+                    }
+                    _ => None,
+                }
+            }
             FunctionRef::None => match (fe.variable, fe.class) {
                 (Some(v), _) => self.variable_name(v),
                 (None, Some(c)) => self.class_name(c),
@@ -784,9 +835,12 @@ impl Program {
 
     pub fn class_members(&self, id: ClassId) -> Vec<(UnitId, MemberId)> {
         let class = self.class(id);
-        let Some(decl) = class.decl else { return Vec::new() };
+        let Some(decl) = class.decl else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
-        let decls = std::iter::once(decl).chain(self.augmentations.get(&id).into_iter().flatten().copied());
+        let decls =
+            std::iter::once(decl).chain(self.augmentations.get(&id).into_iter().flatten().copied());
         for d in decls {
             let ast = &self.unit(d.unit).ast;
             let members_: &[MemberId] = match &ast.decl(d.decl).kind {
@@ -819,8 +873,15 @@ impl Program {
     }
 
     /// `prefix.name` in a unit's scope (see [`Program::lookup_in_unit`]).
-    pub fn lookup_prefixed_in_unit(&self, unit: UnitId, prefix: SymbolId, name: SymbolId) -> Option<Binding> {
-        self.prefixes_in_unit(unit).get(&prefix).and_then(|ns| ns.get(&name).copied())
+    pub fn lookup_prefixed_in_unit(
+        &self,
+        unit: UnitId,
+        prefix: SymbolId,
+        name: SymbolId,
+    ) -> Option<Binding> {
+        self.prefixes_in_unit(unit)
+            .get(&prefix)
+            .and_then(|ns| ns.get(&name).copied())
     }
 
     /// The import prefixes visible in a unit.

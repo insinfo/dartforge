@@ -243,7 +243,25 @@ fn is_ident_part(c: u32) -> bool {
 
 /// `IsSyntaxCharacterOrSlash`.
 fn is_syntax_or_slash(c: u32) -> bool {
-    matches!(char::from_u32(c), Some('^' | '$' | '\\' | '.' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '|' | '/'))
+    matches!(
+        char::from_u32(c),
+        Some(
+            '^' | '$'
+                | '\\'
+                | '.'
+                | '*'
+                | '+'
+                | '?'
+                | '('
+                | ')'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | '|'
+                | '/'
+        )
+    )
 }
 
 /// `IsUnicodePropertyValueCharacter(char)`: the code arrives truncated to a
@@ -289,7 +307,11 @@ impl Parser<'_> {
         self.next_pos < self.input.len()
     }
     fn next(&self) -> u32 {
-        if self.has_next() { self.read_next().0 } else { END }
+        if self.has_next() {
+            self.read_next().0
+        } else {
+            END
+        }
     }
     fn advance(&mut self) {
         if self.has_next() {
@@ -317,8 +339,13 @@ impl Parser<'_> {
 
     /// `ParseDisjunction`.
     fn disjunction(&mut self) -> R<()> {
-        let mut stack: Vec<State> =
-            vec![State { group: Group::Initial, lookbehind: false, capture_index: 0, name: None, builder: Builder::default() }];
+        let mut stack: Vec<State> = vec![State {
+            group: Group::Initial,
+            lookbehind: false,
+            capture_index: 0,
+            name: None,
+            builder: Builder::default(),
+        }];
         loop {
             let c = self.current;
             let unicode = self.unicode;
@@ -347,9 +374,17 @@ impl Parser<'_> {
                         Some(Term::Other)
                     }
                     Group::Grouping => body,
-                    _ => Some(if state.lookbehind { Term::Lookbehind } else { Term::Lookahead }),
+                    _ => Some(if state.lookbehind {
+                        Term::Lookbehind
+                    } else {
+                        Term::Lookahead
+                    }),
                 };
-                stack.last_mut().expect("initial state").builder.add_atom(term);
+                stack
+                    .last_mut()
+                    .expect("initial state")
+                    .builder
+                    .add_atom(term);
                 true
             } else if c == ch('|') {
                 self.advance();
@@ -359,11 +394,19 @@ impl Parser<'_> {
                 return Err(()); // "Nothing to repeat"
             } else if c == ch('^') || c == ch('$') {
                 self.advance();
-                stack.last_mut().expect("state").builder.add_term(Term::Assertion);
+                stack
+                    .last_mut()
+                    .expect("state")
+                    .builder
+                    .add_term(Term::Assertion);
                 false
             } else if c == ch('.') {
                 self.advance();
-                stack.last_mut().expect("state").builder.add_term(Term::Text);
+                stack
+                    .last_mut()
+                    .expect("state")
+                    .builder
+                    .add_term(Term::Text);
                 true
             } else if c == ch('(') {
                 let new_state = self.open_paren(stack.last().expect("state"))?;
@@ -371,7 +414,11 @@ impl Parser<'_> {
                 false
             } else if c == ch('[') {
                 self.char_class()?;
-                stack.last_mut().expect("state").builder.add_term(Term::Text);
+                stack
+                    .last_mut()
+                    .expect("state")
+                    .builder
+                    .add_term(Term::Text);
                 true
             } else if c == ch('\\') {
                 self.escape(&mut stack)?
@@ -383,7 +430,11 @@ impl Parser<'_> {
                     return Err(()); // "Lone quantifier brackets"
                 }
                 let current = self.current;
-                stack.last_mut().expect("state").builder.add_unicode(current, unicode);
+                stack
+                    .last_mut()
+                    .expect("state")
+                    .builder
+                    .add_unicode(current, unicode);
                 self.advance();
                 true
             };
@@ -414,7 +465,11 @@ impl Parser<'_> {
             if self.current == ch('?') {
                 self.advance();
             }
-            stack.last_mut().expect("state").builder.quantify(min, unicode)?; // "invalid quantifier."
+            stack
+                .last_mut()
+                .expect("state")
+                .builder
+                .quantify(min, unicode)?; // "invalid quantifier."
         }
     }
 
@@ -562,14 +617,22 @@ impl Parser<'_> {
             } else if n == ch('=') || n == ch('!') {
                 self.advance_by(2);
                 lookbehind = false;
-                group = if n == ch('=') { Group::PositiveLookaround } else { Group::NegativeLookaround };
+                group = if n == ch('=') {
+                    Group::PositiveLookaround
+                } else {
+                    Group::NegativeLookaround
+                };
             } else if n == ch('<') {
                 self.advance();
                 let n2 = self.next();
                 if n2 == ch('=') || n2 == ch('!') {
                     self.advance_by(2);
                     lookbehind = true;
-                    group = if n2 == ch('=') { Group::PositiveLookaround } else { Group::NegativeLookaround };
+                    group = if n2 == ch('=') {
+                        Group::PositiveLookaround
+                    } else {
+                        Group::NegativeLookaround
+                    };
                 } else {
                     named = true;
                     self.has_named = true;
@@ -589,7 +652,13 @@ impl Parser<'_> {
                 name = Some(self.group_name()?);
             }
         }
-        Ok(State { group, lookbehind, capture_index: self.captures_started, name, builder: Builder::default() })
+        Ok(State {
+            group,
+            lookbehind,
+            capture_index: self.captures_started,
+            name,
+            builder: Builder::default(),
+        })
     }
 
     /// `ScanForCaptures`.
@@ -1077,7 +1146,9 @@ pub fn is_valid(source: &[u16], unicode: bool) -> bool {
         return false;
     }
     // `PatchNamedBackReferences`.
-    a.named_references.iter().all(|r| a.named_captures.contains(r))
+    a.named_references
+        .iter()
+        .all(|r| a.named_captures.contains(r))
 }
 
 #[cfg(test)]

@@ -10,11 +10,17 @@
 //! `uses-permission` elements, with tag and attribute names in lower case.
 //! Written without compiling or running (2026-10-05).
 
-use super::codes_g::manifest as c;
 use super::Report;
+use super::codes_g::manifest as c;
 use dartforge_diagnostics::Span;
 
-const RELEVANT: [&str; 5] = ["activity", "application", "manifest", "uses-feature", "uses-permission"];
+const RELEVANT: [&str; 5] = [
+    "activity",
+    "application",
+    "manifest",
+    "uses-feature",
+    "uses-permission",
+];
 
 const UNSUPPORTED_HARDWARE: [&str; 37] = [
     "android.hardware.camera",
@@ -56,8 +62,16 @@ const UNSUPPORTED_HARDWARE: [&str; 37] = [
     "android.software.sip.voip",
 ];
 
-const UNSUPPORTED_ORIENTATIONS: [&str; 8] =
-    ["landscape", "portrait", "reverseLandscape", "reversePortrait", "sensorLandscape", "sensorPortrait", "userLandscape", "userPortrait"];
+const UNSUPPORTED_ORIENTATIONS: [&str; 8] = [
+    "landscape",
+    "portrait",
+    "reverseLandscape",
+    "reversePortrait",
+    "sensorLandscape",
+    "sensorPortrait",
+    "userLandscape",
+    "userPortrait",
+];
 
 /// `getImpliedUnsupportedHardware`: the hardware the permission implies.
 fn implied_hardware(permission: &str) -> Option<&'static str> {
@@ -131,7 +145,9 @@ impl Reader<'_> {
     }
 
     fn closing_in_two(&self) -> bool {
-        self.pos + 1 < self.b.len() && (self.b[self.pos] == b'?' || self.b[self.pos] == b'/') && self.b[self.pos + 1] == b'>'
+        self.pos + 1 < self.b.len()
+            && (self.b[self.pos] == b'?' || self.b[self.pos] == b'/')
+            && self.b[self.pos + 1] == b'>'
     }
 
     fn blank(&self) -> bool {
@@ -233,7 +249,14 @@ impl Reader<'_> {
             }
             if relevant {
                 let value = self.source.get(value_start..self.pos)?.to_string();
-                out.push(Attribute { name, value, span: Span { start: name_start, end: self.pos } });
+                out.push(Attribute {
+                    name,
+                    value,
+                    span: Span {
+                        start: name_start,
+                        end: self.pos,
+                    },
+                });
             }
             self.pos += 1;
         };
@@ -258,7 +281,9 @@ impl Reader<'_> {
                 return Tag::Error;
             }
         }
-        let Some(name) = self.source.get(name_start..self.pos).map(str::to_lowercase) else { return Tag::Error };
+        let Some(name) = self.source.get(name_start..self.pos).map(str::to_lowercase) else {
+            return Tag::Error;
+        };
         // `None`: not closed yet; `Some(empty)`: closed the tag.
         let mut closed: Option<bool> = None;
         if self.closing() {
@@ -272,7 +297,11 @@ impl Reader<'_> {
                 self.pos += 1;
             }
             // A closing tag has no attributes.
-            return if self.closing() { Tag::ClosingElement } else { Tag::Error };
+            return if self.closing() {
+                Tag::ClosingElement
+            } else {
+                Tag::Error
+            };
         }
         let relevant = RELEVANT.contains(&name.as_str());
         let (attributes, mut empty) = match closed {
@@ -303,7 +332,12 @@ impl Reader<'_> {
         }
         if relevant {
             let end = (self.pos + 1).min(self.b.len());
-            Tag::Element(Some(Element { name, attributes, children, span: Span { start, end } }))
+            Tag::Element(Some(Element {
+                name,
+                attributes,
+                children,
+                span: Span { start, end },
+            }))
         } else {
             Tag::Element(None)
         }
@@ -311,8 +345,16 @@ impl Reader<'_> {
 }
 
 /// `_reportErrorForNode`: on attribute `key`, or on the whole element.
-fn report(out: &mut Vec<Report>, element: &Element, key: Option<&str>, code: &'static super::NonDartCode, args: &[&str]) {
-    let span = key.and_then(|k| element.attribute(k)).map_or(element.span, |a| a.span);
+fn report(
+    out: &mut Vec<Report>,
+    element: &Element,
+    key: Option<&str>,
+    code: &'static super::NonDartCode,
+    args: &[&str],
+) {
+    let span = key
+        .and_then(|k| element.attribute(k))
+        .map_or(element.span, |a| a.span);
     out.push(Report::new(code, span, args));
 }
 
@@ -320,7 +362,11 @@ fn report(out: &mut Vec<Report>, element: &Element, key: Option<&str>, code: &'s
 /// `AndroidManifest.xml` with text `source`.
 pub fn validate(source: &str) -> Vec<Report> {
     let mut out = Vec::new();
-    let mut reader = Reader { b: source.as_bytes(), source, pos: 0 };
+    let mut reader = Reader {
+        b: source.as_bytes(),
+        source,
+        pos: 0,
+    };
     // Up to the `manifest` element.
     let manifest = loop {
         match reader.tag() {
@@ -331,27 +377,64 @@ pub fn validate(source: &str) -> Vec<Report> {
     };
     let name = "android:name";
     let required = "android:required";
-    let features: Vec<&Element> = manifest.children.iter().filter(|e| e.name == "uses-feature").collect();
-    let permissions: Vec<&Element> = manifest.children.iter().filter(|e| e.name == "uses-permission").collect();
+    let features: Vec<&Element> = manifest
+        .children
+        .iter()
+        .filter(|e| e.name == "uses-feature")
+        .collect();
+    let permissions: Vec<&Element> = manifest
+        .children
+        .iter()
+        .filter(|e| e.name == "uses-permission")
+        .collect();
     // `_validateTouchScreenFeature`.
     let screen = "android.hardware.touchscreen";
     match features.iter().find(|e| e.value(name) == Some(screen)) {
         Some(feature) => {
             if feature.attribute(required).is_none() {
-                report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_HARDWARE, &[screen]);
+                report(
+                    &mut out,
+                    feature,
+                    Some(name),
+                    &c::UNSUPPORTED_CHROME_OS_HARDWARE,
+                    &[screen],
+                );
             } else if feature.value(required) == Some("true") {
-                report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_FEATURE, &[screen]);
+                report(
+                    &mut out,
+                    feature,
+                    Some(name),
+                    &c::UNSUPPORTED_CHROME_OS_FEATURE,
+                    &[screen],
+                );
             }
         }
         None => report(&mut out, &manifest, None, &c::NO_TOUCHSCREEN_FEATURE, &[]),
     }
     // `_validateFeatures`.
     for feature in &features {
-        let Some(value) = feature.value(name).filter(|v| UNSUPPORTED_HARDWARE.contains(v)) else { continue };
+        let Some(value) = feature
+            .value(name)
+            .filter(|v| UNSUPPORTED_HARDWARE.contains(v))
+        else {
+            continue;
+        };
         if feature.attribute(required).is_none() {
-            report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_HARDWARE, &[value]);
+            report(
+                &mut out,
+                feature,
+                Some(name),
+                &c::UNSUPPORTED_CHROME_OS_HARDWARE,
+                &[value],
+            );
         } else if feature.value(required) == Some("true") {
-            report(&mut out, feature, Some(name), &c::UNSUPPORTED_CHROME_OS_FEATURE, &[value]);
+            report(
+                &mut out,
+                feature,
+                Some(name),
+                &c::UNSUPPORTED_CHROME_OS_FEATURE,
+                &[value],
+            );
         }
     }
     // `_validatePermissions`.
@@ -359,22 +442,49 @@ pub fn validate(source: &str) -> Vec<Report> {
     for permission in &permissions {
         if permission.value(name) == Some("android.permission.CAMERA") {
             if !has("android.hardware.camera") || !has("android.hardware.camera.autofocus") {
-                report(&mut out, permission, Some(name), &c::CAMERA_PERMISSIONS_INCOMPATIBLE, &[]);
+                report(
+                    &mut out,
+                    permission,
+                    Some(name),
+                    &c::CAMERA_PERMISSIONS_INCOMPATIBLE,
+                    &[],
+                );
             }
         } else if let Some(hardware) = permission.value(name).and_then(implied_hardware) {
-            report(&mut out, permission, Some(name), &c::PERMISSION_IMPLIES_UNSUPPORTED_HARDWARE, &[hardware]);
+            report(
+                &mut out,
+                permission,
+                Some(name),
+                &c::PERMISSION_IMPLIES_UNSUPPORTED_HARDWARE,
+                &[hardware],
+            );
         }
     }
     // `_validateActivity`, on the activities of the first `application`.
     if let Some(application) = manifest.children.iter().find(|e| e.name == "application") {
         for activity in application.children.iter().filter(|e| e.name == "activity") {
             let orientation = "android:screenorientation";
-            if activity.value(orientation).is_some_and(|v| UNSUPPORTED_ORIENTATIONS.contains(&v)) {
-                report(&mut out, activity, Some(orientation), &c::SETTING_ORIENTATION_ON_ACTIVITY, &[]);
+            if activity
+                .value(orientation)
+                .is_some_and(|v| UNSUPPORTED_ORIENTATIONS.contains(&v))
+            {
+                report(
+                    &mut out,
+                    activity,
+                    Some(orientation),
+                    &c::SETTING_ORIENTATION_ON_ACTIVITY,
+                    &[],
+                );
             }
             let resizable = "android:resizeableactivity";
             if activity.value(resizable) == Some("false") {
-                report(&mut out, activity, Some(resizable), &c::NON_RESIZABLE_ACTIVITY, &[]);
+                report(
+                    &mut out,
+                    activity,
+                    Some(resizable),
+                    &c::NON_RESIZABLE_ACTIVITY,
+                    &[],
+                );
             }
         }
     }
@@ -386,13 +496,22 @@ mod tests {
     use super::*;
 
     fn findings(source: &str) -> Vec<(&'static str, String)> {
-        validate(source).into_iter().map(|r| (r.code.name, source[r.span.start..r.span.end].to_string())).collect()
+        validate(source)
+            .into_iter()
+            .map(|r| (r.code.name, source[r.span.start..r.span.end].to_string()))
+            .collect()
     }
 
     #[test]
     fn no_touchscreen() {
         let source = "<manifest>\n</manifest>\n";
-        assert_eq!(findings(source), vec![("no_touchscreen_feature", "<manifest>\n</manifest>".to_string())]);
+        assert_eq!(
+            findings(source),
+            vec![(
+                "no_touchscreen_feature",
+                "<manifest>\n</manifest>".to_string()
+            )]
+        );
     }
 
     #[test]
@@ -413,11 +532,26 @@ mod tests {
         assert_eq!(
             findings(source),
             vec![
-                ("unsupported_chrome_os_hardware", "android:name=\"android.hardware.nfc".to_string()),
-                ("camera_permissions_incompatible", "android:name=\"android.permission.CAMERA".to_string()),
-                ("permission_implies_unsupported_hardware", "android:name=\"android.permission.SEND_SMS".to_string()),
-                ("setting_orientation_on_activity", "android:screenOrientation=\"portrait".to_string()),
-                ("non_resizable_activity", "android:resizeableActivity=\"false".to_string()),
+                (
+                    "unsupported_chrome_os_hardware",
+                    "android:name=\"android.hardware.nfc".to_string()
+                ),
+                (
+                    "camera_permissions_incompatible",
+                    "android:name=\"android.permission.CAMERA".to_string()
+                ),
+                (
+                    "permission_implies_unsupported_hardware",
+                    "android:name=\"android.permission.SEND_SMS".to_string()
+                ),
+                (
+                    "setting_orientation_on_activity",
+                    "android:screenOrientation=\"portrait".to_string()
+                ),
+                (
+                    "non_resizable_activity",
+                    "android:resizeableActivity=\"false".to_string()
+                ),
             ]
         );
     }

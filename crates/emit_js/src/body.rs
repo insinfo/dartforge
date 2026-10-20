@@ -1,7 +1,7 @@
 //! Body emitter: scopes, local types, rti environment and statements.
 
 use crate::ctx::{Ctx, Member, MemberKind};
-use crate::js::{self, Js, Writer, P_ASSIGN, P_COND, P_UNARY};
+use crate::js::{self, Js, P_ASSIGN, P_COND, P_UNARY, Writer};
 use crate::module::ModState;
 use crate::ty::{ParameterTypes, Ty};
 use dartforge_elements::model::{ClassId, Element, FunctionKind, LibraryId, UnitId};
@@ -152,12 +152,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             crate::emit_line!(self.w, "let {jsn} = null;");
         }
         if cond != "true" {
-            crate::emit_line!(self.w, "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));");
+            crate::emit_line!(
+                self.w,
+                "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));"
+            );
             self.m.use_sdk("core");
         }
     }
 
-    pub fn new(ctx: &'m Ctx<'a>, m: &'m ModState, unit: UnitId, class: Option<ClassId>, is_static: bool) -> Self {
+    pub fn new(
+        ctx: &'m Ctx<'a>,
+        m: &'m ModState,
+        unit: UnitId,
+        class: Option<ClassId>,
+        is_static: bool,
+    ) -> Self {
         let lib = ctx.program.unit(unit).library;
         FnEmitter {
             ctx,
@@ -203,7 +212,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 .then(|| ctx.sym("_"))
                 .flatten(),
             wildcard_params: HashMap::new(),
-            shorthands: ctx.program.library(lib).features.has(dartforge_frontend::Feature::DotShorthands),
+            shorthands: ctx
+                .program
+                .library(lib)
+                .features
+                .has(dartforge_frontend::Feature::DotShorthands),
             shorthand_contexts: HashMap::new(),
             speculating: 0,
             shared_params: HashMap::new(),
@@ -257,7 +270,16 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             n += 1;
             js = format!("{base}${n}");
         }
-        self.scopes.last_mut().expect("scope").insert(sym, Local { js: js.clone(), ty, lazy_init: None, late_check: false, late_final: false });
+        self.scopes.last_mut().expect("scope").insert(
+            sym,
+            Local {
+                js: js.clone(),
+                ty,
+                lazy_init: None,
+                late_check: false,
+                late_final: false,
+            },
+        );
         js
     }
     /// JS name of a wildcard: `t$wN`. The `t$` prefix is reserved for
@@ -287,11 +309,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if let Some(j) = self.wildcard_params.get(&n.span.start) {
             return j.clone();
         }
-        self.lookup_local(n.sym).map(|l| l.js.clone()).unwrap_or_else(|| js::ident(self.name(n.sym)))
+        self.lookup_local(n.sym)
+            .map(|l| l.js.clone())
+            .unwrap_or_else(|| js::ident(self.name(n.sym)))
     }
 
     pub fn declare_js(&mut self, sym: SymbolId, js: String, ty: Ty) {
-        self.scopes.last_mut().expect("scope").insert(sym, Local { js, ty, lazy_init: None, late_check: false, late_final: false });
+        self.scopes.last_mut().expect("scope").insert(
+            sym,
+            Local {
+                js,
+                ty,
+                lazy_init: None,
+                late_check: false,
+                late_final: false,
+            },
+        );
     }
     pub fn lookup_local(&self, sym: SymbolId) -> Option<&Local> {
         for s in self.scopes.iter().rev() {
@@ -328,7 +361,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if t.is_dynamic() {
             return None;
         }
-        self.ctx.as_super(&t.non_null(), target).and_then(|s| s.args().first().cloned())
+        self.ctx
+            .as_super(&t.non_null(), target)
+            .and_then(|s| s.args().first().cloned())
     }
 
     pub fn fresh_label(&mut self) -> String {
@@ -407,7 +442,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// DDC's `_assertInterop`: a function passed to JS without a direct
     /// `allowInterop` becomes `dart.assertInterop(f)` (fails at run time if not wrapped).
     pub fn assert_interop(&self, js: Js, ty: &Ty) -> Js {
-        let is_fn = matches!(ty, Ty::Fn { .. }) || ty.class().is_some_and(|c| Some(c) == self.ctx.function_);
+        let is_fn = matches!(ty, Ty::Fn { .. })
+            || ty.class().is_some_and(|c| Some(c) == self.ctx.function_);
         if is_fn && !js.code.starts_with("js_util.allowInterop(") {
             return Js::prim(format!("dart.assertInterop({})", js.code));
         }
@@ -431,13 +467,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let access = self.member_access(&this_ty, &n, true);
                 (format!("this{access}"), self.ctx.member_ty(&m))
             }
-            crate::expr::IdentTarget::Element(Element::Function(fid)) if self.ctx.is_js_member(fid) => {
+            crate::expr::IdentTarget::Element(Element::Function(fid))
+                if self.ctx.is_js_member(fid) =>
+            {
                 let f = self.ctx.program.function(fid);
-                (self.ctx.js_static_ref(None, f.library, &MemberKind::Setter(fid), &n), Ty::Dynamic)
+                (
+                    self.ctx
+                        .js_static_ref(None, f.library, &MemberKind::Setter(fid), &n),
+                    Ty::Dynamic,
+                )
             }
             crate::expr::IdentTarget::Element(Element::Variable(vid)) => {
                 let var = self.ctx.program.variable(vid);
-                (format!("{}{}", self.lib_var(var.library), js::prop_access(&n)), self.ctx.var_ty(vid))
+                (
+                    format!("{}{}", self.lib_var(var.library), js::prop_access(&n)),
+                    self.ctx.var_ty(vid),
+                )
             }
             _ => (js::ident(&n), Ty::Dynamic),
         }
@@ -450,9 +495,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // by the exported name, as it is declared.
         if self.ctx.sdk.is_some() {
             if let Some(m) = self.ctx.lookup_member(recv_ty, name, setter) {
-                if let MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) = m.kind {
+                if let MemberKind::Method(f) | MemberKind::Getter(f) | MemberKind::Setter(f) =
+                    m.kind
+                {
                     if let Some(x) = crate::own_sdk::export_name(self.ctx, f) {
-                        return if x.contains('.') { format!("[{x}]") } else { js::prop_access(x) };
+                        return if x.contains('.') {
+                            format!("[{x}]")
+                        } else {
+                            js::prop_access(x)
+                        };
                     }
                 }
             }
@@ -513,19 +564,34 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 if let Some(x) = crate::own_sdk::export_name(self.ctx, fid) {
                     return Some((format!("{}{}", self.lib_var(lib), js::prop_access(x)), ty));
                 }
-                let js = format!("{}{}", self.lib_var(lib), js::prop_access(&top_level_name(n)));
+                let js = format!(
+                    "{}{}",
+                    self.lib_var(lib),
+                    js::prop_access(&top_level_name(n))
+                );
                 Some((js, ty))
             }
             Element::Variable(vid) => {
                 let v = self.ctx.program.variable(vid);
                 let n = self.name(v.name);
                 if self.ctx.is_js_var(vid) {
-                    return Some((self.ctx.js_static_ref(None, v.library, &MemberKind::Field(vid), n), self.ctx.var_ty(vid)));
+                    return Some((
+                        self.ctx
+                            .js_static_ref(None, v.library, &MemberKind::Field(vid), n),
+                        self.ctx.var_ty(vid),
+                    ));
                 }
                 if let Some(x) = crate::own_sdk::export_name_var(self.ctx, vid) {
-                    return Some((format!("{}{}", self.lib_var(v.library), js::prop_access(x)), self.ctx.var_ty(vid)));
+                    return Some((
+                        format!("{}{}", self.lib_var(v.library), js::prop_access(x)),
+                        self.ctx.var_ty(vid),
+                    ));
                 }
-                let js = format!("{}{}", self.lib_var(v.library), js::prop_access(&top_level_name(n)));
+                let js = format!(
+                    "{}{}",
+                    self.lib_var(v.library),
+                    js::prop_access(&top_level_name(n))
+                );
                 Some((js, self.ctx.var_ty(vid)))
             }
             Element::Typedef(_) | Element::Extension(_) | Element::Prefix(..) => None,
@@ -539,16 +605,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Type parameters in scope by name (class + functions).
     pub fn type_param_by_name(&self, name: &str) -> Option<Ty> {
         for (id, js) in &self.fn_type_params {
-            let pname = self.ctx.param_names.borrow().get(id).cloned().unwrap_or_default();
+            let pname = self
+                .ctx
+                .param_names
+                .borrow()
+                .get(id)
+                .cloned()
+                .unwrap_or_default();
             if pname == name {
                 let _ = js;
-                return Some(Ty::Param { id: *id, name: name.to_string(), nullable: false });
+                return Some(Ty::Param {
+                    id: *id,
+                    name: name.to_string(),
+                    nullable: false,
+                });
             }
         }
         if let Some(c) = self.class {
             for p in &self.ctx.class_params[c.0 as usize] {
                 if p.name == name {
-                    return Some(Ty::Param { id: p.id, name: name.to_string(), nullable: false });
+                    return Some(Ty::Param {
+                        id: p.id,
+                        name: name.to_string(),
+                        nullable: false,
+                    });
                 }
             }
         }
@@ -589,10 +669,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 match binding.and_then(|b| b.getter) {
                     Some(Element::Class(c)) => {
                         let class = self.ctx.program.class(c);
-                        if class.kind == dartforge_elements::model::ClassKind::ExtensionType && !self.ctx.interop_ext_types.contains(&c) {
+                        if class.kind == dartforge_elements::model::ClassKind::ExtensionType
+                            && !self.ctx.interop_ext_types.contains(&c)
+                        {
                             if let Some(rep) = class.representation {
                                 let mut map = HashMap::new();
-                                for (p, a) in self.ctx.class_params[c.0 as usize].iter().zip(args.iter()) {
+                                for (p, a) in
+                                    self.ctx.class_params[c.0 as usize].iter().zip(args.iter())
+                                {
                                     map.insert(p.id, a.clone());
                                 }
                                 let t = self.ctx.var_ty(rep).subst_prop(&map);
@@ -601,7 +685,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         }
                         if Some(c) == self.ctx.future_or {
                             let arg = args.into_iter().next().unwrap_or(Ty::Dynamic);
-                            return Ty::FutureOr { arg: Box::new(arg), nullable };
+                            return Ty::FutureOr {
+                                arg: Box::new(arg),
+                                nullable,
+                            };
                         }
                         let nparams = self.ctx.class_params[c.0 as usize].len();
                         let mut args = args;
@@ -612,21 +699,36 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             // itself (`instanciar_para_limites` of the shared
                             // inference).
                             let p = &self.ctx.class_params[c.0 as usize][args.len()];
-                            let explicit = self.ctx.table.param(dartforge_types::table::TypeParamId(p.id)).explicit;
+                            let explicit = self
+                                .ctx
+                                .table
+                                .param(dartforge_types::table::TypeParamId(p.id))
+                                .explicit;
                             // A bound that references the class's own parameters
                             // (`class A<E extends A<E>>`): they count as `dynamic`
                             // in the bound (raw `A` is `A<A<dynamic>>`), otherwise
                             // the recipe references an out-of-scope parameter and
                             // the rti recurses forever.
                             let bound = if p.bound.mentions_params() {
-                                let map: HashMap<u32, Ty> = self.ctx.class_params[c.0 as usize].iter().map(|q| (q.id, Ty::Dynamic)).collect();
+                                let map: HashMap<u32, Ty> = self.ctx.class_params[c.0 as usize]
+                                    .iter()
+                                    .map(|q| (q.id, Ty::Dynamic))
+                                    .collect();
                                 p.bound.subst(&map)
                             } else {
                                 (*p.bound).clone()
                             };
-                            args.push(if p.bound.is_dynamic() || !explicit { Ty::Dynamic } else { bound });
+                            args.push(if p.bound.is_dynamic() || !explicit {
+                                Ty::Dynamic
+                            } else {
+                                bound
+                            });
                         }
-                        Ty::Iface { class: c, args, nullable }
+                        Ty::Iface {
+                            class: c,
+                            args,
+                            nullable,
+                        }
                     }
                     Some(Element::Typedef(tid)) => {
                         let data = &self.ctx.outline.typedefs[tid.0 as usize];
@@ -640,7 +742,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     _ => Ty::Dynamic,
                 }
             }
-            ast::TypeKind::Function { return_type, type_params, parameters } => {
+            ast::TypeKind::Function {
+                return_type,
+                type_params,
+                parameters,
+            } => {
                 // Type parameters of the function type: new ids.
                 let mut tps = Vec::new();
                 let mut scoped = self.fn_type_params.clone();
@@ -663,20 +769,38 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         *p.bound = bt;
                     } else {
                         *p.bound = self.ctx.t_object_q();
-                        self.ctx.param_bounds.borrow_mut().insert(p.id, self.ctx.t_object_q());
+                        self.ctx
+                            .param_bounds
+                            .borrow_mut()
+                            .insert(p.id, self.ctx.t_object_q());
                     }
                 }
-                let ret = return_type.map(|r| sub.resolve_type(r)).unwrap_or(Ty::Dynamic);
+                let ret = return_type
+                    .map(|r| sub.resolve_type(r))
+                    .unwrap_or(Ty::Dynamic);
                 let (pos, opt, named) = sub.resolve_params(parameters);
                 scoped.truncate(saved_len);
-                Ty::Fn { type_params: tps, ret: Box::new(ret), pos, opt, named, nullable }
+                Ty::Fn {
+                    type_params: tps,
+                    ret: Box::new(ret),
+                    pos,
+                    opt,
+                    named,
+                    nullable,
+                }
             }
             ast::TypeKind::Record { positional, named } => {
                 let pos = positional.iter().map(|t| self.resolve_type(*t)).collect();
-                let mut named: Vec<(String, Ty)> =
-                    named.iter().map(|(n, t)| (self.name(n.sym).to_string(), self.resolve_type(*t))).collect();
+                let mut named: Vec<(String, Ty)> = named
+                    .iter()
+                    .map(|(n, t)| (self.name(n.sym).to_string(), self.resolve_type(*t)))
+                    .collect();
                 named.sort_by(|a, b| a.0.cmp(&b.0));
-                Ty::Record { pos, named, nullable }
+                Ty::Record {
+                    pos,
+                    named,
+                    nullable,
+                }
             }
         }
     }
@@ -699,9 +823,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             match p.kind {
                 ast::ParameterKind::Required => pos.push(t),
                 ast::ParameterKind::Optional => opt.push(t),
-                ast::ParameterKind::Named => {
-                    named.push((p.external_name().map(|n| self.name(n.sym).to_string()).unwrap_or_default(), t, p.required))
-                }
+                ast::ParameterKind::Named => named.push((
+                    p.external_name()
+                        .map(|n| self.name(n.sym).to_string())
+                        .unwrap_or_default(),
+                    t,
+                    p.required,
+                )),
             }
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));
@@ -713,7 +841,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if let Some(fp) = &p.function_parameters {
             let ret = p.ty.map(|t| self.resolve_type(t)).unwrap_or(Ty::Dynamic);
             let (pos, opt, named) = self.resolve_params(fp);
-            return Ty::Fn { type_params: vec![], ret: Box::new(ret), pos, opt, named, nullable: false };
+            return Ty::Fn {
+                type_params: vec![],
+                ret: Box::new(ret),
+                pos,
+                opt,
+                named,
+                nullable: false,
+            };
         }
         match p.ty {
             Some(t) => self.resolve_type(t),
@@ -728,7 +863,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Recipe of a type; `unbound` are the parameters of nested generic function
     /// types (`0^`), `used_fn` accumulates the function parameters used,
     /// `used_class` flags use of the class's parameters.
-    fn recipe(&self, t: &Ty, unbound: &mut Vec<u32>, used_fn: &mut Vec<u32>, used_class: &mut bool) -> String {
+    fn recipe(
+        &self,
+        t: &Ty,
+        unbound: &mut Vec<u32>,
+        used_fn: &mut Vec<u32>,
+        used_class: &mut bool,
+    ) -> String {
         match t {
             Ty::Dynamic => "@".into(),
             Ty::Void => "~".into(),
@@ -737,7 +878,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 Some(n) => self.ctx.class_recipe(n),
                 None => "core|Null".into(),
             },
-            Ty::Iface { class, args, nullable } => {
+            Ty::Iface {
+                class,
+                args,
+                nullable,
+            } => {
                 // Interop extension type: the recipe is that of the
                 // representation type (`JSArray<JSString>` →
                 // `_interceptors|JSArray<core|Object?>`, `JSString` →
@@ -754,7 +899,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let args = self.ctx.args_at_arity(*class, args);
                 if !args.is_empty() {
                     s.push('<');
-                    let parts: Vec<String> = args.iter().map(|a| self.recipe(a, unbound, used_fn, used_class)).collect();
+                    let parts: Vec<String> = args
+                        .iter()
+                        .map(|a| self.recipe(a, unbound, used_fn, used_class))
+                        .collect();
                     s.push_str(&parts.join(","));
                     s.push('>');
                 }
@@ -777,7 +925,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     return format!("{i}^{q}");
                 }
                 if let Some(c) = self.class {
-                    if self.ctx.class_params[c.0 as usize].iter().any(|p| p.id == *id) {
+                    if self.ctx.class_params[c.0 as usize]
+                        .iter()
+                        .any(|p| p.id == *id)
+                    {
                         *used_class = true;
                         return format!("{}.{}{}", self.ctx.class_name(c), name, q);
                     }
@@ -797,26 +948,48 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let bt = if *nullable { b.with_nullable(true) } else { b };
                 self.recipe(&bt, unbound, used_fn, used_class)
             }
-            Ty::Fn { type_params, ret, pos, opt, named, nullable } => {
+            Ty::Fn {
+                type_params,
+                ret,
+                pos,
+                opt,
+                named,
+                nullable,
+            } => {
                 let saved = unbound.clone();
                 let mut new_unbound: Vec<u32> = type_params.iter().map(|p| p.id).collect();
                 new_unbound.extend(saved.iter().cloned());
                 *unbound = new_unbound;
                 let mut s = self.recipe(ret, unbound, used_fn, used_class);
                 s.push('(');
-                let mut parts: Vec<String> = pos.iter().map(|a| self.recipe(a, unbound, used_fn, used_class)).collect();
+                let mut parts: Vec<String> = pos
+                    .iter()
+                    .map(|a| self.recipe(a, unbound, used_fn, used_class))
+                    .collect();
                 if !opt.is_empty() {
-                    let o: Vec<String> = opt.iter().map(|a| self.recipe(a, unbound, used_fn, used_class)).collect();
+                    let o: Vec<String> = opt
+                        .iter()
+                        .map(|a| self.recipe(a, unbound, used_fn, used_class))
+                        .collect();
                     parts.push(format!("[{}]", o.join(",")));
                 }
                 if !named.is_empty() {
                     // The rti compares named parameters in name order: the order
                     // is that of the name that goes into the JS (`Ctx::named_key`).
-                    let mut ns: Vec<(String, &Ty, bool)> = named.iter().map(|(n, t, r)| (self.ctx.named_key(n), t, *r)).collect();
+                    let mut ns: Vec<(String, &Ty, bool)> = named
+                        .iter()
+                        .map(|(n, t, r)| (self.ctx.named_key(n), t, *r))
+                        .collect();
                     ns.sort_by(|a, b| a.0.cmp(&b.0));
                     let n: Vec<String> = ns
                         .iter()
-                        .map(|(n, t, r)| format!("{n}{}{}", if *r { "!" } else { ":" }, self.recipe(t, unbound, used_fn, used_class)))
+                        .map(|(n, t, r)| {
+                            format!(
+                                "{n}{}{}",
+                                if *r { "!" } else { ":" },
+                                self.recipe(t, unbound, used_fn, used_class)
+                            )
+                        })
                         .collect();
                     parts.push(format!("{{{}}}", n.join(",")));
                 }
@@ -824,7 +997,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 s.push(')');
                 if !type_params.is_empty() {
                     s.push('<');
-                    let b: Vec<String> = type_params.iter().map(|p| self.recipe(&p.bound, unbound, used_fn, used_class)).collect();
+                    let b: Vec<String> = type_params
+                        .iter()
+                        .map(|p| self.recipe(&p.bound, unbound, used_fn, used_class))
+                        .collect();
                     s.push_str(&b.join(","));
                     s.push('>');
                 }
@@ -834,13 +1010,24 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 s
             }
-            Ty::Record { pos, named, nullable } => {
+            Ty::Record {
+                pos,
+                named,
+                nullable,
+            } => {
                 let mut s = String::from("+");
                 let names: Vec<&str> = named.iter().map(|(n, _)| n.as_str()).collect();
                 s.push_str(&names.join(","));
                 s.push('(');
-                let mut parts: Vec<String> = pos.iter().map(|a| self.recipe(a, unbound, used_fn, used_class)).collect();
-                parts.extend(named.iter().map(|(_, t)| self.recipe(t, unbound, used_fn, used_class)));
+                let mut parts: Vec<String> = pos
+                    .iter()
+                    .map(|a| self.recipe(a, unbound, used_fn, used_class))
+                    .collect();
+                parts.extend(
+                    named
+                        .iter()
+                        .map(|(_, t)| self.recipe(t, unbound, used_fn, used_class)),
+                );
                 s.push_str(&parts.join(","));
                 s.push(')');
                 if *nullable {
@@ -883,7 +1070,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         let class_env = if used_class {
-            Some(if self.sig_mode || self.factory_ti { "_ti".to_string() } else { "dart_rti.instanceType(this)".to_string() })
+            Some(if self.sig_mode || self.factory_ti {
+                "_ti".to_string()
+            } else {
+                "dart_rti.instanceType(this)".to_string()
+            })
         } else {
             None
         };
@@ -900,7 +1091,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             recipe = recipe.replace(&format!("\u{1}{id}\u{2}"), &(i + 1).to_string());
         }
         if class_env.is_none() && ordered.is_empty() {
-            return format!("dart_rti._Universe.eval(dart_rti._theUniverse(), {}, true)", js::string_literal(&recipe));
+            return format!(
+                "dart_rti._Universe.eval(dart_rti._theUniverse(), {}, true)",
+                js::string_literal(&recipe)
+            );
         }
         let mut env = match class_env {
             Some(e) => e,
@@ -921,15 +1115,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.register_recipe_classes(a);
                 }
             }
-            Ty::Fn { ret, pos, opt, named, type_params, .. } => {
+            Ty::Fn {
+                ret,
+                pos,
+                opt,
+                named,
+                type_params,
+                ..
+            } => {
                 self.register_recipe_classes(ret);
-                pos.iter().chain(opt.iter()).for_each(|a| self.register_recipe_classes(a));
-                named.iter().for_each(|(_, t, _)| self.register_recipe_classes(t));
-                type_params.iter().for_each(|p| self.register_recipe_classes(&p.bound));
+                pos.iter()
+                    .chain(opt.iter())
+                    .for_each(|a| self.register_recipe_classes(a));
+                named
+                    .iter()
+                    .for_each(|(_, t, _)| self.register_recipe_classes(t));
+                type_params
+                    .iter()
+                    .for_each(|p| self.register_recipe_classes(&p.bound));
             }
             Ty::Record { pos, named, .. } => {
                 pos.iter().for_each(|a| self.register_recipe_classes(a));
-                named.iter().for_each(|(_, t)| self.register_recipe_classes(t));
+                named
+                    .iter()
+                    .for_each(|(_, t)| self.register_recipe_classes(t));
             }
             Ty::FutureOr { arg, .. } => self.register_recipe_classes(arg),
             _ => {}
@@ -938,17 +1147,33 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// `T[_is](x)` / `typeof x == 'string'`.
     pub fn is_test(&self, value: &Js, t: &Ty) -> Js {
-        if let Ty::Iface { class, args, nullable: false } = t {
+        if let Ty::Iface {
+            class,
+            args,
+            nullable: false,
+        } = t
+        {
             if args.is_empty() {
                 if Some(*class) == self.ctx.string_ {
-                    return Js::new(format!("typeof {} == 'string'", value.at(P_UNARY + 1)), crate::js::P_EQ);
+                    return Js::new(
+                        format!("typeof {} == 'string'", value.at(P_UNARY + 1)),
+                        crate::js::P_EQ,
+                    );
                 }
                 if Some(*class) == self.ctx.bool_ {
-                    return Js::new(format!("typeof {} == 'boolean'", value.at(P_UNARY + 1)), crate::js::P_EQ);
+                    return Js::new(
+                        format!("typeof {} == 'boolean'", value.at(P_UNARY + 1)),
+                        crate::js::P_EQ,
+                    );
                 }
             }
         }
-        if let Ty::Iface { class, nullable: true, .. } = t {
+        if let Ty::Iface {
+            class,
+            nullable: true,
+            ..
+        } = t
+        {
             if Some(*class) == self.ctx.object {
                 return Js::prim("true");
             }
@@ -963,7 +1188,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if matches!(t, Ty::Dynamic | Ty::Void) {
             return value.clone();
         }
-        if let Ty::Iface { class, nullable: true, .. } = t {
+        if let Ty::Iface {
+            class,
+            nullable: true,
+            ..
+        } = t
+        {
             if Some(*class) == self.ctx.object {
                 return value.clone();
             }
@@ -977,7 +1207,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Declares a function's parameters in the current scope and returns the
     /// list of JS parameters (`a, b = 1, opts`) and the prologue (named ones).
-    pub fn declare_params(&mut self, params: &[ast::Parameter], tys: Option<&Ty>) -> (String, String) {
+    pub fn declare_params(
+        &mut self,
+        params: &[ast::Parameter],
+        tys: Option<&Ty>,
+    ) -> (String, String) {
         let (js, prologue, _) = self.declare_params_with_names(params, tys);
         (js, prologue)
     }
@@ -985,13 +1219,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// Like [`Self::declare_params`], also returning, in declaration order,
     /// `(parameter kind, Dart name, JS name)` of each one — the `noSuchMethod`
     /// forwarder passes each parameter on to the `Invocation`.
-    pub fn declare_params_with_names(&mut self, params: &[ast::Parameter], tys: Option<&Ty>) -> ParameterDeclaration {
+    pub fn declare_params_with_names(
+        &mut self,
+        params: &[ast::Parameter],
+        tys: Option<&Ty>,
+    ) -> ParameterDeclaration {
         let mut names: Vec<(ast::ParameterKind, String, String)> = Vec::new();
         let mut js_params: Vec<String> = Vec::new();
         let mut prologue = String::new();
         let mut has_named = false;
         let (pos_expected, opt_expected, named_expected): ParameterTypes = match tys {
-            Some(Ty::Fn { pos, opt, named, .. }) => (pos.clone(), opt.clone(), named.clone()),
+            Some(Ty::Fn {
+                pos, opt, named, ..
+            }) => (pos.clone(), opt.clone(), named.clone()),
             _ => (vec![], vec![], vec![]),
         };
         let mut pi = 0;
@@ -1003,8 +1243,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let external = p.external_name().unwrap_or(name);
             let mut ty = if p.ty.is_none() && p.function_parameters.is_none() {
                 match p.kind {
-                    ast::ParameterKind::Required => pos_expected.get(pi).cloned().unwrap_or(Ty::Dynamic),
-                    ast::ParameterKind::Optional => opt_expected.get(oi).cloned().unwrap_or(Ty::Dynamic),
+                    ast::ParameterKind::Required => {
+                        pos_expected.get(pi).cloned().unwrap_or(Ty::Dynamic)
+                    }
+                    ast::ParameterKind::Optional => {
+                        opt_expected.get(oi).cloned().unwrap_or(Ty::Dynamic)
+                    }
                     ast::ParameterKind::Named => named_expected
                         .iter()
                         .find(|(n, _, _)| n == self.name(external.sym))
@@ -1017,7 +1261,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             if p.this_ {
                 // `this.x`: the field's type.
                 if let Some(c) = self.class {
-                    if let Some(m) = self.ctx.lookup_member(&self.ctx.this_ty(c), self.name(name.sym), false) {
+                    if let Some(m) =
+                        self.ctx
+                            .lookup_member(&self.ctx.this_ty(c), self.name(name.sym), false)
+                    {
                         if p.ty.is_none() {
                             ty = self.ctx.member_ty(&m);
                         }
@@ -1102,13 +1349,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 // denotes (`return` already unwraps the `Future`).
                 let future = match (&self.async_kind, &expected) {
                     (AsyncKind::Async, Ty::Iface { args, .. }) if !args.is_empty() => {
-                        Some(Ty::FutureOr { arg: Box::new(args[0].clone()), nullable: false })
+                        Some(Ty::FutureOr {
+                            arg: Box::new(args[0].clone()),
+                            nullable: false,
+                        })
                     }
                     (AsyncKind::Async, Ty::FutureOr { .. }) => Some(expected.clone()),
                     _ => None,
                 };
                 let (js, ty) = match future {
-                    Some(ctx) => self.with_shorthand_context(*e, &ctx, |s| s.emit_expr(*e, Some(&expected))),
+                    Some(ctx) => {
+                        self.with_shorthand_context(*e, &ctx, |s| s.emit_expr(*e, Some(&expected)))
+                    }
                     None => self.emit_expr(*e, Some(&expected)),
                 };
                 self.returns.push(ty);
@@ -1131,7 +1383,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     /// Builds the full text of a function: `head` is the header
     /// (`function(a) {`, `(a) => {`, `m(a) {`); applies the async/generator transformation.
-    pub fn wrap_async_head(&self, kind: AsyncKind, head: &str, prologue: &str, body: &str, ret_ty: &Ty) -> String {
+    pub fn wrap_async_head(
+        &self,
+        kind: AsyncKind,
+        head: &str,
+        prologue: &str,
+        body: &str,
+        ret_ty: &Ty,
+    ) -> String {
         let inner_ty = match ret_ty {
             Ty::Iface { args, .. } if !args.is_empty() => args[0].clone(),
             Ty::FutureOr { arg, .. } => (**arg).clone(),
@@ -1221,7 +1480,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     crate::emit_line!(self.w, "let {jsn} = null;");
                 }
                 if cond != "true" {
-                    crate::emit_line!(self.w, 
+                    crate::emit_line!(
+                        self.w,
                         "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));"
                     );
                     self.m.use_sdk("core");
@@ -1239,7 +1499,13 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 let js = self.emit_discarded(*e);
                 crate::emit_line!(self.w, "{};", js.code);
             }
-            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+            StmtKind::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 if let Some(pat) = case_pattern {
                     let (vjs, vty) = self.emit_expr(*condition, None);
                     let t = self.temp();
@@ -1254,7 +1520,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     let mut full = cond;
                     if let Some(g) = guard {
                         let (gjs, _) = self.emit_expr(*g, Some(&self.ctx.t_bool()));
-                        full = format!("{} && {}", paren_if_needed(&full), gjs.at(crate::js::P_AND));
+                        full =
+                            format!("{} && {}", paren_if_needed(&full), gjs.at(crate::js::P_AND));
                     }
                     crate::open_block!(self.w, "if ({full}) {{");
                     self.emit_stmt(*then);
@@ -1328,7 +1595,13 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 let (cjs, _) = self.emit_cond(*condition);
                 crate::close_block!(self.w, "}} while ({cjs});");
             }
-            StmtKind::For { init, condition, updates, body, .. } => {
+            StmtKind::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 self.push_scope();
                 let init_js = match init {
                     Some(ast::ForInit::Variables(list)) => {
@@ -1363,13 +1636,19 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 let counter = self.positive_counter_modulo(init, *condition, updates, *body);
                 let previous_counter = std::mem::replace(&mut self.counter_modulo, counter);
                 let plan = self.typed_read_loop(init, *condition, updates, *body);
-                let upd: Vec<String> = updates.iter().map(|u| self.emit_discarded(*u).code).collect();
+                let upd: Vec<String> = updates
+                    .iter()
+                    .map(|u| self.emit_discarded(*u).code)
+                    .collect();
                 let versioned = plan.is_some();
                 if let Some(plan) = plan {
                     self.w.open(&format!("if ({}) {{", plan.guard));
                     let saved = std::mem::replace(&mut self.typed_loop_raw, plan.raw);
                     let cond_js = self.emit_cond(condition.unwrap()).0;
-                    self.w.open(&format!("for ({init_js}; {cond_js}; {}) {{", upd.join(", ")));
+                    self.w.open(&format!(
+                        "for ({init_js}; {cond_js}; {}) {{",
+                        upd.join(", ")
+                    ));
                     self.push_scope();
                     self.emit_stmt(*body);
                     self.pop_scope();
@@ -1382,16 +1661,26 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     Some(c) => self.emit_cond(*c).0,
                     None => String::new(),
                 };
-                self.w.open(&format!("for ({init_js}; {cond_js}; {}) {{", upd.join(", ")));
+                self.w.open(&format!(
+                    "for ({init_js}; {cond_js}; {}) {{",
+                    upd.join(", ")
+                ));
                 self.push_scope();
                 self.emit_stmt(*body);
                 self.pop_scope();
                 self.w.close("}");
-                if versioned { self.w.close("}"); }
+                if versioned {
+                    self.w.close("}");
+                }
                 self.counter_modulo = previous_counter;
                 self.pop_scope();
             }
-            StmtKind::ForIn { await_, target, iterable, body } => {
+            StmtKind::ForIn {
+                await_,
+                target,
+                iterable,
+                body,
+            } => {
                 self.emit_for_in(*await_, target, *iterable, *body);
             }
             StmtKind::Switch { value, cases } => self.emit_switch(*value, cases),
@@ -1414,7 +1703,13 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             StmtKind::Continue(label) => match label {
                 Some(l) => {
                     let n = self.name(l.sym).to_string();
-                    if let Some((_, loop_label, state)) = self.case_labels.iter().rev().find(|(k, _, _)| *k == n).cloned() {
+                    if let Some((_, loop_label, state)) = self
+                        .case_labels
+                        .iter()
+                        .rev()
+                        .find(|(k, _, _)| *k == n)
+                        .cloned()
+                    {
                         crate::emit_line!(self.w, "t$state = {state};");
                         crate::emit_line!(self.w, "continue {loop_label};");
                     } else {
@@ -1428,7 +1723,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 Some(e) => {
                     let expected = self.ret_ty.clone();
                     let expected = match (&self.async_kind, &expected) {
-                        (AsyncKind::Async, Ty::Iface { args, .. }) if !args.is_empty() => args[0].clone(),
+                        (AsyncKind::Async, Ty::Iface { args, .. }) if !args.is_empty() => {
+                            args[0].clone()
+                        }
                         (AsyncKind::Async, Ty::FutureOr { arg, .. }) => (**arg).clone(),
                         _ => expected,
                     };
@@ -1451,25 +1748,45 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 // In a generator, `return e;` is forbidden: `returns` keeps the
                 // produced element types, which give the inferred return type of
                 // a function literal (`emit_function_expr`).
-                let produced = if *star { self.generator_element(&ty).unwrap_or(Ty::Dynamic) } else { ty };
+                let produced = if *star {
+                    self.generator_element(&ty).unwrap_or(Ty::Dynamic)
+                } else {
+                    ty
+                };
                 self.returns.push(produced);
                 match (self.async_kind, star) {
                     (AsyncKind::AsyncStar, false) => {
                         self.m.use_sdk("async");
-                        crate::emit_line!(self.w, "yield async._IterationMarker.yieldSingle({});", js.code);
+                        crate::emit_line!(
+                            self.w,
+                            "yield async._IterationMarker.yieldSingle({});",
+                            js.code
+                        );
                     }
                     (AsyncKind::AsyncStar, true) => {
                         self.m.use_sdk("async");
-                        crate::emit_line!(self.w, "yield async._IterationMarker.yieldStar({});", js.code);
+                        crate::emit_line!(
+                            self.w,
+                            "yield async._IterationMarker.yieldStar({});",
+                            js.code
+                        );
                     }
                     (AsyncKind::SyncStar, true) => {
                         self.m.use_sdk("async");
-                        crate::emit_line!(self.w, "yield async._IterationMarker.yieldStar({});", js.code);
+                        crate::emit_line!(
+                            self.w,
+                            "yield async._IterationMarker.yieldStar({});",
+                            js.code
+                        );
                     }
                     _ => crate::emit_line!(self.w, "yield {};", js.code),
                 }
             }
-            StmtKind::Try { body, catches, finally_ } => self.emit_try(*body, catches, *finally_),
+            StmtKind::Try {
+                body,
+                catches,
+                finally_,
+            } => self.emit_try(*body, catches, *finally_),
             StmtKind::Labeled { labels, body } => {
                 let mut js_labels = Vec::new();
                 for l in labels.iter() {
@@ -1488,7 +1805,10 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 let body_stmt = self.ast().stmt(*body);
                 let is_loop = matches!(
                     body_stmt.kind,
-                    StmtKind::For { .. } | StmtKind::ForIn { .. } | StmtKind::While { .. } | StmtKind::DoWhile { .. }
+                    StmtKind::For { .. }
+                        | StmtKind::ForIn { .. }
+                        | StmtKind::While { .. }
+                        | StmtKind::DoWhile { .. }
                 );
                 if is_loop || matches!(body_stmt.kind, StmtKind::Switch { .. }) {
                     crate::emit_line!(self.w, "{first}:");
@@ -1512,14 +1832,22 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     None => "null".to_string(),
                 };
                 let text = js::string_literal(self.text(self.expr(*condition).span));
-                crate::emit_line!(self.w, "if (!({cjs})) dart.assertFailed({msg}, null, 0, 0, {text});");
+                crate::emit_line!(
+                    self.w,
+                    "if (!({cjs})) dart.assertFailed({msg}, null, 0, 0, {text});"
+                );
             }
             StmtKind::Empty => self.w.line(";"),
         }
     }
 
     pub fn js_label(&self, name: &str) -> String {
-        self.labels.iter().rev().find(|(k, _)| k == name).map(|(_, v)| v.clone()).unwrap_or_else(|| name.to_string())
+        self.labels
+            .iter()
+            .rev()
+            .find(|(k, _)| k == name)
+            .map(|(_, v)| v.clone())
+            .unwrap_or_else(|| name.to_string())
     }
 
     /// Boolean condition (with `dart.test` when the type is not a strict `bool`).
@@ -1539,9 +1867,17 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         for v in list.variables.iter() {
             // Another declaration with the same name in the same scope: the program
             // is invalid (shadowing one from an outer scope is allowed).
-            if self.wildcard != Some(v.name.sym) && self.scopes.last().is_some_and(|s| s.contains_key(&v.name.sym)) {
+            if self.wildcard != Some(v.name.sym)
+                && self
+                    .scopes
+                    .last()
+                    .is_some_and(|s| s.contains_key(&v.name.sym))
+            {
                 let name = self.name(v.name.sym).to_string();
-                self.language_error(v.name.span, format!("'{name}' is already declared in this scope."));
+                self.language_error(
+                    v.name.span,
+                    format!("'{name}' is already declared in this scope."),
+                );
             }
             match v.initializer {
                 Some(e) => {
@@ -1558,7 +1894,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     let jsn = self.declare(v.name.sym, ty);
                     if list.late {
                         crate::emit_line!(self.w, "let {jsn} = void 0;");
-                        if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym)) {
+                        if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym))
+                        {
                             l.lazy_init = Some(js.into_at(crate::js::P_ASSIGN + 1));
                         }
                     } else {
@@ -1570,7 +1907,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                     let jsn = self.declare(v.name.sym, ty.clone());
                     if list.late {
                         crate::emit_line!(self.w, "let {jsn} = void 0;");
-                        if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym)) {
+                        if let Some(l) = self.scopes.last_mut().and_then(|s| s.get_mut(&v.name.sym))
+                        {
                             l.late_check = !ty.is_nullable();
                             l.late_final = list.final_;
                         }
@@ -1605,7 +1943,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         let mut tps = Vec::new();
         let mut scope_params = Vec::new();
         for tp in f.type_params.iter() {
-            let p = self.ctx.fresh_param(self.name(tp.name.sym), self.ctx.t_object_q());
+            let p = self
+                .ctx
+                .fresh_param(self.name(tp.name.sym), self.ctx.t_object_q());
             let jsn = self.type_param_js_name(&p.name);
             scope_params.push((p.id, jsn));
             tps.push(p);
@@ -1621,16 +1961,32 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 *p.bound = bt;
             }
         }
-        let ret = f.return_type.map(|r| self.resolve_type(r)).unwrap_or(Ty::Dynamic);
+        let ret = f
+            .return_type
+            .map(|r| self.resolve_type(r))
+            .unwrap_or(Ty::Dynamic);
         let (pos, opt, named) = match &f.parameters {
             Some(ps) => self.resolve_params(ps),
             None => (vec![], vec![], vec![]),
         };
         self.fn_type_params = saved;
-        Ty::Fn { type_params: tps, ret: Box::new(ret), pos, opt, named, nullable: false }
+        Ty::Fn {
+            type_params: tps,
+            ret: Box::new(ret),
+            pos,
+            opt,
+            named,
+            nullable: false,
+        }
     }
 
-    fn emit_for_in(&mut self, await_: bool, target: &ast::ForInTarget, iterable: ExprId, body: StmtId) {
+    fn emit_for_in(
+        &mut self,
+        await_: bool,
+        target: &ast::ForInTarget,
+        iterable: ExprId,
+        body: StmtId,
+    ) {
         let (ijs, ity) = self.emit_expr(iterable, None);
         let elem_ty = if await_ {
             self.ctx
@@ -1651,18 +2007,30 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 let t = ty.map(|t| self.resolve_type(t)).unwrap_or(elem_ty.clone());
                 (self.declare(name.sym, t.clone()), t, None)
             }
-            ast::ForInTarget::Pattern { pattern, .. } => (self.temp(), elem_ty.clone(), Some(*pattern)),
+            ast::ForInTarget::Pattern { pattern, .. } => {
+                (self.temp(), elem_ty.clone(), Some(*pattern))
+            }
             ast::ForInTarget::Expression(e) => {
                 let t = self.temp();
-                (t, elem_ty.clone(), Some(*e).map(|_| ast::PatternId(u32::MAX)))
+                (
+                    t,
+                    elem_ty.clone(),
+                    Some(*e).map(|_| ast::PatternId(u32::MAX)),
+                )
             }
         };
         if await_ {
             self.m.use_sdk("async");
             let it = self.temp();
             let elem_rti = self.rti(&elem_ty);
-            let recipe = self.ctx.recipe_of("dart:async", "StreamIterator", "async|StreamIterator");
-            crate::emit_line!(self.w, "{it} = async.StreamIterator.new({elem_rti}[_eval](\"{recipe}<0>\"), {});", ijs.code);
+            let recipe = self
+                .ctx
+                .recipe_of("dart:async", "StreamIterator", "async|StreamIterator");
+            crate::emit_line!(
+                self.w,
+                "{it} = async.StreamIterator.new({elem_rti}[_eval](\"{recipe}<0>\"), {});",
+                ijs.code
+            );
             self.w.open("try {");
             crate::open_block!(self.w, "while ((yield {it}.moveNext())) {{");
             let _ = &decl_ty;
@@ -1673,7 +2041,8 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 }
                 Some(_) => {
                     if let ast::ForInTarget::Expression(e) = target {
-                        let (ljs, _) = self.emit_assign_to(*e, &Js::prim(format!("{it}.current")), &elem_ty);
+                        let (ljs, _) =
+                            self.emit_assign_to(*e, &Js::prim(format!("{it}.current")), &elem_ty);
                         crate::emit_line!(self.w, "{};", ljs.code);
                     }
                 }
@@ -1715,7 +2084,10 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
         }
         if cond != "true" {
             self.m.use_sdk("core");
-            crate::emit_line!(self.w, "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));");
+            crate::emit_line!(
+                self.w,
+                "if (!({cond})) dart.throw(new core.StateError.new(\"Pattern matching error\"));"
+            );
         }
     }
 
@@ -1748,7 +2120,11 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                         let consts = self.const_pattern_values(p);
                         if let Some(first) = consts.first() {
                             for l in c.labels.iter() {
-                                self.case_labels.push((self.name(l.sym).to_string(), label.clone(), first.clone()));
+                                self.case_labels.push((
+                                    self.name(l.sym).to_string(),
+                                    label.clone(),
+                                    first.clone(),
+                                ));
                                 n_pushed += 1;
                             }
                         }
@@ -1848,7 +2224,14 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             for (_, _, jsn) in &binds {
                 crate::emit_line!(self.w, "let {jsn} = null;");
             }
-            let full = if alts.len() == 1 { alts.remove(0) } else { alts.iter().map(|a| format!("({a})")).collect::<Vec<_>>().join(" || ") };
+            let full = if alts.len() == 1 {
+                alts.remove(0)
+            } else {
+                alts.iter()
+                    .map(|a| format!("({a})"))
+                    .collect::<Vec<_>>()
+                    .join(" || ")
+            };
             crate::open_block!(self.w, "if ({full}) {{");
             for &s in body_case.body.iter() {
                 self.emit_stmt(s);
@@ -1873,7 +2256,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
     }
 
     fn ends_with_jump(&self, body: &[StmtId]) -> bool {
-        let Some(last) = body.last() else { return false };
+        let Some(last) = body.last() else {
+            return false;
+        };
         matches!(
             self.ast().stmt(*last).kind,
             StmtKind::Break(_) | StmtKind::Continue(_) | StmtKind::Return(_)
@@ -1883,7 +2268,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
     pub fn is_simple_const_pattern(&self, p: ast::PatternId) -> bool {
         match &self.ast().pattern(p).kind {
             ast::PatternKind::Constant(e) => self.is_switchable_const(*e),
-            ast::PatternKind::Or(a, b) => self.is_simple_const_pattern(*a) && self.is_simple_const_pattern(*b),
+            ast::PatternKind::Or(a, b) => {
+                self.is_simple_const_pattern(*a) && self.is_simple_const_pattern(*b)
+            }
             ast::PatternKind::Parenthesized(p) => self.is_simple_const_pattern(*p),
             _ => false,
         }
@@ -1894,7 +2281,10 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
             ast::ExprKind::Int(_) | ast::ExprKind::Bool(_) | ast::ExprKind::Null => true,
             ast::ExprKind::String(lit) => lit.constant_value().is_some(),
             ast::ExprKind::Identifier(_) | ast::ExprKind::Property { .. } => true,
-            ast::ExprKind::Unary { op: ast::UnaryOp::Neg, operand } => self.is_switchable_const(*operand),
+            ast::ExprKind::Unary {
+                op: ast::UnaryOp::Neg,
+                operand,
+            } => self.is_switchable_const(*operand),
             ast::ExprKind::Parenthesized(i) => self.is_switchable_const(*i),
             _ => false,
         }
@@ -1937,7 +2327,9 @@ return async._makeSyncStarIterable({rti}, () => {{\n\
                 let is_all = match &on_ty {
                     None => true,
                     Some(Ty::Dynamic) => true,
-                    Some(Ty::Iface { class, nullable, .. }) => Some(*class) == self.ctx.object && *nullable,
+                    Some(Ty::Iface {
+                        class, nullable, ..
+                    }) => Some(*class) == self.ctx.object && *nullable,
                     _ => false,
                 };
                 let cond = match &on_ty {
@@ -2042,10 +2434,12 @@ pub fn static_member_name(name: &str) -> String {
 }
 
 pub fn paren_if_needed(s: &str) -> String {
-    if s == "true" || s.chars().all(|c| c.is_alphanumeric() || c == '$' || c == '_') {
+    if s == "true"
+        || s.chars()
+            .all(|c| c.is_alphanumeric() || c == '$' || c == '_')
+    {
         s.to_string()
     } else {
         format!("({s})")
     }
 }
-

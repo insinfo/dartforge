@@ -44,7 +44,11 @@ fn main() {
         {
             Ok(out) => out,
             Err(e) => {
-                eprintln!("[{}/{}] FAIL {name}: failed to invoke dart run: {e}", idx + 1, programs.len());
+                eprintln!(
+                    "[{}/{}] FAIL {name}: failed to invoke dart run: {e}",
+                    idx + 1,
+                    programs.len()
+                );
                 fail += 1;
                 continue;
             }
@@ -57,7 +61,8 @@ fn main() {
         let comp_res = std::thread::Builder::new()
             .stack_size(1 << 30)
             .spawn(move || {
-                let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                let options = dartforge_emit_native::CompileOptions {
+                    contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                     sdk: None,
                     packages: None,
                     timings: false,
@@ -70,7 +75,12 @@ fn main() {
                     cpu: None,
                 };
                 // The oracle runs with `--enable-asserts`: the same flags here.
-                dartforge_emit_native::compile_with_flags(&i2, &o2, &options, dartforge_emit_native::DartFlags::DEVELOPMENT)
+                dartforge_emit_native::compile_with_flags(
+                    &i2,
+                    &o2,
+                    &options,
+                    dartforge_emit_native::DartFlags::DEVELOPMENT,
+                )
             })
             .expect("spawn thread")
             .join()
@@ -79,7 +89,11 @@ fn main() {
         let comp_duration = t_comp_start.elapsed();
 
         if let Err(e) = comp_res {
-            eprintln!("[{}/{}] FAIL {name} (compilation): {e}", idx + 1, programs.len());
+            eprintln!(
+                "[{}/{}] FAIL {name} (compilation): {e}",
+                idx + 1,
+                programs.len()
+            );
             fail += 1;
             continue;
         }
@@ -88,7 +102,11 @@ fn main() {
         let nat_res = match Command::new(&exe_output).output() {
             Ok(out) => out,
             Err(e) => {
-                eprintln!("[{}/{}] FAIL {name} (execution): {e}", idx + 1, programs.len());
+                eprintln!(
+                    "[{}/{}] FAIL {name} (execution): {e}",
+                    idx + 1,
+                    programs.len()
+                );
                 fail += 1;
                 continue;
             }
@@ -108,7 +126,13 @@ fn main() {
         let match_code = (dart_code == 0 && nat_code == 0) || (dart_code != 0 && nat_code != 0);
 
         if match_stdout && match_code {
-            println!("[{}/{}] PASS {} ({:.1?})", idx + 1, programs.len(), name, comp_duration);
+            println!(
+                "[{}/{}] PASS {} ({:.1?})",
+                idx + 1,
+                programs.len(),
+                name,
+                comp_duration
+            );
             pass += 1;
         } else {
             println!("[{}/{}] FAIL {}", idx + 1, programs.len(), name);
@@ -118,7 +142,10 @@ fn main() {
                 println!("  [NATIVO]:\n{}", nat_stdout.trim_end());
             }
             if !match_code {
-                println!("  --- EXIT CODE DIFF: dart={} native={} ---", dart_code, nat_code);
+                println!(
+                    "  --- EXIT CODE DIFF: dart={} native={} ---",
+                    dart_code, nat_code
+                );
             }
             if !dart_stderr.is_empty() {
                 println!("  [STDERR DART]:\n{}", dart_stderr.trim_end());
@@ -131,7 +158,12 @@ fn main() {
     }
 
     println!();
-    println!("=== FINAL RESULT: {}/{} PASSED ({:.1}%) ===", pass, programs.len(), (pass as f64 / programs.len() as f64) * 100.0);
+    println!(
+        "=== FINAL RESULT: {}/{} PASSED ({:.1}%) ===",
+        pass,
+        programs.len(),
+        (pass as f64 / programs.len() as f64) * 100.0
+    );
     if fail > 0 {
         std::process::exit(1);
     }
@@ -144,7 +176,9 @@ struct Prog {
 
 fn list_programs(dir: &Path, filter: Option<&str>) -> Vec<Prog> {
     let mut progs = Vec::new();
-    let Ok(entries) = std::fs::read_dir(dir) else { return progs };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return progs;
+    };
     for e in entries.flatten() {
         let p = e.path();
         if p.is_file() && p.extension().is_some_and(|ext| ext == "dart") {
@@ -154,7 +188,10 @@ fn list_programs(dir: &Path, filter: Option<&str>) -> Vec<Prog> {
             let main_dart = p.join("main.dart");
             if main_dart.is_file() {
                 let name = p.file_name().unwrap().to_string_lossy().to_string();
-                progs.push(Prog { name, entry: main_dart });
+                progs.push(Prog {
+                    name,
+                    entry: main_dart,
+                });
             }
         }
     }
@@ -177,5 +214,9 @@ fn list_programs(dir: &Path, filter: Option<&str>) -> Vec<Prog> {
 }
 
 fn number(name: &str) -> u32 {
-    name.chars().take_while(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(u32::MAX)
+    name.chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .unwrap_or(u32::MAX)
 }

@@ -53,7 +53,11 @@ impl Symbols {
     }
     /// The table rebuilt from the names in `Sym` order.
     pub fn from_names(names: Vec<String>) -> Symbols {
-        let map = names.iter().enumerate().map(|(i, n)| (n.clone(), i as Sym)).collect();
+        let map = names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.clone(), i as Sym))
+            .collect();
         Symbols { map, names }
     }
 }
@@ -171,7 +175,8 @@ pub fn path(units: &[Unit], roots: &[Sym], total_symbols: usize, target: Sym) ->
             for &i in &waiting[s as usize] {
                 let i = i as usize;
                 let u = &units[i];
-                let ok = (u.triggers.is_empty() || u.triggers.iter().any(|&x| sym_live[x as usize]))
+                let ok = (u.triggers.is_empty()
+                    || u.triggers.iter().any(|&x| sym_live[x as usize]))
                     && u.requirements.iter().all(|&x| sym_live[x as usize]);
                 if !live[i] && ok {
                     live[i] = true;
@@ -234,9 +239,19 @@ mod tests {
         let mut s = Symbols::default();
         let (a, b, c) = (s.intern("a"), s.intern("b"), s.intern("c"));
         let us = vec![
-            Unit { triggers: vec![a], refs: vec![b], ..Default::default() },
-            Unit { triggers: vec![b], ..Default::default() },
-            Unit { triggers: vec![c], ..Default::default() },
+            Unit {
+                triggers: vec![a],
+                refs: vec![b],
+                ..Default::default()
+            },
+            Unit {
+                triggers: vec![b],
+                ..Default::default()
+            },
+            Unit {
+                triggers: vec![c],
+                ..Default::default()
+            },
         ];
         let live = solve(&us, &[a], s.total());
         assert_eq!(live, vec![true, true, false], "c is not reached from a");
@@ -249,11 +264,20 @@ mod tests {
         let sel_f = s.intern("sel:f");
         let sel_g = s.intern("sel:g");
         let us = vec![
-            Unit { triggers: vec![class], ..Default::default() },
+            Unit {
+                triggers: vec![class],
+                ..Default::default()
+            },
             // member f: live because the class is live and `f` is called
-            Unit { requirements: vec![class, sel_f], ..Default::default() },
+            Unit {
+                requirements: vec![class, sel_f],
+                ..Default::default()
+            },
             // member g: the class is live, but nobody calls `g`
-            Unit { requirements: vec![class, sel_g], ..Default::default() },
+            Unit {
+                requirements: vec![class, sel_g],
+                ..Default::default()
+            },
         ];
         let live = solve(&us, &[class, sel_f], s.total());
         assert_eq!(live, vec![true, true, false]);
@@ -267,12 +291,26 @@ mod tests {
         let sel_f = s.intern("sel:f");
         let sel_h = s.intern("sel:h");
         let us = vec![
-            Unit { triggers: vec![c], ..Default::default() },
-            Unit { triggers: vec![d], ..Default::default() },
+            Unit {
+                triggers: vec![c],
+                ..Default::default()
+            },
+            Unit {
+                triggers: vec![d],
+                ..Default::default()
+            },
             // C.f uses `x.h()` and mentions D
-            Unit { requirements: vec![c, sel_f], refs: vec![d], selectors: vec![sel_h], ..Default::default() },
+            Unit {
+                requirements: vec![c, sel_f],
+                refs: vec![d],
+                selectors: vec![sel_h],
+                ..Default::default()
+            },
             // D.h is only live because C.f uses the selector `h`
-            Unit { requirements: vec![d, sel_h], ..Default::default() },
+            Unit {
+                requirements: vec![d, sel_h],
+                ..Default::default()
+            },
         ];
         let live = solve(&us, &[c, sel_f], s.total());
         assert_eq!(live, vec![true, true, true, true]);

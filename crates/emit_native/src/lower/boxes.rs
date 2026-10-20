@@ -25,7 +25,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_object_get".to_string(),
-                args: vec![(obj, Type::Ref), (Operand::Constant(Constant::Int(field)), Type::I64)],
+                args: vec![
+                    (obj, Type::Ref),
+                    (Operand::Constant(Constant::Int(field)), Type::I64),
+                ],
                 ret_ty: ty,
             },
             ty,
@@ -38,11 +41,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.arc_memory {
             // The ABI checks class/map and returns a borrow of the closure,
             // including for the scalar null of canonical tear-offs.
-            self.emit(Instruction::CallRuntime {
-                name: "dartforge_arc_closure_context_v1".to_string(),
-                args: vec![(clo, Type::Ref)],
-                ret_ty: Type::Ref,
-            }, Type::Ref)
+            self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_arc_closure_context_v1".to_string(),
+                    args: vec![(clo, Type::Ref)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            )
         } else {
             self.object_word(clo, CLOSURE_CONTEXT, Type::Ref)
         }
@@ -94,7 +100,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // `_Double._bitsOf(d)`: the bits of the `double`.
             ("DartForge_double_bits", None, [d]) | ("DartForge_double_bits", Some(d), []) => {
                 let d = self.coerce(d.clone(), Type::F64);
-                Some(self.emit(Instruction::Bitcast { op: d, to: Type::I64 }, Type::I64))
+                Some(self.emit(
+                    Instruction::Bitcast {
+                        op: d,
+                        to: Type::I64,
+                    },
+                    Type::I64,
+                ))
             }
             _ => None,
         }

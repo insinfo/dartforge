@@ -16,7 +16,7 @@
 //! client reorders by `sortText`).
 //! Written without compiling or running (2026-10-05).
 
-use super::isp::{Flags, Isp, Operation, Feature};
+use super::isp::{Feature, Flags, Isp, Operation};
 use super::*;
 use dartforge_elements::model::{ExtensionId, TypedefId, UnitId, VariableId, VariableRef};
 use dartforge_frontend::token::Op;
@@ -57,11 +57,16 @@ fn without_equal(s: &str) -> String {
 /// A setter: an explicit one or the implicit setter of a variable. The
 /// elements name both accessors with the bare name (the member maps key the
 /// setter as `name_=`), so the name alone does not tell them apart.
-pub(super) fn is_setter_function(p: &dartforge_elements::model::Program, f: FunctionElementId) -> bool {
+pub(super) fn is_setter_function(
+    p: &dartforge_elements::model::Program,
+    f: FunctionElementId,
+) -> bool {
     let fe = p.function(f);
     match fe.kind {
         FunctionKind::Setter => true,
-        FunctionKind::ImplicitAccessor => fe.variable.is_some_and(|v| p.variable(v).setter == Some(f)),
+        FunctionKind::ImplicitAccessor => {
+            fe.variable.is_some_and(|v| p.variable(v).setter == Some(f))
+        }
         _ => false,
     }
 }
@@ -126,7 +131,12 @@ impl<'a, 'c> Isp<'a, 'c> {
             // `superMatchesFeature` and `isNoSuchMethodFeature` (the name of the method
             // that contains the `super.▮` is not penalized).
             if let Some(m) = &method
-                && i.rel.kind.is_some_and(|e| matches!(e, crate::relevance::Kind::Method | crate::relevance::Kind::Field))
+                && i.rel.kind.is_some_and(|e| {
+                    matches!(
+                        e,
+                        crate::relevance::Kind::Method | crate::relevance::Kind::Field
+                    )
+                })
                 && text_without_parens(&i.insert) == m
             {
                 i.rel.super_matches = true;
@@ -149,7 +159,11 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// The item's old group by owning library (only for the order of the path
     /// without the pass).
     pub(super) fn group_of(&self, owning: LibraryId) -> u8 {
-        if owning == self.library() { group::LIBRARY } else { group::IMPORTED }
+        if owning == self.library() {
+            group::LIBRARY
+        } else {
+            group::IMPORTED
+        }
     }
 
     /// `_executableSuggestionKind == IDENTIFIER`.
@@ -160,15 +174,20 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `request.target.isFunctionalArgument()`: the target is an argument whose
     /// parameter has a function type (the position's context type).
     pub(super) fn functional_argument(&self) -> bool {
-        let Some(c) = self.covered_node() else { return false };
+        let Some(c) = self.covered_node() else {
+            return false;
+        };
         let mut n = c;
         if let Some(p) = self.parent(n)
             && self.kind(p) == "NamedExpression"
         {
             n = p;
         }
-        self.parent(n).is_some_and(|p| self.kind(p) == "ArgumentList")
-            && self.context_type.is_some_and(|t| matches!(self.query.table.get(t), Type::Function { .. }))
+        self.parent(n)
+            .is_some_and(|p| self.kind(p) == "ArgumentList")
+            && self
+                .context_type
+                .is_some_and(|t| matches!(self.query.table.get(t), Type::Function { .. }))
     }
 
     /// `type is VoidType` of a return.
@@ -188,12 +207,36 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The `thisType` of a class (its parameters as arguments).
     pub(super) fn type_this(&mut self, c: ClassId) -> TypeId {
-        let params: Vec<_> = self.query.outline.classes.get(c.0 as usize).map(|d| d.type_params.to_vec()).unwrap_or_default();
-        let args: Box<[TypeId]> = params.iter().map(|&p| self.query.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        let ty = if self.query.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType {
-            Type::ExtensionType { decl: c, args, nullable: false }
+        let params: Vec<_> = self
+            .query
+            .outline
+            .classes
+            .get(c.0 as usize)
+            .map(|d| d.type_params.to_vec())
+            .unwrap_or_default();
+        let args: Box<[TypeId]> = params
+            .iter()
+            .map(|&p| {
+                self.query.table.intern(Type::TypeParameter {
+                    param: p,
+                    nullable: false,
+                })
+            })
+            .collect();
+        let ty = if self.query.program.class(c).kind
+            == dartforge_elements::model::ClassKind::ExtensionType
+        {
+            Type::ExtensionType {
+                decl: c,
+                args,
+                nullable: false,
+            }
         } else {
-            Type::Interface { class: c, args, nullable: false }
+            Type::Interface {
+                class: c,
+                args,
+                nullable: false,
+            }
         };
         self.query.table.intern(ty)
     }
@@ -212,20 +255,39 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `isWildcardVariable`: `_` with the wildcards feature.
     pub(super) fn wildcard(&self, name: &str) -> bool {
-        name == "_" && self.features.has(dartforge_frontend::Feature::WildcardVariables)
+        name == "_"
+            && self
+                .features
+                .has(dartforge_frontend::Feature::WildcardVariables)
     }
 
     // -- The items ------------------------------------------------------------------
 
     /// A local (variable or parameter): `LocalVariableSuggestion`,
     /// `FormalParameterSuggestion`.
-    pub(super) fn item_local(&mut self, name: &str, ty: Option<TypeId>, parameter: bool, score: f64) {
+    pub(super) fn item_local(
+        &mut self,
+        name: &str,
+        ty: Option<TypeId>,
+        parameter: bool,
+        score: f64,
+    ) {
         let distance = self.distance;
         self.distance += 1;
         let before = self.collector.items.len();
         let detail = ty.map(|t| self.query.format(t));
-        let item = self.collector.push(group::LOCAL, kind::VARIABLE, name.to_string(), name.to_string(), detail);
-        item.rel.kind = Some(if parameter { crate::relevance::Kind::Parameter } else { crate::relevance::Kind::Local });
+        let item = self.collector.push(
+            group::LOCAL,
+            kind::VARIABLE,
+            name.to_string(),
+            name.to_string(),
+            detail,
+        );
+        item.rel.kind = Some(if parameter {
+            crate::relevance::Kind::Parameter
+        } else {
+            crate::relevance::Kind::Local
+        });
         item.rel.ty = ty;
         item.rel.local = true;
         item.rel.distance = Some(distance);
@@ -234,22 +296,44 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The detail `(T a, …) → R` of a function type with the given positional names.
     pub(super) fn detail_with_names(&self, ty: TypeId, names: &[Option<String>]) -> String {
-        let Type::Function { ret, positional, optional, named, .. } = self.query.table.get(ty).clone() else {
+        let Type::Function {
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } = self.query.table.get(ty).clone()
+        else {
             return self.query.format(ty);
         };
         let p = |i: usize, t: TypeId| match names.get(i).cloned().flatten() {
             Some(n) => format!("{} {n}", self.query.format(t)),
             None => self.query.format(t),
         };
-        let mut parts: Vec<String> = positional.iter().enumerate().map(|(i, &t)| p(i, t)).collect();
+        let mut parts: Vec<String> = positional
+            .iter()
+            .enumerate()
+            .map(|(i, &t)| p(i, t))
+            .collect();
         if !optional.is_empty() {
-            let o: Vec<String> = optional.iter().enumerate().map(|(i, &t)| p(positional.len() + i, t)).collect();
+            let o: Vec<String> = optional
+                .iter()
+                .enumerate()
+                .map(|(i, &t)| p(positional.len() + i, t))
+                .collect();
             parts.push(format!("[{}]", o.join(", ")));
         }
         if !named.is_empty() {
             let n: Vec<String> = named
                 .iter()
-                .map(|(s, t, r)| format!("{}{} {}", if *r { "required " } else { "" }, self.query.format(*t), self.query.name(*s)))
+                .map(|(s, t, r)| {
+                    format!(
+                        "{}{} {}",
+                        if *r { "required " } else { "" },
+                        self.query.format(*t),
+                        self.query.name(*s)
+                    )
+                })
                 .collect();
             parts.push(format!("{{{}}}", n.join(", ")));
         }
@@ -258,11 +342,22 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// A local function (`LocalFunctionSuggestion`): the node is its
     /// `FunctionDeclaration`.
-    pub(super) fn local_function_item(&mut self, node: usize, name: &str, ty: Option<TypeId>, score: f64) {
+    pub(super) fn local_function_item(
+        &mut self,
+        node: usize,
+        name: &str,
+        ty: Option<TypeId>,
+        score: f64,
+    ) {
         let f = self.real_function(node);
         let names: Vec<Option<String>> = f
             .and_then(|f| f.parameters.as_ref())
-            .map(|ps| ps.iter().filter(|p| p.kind != ast::ParameterKind::Named).map(|p| p.name.map(|n| self.real_name(n).to_string())).collect())
+            .map(|ps| {
+                ps.iter()
+                    .filter(|p| p.kind != ast::ParameterKind::Named)
+                    .map(|p| p.name.map(|n| self.real_name(n).to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
         let required: Vec<String> = f
             .and_then(|f| f.parameters.as_ref())
@@ -281,7 +376,13 @@ impl<'a, 'c> Isp<'a, 'c> {
             .unwrap_or_default();
         let detail = ty.map(|t| self.detail_with_names(t, &names));
         let before = self.collector.items.len();
-        let item = self.collector.push(group::LOCAL, kind::FUNCTION, name.to_string(), name.to_string(), detail);
+        let item = self.collector.push(
+            group::LOCAL,
+            kind::FUNCTION,
+            name.to_string(),
+            name.to_string(),
+            detail,
+        );
         item.call = Some(Call::Parameters(required));
         item.rel.kind = Some(crate::relevance::Kind::Function);
         item.rel.ty = ty.and_then(|t| return_(self.query, t));
@@ -292,17 +393,37 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// A type parameter (`TypeParameterSuggestion`).
     pub(super) fn type_parameter_item(&mut self, name: &str, score: f64) {
         let before = self.collector.items.len();
-        self.collector.push(group::LOCAL, kind::TYPE_PARAMETER, name.to_string(), name.to_string(), None).rel.kind =
-            Some(crate::relevance::Kind::TypeParameter);
+        self.collector
+            .push(
+                group::LOCAL,
+                kind::TYPE_PARAMETER,
+                name.to_string(),
+                name.to_string(),
+                None,
+            )
+            .rel
+            .kind = Some(crate::relevance::Kind::TypeParameter);
         self.mark(before, score, false);
     }
 
     /// A member (method, accessor) with the type as seen through the receiver;
     /// the inheritance distance is from `reference`.
-    pub(super) fn item_member(&mut self, f: FunctionElementId, ty: TypeId, reference: Option<ClassId>, score: f64, identifier: bool) {
+    pub(super) fn item_member(
+        &mut self,
+        f: FunctionElementId,
+        ty: TypeId,
+        reference: Option<ClassId>,
+        score: f64,
+        identifier: bool,
+    ) {
         let before = self.collector.items.len();
-        let from_object = self.query.core.object_class.is_some() && self.query.program.function(f).class == self.query.core.object_class;
-        let g = if from_object { group::OBJECT_MEMBER } else { group::MEMBER };
+        let from_object = self.query.core.object_class.is_some()
+            && self.query.program.function(f).class == self.query.core.object_class;
+        let g = if from_object {
+            group::OBJECT_MEMBER
+        } else {
+            group::MEMBER
+        };
         self.collector.receiver = reference;
         self.collector.function(&*self.query, g, f, ty);
         self.collector.receiver = None;
@@ -310,11 +431,21 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// A field (`FieldSuggestion`): an enum constant becomes `Enum.value`.
-    pub(super) fn item_field(&mut self, v: VariableId, ty: Option<TypeId>, reference: Option<ClassId>, score: f64) {
-        let ty = ty.or_else(|| self.query.ensure_variable_type(v)).unwrap_or(self.query.core.dynamic_);
+    pub(super) fn item_field(
+        &mut self,
+        v: VariableId,
+        ty: Option<TypeId>,
+        reference: Option<ClassId>,
+        score: f64,
+    ) {
+        let ty = ty
+            .or_else(|| self.query.ensure_variable_type(v))
+            .unwrap_or(self.query.core.dynamic_);
         let p = &self.query.program;
         let ve = p.variable(v);
-        let enum_constant = ve.class.is_some_and(|c| p.class(c).enum_constants.contains(&v));
+        let enum_constant = ve
+            .class
+            .is_some_and(|c| p.class(c).enum_constants.contains(&v));
         let before = self.collector.items.len();
         match ve.getter {
             Some(g) => {
@@ -326,7 +457,13 @@ impl<'a, 'c> Isp<'a, 'c> {
                 let name = self.query.name(ve.name).to_string();
                 let detail = self.query.format(ty);
                 let origin = self.query.origin(self.query.variable_start(v));
-                let item = self.collector.push(group::MEMBER, kind::FIELD, name.clone(), name, Some(detail));
+                let item = self.collector.push(
+                    group::MEMBER,
+                    kind::FIELD,
+                    name.clone(),
+                    name,
+                    Some(detail),
+                );
                 item.origin = origin;
                 item.rel.kind = Some(crate::relevance::Kind::Field);
                 item.rel.ty = Some(ty);
@@ -346,7 +483,13 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// A top-level element (class, enum, mixin, extension, typedef, function,
     /// accessor, variable) with the import's prefix.
-    pub(super) fn item_element(&mut self, el: Element, imp: Option<&Import>, score: f64, identifier: bool) {
+    pub(super) fn item_element(
+        &mut self,
+        el: Element,
+        imp: Option<&Import>,
+        score: f64,
+        identifier: bool,
+    ) {
         let before = self.collector.items.len();
         let g = self.group_of(super::element_library(self.query, el));
         self.collector.element(&*self.query, g, el);
@@ -356,7 +499,14 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// A constructor (`ConstructorSuggestion` through `suggestConstructor`): the
     /// already computed text, `INVOCATION` or `IDENTIFIER`.
-    pub(super) fn item_constructor(&mut self, f: FunctionElementId, completion: String, invocation: bool, imp: Option<&Import>, score: f64) {
+    pub(super) fn item_constructor(
+        &mut self,
+        f: FunctionElementId,
+        completion: String,
+        invocation: bool,
+        imp: Option<&Import>,
+        score: f64,
+    ) {
         let query = &*self.query;
         let class = query.program.function(f).class;
         let signature = query.outline.functions[f.0 as usize].signature;
@@ -377,7 +527,13 @@ impl<'a, 'c> Isp<'a, 'c> {
         let owning = query.program.function(f).library;
         let g = self.group_of(owning);
         let before = self.collector.items.len();
-        let item = self.collector.push(g, kind::CONSTRUCTOR, completion.clone(), completion, Some(detail));
+        let item = self.collector.push(
+            g,
+            kind::CONSTRUCTOR,
+            completion.clone(),
+            completion,
+            Some(detail),
+        );
         item.call = Some(Call::Parameters(parameters));
         item.origin = origin;
         item.rel.kind = Some(crate::relevance::Kind::Constructor);
@@ -392,11 +548,18 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `addLexicalDeclarations`.
     pub(super) fn lexical_dh(&mut self, n: usize) {
         let ty = self.fl().ty;
-        let member = if ty { self.local_types(n) } else { self.local_declarations(n) };
+        let member = if ty {
+            self.local_types(n)
+        } else {
+            self.local_declarations(n)
+        };
         let Some(m) = member else { return };
         let mut parent = Some(self.parent(m).unwrap_or(m));
         if let Some(p) = parent {
-            if matches!(self.kind(p), "ConstructorDeclaration" | "FieldDeclaration" | "MethodDeclaration") {
+            if matches!(
+                self.kind(p),
+                "ConstructorDeclaration" | "FieldDeclaration" | "MethodDeclaration"
+            ) {
                 parent = self.parent(p);
             } else if p == 0 {
                 parent = Some(m);
@@ -459,7 +622,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                 }
                 "FunctionDeclaration" => {
-                    if self.parent(k).is_none_or(|p| self.kind(p) != "FunctionDeclarationStatement") {
+                    if self
+                        .parent(k)
+                        .is_none_or(|p| self.kind(p) != "FunctionDeclarationStatement")
+                    {
                         return Some(k);
                     }
                 }
@@ -479,14 +645,21 @@ impl<'a, 'c> Isp<'a, 'c> {
                     return Some(k);
                 }
                 "SwitchCase" | "SwitchDefault" => {
-                    let commands: Vec<usize> = self.children(k).iter().copied().filter(|&c| super::isp::is_command(self.kind(c))).collect();
+                    let commands: Vec<usize> = self
+                        .children(k)
+                        .iter()
+                        .copied()
+                        .filter(|&c| super::isp::is_command(self.kind(c)))
+                        .collect();
                     self.visit_commands(&commands, previous);
                 }
                 "SwitchExpressionCase" => self.visit_switch_expression_case(k),
                 "SwitchPatternCase" => self.visit_pattern_case(k, previous),
                 "VariableDeclarationList" => self.visit_variable_list(k, previous),
                 "CompilationUnit" => return Some(k),
-                e if self.parent(k) == Some(0) && e != "ScriptTag" && !self.is_directive(k) => return Some(k),
+                e if self.parent(k) == Some(0) && e != "ScriptTag" && !self.is_directive(k) => {
+                    return Some(k);
+                }
                 _ => {}
             }
             previous = Some(k);
@@ -507,17 +680,24 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
                 "FieldDeclaration" => return Some(k),
                 "FunctionDeclaration" => {
-                    if self.parent(k).is_none_or(|p| self.kind(p) != "FunctionDeclarationStatement") {
+                    if self
+                        .parent(k)
+                        .is_none_or(|p| self.kind(p) != "FunctionDeclarationStatement")
+                    {
                         return Some(k);
                     }
                 }
-                "FunctionExpression" | "GenericFunctionType" => self.visit_type_parameters(self.child(k, "TypeParameterList")),
+                "FunctionExpression" | "GenericFunctionType" => {
+                    self.visit_type_parameters(self.child(k, "TypeParameterList"))
+                }
                 "MethodDeclaration" => {
                     self.visit_type_parameters(self.child(k, "TypeParameterList"));
                     return Some(k);
                 }
                 "CompilationUnit" => return Some(k),
-                e if self.parent(k) == Some(0) && e != "ScriptTag" && !self.is_directive(k) => return Some(k),
+                e if self.parent(k) == Some(0) && e != "ScriptTag" && !self.is_directive(k) => {
+                    return Some(k);
+                }
                 _ => {}
             }
             current = self.parent(k);
@@ -542,7 +722,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_suggestParameter` (the node is the parameter's).
     pub(super) fn suggest_parameter(&mut self, node: usize) {
-        let Some(p) = self.real_parameter(node) else { return };
+        let Some(p) = self.real_parameter(node) else {
+            return;
+        };
         let Some(name) = p.name else { return };
         let text = self.real_name(name).to_string();
         if !self.visible(&text, None) {
@@ -552,7 +734,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         if let Some(s) = self.match_score(&text) {
-            let ty = self.local_type(name.span.start).or_else(|| self.declared_parameter_type(node, &text));
+            let ty = self
+                .local_type(name.span.start)
+                .or_else(|| self.declared_parameter_type(node, &text));
             self.item_local(&text, ty, true, s);
         }
     }
@@ -564,19 +748,32 @@ impl<'a, 'c> Isp<'a, 'c> {
         let owner = self.parent(list)?;
         let f = match self.kind(owner) {
             "ConstructorDeclaration" => self.declared_constructor(owner),
-            "MethodDeclaration" => self.real_function(owner).and_then(|x| x.name).and_then(|n| self.declared_function(n.span.start)),
+            "MethodDeclaration" => self
+                .real_function(owner)
+                .and_then(|x| x.name)
+                .and_then(|n| self.declared_function(n.span.start)),
             "FunctionExpression" => {
-                let d = self.parent(owner).filter(|&d| self.kind(d) == "FunctionDeclaration")?;
-                self.real_function(d).and_then(|x| x.name).and_then(|n| self.declared_function(n.span.start))
+                let d = self
+                    .parent(owner)
+                    .filter(|&d| self.kind(d) == "FunctionDeclaration")?;
+                self.real_function(d)
+                    .and_then(|x| x.name)
+                    .and_then(|n| self.declared_function(n.span.start))
             }
             _ => None,
         }?;
-        self.query.outline.functions[f.0 as usize].parameters.iter().find(|p| p.name.is_some_and(|s| self.query.name(s) == name)).map(|p| p.ty)
+        self.query.outline.functions[f.0 as usize]
+            .parameters
+            .iter()
+            .find(|p| p.name.is_some_and(|s| self.query.name(s) == name))
+            .map(|p| p.ty)
     }
 
     /// `_suggestLocalFunction` (the node is the `FunctionDeclaration`).
     pub(super) fn suggest_local_function(&mut self, d: usize) {
-        let Some(f) = self.real_function(d) else { return };
+        let Some(f) = self.real_function(d) else {
+            return;
+        };
         let Some(name) = f.name else { return };
         let text = self.real_name(name).to_string();
         if !self.visible(&text, None) {
@@ -584,7 +781,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let ty = self.local_type(name.span.start);
         let fl = self.fl();
-        let ret_void = ty.is_some_and(|t| matches!(self.query.table.get(t), Type::Function { ret, .. } if self.is_void(*ret)));
+        let ret_void = ty.is_some_and(
+            |t| matches!(self.query.table.get(t), Type::Function { ret, .. } if self.is_void(*ret)),
+        );
         if fl.assignable || fl.constant || (fl.non_void && ret_void) {
             return;
         }
@@ -610,7 +809,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         let comment = self.parent(k)?;
         if let Some(member) = self.parent(comment) {
             match self.kind(member) {
-                "ConstructorDeclaration" => self.visit_parameter_list(self.child(member, "FormalParameterList")),
+                "ConstructorDeclaration" => {
+                    self.visit_parameter_list(self.child(member, "FormalParameterList"))
+                }
                 "FunctionDeclaration" => {
                     if let Some(fe) = self.child(member, "FunctionExpression") {
                         self.visit_parameter_list(self.child(fe, "FormalParameterList"));
@@ -649,7 +850,12 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
             }
             "ForEachPartsWithPattern" => {
-                if let Some(p) = self.children(k).iter().copied().find(|&c| super::isp::is_pattern(self.kind(c))) {
+                if let Some(p) = self
+                    .children(k)
+                    .iter()
+                    .copied()
+                    .find(|&c| super::isp::is_pattern(self.kind(c)))
+                {
                     self.visit_pattern(p);
                 }
             }
@@ -666,7 +872,11 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             "ForPartsWithPattern" => {
                 if let Some(d) = self.child(k, "PatternVariableDeclaration")
-                    && let Some(p) = self.children(d).iter().copied().find(|&c| super::isp::is_pattern(self.kind(c)))
+                    && let Some(p) = self
+                        .children(d)
+                        .iter()
+                        .copied()
+                        .find(|&c| super::isp::is_pattern(self.kind(c)))
                 {
                     self.visit_pattern(p);
                 }
@@ -678,7 +888,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_visitIfElement` / `_visitIfStatement`.
     pub(super) fn visit_if(&mut self, k: usize) {
         let opens = self.op_in(Op::LParen, self.start(k), self.end(k));
-        let after = opens.and_then(|a| self.pair(a)).map_or(self.start(k), |f| self.span_tok(f).end);
+        let after = opens
+            .and_then(|a| self.pair(a))
+            .map_or(self.start(k), |f| self.span_tok(f).end);
         let else_ = self.word_in("else", after, self.end(k));
         if else_.is_none_or(|e| self.offset < self.span_tok(e).start)
             && let Some(c) = self.child(k, "CaseClause")
@@ -703,24 +915,44 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn visit_pattern(&mut self, p: usize) {
         match self.kind(p) {
             "DeclaredVariablePattern" => self.visit_variable_pattern(p),
-            "CastPattern" | "ListPattern" | "LogicalAndPattern" | "LogicalOrPattern" | "MapPattern" | "NullAssertPattern" | "NullCheckPattern"
-            | "ObjectPattern" | "ParenthesizedPattern" | "RecordPattern" => {
+            "CastPattern"
+            | "ListPattern"
+            | "LogicalAndPattern"
+            | "LogicalOrPattern"
+            | "MapPattern"
+            | "NullAssertPattern"
+            | "NullCheckPattern"
+            | "ObjectPattern"
+            | "ParenthesizedPattern"
+            | "RecordPattern" => {
                 for c in self.children(p).to_vec() {
                     match self.kind(c) {
                         e if super::isp::is_pattern(e) => {
-                            if !matches!(self.kind(p), "ObjectPattern" | "RecordPattern" | "MapPattern") {
+                            if !matches!(
+                                self.kind(p),
+                                "ObjectPattern" | "RecordPattern" | "MapPattern"
+                            ) {
                                 self.visit_pattern(c);
                             }
                         }
                         "RestPatternElement" => {
                             if matches!(self.kind(p), "ListPattern" | "MapPattern")
-                                && let Some(q) = self.children(c).iter().copied().find(|&x| super::isp::is_pattern(self.kind(x)))
+                                && let Some(q) = self
+                                    .children(c)
+                                    .iter()
+                                    .copied()
+                                    .find(|&x| super::isp::is_pattern(self.kind(x)))
                             {
                                 self.visit_pattern(q);
                             }
                         }
                         "PatternField" => {
-                            if let Some(q) = self.children(c).iter().copied().find(|&x| super::isp::is_pattern(self.kind(x))) {
+                            if let Some(q) = self
+                                .children(c)
+                                .iter()
+                                .copied()
+                                .find(|&x| super::isp::is_pattern(self.kind(x)))
+                            {
                                 self.visit_pattern(q);
                             }
                         }
@@ -751,7 +983,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             match self.kind(c) {
                 "VariableDeclarationStatement" => {
-                    let Some(l) = self.child(c, "VariableDeclarationList") else { continue };
+                    let Some(l) = self.child(c, "VariableDeclarationList") else {
+                        continue;
+                    };
                     let constant = self.real_list(l).is_some_and(|x| x.const_);
                     for v in self.children_of(l, &["VariableDeclaration"]) {
                         if self.end(v) < self.offset
@@ -765,7 +999,10 @@ impl<'a, 'c> Isp<'a, 'c> {
                 "FunctionDeclarationStatement" => {
                     if let Some(d) = self.child(c, "FunctionDeclaration")
                         && self.start(d) < self.offset
-                        && self.real_function(d).and_then(|f| f.name).is_some_and(|n| !self.real_name(n).is_empty())
+                        && self
+                            .real_function(d)
+                            .and_then(|f| f.name)
+                            .is_some_and(|n| !self.real_name(n).is_empty())
                     {
                         self.suggest_local_function(d);
                     }
@@ -773,7 +1010,11 @@ impl<'a, 'c> Isp<'a, 'c> {
                 "PatternVariableDeclarationStatement" => {
                     if let Some(d) = self.child(c, "PatternVariableDeclaration")
                         && self.end(d) < self.offset
-                        && let Some(p) = self.children(d).iter().copied().find(|&x| super::isp::is_pattern(self.kind(x)))
+                        && let Some(p) = self
+                            .children(d)
+                            .iter()
+                            .copied()
+                            .find(|&x| super::isp::is_pattern(self.kind(x)))
                     {
                         self.visit_pattern(p);
                     }
@@ -786,8 +1027,18 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_visitSwitchExpressionCase`.
     pub(super) fn visit_switch_expression_case(&mut self, k: usize) {
         let gp = self.child(k, "GuardedPattern");
-        let arrow = self.op_in(Op::Arrow, gp.map_or(self.start(k), |g| self.end(g)), self.end(k).max(self.start(k) + 1));
-        let end_arrow = arrow.map_or_else(|| self.synthetic(gp.map_or(self.start(k), |g| self.end(g))).end, |s| self.span_tok(s).end);
+        let arrow = self.op_in(
+            Op::Arrow,
+            gp.map_or(self.start(k), |g| self.end(g)),
+            self.end(k).max(self.start(k) + 1),
+        );
+        let end_arrow = arrow.map_or_else(
+            || {
+                self.synthetic(gp.map_or(self.start(k), |g| self.end(g)))
+                    .end
+            },
+            |s| self.span_tok(s).end,
+        );
         if self.offset >= end_arrow
             && let Some(g) = gp
             && let Some(&p) = self.children(g).first()
@@ -806,7 +1057,12 @@ impl<'a, 'c> Isp<'a, 'c> {
         if self.offset < end_dp {
             return;
         }
-        let commands: Vec<usize> = self.children(k).iter().copied().filter(|&c| super::isp::is_command(self.kind(c))).collect();
+        let commands: Vec<usize> = self
+            .children(k)
+            .iter()
+            .copied()
+            .filter(|&c| super::isp::is_command(self.kind(c)))
+            .collect();
         self.visit_commands(&commands, child);
         if let Some(g) = self.child(k, "GuardedPattern")
             && let Some(&p) = self.children(g).first()
@@ -816,10 +1072,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         if let Some(sw) = self.parent(k)
             && self.kind(sw) == "SwitchStatement"
         {
-            let members = self.children_of(sw, &["SwitchCase", "SwitchDefault", "SwitchPatternCase"]);
+            let members =
+                self.children_of(sw, &["SwitchCase", "SwitchDefault", "SwitchPatternCase"]);
             if let Some(i) = members.iter().position(|&m| m == k) {
                 for &m in members[..i].iter().rev() {
-                    let empty = !self.children(m).iter().any(|&c| super::isp::is_command(self.kind(c)));
+                    let empty = !self
+                        .children(m)
+                        .iter()
+                        .any(|&c| super::isp::is_command(self.kind(c)));
                     if self.kind(m) == "SwitchPatternCase" && empty {
                         if let Some(g) = self.child(m, "GuardedPattern")
                             && let Some(&p) = self.children(g).first()
@@ -841,7 +1101,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         for tp in self.children_of(l, &["TypeParameter"]) {
-            let name = self.first_after_annotations(tp).map(|i| self.text_tok(i).to_string());
+            let name = self
+                .first_after_annotations(tp)
+                .map(|i| self.text_tok(i).to_string());
             if let Some(n) = name
                 && n != "_"
             {
@@ -861,15 +1123,24 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_visitVariableDeclarationList`: the variables before the child.
     pub(super) fn visit_variable_list(&mut self, k: usize, child: Option<usize>) {
-        let Some(f) = child.filter(|&f| self.kind(f) == "VariableDeclaration") else { return };
+        let Some(f) = child.filter(|&f| self.kind(f) == "VariableDeclaration") else {
+            return;
+        };
         // Only local lists declare a `LocalVariableElement`.
-        let local = self.parent(k).is_some_and(|p| matches!(self.kind(p), "VariableDeclarationStatement" | "ForPartsWithDeclarations"));
+        let local = self.parent(k).is_some_and(|p| {
+            matches!(
+                self.kind(p),
+                "VariableDeclarationStatement" | "ForPartsWithDeclarations"
+            )
+        });
         if !local {
             return;
         }
         let constant = self.real_list(k).is_some_and(|x| x.const_);
         let vs = self.children_of(k, &["VariableDeclaration"]);
-        let Some(i) = vs.iter().position(|&v| v == f) else { return };
+        let Some(i) = vs.iter().position(|&v| v == f) else {
+            return;
+        };
         for &v in vs[..i].iter().rev() {
             if let Some(var) = self.real_variable(v) {
                 let name = self.real_name(var.name).to_string();
@@ -884,7 +1155,10 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn enclosing_node_members(&mut self, d: usize) {
         let ty = self.fl().ty;
         match self.kind(d) {
-            "ClassDeclaration" | "EnumDeclaration" | "MixinDeclaration" | "ExtensionTypeDeclaration" => {
+            "ClassDeclaration"
+            | "EnumDeclaration"
+            | "MixinDeclaration"
+            | "ExtensionTypeDeclaration" => {
                 let Some(c) = self.node_class(d) else { return };
                 if !ty {
                     self.enclosing_instance_members(Some(c), None);
@@ -894,7 +1168,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                         self.suggest_field(r, None, None);
                     }
                 }
-                let names: Vec<String> = self.query.program.class(c).type_params.iter().map(|t| self.query.name(t.name).to_string()).collect();
+                let names: Vec<String> = self
+                    .query
+                    .program
+                    .class(c)
+                    .type_params
+                    .iter()
+                    .map(|t| self.query.name(t.name).to_string())
+                    .collect();
                 self.suggest_type_parameters(&names);
             }
             "ExtensionDeclaration" => {
@@ -902,22 +1183,45 @@ impl<'a, 'c> Isp<'a, 'c> {
                     ast::DeclKind::Extension(e) => e.name.map(|n| n.span.start),
                     _ => None,
                 });
-                let Some(x) = self.extension_in(self.start(d), name) else { return };
+                let Some(x) = self.extension_in(self.start(d), name) else {
+                    return;
+                };
                 if !ty {
                     self.enclosing_instance_members(None, Some(x));
                 }
-                let names: Vec<String> = self.query.program.extension(x).type_params.iter().map(|t| self.query.name(t.name).to_string()).collect();
+                let names: Vec<String> = self
+                    .query
+                    .program
+                    .extension(x)
+                    .type_params
+                    .iter()
+                    .map(|t| self.query.name(t.name).to_string())
+                    .collect();
                 self.suggest_type_parameters(&names);
             }
             "ClassTypeAlias" => {
                 if let Some(c) = self.node_class(d) {
-                    let names: Vec<String> = self.query.program.class(c).type_params.iter().map(|t| self.query.name(t.name).to_string()).collect();
+                    let names: Vec<String> = self
+                        .query
+                        .program
+                        .class(c)
+                        .type_params
+                        .iter()
+                        .map(|t| self.query.name(t.name).to_string())
+                        .collect();
                     self.suggest_type_parameters(&names);
                 }
             }
             "FunctionTypeAlias" | "GenericTypeAlias" => {
                 if let Some(t) = self.node_typedef(d) {
-                    let names: Vec<String> = self.query.program.typedef(t).type_params.iter().map(|t| self.query.name(t.name).to_string()).collect();
+                    let names: Vec<String> = self
+                        .query
+                        .program
+                        .typedef(t)
+                        .type_params
+                        .iter()
+                        .map(|t| self.query.name(t.name).to_string())
+                        .collect();
                     self.suggest_type_parameters(&names);
                 }
             }
@@ -931,7 +1235,15 @@ impl<'a, 'c> Isp<'a, 'c> {
         let p = &self.query.program;
         (0..p.typedefs.len())
             .map(|i| TypedefId(i as u32))
-            .find(|&t| p.typedef(t).decl.unit == self.unit && p.unit(self.unit).ast.decl(p.typedef(t).decl.decl).span.start == target)
+            .find(|&t| {
+                p.typedef(t).decl.unit == self.unit
+                    && p.unit(self.unit)
+                        .ast
+                        .decl(p.typedef(t).decl.decl)
+                        .span
+                        .start
+                        == target
+            })
     }
 
     /// `_suggestTypeParameters`.
@@ -945,24 +1257,65 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The declared members of a class (or extension): declared accessors,
     /// fields, methods, each group in declaration order.
-    pub(super) fn declared_members(&self, c: Option<ClassId>, x: Option<ExtensionId>) -> (Vec<FunctionElementId>, Vec<VariableId>, Vec<FunctionElementId>) {
+    pub(super) fn declared_members(
+        &self,
+        c: Option<ClassId>,
+        x: Option<ExtensionId>,
+    ) -> (
+        Vec<FunctionElementId>,
+        Vec<VariableId>,
+        Vec<FunctionElementId>,
+    ) {
         let p = &self.query.program;
-        let (inst, statics, fields, constants): (Vec<FunctionElementId>, Vec<FunctionElementId>, Vec<VariableId>, Vec<VariableId>) = match (c, x) {
+        let (inst, statics, fields, constants): (
+            Vec<FunctionElementId>,
+            Vec<FunctionElementId>,
+            Vec<VariableId>,
+            Vec<VariableId>,
+        ) = match (c, x) {
             (Some(c), _) => {
                 let cl = p.class(c);
-                (cl.instance_members.values().copied().collect(), cl.static_members.values().copied().collect(), cl.fields.clone(), cl.enum_constants.clone())
+                (
+                    cl.instance_members.values().copied().collect(),
+                    cl.static_members.values().copied().collect(),
+                    cl.fields.clone(),
+                    cl.enum_constants.clone(),
+                )
             }
             (None, Some(x)) => {
                 let e = p.extension(x);
-                (e.instance_members.values().copied().collect(), e.static_members.values().copied().collect(), e.fields.clone(), Vec::new())
+                (
+                    e.instance_members.values().copied().collect(),
+                    e.static_members.values().copied().collect(),
+                    e.fields.clone(),
+                    Vec::new(),
+                )
             }
             _ => return (Vec::new(), Vec::new(), Vec::new()),
         };
         let mut all: Vec<FunctionElementId> = inst.into_iter().chain(statics).collect();
         all.sort();
         all.dedup();
-        let accessors = all.iter().copied().filter(|&f| matches!(p.function(f).kind, FunctionKind::Getter | FunctionKind::Setter)).collect();
-        let methods = all.iter().copied().filter(|&f| matches!(p.function(f).kind, FunctionKind::Function | FunctionKind::Operator)).collect();
+        let accessors = all
+            .iter()
+            .copied()
+            .filter(|&f| {
+                matches!(
+                    p.function(f).kind,
+                    FunctionKind::Getter | FunctionKind::Setter
+                )
+            })
+            .collect();
+        let methods = all
+            .iter()
+            .copied()
+            .filter(|&f| {
+                matches!(
+                    p.function(f).kind,
+                    FunctionKind::Function | FunctionKind::Operator
+                )
+            })
+            .collect();
         let mut vs = constants;
         for v in fields {
             if !vs.contains(&v) {
@@ -973,7 +1326,11 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_addMembersOfEnclosingInstance`.
-    pub(super) fn enclosing_instance_members(&mut self, c: Option<ClassId>, x: Option<ExtensionId>) {
+    pub(super) fn enclosing_instance_members(
+        &mut self,
+        c: Option<ClassId>,
+        x: Option<ExtensionId>,
+    ) {
         let is_static = self.fl().is_static;
         let reference = match (c, x) {
             (Some(c), _) => Some(c),
@@ -1010,7 +1367,10 @@ impl<'a, 'c> Isp<'a, 'c> {
             _ => None,
         };
         if let Some(t) = this
-            && matches!(self.query.table.get(t), Type::Interface { .. } | Type::ExtensionType { .. })
+            && matches!(
+                self.query.table.get(t),
+                Type::Interface { .. } | Type::ExtensionType { .. }
+            )
         {
             self.extension_members(t, &HashSet::new(), true, true);
         }
@@ -1019,7 +1379,12 @@ impl<'a, 'c> Isp<'a, 'c> {
     // -- Member suggestions -----------------------------------------------------
 
     /// `_suggestField`.
-    pub(super) fn suggest_field(&mut self, v: VariableId, ty: Option<TypeId>, reference: Option<ClassId>) {
+    pub(super) fn suggest_field(
+        &mut self,
+        v: VariableId,
+        ty: Option<TypeId>,
+        reference: Option<ClassId>,
+    ) {
         let ve = self.query.program.variable(v).clone();
         let name = self.query.name(ve.name).to_string();
         if !self.visible(&name, None) {
@@ -1035,7 +1400,14 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_suggestMethod`.
-    pub(super) fn suggest_method(&mut self, m: FunctionElementId, ty: Option<TypeId>, ignore_visibility: bool, imp: Option<&Import>, reference: Option<ClassId>) {
+    pub(super) fn suggest_method(
+        &mut self,
+        m: FunctionElementId,
+        ty: Option<TypeId>,
+        ignore_visibility: bool,
+        imp: Option<&Import>,
+        reference: Option<ClassId>,
+    ) {
         let name = without_equal(self.query.name(self.query.program.function(m).name));
         if !ignore_visibility && !self.visible(&name, imp) {
             return;
@@ -1049,7 +1421,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         if f.assignable || f.constant || (f.non_void && self.is_void(ret)) {
             return;
         }
-        let Some(s) = self.match_score(&name) else { return };
+        let Some(s) = self.match_score(&name) else {
+            return;
+        };
         // Operators: `_getCompletionString` is null.
         if self.query.program.function(m).kind == FunctionKind::Operator {
             return;
@@ -1067,12 +1441,20 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `ClassElement.isExactState`: Flutter's `State`.
     pub(super) fn is_exact_state(&self, m: FunctionElementId) -> bool {
         let p = &self.query.program;
-        let Some(c) = p.function(m).class else { return false };
-        self.query.name(p.class(c).name) == "State" && p.library(p.class(c).library).uri == "package:flutter/src/widgets/framework.dart"
+        let Some(c) = p.function(m).class else {
+            return false;
+        };
+        self.query.name(p.class(c).name) == "State"
+            && p.library(p.class(c).library).uri == "package:flutter/src/widgets/framework.dart"
     }
 
     /// `SetStateMethodSuggestion`: `setState(() {\n$indent  \n$indent});`.
-    pub(super) fn item_set_state(&mut self, m: FunctionElementId, reference: Option<ClassId>, score: f64) {
+    pub(super) fn item_set_state(
+        &mut self,
+        m: FunctionElementId,
+        reference: Option<ClassId>,
+        score: f64,
+    ) {
         let indent = self.line_indent();
         let completion = format!("setState(() {{\n{indent}  \n{indent}}});");
         let selection = format!("setState(() {{\n{indent}  ").encode_utf16().count();
@@ -1093,25 +1475,44 @@ impl<'a, 'c> Isp<'a, 'c> {
         // the first non-whitespace character before the cursor.
         let o = self.offset.min(self.source.len());
         let start = self.source[..o].rfind('\n').map_or(0, |i| i + 1);
-        self.source[start..o].chars().take_while(|c| *c == ' ' || *c == '\t').collect()
+        self.source[start..o]
+            .chars()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect()
     }
 
     /// `_suggestProperty`: `f` is the declared getter or setter (or the implicit
     /// accessor of a field).
-    pub(super) fn suggest_property(&mut self, f: FunctionElementId, ty: Option<TypeId>, ignore_visibility: bool, imp: Option<&Import>, reference: Option<ClassId>) {
+    pub(super) fn suggest_property(
+        &mut self,
+        f: FunctionElementId,
+        ty: Option<TypeId>,
+        ignore_visibility: bool,
+        imp: Option<&Import>,
+        reference: Option<ClassId>,
+    ) {
         let fe = self.query.program.function(f).clone();
         let name = without_equal(self.query.name(fe.name));
         if !ignore_visibility && !self.visible(&name, imp) {
             return;
         }
         let fl = self.fl();
-        let getter = matches!(fe.kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor) && !is_setter_function(&self.query.program, f);
+        let getter = matches!(
+            fe.kind,
+            FunctionKind::Getter | FunctionKind::ImplicitAccessor
+        ) && !is_setter_function(&self.query.program, f);
         let without_setter = getter && self.matching_setter(f).is_none();
-        let ret = if getter { ty.unwrap_or_else(|| self.return_of(f)) } else { self.query.core.void_ };
+        let ret = if getter {
+            ty.unwrap_or_else(|| self.return_of(f))
+        } else {
+            self.query.core.void_
+        };
         if (fl.assignable && without_setter) || fl.constant || (fl.non_void && self.is_void(ret)) {
             return;
         }
-        let Some(s) = self.match_score(&name) else { return };
+        let Some(s) = self.match_score(&name) else {
+            return;
+        };
         if fe.kind == FunctionKind::ImplicitAccessor {
             // Synthetic: only the getter, as the variable's `FieldSuggestion`.
             if getter && let Some(v) = fe.variable {
@@ -1138,13 +1539,24 @@ impl<'a, 'c> Isp<'a, 'c> {
         let s = self.query.names.lookup(&name)?;
         if let Some(c) = fe.class {
             let cl = p.class(c);
-            return if fe.static_ { cl.static_members.get(&s).copied() } else { cl.instance_members.get(&s).copied() };
+            return if fe.static_ {
+                cl.static_members.get(&s).copied()
+            } else {
+                cl.instance_members.get(&s).copied()
+            };
         }
         if let Some(x) = fe.extension {
             let e = p.extension(x);
-            return if fe.static_ { e.static_members.get(&s).copied() } else { e.instance_members.get(&s).copied() };
+            return if fe.static_ {
+                e.static_members.get(&s).copied()
+            } else {
+                e.instance_members.get(&s).copied()
+            };
         }
-        let b = p.library(fe.library).declared.get(&self.query.names.lookup(self.query.name(fe.name))?)?;
+        let b = p
+            .library(fe.library)
+            .declared
+            .get(&self.query.names.lookup(self.query.name(fe.name))?)?;
         match b.setter {
             Some(Element::Function(g)) => Some(g),
             _ => None,
@@ -1158,10 +1570,21 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `getInterface(c).map`; with `only_super`, the `getInheritedConcreteMap2`
     /// (`superImplemented.last`); with `inherited`, the `getInheritedMap2` (the
     /// `overridden` ones, in candidate order).
-    pub(super) fn interface_members(&self, c: ClassId, only_super: bool, inherited: bool) -> Vec<FunctionElementId> {
+    pub(super) fn interface_members(
+        &self,
+        c: ClassId,
+        only_super: bool,
+        inherited: bool,
+    ) -> Vec<FunctionElementId> {
         let mut cache = HashMap::new();
         let mut processing = HashSet::new();
-        let i = interface_of(self.query, self.query.core.object_class, self.query.program.class_owner(c), &mut cache, &mut processing);
+        let i = interface_of(
+            self.query,
+            self.query.core.object_class,
+            self.query.program.class_owner(c),
+            &mut cache,
+            &mut processing,
+        );
         let map = if only_super {
             &i.implemented_super
         } else if inherited {
@@ -1187,9 +1610,16 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let annotations = self.member_annotations(f);
         let same_package = || {
-            let a = p.library(fe.library).uri.split('/').next().map(str::to_string);
+            let a = p
+                .library(fe.library)
+                .uri
+                .split('/')
+                .next()
+                .map(str::to_string);
             let b = p.library(lib).uri.split('/').next().map(str::to_string);
-            fe.library == lib || (a.is_some() && a == b && p.library(fe.library).uri.starts_with("package:")) || !p.library(fe.library).uri.starts_with("package:")
+            fe.library == lib
+                || (a.is_some() && a == b && p.library(fe.library).uri.starts_with("package:"))
+                || !p.library(fe.library).uri.starts_with("package:")
         };
         if annotations.iter().any(|a| a == "internal") && !same_package() {
             return false;
@@ -1198,7 +1628,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             && let Some(owning) = fe.class
             && p.class(owning).library != lib
         {
-            let Some(context) = self.target_enclosing_class() else { return false };
+            let Some(context) = self.target_enclosing_class() else {
+                return false;
+            };
             if inheritance_distance(self.query, context, owning).is_none() {
                 return false;
             }
@@ -1207,7 +1639,11 @@ impl<'a, 'c> Isp<'a, 'c> {
             if !same_package() {
                 return false;
             }
-            let in_test = p.unit(self.unit).path.as_ref().is_some_and(|c| c.components().any(|x| x.as_os_str() == "test"));
+            let in_test = p
+                .unit(self.unit)
+                .path
+                .as_ref()
+                .is_some_and(|c| c.components().any(|x| x.as_os_str() == "test"));
             if !in_test {
                 return false;
             }
@@ -1221,29 +1657,56 @@ impl<'a, 'c> Isp<'a, 'c> {
         let meta: &[ast::Annotation] = match p.function(f).node {
             dartforge_elements::model::FunctionRef::Function { unit, function } => {
                 let a = &p.unit(unit).ast;
-                match a.members.iter().find(|m| matches!(m.kind, ast::MemberKind::Method(x) if x == function)) {
+                match a
+                    .members
+                    .iter()
+                    .find(|m| matches!(m.kind, ast::MemberKind::Method(x) if x == function))
+                {
                     Some(m) => &m.metadata,
                     None => &[],
                 }
             }
-            dartforge_elements::model::FunctionRef::Constructor { unit, member } => &p.unit(unit).ast.member(member).metadata,
-            dartforge_elements::model::FunctionRef::None => match p.function(f).variable.map(|v| p.variable(v).node) {
-                Some(VariableRef::Field { unit, member, .. }) => &p.unit(unit).ast.member(member).metadata,
-                _ => &[],
-            },
+            dartforge_elements::model::FunctionRef::Constructor { unit, member } => {
+                &p.unit(unit).ast.member(member).metadata
+            }
+            dartforge_elements::model::FunctionRef::None => {
+                match p.function(f).variable.map(|v| p.variable(v).node) {
+                    Some(VariableRef::Field { unit, member, .. }) => {
+                        &p.unit(unit).ast.member(member).metadata
+                    }
+                    _ => &[],
+                }
+            }
         };
-        meta.iter().filter_map(|m| m.name.last().map(|n| self.query.name(n.sym).to_string())).collect()
+        meta.iter()
+            .filter_map(|m| m.name.last().map(|n| self.query.name(n.sym).to_string()))
+            .collect()
     }
 
     /// `request.target.enclosingInterfaceElement`.
     pub(super) fn target_enclosing_class(&self) -> Option<ClassId> {
         let c = self.covered_node()?;
-        let d = self.ancestor(c, &["ClassDeclaration", "MixinDeclaration", "EnumDeclaration", "ExtensionTypeDeclaration"])?;
+        let d = self.ancestor(
+            c,
+            &[
+                "ClassDeclaration",
+                "MixinDeclaration",
+                "EnumDeclaration",
+                "ExtensionTypeDeclaration",
+            ],
+        )?;
         self.node_class(d)
     }
 
     /// `_addInstanceMembers`.
-    pub(super) fn instance_members(&mut self, ty: TypeId, excluded: &HashSet<String>, methods: bool, setters: bool, only_super: bool) {
+    pub(super) fn instance_members(
+        &mut self,
+        ty: TypeId,
+        excluded: &HashSet<String>,
+        methods: bool,
+        setters: bool,
+        only_super: bool,
+    ) {
         let class_ = match self.query.table.get(ty) {
             Type::Interface { class, .. } => Some(*class),
             Type::ExtensionType { decl, .. } => Some(*decl),
@@ -1270,7 +1733,12 @@ impl<'a, 'c> Isp<'a, 'c> {
             let p = &self.query.program;
             let mut best = list[0];
             if p.function(best).kind == FunctionKind::Setter
-                && let Some(&g) = list.iter().find(|&&g| matches!(p.function(g).kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor))
+                && let Some(&g) = list.iter().find(|&&g| {
+                    matches!(
+                        p.function(g).kind,
+                        FunctionKind::Getter | FunctionKind::ImplicitAccessor
+                    )
+                })
             {
                 best = g;
             }
@@ -1280,7 +1748,11 @@ impl<'a, 'c> Isp<'a, 'c> {
             match fe.kind {
                 FunctionKind::Function => {
                     if methods {
-                        let t = self.query.resolver().lookup_member(ty, symbol, false, lib).map(|(_, t)| t);
+                        let t = self
+                            .query
+                            .resolver()
+                            .lookup_member(ty, symbol, false, lib)
+                            .map(|(_, t)| t);
                         self.suggest_method(best, t, false, None, reference);
                     }
                 }
@@ -1290,18 +1762,26 @@ impl<'a, 'c> Isp<'a, 'c> {
                     }
                 }
                 FunctionKind::Getter | FunctionKind::ImplicitAccessor | FunctionKind::Setter
-                    if ((!is_setter && !excluded.contains(&name)) || (setters && is_setter)) => {
-                        let search = if is_setter { self.query.names.lookup(&name) } else { Some(symbol) };
-                        let t = search.and_then(|s| self.query.resolver().lookup_member(ty, s, is_setter, lib)).map(|(_, t)| t);
-                        self.suggest_property(best, t, false, None, reference);
-                    }
+                    if ((!is_setter && !excluded.contains(&name)) || (setters && is_setter)) =>
+                {
+                    let search = if is_setter {
+                        self.query.names.lookup(&name)
+                    } else {
+                        Some(symbol)
+                    };
+                    let t = search
+                        .and_then(|s| self.query.resolver().lookup_member(ty, s, is_setter, lib))
+                        .map(|(_, t)| t);
+                    self.suggest_property(best, t, false, None, reference);
+                }
                 _ => {}
             }
         }
         // The fields (without an accessor in the member map): through the implicit getter.
         let function = self.query.core.function_class;
         let is_function = Some(c) == function;
-        let extends_function = function.is_some_and(|fc| inheritance_distance(self.query, c, fc).is_some_and(|d| d > 0));
+        let extends_function = function
+            .is_some_and(|fc| inheritance_distance(self.query, c, fc).is_some_and(|d| d > 0));
         if (is_function && !only_super) || extends_function {
             self.suggest_call();
         }
@@ -1317,7 +1797,13 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn suggest_call(&mut self) {
         if let Some(s) = self.match_score("call") {
             let before = self.collector.items.len();
-            let item = self.collector.push(group::MEMBER, kind::METHOD, "call".into(), "call".into(), Some("() → void".into()));
+            let item = self.collector.push(
+                group::MEMBER,
+                kind::METHOD,
+                "call".into(),
+                "call".into(),
+                Some("() → void".into()),
+            );
             item.display = Some("call()".into());
             item.call = Some(Call::Parameters(Vec::new()));
             item.rel.fixed = Some(200);
@@ -1326,7 +1812,13 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_addExtensionMembers`.
-    pub(super) fn extension_members(&mut self, ty: TypeId, _excluded: &HashSet<String>, methods: bool, setters: bool) {
+    pub(super) fn extension_members(
+        &mut self,
+        ty: TypeId,
+        _excluded: &HashSet<String>,
+        methods: bool,
+        setters: bool,
+    ) {
         let target = if matches!(self.query.table.get(ty), Type::Null) {
             ty
         } else {
@@ -1334,8 +1826,17 @@ impl<'a, 'c> Isp<'a, 'c> {
         };
         let lib = self.library();
         let applicable = {
-            let Query { program, names, table, core, outline, .. } = &mut *self.query;
-            dartforge_types::applicable_extensions(program, names, table, core, outline, lib, target)
+            let Query {
+                program,
+                names,
+                table,
+                core,
+                outline,
+                ..
+            } = &mut *self.query;
+            dartforge_types::applicable_extensions(
+                program, names, table, core, outline, lib, target,
+            )
         };
         for (x, _) in applicable {
             let (accessors, fields, ms) = self.declared_members(None, Some(x));
@@ -1366,7 +1867,12 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_addFieldsOfRecordType`.
     pub(super) fn record_fields(&mut self, ty: TypeId, excluded: &HashSet<String>) {
-        let Type::Record { positional, named, .. } = self.query.table.get(ty).clone() else { return };
+        let Type::Record {
+            positional, named, ..
+        } = self.query.table.get(ty).clone()
+        else {
+            return;
+        };
         for (i, t) in positional.iter().enumerate() {
             self.record_field_item(&format!("${}", i + 1), *t);
         }
@@ -1383,7 +1889,13 @@ impl<'a, 'c> Isp<'a, 'c> {
         if let Some(s) = self.match_score(name) {
             let before = self.collector.items.len();
             let detail = self.query.format(ty);
-            let item = self.collector.push(group::MEMBER, kind::VARIABLE, name.to_string(), name.to_string(), Some(detail));
+            let item = self.collector.push(
+                group::MEMBER,
+                kind::VARIABLE,
+                name.to_string(),
+                name.to_string(),
+                Some(detail),
+            );
             item.rel.ty = Some(ty);
             self.mark(before, s, false);
         }
@@ -1407,14 +1919,21 @@ impl<'a, 'c> Isp<'a, 'c> {
         }
         let assignable = self.fl().assignable;
         match self.query.table.get(t).clone() {
-            Type::Interface { .. } | Type::ExtensionType { .. } | Type::FutureOr { .. } | Type::Null => {
+            Type::Interface { .. }
+            | Type::ExtensionType { .. }
+            | Type::FutureOr { .. }
+            | Type::Null => {
                 self.instance_members(t, &HashSet::new(), !assignable, true, only_super);
             }
             Type::Record { .. } => {
                 self.record_fields(t, &HashSet::new());
                 self.object_members();
                 self.extension_members(t, &HashSet::new(), !assignable, true);
-                self.register_operation(Operation::ExtensionMembers { ty: t, methods: !assignable, setters: true });
+                self.register_operation(Operation::ExtensionMembers {
+                    ty: t,
+                    methods: !assignable,
+                    setters: true,
+                });
             }
             Type::Function { .. } => {
                 self.suggest_call();
@@ -1428,7 +1947,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `addGetters`.
     pub(super) fn dh_getters(&mut self, ty: TypeId, excluded: &HashSet<String>) {
         match self.query.table.get(ty).clone() {
-            Type::Interface { .. } | Type::ExtensionType { .. } => self.instance_members(ty, excluded, false, false, false),
+            Type::Interface { .. } | Type::ExtensionType { .. } => {
+                self.instance_members(ty, excluded, false, false, false)
+            }
             Type::Record { .. } => {
                 self.record_fields(ty, excluded);
                 self.object_members();
@@ -1445,16 +1966,25 @@ impl<'a, 'c> Isp<'a, 'c> {
                     ast::DeclKind::Extension(e) => e.name.map(|n| n.span.start),
                     _ => None,
                 });
-                let Some(x) = self.extension_in(self.start(d), name) else { return };
+                let Some(x) = self.extension_in(self.start(d), name) else {
+                    return;
+                };
                 if self.fl().is_static {
                     return;
                 }
                 let on = self.query.outline.extensions[x.0 as usize].on;
-                if matches!(self.query.table.get(on), Type::Interface { .. } | Type::ExtensionType { .. }) {
+                if matches!(
+                    self.query.table.get(on),
+                    Type::Interface { .. } | Type::ExtensionType { .. }
+                ) {
                     self.instance_members(on, &HashSet::new(), true, true, false);
                 }
             }
-            "ClassDeclaration" | "EnumDeclaration" | "MixinDeclaration" | "ExtensionTypeDeclaration" | "ClassTypeAlias" => {
+            "ClassDeclaration"
+            | "EnumDeclaration"
+            | "MixinDeclaration"
+            | "ExtensionTypeDeclaration"
+            | "ClassTypeAlias" => {
                 let Some(c) = self.node_class(d) else { return };
                 let this = self.type_this(c);
                 let lib = self.library();
@@ -1464,13 +1994,23 @@ impl<'a, 'c> Isp<'a, 'c> {
                     let symbol = fe.name;
                     match fe.kind {
                         FunctionKind::Function => {
-                            let t = self.query.resolver().lookup_member(this, symbol, false, lib).map(|(_, t)| t);
+                            let t = self
+                                .query
+                                .resolver()
+                                .lookup_member(this, symbol, false, lib)
+                                .map(|(_, t)| t);
                             self.suggest_method(f, t, false, None, Some(c));
                         }
-                        FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => {
+                        FunctionKind::Getter
+                        | FunctionKind::Setter
+                        | FunctionKind::ImplicitAccessor => {
                             let is_setter = is_setter_function(&self.query.program, f);
                             let search = Some(symbol);
-                            let t = search.and_then(|s| self.query.resolver().lookup_member(this, s, is_setter, lib)).map(|(_, t)| t);
+                            let t = search
+                                .and_then(|s| {
+                                    self.query.resolver().lookup_member(this, s, is_setter, lib)
+                                })
+                                .map(|(_, t)| t);
                             self.suggest_property(f, t, false, None, Some(c));
                         }
                         _ => {}
@@ -1508,19 +2048,31 @@ impl<'a, 'c> Isp<'a, 'c> {
                 K::Mixin => r.mixins.push(c),
             }
         }
-        let mut tds: Vec<(usize, TypedefId)> =
-            p.typedefs.iter().enumerate().filter(|(_, t)| t.decl.unit == u).map(|(i, t)| (pos_decl(t.decl.decl), TypedefId(i as u32))).collect();
+        let mut tds: Vec<(usize, TypedefId)> = p
+            .typedefs
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.decl.unit == u)
+            .map(|(i, t)| (pos_decl(t.decl.decl), TypedefId(i as u32)))
+            .collect();
         tds.sort();
         r.typedefs = tds.into_iter().map(|(_, t)| t).collect();
-        let mut xs: Vec<(usize, ExtensionId)> =
-            p.extensions.iter().enumerate().filter(|(_, x)| x.decl.unit == u).map(|(i, x)| (pos_decl(x.decl.decl), ExtensionId(i as u32))).collect();
+        let mut xs: Vec<(usize, ExtensionId)> = p
+            .extensions
+            .iter()
+            .enumerate()
+            .filter(|(_, x)| x.decl.unit == u)
+            .map(|(i, x)| (pos_decl(x.decl.decl), ExtensionId(i as u32)))
+            .collect();
         xs.sort();
         r.extensions = xs.into_iter().map(|(_, x)| x).collect();
         for (i, f) in p.functions.iter().enumerate() {
             if f.class.is_some() || f.extension.is_some() {
                 continue;
             }
-            let dartforge_elements::model::FunctionRef::Function { unit, .. } = f.node else { continue };
+            let dartforge_elements::model::FunctionRef::Function { unit, .. } = f.node else {
+                continue;
+            };
             if unit != u {
                 continue;
             }
@@ -1588,7 +2140,10 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn top_getter(&self, f: FunctionElementId) -> Option<FunctionElementId> {
         let p = &self.query.program;
         let fe = p.function(f);
-        let s = self.query.names.lookup(self.query.name(fe.name).trim_end_matches('='))?;
+        let s = self
+            .query
+            .names
+            .lookup(self.query.name(fe.name).trim_end_matches('='))?;
         match p.library(fe.library).declared.get(&s)?.getter {
             Some(Element::Function(g)) => Some(g),
             _ => None,
@@ -1601,23 +2156,43 @@ impl<'a, 'c> Isp<'a, 'c> {
         let p = &self.query.program;
         let lib = p.library(self.library());
         let defining = lib.units.first().copied();
-        let mut v: Vec<dartforge_elements::model::Import> = lib.imports.iter().filter(|i| Some(i.unit) == defining).cloned().collect();
+        let mut v: Vec<dartforge_elements::model::Import> = lib
+            .imports
+            .iter()
+            .filter(|i| Some(i.unit) == defining)
+            .cloned()
+            .collect();
         v.sort_by_key(|i| i.directive);
         if let Some(core) = p.core
             && !v.iter().any(|i| i.library == core)
             && self.library() != core
             && let Some(u) = defining
         {
-            v.push(dartforge_elements::model::Import { unit: u, directive: usize::MAX, library: core, prefix: None, deferred: false, combinators: Vec::new() });
+            v.push(dartforge_elements::model::Import {
+                unit: u,
+                directive: usize::MAX,
+                library: core,
+                prefix: None,
+                deferred: false,
+                combinators: Vec::new(),
+            });
         }
         v
     }
 
     /// The namespace of an import (`importElement.namespace`): what the library
     /// exports, with the combinators, by name.
-    pub(super) fn import_space(&self, i: &dartforge_elements::model::Import) -> Vec<(SymbolId, dartforge_elements::model::Binding)> {
+    pub(super) fn import_space(
+        &self,
+        i: &dartforge_elements::model::Import,
+    ) -> Vec<(SymbolId, dartforge_elements::model::Binding)> {
         let p = &self.query.program;
-        let mut v: Vec<(SymbolId, dartforge_elements::model::Binding)> = p.library(i.library).exported.iter().map(|(&s, &b)| (s, b)).collect();
+        let mut v: Vec<(SymbolId, dartforge_elements::model::Binding)> = p
+            .library(i.library)
+            .exported
+            .iter()
+            .map(|(&s, &b)| (s, b))
+            .collect();
         for c in &i.combinators {
             match c {
                 ast::Combinator::Show(ns) => {
@@ -1634,8 +2209,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         // `exportNamespace` (its declarations in source order, unit by unit, then
         // the re-exported ones, export by export).
         let order = export_order(&self.query.program, i.library, &mut HashSet::new());
-        let position: HashMap<SymbolId, usize> = order.iter().enumerate().map(|(k, &s)| (s, k)).collect();
-        v.sort_by_key(|(s, _)| (position.get(s).copied().unwrap_or(usize::MAX), self.query.name(*s).to_string()));
+        let position: HashMap<SymbolId, usize> =
+            order.iter().enumerate().map(|(k, &s)| (s, k)).collect();
+        v.sort_by_key(|(s, _)| {
+            (
+                position.get(s).copied().unwrap_or(usize::MAX),
+                self.query.name(*s).to_string(),
+            )
+        });
         v
     }
 
@@ -1648,14 +2229,23 @@ impl<'a, 'c> Isp<'a, 'c> {
             if prefix.as_deref() == Some("_") {
                 continue;
             }
-            let imp = Import { prefix, not_imported: false };
+            let imp = Import {
+                prefix,
+                not_imported: false,
+            };
             let space = self.import_space(&i);
             self.external_declarations(&space, &imp);
             if Some(i.library) == core && ty {
                 let name = "Never";
                 if let Some(s) = self.match_score(name) {
                     let before = self.collector.items.len();
-                    let item = self.collector.push(group::WORD, kind::VARIABLE, name.into(), name.into(), None);
+                    let item = self.collector.push(
+                        group::WORD,
+                        kind::VARIABLE,
+                        name.into(),
+                        name.into(),
+                        None,
+                    );
                     item.rel.fixed = Some(500);
                     self.mark(before, s, false);
                 }
@@ -1664,7 +2254,11 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_addExternalTopLevelDeclarations`.
-    pub(super) fn external_declarations(&mut self, space: &[(SymbolId, dartforge_elements::model::Binding)], imp: &Import) {
+    pub(super) fn external_declarations(
+        &mut self,
+        space: &[(SymbolId, dartforge_elements::model::Binding)],
+        imp: &Import,
+    ) {
         use dartforge_elements::model::ClassKind as K;
         let ty = self.fl().ty;
         for (_, b) in space {
@@ -1713,7 +2307,10 @@ impl<'a, 'c> Isp<'a, 'c> {
             if let Some(s) = self.match_score(&name) {
                 let before = self.collector.items.len();
                 // The element is the library: `ElementKind.LIBRARY` → `File`/`Module`.
-                self.collector.push(group::PREFIX, 17, name.clone(), name, None).rel.kind = Some(crate::relevance::Kind::Prefix);
+                self.collector
+                    .push(group::PREFIX, 17, name.clone(), name, None)
+                    .rel
+                    .kind = Some(crate::relevance::Kind::Prefix);
                 self.mark(before, s, false);
             }
         }
@@ -1726,18 +2323,33 @@ impl<'a, 'c> Isp<'a, 'c> {
         let unit = self.unit;
         // The imports with the prefix in the request's unit (the fragment that
         // declares it).
-        let mut imports: Vec<dartforge_elements::model::Import> =
-            lib.imports.iter().filter(|i| i.prefix == Some(prefix) && (i.unit == unit || lib.units.first() == Some(&i.unit))).cloned().collect();
+        let mut imports: Vec<dartforge_elements::model::Import> = lib
+            .imports
+            .iter()
+            .filter(|i| {
+                i.prefix == Some(prefix) && (i.unit == unit || lib.units.first() == Some(&i.unit))
+            })
+            .cloned()
+            .collect();
         imports.sort_by_key(|i| (i.unit != unit, i.directive));
         for i in imports {
             let space = self.import_space(&i);
-            let imp = Import { prefix: None, not_imported: false };
+            let imp = Import {
+                prefix: None,
+                not_imported: false,
+            };
             self.external_declarations(&space, &imp);
             if i.deferred
                 && let Some(s) = self.match_score("loadLibrary")
             {
                 let before = self.collector.items.len();
-                let item = self.collector.push(group::MEMBER, kind::FUNCTION, "loadLibrary".into(), "loadLibrary".into(), Some("() → Future<dynamic>".into()));
+                let item = self.collector.push(
+                    group::MEMBER,
+                    kind::FUNCTION,
+                    "loadLibrary".into(),
+                    "loadLibrary".into(),
+                    Some("() → Future<dynamic>".into()),
+                );
                 item.call = Some(Call::Parameters(Vec::new()));
                 item.rel.fixed = Some(200);
                 self.mark(before, s, false);
@@ -1748,13 +2360,22 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `addFromLibrary` (`show`/`hide` names): without a tracker or options.
     pub(super) fn library_dh(&mut self, lib: LibraryId, excluded: &HashSet<String>) {
         let p = &self.query.program;
-        let mut v: Vec<(SymbolId, dartforge_elements::model::Binding)> = p.library(lib).exported.iter().map(|(&s, &b)| (s, b)).collect();
+        let mut v: Vec<(SymbolId, dartforge_elements::model::Binding)> = p
+            .library(lib)
+            .exported
+            .iter()
+            .map(|(&s, &b)| (s, b))
+            .collect();
         v.sort_by(|a, b| self.query.name(a.0).cmp(self.query.name(b.0)));
         for (s, b) in v {
             let name = self.query.name(s).to_string();
             for (el, setter) in [(b.getter, false), (b.setter, true)] {
                 let Some(el) = el else { continue };
-                let key = if setter { format!("{name}=") } else { name.clone() };
+                let key = if setter {
+                    format!("{name}=")
+                } else {
+                    name.clone()
+                };
                 if excluded.contains(&key) {
                     continue;
                 }
@@ -1763,11 +2384,14 @@ impl<'a, 'c> Isp<'a, 'c> {
                     continue;
                 }
                 let display = match el {
-                    Element::Function(f) => without_equal(self.query.name(self.query.program.function(f).name)),
+                    Element::Function(f) => {
+                        without_equal(self.query.name(self.query.program.function(f).name))
+                    }
                     _ => name.clone(),
                 };
                 if let Some(sc) = self.match_score(&display) {
-                    let ident = matches!(el, Element::Function(f) if self.query.program.function(f).kind == FunctionKind::Function) && self.executable_identifier();
+                    let ident = matches!(el, Element::Function(f) if self.query.program.function(f).kind == FunctionKind::Function)
+                        && self.executable_identifier();
                     self.item_element(el, None, sc, ident);
                 }
             }
@@ -1794,8 +2418,13 @@ impl<'a, 'c> Isp<'a, 'c> {
         let same = cl.library == lib;
         let extensible = same || (!m.interface && !m.final_ && !m.sealed);
         let implementable = same || (!m.base && !m.final_ && !m.sealed);
-        let mixable = same || !self.library_feature(cl.library, Feature::ClassModifiers) || (m.mixin && !m.interface && !m.final_ && !m.sealed);
-        if (f.extensible && !extensible) || (f.implementable && !implementable) || (f.mixable && !mixable) {
+        let mixable = same
+            || !self.library_feature(cl.library, Feature::ClassModifiers)
+            || (m.mixin && !m.interface && !m.final_ && !m.sealed);
+        if (f.extensible && !extensible)
+            || (f.implementable && !implementable)
+            || (f.mixable && !mixable)
+        {
             return;
         }
         if !(f.constant && !f.object_pattern)
@@ -1813,7 +2442,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_suggestEnum`.
     pub(super) fn suggest_enum(&mut self, c: ClassId, imp: Option<&Import>) {
-        let name = self.query.name(self.query.program.class(c).name).to_string();
+        let name = self
+            .query
+            .name(self.query.program.class(c).name)
+            .to_string();
         if !self.visible(&name, imp) {
             return;
         }
@@ -1832,7 +2464,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_suggestExtension`.
     pub(super) fn suggest_extension(&mut self, x: ExtensionId, imp: Option<&Import>) {
-        let Some(n) = self.query.program.extension(x).name else { return };
+        let Some(n) = self.query.program.extension(x).name else {
+            return;
+        };
         let name = self.query.name(n).to_string();
         if !self.visible(&name, imp) {
             return;
@@ -1847,7 +2481,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         if !f.ty {
             let fields = self.query.program.extension(x).fields.clone();
             for v in fields {
-                if self.visible_in(self.query.program.variable(v).library, self.query.name(self.query.program.variable(v).name)) {
+                if self.visible_in(
+                    self.query.program.variable(v).library,
+                    self.query.name(self.query.program.variable(v).name),
+                ) {
                     self.suggest_static_field(v, imp, Some(name.clone()));
                 }
             }
@@ -1856,7 +2493,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_suggestExtensionType`.
     pub(super) fn suggest_extension_type(&mut self, c: ClassId, imp: Option<&Import>) {
-        let name = self.query.name(self.query.program.class(c).name).to_string();
+        let name = self
+            .query
+            .name(self.query.program.class(c).name)
+            .to_string();
         if !self.visible(&name, imp) {
             return;
         }
@@ -1875,7 +2515,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_suggestMixin`.
     pub(super) fn suggest_mixin(&mut self, c: ClassId, imp: Option<&Import>) {
-        let name = self.query.name(self.query.program.class(c).name).to_string();
+        let name = self
+            .query
+            .name(self.query.program.class(c).name)
+            .to_string();
         if !self.visible(&name, imp) {
             return;
         }
@@ -1895,7 +2538,10 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_suggestTypeAlias`.
     pub(super) fn suggest_typedef(&mut self, t: TypedefId, imp: Option<&Import>) {
-        let name = self.query.name(self.query.program.typedef(t).name).to_string();
+        let name = self
+            .query
+            .name(self.query.program.typedef(t).name)
+            .to_string();
         if !self.visible(&name, imp) {
             return;
         }
@@ -1930,12 +2576,16 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `_suggestTopLevelFunction`.
     pub(super) fn suggest_top_function(&mut self, f: FunctionElementId, imp: Option<&Import>) {
-        let name = self.query.name(self.query.program.function(f).name).to_string();
+        let name = self
+            .query
+            .name(self.query.program.function(f).name)
+            .to_string();
         if !self.visible(&name, imp) {
             return;
         }
         let fl = self.fl();
-        if fl.assignable || fl.constant || (fl.non_void && self.is_void(self.return_of(f))) || fl.ty {
+        if fl.assignable || fl.constant || (fl.non_void && self.is_void(self.return_of(f))) || fl.ty
+        {
             return;
         }
         if let Some(s) = self.match_score(&name) {
@@ -1955,15 +2605,34 @@ impl<'a, 'c> Isp<'a, 'c> {
         let (name, getter, without_setter, constant, ret) = match el {
             Element::Variable(v) => {
                 let ve = p.variable(v);
-                let t = self.query.variable_type(v).unwrap_or(self.query.core.dynamic_);
-                (self.query.name(ve.name).to_string(), true, ve.setter.is_none(), ve.const_, t)
+                let t = self
+                    .query
+                    .variable_type(v)
+                    .unwrap_or(self.query.core.dynamic_);
+                (
+                    self.query.name(ve.name).to_string(),
+                    true,
+                    ve.setter.is_none(),
+                    ve.const_,
+                    t,
+                )
             }
             Element::Function(f) => {
                 let fe = p.function(f);
                 let getter = fe.kind == FunctionKind::Getter;
-                let ret = if getter { self.return_of(f) } else { self.query.core.void_ };
+                let ret = if getter {
+                    self.return_of(f)
+                } else {
+                    self.query.core.void_
+                };
                 let without_setter = getter && self.matching_setter(f).is_none();
-                (without_equal(self.query.name(fe.name)), getter, without_setter, false, ret)
+                (
+                    without_equal(self.query.name(fe.name)),
+                    getter,
+                    without_setter,
+                    false,
+                    ret,
+                )
             }
             _ => return,
         };
@@ -1971,7 +2640,11 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let fl = self.fl();
-        if (fl.assignable && getter && without_setter) || (fl.constant && !constant) || (fl.non_void && self.is_void(ret)) || fl.ty {
+        if (fl.assignable && getter && without_setter)
+            || (fl.constant && !constant)
+            || (fl.non_void && self.is_void(ret))
+            || fl.ty
+        {
             return;
         }
         if let Some(s) = self.match_score(&name) {
@@ -2006,11 +2679,24 @@ impl<'a, 'c> Isp<'a, 'c> {
         let cl = p.class(c);
         let class_name_ = self.query.name(cl.name).to_string();
         let mut fields: Vec<VariableId> = cl.enum_constants.clone();
-        fields.extend(cl.fields.iter().copied().filter(|v| !cl.enum_constants.contains(v)));
-        let mut getters: Vec<FunctionElementId> = cl.static_members.values().copied().filter(|&f| p.function(f).kind == FunctionKind::Getter).collect();
+        fields.extend(
+            cl.fields
+                .iter()
+                .copied()
+                .filter(|v| !cl.enum_constants.contains(v)),
+        );
+        let mut getters: Vec<FunctionElementId> = cl
+            .static_members
+            .values()
+            .copied()
+            .filter(|&f| p.function(f).kind == FunctionKind::Getter)
+            .collect();
         getters.sort();
         let values = if cl.kind == dartforge_elements::model::ClassKind::Enum {
-            self.query.names.lookup("values").and_then(|s| cl.static_members.get(&s).copied())
+            self.query
+                .names
+                .lookup("values")
+                .and_then(|s| cl.static_members.get(&s).copied())
         } else {
             None
         };
@@ -2035,30 +2721,65 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_suggestStaticField` of a declared field.
-    pub(super) fn suggest_static_field(&mut self, v: VariableId, imp: Option<&Import>, owner: Option<String>) {
+    pub(super) fn suggest_static_field(
+        &mut self,
+        v: VariableId,
+        imp: Option<&Import>,
+        owner: Option<String>,
+    ) {
         let ve = self.query.program.variable(v).clone();
         let fl = self.fl();
-        if !ve.static_ || (fl.assignable && !(ve.final_ || ve.const_)) || (fl.constant && !ve.const_) {
+        if !ve.static_
+            || (fl.assignable && !(ve.final_ || ve.const_))
+            || (fl.constant && !ve.const_)
+        {
             return;
         }
-        let Some(context) = self.context_type else { return };
-        let ty = self.query.ensure_variable_type(v).unwrap_or(self.query.core.dynamic_);
+        let Some(context) = self.context_type else {
+            return;
+        };
+        let ty = self
+            .query
+            .ensure_variable_type(v)
+            .unwrap_or(self.query.core.dynamic_);
         if !self.subtype(ty, context) {
             return;
         }
         let name = self.query.name(ve.name).to_string();
         let owner = owner.unwrap_or_default();
-        let enum_constant = ve.class.is_some_and(|c| self.query.program.class(c).enum_constants.contains(&v));
+        let enum_constant = ve
+            .class
+            .is_some_and(|c| self.query.program.class(c).enum_constants.contains(&v));
         let completion = format!("{owner}.{name}");
-        let target = if enum_constant { completion.clone() } else { name.clone() };
-        let Some(s) = self.match_score(&target) else { return };
+        let target = if enum_constant {
+            completion.clone()
+        } else {
+            name.clone()
+        };
+        let Some(s) = self.match_score(&target) else {
+            return;
+        };
         let before = self.collector.items.len();
         let detail = self.query.format(ty);
         let origin = self.query.origin(self.query.variable_start(v));
-        let lsp_kind = if enum_constant { kind::ENUM_MEMBER } else { kind::FIELD };
-        let item = self.collector.push(group::MEMBER, lsp_kind, completion.clone(), completion, Some(detail));
+        let lsp_kind = if enum_constant {
+            kind::ENUM_MEMBER
+        } else {
+            kind::FIELD
+        };
+        let item = self.collector.push(
+            group::MEMBER,
+            lsp_kind,
+            completion.clone(),
+            completion,
+            Some(detail),
+        );
         item.origin = origin;
-        item.rel.kind = Some(if enum_constant { crate::relevance::Kind::NoTable } else { crate::relevance::Kind::Field });
+        item.rel.kind = Some(if enum_constant {
+            crate::relevance::Kind::NoTable
+        } else {
+            crate::relevance::Kind::Field
+        });
         item.rel.ty = Some(ty);
         self.prefix(before, imp);
         self.mark(before, s, false);
@@ -2068,18 +2789,28 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `values`): the synthetic getter becomes a `FieldSuggestion` with just the
     /// name; the declared one, a `PropertyAccessSuggestion` with the owner's
     /// name.
-    pub(super) fn suggest_static_getter(&mut self, g: FunctionElementId, imp: Option<&Import>, owner: &str, synthetic: bool) {
+    pub(super) fn suggest_static_getter(
+        &mut self,
+        g: FunctionElementId,
+        imp: Option<&Import>,
+        owner: &str,
+        synthetic: bool,
+    ) {
         let fl = self.fl();
         if fl.constant || fl.assignable {
             return;
         }
-        let Some(context) = self.context_type else { return };
+        let Some(context) = self.context_type else {
+            return;
+        };
         let ty = self.return_of(g);
         if !self.subtype(ty, context) {
             return;
         }
         let name = without_equal(self.query.name(self.query.program.function(g).name));
-        let Some(s) = self.match_score(&name) else { return };
+        let Some(s) = self.match_score(&name) else {
+            return;
+        };
         let before = self.collector.items.len();
         self.item_member(g, ty, None, s, false);
         if !synthetic {
@@ -2093,13 +2824,23 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `isSubtypeOf`.
     pub(super) fn subtype(&mut self, a: TypeId, b: TypeId) -> bool {
-        let Query { table, outline, core, .. } = &mut *self.query;
+        let Query {
+            table,
+            outline,
+            core,
+            ..
+        } = &mut *self.query;
         let mut env = dartforge_types::SubtypeEnv::new(table, &outline.hierarchy, core);
         dartforge_types::is_subtype(a, b, &mut env)
     }
 
     /// `_suggestConstructors`.
-    pub(super) fn suggest_constructors(&mut self, c: ClassId, imp: Option<&Import>, non_factories: bool) {
+    pub(super) fn suggest_constructors(
+        &mut self,
+        c: ClassId,
+        imp: Option<&Import>,
+        non_factories: bool,
+    ) {
         if self.fl().assignable {
             return;
         }
@@ -2113,7 +2854,13 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_suggestConstructor`.
-    pub(super) fn suggest_constructor(&mut self, f: FunctionElementId, has_class_name: bool, imp: Option<&Import>, redirection: bool) {
+    pub(super) fn suggest_constructor(
+        &mut self,
+        f: FunctionElementId,
+        has_class_name: bool,
+        imp: Option<&Import>,
+        redirection: bool,
+    ) {
         let fl = self.fl();
         if fl.assignable {
             return;
@@ -2124,7 +2871,15 @@ impl<'a, 'c> Isp<'a, 'c> {
             return;
         }
         let Some(c) = fe.class else { return };
-        let class = self.query.name(self.query.program.class(self.query.program.class_owner(c)).name).to_string();
+        let class = self
+            .query
+            .name(
+                self.query
+                    .program
+                    .class(self.query.program.class_owner(c))
+                    .name,
+            )
+            .to_string();
         // The tracker: the class becomes known (or, if not imported, has to be
         // visible).
         if imp.is_some_and(|i| i.not_imported) {
@@ -2134,8 +2889,14 @@ impl<'a, 'c> Isp<'a, 'c> {
         } else {
             self.visible(&class, imp);
         }
-        let display = if name_ctor.is_empty() { class.clone() } else { format!("{class}.{name_ctor}") };
-        let Some(s) = self.match_score(&display) else { return };
+        let display = if name_ctor.is_empty() {
+            class.clone()
+        } else {
+            format!("{class}.{name_ctor}")
+        };
+        let Some(s) = self.match_score(&display) else {
+            return;
+        };
         let tear_off = fl.prefer_without_invocation || (fl.constant && !fe.const_);
         let as_new = fl.unnamed_as_new || tear_off;
         let mut completion = name_ctor.clone();
@@ -2143,7 +2904,11 @@ impl<'a, 'c> Isp<'a, 'c> {
             completion = "new".into();
         }
         if !has_class_name {
-            completion = if completion.is_empty() { class } else { format!("{class}.{completion}") };
+            completion = if completion.is_empty() {
+                class
+            } else {
+                format!("{class}.{completion}")
+            };
         }
         if completion.is_empty() {
             return;
@@ -2155,7 +2920,10 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn dh_constructor_invocations(&mut self) {
         use dartforge_elements::model::ClassKind as K;
         let units = self.query.program.library(self.library()).units.clone();
-        let own = Import { prefix: None, not_imported: false };
+        let own = Import {
+            prefix: None,
+            not_imported: false,
+        };
         for u in units {
             let e = self.unit_elements(u);
             for c in e.classes {
@@ -2173,7 +2941,10 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
         }
         for i in self.defining_imports() {
-            let imp = Import { prefix: i.prefix.map(|s| self.query.name(s).to_string()), not_imported: false };
+            let imp = Import {
+                prefix: i.prefix.map(|s| self.query.name(s).to_string()),
+                not_imported: false,
+            };
             for (_, b) in self.import_space(&i) {
                 match b.getter {
                     Some(Element::Class(c)) => match self.query.program.class(c).kind {
@@ -2211,7 +2982,10 @@ impl<'a, 'c> Isp<'a, 'c> {
         let list = self.query.program.class(c).constructors();
         for (n, f) in list {
             let name = self.query.name(n).to_string();
-            if !name.is_empty() && Some(&name) != exclude.as_ref() && !(constant && !self.query.program.function(f).const_) {
+            if !name.is_empty()
+                && Some(&name) != exclude.as_ref()
+                && !(constant && !self.query.program.function(f).const_)
+            {
                 self.suggest_constructor(f, true, None, false);
             }
         }
@@ -2222,7 +2996,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn dh_class_constructor_names(&mut self, c: ClassId) {
         let constant = self.fl().constant;
         for (n, f) in self.query.program.class(c).constructors() {
-            if !self.query.name(n).is_empty() && !(constant && !self.query.program.function(f).const_) {
+            if !self.query.name(n).is_empty()
+                && !(constant && !self.query.program.function(f).const_)
+            {
                 self.suggest_constructor(f, true, None, false);
             }
         }
@@ -2232,7 +3008,11 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn static_dh(&mut self, el: Element) {
         use dartforge_elements::model::ClassKind as K;
         let el = match el {
-            Element::Typedef(t) => match self.query.table.get(self.query.outline.typedefs[t.0 as usize].target_type) {
+            Element::Typedef(t) => match self
+                .query
+                .table
+                .get(self.query.outline.typedefs[t.0 as usize].target_type)
+            {
                 Type::Interface { class, .. } => Element::Class(*class),
                 Type::ExtensionType { decl, .. } => Element::Class(*decl),
                 _ => el,
@@ -2253,11 +3033,18 @@ impl<'a, 'c> Isp<'a, 'c> {
     }
 
     /// `_addStaticMembers`.
-    pub(super) fn static_members(&mut self, c: Option<ClassId>, x: Option<ExtensionId>, constructors: bool, non_factories: bool) {
+    pub(super) fn static_members(
+        &mut self,
+        c: Option<ClassId>,
+        x: Option<ExtensionId>,
+        constructors: bool,
+        non_factories: bool,
+    ) {
         let (accessors, fields, methods) = self.declared_members(c, x);
         let lib = self.library();
         let p = &self.query.program;
-        let is_enum = c.is_some_and(|c| p.class(c).kind == dartforge_elements::model::ClassKind::Enum);
+        let is_enum =
+            c.is_some_and(|c| p.class(c).kind == dartforge_elements::model::ClassKind::Enum);
         for f in accessors {
             let fe = self.query.program.function(f);
             if fe.static_ && self.visible_in(fe.library, self.query.name(fe.name)) {
@@ -2269,9 +3056,13 @@ impl<'a, 'c> Isp<'a, 'c> {
             if !ve.static_ || !self.visible_in(ve.library, self.query.name(ve.name)) {
                 continue;
             }
-            let enum_constant = c.is_some_and(|c| self.query.program.class(c).enum_constants.contains(&v));
+            let enum_constant =
+                c.is_some_and(|c| self.query.program.class(c).enum_constants.contains(&v));
             if enum_constant {
-                let e = self.query.name(self.query.program.class(c.unwrap_or(ClassId(0))).name).to_string();
+                let e = self
+                    .query
+                    .name(self.query.program.class(c.unwrap_or(ClassId(0))).name)
+                    .to_string();
                 let name = self.query.name(ve.name).to_string();
                 if let Some(s) = self.match_score(&format!("{e}.{name}")) {
                     // `includeEnumName: false` → `suggestField(…, 0.0)`.
@@ -2283,7 +3074,13 @@ impl<'a, 'c> Isp<'a, 'c> {
                             self.collector.function(&*self.query, group::MEMBER, g, t);
                         }
                         None => {
-                            self.collector.push(group::MEMBER, kind::ENUM_MEMBER, name.clone(), name, None);
+                            self.collector.push(
+                                group::MEMBER,
+                                kind::ENUM_MEMBER,
+                                name.clone(),
+                                name,
+                                None,
+                            );
                         }
                     }
                     for i in &mut self.collector.items[before..] {
@@ -2309,7 +3106,9 @@ impl<'a, 'c> Isp<'a, 'c> {
                 let list = self.query.program.class(c).constructors();
                 for (n, f) in list {
                     let fe = self.query.program.function(f);
-                    if self.visible_in(fe.library, self.query.name(n)) && (non_factories || fe.factory) {
+                    if self.visible_in(fe.library, self.query.name(n))
+                        && (non_factories || fe.factory)
+                    {
                         self.suggest_constructor(f, true, None, false);
                     }
                 }
@@ -2327,7 +3126,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `addPossibleRedirectionsInLibrary`.
     pub(super) fn dh_redirections(&mut self, redirecting: FunctionElementId) {
         use dartforge_elements::model::ClassKind as K;
-        let Some(c) = self.query.program.function(redirecting).class else { return };
+        let Some(c) = self.query.program.function(redirecting).class else {
+            return;
+        };
         let c = self.query.program.class_owner(c);
         let type_c = self.type_this(c);
         let lib = self.library();
@@ -2335,7 +3136,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         for u in units {
             let e = self.unit_elements(u);
             for k in e.classes {
-                if self.query.program.class(k).kind != K::Class && self.query.program.class(k).kind != K::MixinApplication {
+                if self.query.program.class(k).kind != K::Class
+                    && self.query.program.class(k).kind != K::MixinApplication
+                {
                     continue;
                 }
                 let type_k = self.type_this(k);
@@ -2356,10 +3159,18 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `addFieldsForInitializers`.
     pub(super) fn dh_fields_for_initializers(&mut self, ctor: usize, include: Option<VariableId>) {
-        let Some(class) = self.parent(ctor).and_then(|c| self.node_class(c)) else { return };
+        let Some(class) = self.parent(ctor).and_then(|c| self.node_class(c)) else {
+            return;
+        };
         let p = &self.query.program;
         let mut skip: HashSet<VariableId> = HashSet::new();
-        let field_by_name = |name_: &str| p.class(class).fields.iter().copied().find(|&v| self.query.name(p.variable(v).name) == name_);
+        let field_by_name = |name_: &str| {
+            p.class(class)
+                .fields
+                .iter()
+                .copied()
+                .find(|&v| self.query.name(p.variable(v).name) == name_)
+        };
         for i in self.children_of(ctor, &["ConstructorFieldInitializer"]) {
             if let Some(ast::Initializer::Field { name, .. }) = self.real_initializer(i)
                 && let Some(v) = field_by_name(self.real_name(*name))
@@ -2397,8 +3208,15 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn field_has_initializer(&self, v: VariableId) -> bool {
         let p = &self.query.program;
         match p.variable(v).node {
-            VariableRef::Field { unit, member, index } => match &p.unit(unit).ast.member(member).kind {
-                ast::MemberKind::Field(l) => l.variables.get(index).is_some_and(|x| x.initializer.is_some()),
+            VariableRef::Field {
+                unit,
+                member,
+                index,
+            } => match &p.unit(unit).ast.member(member).kind {
+                ast::MemberKind::Field(l) => l
+                    .variables
+                    .get(index)
+                    .is_some_and(|x| x.initializer.is_some()),
                 _ => false,
             },
             _ => false,
@@ -2408,31 +3226,57 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `addParametersFromSuperConstructor` (the node is the `SuperFormalParameter`).
     pub(super) fn dh_super_parameters(&mut self, n: usize) {
         self.dh(Flags::default());
-        let Some(prm) = self.real_parameter(n) else { return };
+        let Some(prm) = self.real_parameter(n) else {
+            return;
+        };
         if !prm.super_ {
             return;
         }
-        let Some(ctor) = self.ancestor(n, &["ConstructorDeclaration"]) else { return };
-        let Some(k) = self.real_constructor(ctor) else { return };
-        let Some(class) = self.parent(ctor).and_then(|c| self.node_class(c)) else { return };
+        let Some(ctor) = self.ancestor(n, &["ConstructorDeclaration"]) else {
+            return;
+        };
+        let Some(k) = self.real_constructor(ctor) else {
+            return;
+        };
+        let Some(class) = self.parent(ctor).and_then(|c| self.node_class(c)) else {
+            return;
+        };
         let p = &self.query.program;
-        let Some(sup) = p.class(class).supertype_class else { return };
+        let Some(sup) = p.class(class).supertype_class else {
+            return;
+        };
         // `superConstructor`: that of the `super(...)`/`super.n(...)` invocation,
         // or the unnamed one.
         let name_sup = k
             .initializers
             .iter()
             .find_map(|i| match i {
-                ast::Initializer::Super { constructor, .. } => Some(constructor.map(|c| self.real_name(c).to_string()).unwrap_or_default()),
+                ast::Initializer::Super { constructor, .. } => Some(
+                    constructor
+                        .map(|c| self.real_name(c).to_string())
+                        .unwrap_or_default(),
+                ),
                 _ => None,
             })
             .unwrap_or_default();
-        let Some(f_sup) = p.class(p.class_owner(sup)).constructors().into_iter().find(|(s, _)| self.query.name(*s) == name_sup).map(|(_, f)| f) else {
+        let Some(f_sup) = p
+            .class(p.class_owner(sup))
+            .constructors()
+            .into_iter()
+            .find(|(s, _)| self.query.name(*s) == name_sup)
+            .map(|(_, f)| f)
+        else {
             return;
         };
-        let parameters_sup = self.query.outline.functions[f_sup.0 as usize].parameters.clone();
+        let parameters_sup = self.query.outline.functions[f_sup.0 as usize]
+            .parameters
+            .clone();
         if prm.kind == ast::ParameterKind::Named {
-            let mut specified: HashSet<String> = k.parameters.iter().filter_map(|x| x.name.map(|n| self.real_name(n).to_string())).collect();
+            let mut specified: HashSet<String> = k
+                .parameters
+                .iter()
+                .filter_map(|x| x.name.map(|n| self.real_name(n).to_string()))
+                .collect();
             for i in k.initializers.iter() {
                 if let ast::Initializer::Super { arguments, .. } = i {
                     for a in arguments.args.iter() {
@@ -2453,9 +3297,16 @@ impl<'a, 'c> Isp<'a, 'c> {
                 }
             }
         } else {
-            let positional_here: Vec<&ast::Parameter> = k.parameters.iter().filter(|x| x.super_ && x.kind != ast::ParameterKind::Named).collect();
+            let positional_here: Vec<&ast::Parameter> = k
+                .parameters
+                .iter()
+                .filter(|x| x.super_ && x.kind != ast::ParameterKind::Named)
+                .collect();
             let index = positional_here.iter().position(|x| std::ptr::eq(*x, prm));
-            let positional_sup: Vec<_> = parameters_sup.iter().filter(|x| x.kind != ast::ParameterKind::Named).collect();
+            let positional_sup: Vec<_> = parameters_sup
+                .iter()
+                .filter(|x| x.kind != ast::ParameterKind::Named)
+                .collect();
             if let Some(i) = index
                 && let Some(ps) = positional_sup.get(i)
                 && let Some(name) = ps.name
@@ -2471,13 +3322,18 @@ impl<'a, 'c> Isp<'a, 'c> {
         if let Some(s) = self.match_score(name) {
             let before = self.collector.items.len();
             let detail = self.query.format(ty);
-            let item = self.collector.push(group::LOCAL, kind::VARIABLE, name.to_string(), name.to_string(), Some(detail));
+            let item = self.collector.push(
+                group::LOCAL,
+                kind::VARIABLE,
+                name.to_string(),
+                name.to_string(),
+                Some(detail),
+            );
             item.rel.fixed = Some(1000);
             self.mark(before, s, false);
         }
     }
 }
-
 
 /// The analyzer's `Name`: the name, the library when it is private, and
 /// whether it is a setter's (`x=`).
@@ -2532,7 +3388,11 @@ fn key(q: &Query, f: FunctionElementId) -> Key {
     let p = &q.program;
     let fe = p.function(f);
     let private = q.name(fe.name).starts_with('_');
-    (fe.name, private.then_some(fe.library), is_setter_function(p, f))
+    (
+        fe.name,
+        private.then_some(fe.library),
+        is_setter_function(p, f),
+    )
 }
 
 /// `_getTypeMembers` (with `include_abstract`) or `_addImplemented`
@@ -2546,11 +3406,23 @@ fn declared(q: &Query, c: ClassId, include_abstract: bool) -> Vec<(Key, Function
         .copied()
         .filter(|&f| !p.function(f).static_ && (include_abstract || !p.function(f).abstract_))
         .collect();
-    v.sort_by_key(|&f| (!matches!(p.function(f).kind, FunctionKind::Function | FunctionKind::Operator), f));
+    v.sort_by_key(|&f| {
+        (
+            !matches!(
+                p.function(f).kind,
+                FunctionKind::Function | FunctionKind::Operator
+            ),
+            f,
+        )
+    });
     v.into_iter().map(|f| (key(q, f), f)).collect()
 }
 
-fn from_object(p: &dartforge_elements::model::Program, object: Option<ClassId>, f: FunctionElementId) -> bool {
+fn from_object(
+    p: &dartforge_elements::model::Program,
+    object: Option<ClassId>,
+    f: FunctionElementId,
+) -> bool {
     object.is_some() && p.function(f).class.map(|c| p.class_owner(c)) == object
 }
 
@@ -2571,13 +3443,19 @@ fn interface_of(
     }
     let p = &q.program;
     let cl = p.class(c);
-    let sub = |x: ClassId, cache: &mut HashMap<ClassId, std::rc::Rc<Interface>>, processing: &mut HashSet<ClassId>| {
+    let sub = |x: ClassId,
+               cache: &mut HashMap<ClassId, std::rc::Rc<Interface>>,
+               processing: &mut HashSet<ClassId>| {
         interface_of(q, object, p.class_owner(x), cache, processing)
     };
     let i = match cl.kind {
         ClassKind::Mixin => {
             // `superclassConstraints` (`Object` when there is no `on`).
-            let constraints: Vec<ClassId> = if cl.on_classes.is_empty() { object.into_iter().collect() } else { cl.on_classes.clone() };
+            let constraints: Vec<ClassId> = if cl.on_classes.is_empty() {
+                object.into_iter().collect()
+            } else {
+                cl.on_classes.clone()
+            };
             let mut super_candidates = SortedMap::default();
             for r in constraints {
                 let i = sub(r, cache, processing);
@@ -2597,7 +3475,13 @@ fn interface_of(
             for (k, f) in declared(q, c, false) {
                 implemented.insert(k, f);
             }
-            Interface { map, implemented, implemented_super: super_candidates, overridden: candidates, forwarded: HashSet::new() }
+            Interface {
+                map,
+                implemented,
+                implemented_super: super_candidates,
+                overridden: candidates,
+                forwarded: HashSet::new(),
+            }
         }
         ClassKind::ExtensionType => {
             let mut declared_map = SortedMap::default();
@@ -2606,7 +3490,13 @@ fn interface_of(
             }
             // The precluded names: the declared ones, the setter of a declared method
             // and the method of a declared setter.
-            let name = |k: &Key| if k.2 { format!("{}=", q.name(k.0)) } else { q.name(k.0).to_string() };
+            let name = |k: &Key| {
+                if k.2 {
+                    format!("{}=", q.name(k.0))
+                } else {
+                    q.name(k.0).to_string()
+                }
+            };
             let mut precluded: HashSet<String> = HashSet::new();
             for (k, f) in declared_map.entries() {
                 let n = name(&k);
@@ -2624,14 +3514,25 @@ fn interface_of(
                     _ => {}
                 }
             }
-            let interfaces: Vec<ClassId> = if cl.interface_classes.is_empty() { object.into_iter().collect() } else { cl.interface_classes.clone() };
+            let interfaces: Vec<ClassId> = if cl.interface_classes.is_empty() {
+                object.into_iter().collect()
+            } else {
+                cl.interface_classes.clone()
+            };
             let mut of_extension = SortedMap::default();
             let mut non_extension = SortedMap::default();
             for x in interfaces {
                 let i = sub(x, cache, processing);
                 for (k, f) in i.map.entries() {
-                    let is_extension_type_member = p.function(f).class.is_some_and(|d| p.class(d).kind == ClassKind::ExtensionType);
-                    let target = if is_extension_type_member { &mut of_extension } else { &mut non_extension };
+                    let is_extension_type_member = p
+                        .function(f)
+                        .class
+                        .is_some_and(|d| p.class(d).kind == ClassKind::ExtensionType);
+                    let target = if is_extension_type_member {
+                        &mut of_extension
+                    } else {
+                        &mut non_extension
+                    };
                     if !target.contains(&k) {
                         target.insert(k, f);
                     }
@@ -2655,7 +3556,13 @@ fn interface_of(
                 }
                 map.insert(k, f);
             }
-            Interface { implemented: map.clone(), map, implemented_super: SortedMap::default(), overridden: redeclared, forwarded: HashSet::new() }
+            Interface {
+                implemented: map.clone(),
+                map,
+                implemented_super: SortedMap::default(),
+                overridden: redeclared,
+                forwarded: HashSet::new(),
+            }
         }
         ClassKind::Class | ClassKind::Enum | ClassKind::MixinApplication => {
             let mut candidates = SortedMap::default();
@@ -2675,7 +3582,9 @@ fn interface_of(
                     // A member declared in the mixin itself replaces the superclass's; what the
                     // mixin inherits from `on` keeps the most specific one, which is the one
                     // already present.
-                    if !candidates.contains(&k) || p.function(f).class.map(|d| p.class_owner(d)) == Some(owner_m) {
+                    if !candidates.contains(&k)
+                        || p.function(f).class.map(|d| p.class_owner(d)) == Some(owner_m)
+                    {
                         candidates.insert(k, f);
                     }
                 }
@@ -2702,12 +3611,16 @@ fn interface_of(
             // The `noSuchMethod` forwarders: in an abstract class, the superclass's;
             // in a concrete one with a `noSuchMethod` that is not `Object`'s, the
             // interface names without an implementation.
-            let is_abstract = cl.kind == ClassKind::Class && cl.modifiers.abstract_ || cl.decl.is_none();
+            let is_abstract =
+                cl.kind == ClassKind::Class && cl.modifiers.abstract_ || cl.decl.is_none();
             let mut forwarded = HashSet::new();
             if is_abstract {
                 forwarded = super_forwarded;
             } else {
-                let nsm = implemented.entries().find(|(k, _)| q.name(k.0) == "noSuchMethod").map(|(_, f)| f);
+                let nsm = implemented
+                    .entries()
+                    .find(|(k, _)| q.name(k.0) == "noSuchMethod")
+                    .map(|(_, f)| f);
                 if let Some(n) = nsm
                     && !from_object(p, object, n)
                 {
@@ -2719,7 +3632,13 @@ fn interface_of(
                     }
                 }
             }
-            Interface { map, implemented, implemented_super, overridden: candidates, forwarded }
+            Interface {
+                map,
+                implemented,
+                implemented_super,
+                overridden: candidates,
+                forwarded,
+            }
         }
     };
     processing.remove(&c);
@@ -2731,26 +3650,46 @@ fn interface_of(
 /// The place of a top-level element in library `lib`: the unit (in the order
 /// of its units), the start of the declaration and the position in the
 /// variable list.
-fn place_in_library(p: &dartforge_elements::model::Program, lib: dartforge_elements::model::LibraryId, el: Element) -> Option<(usize, usize, usize)> {
+fn place_in_library(
+    p: &dartforge_elements::model::Program,
+    lib: dartforge_elements::model::LibraryId,
+    el: Element,
+) -> Option<(usize, usize, usize)> {
     use dartforge_elements::model::{FunctionRef, VariableRef};
     let units = &p.library(lib).units;
     let of_unit = |u: UnitId| units.iter().position(|&x| x == u);
     let of_variable = |v: VariableId| match p.variable(v).node {
-        VariableRef::TopLevel { unit, decl, index } => Some((of_unit(unit)?, p.unit(unit).ast.decl(decl).span.start, index)),
+        VariableRef::TopLevel { unit, decl, index } => Some((
+            of_unit(unit)?,
+            p.unit(unit).ast.decl(decl).span.start,
+            index,
+        )),
         _ => None,
     };
     match el {
         Element::Class(c) => {
             let d = p.class(c).decl?;
-            Some((of_unit(d.unit)?, p.unit(d.unit).ast.decl(d.decl).span.start, 0))
+            Some((
+                of_unit(d.unit)?,
+                p.unit(d.unit).ast.decl(d.decl).span.start,
+                0,
+            ))
         }
         Element::Typedef(x) => {
             let d = p.typedef(x).decl;
-            Some((of_unit(d.unit)?, p.unit(d.unit).ast.decl(d.decl).span.start, 0))
+            Some((
+                of_unit(d.unit)?,
+                p.unit(d.unit).ast.decl(d.decl).span.start,
+                0,
+            ))
         }
         Element::Extension(x) => {
             let d = p.extension(x).decl;
-            Some((of_unit(d.unit)?, p.unit(d.unit).ast.decl(d.decl).span.start, 0))
+            Some((
+                of_unit(d.unit)?,
+                p.unit(d.unit).ast.decl(d.decl).span.start,
+                0,
+            ))
         }
         Element::Function(f) => {
             let fe = p.function(f);
@@ -2758,7 +3697,11 @@ fn place_in_library(p: &dartforge_elements::model::Program, lib: dartforge_eleme
                 return of_variable(v);
             }
             match fe.node {
-                FunctionRef::Function { unit, function } => Some((of_unit(unit)?, p.unit(unit).ast.functions[function.0 as usize].span.start, 0)),
+                FunctionRef::Function { unit, function } => Some((
+                    of_unit(unit)?,
+                    p.unit(unit).ast.functions[function.0 as usize].span.start,
+                    0,
+                )),
                 _ => None,
             }
         }
@@ -2767,7 +3710,10 @@ fn place_in_library(p: &dartforge_elements::model::Program, lib: dartforge_eleme
     }
 }
 
-fn element_library(p: &dartforge_elements::model::Program, el: Element) -> Option<dartforge_elements::model::LibraryId> {
+fn element_library(
+    p: &dartforge_elements::model::Program,
+    el: Element,
+) -> Option<dartforge_elements::model::LibraryId> {
     Some(match el {
         Element::Class(c) => p.class(c).library,
         Element::Typedef(x) => p.typedef(x).library,

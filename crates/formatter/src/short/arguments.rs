@@ -4,8 +4,8 @@
 
 use super::arena::{ChunkId, RuleId, cost};
 use super::visitor::SourceVisitor;
-use crate::syntax::tree::{Node, NodeId};
 use crate::syntax::token::Tk;
+use crate::syntax::tree::{Node, NodeId};
 
 /// `ArgumentListVisitor`.
 pub struct ArgumentListVisitor {
@@ -44,7 +44,12 @@ impl ArgumentListVisitor {
     }
 
     /// `ArgumentListVisitor.forArguments`.
-    pub fn for_arguments(v: &SourceVisitor, left_side: Tk, right_: Tk, arguments_: &[NodeId]) -> ArgumentListVisitor {
+    pub fn for_arguments(
+        v: &SourceVisitor,
+        left_side: Tk,
+        right_: Tk,
+        arguments_: &[NodeId],
+    ) -> ArgumentListVisitor {
         match contiguous_functions(v, arguments_) {
             None => ArgumentListVisitor {
                 left_side,
@@ -126,7 +131,10 @@ fn contiguous_functions(v: &SourceVisitor, arguments_: &[NodeId]) -> Option<(usi
     }
     let start = start?;
     let end = end as usize;
-    let all_named = |xs: &[NodeId]| xs.iter().all(|&a| matches!(v.node(a), Node::NamedExpression { .. }));
+    let all_named = |xs: &[NodeId]| {
+        xs.iter()
+            .all(|&a| matches!(v.node(a), Node::NamedExpression { .. }))
+    };
     if all_named(arguments_) && (start > 0 || end < arguments_.len()) {
         return None;
     }
@@ -136,7 +144,9 @@ fn contiguous_functions(v: &SourceVisitor, arguments_: &[NodeId]) -> Option<(usi
                 return false;
             };
             match v.node(*expression) {
-                Node::FunctionExpression { body, .. } => matches!(v.node(*body), Node::ExpressionFunctionBody { .. }),
+                Node::FunctionExpression { body, .. } => {
+                    matches!(v.node(*body), Node::ExpressionFunctionBody { .. })
+                }
                 _ => false,
             }
         };
@@ -162,7 +172,9 @@ fn is_block_function(v: &SourceVisitor, expr: NodeId) -> bool {
     }
     match v.node(e) {
         Node::MethodInvocation {
-            target, argument_list, ..
+            target,
+            argument_list,
+            ..
         } => {
             if !is_valid_wrapping_target(v, *target) {
                 return false;
@@ -185,7 +197,9 @@ fn is_block_function(v: &SourceVisitor, expr: NodeId) -> bool {
             return is_block_function(v, arguments[0]);
         }
         Node::FunctionExpressionInvocation {
-            function, argument_list, ..
+            function,
+            argument_list,
+            ..
         } => {
             let Node::ArgumentList { arguments, .. } = v.node(*argument_list) else {
                 return false;
@@ -222,10 +236,16 @@ fn is_valid_wrapping_target(v: &SourceVisitor, target_: Option<NodeId>) -> bool 
     let Some(mut e) = target_ else {
         return true;
     };
-    while let Node::PropertyAccess { target: Some(t), .. } = v.node(e) {
+    while let Node::PropertyAccess {
+        target: Some(t), ..
+    } = v.node(e)
+    {
         e = *t;
     }
-    matches!(v.node(e), Node::PrefixedIdentifier { .. } | Node::SimpleIdentifier { .. })
+    matches!(
+        v.node(e),
+        Node::PrefixedIdentifier { .. } | Node::SimpleIdentifier { .. }
+    )
 }
 
 impl ArgumentSublist {
@@ -290,7 +310,8 @@ impl ArgumentSublist {
         }
         let leading = self.leading_blocks.min(self.positionals.len());
         let trailing = self.trailing_blocks.saturating_sub(self.named_args.len());
-        let rule = v.a.positional_rule(self.block_rule, self.positionals.len(), leading, trailing);
+        let rule =
+            v.a.positional_rule(self.block_rule, self.positionals.len(), leading, trailing);
         let positionals = self.positionals.clone();
         self.visit_arguments(v, &positionals, rule, true);
         Some(rule)
@@ -310,7 +331,13 @@ impl ArgumentSublist {
         self.visit_arguments(v, &named_args, named_, false);
     }
 
-    fn visit_arguments(&mut self, v: &mut SourceVisitor, arguments_: &[NodeId], rule: RuleId, are_positional: bool) {
+    fn visit_arguments(
+        &mut self,
+        v: &mut SourceVisitor,
+        arguments_: &[NodeId],
+        rule: RuleId,
+        are_positional: bool,
+    ) {
         v.start_rule(Some(rule));
         let c = v.builder_split(true, arguments_[0] != self.all[0]);
         self.previous_split = Some(c);
@@ -335,7 +362,8 @@ impl ArgumentSublist {
     fn visit_argument(&mut self, v: &mut SourceVisitor, rule: RuleId, arg: NodeId) {
         let block = self.blocks.iter().find(|(b, _)| *b == arg).map(|(_, t)| *t);
         let named = matches!(v.node(arg), Node::NamedExpression { .. });
-        let several = self.all.len() > 1 || matches!(v.node(self.all[0]), Node::RecordLiteral { .. });
+        let several =
+            self.all.len() > 1 || matches!(v.node(self.all[0]), Node::RecordLiteral { .. });
         if let Some(t) = block {
             v.a.disable_inner(rule);
             let rb = self.block_rule.expect("block rule");
@@ -400,9 +428,17 @@ fn block_token(v: &SourceVisitor, expr: NodeId) -> Option<Tk> {
         e = *expression;
     }
     match v.node(e) {
-        Node::ListLiteral { left_bracket, .. } | Node::SetOrMapLiteral { left_bracket, .. } => Some(*left_bracket),
-        Node::RecordLiteral { left_parenthesis, .. } => Some(*left_parenthesis),
-        Node::SimpleStringLiteral { .. } | Node::StringInterpolation { .. } if v.is_multiline_string(e) => Some(v.tree_.start(e)),
+        Node::ListLiteral { left_bracket, .. } | Node::SetOrMapLiteral { left_bracket, .. } => {
+            Some(*left_bracket)
+        }
+        Node::RecordLiteral {
+            left_parenthesis, ..
+        } => Some(*left_parenthesis),
+        Node::SimpleStringLiteral { .. } | Node::StringInterpolation { .. }
+            if v.is_multiline_string(e) =>
+        {
+            Some(v.tree_.start(e))
+        }
         _ => None,
     }
 }

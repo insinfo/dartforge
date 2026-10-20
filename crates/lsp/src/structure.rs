@@ -21,12 +21,12 @@
 //! is left with a single line).
 
 use dartforge_diagnostics::Span;
+use dartforge_frontend::LibraryFeatures;
 use dartforge_frontend::ast::{
     self, Annotation, Arguments, Ast, CollectionElement, DeclKind, ExprKind, FunctionBody,
     Initializer, MemberKind, Parameter, StmtKind, TypeKind,
 };
 use dartforge_frontend::token::{Kind, Op, Token};
-use dartforge_frontend::LibraryFeatures;
 use dartforge_intern::Interner;
 use std::cmp::Reverse;
 use std::collections::{HashMap, HashSet};
@@ -162,7 +162,12 @@ fn comments(source: &str, from: usize, until: usize) -> Vec<Comment> {
     while i < until {
         if b[i] == b'/' && b.get(i + 1) == Some(&b'/') {
             let end = source[i..until].find(['\n', '\r']).map_or(until, |k| i + k);
-            output.push(Comment { start: i, end, block: false, triple: source[i..].starts_with("///") });
+            output.push(Comment {
+                start: i,
+                end,
+                block: false,
+                triple: source[i..].starts_with("///"),
+            });
             i = end;
         } else if b[i] == b'/' && b.get(i + 1) == Some(&b'*') {
             // Block comments nest in Dart.
@@ -183,7 +188,12 @@ fn comments(source: &str, from: usize, until: usize) -> Vec<Comment> {
                 }
             }
             let end = j.min(until);
-            output.push(Comment { start: i, end, block: true, triple: false });
+            output.push(Comment {
+                start: i,
+                end,
+                block: true,
+                triple: false,
+            });
             i = end;
         } else {
             i += 1;
@@ -196,9 +206,15 @@ fn comments(source: &str, from: usize, until: usize) -> Vec<Comment> {
 pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> Vec<Fold> {
     let mut names = Interner::new();
     let analyzed = dartforge_frontend::parser::parse_with(text, &mut names, features);
-    let Some(tokens) = Tokens::new(text) else { return Vec::new() };
+    let Some(tokens) = Tokens::new(text) else {
+        return Vec::new();
+    };
     let lines = LineTable::build(text);
-    let mut c = Collector { ast: &analyzed.ast, t: &tokens, candidates: Vec::new() };
+    let mut c = Collector {
+        ast: &analyzed.ast,
+        t: &tokens,
+        candidates: Vec::new(),
+    };
     c.collect(&analyzed.unit);
     let mut candidates = c.candidates;
     // The tree visit order (pre-order): the node with the smaller start; among
@@ -208,7 +224,11 @@ pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> 
     let line = |o: usize| lines.line_of(text, o.min(text.len()));
     let mut occupied: HashSet<usize> = HashSet::new();
     let mut regions: Vec<(usize, usize, FoldKind)> = Vec::new();
-    let mut add = |start: usize, end: usize, kind: FoldKind, alternative: Option<usize>, occupied: &mut HashSet<usize>| {
+    let mut add = |start: usize,
+                   end: usize,
+                   kind: FoldKind,
+                   alternative: Option<usize>,
+                   occupied: &mut HashSet<usize>| {
         let mut start = start;
         if occupied.contains(&line(start)) {
             let Some(a) = alternative else { return };
@@ -230,14 +250,29 @@ pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> 
         .unit
         .directives
         .iter()
-        .filter(|d| !matches!(d.kind, ast::DirectiveKind::ImportAugment { .. } | ast::DirectiveKind::AugmentLibrary { .. }))
+        .filter(|d| {
+            !matches!(
+                d.kind,
+                ast::DirectiveKind::ImportAugment { .. }
+                    | ast::DirectiveKind::AugmentLibrary { .. }
+            )
+        })
         .collect();
     if directives.len() > 1 {
         let first = directives[0];
-        let after_metadata = first.metadata.last().map_or(first.span.start, |a| a.span.end);
+        let after_metadata = first
+            .metadata
+            .last()
+            .map_or(first.span.start, |a| a.span.end);
         let i = tokens.index(after_metadata);
         if let Some(t) = tokens.list.get(i) {
-            add(t.span.end, directives[directives.len() - 1].span.end, FoldKind::Directives, None, &mut occupied);
+            add(
+                t.span.end,
+                directives[directives.len() - 1].span.end,
+                FoldKind::Directives,
+                None,
+                &mut occupied,
+            );
         }
     }
     // Comments, gap by gap (the chain preceding each token).
@@ -252,7 +287,9 @@ pub(crate) fn folds(text: &str, features: LibraryFeatures, lines_only: bool) -> 
         while k < chain.len() {
             let current = chain[k];
             let (start, end, next_) = if current.block {
-                let eol = text[current.start..current.end].find(['\r', '\n']).unwrap_or(0);
+                let eol = text[current.start..current.end]
+                    .find(['\r', '\n'])
+                    .unwrap_or(0);
                 (current.start + eol, current.end, k + 1)
             } else {
                 let mut last = k;
@@ -330,8 +367,12 @@ impl Collector<'_> {
     }
 
     fn annotations(&mut self, node: Span, annotations: &[Annotation]) {
-        let (Some(first), Some(last)) = (annotations.first(), annotations.last()) else { return };
-        let Some(name) = first.name.get(first.name.len().min(2).saturating_sub(1)) else { return };
+        let (Some(first), Some(last)) = (annotations.first(), annotations.last()) else {
+            return;
+        };
+        let Some(name) = first.name.get(first.name.len().min(2).saturating_sub(1)) else {
+            return;
+        };
         self.region(node, name.span.end, last.span.end, None);
         for a in annotations {
             if let Some(args) = &a.arguments {
@@ -347,16 +388,31 @@ impl Collector<'_> {
         if s.end <= s.start || toks.source.as_bytes().get(s.end - 1) != Some(&b')') {
             return;
         }
-        let first = a.args.first().map(|x| x.name.map_or(ast.expr(x.value).span.start, |n| n.span.start));
+        let first = a.args.first().map(|x| {
+            x.name
+                .map_or(ast.expr(x.value).span.start, |n| n.span.start)
+        });
         self.region(s, s.start + 1, s.end - 1, first);
     }
 
     /// Parameter list from the first `(` in `[anchor, limit)`.
     fn parameters(&mut self, anchor: usize, limit: usize, ps: &[Parameter]) {
         let toks = self.t;
-        let Some(i) = toks.first(Op::LParen, anchor, limit) else { return };
-        let Some((opens, closes)) = toks.pair_of(i) else { return };
-        self.region(Span { start: opens.start, end: closes.end }, opens.end, closes.start, ps.first().map(|p| p.span.start));
+        let Some(i) = toks.first(Op::LParen, anchor, limit) else {
+            return;
+        };
+        let Some((opens, closes)) = toks.pair_of(i) else {
+            return;
+        };
+        self.region(
+            Span {
+                start: opens.start,
+                end: closes.end,
+            },
+            opens.end,
+            closes.start,
+            ps.first().map(|p| p.span.start),
+        );
         for p in ps {
             self.parameter(p);
         }
@@ -397,7 +453,9 @@ impl Collector<'_> {
     fn conditional_block(&mut self, node: Span, block: ast::StmtId) {
         let (ast, toks) = (self.ast, self.t);
         let b = ast.stmt(block);
-        let StmtKind::Block(cmds) = &b.kind else { return };
+        let StmtKind::Block(cmds) = &b.kind else {
+            return;
+        };
         let s = b.span;
         if s.end <= s.start {
             return;
@@ -440,7 +498,9 @@ impl Collector<'_> {
         for d in &ast.decls {
             self.annotations(d.span, &d.metadata);
             match &d.kind {
-                DeclKind::Class(k) if !k.mixin_application => self.region(d.span, k.name.span.end, d.span.end, None),
+                DeclKind::Class(k) if !k.mixin_application => {
+                    self.region(d.span, k.name.span.end, d.span.end, None)
+                }
                 DeclKind::Mixin(k) => self.region(d.span, k.name.span.end, d.span.end, None),
                 DeclKind::Enum(k) => {
                     self.body_in_braces(d.span, k.name.span.end);
@@ -461,7 +521,9 @@ impl Collector<'_> {
                 }
                 DeclKind::Typedef(k) => match &k.kind {
                     ast::TypedefKind::Alias(t) => self.ty(*t),
-                    ast::TypedefKind::Legacy { parameters, .. } => self.parameters(k.name.span.end, d.span.end, parameters),
+                    ast::TypedefKind::Legacy { parameters, .. } => {
+                        self.parameters(k.name.span.end, d.span.end, parameters)
+                    }
                 },
                 DeclKind::Function(f) => {
                     let func = ast.function(*f);
@@ -491,8 +553,11 @@ impl Collector<'_> {
                     self.parameters(anchor, m.span.end, &k.parameters);
                     for start in k.initializers.iter() {
                         match start {
-                            Initializer::Super { arguments, .. } | Initializer::Redirect { arguments, .. } => self.arguments(arguments),
-                            Initializer::Assert { span, condition, .. } => {
+                            Initializer::Super { arguments, .. }
+                            | Initializer::Redirect { arguments, .. } => self.arguments(arguments),
+                            Initializer::Assert {
+                                span, condition, ..
+                            } => {
                                 if let Some(i) = toks.first(Op::LParen, span.start, span.end)
                                     && let Some((opens, closes)) = toks.pair_of(i)
                                 {
@@ -517,8 +582,16 @@ impl Collector<'_> {
                 && let FunctionBody::Block(b) = f.body
             {
                 // The function expression node starts at the parameters.
-                let at_start = toks.first(Op::LParen, anchor, f.span.end).map_or(f.span.start, |k| toks.span(k).start);
-                self.whole_block(Span { start: at_start, end: f.span.end }, b);
+                let at_start = toks
+                    .first(Op::LParen, anchor, f.span.end)
+                    .map_or(f.span.start, |k| toks.span(k).start);
+                self.whole_block(
+                    Span {
+                        start: at_start,
+                        end: f.span.end,
+                    },
+                    b,
+                );
             }
             if let Some(ps) = &f.parameters {
                 self.parameters(anchor, f.span.end, ps);
@@ -535,8 +608,12 @@ impl Collector<'_> {
                         self.conditional_block(s.span, *e);
                     }
                 }
-                StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => self.conditional_block(s.span, *body),
-                StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } => self.whole_block(s.span, *body),
+                StmtKind::While { body, .. } | StmtKind::DoWhile { body, .. } => {
+                    self.conditional_block(s.span, *body)
+                }
+                StmtKind::For { body, .. } | StmtKind::ForIn { body, .. } => {
+                    self.whole_block(s.span, *body)
+                }
                 StmtKind::Function(f) => {
                     if let Some(n) = ast.function(*f).name {
                         self.region(s.span, n.span.end, s.span.end, None);
@@ -549,7 +626,10 @@ impl Collector<'_> {
                         self.region(s.span, opens.end, closes.end, None);
                     }
                     for case in cases.iter() {
-                        let until = case.body.first().map_or(case.span.end, |b| ast.stmt(*b).span.start);
+                        let until = case
+                            .body
+                            .first()
+                            .map_or(case.span.end, |b| ast.stmt(*b).span.start);
                         if let Some(i) = toks.last(Op::Colon, case.span.start, until) {
                             self.region(case.span, toks.span(i).end, case.span.end, None);
                         }
@@ -573,7 +653,9 @@ impl Collector<'_> {
         for e in &ast.exprs {
             let s = e.span;
             match &e.kind {
-                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => self.arguments(arguments),
+                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
+                    self.arguments(arguments)
+                }
                 ExprKind::List { elements, .. } => self.literal(s, Op::LBracket, elements),
                 ExprKind::SetOrMap { elements, .. } => self.literal(s, Op::LBrace, elements),
                 ExprKind::Record { .. } => {
@@ -608,7 +690,15 @@ impl Collector<'_> {
                 Kind::StrBegin(..) => stack.push(tok.span.start),
                 Kind::StrEnd(_) => {
                     if let Some(start) = stack.pop() {
-                        self.region(Span { start, end: tok.span.end }, start, tok.span.end, None);
+                        self.region(
+                            Span {
+                                start,
+                                end: tok.span.end,
+                            },
+                            start,
+                            tok.span.end,
+                            None,
+                        );
                     }
                 }
                 _ => {}
@@ -650,10 +740,14 @@ mod tests {
     use super::*;
 
     fn lines_of(text: &str) -> Vec<(u32, u32, Option<&'static str>)> {
-        folds(text, LibraryFeatures::new(dartforge_frontend::LanguageVersion::CURRENT, &[]), true)
-            .into_iter()
-            .map(|d| (d.line_begin, d.line_end, d.kind))
-            .collect()
+        folds(
+            text,
+            LibraryFeatures::new(dartforge_frontend::LanguageVersion::CURRENT, &[]),
+            true,
+        )
+        .into_iter()
+        .map(|d| (d.line_begin, d.line_end, d.kind))
+        .collect()
     }
 
     #[test]
@@ -661,7 +755,12 @@ mod tests {
         let text = "import 'a.dart';\nimport 'b.dart';\n\n/// Doc\n/// mais\nclass A {\n  void m() {\n    print(1);\n  }\n}\n";
         assert_eq!(
             lines_of(text),
-            vec![(0, 1, Some("imports")), (3, 4, Some("comment")), (5, 9, None), (6, 8, None)]
+            vec![
+                (0, 1, Some("imports")),
+                (3, 4, Some("comment")),
+                (5, 9, None),
+                (6, 8, None)
+            ]
         );
     }
 

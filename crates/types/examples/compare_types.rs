@@ -13,7 +13,7 @@
 //! contain it are cascade). Causes are grouped by our node, by the analyzer's
 //! node and by the shape of the difference.
 
-use dartforge_types::dump::{compare_block, shape, Block};
+use dartforge_types::dump::{Block, compare_block, shape};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 
@@ -25,7 +25,10 @@ struct Reader {
 impl Reader {
     fn new_(path: &str) -> Reader {
         let f = std::fs::File::open(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-        Reader { lines: BufReader::with_capacity(1 << 20, f).lines(), pending: None }
+        Reader {
+            lines: BufReader::with_capacity(1 << 20, f).lines(),
+            pending: None,
+        }
     }
 
     fn next_(&mut self) -> Option<Vec<String>> {
@@ -52,7 +55,9 @@ impl Reader {
         let mut b = Block::new();
         let insert = |c: Vec<String>, b: &mut Block| {
             let k = (c[1].parse().unwrap_or(0), c[2].parse().unwrap_or(0));
-            b.entry(k).or_default().push((c[3].clone(), c[4].replace('*', "")));
+            b.entry(k)
+                .or_default()
+                .push((c[3].clone(), c[4].replace('*', "")));
         };
         insert(first, &mut b);
         while let Some(c) = self.next_() {
@@ -115,17 +120,30 @@ fn main() {
             ncauses += 1;
             let (no, t, the_ono, ot) = (&d.no, &d.ours, &d.in_oracle, &d.oracle);
             let key = format!("{no} [{the_ono}] {}", shape(t, ot));
-            let g = groups.entry(key).or_insert(Group { total: 0, examples: Vec::new() });
+            let g = groups.entry(key).or_insert(Group {
+                total: 0,
+                examples: Vec::new(),
+            });
             g.total += 1;
             if g.examples.len() < nexamples {
                 let u = source.get_or_insert_with(|| {
-                    std::fs::read_to_string(&file).map(|s| s.encode_utf16().collect()).unwrap_or_default()
+                    std::fs::read_to_string(&file)
+                        .map(|s| s.encode_utf16().collect())
+                        .unwrap_or_default()
                 });
-                let line = u.iter().take(start).filter(|&&c| c == u16::from(b'\n')).count() + 1;
+                let line = u
+                    .iter()
+                    .take(start)
+                    .filter(|&&c| c == u16::from(b'\n'))
+                    .count()
+                    + 1;
                 let end_t = end.min(start + 90).min(u.len());
-                let txt = String::from_utf16_lossy(u.get(start.min(u.len())..end_t).unwrap_or(&[])).replace(['\n', '\r'], " ");
+                let txt = String::from_utf16_lossy(u.get(start.min(u.len())..end_t).unwrap_or(&[]))
+                    .replace(['\n', '\r'], " ");
                 let name = file.rsplit('/').next().unwrap_or(&file);
-                g.examples.push(format!("           {name}:{line}  `{txt}`  ours={t}  oracle={ot}"));
+                g.examples.push(format!(
+                    "           {name}:{line}  `{txt}`  ours={t}  oracle={ot}"
+                ));
             }
         }
     }

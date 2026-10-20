@@ -65,10 +65,16 @@ fn main() {
         let triple = llvm_config(&prefix, &["--host-target"])
             .unwrap_or_else(|error| panic!("cannot determine LLVM library architecture: {error}"));
         let library_arch = triple.trim().split('-').next().unwrap_or("");
-        let library_arch = if library_arch == "arm64" { "aarch64" } else { library_arch };
+        let library_arch = if library_arch == "arm64" {
+            "aarch64"
+        } else {
+            library_arch
+        };
         let rust_arch = std::env::var("CARGO_CFG_TARGET_ARCH").expect("Rust target architecture");
-        assert_eq!(library_arch, rust_arch,
-            "LLVM library architecture does not match the Rust build target; install matching LLVM or build DartForge with --target matching LLVM (for x64: --target x86_64-pc-windows-msvc)");
+        assert_eq!(
+            library_arch, rust_arch,
+            "LLVM library architecture does not match the Rust build target; install matching LLVM or build DartForge with --target matching LLVM (for x64: --target x86_64-pc-windows-msvc)"
+        );
     }
     let libdir = prefix.join("lib");
     if !libdir.is_dir() {
@@ -83,7 +89,10 @@ fn main() {
     let windows_target = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows");
     if windows_target {
         // The official Windows package only allows the C API DLL (top of this file).
-        assert!(mode != "static", "DARTFORGE_LLVM_LINK=static is not supported on Windows: see the top of crates/llvm/build.rs");
+        assert!(
+            mode != "static",
+            "DARTFORGE_LLVM_LINK=static is not supported on Windows: see the top of crates/llvm/build.rs"
+        );
         println!("cargo::rustc-link-lib=dylib={}", shared_library_name());
         return;
     }
@@ -98,7 +107,10 @@ fn main() {
         }
         "static" => {
             if let Err(reason) = link_static(&prefix) {
-                panic!("DARTFORGE_LLVM_LINK=static, but the LLVM at {} does not offer the static libraries: {reason}", prefix.display());
+                panic!(
+                    "DARTFORGE_LLVM_LINK=static, but the LLVM at {} does not offer the static libraries: {reason}",
+                    prefix.display()
+                );
             }
         }
         "auto" => {
@@ -117,7 +129,15 @@ fn main() {
 
 /// LLVM components that dartforge uses: the JIT (`orcjit`) and the AOT's object
 /// and bitcode generation, including both supported cross-compiler CPU families.
-const COMPONENTS: [&str; 7] = ["orcjit", "native", "x86", "aarch64", "irreader", "passes", "bitwriter"];
+const COMPONENTS: [&str; 7] = [
+    "orcjit",
+    "native",
+    "x86",
+    "aarch64",
+    "irreader",
+    "passes",
+    "bitwriter",
+];
 
 /// Runs the `llvm-config` of the chosen prefix (never the one on `PATH`, which may
 /// belong to another installation) and returns its output.
@@ -128,7 +148,11 @@ fn llvm_config(prefix: &Path, args: &[&str]) -> Result<String, String> {
         .output()
         .map_err(|e| format!("could not run {}: {e}", config.display()))?;
     if !out.status.success() {
-        return Err(format!("{} {args:?}: {}", config.display(), String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "{} {args:?}: {}",
+            config.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
@@ -154,7 +178,10 @@ fn link_shared(prefix: &Path) -> Result<(), String> {
             println!("cargo::rustc-link-lib=dylib={name}");
         }
     }
-    println!("cargo::rustc-link-arg=-Wl,-rpath,{}", prefix.join("lib").display());
+    println!(
+        "cargo::rustc-link-arg=-Wl,-rpath,{}",
+        prefix.join("lib").display()
+    );
     Ok(())
 }
 
@@ -183,7 +210,11 @@ fn link_static(prefix: &Path) -> Result<(), String> {
     // installing a dependency at the packaging machine's absolute path.
     for lib in llvm_config(prefix, &["--link-static", "--system-libs"])?.split_whitespace() {
         let library_name = lib.strip_prefix("-l").unwrap_or_else(|| {
-            Path::new(lib).file_stem().and_then(|name| name.to_str()).unwrap_or_default().trim_start_matches("lib")
+            Path::new(lib)
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or_default()
+                .trim_start_matches("lib")
         });
         if library_name == "zstd"
             && let Some(path) = std::env::var_os("DARTFORGE_LLVM_ZSTD_LIBRARY")
@@ -200,7 +231,11 @@ fn link_static(prefix: &Path) -> Result<(), String> {
             println!("cargo::rustc-link-lib=dylib={name}");
         } else {
             let file_path = Path::new(lib);
-            let name = file_path.file_stem().and_then(|n| n.to_str()).unwrap_or_default().trim_start_matches("lib");
+            let name = file_path
+                .file_stem()
+                .and_then(|n| n.to_str())
+                .unwrap_or_default()
+                .trim_start_matches("lib");
             if lib.ends_with(".tbd") || lib.ends_with(".dylib") || lib.ends_with(".so") {
                 // macOS returns paths (`/usr/lib/libz.tbd`); the name is enough.
                 println!("cargo::rustc-link-lib=dylib={name}");
@@ -212,14 +247,21 @@ fn link_static(prefix: &Path) -> Result<(), String> {
             } else if let Some(directive) = shared_system_library(name) {
                 println!("{directive}");
             } else if name == "zstd" {
-                return Err(format!("required LLVM system library {lib} is missing; set DARTFORGE_LLVM_ZSTD_LIBRARY to an existing libzstd.a, libzstd.dylib or libzstd.so"));
+                return Err(format!(
+                    "required LLVM system library {lib} is missing; set DARTFORGE_LLVM_ZSTD_LIBRARY to an existing libzstd.a, libzstd.dylib or libzstd.so"
+                ));
             } else {
-                println!("cargo::warning=system library {lib} missing; install its development package");
+                println!(
+                    "cargo::warning=system library {lib} missing; install its development package"
+                );
             }
         }
     }
     let macos = std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "macos");
-    println!("cargo::rustc-link-lib=dylib={}", if macos { "c++" } else { "stdc++" });
+    println!(
+        "cargo::rustc-link-lib=dylib={}",
+        if macos { "c++" } else { "stdc++" }
+    );
     Ok(())
 }
 
@@ -266,13 +308,24 @@ fn prefix() -> PathBuf {
 /// installed, otherwise the runtime version (`lib<name>.so.1`) by its literal
 /// name.
 fn shared_system_library(name: &str) -> Option<String> {
-    let dirs = ["/usr/lib/x86_64-linux-gnu", "/usr/lib/aarch64-linux-gnu", "/usr/lib64", "/usr/lib", "/usr/local/lib", "/lib/x86_64-linux-gnu"];
+    let dirs = [
+        "/usr/lib/x86_64-linux-gnu",
+        "/usr/lib/aarch64-linux-gnu",
+        "/usr/lib64",
+        "/usr/lib",
+        "/usr/local/lib",
+        "/lib/x86_64-linux-gnu",
+    ];
     for dir in dirs {
         let d = Path::new(dir);
         if d.join(format!("lib{name}.so")).is_file() {
-            return Some(format!("cargo::rustc-link-search=native={dir}\ncargo::rustc-link-lib=dylib={name}"));
+            return Some(format!(
+                "cargo::rustc-link-search=native={dir}\ncargo::rustc-link-lib=dylib={name}"
+            ));
         }
-        let Ok(entries) = std::fs::read_dir(d) else { continue };
+        let Ok(entries) = std::fs::read_dir(d) else {
+            continue;
+        };
         let mut versions: Vec<String> = entries
             .flatten()
             .filter_map(|e| e.file_name().into_string().ok())
@@ -280,7 +333,9 @@ fn shared_system_library(name: &str) -> Option<String> {
             .collect();
         versions.sort_by_key(|n| n.len());
         if let Some(v) = versions.first() {
-            return Some(format!("cargo::rustc-link-search=native={dir}\ncargo::rustc-link-lib=dylib:+verbatim={v}"));
+            return Some(format!(
+                "cargo::rustc-link-search=native={dir}\ncargo::rustc-link-lib=dylib:+verbatim={v}"
+            ));
         }
     }
     None

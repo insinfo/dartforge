@@ -1,13 +1,16 @@
 //! Module emission: one ES6 module per library, classes, top-level functions
 //! and variables, rti rules and `main.mjs`.
 
-use crate::body::{js_member_name, static_member_name, AsyncKind, FnEmitter};
-use crate::ctx::Ctx;
-use crate::js::{self, Js, Writer, P_ASSIGN};
-use crate::ty::Ty;
 use crate::Emitted;
+use crate::body::{AsyncKind, FnEmitter, js_member_name, static_member_name};
+use crate::ctx::Ctx;
+use crate::js::{self, Js, P_ASSIGN, Writer};
+use crate::ty::Ty;
 use dartforge_diagnostics::Diagnostic;
-use dartforge_elements::model::{ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, UnitId, VariableId, VariableRef};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, UnitId,
+    VariableId, VariableRef,
+};
 use dartforge_frontend::ast::{self, DeclKind, FunctionBody, MemberKind};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
@@ -56,7 +59,9 @@ impl ModState {
     }
     pub fn dartx(&self, name: &str) -> String {
         let var = dartx_var(name);
-        self.dartx_used.borrow_mut().insert(var.clone(), name.to_string());
+        self.dartx_used
+            .borrow_mut()
+            .insert(var.clone(), name.to_string());
         var
     }
     pub fn private_sym(&self, ctx: &Ctx, lib: LibraryId, name: &str) -> String {
@@ -71,7 +76,9 @@ impl ModState {
         let _ = self.lib_var(ctx, lib);
         let ident = ctx.lib_ident(lib).to_string();
         let var = format!("$P_{ident}_{}", js_safe(name));
-        self.private_syms.borrow_mut().insert(var.clone(), (lib.0, name.to_string()));
+        self.private_syms
+            .borrow_mut()
+            .insert(var.clone(), (lib.0, name.to_string()));
         var
     }
     pub(crate) fn note_const_record(&self, lib: LibraryId) {
@@ -94,13 +101,35 @@ impl ModState {
     /// `$P_<lib>_<name>`), so merging is commutative — that is what makes the
     /// per-fragment cache correct.
     pub fn merge(&self, other: &ModState) {
-        self.sdk_used.borrow_mut().extend(other.sdk_used.borrow().iter().cloned());
-        self.user_imports.borrow_mut().extend(other.user_imports.borrow().iter().copied());
-        self.dartx_used.borrow_mut().extend(other.dartx_used.borrow().iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.private_syms.borrow_mut().extend(other.private_syms.borrow().iter().map(|(k, v)| (k.clone(), v.clone())));
-        self.noted_classes.borrow_mut().extend(other.noted_classes.borrow().iter().copied());
-        self.const_record_libraries.borrow_mut().extend(other.const_record_libraries.borrow().iter().copied());
-        self.typed_read_guard_libraries.borrow_mut().extend(other.typed_read_guard_libraries.borrow().iter().copied());
+        self.sdk_used
+            .borrow_mut()
+            .extend(other.sdk_used.borrow().iter().cloned());
+        self.user_imports
+            .borrow_mut()
+            .extend(other.user_imports.borrow().iter().copied());
+        self.dartx_used.borrow_mut().extend(
+            other
+                .dartx_used
+                .borrow()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
+        self.private_syms.borrow_mut().extend(
+            other
+                .private_syms
+                .borrow()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
+        self.noted_classes
+            .borrow_mut()
+            .extend(other.noted_classes.borrow().iter().copied());
+        self.const_record_libraries
+            .borrow_mut()
+            .extend(other.const_record_libraries.borrow().iter().copied());
+        self.typed_read_guard_libraries
+            .borrow_mut()
+            .extend(other.typed_read_guard_libraries.borrow().iter().copied());
     }
 }
 
@@ -132,13 +161,29 @@ impl Fragment {
         }
     }
     fn apply_to(&self, m: &ModState) {
-        m.sdk_used.borrow_mut().extend(self.sdk_used.iter().cloned());
-        m.user_imports.borrow_mut().extend(self.user_imports.iter().copied());
-        m.dartx_used.borrow_mut().extend(self.dartx_used.iter().map(|(k, v)| (k.clone(), v.clone())));
-        m.private_syms.borrow_mut().extend(self.private_syms.iter().map(|(k, v)| (k.clone(), v.clone())));
-        m.noted_classes.borrow_mut().extend(self.noted_classes.iter().copied());
-        m.const_record_libraries.borrow_mut().extend(self.const_record_libraries.iter().copied());
-        m.typed_read_guard_libraries.borrow_mut().extend(self.typed_read_guard_libraries.iter().copied());
+        m.sdk_used
+            .borrow_mut()
+            .extend(self.sdk_used.iter().cloned());
+        m.user_imports
+            .borrow_mut()
+            .extend(self.user_imports.iter().copied());
+        m.dartx_used
+            .borrow_mut()
+            .extend(self.dartx_used.iter().map(|(k, v)| (k.clone(), v.clone())));
+        m.private_syms.borrow_mut().extend(
+            self.private_syms
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone())),
+        );
+        m.noted_classes
+            .borrow_mut()
+            .extend(self.noted_classes.iter().copied());
+        m.const_record_libraries
+            .borrow_mut()
+            .extend(self.const_record_libraries.iter().copied());
+        m.typed_read_guard_libraries
+            .borrow_mut()
+            .extend(self.typed_read_guard_libraries.iter().copied());
     }
 }
 
@@ -176,7 +221,15 @@ impl FragmentCache {
 }
 
 fn js_safe(name: &str) -> String {
-    name.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '$' }).collect()
+    name.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '$'
+            }
+        })
+        .collect()
 }
 
 /// Name of the variable that holds a `dartx` symbol.
@@ -226,7 +279,10 @@ pub fn emit_with_cache(
     cache: Option<&RefCell<FragmentCache>>,
 ) -> Result<Emitted, Vec<Diagnostic>> {
     // Pruned text never goes into the fragment cache of `dartforge serve`.
-    debug_assert!(ctx.filter.is_none() || cache.is_none(), "production filter with a fragment cache");
+    debug_assert!(
+        ctx.filter.is_none() || cache.is_none(),
+        "production filter with a fragment cache"
+    );
     let mut modules = Vec::new();
     let mut entry_ident = String::from("main");
     let mut entry_path = String::from("main.js");
@@ -264,7 +320,10 @@ pub fn emit_with_cache(
         return Err(errors);
     }
     // DDC's `dart_sdk.js` is the browser one: `self` is the global (Node only has `globalThis`).
-    modules.push(("preambulo.js".to_string(), "if (typeof self === 'undefined') globalThis.self = globalThis;\n".to_string()));
+    modules.push((
+        "preambulo.js".to_string(),
+        "if (typeof self === 'undefined') globalThis.self = globalThis;\n".to_string(),
+    ));
     let entry = format!(
         "if (typeof process !== 'undefined') process.on('uncaughtException', (e) => {{\n  console.error('Unhandled exception:\\n' + e);\n  process.exit(255);\n}});\nimport './preambulo.js';\nimport {{ dart }} from './dart_sdk.js';\nimport {{ {entry_ident} as m }} from './{entry_path}';\nm.main();\n"
     );
@@ -272,9 +331,15 @@ pub fn emit_with_cache(
 }
 
 fn lib_main_is_async(ctx: &Ctx, lib: LibraryId) -> bool {
-    let Some(sym) = ctx.sym("main") else { return false };
-    let Some(b) = ctx.program.library(lib).declared.get(&sym) else { return false };
-    let Some(Element::Function(fid)) = b.getter else { return false };
+    let Some(sym) = ctx.sym("main") else {
+        return false;
+    };
+    let Some(b) = ctx.program.library(lib).declared.get(&sym) else {
+        return false;
+    };
+    let Some(Element::Function(fid)) = b.getter else {
+        return false;
+    };
     let f = ctx.program.function(fid);
     if let FunctionRef::Function { unit, function } = f.node {
         let af = ctx.program.unit(unit).ast.function(function);
@@ -288,7 +353,13 @@ pub(crate) fn order_classes(ctx: &Ctx, classes: &[ClassId]) -> Vec<ClassId> {
     let set: HashSet<ClassId> = classes.iter().copied().collect();
     let mut out = Vec::new();
     let mut done: HashSet<ClassId> = HashSet::new();
-    fn visit(ctx: &Ctx, c: ClassId, set: &HashSet<ClassId>, done: &mut HashSet<ClassId>, out: &mut Vec<ClassId>) {
+    fn visit(
+        ctx: &Ctx,
+        c: ClassId,
+        set: &HashSet<ClassId>,
+        done: &mut HashSet<ClassId>,
+        out: &mut Vec<ClassId>,
+    ) {
         if done.contains(&c) {
             return;
         }
@@ -323,7 +394,10 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
     let in_group = |l: LibraryId| group.contains(&l);
     let mut classes: Vec<ClassId> = Vec::new();
     for (i, c) in ctx.program.classes.iter().enumerate() {
-        if in_group(c.library) && c.decl.is_some() && ctx.class_level(ClassId(i as u32)) != crate::filter::Level::Dead {
+        if in_group(c.library)
+            && c.decl.is_some()
+            && ctx.class_level(ClassId(i as u32)) != crate::filter::Level::Dead
+        {
             classes.push(ClassId(i as u32));
         }
     }
@@ -358,7 +432,10 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
         m.merge(&mf);
         body.push_raw(&text);
         if let Some(cache) = cache {
-            cache.borrow_mut().map.insert(FragmentKey::Class(c.0), Fragment::new(text, &mf));
+            cache
+                .borrow_mut()
+                .map
+                .insert(FragmentKey::Class(c.0), Fragment::new(text, &mf));
         }
     }
     let t_cls = t1.elapsed();
@@ -379,7 +456,10 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
         m.merge(&mf);
         body.push_raw(&text);
         if let Some(cache) = cache {
-            cache.borrow_mut().map.insert(FragmentKey::Rest(glib.0), Fragment::new(text, &mf));
+            cache
+                .borrow_mut()
+                .map
+                .insert(FragmentKey::Rest(glib.0), Fragment::new(text, &mf));
         }
     }
     let t_rest = t2.elapsed();
@@ -391,8 +471,13 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
     if cron {
         eprintln!(
             "[crono] {} libs={} classes={} reused={reused} order={:.1}ms classes={:.1}ms rest={:.1}ms rules={:.1}ms",
-            info.module_path, group.len(), n_classes,
-            t_ord.as_secs_f64()*1e3, t_cls.as_secs_f64()*1e3, t_rest.as_secs_f64()*1e3, t_rules.as_secs_f64()*1e3
+            info.module_path,
+            group.len(),
+            n_classes,
+            t_ord.as_secs_f64() * 1e3,
+            t_cls.as_secs_f64() * 1e3,
+            t_rest.as_secs_f64() * 1e3,
+            t_rules.as_secs_f64() * 1e3
         );
     }
 
@@ -401,7 +486,10 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
     let mut exports: Vec<String> = Vec::new();
     for &glib in group {
         let gi = &ctx.libs[glib.0 as usize];
-        out.push_str(&format!("var {} = Object.create(dart.library);\n", gi.js_var));
+        out.push_str(&format!(
+            "var {} = Object.create(dart.library);\n",
+            gi.js_var
+        ));
         exports.push(format!("{} as {}", gi.js_var, gi.ident));
     }
     out.push_str(&format!("export {{ {} }};\n", exports.join(", ")));
@@ -412,23 +500,35 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
     }
     sdk.insert("async".to_string());
     let sdk_list: Vec<String> = sdk.iter().cloned().collect();
-    out.push_str(&format!("import {{ {} }} from './{up}dart_sdk.js';\n", sdk_list.join(", ")));
+    out.push_str(&format!(
+        "import {{ {} }} from './{up}dart_sdk.js';\n",
+        sdk_list.join(", ")
+    ));
     for &ul in m.user_imports.borrow().iter() {
         let uinfo = &ctx.libs[ul as usize];
-        out.push_str(&format!("import {{ {} as {} }} from './{up}{}';\n", uinfo.ident, uinfo.js_var, uinfo.module_path));
+        out.push_str(&format!(
+            "import {{ {} as {} }} from './{up}{}';\n",
+            uinfo.ident, uinfo.js_var, uinfo.module_path
+        ));
     }
     for (var, name) in m.dartx_used.borrow().iter() {
         if js::is_js_ident(name) {
             out.push_str(&format!("var {var} = dartx.{name};\n"));
         } else {
-            out.push_str(&format!("var {var} = dartx[{}];\n", js::string_literal(name)));
+            out.push_str(&format!(
+                "var {var} = dartx[{}];\n",
+                js::string_literal(name)
+            ));
         }
     }
     out.push_str("var _is = dart.privateName(dart_rti, \"_is\");\nvar _as = dart.privateName(dart_rti, \"_as\");\nvar _eval = dart.privateName(dart_rti, \"_eval\");\nvar _bind = dart.privateName(dart_rti, \"_bind\");\n");
     out.push_str("var _current = dart.privateName(async, \"_current\");\nvar _datum = dart.privateName(async, \"_datum\");\nvar _yieldStar = dart.privateName(async, \"_yieldStar\");\n");
     for (var, (l, name)) in m.private_syms.borrow().iter() {
         let lv = &ctx.libs[*l as usize].js_var;
-        out.push_str(&format!("var {var} = dart.privateName({lv}, {});\n", js::string_literal(name)));
+        out.push_str(&format!(
+            "var {var} = dart.privateName({lv}, {});\n",
+            js::string_literal(name)
+        ));
     }
     out.push_str("dart._checkModuleNullSafetyMode(true);\n");
     emit_const_caches(ctx, &m, group, &mut out);
@@ -437,7 +537,13 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
     out.push_str(&rules);
     let tracked: Vec<String> = group
         .iter()
-        .map(|&g| format!("  {}: {}", js::string_literal(&ctx.program.library(g).uri), ctx.libs[g.0 as usize].js_var))
+        .map(|&g| {
+            format!(
+                "  {}: {}",
+                js::string_literal(&ctx.program.library(g).uri),
+                ctx.libs[g.0 as usize].js_var
+            )
+        })
         .collect();
     out.push_str(&format!(
         "dart.trackLibraries({}, {{\n{}\n}}, {{\n}}, null);\n",
@@ -450,11 +556,19 @@ fn emit_group(ctx: &Ctx, group: &[LibraryId], cache: Option<&RefCell<FragmentCac
 /// Keep the development prelude stable; production caches only serve emitted
 /// constant records. In particular, an unused cache must not allocate a Map in
 /// every imported library. Uses accumulated by cached fragments are included.
-pub(crate) fn emit_const_caches(ctx: &Ctx, m: &ModState, libraries: &[LibraryId], out: &mut String) {
-    let prune = ctx.production() && std::env::var("DARTFORGE_JSPROD_CONST_CACHES").map_or(true, |v| v != "0");
+pub(crate) fn emit_const_caches(
+    ctx: &Ctx,
+    m: &ModState,
+    libraries: &[LibraryId],
+    out: &mut String,
+) {
+    let prune = ctx.production()
+        && std::env::var("DARTFORGE_JSPROD_CONST_CACHES").map_or(true, |v| v != "0");
     let used = m.const_record_libraries.borrow();
     for &lib in libraries {
-        if prune && !used.contains(&lib.0) { continue; }
+        if prune && !used.contains(&lib.0) {
+            continue;
+        }
         let lvar = &ctx.libs[lib.0 as usize].js_var;
         out.push_str(&format!("{lvar}.$constCache = new Map();\n{lvar}.$C = function(k, f) {{ let v = {lvar}.$constCache.get(k); if (v === void 0) {{ v = f(); {lvar}.$constCache.set(k, v); }} return v; }};\n"));
     }
@@ -470,18 +584,32 @@ pub(crate) fn emit_library_rest(ctx: &Ctx, m: &ModState, lib: LibraryId, body: &
 /// and extension statics). The SDK module emits the functions of all libraries
 /// before the classes, because the definition of a class runs code
 /// (`registerExtension`…) that may call them.
-pub(crate) fn emit_library_rest_parts(ctx: &Ctx, m: &ModState, lib: LibraryId, body: &mut Writer, with_functions: bool, with_rest: bool) {
+pub(crate) fn emit_library_rest_parts(
+    ctx: &Ctx,
+    m: &ModState,
+    lib: LibraryId,
+    body: &mut Writer,
+    with_functions: bool,
+    with_rest: bool,
+) {
     let lvar = ctx.libs[lib.0 as usize].js_var.clone();
     let mut functions: Vec<FunctionElementId> = Vec::new();
     let mut variables: Vec<VariableId> = Vec::new();
     for (i, f) in ctx.program.functions.iter().enumerate() {
-        if f.library == lib && f.class.is_none() && f.kind != FunctionKind::ImplicitAccessor && ctx.fn_state(FunctionElementId(i as u32)) != crate::filter::State::Dead {
+        if f.library == lib
+            && f.class.is_none()
+            && f.kind != FunctionKind::ImplicitAccessor
+            && ctx.fn_state(FunctionElementId(i as u32)) != crate::filter::State::Dead
+        {
             functions.push(FunctionElementId(i as u32));
         }
     }
     let mut ext_variables: Vec<VariableId> = Vec::new();
     for (i, v) in ctx.program.variables.iter().enumerate() {
-        if v.library == lib && v.class.is_none() && ctx.var_state(VariableId(i as u32)) != crate::filter::State::Dead {
+        if v.library == lib
+            && v.class.is_none()
+            && ctx.var_state(VariableId(i as u32)) != crate::filter::State::Dead
+        {
             if v.extension.is_none() {
                 variables.push(VariableId(i as u32));
             } else {
@@ -518,9 +646,18 @@ pub(crate) fn emit_library_rest_parts(ctx: &Ctx, m: &ModState, lib: LibraryId, b
             let ext_name = tmp.extension_js_name(ext);
             let name = ctx.name(v.name);
             let key = format!("{ext_name}|{name}");
-            let VariableRef::Field { unit: fu, member, index } = v.node else { continue };
+            let VariableRef::Field {
+                unit: fu,
+                member,
+                index,
+            } = v.node
+            else {
+                continue;
+            };
             let mem = ctx.program.unit(fu).ast.member(member);
-            let MemberKind::Field(list) = &mem.kind else { continue };
+            let MemberKind::Field(list) = &mem.kind else {
+                continue;
+            };
             let var = &list.variables[index];
             let ty = ctx.var_ty(vid);
             let mut e2 = FnEmitter::new(ctx, m, fu, None, true);
@@ -528,14 +665,25 @@ pub(crate) fn emit_library_rest_parts(ctx: &Ctx, m: &ModState, lib: LibraryId, b
             let init = match var.initializer {
                 Some(i) => {
                     let (js, _) = e2.emit_expr(i, Some(&ty));
-                    let pre = if e2.temps.is_empty() { String::new() } else { format!("let {};\n", e2.temps.join(", ")) };
+                    let pre = if e2.temps.is_empty() {
+                        String::new()
+                    } else {
+                        format!("let {};\n", e2.temps.join(", "))
+                    };
                     format!("{pre}{}return {};", e2.w.out, js.code)
                 }
                 None => "return null;".to_string(),
             };
-            let mut entry = format!("get [{}]() {{\n{}\n}}", js::string_literal(&key), indent(&init));
+            let mut entry = format!(
+                "get [{}]() {{\n{}\n}}",
+                js::string_literal(&key),
+                indent(&init)
+            );
             if !v.final_ && !v.const_ {
-                entry.push_str(&format!(",\nset [{}](value) {{}}", js::string_literal(&key)));
+                entry.push_str(&format!(
+                    ",\nset [{}](value) {{}}",
+                    js::string_literal(&key)
+                ));
             }
             lazy.push(entry);
         }
@@ -580,7 +728,15 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
             continue; // erased to `_interceptors|JSObject` in the recipes
         }
         if ctx.is_js_class(c) {
-            entries.push(format!("{}:{}", json_str(&ctx.class_recipe(c)), json_str(&ctx.recipe_of("dart:_interceptors", "LegacyJavaScriptObject", "_interceptors|LegacyJavaScriptObject"))));
+            entries.push(format!(
+                "{}:{}",
+                json_str(&ctx.class_recipe(c)),
+                json_str(&ctx.recipe_of(
+                    "dart:_interceptors",
+                    "LegacyJavaScriptObject",
+                    "_interceptors|LegacyJavaScriptObject"
+                ))
+            ));
             interop.push(ctx.class_recipe(c));
             continue;
         }
@@ -588,7 +744,12 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
         let params = &ctx.class_params[c.0 as usize];
         let mut items: Vec<String> = Vec::new();
         for (i, p) in params.iter().enumerate() {
-            items.push(format!("\"{}.{}\":\"{}\"", ctx.class_name(c), p.name, i + 1));
+            items.push(format!(
+                "\"{}.{}\":\"{}\"",
+                ctx.class_name(c),
+                p.name,
+                i + 1
+            ));
         }
         // Transitive supertypes.
         let this_ty = ctx.this_ty(c);
@@ -605,41 +766,76 @@ pub(crate) fn emit_rules_with(ctx: &Ctx, m: &ModState, sdk: bool) -> String {
         }
         let _ = class;
         for s in supers {
-            let Ty::Iface { class: sc, args, .. } = &s else { continue };
+            let Ty::Iface {
+                class: sc, args, ..
+            } = &s
+            else {
+                continue;
+            };
             // The supertype's `addRules` takes one argument per parameter it
             // declares; a raw supertype (`implements Box`) counts as
             // `Box<dynamic>` (`Ctx::args_at_arity`).
             let args = ctx.args_at_arity(*sc, args);
             let sparams = &ctx.class_params[sc.0 as usize];
             for (p, a) in sparams.iter().zip(args.iter()) {
-                items.push(format!("\"{}.{}\":{}", ctx.class_name(*sc), p.name, json_str(&rule_recipe(ctx, a, c))));
+                items.push(format!(
+                    "\"{}.{}\":{}",
+                    ctx.class_name(*sc),
+                    p.name,
+                    json_str(&rule_recipe(ctx, a, c))
+                ));
             }
-            let arg_recipes: Vec<String> = args.iter().map(|a| json_str(&rule_recipe(ctx, a, c))).collect();
-            items.push(format!("{}:[{}]", json_str(&ctx.class_recipe(*sc)), arg_recipes.join(",")));
+            let arg_recipes: Vec<String> = args
+                .iter()
+                .map(|a| json_str(&rule_recipe(ctx, a, c)))
+                .collect();
+            items.push(format!(
+                "{}:[{}]",
+                json_str(&ctx.class_recipe(*sc)),
+                arg_recipes.join(",")
+            ));
             if ctx.libs[ctx.lib_of_class(*sc).0 as usize].is_sdk == sdk {
                 queue.push(*sc);
             }
         }
         if !items.is_empty() {
-            entries.push(format!("{}:{{{}}}", json_str(&ctx.class_recipe(c)), items.join(",")));
+            entries.push(format!(
+                "{}:{{{}}}",
+                json_str(&ctx.class_recipe(c)),
+                items.join(",")
+            ));
         }
     }
     if entries.is_empty() {
         return String::new();
     }
     let json = format!("{{{}}}", entries.join(","));
-    let mut out = format!("dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n", js::string_literal(&json));
+    let mut out = format!(
+        "dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n",
+        js::string_literal(&json)
+    );
     if !interop.is_empty() {
         interop.sort();
         m.use_sdk("_interceptors");
-        let update: Vec<String> = interop.iter().map(|r| format!("{}:[]", json_str(r))).collect();
-        let ljo = ctx.recipe_of("dart:_interceptors", "LegacyJavaScriptObject", "_interceptors|LegacyJavaScriptObject");
+        let update: Vec<String> = interop
+            .iter()
+            .map(|r| format!("{}:[]", json_str(r)))
+            .collect();
+        let ljo = ctx.recipe_of(
+            "dart:_interceptors",
+            "LegacyJavaScriptObject",
+            "_interceptors|LegacyJavaScriptObject",
+        );
         out.push_str(&format!(
             "dart_rti._Universe.addOrUpdateRules(dart.typeUniverse, JSON.parse({}));\n",
             js::string_literal(&format!("{{{}:{{{}}}}}", json_str(&ljo), update.join(",")))
         ));
         let names: Vec<String> = interop.iter().map(|r| js::string_literal(r)).collect();
-        out.push_str(&format!("dart.addRtiResources(_interceptors.LegacyJavaScriptObject, [{}, {}]);\n", js::string_literal(&ljo), names.join(", ")));
+        out.push_str(&format!(
+            "dart.addRtiResources(_interceptors.LegacyJavaScriptObject, [{}, {}]);\n",
+            js::string_literal(&ljo),
+            names.join(", ")
+        ));
     }
     out
 }
@@ -659,7 +855,12 @@ fn json_str(s: &str) -> String {
 
 /// Recipe in a class environment (own parameters by index 1..n).
 fn rule_recipe(ctx: &Ctx, t: &Ty, class: ClassId) -> String {
-    if let Ty::Iface { class: c, args, nullable } = t {
+    if let Ty::Iface {
+        class: c,
+        args,
+        nullable,
+    } = t
+    {
         if ctx.interop_ext_types.contains(c) {
             if let Some(e) = ctx.erase_ext(*c, args) {
                 let e = if *nullable { e.with_nullable(true) } else { e };
@@ -671,8 +872,15 @@ fn rule_recipe(ctx: &Ctx, t: &Ty, class: ClassId) -> String {
         Ty::Dynamic => "@".into(),
         Ty::Void => "~".into(),
         Ty::Never => "0&".into(),
-        Ty::Null => ctx.null_.map(|n| ctx.class_recipe(n)).unwrap_or("core|Null".into()),
-        Ty::Iface { class: c, args, nullable } => {
+        Ty::Null => ctx
+            .null_
+            .map(|n| ctx.class_recipe(n))
+            .unwrap_or("core|Null".into()),
+        Ty::Iface {
+            class: c,
+            args,
+            nullable,
+        } => {
             let mut s = ctx.class_recipe(*c);
             // Declared arity, always (`Ctx::args_at_arity`).
             let args = ctx.args_at_arity(*c, args);
@@ -694,25 +902,56 @@ fn rule_recipe(ctx: &Ctx, t: &Ty, class: ClassId) -> String {
                 None => "@".into(),
             }
         }
-        Ty::FutureOr { arg, nullable } => format!("{}/{}", rule_recipe(ctx, arg, class), if *nullable { "?" } else { "" }),
-        Ty::Fn { ret, pos, opt, named, type_params, nullable } => {
+        Ty::FutureOr { arg, nullable } => format!(
+            "{}/{}",
+            rule_recipe(ctx, arg, class),
+            if *nullable { "?" } else { "" }
+        ),
+        Ty::Fn {
+            ret,
+            pos,
+            opt,
+            named,
+            type_params,
+            nullable,
+        } => {
             let mut s = rule_recipe(ctx, ret, class);
             s.push('(');
             let mut parts: Vec<String> = pos.iter().map(|a| rule_recipe(ctx, a, class)).collect();
             if !opt.is_empty() {
-                parts.push(format!("[{}]", opt.iter().map(|a| rule_recipe(ctx, a, class)).collect::<Vec<_>>().join(",")));
+                parts.push(format!(
+                    "[{}]",
+                    opt.iter()
+                        .map(|a| rule_recipe(ctx, a, class))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ));
             }
             if !named.is_empty() {
                 parts.push(format!(
                     "{{{}}}",
-                    named.iter().map(|(n, t, r)| format!("{n}{}{}", if *r { "!" } else { ":" }, rule_recipe(ctx, t, class))).collect::<Vec<_>>().join(",")
+                    named
+                        .iter()
+                        .map(|(n, t, r)| format!(
+                            "{n}{}{}",
+                            if *r { "!" } else { ":" },
+                            rule_recipe(ctx, t, class)
+                        ))
+                        .collect::<Vec<_>>()
+                        .join(",")
                 ));
             }
             s.push_str(&parts.join(","));
             s.push(')');
             if !type_params.is_empty() {
                 s.push('<');
-                s.push_str(&type_params.iter().map(|p| rule_recipe(ctx, &p.bound, class)).collect::<Vec<_>>().join(","));
+                s.push_str(
+                    &type_params
+                        .iter()
+                        .map(|p| rule_recipe(ctx, &p.bound, class))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                );
                 s.push('>');
             }
             if *nullable {
@@ -720,9 +959,19 @@ fn rule_recipe(ctx: &Ctx, t: &Ty, class: ClassId) -> String {
             }
             s
         }
-        Ty::Record { pos, named, nullable } => {
+        Ty::Record {
+            pos,
+            named,
+            nullable,
+        } => {
             let mut s = String::from("+");
-            s.push_str(&named.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>().join(","));
+            s.push_str(
+                &named
+                    .iter()
+                    .map(|(n, _)| n.clone())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
             s.push('(');
             let mut parts: Vec<String> = pos.iter().map(|a| rule_recipe(ctx, a, class)).collect();
             parts.extend(named.iter().map(|(_, t)| rule_recipe(ctx, t, class)));
@@ -741,7 +990,15 @@ fn rule_recipe(ctx: &Ctx, t: &Ty, class: ClassId) -> String {
 // ---------------------------------------------------------------------------
 
 /// Emits `function name(params) { body }` (full text) for a function element.
-pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, head_name: Option<&str>, class: Option<ClassId>, is_static: bool, extension_this: Option<&Ty>) -> (String, AsyncKind) {
+pub(crate) fn function_text(
+    ctx: &Ctx,
+    m: &ModState,
+    fid: FunctionElementId,
+    head_name: Option<&str>,
+    class: Option<ClassId>,
+    is_static: bool,
+    extension_this: Option<&Ty>,
+) -> (String, AsyncKind) {
     let f = ctx.program.function(fid);
     let FunctionRef::Function { unit, function } = f.node else {
         return (String::new(), AsyncKind::None);
@@ -769,7 +1026,11 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
     e.ret_ty = ret_ty.clone();
     let mut extra_prologue = String::new();
     // SDK mode: `@NoReifyGeneric` does not declare the type parameters.
-    let mut params_js: Vec<String> = if crate::own_sdk::no_reify_generic_fn(ctx, fid) { Vec::new() } else { tp_js };
+    let mut params_js: Vec<String> = if crate::own_sdk::no_reify_generic_fn(ctx, fid) {
+        Vec::new()
+    } else {
+        tp_js
+    };
     if let Some(t) = extension_this {
         // `$this` is the extension's receiver.
         params_js.push("$this".into());
@@ -798,7 +1059,10 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
         Some(n) => format!("{n}({}) {{", params_js.join(", ")),
         None => format!("function({}) {{", params_js.join(", ")),
     };
-    (e.wrap_async_head(kind, &head, &extra_prologue, &body, &ret_ty), kind)
+    (
+        e.wrap_async_head(kind, &head, &extra_prologue, &body, &ret_ty),
+        kind,
+    )
 }
 
 /// `noSuchMethod` forwarder of an abstract method (without the name), in the
@@ -819,7 +1083,14 @@ pub(crate) fn function_text(ctx: &Ctx, m: &ModState, fid: FunctionElementId, hea
 ///
 /// The return value is cast to the declared type when it does not depend on the
 /// class's type parameters (the method's own are in scope).
-fn nsm_forwarder(ctx: &Ctx, m: &ModState, c: ClassId, class_unit: UnitId, fid: FunctionElementId, sym: &str) -> String {
+fn nsm_forwarder(
+    ctx: &Ctx,
+    m: &ModState,
+    c: ClassId,
+    class_unit: UnitId,
+    fid: FunctionElementId,
+    sym: &str,
+) -> String {
     let f = ctx.program.function(fid);
     let data = &ctx.outline.functions[fid.0 as usize];
     // The defaults are constants of the library (and class) that declares the
@@ -836,7 +1107,11 @@ fn nsm_forwarder(ctx: &Ctx, m: &ModState, c: ClassId, class_unit: UnitId, fid: F
         let jsn = js::ident(&p.name);
         e.fn_type_params.push((p.id, jsn.clone()));
         params_js.push(jsn);
-        types.push(Ty::Param { id: p.id, name: p.name.clone(), nullable: false });
+        types.push(Ty::Param {
+            id: p.id,
+            name: p.name.clone(),
+            nullable: false,
+        });
     }
     let sig = ctx.fn_ty(fid);
     let (pjs, mut prologue, names) = match f.node {
@@ -850,7 +1125,10 @@ fn nsm_forwarder(ctx: &Ctx, m: &ModState, c: ClassId, class_unit: UnitId, fid: F
             let mut names = Vec::new();
             let mut js_ps = Vec::new();
             let mut prologue = String::new();
-            if let Ty::Fn { pos, opt, named, .. } = &sig {
+            if let Ty::Fn {
+                pos, opt, named, ..
+            } = &sig
+            {
                 for i in 0..pos.len() {
                     let n = format!("p{i}");
                     js_ps.push(n.clone());
@@ -864,8 +1142,12 @@ fn nsm_forwarder(ctx: &Ctx, m: &ModState, c: ClassId, class_unit: UnitId, fid: F
                 for (i, (n, _, _)) in named.iter().enumerate() {
                     let jsn = format!("n{i}");
                     let key = ctx.named_key(n);
-                    prologue.push_str(&format!("let {jsn} = opts && {} in opts ? opts{} : null;
-", js::string_literal(&key), js::prop_access(&key)));
+                    prologue.push_str(&format!(
+                        "let {jsn} = opts && {} in opts ? opts{} : null;
+",
+                        js::string_literal(&key),
+                        js::prop_access(&key)
+                    ));
                     names.push((ast::ParameterKind::Named, n.clone(), jsn));
                 }
                 if !named.is_empty() {
@@ -878,19 +1160,39 @@ fn nsm_forwarder(ctx: &Ctx, m: &ModState, c: ClassId, class_unit: UnitId, fid: F
     if !pjs.is_empty() {
         params_js.push(pjs);
     }
-    let positionals: Vec<&str> = names.iter().filter(|(k, _, _)| *k != ast::ParameterKind::Named).map(|(_, _, j)| j.as_str()).collect();
-    let named: Vec<(&str, &str)> = names.iter().filter(|(k, _, _)| *k == ast::ParameterKind::Named).map(|(_, n, j)| (n.as_str(), j.as_str())).collect();
+    let positionals: Vec<&str> = names
+        .iter()
+        .filter(|(k, _, _)| *k != ast::ParameterKind::Named)
+        .map(|(_, _, j)| j.as_str())
+        .collect();
+    let named: Vec<(&str, &str)> = names
+        .iter()
+        .filter(|(k, _, _)| *k == ast::ParameterKind::Named)
+        .map(|(_, n, j)| (n.as_str(), j.as_str()))
+        .collect();
     let types_js = if types.is_empty() {
         "null".to_string()
     } else {
-        format!("[{}]", types.iter().map(|t| format!("dart_rti.createRuntimeType({})", e.rti(t))).collect::<Vec<_>>().join(", "))
+        format!(
+            "[{}]",
+            types
+                .iter()
+                .map(|t| format!("dart_rti.createRuntimeType({})", e.rti(t)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )
     };
     let map = match ctx.symbol_ {
         Some(symbol) if !named.is_empty() => {
             let (cls, rti) = e.map_impl(&Ty::iface(symbol), &Ty::Dynamic);
             let pairs: Vec<String> = named
                 .iter()
-                .map(|(n, j)| format!("dart.const(new _internal.Symbol.new({})), {j}", js::string_literal(n)))
+                .map(|(n, j)| {
+                    format!(
+                        "dart.const(new _internal.Symbol.new({})), {j}",
+                        js::string_literal(n)
+                    )
+                })
                 .collect();
             format!("new {cls}.from({rti}, [{}])", pairs.join(", "))
         }
@@ -899,8 +1201,16 @@ fn nsm_forwarder(ctx: &Ctx, m: &ModState, c: ClassId, class_unit: UnitId, fid: F
     let ret = ctx.ty_of(data.return_type);
     let mut used = Vec::new();
     ret.collect_params(&mut used);
-    let method_only = used.iter().all(|id| types.iter().any(|t| matches!(t, Ty::Param { id: p, .. } if p == id)));
-    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || !method_only { String::new() } else { format!("{}[_as]", e.rti(&ret)) };
+    let method_only = used.iter().all(|id| {
+        types
+            .iter()
+            .any(|t| matches!(t, Ty::Param { id: p, .. } if p == id))
+    });
+    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || !method_only {
+        String::new()
+    } else {
+        format!("{}[_as]", e.rti(&ret))
+    };
     prologue.push_str(&finish_body(&mut e));
     format!(
         "({}) {{
@@ -921,7 +1231,13 @@ pub(crate) fn finish_body(e: &mut FnEmitter) -> String {
     body
 }
 
-pub(crate) fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, w: &mut Writer, accessors: &mut Vec<(String, String)>) {
+pub(crate) fn emit_top_function(
+    ctx: &Ctx,
+    m: &ModState,
+    fid: FunctionElementId,
+    w: &mut Writer,
+    accessors: &mut Vec<(String, String)>,
+) {
     let f = ctx.program.function(fid);
     // Declaration completed by another one in the augmentation chain: only the
     // effective element is emitted (docs/AUGMENTATIONS.md).
@@ -944,26 +1260,68 @@ pub(crate) fn emit_top_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId,
     if ctx.fn_state(fid) == crate::filter::State::Stub {
         let r = js::string_literal(&ctx.pruned_label(f.library, None, name));
         match f.kind {
-            FunctionKind::Getter => accessors.push((name.to_string(), format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(name)))),
-            FunctionKind::Setter => accessors.push((name.to_string(), format!("set {}(v) {{ dart_podado({r}); }}", js::prop_key(name)))),
-            _ => w.line(&format!("{lvar}{} = function(...a) {{ return dart_podado({r}); }};", js::prop_access(name))),
+            FunctionKind::Getter => accessors.push((
+                name.to_string(),
+                format!(
+                    "get {}() {{ return dart_podado({r}); }}",
+                    js::prop_key(name)
+                ),
+            )),
+            FunctionKind::Setter => accessors.push((
+                name.to_string(),
+                format!("set {}(v) {{ dart_podado({r}); }}", js::prop_key(name)),
+            )),
+            _ => w.line(&format!(
+                "{lvar}{} = function(...a) {{ return dart_podado({r}); }};",
+                js::prop_access(name)
+            )),
         }
         return;
     }
     match f.kind {
         FunctionKind::Getter | FunctionKind::Setter => {
             // Top-level accessors: `dart.copyProperties(L, { get x() {...}, set x(v) {...} })`.
-            let (text, _) = function_text(ctx, m, fid, Some(&format!("{} {}", if f.kind == FunctionKind::Getter { "get" } else { "set" }, js::prop_key(name))), None, true, None);
+            let (text, _) = function_text(
+                ctx,
+                m,
+                fid,
+                Some(&format!(
+                    "{} {}",
+                    if f.kind == FunctionKind::Getter {
+                        "get"
+                    } else {
+                        "set"
+                    },
+                    js::prop_key(name)
+                )),
+                None,
+                true,
+                None,
+            );
             accessors.push((name.to_string(), text));
         }
         _ => {
-            let (text, _) = function_text(ctx, m, fid, Some(&format!("function {}", js::ident(name))), None, true, None);
+            let (text, _) = function_text(
+                ctx,
+                m,
+                fid,
+                Some(&format!("function {}", js::ident(name))),
+                None,
+                true,
+                None,
+            );
             w.line(&format!("{lvar}{} = {text};", js::prop_access(name)));
         }
     }
 }
 
-fn emit_extension_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext: dartforge_elements::model::ExtensionId, w: &mut Writer) {
+fn emit_extension_function(
+    ctx: &Ctx,
+    m: &ModState,
+    fid: FunctionElementId,
+    ext: dartforge_elements::model::ExtensionId,
+    w: &mut Writer,
+) {
     let f = ctx.program.function(fid);
     let lvar = &ctx.libs[f.library.0 as usize].js_var;
     let name = ctx.name(f.name);
@@ -978,10 +1336,14 @@ fn emit_extension_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext:
     let data = &ctx.outline.extensions[ext.0 as usize];
     let on_ty = ctx.ty_of(data.on);
     // The extension's type parameters come first.
-    let ext_tps: Vec<(u32, String)> = data.type_params.iter().map(|p| {
-        let tp = ctx.ty_param_of(*p);
-        (tp.id, js::ident(&tp.name))
-    }).collect();
+    let ext_tps: Vec<(u32, String)> = data
+        .type_params
+        .iter()
+        .map(|p| {
+            let tp = ctx.ty_param_of(*p);
+            (tp.id, js::ident(&tp.name))
+        })
+        .collect();
     let (text, _) = if f.static_ {
         function_text_ext(ctx, m, fid, &ext_tps, None, ext)
     } else {
@@ -990,7 +1352,14 @@ fn emit_extension_function(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext:
     w.line(&format!("{lvar}[{}] = {text};", js::string_literal(&key)));
 }
 
-fn function_text_ext(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext_tps: &[(u32, String)], this_ty: Option<&Ty>, ext: dartforge_elements::model::ExtensionId) -> (String, AsyncKind) {
+fn function_text_ext(
+    ctx: &Ctx,
+    m: &ModState,
+    fid: FunctionElementId,
+    ext_tps: &[(u32, String)],
+    this_ty: Option<&Ty>,
+    ext: dartforge_elements::model::ExtensionId,
+) -> (String, AsyncKind) {
     let f = ctx.program.function(fid);
     let FunctionRef::Function { unit, function } = f.node else {
         return (String::new(), AsyncKind::None);
@@ -1035,10 +1404,19 @@ fn function_text_ext(ctx: &Ctx, m: &ModState, fid: FunctionElementId, ext_tps: &
     e.emit_body(&af.body);
     let body = finish_body(&mut e);
     let head = format!("function({}) {{", params_js.join(", "));
-    (e.wrap_async_head(kind, &head, &prologue, &body, &ret_ty), kind)
+    (
+        e.wrap_async_head(kind, &head, &prologue, &body, &ret_ty),
+        kind,
+    )
 }
 
-pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: &[VariableId], w: &mut Writer) {
+pub(crate) fn emit_top_variables(
+    ctx: &Ctx,
+    m: &ModState,
+    lib: LibraryId,
+    vars: &[VariableId],
+    w: &mut Writer,
+) {
     if vars.is_empty() {
         return;
     }
@@ -1054,12 +1432,19 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
         }
         if ctx.var_state(vid) == crate::filter::State::Stub {
             let r = js::string_literal(&ctx.pruned_label(lib, None, name));
-            lazy.push(format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(name)));
+            lazy.push(format!(
+                "get {}() {{ return dart_podado({r}); }}",
+                js::prop_key(name)
+            ));
             continue;
         }
-        let VariableRef::TopLevel { unit, decl, index } = v.node else { continue };
+        let VariableRef::TopLevel { unit, decl, index } = v.node else {
+            continue;
+        };
         let d = ctx.program.unit(unit).ast.decl(decl);
-        let DeclKind::Variables(list) = &d.kind else { continue };
+        let DeclKind::Variables(list) = &d.kind else {
+            continue;
+        };
         let var = &list.variables[index];
         let ty = ctx.var_ty(vid);
         let mut e = FnEmitter::new(ctx, m, unit, None, true);
@@ -1078,7 +1463,12 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
         if v.late {
             m.use_sdk("_internal");
             let storage = format!("_#{name}");
-            lazy.push(format!("get [{}]() {{\n{}\n}},\nset [{}](value) {{}}", js::string_literal(&storage), indent(&init), js::string_literal(&storage)));
+            lazy.push(format!(
+                "get [{}]() {{\n{}\n}},\nset [{}](value) {{}}",
+                js::string_literal(&storage),
+                indent(&init),
+                js::string_literal(&storage)
+            ));
             let getter = if var.initializer.is_some() {
                 format!(
                     "get {}() {{\n  let t = {lvar}[{}];\n  if (t == null) {{ t = (() => {{\n{}\n  }})(); {lvar}[{}] = t; }}\n  return t;\n}}",
@@ -1097,7 +1487,11 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
             };
             props.push(getter);
             if !v.final_ {
-                props.push(format!("set {}(v) {{\n  {lvar}[{}] = v;\n}}", js::prop_key(name), js::string_literal(&storage)));
+                props.push(format!(
+                    "set {}(v) {{\n  {lvar}[{}] = v;\n}}",
+                    js::prop_key(name),
+                    js::string_literal(&storage)
+                ));
             } else {
                 props.push(format!(
                     "set {}(v) {{\n  if ({lvar}[{}] != null) dart.throw(new _internal.LateError.fieldAI({}));\n  {lvar}[{}] = v;\n}}",
@@ -1140,20 +1534,35 @@ pub(crate) fn emit_top_variables(ctx: &Ctx, m: &ModState, lib: LibraryId, vars: 
 /// the names a JS function owns or guards (`length`, `caller`…), which an
 /// assignment on a class cannot shadow.
 pub(crate) fn eager_literal(ctx: &Ctx, init: &str, name: &str) -> Option<String> {
-    if !ctx.production() || matches!(name, "length" | "name" | "prototype" | "caller" | "arguments") {
+    if !ctx.production()
+        || matches!(
+            name,
+            "length" | "name" | "prototype" | "caller" | "arguments"
+        )
+    {
         return None;
     }
     let lit = init.strip_prefix("return ")?.strip_suffix(';')?;
     let number = |t: &str| {
         let t = t.strip_prefix('-').unwrap_or(t);
-        !t.is_empty() && t.chars().all(|c| c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-') && t.starts_with(|c: char| c.is_ascii_digit())
+        !t.is_empty()
+            && t.chars().all(|c| {
+                c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-'
+            })
+            && t.starts_with(|c: char| c.is_ascii_digit())
     };
-    let string = lit.len() >= 2 && lit.starts_with('"') && lit.ends_with('"') && !lit[1..lit.len() - 1].contains(['"', '\\', '\n']);
+    let string = lit.len() >= 2
+        && lit.starts_with('"')
+        && lit.ends_with('"')
+        && !lit[1..lit.len() - 1].contains(['"', '\\', '\n']);
     (matches!(lit, "null" | "true" | "false") || number(lit) || string).then(|| lit.to_string())
 }
 
 pub(crate) fn indent(s: &str) -> String {
-    s.lines().map(|l| format!("  {l}")).collect::<Vec<_>>().join("\n")
+    s.lines()
+        .map(|l| format!("  {l}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // ---------------------------------------------------------------------------
@@ -1215,7 +1624,8 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // those of the augmentations, in application order (docs/AUGMENTATIONS.md).
     let enum_constants: Vec<(UnitId, &ast::EnumConstant)> = match &d.kind {
         DeclKind::Enum(ed) => {
-            let mut v: Vec<(UnitId, &ast::EnumConstant)> = ed.constants.iter().map(|k| (unit, k)).collect();
+            let mut v: Vec<(UnitId, &ast::EnumConstant)> =
+                ed.constants.iter().map(|k| (unit, k)).collect();
             for a in ctx.program.augmentations.get(&c).into_iter().flatten() {
                 if let DeclKind::Enum(ea) = &ctx.program.unit(a.unit).ast.decl(a.decl).kind {
                     v.extend(ea.constants.iter().map(|k| (a.unit, k)));
@@ -1228,12 +1638,18 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // The members of the declaration and of its augmentations
     // (docs/AUGMENTATIONS.md), each with its unit.
     let members: Vec<(UnitId, ast::MemberId)> = match &d.kind {
-        DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_) => crate::own_sdk::class_members(ctx, c),
+        DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_) => {
+            crate::own_sdk::class_members(ctx, c)
+        }
         _ => vec![],
     };
 
     // Instance fields.
-    let native_names = if ctx.sdk.is_some() { native_member_names(ctx, c) } else { HashSet::new() };
+    let native_names = if ctx.sdk.is_some() {
+        native_member_names(ctx, c)
+    } else {
+        HashSet::new()
+    };
     let mut fields: Vec<FieldInfo> = Vec::new();
     for &vid in &class.fields {
         let v = ctx.program.variable(vid);
@@ -1241,9 +1657,18 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             continue;
         }
         let name = ctx.name(v.name).to_string();
-        let VariableRef::Field { unit: fu, member, index } = v.node else { continue };
+        let VariableRef::Field {
+            unit: fu,
+            member,
+            index,
+        } = v.node
+        else {
+            continue;
+        };
         let mem = ctx.program.unit(fu).ast.member(member);
-        let MemberKind::Field(list) = &mem.kind else { continue };
+        let MemberKind::Field(list) = &mem.kind else {
+            continue;
+        };
         let var = &list.variables[index];
         let private = name.starts_with('_');
         // Production profile: a public field that nobody overrides is a plain
@@ -1251,8 +1676,13 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         // A member name of a native supertype stays an accessor:
         // `defineExtensionAccessors` copies the *getter* to the `dartx` key, which
         // is where it is read from.
-        let plain = !private && !is_enum && !v.late && !native_names.contains(&name) && crate::own_sdk::non_virtual_field(ctx, c, v.name);
-        let helper = v.late && var.initializer.is_none() && ctx.sdk.is_some() && private && !is_mixin;
+        let plain = !private
+            && !is_enum
+            && !v.late
+            && !native_names.contains(&name)
+            && crate::own_sdk::non_virtual_field(ctx, c, v.name);
+        let helper =
+            v.late && var.initializer.is_none() && ctx.sdk.is_some() && private && !is_mixin;
         let storage = if helper {
             None
         } else if v.late {
@@ -1265,21 +1695,42 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             Some(m.private_sym(ctx, class.library, &format!("{cname}.{name}")))
         };
         let virtual_ = v.late || (!private && !is_enum && !plain);
-        fields.push(FieldInfo { vid, name, virtual_, helper, storage, late: v.late, final_: v.final_, init: var.initializer, unit: fu, ty: ctx.var_ty(vid) });
+        fields.push(FieldInfo {
+            vid,
+            name,
+            virtual_,
+            helper,
+            storage,
+            late: v.late,
+            final_: v.final_,
+            init: var.initializer,
+            unit: fu,
+            ty: ctx.var_ty(vid),
+        });
     }
 
     // JS superclass.
     let super_ref = superclass_js(ctx, m, c, w);
 
     // Class body.
-    let mut cw = Writer { indent: 1, ..Writer::default() };
-    let mut mixin_statics = Writer { indent: 1, ..Writer::default() };
+    let mut cw = Writer {
+        indent: 1,
+        ..Writer::default()
+    };
+    let mut mixin_statics = Writer {
+        indent: 1,
+        ..Writer::default()
+    };
     let mut ext_methods: Vec<String> = Vec::new();
     let mut ext_accessors: Vec<String> = Vec::new();
     // SDK mode: a native class declares its members through the `dartx` symbol
     // and has no `defineExtensionMethods` (`property_model.dart:283`).
     let native_class = crate::own_sdk::is_native_class(ctx, c);
-    let natives = if native_class { HashSet::new() } else { native_member_names(ctx, c) };
+    let natives = if native_class {
+        HashSet::new()
+    } else {
+        native_member_names(ctx, c)
+    };
     if let Some(k) = crate::own_sdk::special_constructor(ctx, c) {
         for l in k.lines() {
             cw.line(l);
@@ -1297,7 +1748,9 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         if ctx.filter.is_some() {
             // The field's accessors: live if the implicit getter or setter is live.
             let vv = ctx.program.variable(f.vid);
-            let live = |x: Option<FunctionElementId>| x.is_some_and(|g| ctx.fn_state(g) != crate::filter::State::Dead);
+            let live = |x: Option<FunctionElementId>| {
+                x.is_some_and(|g| ctx.fn_state(g) != crate::filter::State::Dead)
+            };
             if !live(vv.getter) && !live(vv.setter) {
                 continue;
             }
@@ -1312,14 +1765,22 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             continue;
         }
         if let Some(sym) = &f.storage {
-            let key = if f.name.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, &f.name)) } else { js::prop_key(&crate::body::js_member_name(&f.name)) };
+            let key = if f.name.starts_with('_') {
+                format!("[{}]", m.private_sym(ctx, class.library, &f.name))
+            } else {
+                js::prop_key(&crate::body::js_member_name(&f.name))
+            };
             if f.late {
                 m.use_sdk("_internal");
                 let mut e = FnEmitter::new(ctx, m, f.unit, Some(c), false);
                 match f.init {
                     Some(i) => {
                         let (js, _) = e.emit_expr(i, Some(&f.ty));
-                        let pre = if e.temps.is_empty() { String::new() } else { format!("let {};\n", e.temps.join(", ")) };
+                        let pre = if e.temps.is_empty() {
+                            String::new()
+                        } else {
+                            format!("let {};\n", e.temps.join(", "))
+                        };
                         crate::emit_line!(cw, "get {key}() {{");
                         crate::emit_line!(cw, "  let t = this[{sym}];");
                         cw.line(&format!("  if (t == null) {{ t = (() => {{ {pre}{}return {}; }})(); this[{sym}] = t; }}", e.w.out.replace('\n', " "), js.code));
@@ -1344,7 +1805,14 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             } else {
                 crate::emit_line!(cw, "get {key}() {{ return this[{sym}]; }}");
                 if f.final_ {
-                    cw.line(&format!("set {key}(value) {{ super{} = value; }}", if f.name.starts_with('_') { format!("[{sym}]") } else { js::prop_access(&crate::body::js_member_name(&f.name)) }));
+                    cw.line(&format!(
+                        "set {key}(value) {{ super{} = value; }}",
+                        if f.name.starts_with('_') {
+                            format!("[{sym}]")
+                        } else {
+                            js::prop_access(&crate::body::js_member_name(&f.name))
+                        }
+                    ));
                 } else {
                     crate::emit_line!(cw, "set {key}(value) {{ this[{sym}] = value; }}");
                 }
@@ -1360,7 +1828,10 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         m.use_sdk("core");
         let name_sym = m.private_sym(ctx, ctx.program.core.expect("core"), "_name");
         let ets = m.private_sym(ctx, ctx.program.core.expect("core"), "_enumToString");
-        cw.line(&format!("[{ets}]() {{ return {} + this[{name_sym}]; }}", js::string_literal(&format!("{cname}."))));
+        cw.line(&format!(
+            "[{ets}]() {{ return {} + this[{name_sym}]; }}",
+            js::string_literal(&format!("{cname}."))
+        ));
     }
 
     // Methods, getters, setters, operators, statics, factories.
@@ -1381,16 +1852,35 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 let af = ast.function(*fid);
                 let Some(fname) = af.name else { continue };
                 let mut name = ctx.name(fname.sym).to_string();
-                if af.kind == ast::FunctionKind::Operator && name == "-" && af.parameters.as_ref().is_some_and(|p| p.is_empty()) {
+                if af.kind == ast::FunctionKind::Operator
+                    && name == "-"
+                    && af.parameters.as_ref().is_some_and(|p| p.is_empty())
+                {
                     name = "unary-".to_string();
                 }
-                let key = if af.kind == ast::FunctionKind::Setter { format!("{name}_=") } else { name.clone() };
+                let key = if af.kind == ast::FunctionKind::Setter {
+                    format!("{name}_=")
+                } else {
+                    name.clone()
+                };
                 let ksym = ctx.sym(&key);
-                let fe = ksym.and_then(|s| if af.static_ { class.static_members.get(&s) } else { class.instance_members.get(&s) }.copied());
+                let fe = ksym.and_then(|s| {
+                    if af.static_ {
+                        class.static_members.get(&s)
+                    } else {
+                        class.instance_members.get(&s)
+                    }
+                    .copied()
+                });
                 let Some(feid) = fe else { continue };
                 // Member completed by another declaration of the augmentation
                 // chain: the effective element is that one's.
-                if ctx.program.function(feid).node != (FunctionRef::Function { unit: mu, function: *fid }) {
+                if ctx.program.function(feid).node
+                    != (FunctionRef::Function {
+                        unit: mu,
+                        function: *fid,
+                    })
+                {
                     continue;
                 }
                 if matches!(af.body, FunctionBody::Empty) && !af.external {
@@ -1403,8 +1893,13 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 // SDK mode: a static `external` without a body does not exist in
                 // JS (the access is `dart.global.Peer.x`); an instance one only in
                 // a native class.
-                let native_external = native_class && !af.static_ && (af.external || matches!(af.body, FunctionBody::Native(_)));
-                if ctx.sdk.is_some() && !native_external && crate::own_sdk::external_without_body(ctx, feid) {
+                let native_external = native_class
+                    && !af.static_
+                    && (af.external || matches!(af.body, FunctionBody::Native(_)));
+                if ctx.sdk.is_some()
+                    && !native_external
+                    && crate::own_sdk::external_without_body(ctx, feid)
+                {
                     continue;
                 }
                 let jsname = js_member_name(&name);
@@ -1424,7 +1919,13 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     match af.kind {
                         ast::FunctionKind::Getter => format!("get {key_js}"),
                         ast::FunctionKind::Setter => format!("set {key_js}"),
-                        _ => if name.starts_with('_') || native_class { key_js.clone() } else { js::prop_key(&jsname) },
+                        _ => {
+                            if name.starts_with('_') || native_class {
+                                key_js.clone()
+                            } else {
+                                js::prop_key(&jsname)
+                            }
+                        }
                     }
                 };
                 // SDK mode: `@JSExportName('Symbol.iterator')` on a member.
@@ -1436,14 +1937,21 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 if state == crate::filter::State::Stub {
                     let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &name));
                     match af.kind {
-                        ast::FunctionKind::Getter => cw.line(&format!("{head}() {{ return dart_podado({r}); }}")),
-                        ast::FunctionKind::Setter => cw.line(&format!("{head}(v) {{ dart_podado({r}); }}")),
+                        ast::FunctionKind::Getter => {
+                            cw.line(&format!("{head}() {{ return dart_podado({r}); }}"))
+                        }
+                        ast::FunctionKind::Setter => {
+                            cw.line(&format!("{head}(v) {{ dart_podado({r}); }}"))
+                        }
                         _ => cw.line(&format!("{head}(...a) {{ return dart_podado({r}); }}")),
                     }
                     continue;
                 }
                 let (text, _) = if native_external {
-                    (crate::own_sdk::native_external_member(ctx, &head, feid, &name, af.kind), crate::body::AsyncKind::None)
+                    (
+                        crate::own_sdk::native_external_member(ctx, &head, feid, &name, af.kind),
+                        crate::body::AsyncKind::None,
+                    )
                 } else {
                     function_text(ctx, m, feid, Some(&head), Some(c), af.static_, None)
                 };
@@ -1454,10 +1962,18 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 } else {
                     text
                 };
-                let text = if name == "==" { fix_equals_param(&text) } else { text };
+                let text = if name == "==" {
+                    fix_equals_param(&text)
+                } else {
+                    text
+                };
                 // A `mixin` static goes to the declared class (the shell), not to
                 // the `mixinOn` one: that is where `M.f()` finds it.
-                let dest = if af.static_ && is_mixin { &mut mixin_statics } else { &mut cw };
+                let dest = if af.static_ && is_mixin {
+                    &mut mixin_statics
+                } else {
+                    &mut cw
+                };
                 for line in text.lines() {
                     dest.line(line);
                 }
@@ -1475,7 +1991,11 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                             }
                         }
                         ast::FunctionKind::Setter => {
-                            let pt = data.parameters.first().map(|p| ctx.ty_of(p.ty)).unwrap_or(Ty::Dynamic);
+                            let pt = data
+                                .parameters
+                                .first()
+                                .map(|p| ctx.ty_of(p.ty))
+                                .unwrap_or(Ty::Dynamic);
                             setter_sigs.push((name.clone(), pt));
                             if natives.contains(&name) {
                                 ext_accessors.push(name.clone());
@@ -1484,10 +2004,18 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                         _ => {
                             method_sigs.push((jsname.clone(), fty.clone()));
                             if is_generic {
-                                let defaults: Vec<Ty> = data.type_params.iter().map(|p| {
-                                    let tp = ctx.ty_param_of(*p);
-                                    if tp.bound.mentions_params() { Ty::Dynamic } else { (*tp.bound).clone() }
-                                }).collect();
+                                let defaults: Vec<Ty> = data
+                                    .type_params
+                                    .iter()
+                                    .map(|p| {
+                                        let tp = ctx.ty_param_of(*p);
+                                        if tp.bound.mentions_params() {
+                                            Ty::Dynamic
+                                        } else {
+                                            (*tp.bound).clone()
+                                        }
+                                    })
+                                    .collect();
                                 generic_methods.push((jsname.clone(), defaults));
                             }
                             if natives.contains(&name) || (name == "==" && !native_class) {
@@ -1498,8 +2026,18 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 }
             }
             MemberKind::Constructor(ctor) => {
-                let effective = ctor.name.map(|n| n.sym).or(ctx.empty_sym).and_then(|s| class.constructors.get(&s).copied());
-                if effective.is_some_and(|f| ctx.program.function(f).node != (FunctionRef::Constructor { unit: mu, member: mid })) {
+                let effective = ctor
+                    .name
+                    .map(|n| n.sym)
+                    .or(ctx.empty_sym)
+                    .and_then(|s| class.constructors.get(&s).copied());
+                if effective.is_some_and(|f| {
+                    ctx.program.function(f).node
+                        != (FunctionRef::Constructor {
+                            unit: mu,
+                            member: mid,
+                        })
+                }) {
                     continue;
                 }
                 let state = effective.map_or(crate::filter::State::Live, |f| ctx.fn_state(f));
@@ -1507,13 +2045,23 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     continue;
                 }
                 if ctor.factory && state == crate::filter::State::Stub {
-                    let n = ctor.name.map(|n| ctx.name(n.sym).to_string()).unwrap_or("new".into());
+                    let n = ctor
+                        .name
+                        .map(|n| ctx.name(n.sym).to_string())
+                        .unwrap_or("new".into());
                     let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &n));
-                    cw.line(&format!("static {}(...a) {{ return dart_podado({r}); }}", js::prop_key(&static_member_name(&n))));
+                    cw.line(&format!(
+                        "static {}(...a) {{ return dart_podado({r}); }}",
+                        js::prop_key(&static_member_name(&n))
+                    ));
                     static_methods.push(n);
                 } else if ctor.factory {
                     emit_factory(ctx, m, c, mu, ctor, mid, &mut cw);
-                    static_methods.push(ctor.name.map(|n| ctx.name(n.sym).to_string()).unwrap_or("new".into()));
+                    static_methods.push(
+                        ctor.name
+                            .map(|n| ctx.name(n.sym).to_string())
+                            .unwrap_or("new".into()),
+                    );
                 } else {
                     ctor_members.push((mu, mid));
                 }
@@ -1526,16 +2074,27 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // `[Symbol.iterator]` for Iterable classes whose superclass is not Iterable.
     if !is_mixin && !native_class && ctx.class_level(c) == crate::filter::Level::Instantiated {
         if let Some(it) = ctx.iterable_ {
-            let declares_iterator = ctx.sym("iterator").is_some_and(|s| class.instance_members.contains_key(&s));
-            let super_is_iterable = ctx.superclass_of(c).is_some_and(|sc| ctx.is_subclass(sc, it) && Some(sc) != ctx.object);
+            let declares_iterator = ctx
+                .sym("iterator")
+                .is_some_and(|s| class.instance_members.contains_key(&s));
+            let super_is_iterable = ctx
+                .superclass_of(c)
+                .is_some_and(|sc| ctx.is_subclass(sc, it) && Some(sc) != ctx.object);
             if declares_iterator && ctx.is_subclass(c, it) && !super_is_iterable {
-                cw.line(&format!("[Symbol.iterator]() {{ return new dart.JsIterator(this[{}]); }}", m.dartx("iterator")));
+                cw.line(&format!(
+                    "[Symbol.iterator]() {{ return new dart.JsIterator(this[{}]); }}",
+                    m.dartx("iterator")
+                ));
             }
         }
     }
 
     // `noSuchMethod` forwarders in concrete classes with abstract members.
-    if !class.modifiers.abstract_ && !is_mixin && ctx.has_user_nsm(c) && ctx.class_level(c) == crate::filter::Level::Instantiated {
+    if !class.modifiers.abstract_
+        && !is_mixin
+        && ctx.has_user_nsm(c)
+        && ctx.class_level(c) == crate::filter::Level::Instantiated
+    {
         m.use_sdk("_internal");
         m.use_sdk("core");
         let mut se = FnEmitter::new(ctx, m, unit, Some(c), false);
@@ -1552,7 +2111,10 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             if !live {
                 continue;
             }
-            let sym = format!("dart.const(new _internal.Symbol.new({}))", js::string_literal(&name));
+            let sym = format!(
+                "dart.const(new _internal.Symbol.new({}))",
+                js::string_literal(&name)
+            );
             match mk {
                 crate::ctx::MemberKind::Method(fid) => {
                     let jsname = js_member_name(&name);
@@ -1565,7 +2127,11 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 }
                 crate::ctx::MemberKind::Getter(fid) => {
                     let ret = ctx.ty_of(ctx.outline.functions[fid.0 as usize].return_type);
-                    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || ret.mentions_params() { String::new() } else { format!("{}[_as]", se.rti(&ret)) };
+                    let cast = if matches!(ret, Ty::Dynamic | Ty::Void) || ret.mentions_params() {
+                        String::new()
+                    } else {
+                        format!("{}[_as]", se.rti(&ret))
+                    };
                     cw.line(&format!("get {}() {{ return {cast}(dart.noSuchMethod(this, new core._Invocation.getter({sym}))); }}", js::prop_key(&name)));
                     getter_sigs.push((name.clone(), ret));
                     if natives.contains(&name) {
@@ -1573,7 +2139,10 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     }
                 }
                 crate::ctx::MemberKind::Setter(_) => {
-                    let ssym = format!("dart.const(new _internal.Symbol.new({}))", js::string_literal(&format!("{name}=")));
+                    let ssym = format!(
+                        "dart.const(new _internal.Symbol.new({}))",
+                        js::string_literal(&format!("{name}="))
+                    );
                     cw.line(&format!("set {}(v) {{ dart.noSuchMethod(this, new core._Invocation.setter({ssym}, v)); }}", js::prop_key(&name)));
                 }
                 crate::ctx::MemberKind::Field(_) => {}
@@ -1587,7 +2156,11 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         for (csym, cfid) in class.constructors() {
             let cf = ctx.program.function(cfid);
             let cn = ctx.name(csym);
-            let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
+            let jsname = if cn.is_empty() {
+                "new".to_string()
+            } else {
+                static_member_name(cn)
+            };
             // With its own type parameters the static tear-off does not exist
             // (the value is built at the use site, with the arguments).
             if !ctx.class_params[c.0 as usize].is_empty() || !ctx.tearoff_live(cfid) {
@@ -1598,8 +2171,15 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 let e = FnEmitter::new(ctx, m, unit, Some(c), true);
                 args = format!("{}, ...args", e.rti(&ctx.this_ty_default(c)));
             }
-            let call = if cf.factory { format!("{cref}.{jsname}({args})") } else { format!("new {cref}.{jsname}({args})") };
-            cw.line(&format!("static [{}](...args) {{ return {call}; }}", js::string_literal(&format!("_#{jsname}#tearOff"))));
+            let call = if cf.factory {
+                format!("{cref}.{jsname}({args})")
+            } else {
+                format!("new {cref}.{jsname}({args})")
+            };
+            cw.line(&format!(
+                "static [{}](...args) {{ return {call}; }}",
+                js::string_literal(&format!("_#{jsname}#tearOff"))
+            ));
         }
     }
 
@@ -1611,11 +2191,25 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             if setter_sigs.iter().any(|(m, _)| m == n) || fields.iter().any(|f| f.name == *n) {
                 continue;
             }
-            let has_super_setter = class.supertype_class.and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), n, true)).is_some()
-                || ctx.mixins_of(c).iter().any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, true).is_some());
+            let has_super_setter = class
+                .supertype_class
+                .and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), n, true))
+                .is_some()
+                || ctx
+                    .mixins_of(c)
+                    .iter()
+                    .any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, true).is_some());
             if has_super_setter {
-                let key = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_key(&crate::body::js_member_name(n)) };
-                let acc = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_access(n) };
+                let key = if n.starts_with('_') {
+                    format!("[{}]", m.private_sym(ctx, class.library, n))
+                } else {
+                    js::prop_key(&crate::body::js_member_name(n))
+                };
+                let acc = if n.starts_with('_') {
+                    format!("[{}]", m.private_sym(ctx, class.library, n))
+                } else {
+                    js::prop_access(n)
+                };
                 extra.push(format!("set {key}(value) {{ super{acc} = value; }}"));
             }
         }
@@ -1623,11 +2217,25 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             if getter_sigs.iter().any(|(m, _)| m == n) || fields.iter().any(|f| f.name == *n) {
                 continue;
             }
-            let has_super_getter = class.supertype_class.and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), n, false)).is_some()
-                || ctx.mixins_of(c).iter().any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, false).is_some());
+            let has_super_getter = class
+                .supertype_class
+                .and_then(|sc| ctx.lookup_member(&ctx.this_ty(sc), n, false))
+                .is_some()
+                || ctx
+                    .mixins_of(c)
+                    .iter()
+                    .any(|mx| ctx.lookup_member(&ctx.this_ty(*mx), n, false).is_some());
             if has_super_getter {
-                let key = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_key(&crate::body::js_member_name(n)) };
-                let acc = if n.starts_with('_') { format!("[{}]", m.private_sym(ctx, class.library, n)) } else { js::prop_access(n) };
+                let key = if n.starts_with('_') {
+                    format!("[{}]", m.private_sym(ctx, class.library, n))
+                } else {
+                    js::prop_key(&crate::body::js_member_name(n))
+                };
+                let acc = if n.starts_with('_') {
+                    format!("[{}]", m.private_sym(ctx, class.library, n))
+                } else {
+                    js::prop_access(n)
+                };
                 extra.push(format!("get {key}() {{ return super{acc}; }}"));
             }
         }
@@ -1656,10 +2264,16 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 let member = ctx.mixins_of(c).into_iter().rev().find_map(|mixin| {
                     let kind = ctx.declared_member(mixin, name, setter)?;
                     let applied = ctx.as_super(&ctx.this_ty(c), mixin)?;
-                    let subst = ctx.class_params[mixin.0 as usize].iter().enumerate().map(|(i, p)| {
-                        (p.id, applied.args().get(i).cloned().unwrap_or(Ty::Dynamic))
-                    }).collect();
-                    Some(crate::ctx::Member { class: mixin, kind, subst })
+                    let subst = ctx.class_params[mixin.0 as usize]
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| (p.id, applied.args().get(i).cloned().unwrap_or(Ty::Dynamic)))
+                        .collect();
+                    Some(crate::ctx::Member {
+                        class: mixin,
+                        kind,
+                        subst,
+                    })
                 });
                 let Some(member) = member else { continue };
                 if ctx.is_ext_member(&ctx.this_ty(member.class), name, setter) {
@@ -1667,10 +2281,14 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 }
                 let (fid, accessor) = match member.kind {
                     crate::ctx::MemberKind::Method(fid) => (fid, false),
-                    crate::ctx::MemberKind::Getter(fid) | crate::ctx::MemberKind::Setter(fid) => (fid, true),
+                    crate::ctx::MemberKind::Getter(fid) | crate::ctx::MemberKind::Setter(fid) => {
+                        (fid, true)
+                    }
                     crate::ctx::MemberKind::Field(_) => continue,
                 };
-                if ctx.program.function(fid).abstract_ || ctx.fn_state(fid) == crate::filter::State::Dead {
+                if ctx.program.function(fid).abstract_
+                    || ctx.fn_state(fid) == crate::filter::State::Dead
+                {
                     continue;
                 }
                 inherited_native_aliases.insert(name.clone());
@@ -1689,11 +2307,19 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     method_sigs.push((jsname.clone(), ty));
                     let data = &ctx.outline.functions[fid.0 as usize];
                     if !data.type_params.is_empty() {
-                        let defaults = data.type_params.iter().map(|p| {
-                            let tp = ctx.ty_param_of(*p);
-                            let bound = tp.bound.subst(&member.subst);
-                            if bound.mentions_params() { Ty::Dynamic } else { bound }
-                        }).collect();
+                        let defaults = data
+                            .type_params
+                            .iter()
+                            .map(|p| {
+                                let tp = ctx.ty_param_of(*p);
+                                let bound = tp.bound.subst(&member.subst);
+                                if bound.mentions_params() {
+                                    Ty::Dynamic
+                                } else {
+                                    bound
+                                }
+                            })
+                            .collect();
                         generic_methods.push((jsname, defaults));
                     }
                 }
@@ -1711,9 +2337,17 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // enters the prototype chain (`compiler.dart:1236-1248`).
     let ext_in_mixin = is_mixin && (!ext_methods.is_empty() || !ext_accessors.is_empty());
     let head = if ext_in_mixin {
-        format!("{cref} = class {cname} extends core.Object {{{shell}}};\n{cref}[dart.mixinOn] = {cname}$mixin_super => {{\nconst {cname}$m = class {cname} extends {cname}$mixin_super {{", shell = mixin_shell(&mixin_statics))
+        format!(
+            "{cref} = class {cname} extends core.Object {{{shell}}};\n{cref}[dart.mixinOn] = {cname}$mixin_super => {{\nconst {cname}$m = class {cname} extends {cname}$mixin_super {{",
+            shell = mixin_shell(&mixin_statics)
+        )
     } else if is_mixin {
-        format!("{cref} = class {cname} extends core.Object {{{}}};\n{cref}[dart.mixinOn] = {}$mixin_super => class {cname} extends {}$mixin_super {{", mixin_shell(&mixin_statics), cname, cname)
+        format!(
+            "{cref} = class {cname} extends core.Object {{{}}};\n{cref}[dart.mixinOn] = {}$mixin_super => class {cname} extends {}$mixin_super {{",
+            mixin_shell(&mixin_statics),
+            cname,
+            cname
+        )
     } else if ctx.sdk.is_some() && Some(c) == ctx.object {
         // SDK mode: `Object` has no superclass (`compiler.dart:1257-1259`).
         format!("{cref} = class {cname} {{")
@@ -1747,21 +2381,38 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     // Without the names (`Ctx::late_name`) the value is `0`,
                     // which `dart.lateFields` reads as `""`.
                     let n = ctx.late_name(n);
-                    if n.is_empty() { format!("{key}: 0") } else { format!("{key}: {}", js::string_literal(n)) }
+                    if n.is_empty() {
+                        format!("{key}: 0")
+                    } else {
+                        format!("{key}: {}", js::string_literal(n))
+                    }
                 })
                 .collect();
             format!("{{{}}}", items.join(", "))
         };
-        w.line(&format!("dart.lateFields({cref}.prototype, {}, {});", object(true), object(false)));
+        w.line(&format!(
+            "dart.lateFields({cref}.prototype, {}, {});",
+            object(true),
+            object(false)
+        ));
     }
     if ext_in_mixin {
         if !ext_methods.is_empty() {
             let items: Vec<String> = ext_methods.iter().map(|n| js::string_literal(n)).collect();
-            w.line(&format!("dart.defineExtensionMethods({cname}$m, [{}]);", items.join(", ")));
+            w.line(&format!(
+                "dart.defineExtensionMethods({cname}$m, [{}]);",
+                items.join(", ")
+            ));
         }
         if !ext_accessors.is_empty() {
-            let items: Vec<String> = ext_accessors.iter().map(|n| js::string_literal(n)).collect();
-            w.line(&format!("dart.defineExtensionAccessors({cname}$m, [{}]);", items.join(", ")));
+            let items: Vec<String> = ext_accessors
+                .iter()
+                .map(|n| js::string_literal(n))
+                .collect();
+            w.line(&format!(
+                "dart.defineExtensionAccessors({cname}$m, [{}]);",
+                items.join(", ")
+            ));
         }
         w.line(&format!("return {cname}$m;\n}};"));
         ext_methods.clear();
@@ -1770,22 +2421,44 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
 
     // Generative constructors.
     let mut ctor_names: Vec<String> = Vec::new();
-    let has_synthetic = class.constructors.values().any(|f| ctx.program.function(*f).kind == FunctionKind::SyntheticConstructor);
+    let has_synthetic = class
+        .constructors
+        .values()
+        .any(|f| ctx.program.function(*f).kind == FunctionKind::SyntheticConstructor);
     // With a filter: the synthetic one lives by its element; without an element
     // (class without constructors) or for an enum, by the instantiated class.
     let synthetic_state = if ctx.filter.is_none() {
         crate::filter::State::Live
     } else {
-        let by_class = if ctx.class_level(c) == crate::filter::Level::Instantiated { crate::filter::State::Live } else { crate::filter::State::Dead };
-        match class.constructors.values().find(|f| ctx.program.function(**f).kind == FunctionKind::SyntheticConstructor) {
+        let by_class = if ctx.class_level(c) == crate::filter::Level::Instantiated {
+            crate::filter::State::Live
+        } else {
+            crate::filter::State::Dead
+        };
+        match class
+            .constructors
+            .values()
+            .find(|f| ctx.program.function(**f).kind == FunctionKind::SyntheticConstructor)
+        {
             Some(f) if !is_enum => ctx.fn_state(*f),
             _ => by_class,
         }
     };
-    if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) && synthetic_state == crate::filter::State::Stub {
+    if ctor_members.is_empty()
+        && !is_mixin
+        && (has_synthetic || class.constructors.is_empty() || is_enum)
+        && synthetic_state == crate::filter::State::Stub
+    {
         let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), "new"));
-        crate::emit_line!(w, "({cref}.new = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;");
-    } else if ctor_members.is_empty() && !is_mixin && is_mixin_application(ctx, c) && !ctx.mixins_of(c).is_empty() {
+        crate::emit_line!(
+            w,
+            "({cref}.new = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;"
+        );
+    } else if ctor_members.is_empty()
+        && !is_mixin
+        && is_mixin_application(ctx, c)
+        && !ctx.mixins_of(c).is_empty()
+    {
         // `class C = S with M;`: a forwarding constructor for each generative
         // constructor of `S`, with the same arguments (without it the SDK's
         // `_AsyncStreamController = _StreamController with …` lost its
@@ -1793,17 +2466,29 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let sup = ctx.superclass_of(c);
         let s_generic = sup.is_some_and(|s| ctx.requires_rti(s));
         let tmp = FnEmitter::new(ctx, m, unit, None, true);
-        let base = mixin_base_ref(ctx, c, &sup.map(|s| tmp.class_ref(s)).unwrap_or_else(|| "core.Object".to_string()));
+        let base = mixin_base_ref(
+            ctx,
+            c,
+            &sup.map(|s| tmp.class_ref(s))
+                .unwrap_or_else(|| "core.Object".to_string()),
+        );
         let mut names: Vec<String> = sup
             .map(|s| {
                 ctx.program
                     .class(s)
                     .constructors()
                     .into_iter()
-                    .filter(|(_, f)| !ctx.program.function(*f).factory && ctx.fn_state(*f) != crate::filter::State::Dead)
+                    .filter(|(_, f)| {
+                        !ctx.program.function(*f).factory
+                            && ctx.fn_state(*f) != crate::filter::State::Dead
+                    })
                     .map(|(n, _)| {
                         let n = ctx.name(n);
-                        if n.is_empty() { "new".to_string() } else { static_member_name(n) }
+                        if n.is_empty() {
+                            "new".to_string()
+                        } else {
+                            static_member_name(n)
+                        }
                     })
                     .collect()
             })
@@ -1814,19 +2499,36 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         for n in names {
             ctor_names.push(n.clone());
             let (params, call) = match (generic, s_generic) {
-                (true, true) => ("_ti, ...args", format!("{base}.{n}.call(this, _ti, ...args);")),
+                (true, true) => (
+                    "_ti, ...args",
+                    format!("{base}.{n}.call(this, _ti, ...args);"),
+                ),
                 (true, false) => ("_ti, ...args", format!("{base}.{n}.apply(this, args);")),
                 (false, true) => ("...args", format!("{base}.{n}.call(this, null, ...args);")),
                 (false, false) => ("...args", format!("{base}.{n}.apply(this, args);")),
             };
-            let ti = if generic { "this.$ti = this.$ti || _ti || dart.getReifiedType(this); " } else { "" };
-            crate::emit_line!(w, "({cref}.{n} = function({params}) {{ {ti}{call} }}).prototype = {cref}.prototype;");
+            let ti = if generic {
+                "this.$ti = this.$ti || _ti || dart.getReifiedType(this); "
+            } else {
+                ""
+            };
+            crate::emit_line!(
+                w,
+                "({cref}.{n} = function({params}) {{ {ti}{call} }}).prototype = {cref}.prototype;"
+            );
         }
-    } else if ctor_members.is_empty() && !is_mixin && (has_synthetic || class.constructors.is_empty() || is_enum) && synthetic_state == crate::filter::State::Live {
+    } else if ctor_members.is_empty()
+        && !is_mixin
+        && (has_synthetic || class.constructors.is_empty() || is_enum)
+        && synthetic_state == crate::filter::State::Live
+    {
         // Synthetic constructor.
         let jsname = "new";
         ctor_names.push(jsname.into());
-        let mut body = Writer { indent: 1, ..Writer::default() };
+        let mut body = Writer {
+            indent: 1,
+            ..Writer::default()
+        };
         if generic {
             body.line("this.$ti = this.$ti || _ti || dart.getReifiedType(this);");
         }
@@ -1837,28 +2539,55 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         } else {
             emit_super_call_default(ctx, m, c, &mut body);
         }
-        let params = if is_enum && generic { "t$index, t$name, _ti".to_string() } else if is_enum { "t$index, t$name".to_string() } else if generic { "_ti".to_string() } else { String::new() };
+        let params = if is_enum && generic {
+            "t$index, t$name, _ti".to_string()
+        } else if is_enum {
+            "t$index, t$name".to_string()
+        } else if generic {
+            "_ti".to_string()
+        } else {
+            String::new()
+        };
         crate::emit_line!(w, "({cref}.{jsname} = function({params}) {{");
         w.push_raw(&body.out);
         crate::emit_line!(w, "}}).prototype = {cref}.prototype;");
     }
     for (mu, mid) in ctor_members {
         let mem = ctx.program.unit(mu).ast.member(mid);
-        let MemberKind::Constructor(ctor) = &mem.kind else { continue };
+        let MemberKind::Constructor(ctor) = &mem.kind else {
+            continue;
+        };
         let name = ctor.name.map(|n| ctx.name(n.sym).to_string());
-        let jsname = name.clone().map(|n| static_member_name(&n)).unwrap_or("new".into());
+        let jsname = name
+            .clone()
+            .map(|n| static_member_name(&n))
+            .unwrap_or("new".into());
         ctor_names.push(jsname.clone());
-        let state = ctor.name.map(|n| n.sym).or(ctx.empty_sym).and_then(|s| class.constructors.get(&s).copied()).map_or(crate::filter::State::Live, |f| ctx.fn_state(f));
+        let state = ctor
+            .name
+            .map(|n| n.sym)
+            .or(ctx.empty_sym)
+            .and_then(|s| class.constructors.get(&s).copied())
+            .map_or(crate::filter::State::Live, |f| ctx.fn_state(f));
         if state == crate::filter::State::Stub {
             let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &jsname));
-            crate::emit_line!(w, "({cref}.{jsname} = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;");
+            crate::emit_line!(
+                w,
+                "({cref}.{jsname} = function(...a) {{ dart_podado({r}); }}).prototype = {cref}.prototype;"
+            );
             continue;
         }
         let text = emit_constructor(ctx, m, c, mu, ctor, &fields, generic, is_enum);
-        crate::emit_line!(w, "({cref}.{jsname} = {text}).prototype = {cref}.prototype;");
+        crate::emit_line!(
+            w,
+            "({cref}.{jsname} = {text}).prototype = {cref}.prototype;"
+        );
     }
     if is_mixin || class.modifiers.mixin {
-        let mut body = Writer { indent: 1, ..Writer::default() };
+        let mut body = Writer {
+            indent: 1,
+            ..Writer::default()
+        };
         emit_field_inits(ctx, m, c, &fields, &HashSet::new(), &mut body);
         crate::emit_line!(w, "({cref}[dart.mixinNew] = function() {{");
         w.push_raw(&body.out);
@@ -1885,7 +2614,10 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         iqueue.extend(ic.mixin_classes.iter().copied());
     }
     let recipes_js: Vec<String> = recipes.iter().map(|r| js::string_literal(r)).collect();
-    w.line(&format!("dart.addRtiResources({cref}, [{}]);", recipes_js.join(", ")));
+    w.line(&format!(
+        "dart.addRtiResources({cref}, [{}]);",
+        recipes_js.join(", ")
+    ));
 
     // Signatures.
     let mut se = FnEmitter::new(ctx, m, unit, Some(c), false);
@@ -1894,20 +2626,36 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // (`compiler.dart:1568-1572`); and a native interface member of an SDK Dart
     // class also shows up under the `dartx` key (`:1702-1720`), which is the one
     // that `bind`/`dsend` on the symbol looks for.
-    let base_sig = |kind: &str| if ctx.sdk.is_some() && Some(c) == ctx.object { "Object.create(null)".to_string() } else { format!("dart.{kind}(Object.getPrototypeOf({cref}))") };
+    let base_sig = |kind: &str| {
+        if ctx.sdk.is_some() && Some(c) == ctx.object {
+            "Object.create(null)".to_string()
+        } else {
+            format!("dart.{kind}(Object.getPrototypeOf({cref}))")
+        }
+    };
     // SDK mode: the object literal with `__proto__` (DDC's form,
     // `compiler.dart:1568-1590`) instead of `Object.setPrototypeOf`.
     let sig = |items: &[String], kind: &str| -> String {
         if ctx.sdk.is_some() {
-            let base = if Some(c) == ctx.object { "null".to_string() } else { format!("dart.{kind}({cref}.__proto__)") };
+            let base = if Some(c) == ctx.object {
+                "null".to_string()
+            } else {
+                format!("dart.{kind}({cref}.__proto__)")
+            };
             format!("() => ({{__proto__: {base}, {}}})", items.join(", "))
         } else {
-            format!("() => Object.setPrototypeOf({{{}}}, {})", items.join(", "), base_sig(kind))
+            format!(
+                "() => Object.setPrototypeOf({{{}}}, {})",
+                items.join(", "),
+                base_sig(kind)
+            )
         }
     };
     let duplicate = ctx.sdk.is_some() && !native_class && ctx.libs[class.library.0 as usize].is_sdk;
     let with_dartx = |items: &mut Vec<String>, n: &str, value: &str| {
-        if (duplicate || (ctx.sdk.is_some() && inherited_native_aliases.contains(n))) && natives.contains(n) {
+        if (duplicate || (ctx.sdk.is_some() && inherited_native_aliases.contains(n)))
+            && natives.contains(n)
+        {
             items.push(format!("{}: {value}", crate::own_sdk::native_key(m, n)));
         }
     };
@@ -1916,32 +2664,64 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     // Newly bridged native-interface aliases require their actual substituted
     // signature: retaining only an older superclass signature loses generic
     // function information during dynamic calls of the bound method.
-    method_sigs.retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
-    generic_methods.retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
+    method_sigs
+        .retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
+    generic_methods
+        .retain(|(n, _)| ctx.signature_live(n) || inherited_native_method_signatures.contains(n));
     getter_sigs.retain(|(n, _)| ctx.signature_live(n) || inherited_native_aliases.contains(n));
     setter_sigs.retain(|(n, _)| ctx.signature_live(n) || inherited_native_aliases.contains(n));
-    let fields_sig: Vec<&FieldInfo> = fields.iter().filter(|f| ctx.signature_live(&f.name)).collect();
+    let fields_sig: Vec<&FieldInfo> = fields
+        .iter()
+        .filter(|f| ctx.signature_live(&f.name))
+        .collect();
     // Production profile: a signature that does not depend on the instance's
     // type arguments is the rti itself, not a `_ti => rti` function
     // (`rtiFromSignature` and the other readers of the runtime only call the
     // entry when it is a function); the whole object is already built lazily.
-    let sig_value = |code: String| if ctx.production() && !code.contains("_ti") { code } else { format!("_ti => {code}") };
+    let sig_value = |code: String| {
+        if ctx.production() && !code.contains("_ti") {
+            code
+        } else {
+            format!("_ti => {code}")
+        }
+    };
     if !method_sigs.is_empty() {
         let mut items: Vec<String> = Vec::new();
         for (n, t) in method_sigs.iter() {
             let value = sig_value(se.rti(t));
             items.push(format!("{}: {value}", sig_key(n, &se, c)));
-            let dart_n = match n.as_str() { "_equals" => "==", "_get" => "[]", "_set" => "[]=", "_negate" => "unary-", x => x };
+            let dart_n = match n.as_str() {
+                "_equals" => "==",
+                "_get" => "[]",
+                "_set" => "[]=",
+                "_negate" => "unary-",
+                x => x,
+            };
             with_dartx(&mut items, dart_n, &value);
         }
-        w.line(&format!("dart.setMethodSignature({cref}, {});", sig(&items, "getMethods")));
+        w.line(&format!(
+            "dart.setMethodSignature({cref}, {});",
+            sig(&items, "getMethods")
+        ));
     }
     if !generic_methods.is_empty() {
         let items: Vec<String> = generic_methods
             .iter()
-            .map(|(n, ds)| format!("{}: {}", sig_key(n, &se, c), sig_value(format!("[{}]", ds.iter().map(|d| se.rti(d)).collect::<Vec<_>>().join(", ")))))
+            .map(|(n, ds)| {
+                format!(
+                    "{}: {}",
+                    sig_key(n, &se, c),
+                    sig_value(format!(
+                        "[{}]",
+                        ds.iter().map(|d| se.rti(d)).collect::<Vec<_>>().join(", ")
+                    ))
+                )
+            })
             .collect();
-        w.line(&format!("dart.setMethodsDefaultTypeArgSignature({cref}, {});", sig(&items, "getMethodsDefaultTypeArgs")));
+        w.line(&format!(
+            "dart.setMethodsDefaultTypeArgSignature({cref}, {});",
+            sig(&items, "getMethodsDefaultTypeArgs")
+        ));
     }
     if !getter_sigs.is_empty() {
         let mut items: Vec<String> = Vec::new();
@@ -1950,7 +2730,10 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             items.push(format!("{}: {value}", sig_key(n, &se, c)));
             with_dartx(&mut items, n, &value);
         }
-        w.line(&format!("dart.setGetterSignature({cref}, {});", sig(&items, "getGetters")));
+        w.line(&format!(
+            "dart.setGetterSignature({cref}, {});",
+            sig(&items, "getGetters")
+        ));
     }
     if !setter_sigs.is_empty() {
         let mut items: Vec<String> = Vec::new();
@@ -1959,14 +2742,23 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             items.push(format!("{}: {value}", sig_key(n, &se, c)));
             with_dartx(&mut items, n, &value);
         }
-        w.line(&format!("dart.setSetterSignature({cref}, {});", sig(&items, "getSetters")));
+        w.line(&format!(
+            "dart.setSetterSignature({cref}, {});",
+            sig(&items, "getSetters")
+        ));
     }
     // Production profile: only the statics that dynamic dispatch reads
     // (`dload`/`dsend` on a `Type`), like the instance signatures.
     static_methods.retain(|n| ctx.signature_live(n));
     if !static_methods.is_empty() {
-        let items: Vec<String> = static_methods.iter().map(|n| js::string_literal(&static_member_name(n))).collect();
-        w.line(&format!("dart.setStaticMethodSignature({cref}, () => [{}]);", items.join(", ")));
+        let items: Vec<String> = static_methods
+            .iter()
+            .map(|n| js::string_literal(&static_member_name(n)))
+            .collect();
+        w.line(&format!(
+            "dart.setStaticMethodSignature({cref}, () => [{}]);",
+            items.join(", ")
+        ));
     }
     let lib_uri = js::string_literal(&ctx.program.library(class.library).uri);
     if crate::own_sdk::needs_library_uri(ctx, c) {
@@ -1981,7 +2773,11 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     Some(s) if f.name.starts_with('_') || f.late => format!("[{s}]"),
                     _ => js::prop_key(&crate::body::js_member_name(&f.name)),
                 };
-                let ty = if f.late { f.ty.with_nullable(true) } else { f.ty.clone() };
+                let ty = if f.late {
+                    f.ty.with_nullable(true)
+                } else {
+                    f.ty.clone()
+                };
                 let final_ = f.final_ && !f.late;
                 if ctx.production() {
                     // Production profile: `isConst` is only read by the
@@ -1989,33 +2785,65 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     let fin = if final_ { ", isFinal: true" } else { "" };
                     format!("{key}: {{type: {}{fin}}}", sig_value(se.rti(&ty)))
                 } else {
-                    format!("{key}: {{type: _ti => {}, isConst: false, isFinal: {final_}}}", se.rti(&ty))
+                    format!(
+                        "{key}: {{type: _ti => {}, isConst: false, isFinal: {final_}}}",
+                        se.rti(&ty)
+                    )
                 }
             })
             .collect();
-        w.line(&format!("dart.setFieldSignature({cref}, {});", sig(&items, "getFields")));
+        w.line(&format!(
+            "dart.setFieldSignature({cref}, {});",
+            sig(&items, "getFields")
+        ));
     }
     // The constants (and `values`) that the closed world keeps: an enum
     // constant lives one by one, only when read (`dartforge_world`).
     let enum_constant_live = |ec: &ast::EnumConstant| {
-        class.enum_constants.iter().find(|v| ctx.program.variable(**v).name == ec.name.sym).is_none_or(|v| ctx.var_state(*v) != crate::filter::State::Dead)
+        class
+            .enum_constants
+            .iter()
+            .find(|v| ctx.program.variable(**v).name == ec.name.sym)
+            .is_none_or(|v| ctx.var_state(*v) != crate::filter::State::Dead)
     };
-    let enum_values_live = ctx.sym("values").and_then(|s| class.static_members.get(&s)).is_none_or(|f| ctx.fn_state(*f) != crate::filter::State::Dead);
+    let enum_values_live = ctx
+        .sym("values")
+        .and_then(|s| class.static_members.get(&s))
+        .is_none_or(|f| ctx.fn_state(*f) != crate::filter::State::Dead);
     // Statics: fields.
-    let static_fields: Vec<VariableId> = class.fields.iter().copied().filter(|v| ctx.program.variable(*v).static_ && ctx.var_state(*v) != crate::filter::State::Dead).collect();
-    let mut static_names: Vec<String> = static_fields.iter().map(|v| ctx.name(ctx.program.variable(*v).name).to_string()).collect();
+    let static_fields: Vec<VariableId> = class
+        .fields
+        .iter()
+        .copied()
+        .filter(|v| {
+            ctx.program.variable(*v).static_ && ctx.var_state(*v) != crate::filter::State::Dead
+        })
+        .collect();
+    let mut static_names: Vec<String> = static_fields
+        .iter()
+        .map(|v| ctx.name(ctx.program.variable(*v).name).to_string())
+        .collect();
     if is_enum {
         if enum_values_live {
             static_names.insert(0, "values".into());
         }
-        for (_, ec) in enum_constants.iter().filter(|(_, ec)| enum_constant_live(ec)) {
+        for (_, ec) in enum_constants
+            .iter()
+            .filter(|(_, ec)| enum_constant_live(ec))
+        {
             static_names.push(ctx.name(ec.name.sym).to_string());
         }
     }
     static_names.retain(|n| ctx.signature_live(n));
     if !static_names.is_empty() {
-        let items: Vec<String> = static_names.iter().map(|n| js::string_literal(&static_member_name(n))).collect();
-        w.line(&format!("dart.setStaticFieldSignature({cref}, () => [{}]);", items.join(", ")));
+        let items: Vec<String> = static_names
+            .iter()
+            .map(|n| js::string_literal(&static_member_name(n)))
+            .collect();
+        w.line(&format!(
+            "dart.setStaticFieldSignature({cref}, () => [{}]);",
+            items.join(", ")
+        ));
     }
     // Extensions (members of native interfaces).
     ext_methods.sort();
@@ -2024,11 +2852,20 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     ext_accessors.dedup();
     if !ext_methods.is_empty() {
         let items: Vec<String> = ext_methods.iter().map(|n| js::string_literal(n)).collect();
-        w.line(&format!("dart.defineExtensionMethods({cref}, [{}]);", items.join(", ")));
+        w.line(&format!(
+            "dart.defineExtensionMethods({cref}, [{}]);",
+            items.join(", ")
+        ));
     }
     if !ext_accessors.is_empty() {
-        let items: Vec<String> = ext_accessors.iter().map(|n| js::string_literal(n)).collect();
-        w.line(&format!("dart.defineExtensionAccessors({cref}, [{}]);", items.join(", ")));
+        let items: Vec<String> = ext_accessors
+            .iter()
+            .map(|n| js::string_literal(n))
+            .collect();
+        w.line(&format!(
+            "dart.defineExtensionAccessors({cref}, [{}]);",
+            items.join(", ")
+        ));
     }
     // SDK mode: `_installIdentityEquals`, `definePrimitiveHashCode`, `registerExtension`.
     if ctx.sdk.is_some() {
@@ -2053,8 +2890,14 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
             });
             let e = e_k.as_mut().unwrap_or(&mut e);
             let n = ctx.name(ec.name.sym).to_string();
-            names.push(format!("{cref}{}", js::prop_access(&static_member_name(&n))));
-            let ctor_name = ec.constructor.map(|c| ctx.name(c.sym).to_string()).unwrap_or_default();
+            names.push(format!(
+                "{cref}{}",
+                js::prop_access(&static_member_name(&n))
+            ));
+            let ctor_name = ec
+                .constructor
+                .map(|c| ctx.name(c.sym).to_string())
+                .unwrap_or_default();
             let mut args: Vec<String> = vec![i.to_string(), js::string_literal(&n)];
             if let Some(a) = &ec.arguments {
                 let (pos, named, _) = e.emit_args_plain(a);
@@ -2063,20 +2906,38 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     args.push(nm);
                 }
             }
-            let jsname = if ctor_name.is_empty() { "new".to_string() } else { static_member_name(&ctor_name) };
+            let jsname = if ctor_name.is_empty() {
+                "new".to_string()
+            } else {
+                static_member_name(&ctor_name)
+            };
             if generic {
                 let mut tys: Vec<Ty> = ec.type_args.iter().map(|t| e.resolve_type(*t)).collect();
                 while tys.len() < ctx.class_params[c.0 as usize].len() {
                     tys.push(Ty::Dynamic);
                 }
-                let t = Ty::Iface { class: c, args: tys, nullable: false };
+                let t = Ty::Iface {
+                    class: c,
+                    args: tys,
+                    nullable: false,
+                };
                 args.insert(2, e.rti(&t));
             }
-            lazy.push(format!("get {}() {{ return dart.const(new {cref}.{jsname}({})); }}", js::prop_key(&static_member_name(&n)), args.join(", ")));
+            lazy.push(format!(
+                "get {}() {{ return dart.const(new {cref}.{jsname}({})); }}",
+                js::prop_key(&static_member_name(&n)),
+                args.join(", ")
+            ));
         }
         if enum_values_live {
             let rti = e.rti(&Ty::iface(c));
-            lazy.insert(0, format!("get values() {{ return dart.constList({rti}, [{}]); }}", names.join(", ")));
+            lazy.insert(
+                0,
+                format!(
+                    "get values() {{ return dart.constList({rti}, [{}]); }}",
+                    names.join(", ")
+                ),
+            );
         }
     }
     for vid in static_fields {
@@ -2084,12 +2945,24 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let name = static_member_name(ctx.name(v.name));
         if ctx.var_state(vid) == crate::filter::State::Stub {
             let r = js::string_literal(&ctx.pruned_label(class.library, Some(c), &name));
-            lazy.push(format!("get {}() {{ return dart_podado({r}); }}", js::prop_key(&name)));
+            lazy.push(format!(
+                "get {}() {{ return dart_podado({r}); }}",
+                js::prop_key(&name)
+            ));
             continue;
         }
-        let VariableRef::Field { unit: fu, member, index } = v.node else { continue };
+        let VariableRef::Field {
+            unit: fu,
+            member,
+            index,
+        } = v.node
+        else {
+            continue;
+        };
         let mem = ctx.program.unit(fu).ast.member(member);
-        let MemberKind::Field(list) = &mem.kind else { continue };
+        let MemberKind::Field(list) = &mem.kind else {
+            continue;
+        };
         let var = &list.variables[index];
         let ty = ctx.var_ty(vid);
         let mut e = FnEmitter::new(ctx, m, fu, Some(c), true);
@@ -2097,7 +2970,11 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         let init = match var.initializer {
             Some(i) => {
                 let (js, _) = e.emit_expr(i, Some(&ty));
-                let pre = if e.temps.is_empty() { String::new() } else { format!("let {};\n", e.temps.join(", ")) };
+                let pre = if e.temps.is_empty() {
+                    String::new()
+                } else {
+                    format!("let {};\n", e.temps.join(", "))
+                };
                 format!("{pre}{}return {};", e.w.out, js.code)
             }
             None => "return null;".to_string(),
@@ -2105,7 +2982,12 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
         if v.late {
             m.use_sdk("_internal");
             let storage = format!("_#{name}");
-            lazy.push(format!("get [{}]() {{\n{}\n}},\nset [{}](value) {{}}", js::string_literal(&storage), indent(&init), js::string_literal(&storage)));
+            lazy.push(format!(
+                "get [{}]() {{\n{}\n}},\nset [{}](value) {{}}",
+                js::string_literal(&storage),
+                indent(&init),
+                js::string_literal(&storage)
+            ));
             let getter = if var.initializer.is_some() {
                 format!(
                     "get {}() {{\n  let t = {cref}[{}];\n  if (t == null) {{ t = (() => {{\n{}\n  }})(); {cref}[{}] = t; }}\n  return t;\n}}",
@@ -2122,8 +3004,16 @@ pub(crate) fn emit_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     js::string_literal(ctx.late_name(&name))
                 )
             };
-            let setter = format!("set {}(v) {{\n  {cref}[{}] = v;\n}}", js::prop_key(&name), js::string_literal(&storage));
-            w.line(&format!("dart.copyProperties({cref}, {{\n{},\n{}\n}});", indent(&getter), indent(&setter)));
+            let setter = format!(
+                "set {}(v) {{\n  {cref}[{}] = v;\n}}",
+                js::prop_key(&name),
+                js::string_literal(&storage)
+            );
+            w.line(&format!(
+                "dart.copyProperties({cref}, {{\n{},\n{}\n}});",
+                indent(&getter),
+                indent(&setter)
+            ));
         } else if let Some(lit) = eager_literal(ctx, &init, &name) {
             w.line(&format!("{cref}{} = {lit};", js::prop_access(&name)));
         } else {
@@ -2159,7 +3049,10 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     };
     let ast = &ctx.program.unit(unit).ast;
     let anonymous = ctx.js_classes.get(&c).is_some_and(|j| j.anonymous);
-    let mut cw = Writer { indent: 1, ..Writer::default() };
+    let mut cw = Writer {
+        indent: 1,
+        ..Writer::default()
+    };
     for &mid in &members {
         let mem = ast.member(mid);
         match &mem.kind {
@@ -2170,8 +3063,17 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 }
                 let Some(fname) = af.name else { continue };
                 let name = ctx.name(fname.sym).to_string();
-                let key = if af.kind == ast::FunctionKind::Setter { format!("{name}_=") } else { name.clone() };
-                let Some(feid) = ctx.sym(&key).and_then(|s| class.static_members.get(&s).copied()) else { continue };
+                let key = if af.kind == ast::FunctionKind::Setter {
+                    format!("{name}_=")
+                } else {
+                    name.clone()
+                };
+                let Some(feid) = ctx
+                    .sym(&key)
+                    .and_then(|s| class.static_members.get(&s).copied())
+                else {
+                    continue;
+                };
                 let sk = js::prop_key(&static_member_name(&name));
                 let head = match af.kind {
                     ast::FunctionKind::Getter => format!("static get {sk}"),
@@ -2199,7 +3101,8 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                     // (`_emitLibraryProcedures`, compiler.dart:3527).
                     let sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
                     if let Some(fid) = sym.and_then(|s| class.constructors.get(&s).copied()) {
-                        let text = crate::extension_type::constructor_text(ctx, m, c, unit, ctor, fid);
+                        let text =
+                            crate::extension_type::constructor_text(ctx, m, c, unit, ctor, fid);
                         for line in text.lines() {
                             cw.line(line);
                         }
@@ -2212,7 +3115,11 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
     for (csym, cfid) in class.constructors() {
         let cf = ctx.program.function(cfid);
         let cn = ctx.name(csym);
-        let jsname = if cn.is_empty() { "new".to_string() } else { static_member_name(cn) };
+        let jsname = if cn.is_empty() {
+            "new".to_string()
+        } else {
+            static_member_name(cn)
+        };
         let external = cf.external || cf.kind == FunctionKind::SyntheticConstructor;
         let call = if !external {
             format!("{cref}.{jsname}(...args)")
@@ -2230,15 +3137,27 @@ fn emit_js_interop_class(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) {
                 .iter()
                 .map(|n| {
                     let c = ctx.named_key(n);
-                    format!("{}: opts && {} in opts ? opts{} : null", js::prop_key(n), js::string_literal(&c), js::prop_access(&c))
+                    format!(
+                        "{}: opts && {} in opts ? opts{} : null",
+                        js::prop_key(n),
+                        js::string_literal(&c),
+                        js::prop_access(&c)
+                    )
                 })
                 .collect();
-            cw.line(&format!("static [{}](opts) {{ return {{{}}}; }}", js::string_literal(&format!("_#{jsname}#tearOff")), props.join(", ")));
+            cw.line(&format!(
+                "static [{}](opts) {{ return {{{}}}; }}",
+                js::string_literal(&format!("_#{jsname}#tearOff")),
+                props.join(", ")
+            ));
             continue;
         } else {
             format!("new {}(...args)", ctx.js_class_global(c))
         };
-        cw.line(&format!("static [{}](...args) {{ return {call}; }}", js::string_literal(&format!("_#{jsname}#tearOff"))));
+        cw.line(&format!(
+            "static [{}](...args) {{ return {call}; }}",
+            js::string_literal(&format!("_#{jsname}#tearOff"))
+        ));
     }
     crate::emit_line!(w, "{cref} = class {cname} {{");
     w.push_raw(&cw.out);
@@ -2264,7 +3183,11 @@ fn fix_equals_param(text: &str) -> String {
         if let Some(end) = rest.find(')') {
             let pname = rest[..end].trim().to_string();
             if !pname.is_empty() && pname != "other" {
-                return text.replacen("if (other == null) return false;", &format!("if ({pname} == null) return false;"), 1);
+                return text.replacen(
+                    "if (other == null) return false;",
+                    &format!("if ({pname} == null) return false;"),
+                    1,
+                );
             }
         }
     }
@@ -2273,7 +3196,9 @@ fn fix_equals_param(text: &str) -> String {
 
 fn sig_key(name: &str, e: &FnEmitter, c: ClassId) -> String {
     // SDK mode: for a native class, the key is the `dartx` symbol (the declaration's).
-    if crate::own_sdk::is_native_class(e.ctx, c) && (!name.starts_with('_') || matches!(name, "_equals" | "_get" | "_set" | "_negate")) {
+    if crate::own_sdk::is_native_class(e.ctx, c)
+        && (!name.starts_with('_') || matches!(name, "_equals" | "_get" | "_set" | "_negate"))
+    {
         return crate::own_sdk::native_key(e.m, name);
     }
     if name.starts_with('_') && !matches!(name, "_equals" | "_get" | "_set" | "_negate") {
@@ -2324,7 +3249,13 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
     } else {
         match ctx.superclass_of(c) {
             Some(s) if Some(s) != ctx.object => {
-                let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
+                let tmp = FnEmitter::new(
+                    ctx,
+                    m,
+                    class.decl.map(|d| d.unit).unwrap_or(UnitId(0)),
+                    None,
+                    true,
+                );
                 (tmp.class_ref(s), Some(s))
             }
             _ => {
@@ -2334,7 +3265,13 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
         }
     };
     for (i, &mx) in ctx.mixins_of(c).iter().enumerate() {
-        let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
+        let tmp = FnEmitter::new(
+            ctx,
+            m,
+            class.decl.map(|d| d.unit).unwrap_or(UnitId(0)),
+            None,
+            true,
+        );
         let mref = tmp.class_ref(mx);
         let app = format!("{}$mixin{}", ctx.class_name(c), i);
         crate::emit_line!(w, "const {app} = class {app} extends {base} {{}};");
@@ -2346,26 +3283,54 @@ fn superclass_js(ctx: &Ctx, m: &ModState, c: ClassId, w: &mut Writer) -> String 
                 .constructors()
                 .into_iter()
                 // With a filter: only forwards to a base constructor that is live.
-                .filter(|(_, f)| !ctx.program.function(*f).factory && ctx.fn_state(*f) != crate::filter::State::Dead)
+                .filter(|(_, f)| {
+                    !ctx.program.function(*f).factory
+                        && ctx.fn_state(*f) != crate::filter::State::Dead
+                })
                 .map(|(s, _)| {
                     let n = ctx.name(s);
-                    if n.is_empty() { "new".to_string() } else { n.to_string() }
+                    if n.is_empty() {
+                        "new".to_string()
+                    } else {
+                        n.to_string()
+                    }
                 })
                 .collect(),
             _ => vec!["new".into()],
         };
         // Base without a declared constructor: its synthetic `new` (with a filter,
         // it exists only if the base is instantiated).
-        let base_without_ctor = base_class.is_some_and(|b| ctx.program.class(b).constructors.values().all(|f| ctx.program.function(*f).factory));
-        if ctor_names.is_empty() && (ctx.filter.is_none() || (base_without_ctor && base_class.is_some_and(|b| ctx.class_level(b) == crate::filter::Level::Instantiated))) {
+        let base_without_ctor = base_class.is_some_and(|b| {
+            ctx.program
+                .class(b)
+                .constructors
+                .values()
+                .all(|f| ctx.program.function(*f).factory)
+        });
+        if ctor_names.is_empty()
+            && (ctx.filter.is_none()
+                || (base_without_ctor
+                    && base_class
+                        .is_some_and(|b| ctx.class_level(b) == crate::filter::Level::Instantiated)))
+        {
             ctor_names.push("new".into());
         }
         for n in ctor_names {
-            let n = if n == "new" { n } else { static_member_name(&n) };
-            if base == "core.Object" {
-                crate::emit_line!(w, "({app}.{n} = function() {{ if ({mref}[dart.mixinNew]) {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;");
+            let n = if n == "new" {
+                n
             } else {
-                crate::emit_line!(w, "({app}.{n} = function(...args) {{ if ({mref}[dart.mixinNew]) {mref}[dart.mixinNew].call(this); {base}.{n}.apply(this, args); }}).prototype = {app}.prototype;");
+                static_member_name(&n)
+            };
+            if base == "core.Object" {
+                crate::emit_line!(
+                    w,
+                    "({app}.{n} = function() {{ if ({mref}[dart.mixinNew]) {mref}[dart.mixinNew].call(this); }}).prototype = {app}.prototype;"
+                );
+            } else {
+                crate::emit_line!(
+                    w,
+                    "({app}.{n} = function(...args) {{ if ({mref}[dart.mixinNew]) {mref}[dart.mixinNew].call(this); {base}.{n}.apply(this, args); }}).prototype = {app}.prototype;"
+                );
             }
         }
         crate::emit_line!(w, "dart.applyMixin({app}, {mref});");
@@ -2404,15 +3369,28 @@ impl NullInits {
     }
 }
 
-fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], skip: &HashSet<String>, body: &mut Writer) {
-    let mut nulls = NullInits { production: ctx.production(), ..NullInits::default() };
+fn emit_field_inits(
+    ctx: &Ctx,
+    m: &ModState,
+    c: ClassId,
+    fields: &[FieldInfo],
+    skip: &HashSet<String>,
+    body: &mut Writer,
+) {
+    let mut nulls = NullInits {
+        production: ctx.production(),
+        ..NullInits::default()
+    };
     for f in fields {
         if skip.contains(&f.name) || f.helper {
             continue;
         }
         let target = match &f.storage {
             Some(s) => format!("this[{s}]"),
-            None => format!("this{}", js::prop_access(&crate::body::js_member_name(&f.name))),
+            None => format!(
+                "this{}",
+                js::prop_access(&crate::body::js_member_name(&f.name))
+            ),
         };
         match f.init {
             Some(i) if !f.late => {
@@ -2435,18 +3413,26 @@ fn emit_field_inits(ctx: &Ctx, m: &ModState, c: ClassId, fields: &[FieldInfo], s
 
 /// The body of a `mixin` shell: empty (as it always was), or its statics.
 fn mixin_shell(w: &Writer) -> String {
-    if w.out.is_empty() { String::new() } else { format!("\n{}", w.out) }
+    if w.out.is_empty() {
+        String::new()
+    } else {
+        format!("\n{}", w.out)
+    }
 }
 
 /// The class is a named mixin application (`class C = S with M;`).
 fn is_mixin_application(ctx: &Ctx, c: ClassId) -> bool {
-    let Some(d) = ctx.program.class(c).decl else { return false };
+    let Some(d) = ctx.program.class(c).decl else {
+        return false;
+    };
     matches!(&ctx.program.unit(d.unit).ast.decl(d.decl).kind, ast::DeclKind::Class(k) if k.mixin_application)
 }
 
 /// Is `ctor` the elaborated primary constructor (Dart 3.13) of class `c`?
 fn is_primary_constructor(ctx: &Ctx, c: ClassId, ctor: &ast::Constructor) -> bool {
-    let Some(d) = ctx.program.class(c).decl else { return false };
+    let Some(d) = ctx.program.class(c).decl else {
+        return false;
+    };
     let ast = &ctx.program.unit(d.unit).ast;
     let primary = match &ast.decl(d.decl).kind {
         ast::DeclKind::Class(k) => k.primary_constructor,
@@ -2458,15 +3444,26 @@ fn is_primary_constructor(ctx: &Ctx, c: ClassId, ctor: &ast::Constructor) -> boo
 
 /// Field initializers emitted by the constructor's own emitter (primary
 /// constructor): its parameters are in scope.
-fn emit_field_inits_in_constructor(e: &mut FnEmitter, fields: &[FieldInfo], skip: &HashSet<String>, body: &mut Writer) {
-    let mut nulls = NullInits { production: e.ctx.production(), ..NullInits::default() };
+fn emit_field_inits_in_constructor(
+    e: &mut FnEmitter,
+    fields: &[FieldInfo],
+    skip: &HashSet<String>,
+    body: &mut Writer,
+) {
+    let mut nulls = NullInits {
+        production: e.ctx.production(),
+        ..NullInits::default()
+    };
     for f in fields {
         if skip.contains(&f.name) || f.helper {
             continue;
         }
         let target = match &f.storage {
             Some(s) => format!("this[{s}]"),
-            None => format!("this{}", js::prop_access(&crate::body::js_member_name(&f.name))),
+            None => format!(
+                "this{}",
+                js::prop_access(&crate::body::js_member_name(&f.name))
+            ),
         };
         match f.init {
             Some(i) if !f.late => {
@@ -2490,8 +3487,16 @@ fn emit_super_call_default(ctx: &Ctx, m: &ModState, c: ClassId, body: &mut Write
     if sup.is_none() && ctx.mixins_of(c).is_empty() {
         return;
     }
-    let tmp = FnEmitter::new(ctx, m, class.decl.map(|d| d.unit).unwrap_or(UnitId(0)), None, true);
-    let sref = sup.map(|s| tmp.class_ref(s)).unwrap_or_else(|| "core.Object".to_string());
+    let tmp = FnEmitter::new(
+        ctx,
+        m,
+        class.decl.map(|d| d.unit).unwrap_or(UnitId(0)),
+        None,
+        true,
+    );
+    let sref = sup
+        .map(|s| tmp.class_ref(s))
+        .unwrap_or_else(|| "core.Object".to_string());
     let sgeneric = sup.is_some_and(|s| ctx.requires_rti(s));
     let base = mixin_base_ref(ctx, c, &sref);
     if sgeneric {
@@ -2511,7 +3516,16 @@ fn mixin_base_ref(ctx: &Ctx, c: ClassId, sref: &str) -> String {
 }
 
 /// Text `function(params) { ... }` of a generative constructor.
-fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &ast::Constructor, fields: &[FieldInfo], generic: bool, is_enum: bool) -> String {
+fn emit_constructor(
+    ctx: &Ctx,
+    m: &ModState,
+    c: ClassId,
+    unit: UnitId,
+    ctor: &ast::Constructor,
+    fields: &[FieldInfo],
+    generic: bool,
+    is_enum: bool,
+) -> String {
     let class = ctx.program.class(c);
     let mut e = FnEmitter::new(ctx, m, unit, Some(c), false);
     e.in_constructor = true;
@@ -2530,7 +3544,10 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
     if !pjs.is_empty() {
         params.push(pjs);
     }
-    let mut body = Writer { indent: 1, ..Writer::default() };
+    let mut body = Writer {
+        indent: 1,
+        ..Writer::default()
+    };
     for line in prologue.lines() {
         body.line(line);
     }
@@ -2539,12 +3556,18 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
     }
     // Redirection `: this(...)`.
     let redirect = ctor.initializers.iter().find_map(|i| match i {
-        ast::Initializer::Redirect { constructor, arguments, .. } => Some((constructor, arguments)),
+        ast::Initializer::Redirect {
+            constructor,
+            arguments,
+            ..
+        } => Some((constructor, arguments)),
         _ => None,
     });
     let cref = e.class_ref(c);
     if let Some((target, args)) = redirect {
-        let tname = target.map(|n| static_member_name(ctx.name(n.sym))).unwrap_or("new".into());
+        let tname = target
+            .map(|n| static_member_name(ctx.name(n.sym)))
+            .unwrap_or("new".into());
         let tsym = target.map(|n| n.sym).or(ctx.empty_sym);
         let tfid = tsym.and_then(|s| class.constructors.get(&s).copied());
         let tsig = tfid.map(|f| ctx.fn_ty(f)).unwrap_or(Ty::Dynamic);
@@ -2626,19 +3649,33 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                 crate::emit_line!(body, "{target} = {};", js.code);
             }
             ast::Initializer::Assert { .. } if ctx.filter.is_some_and(|f| !f.keep_asserts()) => {}
-            ast::Initializer::Assert { condition, message, .. } => {
+            ast::Initializer::Assert {
+                condition, message, ..
+            } => {
                 let (cjs, _) = e.emit_cond(*condition);
-                let msg = message.map(|mm| e.emit_expr(mm, None).0.code).unwrap_or("null".into());
+                let msg = message
+                    .map(|mm| e.emit_expr(mm, None).0.code)
+                    .unwrap_or("null".into());
                 flush_stmts(&mut e, &mut body);
-                crate::emit_line!(body, "if (!({cjs})) dart.assertFailed({msg}, null, 0, 0, \"\");");
+                crate::emit_line!(
+                    body,
+                    "if (!({cjs})) dart.assertFailed({msg}, null, 0, 0, \"\");"
+                );
             }
-            ast::Initializer::Super { constructor, arguments, .. } => {
+            ast::Initializer::Super {
+                constructor,
+                arguments,
+                ..
+            } => {
                 let sup = ctx.superclass_of(c);
                 if let Some(s) = sup {
                     if Some(s) != ctx.object {
-                        let sname = constructor.map(|n| static_member_name(ctx.name(n.sym))).unwrap_or("new".into());
+                        let sname = constructor
+                            .map(|n| static_member_name(ctx.name(n.sym)))
+                            .unwrap_or("new".into());
                         let ssym = constructor.map(|n| n.sym).or(ctx.empty_sym);
-                        let sfid = ssym.and_then(|x| ctx.program.class(s).constructors.get(&x).copied());
+                        let sfid =
+                            ssym.and_then(|x| ctx.program.class(s).constructors.get(&x).copied());
                         let ssig = sfid.map(|f| ctx.fn_ty(f)).unwrap_or(Ty::Dynamic);
                         let (arg_js, _, _) = e.emit_args_for(&ssig, arguments, None);
                         flush_stmts(&mut e, &mut body);
@@ -2666,7 +3703,10 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                             let Some(n) = p.name else { continue };
                             let jsn = e.param_js_name(n);
                             if p.kind == ast::ParameterKind::Named {
-                                named_js.push(format!("{}: {jsn}", js::prop_key(&ctx.named_key(ctx.name(n.sym)))));
+                                named_js.push(format!(
+                                    "{}: {jsn}",
+                                    js::prop_key(&ctx.named_key(ctx.name(n.sym)))
+                                ));
                             } else {
                                 pos_js.push(jsn);
                             }
@@ -2674,7 +3714,9 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                         all.extend(pos_js);
                         match (opts_js, named_js.is_empty()) {
                             (Some(o), true) => all.push(o),
-                            (Some(o), false) => all.push(format!("{{...{o}, {}}}", named_js.join(", "))),
+                            (Some(o), false) => {
+                                all.push(format!("{{...{o}, {}}}", named_js.join(", ")))
+                            }
                             (None, false) => all.push(format!("{{{}}}", named_js.join(", "))),
                             (None, true) => {}
                         }
@@ -2691,7 +3733,9 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
             m.use_sdk("core");
             let base = mixin_base_ref(ctx, c, "core._Enum");
             super_call = Some(format!("{base}.new.call(this, t$index, t$name);"));
-        } else if ctx.superclass_of(c).is_none_or(|s| Some(s) == ctx.object) && !ctx.mixins_of(c).is_empty() {
+        } else if ctx.superclass_of(c).is_none_or(|s| Some(s) == ctx.object)
+            && !ctx.mixins_of(c).is_empty()
+        {
             let base = mixin_base_ref(ctx, c, "core.Object");
             super_call = Some(format!("{base}.new.call(this);"));
         } else if let Some(s) = ctx.superclass_of(c) {
@@ -2707,7 +3751,10 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                         let named_key = ctx.named_key(ctx.name(n.sym));
                         let key = js::prop_key(&named_key);
                         if p.default_value.is_none() && !p.required {
-                            super_named.push(format!("...(opts && {} in opts ? {{{key}: {jsn}}} : {{}})", js::string_literal(&named_key)));
+                            super_named.push(format!(
+                                "...(opts && {} in opts ? {{{key}: {jsn}}} : {{}})",
+                                js::string_literal(&named_key)
+                            ));
                         } else {
                             super_named.push(format!("{key}: {jsn}"));
                         }
@@ -2723,8 +3770,14 @@ fn emit_constructor(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &as
                 if !super_named.is_empty() {
                     // Optional positionals of the super constructor omitted before `opts`.
                     let ssym = ctx.empty_sym;
-                    if let Some(sfid) = ssym.and_then(|x| ctx.program.class(s).constructors.get(&x).copied()) {
-                        let n_pos = ctx.outline.functions[sfid.0 as usize].parameters.iter().filter(|p| p.kind != ast::ParameterKind::Named).count();
+                    if let Some(sfid) =
+                        ssym.and_then(|x| ctx.program.class(s).constructors.get(&x).copied())
+                    {
+                        let n_pos = ctx.outline.functions[sfid.0 as usize]
+                            .parameters
+                            .iter()
+                            .filter(|p| p.kind != ast::ParameterKind::Named)
+                            .count();
                         while all.len() - 1 - (if ctx.requires_rti(s) { 1 } else { 0 }) < n_pos {
                             all.push("void 0".into());
                         }
@@ -2770,15 +3823,31 @@ pub(crate) fn flush_stmts(e: &mut FnEmitter, body: &mut Writer) {
 
 fn field_target(fields: &[FieldInfo], name: &str) -> String {
     match fields.iter().find(|f| f.name == name) {
-        Some(FieldInfo { storage: Some(s), .. }) => format!("this[{s}]"),
-        _ => format!("this{}", js::prop_access(&crate::body::js_member_name(name))),
+        Some(FieldInfo {
+            storage: Some(s), ..
+        }) => format!("this[{s}]"),
+        _ => format!(
+            "this{}",
+            js::prop_access(&crate::body::js_member_name(name))
+        ),
     }
 }
 
 /// `static name(params) { body }` of a factory.
-fn emit_factory(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &ast::Constructor, mid: ast::MemberId, cw: &mut Writer) {
+fn emit_factory(
+    ctx: &Ctx,
+    m: &ModState,
+    c: ClassId,
+    unit: UnitId,
+    ctor: &ast::Constructor,
+    mid: ast::MemberId,
+    cw: &mut Writer,
+) {
     let class = ctx.program.class(c);
-    let name = ctor.name.map(|n| static_member_name(ctx.name(n.sym))).unwrap_or("new".into());
+    let name = ctor
+        .name
+        .map(|n| static_member_name(ctx.name(n.sym)))
+        .unwrap_or("new".into());
     let ctor_sym = ctor.name.map(|n| n.sym).or(ctx.empty_sym);
     let fid = ctor_sym.and_then(|s| class.constructors.get(&s).copied());
     let _ = mid;
@@ -2798,7 +3867,11 @@ fn emit_factory(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &ast::C
         let body = match fid.and_then(|f| e.factory_redirect_target(f)) {
             Some((tclass, tname, is_target_factory)) => {
                 let tref = e.class_ref(tclass);
-                let tjs = if tname.is_empty() { "new".to_string() } else { static_member_name(&tname) };
+                let tjs = if tname.is_empty() {
+                    "new".to_string()
+                } else {
+                    static_member_name(&tname)
+                };
                 let mut args: Vec<String> = Vec::new();
                 if ctx.requires_rti(tclass) {
                     if tclass == c && generic {
@@ -2818,7 +3891,11 @@ fn emit_factory(ctx: &Ctx, m: &ModState, c: ClassId, unit: UnitId, ctor: &ast::C
         };
         let mut ps = params.clone();
         ps.push("...args".into());
-        cw.line(&format!("static {}({}) {{ {body} }}", js::prop_key(&name), ps.join(", ")));
+        cw.line(&format!(
+            "static {}({}) {{ {body} }}",
+            js::prop_key(&name),
+            ps.join(", ")
+        ));
         return;
     }
     let sig = fid.map(|f| ctx.fn_ty(f));
@@ -2859,11 +3936,17 @@ mod const_record_cache_tests {
         let fresh_module = module.derived();
         fragment.apply_to(&fresh_module);
         fragment.apply_to(&fresh_module);
-        assert_eq!(*fresh_module.const_record_libraries.borrow(), BTreeSet::from([2]));
+        assert_eq!(
+            *fresh_module.const_record_libraries.borrow(),
+            BTreeSet::from([2])
+        );
         let second = fresh_module.derived();
         second.note_const_record(LibraryId(1));
         fresh_module.merge(&second);
-        assert_eq!(*fresh_module.const_record_libraries.borrow(), BTreeSet::from([1, 2]));
+        assert_eq!(
+            *fresh_module.const_record_libraries.borrow(),
+            BTreeSet::from([1, 2])
+        );
     }
 }
 
@@ -2877,7 +3960,10 @@ mod typed_read_guard_cache_tests {
         let state = module.derived();
         state.typed_read_guard_libraries.borrow_mut().insert(1);
         module.merge(&state);
-        assert_eq!(*module.typed_read_guard_libraries.borrow(), BTreeSet::from([1]));
+        assert_eq!(
+            *module.typed_read_guard_libraries.borrow(),
+            BTreeSet::from([1])
+        );
         let fragment = Fragment::new("cached typed loop".into(), &state);
         let reused = module.derived();
         fragment.apply_to(&reused);

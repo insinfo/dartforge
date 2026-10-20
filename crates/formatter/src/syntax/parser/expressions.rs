@@ -13,8 +13,8 @@
 
 use dartforge_frontend::token::{Keyword, Op};
 
+use super::super::token::{Tk, TokenKind};
 use super::super::tree::{Node, NodeId};
-use super::super::token::{TokenKind, Tk};
 use super::patterns::PatternCtx;
 use super::types::MemberKind;
 use super::{AsyncKind, Parser, R, prec};
@@ -501,8 +501,7 @@ impl Parser<'_> {
                     }
                     let o = self.consume_operator();
                     let _ = operator_;
-                    let right =
-                        self.precedence((level + 1) as u8, cascades, ConstCtx::NoneKind)?;
+                    let right = self.precedence((level + 1) as u8, cascades, ConstCtx::NoneKind)?;
                     self.without_super(right)?;
                     let start_ = self.start_(e);
                     e = self.node(
@@ -848,7 +847,8 @@ impl Parser<'_> {
         if self.word(i, "await") {
             // Outside an `async` body, fasta reports `AwaitNotAsync`, which is not a
             // syntax error in the analyzer, and builds the `AwaitExpression`.
-            if self.async_kind == AsyncKind::SyncKind && !self.looks_like_expression_after(i, true) {
+            if self.async_kind == AsyncKind::SyncKind && !self.looks_like_expression_after(i, true)
+            {
                 return self.primary(ctx);
             }
             self.advance();
@@ -1037,7 +1037,9 @@ impl Parser<'_> {
             let ti = self.type_at(self.pos, false, false, false);
             let name_ = ti.end_index;
             if self.ident(name_) {
-                let nx = self.type_args_at(name_, false).map_or(name_ + 1, |a| a.end_index);
+                let nx = self
+                    .type_args_at(name_, false)
+                    .map_or(name_ + 1, |a| a.end_index);
                 if self.op(nx, Op::LParen) && self.looks_like_body(self.pair(nx) + 1) {
                     return Err(self.error_at(name_, "A function expression can't have a name."));
                 }
@@ -1340,7 +1342,11 @@ impl Parser<'_> {
 
     /// Function expression (`parseFunctionExpression`) starting from the formal
     /// parameters.
-    fn function_expression_(&mut self, type_parameters: Option<NodeId>, start_: usize) -> R<NodeId> {
+    fn function_expression_(
+        &mut self,
+        type_parameters: Option<NodeId>,
+        start_: usize,
+    ) -> R<NodeId> {
         let parameters = self.formal_params(MemberKind::Local)?;
         let body = self.function_body_(true, false)?;
         Ok(self.node(
@@ -1496,7 +1502,12 @@ impl Parser<'_> {
             self.check_escapes(start_, true, single)?;
         }
         if single {
-            return Ok(self.node(Node::SimpleStringLiteral { literal: start_ as Tk }, start_));
+            return Ok(self.node(
+                Node::SimpleStringLiteral {
+                    literal: start_ as Tk,
+                },
+                start_,
+            ));
         }
         let first = self.node(
             Node::InterpolationString {
@@ -1683,7 +1694,9 @@ impl Parser<'_> {
 
     /// `parseLiteralListSuffix`.
     fn list(&mut self, constant: Option<usize>, targs: Option<NodeId>) -> R<NodeId> {
-        let start_ = constant.or(targs.map(|t| self.start_(t))).unwrap_or(self.pos);
+        let start_ = constant
+            .or(targs.map(|t| self.start_(t)))
+            .unwrap_or(self.pos);
         let lb = self.expect_op(Op::LBracket)?;
         let old = self.functions;
         self.functions = true;
@@ -1714,7 +1727,9 @@ impl Parser<'_> {
 
     /// `parseLiteralSetOrMapSuffix`.
     fn set_or_map(&mut self, constant: Option<usize>, targs: Option<NodeId>) -> R<NodeId> {
-        let start_ = constant.or(targs.map(|t| self.start_(t))).unwrap_or(self.pos);
+        let start_ = constant
+            .or(targs.map(|t| self.start_(t)))
+            .unwrap_or(self.pos);
         let lb = self.expect_op(Op::LBrace)?;
         let old = self.functions;
         self.functions = true;
@@ -1894,7 +1909,9 @@ impl Parser<'_> {
             self.functions = false;
             loop {
                 if self.kw(self.pos, Keyword::Default) || self.kw(self.pos, Keyword::Case) {
-                    return Err(self.error("'default'/'case' can't be used in a switch expression."));
+                    return Err(
+                        self.error("'default'/'case' can't be used in a switch expression.")
+                    );
                 }
                 let guarded_pattern = self.guarded_pattern_()?;
                 let ci = self.start_(guarded_pattern);

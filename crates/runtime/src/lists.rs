@@ -34,7 +34,7 @@
 //!   decompacting; without a written type, it decompacts.
 
 use crate::heap::{Heap, Value};
-use crate::layout::{self, cid, flags, Ref};
+use crate::layout::{self, Ref, cid, flags};
 
 /// The shape of a list's elements.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -157,7 +157,10 @@ impl Heap {
     /// The body always has the card words of a large list (`layout::list_words`),
     /// in the compact shape too: decompacting in place (§2.16) needs them.
     pub fn new_list(&mut self, cid: i32, len: usize, e: Element) -> Ref {
-        assert!(cid::is_fixed_list(cid), "runtime bug: new_list with cid {cid}");
+        assert!(
+            cid::is_fixed_list(cid),
+            "runtime bug: new_list with cid {cid}"
+        );
         let mut f = e.flags();
         if layout::has_cards(len) {
             f |= flags::CARDS;
@@ -166,7 +169,9 @@ impl Heap {
         // SAFETY: the body of the block just allocated has `list_words(len) ≥ 1`
         // words; word 0 is the length.
         #[allow(unsafe_code)]
-        unsafe { self.fresh_body(h).write(len as i64) };
+        unsafe {
+            self.fresh_body(h).write(len as i64)
+        };
         h
     }
 
@@ -176,9 +181,16 @@ impl Heap {
         let data = self.new_list(cid::LIST, capacity.max(len), e);
         // From the TLAB the `_GrowableList` does not collect (`data` has no root
         // yet); otherwise the general allocation, with `data` rooted.
-        let h = match self.allocate_from_tlab(cid::GROWABLE_LIST, layout::instance_words(2), flags::INSTANCE, 2) {
+        let h = match self.allocate_from_tlab(
+            cid::GROWABLE_LIST,
+            layout::instance_words(2),
+            flags::INSTANCE,
+            2,
+        ) {
             Some(h) => h,
-            None => self.list_with_roots(&[data], |heap| heap.allocate_instance(cid::GROWABLE_LIST, 2)),
+            None => self.list_with_roots(&[data], |heap| {
+                heap.allocate_instance(cid::GROWABLE_LIST, 2)
+            }),
         };
         self.set_field(h, 0, len as i64, false);
         self.set_field(h, 1, data, true);
@@ -224,7 +236,9 @@ impl Heap {
             Element::Bool => RefElements::Bool(p),
             // SAFETY: `i64` and `f64` have the same size and alignment, and every
             // bit pattern is an `f64`; the slice is the same memory, only read.
-            Element::Double => RefElements::Double(unsafe { std::slice::from_raw_parts(p.as_ptr().cast::<f64>(), n) }),
+            Element::Double => RefElements::Double(unsafe {
+                std::slice::from_raw_parts(p.as_ptr().cast::<f64>(), n)
+            }),
         }
     }
 
@@ -250,7 +264,10 @@ impl Heap {
     /// decompaction).
     pub fn list_set(&mut self, h: Ref, i: usize, v: Value) {
         let n = self.list_len(h);
-        assert!(i < n, "runtime bug: write into element {i} of a list of {n}");
+        assert!(
+            i < n,
+            "runtime bug: write into element {i} of a list of {n}"
+        );
         self.list_write_to_storage(h, i, v);
     }
 
@@ -258,7 +275,11 @@ impl Heap {
     /// is `(capacity * 2) | 3`, the VM's `_nextCapacity`,
     /// `growable_array.dart:385`). May collect.
     pub fn list_push(&mut self, h: Ref, v: Value) {
-        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "runtime bug: list_push on a fixed list");
+        assert_eq!(
+            self.list_cid(h),
+            cid::GROWABLE_LIST,
+            "runtime bug: list_push on a fixed list"
+        );
         let len = self.list_len(h);
         let cap = self.list_capacity(h);
         if len == cap {
@@ -275,8 +296,15 @@ impl Heap {
     /// Changes the length of a `_GrowableList` (without a barrier; the storage must
     /// hold `len`).
     pub fn list_set_len(&mut self, h: Ref, len: usize) {
-        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "runtime bug: length of a fixed list");
-        debug_assert!(len <= self.list_capacity(h), "length {len} beyond the capacity");
+        assert_eq!(
+            self.list_cid(h),
+            cid::GROWABLE_LIST,
+            "runtime bug: length of a fixed list"
+        );
+        debug_assert!(
+            len <= self.list_capacity(h),
+            "length {len} beyond the capacity"
+        );
         self.set_field(h, 0, len as i64, false);
     }
 
@@ -291,8 +319,15 @@ impl Heap {
 
     /// Swaps the storage of a `_GrowableList` (with a barrier). `data` is a `_List`.
     pub fn list_set_data(&mut self, h: Ref, data: Ref) {
-        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "runtime bug: storage of a fixed list");
-        debug_assert!(cid::is_fixed_list(self.class(data)), "the storage is a _List");
+        assert_eq!(
+            self.list_cid(h),
+            cid::GROWABLE_LIST,
+            "runtime bug: storage of a fixed list"
+        );
+        debug_assert!(
+            cid::is_fixed_list(self.class(data)),
+            "the storage is a _List"
+        );
         self.set_field(h, 1, data, true);
     }
 
@@ -300,7 +335,11 @@ impl Heap {
     /// of the same shape, with the elements up to the length. Nothing if the capacity
     /// is already enough. May collect.
     pub fn list_reserve(&mut self, h: Ref, capacity: usize) {
-        assert_eq!(self.list_cid(h), cid::GROWABLE_LIST, "runtime bug: reserve on a fixed list");
+        assert_eq!(
+            self.list_cid(h),
+            cid::GROWABLE_LIST,
+            "runtime bug: reserve on a fixed list"
+        );
         if capacity <= self.list_capacity(h) {
             return;
         }
@@ -359,7 +398,10 @@ impl Heap {
             return;
         }
         let (nd, np) = (self.list_len(of), self.list_len(to));
-        assert!(start + n <= nd && dest + n <= np, "runtime bug: copy outside the lists");
+        assert!(
+            start + n <= nd && dest + n <= np,
+            "runtime bug: copy outside the lists"
+        );
         let (fd, fp) = (self.list_shape(of), self.list_shape(to));
         let (ad, ap) = (self.list_data(of), self.list_data(to));
         if fd == fp {
@@ -427,13 +469,19 @@ impl Heap {
     /// The cid of a core list; panics (N4) if `h` is not one.
     fn list_cid(&self, h: Ref) -> i32 {
         let c = self.class(h);
-        assert!(cid::is_list(c), "runtime bug: core list expected (cid {c}, handle {h})");
+        assert!(
+            cid::is_list(c),
+            "runtime bug: core list expected (cid {c}, handle {h})"
+        );
         c
     }
 
     /// Field `i` (0 length, 1 storage) of a `_GrowableList`.
     fn list_growable_field(&self, h: Ref, i: usize) -> i64 {
-        self.object(h).expect("_GrowableList is an INSTANCIA").field(i).0
+        self.object(h)
+            .expect("_GrowableList is an INSTANCIA")
+            .field(i)
+            .0
     }
 
     /// `f` with owning copies of `hs` in a temporary runtime frame. Null and `Smi`
@@ -502,7 +550,9 @@ impl Heap {
         let n = self.list_len(h);
         let growable = self.list_cid(h) == cid::GROWABLE_LIST;
         let size = if growable { self.list_capacity(h) } else { n };
-        let general = self.list_with_roots(&[h], |heap| heap.new_list(cid::LIST, size, Element::General));
+        let general = self.list_with_roots(&[h], |heap| {
+            heap.new_list(cid::LIST, size, Element::General)
+        });
         self.list_with_roots(&[h, general], |heap| {
             for i in 0..n {
                 let bits = heap.words(heap.list_data(h))[1 + i];
@@ -704,7 +754,12 @@ mod tests_lists {
 
     #[test]
     fn lists_flags_and_codes_round_trip() {
-        for e in [Element::General, Element::Int, Element::Double, Element::Bool] {
+        for e in [
+            Element::General,
+            Element::Int,
+            Element::Double,
+            Element::Bool,
+        ] {
             assert_eq!(Element::from_flags(e.flags()), e);
             assert_eq!(Element::from_flags(e.flags() | flags::CARDS), e);
             assert_eq!(Element::from_code(e.code()), Some(e));
@@ -720,11 +775,17 @@ mod tests_lists {
     #[test]
     fn lists_bits_of_each_shape() {
         assert_eq!(Element::Int.bits_of(Value::Int(-3)), Some(-3));
-        assert_eq!(Element::Double.bits_of(Value::Double(1.5)), Some(1.5f64.to_bits() as i64));
+        assert_eq!(
+            Element::Double.bits_of(Value::Double(1.5)),
+            Some(1.5f64.to_bits() as i64)
+        );
         assert_eq!(Element::Bool.bits_of(Value::Bool(true)), Some(1));
         assert_eq!(Element::Int.bits_of(Value::Double(1.0)), None);
         assert_eq!(Element::Int.bits_of(Value::Ref(0)), None);
-        assert_eq!(Element::Double.value_of(2.5f64.to_bits() as i64), Value::Double(2.5));
+        assert_eq!(
+            Element::Double.value_of(2.5f64.to_bits() as i64),
+            Value::Double(2.5)
+        );
         assert_eq!(Element::Bool.value_of(0), Value::Bool(false));
     }
 }

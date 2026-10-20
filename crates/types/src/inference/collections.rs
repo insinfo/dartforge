@@ -3,9 +3,9 @@
 //! (including `...`, `if`, `for`) generating constraints; and the set ×
 //! map decision for `{}` from the elements and the context.
 
+use super::BodyInferrer;
 use super::body::Body;
 use super::expr::{self, infer, infer_free};
-use super::BodyInferrer;
 use crate::codes::*;
 use crate::constraints::GenericInferrer;
 use crate::table::{Type, TypeId, TypeParamId};
@@ -30,8 +30,19 @@ impl<'a> BodyInferrer<'a> {
         // literal's `COULD_NOT_INFER`.
         let unnamed = self.table.param(self.core.unknown_param).name;
         let names = ["E", "K", "V"].map(|n| self.interner.lookup(n).unwrap_or(unnamed));
-        let mk = |t: &mut crate::table::TypeTable, name| t.alloc_type_param(name, crate::table::TypeParamOwner::GenericFunctionType, o, crate::table::Variance::Unspecified);
-        let p = [mk(self.table, names[0]), mk(self.table, names[1]), mk(self.table, names[2])];
+        let mk = |t: &mut crate::table::TypeTable, name| {
+            t.alloc_type_param(
+                name,
+                crate::table::TypeParamOwner::GenericFunctionType,
+                o,
+                crate::table::Variance::Unspecified,
+            )
+        };
+        let p = [
+            mk(self.table, names[0]),
+            mk(self.table, names[1]),
+            mk(self.table, names[2]),
+        ];
         self.collection_params_cache = Some(p);
         p
     }
@@ -43,15 +54,18 @@ fn shape_from_elements(els: &[CollectionElement]) -> Option<bool> {
     for el in els {
         match el {
             CollectionElement::MapEntry { .. } => return Some(true),
-            CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_) => return Some(false),
+            CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_) => {
+                return Some(false);
+            }
             CollectionElement::If { then, else_, .. } => {
                 if let Some(f) = shape_from_elements(std::slice::from_ref(then)) {
                     return Some(f);
                 }
                 if let Some(e) = else_
-                    && let Some(f) = shape_from_elements(std::slice::from_ref(e)) {
-                        return Some(f);
-                    }
+                    && let Some(f) = shape_from_elements(std::slice::from_ref(e))
+                {
+                    return Some(f);
+                }
             }
             CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
                 if let Some(f) = shape_from_elements(std::slice::from_ref(body)) {
@@ -73,8 +87,16 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
     // decide the shape again (`_inferSetOrMapLiteralType`).
     let mut keys = false;
     let (mut shape, type_args, elements, const_) = match &a.expr(e).kind {
-        ExprKind::List { const_, type_args, elements } => (Shape::List, type_args, elements, *const_),
-        ExprKind::SetOrMap { const_, type_args, elements } => {
+        ExprKind::List {
+            const_,
+            type_args,
+            elements,
+        } => (Shape::List, type_args, elements, *const_),
+        ExprKind::SetOrMap {
+            const_,
+            type_args,
+            elements,
+        } => {
             let shape = match type_args.len() {
                 1 => Shape::Set,
                 2 => Shape::Map,
@@ -127,9 +149,16 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         ctx
     };
     let t = if !type_args.is_empty() {
-        let args: Vec<TypeId> = type_args.iter().map(|&t| inf.type_argument_type(cx, t)).collect();
+        let args: Vec<TypeId> = type_args
+            .iter()
+            .map(|&t| inf.type_argument_type(cx, t))
+            .collect();
         let (ce, ck, cv) = match shape {
-            Shape::Map => (inf.core.dynamic_, args[0], args.get(1).copied().unwrap_or(inf.core.dynamic_)),
+            Shape::Map => (
+                inf.core.dynamic_,
+                args[0],
+                args.get(1).copied().unwrap_or(inf.core.dynamic_),
+            ),
             _ => (args[0], inf.core.dynamic_, inf.core.dynamic_),
         };
         for el in elements {
@@ -142,12 +171,27 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
             Shape::Map => vec![p[1], p[2]],
             _ => vec![p[0]],
         };
-        let vars: Vec<TypeId> = params.iter().map(|&x| inf.table.intern(Type::TypeParameter { param: x, nullable: false })).collect();
+        let vars: Vec<TypeId> = params
+            .iter()
+            .map(|&x| {
+                inf.table.intern(Type::TypeParameter {
+                    param: x,
+                    nullable: false,
+                })
+            })
+            .collect();
         let ret = final_type(inf, shape, &vars);
         let mut gi = GenericInferrer::new(&params);
-        gi.generic_metadata = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::GenericMetadata);
+        gi.generic_metadata = inf
+            .program
+            .library(cx.lib)
+            .features
+            .has(dartforge_frontend::Feature::GenericMetadata);
         if !inf.the_is_unknown(ctx) {
-            gi.with_origin(crate::constraints::Origin::Return { declared: ret, context: ctx });
+            gi.with_origin(crate::constraints::Origin::Return {
+                declared: ret,
+                context: ctx,
+            });
             let mut env = inf.env();
             gi.constrain_return(ret, ctx, &mut env);
         }
@@ -190,7 +234,9 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
             };
             let other = match decided {
                 None => {
-                    ambiguous = Some(infos.iter().any(|a| a.must_map()) && infos.iter().any(|a| a.must_set()));
+                    ambiguous = Some(
+                        infos.iter().any(|a| a.must_map()) && infos.iter().any(|a| a.must_set()),
+                    );
                     None
                 }
                 Some(f) if f != shape => Some(f),
@@ -203,7 +249,11 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
                     _ => vec![p[0]],
                 };
                 gi = GenericInferrer::new(&ps);
-                gi.generic_metadata = inf.program.library(cx.lib).features.has(dartforge_frontend::Feature::GenericMetadata);
+                gi.generic_metadata = inf
+                    .program
+                    .library(cx.lib)
+                    .features
+                    .has(dartforge_frontend::Feature::GenericMetadata);
                 let d = inf.core.dynamic_;
                 for a in &infos {
                     let mut g: Inferrer<'_> = Some((&mut gi, &ps[..]));
@@ -221,11 +271,19 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
         let finals = gi.choose_final(&mut env);
         // `chooseFinalTypes` with the reporter and the literal as entity (an
         // ambiguous literal leaves inference without it).
-        let failures = if ambiguous.is_none() { gi.failures(&finals, &mut env, interner, program) } else { Vec::new() };
+        let failures = if ambiguous.is_none() {
+            gi.failures(&finals, &mut env, interner, program)
+        } else {
+            Vec::new()
+        };
         drop(env);
         let sp = inf.span_expr(cx.unit, e);
         for (name, suffix) in failures {
-            inf.warning_with_code(dartforge_diagnostics::codes::compile_time_error::COULD_NOT_INFER, sp, &[&name, &suffix]);
+            inf.warning_with_code(
+                dartforge_diagnostics::codes::compile_time_error::COULD_NOT_INFER,
+                sp,
+                &[&name, &suffix],
+            );
         }
         final_type(inf, shape, &finals)
     };
@@ -259,8 +317,16 @@ pub(crate) fn literal(inf: &mut BodyInferrer<'_>, cx: &mut Body, e: ExprId, ctx:
 /// conversion changes the type; it is left out (without the full rule,
 /// report nothing).
 fn implicit_tearoff(inf: &BodyInferrer<'_>, of: TypeId, for_: TypeId) -> bool {
-    matches!(inf.table.get(for_), Type::Function { .. } | Type::FutureOr { .. })
-        && matches!(inf.table.get(of), Type::Interface { .. } | Type::ExtensionType { .. } | Type::TypeParameter { .. } | Type::Intersection { .. })
+    matches!(
+        inf.table.get(for_),
+        Type::Function { .. } | Type::FutureOr { .. }
+    ) && matches!(
+        inf.table.get(of),
+        Type::Interface { .. }
+            | Type::ExtensionType { .. }
+            | Type::TypeParameter { .. }
+            | Type::Intersection { .. }
+    )
 }
 
 fn verify_elements(
@@ -280,23 +346,55 @@ fn verify_elements(
     let report = !const_ || in_control;
     for el in elements {
         match el {
-            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) if shape != Shape::Map => {
-                let Some(e_t) = args.first().copied() else { continue };
-                let Some(tx) = inf.body_types.units[cx.unit.0 as usize].get_type(*x) else { continue };
-                let tx = if matches!(el, CollectionElement::NullAwareExpression(_)) { inf.non_null(tx) } else { tx };
-                if !report || matches!(inf.table.get(tx), Type::Void) || inf.assignable(tx, e_t) || implicit_tearoff(inf, tx, e_t) {
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x)
+                if shape != Shape::Map =>
+            {
+                let Some(e_t) = args.first().copied() else {
+                    continue;
+                };
+                let Some(tx) = inf.body_types.units[cx.unit.0 as usize].get_type(*x) else {
+                    continue;
+                };
+                let tx = if matches!(el, CollectionElement::NullAwareExpression(_)) {
+                    inf.non_null(tx)
+                } else {
+                    tx
+                };
+                if !report
+                    || matches!(inf.table.get(tx), Type::Void)
+                    || inf.assignable(tx, e_t)
+                    || implicit_tearoff(inf, tx, e_t)
+                {
                     continue;
                 }
-                let code = if shape == Shape::List { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
+                let code = if shape == Shape::List {
+                    ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE
+                } else {
+                    ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE
+                };
                 let sp = inf.span_expr(cx.unit, *x);
-                inf.warning_with_args(code, sp, &[crate::display::Arg::Type_(tx), crate::display::Arg::Type_(e_t)]);
+                inf.warning_with_args(
+                    code,
+                    sp,
+                    &[
+                        crate::display::Arg::Type_(tx),
+                        crate::display::Arg::Type_(e_t),
+                    ],
+                );
             }
-            CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } if shape == Shape::Map => {
+            CollectionElement::MapEntry {
+                key,
+                value,
+                null_aware_key,
+                null_aware_value,
+            } if shape == Shape::Map => {
                 if !report || args.len() < 2 {
                     continue;
                 }
                 let types = &inf.body_types.units[cx.unit.0 as usize];
-                let (Some(tk), Some(tv)) = (types.get_type(*key), types.get_type(*value)) else { continue };
+                let (Some(tk), Some(tv)) = (types.get_type(*key), types.get_type(*value)) else {
+                    continue;
+                };
                 // `_verifyMapLiteralEntry` (3.13.4 `literal_element_verifier.dart:144-172`):
                 // a `void` key (then value) for the entry when it has the `?` or when its
                 // type in the map is not `void` (`use_of_void_result` comes from
@@ -309,12 +407,30 @@ fn verify_elements(
                 if void_value && (*null_aware_value || !void(args[1])) {
                     continue;
                 }
-                let tk = if *null_aware_key { inf.non_null(tk) } else { tk };
-                let tv = if *null_aware_value { inf.non_null(tv) } else { tv };
-                for (x, tx, tgt, code) in [(*key, tk, args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (*value, tv, args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
+                let tk = if *null_aware_key {
+                    inf.non_null(tk)
+                } else {
+                    tk
+                };
+                let tv = if *null_aware_value {
+                    inf.non_null(tv)
+                } else {
+                    tv
+                };
+                for (x, tx, tgt, code) in [
+                    (*key, tk, args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE),
+                    (*value, tv, args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE),
+                ] {
                     if !inf.assignable(tx, tgt) && !implicit_tearoff(inf, tx, tgt) {
                         let sp = inf.span_expr(cx.unit, x);
-                        inf.warning_with_args(code, sp, &[crate::display::Arg::Type_(tx), crate::display::Arg::Type_(tgt)]);
+                        inf.warning_with_args(
+                            code,
+                            sp,
+                            &[
+                                crate::display::Arg::Type_(tx),
+                                crate::display::Arg::Type_(tgt),
+                            ],
+                        );
                     }
                 }
             }
@@ -322,7 +438,9 @@ fn verify_elements(
                 if !report {
                     continue;
                 }
-                let Some(tx) = inf.body_types.units[cx.unit.0 as usize].get_type(*value) else { continue };
+                let Some(tx) = inf.body_types.units[cx.unit.0 as usize].get_type(*value) else {
+                    continue;
+                };
                 // `...e` (without `?`) with `e` of type `Null`
                 // (`literal_element_verifier.dart:180-200`, `:275-292`): at the spread
                 // expression.
@@ -346,58 +464,120 @@ fn verify_elements(
                     continue;
                 }
                 let tx = inf.non_null(tx);
-                if inf.is_dynamic(tx) || matches!(inf.table.get(tx), Type::Never | Type::Null | Type::Void) {
+                if inf.is_dynamic(tx)
+                    || matches!(inf.table.get(tx), Type::Never | Type::Null | Type::Void)
+                {
                     continue;
                 }
                 let sp = inf.span_expr(cx.unit, *value);
                 // `_verifySpreadForListOrSet`/`_verifySpreadForMap`
                 // (`literal_element_verifier.dart:176-213`, `:267-303`): whatever is
                 // not an `Iterable`/`Map`.
-                let cls = if shape == Shape::Map { inf.core.map_class } else { inf.core.iterable_class };
+                let cls = if shape == Shape::Map {
+                    inf.core.map_class
+                } else {
+                    inf.core.iterable_class
+                };
                 if inf.as_instance_of(tx, cls).is_none() {
-                    let code = if shape == Shape::Map { ce::NOT_MAP_SPREAD } else { ce::NOT_ITERABLE_SPREAD };
+                    let code = if shape == Shape::Map {
+                        ce::NOT_MAP_SPREAD
+                    } else {
+                        ce::NOT_ITERABLE_SPREAD
+                    };
                     inf.warning_with_code(code, sp, &[]);
                     continue;
                 }
                 if shape == Shape::Map {
-                    let Some(m) = inf.as_instance_of(tx, inf.core.map_class) else { continue };
+                    let Some(m) = inf.as_instance_of(tx, inf.core.map_class) else {
+                        continue;
+                    };
                     if args.len() < 2 || m.len() < 2 {
                         continue;
                     }
-                    for (of, for_, code) in [(m[0], args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE), (m[1], args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE)] {
+                    for (of, for_, code) in [
+                        (m[0], args[0], ce::MAP_KEY_TYPE_NOT_ASSIGNABLE),
+                        (m[1], args[1], ce::MAP_VALUE_TYPE_NOT_ASSIGNABLE),
+                    ] {
                         if !inf.assignable(of, for_) && !implicit_tearoff(inf, of, for_) {
-                            inf.warning_with_args(code, sp, &[crate::display::Arg::Type_(of), crate::display::Arg::Type_(for_)]);
+                            inf.warning_with_args(
+                                code,
+                                sp,
+                                &[
+                                    crate::display::Arg::Type_(of),
+                                    crate::display::Arg::Type_(for_),
+                                ],
+                            );
                         }
                     }
                 } else {
-                    let Some(i) = inf.as_instance_of(tx, inf.core.iterable_class) else { continue };
-                    let (Some(of), Some(for_)) = (i.first().copied(), args.first().copied()) else { continue };
+                    let Some(i) = inf.as_instance_of(tx, inf.core.iterable_class) else {
+                        continue;
+                    };
+                    let (Some(of), Some(for_)) = (i.first().copied(), args.first().copied()) else {
+                        continue;
+                    };
                     if !inf.assignable(of, for_) && !implicit_tearoff(inf, of, for_) {
-                        let code = if shape == Shape::List { ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE } else { ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE };
-                        inf.warning_with_args(code, sp, &[crate::display::Arg::Type_(of), crate::display::Arg::Type_(for_)]);
+                        let code = if shape == Shape::List {
+                            ce::LIST_ELEMENT_TYPE_NOT_ASSIGNABLE
+                        } else {
+                            ce::SET_ELEMENT_TYPE_NOT_ASSIGNABLE
+                        };
+                        inf.warning_with_args(
+                            code,
+                            sp,
+                            &[
+                                crate::display::Arg::Type_(of),
+                                crate::display::Arg::Type_(for_),
+                            ],
+                        );
                     }
                 }
             }
             CollectionElement::If { then, else_, .. } => {
-                verify_elements(inf, cx, std::slice::from_ref(&**then), shape, t, const_, true);
+                verify_elements(
+                    inf,
+                    cx,
+                    std::slice::from_ref(&**then),
+                    shape,
+                    t,
+                    const_,
+                    true,
+                );
                 if let Some(e) = else_ {
                     verify_elements(inf, cx, std::slice::from_ref(&**e), shape, t, const_, true);
                 }
             }
             CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
-                verify_elements(inf, cx, std::slice::from_ref(&**body), shape, t, const_, true);
+                verify_elements(
+                    inf,
+                    cx,
+                    std::slice::from_ref(&**body),
+                    shape,
+                    t,
+                    const_,
+                    true,
+                );
             }
             // A `k: v` entry in a list or set (the `forList`/`forSet` of
             // `LiteralElementVerifier`, `literal_element_verifier.dart:93-100`):
             // always reported, const or not (the constant verifier does not report
             // an entry outside a map).
-            CollectionElement::MapEntry { key, value, null_aware_key, .. } => {
+            CollectionElement::MapEntry {
+                key,
+                value,
+                null_aware_key,
+                ..
+            } => {
                 if args.len() != 1 {
                     continue;
                 }
                 let k = inf.span_expr(cx.unit, *key);
                 let v = inf.span_expr(cx.unit, *value);
-                let start = if *null_aware_key { back_up_question_mark(inf, cx, k.start) } else { k.start };
+                let start = if *null_aware_key {
+                    back_up_question_mark(inf, cx, k.start)
+                } else {
+                    k.start
+                };
                 inf.warning_with_code(ce::MAP_ENTRY_NOT_IN_MAP, Span { start, end: v.end }, &[]);
             }
             // An expression (or `?e`) in a map (`:79-85`, `:107-114`).
@@ -406,7 +586,11 @@ fn verify_elements(
                     continue;
                 }
                 let s = inf.span_expr(cx.unit, *x);
-                let start = if matches!(el, CollectionElement::NullAwareExpression(_)) { back_up_question_mark(inf, cx, s.start) } else { s.start };
+                let start = if matches!(el, CollectionElement::NullAwareExpression(_)) {
+                    back_up_question_mark(inf, cx, s.start)
+                } else {
+                    s.start
+                };
                 inf.warning_with_code(ce::EXPRESSION_IN_MAP, Span { start, end: s.end }, &[]);
             }
         }
@@ -421,7 +605,11 @@ fn back_up_question_mark(inf: &BodyInferrer<'_>, cx: &Body, i: usize) -> usize {
     while j > 0 && source[j - 1].is_ascii_whitespace() {
         j -= 1;
     }
-    if j > 0 && source[j - 1] == b'?' { j - 1 } else { i }
+    if j > 0 && source[j - 1] == b'?' {
+        j - 1
+    } else {
+        i
+    }
 }
 
 /// The type variables that appear in `t`.
@@ -438,7 +626,13 @@ fn params_in_type(table: &crate::table::TypeTable, t: TypeId, output: &mut Vec<T
             }
         }
         Type::FutureOr { arg, .. } => params_in_type(table, *arg, output),
-        Type::Function { ret, positional, optional, named, .. } => {
+        Type::Function {
+            ret,
+            positional,
+            optional,
+            named,
+            ..
+        } => {
             params_in_type(table, *ret, output);
             for a in positional.iter().chain(optional.iter()) {
                 params_in_type(table, *a, output);
@@ -447,7 +641,9 @@ fn params_in_type(table: &crate::table::TypeTable, t: TypeId, output: &mut Vec<T
                 params_in_type(table, *a, output);
             }
         }
-        Type::Record { positional, named, .. } => {
+        Type::Record {
+            positional, named, ..
+        } => {
             for a in positional.iter() {
                 params_in_type(table, *a, output);
             }
@@ -498,54 +694,106 @@ impl Admits {
 /// (`visited_spreads`: the expression, the one without `?` of `?e`,
 /// and the entry's key and value, without `?` in `?k`/`?v`).
 fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Admits {
-    let nothing = Admits { element: None, key: None, value: None };
+    let nothing = Admits {
+        element: None,
+        key: None,
+        value: None,
+    };
     let ty = |inf: &BodyInferrer<'_>, x: &dartforge_frontend::ast::ExprId| {
-        if after { inf.visited_spreads.get(x).copied() } else { inf.inferred_spreads.get(x).copied() }
+        if after {
+            inf.visited_spreads.get(x).copied()
+        } else {
+            inf.inferred_spreads.get(x).copied()
+        }
     };
     match el {
-        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => Admits { element: ty(inf, x), key: None, value: None },
-        CollectionElement::MapEntry { key, value, .. } => Admits { element: None, key: ty(inf, key), value: ty(inf, value) },
+        CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => Admits {
+            element: ty(inf, x),
+            key: None,
+            value: None,
+        },
+        CollectionElement::MapEntry { key, value, .. } => Admits {
+            element: None,
+            key: ty(inf, key),
+            value: ty(inf, value),
+        },
         CollectionElement::Spread { value, null_aware } => {
-            let Some(t) = ty(inf, value) else { return nothing };
+            let Some(t) = ty(inf, value) else {
+                return nothing;
+            };
             if let Some(a) = inf.as_instance_of(t, inf.core.iterable_class) {
-                return Admits { element: a.first().copied(), key: None, value: None };
+                return Admits {
+                    element: a.first().copied(),
+                    key: None,
+                    value: None,
+                };
             }
             if let Some(a) = inf.as_instance_of(t, inf.core.map_class) {
-                return Admits { element: None, key: a.first().copied(), value: a.get(1).copied() };
+                return Admits {
+                    element: None,
+                    key: a.first().copied(),
+                    value: a.get(1).copied(),
+                };
             }
             if inf.is_dynamic(t) {
-                return Admits { element: Some(t), key: Some(t), value: Some(t) };
+                return Admits {
+                    element: Some(t),
+                    key: Some(t),
+                    value: Some(t),
+                };
             }
             let n = inf.core.never;
             // `isSubtypeOf(expressionType, nullNone)` (`:413-420`): `X extends
             // Null` too.
             let null = inf.core.null;
             if inf.sub(t, n) || (*null_aware && inf.sub(t, null)) {
-                return Admits { element: Some(n), key: Some(n), value: Some(n) };
+                return Admits {
+                    element: Some(n),
+                    key: Some(n),
+                    value: Some(n),
+                };
             }
             nothing
         }
-        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => admits(inf, body, after),
+        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+            admits(inf, body, after)
+        }
         CollectionElement::If { then, else_, .. } => {
             let a = admits(inf, then, after);
             let Some(e) = else_ else { return a };
             let b = admits(inf, e, after);
-            let dynamic = |x: &Admits, inf: &BodyInferrer<'_>| [x.element, x.key, x.value].iter().all(|t| t.is_some_and(|t| inf.is_dynamic(t)));
+            let dynamic = |x: &Admits, inf: &BodyInferrer<'_>| {
+                [x.element, x.key, x.value]
+                    .iter()
+                    .all(|t| t.is_some_and(|t| inf.is_dynamic(t)))
+            };
             let or_dynamic = |t: Option<TypeId>, d: TypeId| t.map(|_| d);
             if dynamic(&a, inf) {
                 let d = a.element.expect("dynamic");
-                return Admits { element: or_dynamic(b.element, d), key: or_dynamic(b.key, d), value: or_dynamic(b.value, d) };
+                return Admits {
+                    element: or_dynamic(b.element, d),
+                    key: or_dynamic(b.key, d),
+                    value: or_dynamic(b.value, d),
+                };
             }
             if dynamic(&b, inf) {
                 let d = b.element.expect("dynamic");
-                return Admits { element: or_dynamic(a.element, d), key: or_dynamic(a.key, d), value: or_dynamic(a.value, d) };
+                return Admits {
+                    element: or_dynamic(a.element, d),
+                    key: or_dynamic(a.key, d),
+                    value: or_dynamic(a.value, d),
+                };
             }
             let mut join = |x: Option<TypeId>, y: Option<TypeId>| match (x, y) {
                 (None, y) => y,
                 (x, None) => x,
                 (Some(x), Some(y)) => Some(inf.up(x, y)),
             };
-            Admits { element: join(a.element, b.element), key: join(a.key, b.key), value: join(a.value, b.value) }
+            Admits {
+                element: join(a.element, b.element),
+                key: join(a.key, b.key),
+                value: join(a.value, b.value),
+            }
         }
     }
 }
@@ -557,7 +805,12 @@ fn admits(inf: &mut BodyInferrer<'_>, el: &CollectionElement, after: bool) -> Ad
 /// require it, map; empty, map; otherwise the literal is ambiguous
 /// (`Some(mustBeAMap && mustBeASet)` in the second field; the visit goes on
 /// as a map, and the type becomes `dynamic`).
-fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[CollectionElement], ctx: TypeId) -> (Shape, Option<bool>) {
+fn shape_from_context(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    els: &[CollectionElement],
+    ctx: TypeId,
+) -> (Shape, Option<bool>) {
     if let Some(f) = shape_from_context_type(inf, ctx) {
         return (f, None);
     }
@@ -570,10 +823,20 @@ fn shape_from_context(inf: &mut BodyInferrer<'_>, cx: &mut Body, els: &[Collecti
     // earlier.
     fn anticipatable(els: &[CollectionElement]) -> bool {
         els.iter().all(|el| match el {
-            CollectionElement::If { case_pattern: None, then, else_, .. } => {
-                anticipatable(std::slice::from_ref(then)) && else_.as_ref().is_none_or(|e| anticipatable(std::slice::from_ref(e)))
+            CollectionElement::If {
+                case_pattern: None,
+                then,
+                else_,
+                ..
+            } => {
+                anticipatable(std::slice::from_ref(then))
+                    && else_
+                        .as_ref()
+                        .is_none_or(|e| anticipatable(std::slice::from_ref(e)))
             }
-            CollectionElement::If { .. } | CollectionElement::For { .. } | CollectionElement::ForIn { .. } => false,
+            CollectionElement::If { .. }
+            | CollectionElement::For { .. }
+            | CollectionElement::ForIn { .. } => false,
             _ => true,
         })
     }
@@ -636,7 +899,8 @@ fn shape_from_context_type(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<Sh
     if !inf.the_is_unknown(ctx) {
         let k = inf.greatest_closure_of(ctx);
         let k = inf.non_null(k);
-        let is_map = inf.as_instance_of(k, inf.core.map_class).is_some() || matches!(inf.table.get(k), Type::Interface { class, .. } if Some(*class) == inf.core.map_class);
+        let is_map = inf.as_instance_of(k, inf.core.map_class).is_some()
+            || matches!(inf.table.get(k), Type::Interface { class, .. } if Some(*class) == inf.core.map_class);
         let is_iter = inf.as_instance_of(k, inf.core.iterable_class).is_some();
         if is_iter && !is_map {
             return Some(Shape::Set);
@@ -645,9 +909,10 @@ fn shape_from_context_type(inf: &mut BodyInferrer<'_>, ctx: TypeId) -> Option<Sh
             return Some(Shape::Map);
         }
         if let Type::FutureOr { arg, .. } = inf.table.get(k).clone()
-            && inf.as_instance_of(arg, inf.core.iterable_class).is_some() {
-                return Some(Shape::Set);
-            }
+            && inf.as_instance_of(arg, inf.core.iterable_class).is_some()
+        {
+            return Some(Shape::Set);
+        }
     }
     None
 }
@@ -656,20 +921,39 @@ type Inferrer<'g> = Option<(&'g mut GenericInferrer, &'g [TypeParamId])>;
 
 fn restrict(inf: &mut BodyInferrer<'_>, gi: &mut Inferrer<'_>, t: TypeId, i: usize) {
     if let Some((g, params)) = gi {
-        let v = inf.table.intern(Type::TypeParameter { param: params[i], nullable: false });
+        let v = inf.table.intern(Type::TypeParameter {
+            param: params[i],
+            nullable: false,
+        });
         // `_toListType`/`_toSetType`/`_toMapType`
         // (`typed_literal_resolver.dart:460-490`, `:740-815`): synthetic
         // parameters `element`, `key` and `value`, without `genericClass` (the
         // origin is `Parameter '…'`).
-        let parameter = if params.len() == 2 { ["key", "value"][i] } else { "element" };
-        g.with_origin(crate::constraints::Origin::Argument { parameter: parameter.to_string(), declared: v, argument: t, prefix: None });
+        let parameter = if params.len() == 2 {
+            ["key", "value"][i]
+        } else {
+            "element"
+        };
+        g.with_origin(crate::constraints::Origin::Argument {
+            parameter: parameter.to_string(),
+            declared: v,
+            argument: t,
+            prefix: None,
+        });
         let mut env = inf.env();
         g.constrain_argument(t, v, &mut env);
     }
 }
 
 /// Visits an element, generating constraints. `ctxs = [E, K, V]`.
-fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shape: Shape, ctxs: [TypeId; 3], mut gi: Inferrer<'_>) {
+fn visit(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    el: &CollectionElement,
+    shape: Shape,
+    ctxs: [TypeId; 3],
+    mut gi: Inferrer<'_>,
+) {
     let u = inf.core.unknown;
     match el {
         CollectionElement::Expression(x) => {
@@ -688,10 +972,15 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
             }
         }
         CollectionElement::NullAwareExpression(x) => {
-            let c = if shape == Shape::Map || inf.the_is_unknown(ctxs[0]) { u } else { inf.nullable(ctxs[0]) };
+            let c = if shape == Shape::Map || inf.the_is_unknown(ctxs[0]) {
+                u
+            } else {
+                inf.nullable(ctxs[0])
+            };
             let t = infer(inf, cx, *x, c);
             // The value's `void` before promotion (`:107-112`).
-            if gi.is_none() && shape != Shape::Map && !matches!(inf.table.get(ctxs[0]), Type::Void) {
+            if gi.is_none() && shape != Shape::Map && !matches!(inf.table.get(ctxs[0]), Type::Void)
+            {
                 super::expr::void_use(inf, cx, *x, t);
             }
             let t = inf.non_null(t);
@@ -700,21 +989,43 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
                 restrict(inf, &mut gi, t, 0);
             }
         }
-        CollectionElement::MapEntry { key, value, null_aware_key, null_aware_value } => {
-            let ck = if *null_aware_key && !inf.the_is_unknown(ctxs[1]) { inf.nullable(ctxs[1]) } else { ctxs[1] };
-            let cv = if *null_aware_value && !inf.the_is_unknown(ctxs[2]) { inf.nullable(ctxs[2]) } else { ctxs[2] };
+        CollectionElement::MapEntry {
+            key,
+            value,
+            null_aware_key,
+            null_aware_value,
+        } => {
+            let ck = if *null_aware_key && !inf.the_is_unknown(ctxs[1]) {
+                inf.nullable(ctxs[1])
+            } else {
+                ctxs[1]
+            };
+            let cv = if *null_aware_value && !inf.the_is_unknown(ctxs[2]) {
+                inf.nullable(ctxs[2])
+            } else {
+                ctxs[2]
+            };
             let tk = infer(inf, cx, *key, ck);
             let tv = infer(inf, cx, *value, cv);
             // `_verifyMapLiteralEntry` (`literal_element_verifier.dart:130-141`):
             // a `void` key ends the entry, without looking at the value.
             if gi.is_none() {
-                let void_key = !matches!(inf.table.get(ck), Type::Void) && super::expr::void_use(inf, cx, *key, tk);
+                let void_key = !matches!(inf.table.get(ck), Type::Void)
+                    && super::expr::void_use(inf, cx, *key, tk);
                 if !void_key && !matches!(inf.table.get(cv), Type::Void) {
                     super::expr::void_use(inf, cx, *value, tv);
                 }
             }
-            let tk = if *null_aware_key { inf.non_null(tk) } else { tk };
-            let tv = if *null_aware_value { inf.non_null(tv) } else { tv };
+            let tk = if *null_aware_key {
+                inf.non_null(tk)
+            } else {
+                tk
+            };
+            let tv = if *null_aware_value {
+                inf.non_null(tv)
+            } else {
+                tv
+            };
             inf.visited_spreads.insert(*key, tk);
             inf.visited_spreads.insert(*value, tv);
             restrict(inf, &mut gi, tk, 0);
@@ -776,7 +1087,13 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
                 restrict(inf, &mut gi, d, 0);
             }
         }
-        CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+        CollectionElement::If {
+            condition,
+            case_pattern,
+            guard,
+            then,
+            else_,
+        } => {
             let before = cx.flow.clone();
             let (vf, ff) = match case_pattern {
                 Some(p) => {
@@ -808,7 +1125,13 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
             let after_else = std::mem::replace(&mut cx.flow, before);
             cx.flow = inf.join(&after_then, &after_else);
         }
-        CollectionElement::For { init, condition, updates, body, .. } => {
+        CollectionElement::For {
+            init,
+            condition,
+            updates,
+            body,
+            ..
+        } => {
             cx.push_scope();
             if let Some(i) = init {
                 super::statements::for_initialization(inf, cx, i);
@@ -822,7 +1145,10 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
             if dead_at_start {
                 let a = &inf.program.unit(cx.unit).ast;
                 if let (Some(c), Some(u)) = (condition, updates.last()) {
-                    let sp = dartforge_diagnostics::Span { start: a.expr(*c).span.start, end: a.expr(*u).span.end };
+                    let sp = dartforge_diagnostics::Span {
+                        start: a.expr(*c).span.start,
+                        end: a.expr(*u).span.end,
+                    };
                     inf.warning(crate::codes::DEAD_CODE.template.to_string(), sp);
                 }
                 cx.dead_code = Some(usize::MAX);
@@ -851,19 +1177,33 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
             }
             // Without a condition the loop never ends (an element has no
             // `break`): what follows the element is unreachable.
-            cx.flow = if condition.is_none() { before.unreachable() } else { before };
+            cx.flow = if condition.is_none() {
+                before.unreachable()
+            } else {
+                before
+            };
             if dead_at_start {
-                cx.dead_code = if condition.is_some() && updates.is_empty() { Some(0) } else { None };
+                cx.dead_code = if condition.is_some() && updates.is_empty() {
+                    Some(0)
+                } else {
+                    None
+                };
             }
             cx.pop_scope();
         }
-        CollectionElement::ForIn { await_, target, iterable, body } => {
+        CollectionElement::ForIn {
+            await_,
+            target,
+            iterable,
+            body,
+        } => {
             cx.push_scope();
             let write = super::statements::for_in_header(inf, cx, target, *iterable, *await_);
             // `forEach_bodyBegin`: what the body writes, as in the `for-in`
             // statement (the loop's conservative join); the state from there goes
             // into `forEach_end`, joined with that of the end of the body.
-            let (writes, captured) = super::statements::writes_in(inf, cx, &[super::statements::Part::Element(body)]);
+            let (writes, captured) =
+                super::statements::writes_in(inf, cx, &[super::statements::Part::Element(body)]);
             cx.flow.conservative_join(&writes, &captured);
             let before = cx.flow.clone();
             if let Some(x) = write {
@@ -878,7 +1218,14 @@ fn visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shap
     }
 }
 
-fn reborrow_visit(inf: &mut BodyInferrer<'_>, cx: &mut Body, el: &CollectionElement, shape: Shape, ctxs: [TypeId; 3], gi: &mut Inferrer<'_>) {
+fn reborrow_visit(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    el: &CollectionElement,
+    shape: Shape,
+    ctxs: [TypeId; 3],
+    gi: &mut Inferrer<'_>,
+) {
     let sub: Inferrer<'_> = match gi {
         Some((g, p)) => Some((&mut **g, *p)),
         None => None,
@@ -892,11 +1239,14 @@ pub(crate) fn validate_const_collection(inf: &mut BodyInferrer<'_>, cx: &Body, e
     let a = &inf.program.unit(unit).ast;
     let mut subs = Vec::new();
     {
-        let mut av = crate::constant::ConstantEvaluator::new(inf.program, inf.interner, inf.table, inf.core);
+        let mut av =
+            crate::constant::ConstantEvaluator::new(inf.program, inf.interner, inf.table, inf.core);
         let mut diags: Vec<(String, dartforge_diagnostics::Span)> = Vec::new();
         match &a.expr(e).kind {
             ExprKind::SetOrMap { elements, .. } => {
-                let is_map = elements.iter().any(|el| matches!(el, CollectionElement::MapEntry { .. }));
+                let is_map = elements
+                    .iter()
+                    .any(|el| matches!(el, CollectionElement::MapEntry { .. }));
                 let mut seen = Vec::new();
                 for el in elements.iter() {
                     match el {
@@ -904,15 +1254,28 @@ pub(crate) fn validate_const_collection(inf: &mut BodyInferrer<'_>, cx: &Body, e
                             match av.evaluate_expr(unit, *key) {
                                 Some(v) => {
                                     if seen.contains(&v) {
-                                        diags.push((EQUAL_KEYS_IN_CONST_MAP.template.to_string(), a.expr(*key).span));
+                                        diags.push((
+                                            EQUAL_KEYS_IN_CONST_MAP.template.to_string(),
+                                            a.expr(*key).span,
+                                        ));
                                     } else {
                                         seen.push(v);
                                     }
                                 }
-                                None => diags.push((CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template.to_string(), a.expr(*key).span)),
+                                None => diags.push((
+                                    CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE
+                                        .template
+                                        .to_string(),
+                                    a.expr(*key).span,
+                                )),
                             }
                             if av.evaluate_expr(unit, *value).is_none() {
-                                diags.push((CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template.to_string(), a.expr(*value).span));
+                                diags.push((
+                                    CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE
+                                        .template
+                                        .to_string(),
+                                    a.expr(*value).span,
+                                ));
                             }
                             subs.push(*key);
                             subs.push(*value);
@@ -921,12 +1284,20 @@ pub(crate) fn validate_const_collection(inf: &mut BodyInferrer<'_>, cx: &Body, e
                             match av.evaluate_expr(unit, *x) {
                                 Some(v) => {
                                     if seen.contains(&v) {
-                                        diags.push((EQUAL_ELEMENTS_IN_CONST_SET.template.to_string(), a.expr(*x).span));
+                                        diags.push((
+                                            EQUAL_ELEMENTS_IN_CONST_SET.template.to_string(),
+                                            a.expr(*x).span,
+                                        ));
                                     } else {
                                         seen.push(v);
                                     }
                                 }
-                                None => diags.push((CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template.to_string(), a.expr(*x).span)),
+                                None => diags.push((
+                                    CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE
+                                        .template
+                                        .to_string(),
+                                    a.expr(*x).span,
+                                )),
                             }
                             subs.push(*x);
                         }
@@ -950,7 +1321,11 @@ pub(crate) fn validate_const_collection(inf: &mut BodyInferrer<'_>, cx: &Body, e
             // type operators): "non-constant" only when the expression really is
             // not constant (specification, "Constants").
             if m == CONST_INITIALIZED_WITH_NON_CONSTANT_VALUE.template {
-                let tgt = a.exprs.iter().position(|x| x.span == s).map(|i| ExprId(i as u32));
+                let tgt = a
+                    .exprs
+                    .iter()
+                    .position(|x| x.span == s)
+                    .map(|i| ExprId(i as u32));
                 if tgt.is_some_and(|x| inf.is_constant(cx, x)) {
                     continue;
                 }
@@ -964,31 +1339,61 @@ pub(crate) fn validate_const_collection(inf: &mut BodyInferrer<'_>, cx: &Body, e
 }
 
 /// The range of a collection element (the `flowEnd` node).
-fn element_range(inf: &BodyInferrer<'_>, cx: &Body, el: &CollectionElement) -> dartforge_diagnostics::Span {
+fn element_range(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    el: &CollectionElement,
+) -> dartforge_diagnostics::Span {
     let a = &inf.program.unit(cx.unit).ast;
     let source = inf.program.unit(cx.unit).source.as_str();
     let before = |start: usize, keyword: &str| -> usize {
-        source.get(..start).and_then(|s| s.rfind(keyword)).unwrap_or(start)
+        source
+            .get(..start)
+            .and_then(|s| s.rfind(keyword))
+            .unwrap_or(start)
     };
     match el {
         CollectionElement::Expression(e) => a.expr(*e).span,
         CollectionElement::NullAwareExpression(e) => {
             let s = a.expr(*e).span;
-            dartforge_diagnostics::Span { start: before(s.start, "?"), end: s.end }
+            dartforge_diagnostics::Span {
+                start: before(s.start, "?"),
+                end: s.end,
+            }
         }
-        CollectionElement::MapEntry { key, value, .. } => dartforge_diagnostics::Span { start: a.expr(*key).span.start, end: a.expr(*value).span.end },
+        CollectionElement::MapEntry { key, value, .. } => dartforge_diagnostics::Span {
+            start: a.expr(*key).span.start,
+            end: a.expr(*value).span.end,
+        },
         CollectionElement::Spread { value, .. } => {
             let s = a.expr(*value).span;
-            dartforge_diagnostics::Span { start: before(s.start, "..."), end: s.end }
+            dartforge_diagnostics::Span {
+                start: before(s.start, "..."),
+                end: s.end,
+            }
         }
-        CollectionElement::If { condition, then, else_, .. } => {
+        CollectionElement::If {
+            condition,
+            then,
+            else_,
+            ..
+        } => {
             let end = element_range(inf, cx, else_.as_deref().unwrap_or(then)).end;
-            dartforge_diagnostics::Span { start: before(a.expr(*condition).span.start, "if"), end }
+            dartforge_diagnostics::Span {
+                start: before(a.expr(*condition).span.start, "if"),
+                end,
+            }
         }
         CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
             let b = element_range(inf, cx, body);
-            let begin = source.get(..b.start).and_then(|s| s.rfind("for")).unwrap_or(b.start);
-            dartforge_diagnostics::Span { start: begin, end: b.end }
+            let begin = source
+                .get(..b.start)
+                .and_then(|s| s.rfind("for"))
+                .unwrap_or(b.start);
+            dartforge_diagnostics::Span {
+                start: begin,
+                end: b.end,
+            }
         }
     }
 }

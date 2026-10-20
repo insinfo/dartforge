@@ -9,18 +9,38 @@ fn programs_dir() -> PathBuf {
 }
 
 fn dart_run(file: &Path) -> String {
-    let out = Command::new("dart").arg("run").arg("--enable-asserts").arg(file).output().expect("dart on PATH");
-    assert!(out.status.success(), "dart run failed on {}: {}", file.display(), String::from_utf8_lossy(&out.stderr));
+    let out = Command::new("dart")
+        .arg("run")
+        .arg("--enable-asserts")
+        .arg(file)
+        .output()
+        .expect("dart on PATH");
+    assert!(
+        out.status.success(),
+        "dart run failed on {}: {}",
+        file.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
     String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n")
 }
 
 fn compile_and_run(file: &Path) -> String {
     let name = file.file_stem().unwrap().to_string_lossy().to_string();
-    let out_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/emit_js_tests").join(&name);
+    let out_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/emit_js_tests")
+        .join(&name);
     let _ = std::fs::remove_dir_all(&out_dir);
     let emitted = dartforge_emit_js::compile(file, None, None).expect("compilation");
-    dartforge_emit_js::write(&emitted, &out_dir, &dartforge_emit_js::default_dart_sdk_js()).expect("write");
-    let out = Command::new("node").arg(out_dir.join("main.mjs")).output().expect("node on PATH");
+    dartforge_emit_js::write(
+        &emitted,
+        &out_dir,
+        &dartforge_emit_js::default_dart_sdk_js(),
+    )
+    .expect("write");
+    let out = Command::new("node")
+        .arg(out_dir.join("main.mjs"))
+        .output()
+        .expect("node on PATH");
     let stdout = String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n");
     if !out.status.success() {
         panic!(

@@ -10,31 +10,31 @@
 //! valid projects without definitions or a runner trigger construct no engine
 //! ([`detect`]); [`instance_count`] counts the engines created, for the gate.
 pub mod client;
+pub mod command_line;
 pub mod config;
-mod detection;
-pub mod query;
-pub mod executor_deps;
 pub mod descriptor;
+mod detection;
+pub mod engine;
 pub mod equivalent;
 pub mod executor;
-pub mod native_executor;
+pub mod executor_deps;
 pub mod extensions;
-pub mod triggers;
 pub mod glob;
 pub mod graph;
-pub mod command_line;
-pub mod engine;
+pub mod native_executor;
 #[cfg(feature = "native-generators")]
 pub mod natives;
 pub mod oracle;
 pub mod packages;
-pub mod profile;
 pub mod persistence;
 pub mod plan;
+pub mod profile;
+pub mod query;
+pub mod triggers;
 pub mod value;
 pub mod vm;
 
-pub use engine::{Update, UpdateContext, Demand, Engine, EngineOptions, Scoreboard, EngineReport};
+pub use engine::{Demand, Engine, EngineOptions, EngineReport, Scoreboard, Update, UpdateContext};
 
 use dartforge_elements::config::PackageConfig;
 use std::path::{Path, PathBuf};

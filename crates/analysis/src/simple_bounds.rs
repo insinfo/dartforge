@@ -18,7 +18,9 @@
 
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_elements::model::{ClassId, ClassKind, Element, LibraryId, Program, TypedefId, UnitId};
+use dartforge_elements::model::{
+    ClassId, ClassKind, Element, LibraryId, Program, TypedefId, UnitId,
+};
 use dartforge_frontend::ast::{self, DeclKind, Parameter, TypeKind, TypeParameter, TypedefKind};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
@@ -51,7 +53,12 @@ fn collect_from_params(ps: &[Parameter], out: &mut Vec<ast::TypeId>) {
     }
 }
 
-fn collect_from_function(ret: Option<ast::TypeId>, tps: &[TypeParameter], ps: &[Parameter], out: &mut Vec<ast::TypeId>) {
+fn collect_from_function(
+    ret: Option<ast::TypeId>,
+    tps: &[TypeParameter],
+    ps: &[Parameter],
+    out: &mut Vec<ast::TypeId>,
+) {
     if let Some(r) = ret {
         out.push(r);
     }
@@ -83,7 +90,15 @@ fn node_of(program: &Program, el: Element) -> Option<Node> {
 
 /// `SimplyBoundedNode._visitType`: `false` decides (not simply bounded); the
 /// raw types of declarations become dependencies.
-fn visit(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, allows_params: bool, scope: &[SymbolId], deps: &mut Vec<Node>) -> bool {
+fn visit(
+    program: &Program,
+    u: UnitId,
+    a: &ast::Ast,
+    t: ast::TypeId,
+    allows_params: bool,
+    scope: &[SymbolId],
+    deps: &mut Vec<Node>,
+) -> bool {
     match &a.ty(t).kind {
         TypeKind::Named { name, args } => {
             if let [n] = &name[..]
@@ -92,7 +107,9 @@ fn visit(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, allows_para
                 return allows_params;
             }
             if !args.is_empty() {
-                return args.iter().all(|&x| visit(program, u, a, x, allows_params, scope, deps));
+                return args
+                    .iter()
+                    .all(|&x| visit(program, u, a, x, allows_params, scope, deps));
             }
             if let Some(node) = element(program, u, name).and_then(|el| node_of(program, el)) {
                 deps.push(node);
@@ -100,21 +117,31 @@ fn visit(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, allows_para
             true
         }
         TypeKind::Void => true,
-        TypeKind::Function { return_type, type_params, parameters } => {
+        TypeKind::Function {
+            return_type,
+            type_params,
+            parameters,
+        } => {
             let mut scope2 = scope.to_vec();
             scope2.extend(type_params.iter().map(|p| p.name.sym));
             let mut types = Vec::new();
             collect_from_function(*return_type, type_params, parameters, &mut types);
-            types.into_iter().all(|x| visit(program, u, a, x, allows_params, &scope2, deps))
+            types
+                .into_iter()
+                .all(|x| visit(program, u, a, x, allows_params, &scope2, deps))
         }
-        TypeKind::Record { positional, named } => {
-            positional.iter().chain(named.iter().map(|(_, x)| x)).all(|&x| visit(program, u, a, x, allows_params, scope, deps))
-        }
+        TypeKind::Record { positional, named } => positional
+            .iter()
+            .chain(named.iter().map(|(_, x)| x))
+            .all(|&x| visit(program, u, a, x, allows_params, scope, deps)),
     }
 }
 
 /// The type parameters and the right-hand side types of a node.
-fn node_parts<'a>(program: &'a Program, node: Node) -> Option<(UnitId, &'a [TypeParameter], Vec<ast::TypeId>)> {
+fn node_parts<'a>(
+    program: &'a Program,
+    node: Node,
+) -> Option<(UnitId, &'a [TypeParameter], Vec<ast::TypeId>)> {
     let d = match node {
         Node::Class(c) => program.class(c).decl?,
         Node::Alias(t) => program.typedef(t).decl,
@@ -130,10 +157,17 @@ fn node_parts<'a>(program: &'a Program, node: Node) -> Option<(UnitId, &'a [Type
             let mut rhs = Vec::new();
             match &x.kind {
                 TypedefKind::Alias(t) => match &a.ty(*t).kind {
-                    TypeKind::Function { return_type, type_params, parameters } => collect_from_function(*return_type, type_params, parameters, &mut rhs),
+                    TypeKind::Function {
+                        return_type,
+                        type_params,
+                        parameters,
+                    } => collect_from_function(*return_type, type_params, parameters, &mut rhs),
                     _ => rhs.push(*t),
                 },
-                TypedefKind::Legacy { return_type, parameters } => collect_from_function(*return_type, &[], parameters, &mut rhs),
+                TypedefKind::Legacy {
+                    return_type,
+                    parameters,
+                } => collect_from_function(*return_type, &[], parameters, &mut rhs),
             }
             (&x.type_params, rhs)
         }
@@ -146,7 +180,16 @@ fn node_parts<'a>(program: &'a Program, node: Node) -> Option<(UnitId, &'a [Type
 pub fn compute(program: &Program) -> SimpleBounds {
     let mut nodes: Vec<Node> = Vec::new();
     for (i, ce) in program.classes.iter().enumerate() {
-        if ce.decl.is_some() && matches!(ce.kind, ClassKind::Class | ClassKind::Mixin | ClassKind::Enum | ClassKind::ExtensionType | ClassKind::MixinApplication) {
+        if ce.decl.is_some()
+            && matches!(
+                ce.kind,
+                ClassKind::Class
+                    | ClassKind::Mixin
+                    | ClassKind::Enum
+                    | ClassKind::ExtensionType
+                    | ClassKind::MixinApplication
+            )
+        {
             nodes.push(Node::Class(ClassId(i as u32)));
         }
     }
@@ -247,13 +290,23 @@ pub fn compute(program: &Program) -> SimpleBounds {
             }
         }
     }
-    let mut e = State { deps: &deps, index: HashMap::new(), low: HashMap::new(), stack: Vec::new(), on_stack: HashSet::new(), next: 1, not_simple: HashSet::new() };
+    let mut e = State {
+        deps: &deps,
+        index: HashMap::new(),
+        low: HashMap::new(),
+        stack: Vec::new(),
+        on_stack: HashSet::new(),
+        next: 1,
+        not_simple: HashSet::new(),
+    };
     for &v in &nodes {
         if !e.index.contains_key(&v) {
             connect(&mut e, v);
         }
     }
-    SimpleBounds { not_simple: e.not_simple }
+    SimpleBounds {
+        not_simple: e.not_simple,
+    }
 }
 
 /// A type parameter list and where its names are valid.
@@ -269,7 +322,11 @@ struct TypeParamList<'a> {
 fn param_lists<'a>(ps: &'a [Parameter], out: &mut Vec<TypeParamList<'a>>) {
     for p in ps {
         if !p.function_type_params.is_empty() {
-            out.push(TypeParamList { params: &p.function_type_params, scope: p.span, linked: false });
+            out.push(TypeParamList {
+                params: &p.function_type_params,
+                scope: p.span,
+                linked: false,
+            });
         }
         if let Some(inner) = &p.function_parameters {
             param_lists(inner, out);
@@ -296,7 +353,11 @@ fn lists(a: &ast::Ast) -> Vec<TypeParamList<'_>> {
             _ => &[],
         };
         if !tps.is_empty() {
-            v.push(TypeParamList { params: tps, scope: d.span, linked: true });
+            v.push(TypeParamList {
+                params: tps,
+                scope: d.span,
+                linked: true,
+            });
         }
     }
     // Top-level functions and methods (local functions and literals do not go
@@ -314,7 +375,11 @@ fn lists(a: &ast::Ast) -> Vec<TypeParamList<'_>> {
     }
     for (i, f) in a.functions.iter().enumerate() {
         if !f.type_params.is_empty() {
-            v.push(TypeParamList { params: &f.type_params, scope: f.span, linked: bound.contains(&(i as u32)) });
+            v.push(TypeParamList {
+                params: &f.type_params,
+                scope: f.span,
+                linked: bound.contains(&(i as u32)),
+            });
         }
         if let Some(ps) = &f.parameters {
             param_lists(ps, &mut v);
@@ -326,9 +391,18 @@ fn lists(a: &ast::Ast) -> Vec<TypeParamList<'_>> {
         }
     }
     for t in &a.types {
-        if let TypeKind::Function { type_params, parameters, .. } = &t.kind {
+        if let TypeKind::Function {
+            type_params,
+            parameters,
+            ..
+        } = &t.kind
+        {
             if !type_params.is_empty() {
-                v.push(TypeParamList { params: type_params, scope: t.span, linked: false });
+                v.push(TypeParamList {
+                    params: type_params,
+                    scope: t.span,
+                    linked: false,
+                });
             }
             param_lists(parameters, &mut v);
         }
@@ -338,11 +412,20 @@ fn lists(a: &ast::Ast) -> Vec<TypeParamList<'_>> {
 
 /// The parameter of the list that bound `t` designates after erasing
 /// extension types (`boundType.extensionTypeErasure.element`).
-fn param_of_bound(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, list: &[TypeParameter], depth: u32) -> Option<usize> {
+fn param_of_bound(
+    program: &Program,
+    u: UnitId,
+    a: &ast::Ast,
+    t: ast::TypeId,
+    list: &[TypeParameter],
+    depth: u32,
+) -> Option<usize> {
     if depth > 8 {
         return None;
     }
-    let TypeKind::Named { name, args } = &a.ty(t).kind else { return None };
+    let TypeKind::Named { name, args } = &a.ty(t).kind else {
+        return None;
+    };
     if let [n] = &name[..]
         && let Some(i) = list.iter().position(|p| p.name.sym == n.sym)
     {
@@ -350,15 +433,21 @@ fn param_of_bound(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, li
     }
     // An extension type whose representation is one of its parameters: the
     // erasure is the corresponding argument.
-    let Some(Element::Class(c)) = element(program, u, name) else { return None };
+    let Some(Element::Class(c)) = element(program, u, name) else {
+        return None;
+    };
     let ce = program.class(c);
     if ce.kind != ClassKind::ExtensionType {
         return None;
     }
     let d = ce.decl?;
     let ad = &program.unit(d.unit).ast;
-    let DeclKind::ExtensionType(et) = &ad.decl(d.decl).kind else { return None };
-    let TypeKind::Named { name: rn, args: ra } = &ad.ty(et.representation_type).kind else { return None };
+    let DeclKind::ExtensionType(et) = &ad.decl(d.decl).kind else {
+        return None;
+    };
+    let TypeKind::Named { name: rn, args: ra } = &ad.ty(et.representation_type).kind else {
+        return None;
+    };
     if !ra.is_empty() {
         return None;
     }
@@ -369,7 +458,15 @@ fn param_of_bound(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, li
 }
 
 /// `_UninstantiatedBoundChecker` num limite.
-fn uninstantiated(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, visible: &dyn Fn(usize, SymbolId) -> bool, bounds: &SimpleBounds, out: &mut Vec<(UnitId, Diagnostic)>) {
+fn uninstantiated(
+    program: &Program,
+    u: UnitId,
+    a: &ast::Ast,
+    t: ast::TypeId,
+    visible: &dyn Fn(usize, SymbolId) -> bool,
+    bounds: &SimpleBounds,
+    out: &mut Vec<(UnitId, Diagnostic)>,
+) {
     let type_node = a.ty(t);
     match &type_node.kind {
         TypeKind::Named { name, args } => {
@@ -387,11 +484,22 @@ fn uninstantiated(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, vi
             if let Some(node) = element(program, u, name).and_then(|el| node_of(program, el))
                 && bounds.not_simple.contains(&node)
             {
-                out.push((u, Diagnostic::with_code(c::NOT_INSTANTIATED_BOUND, type_node.span, [] as [&str; 0])));
+                out.push((
+                    u,
+                    Diagnostic::with_code(
+                        c::NOT_INSTANTIATED_BOUND,
+                        type_node.span,
+                        [] as [&str; 0],
+                    ),
+                ));
             }
         }
         TypeKind::Void => {}
-        TypeKind::Function { return_type, type_params, parameters } => {
+        TypeKind::Function {
+            return_type,
+            type_params,
+            parameters,
+        } => {
             if let Some(r) = return_type {
                 uninstantiated(program, u, a, *r, visible, bounds, out);
             }
@@ -415,16 +523,26 @@ fn uninstantiated(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, vi
 }
 
 /// The written type is a generic function type (directly or through an alias of one).
-fn generic_function(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, depth: u32) -> bool {
+fn generic_function(
+    program: &Program,
+    u: UnitId,
+    a: &ast::Ast,
+    t: ast::TypeId,
+    depth: u32,
+) -> bool {
     match &a.ty(t).kind {
         TypeKind::Function { type_params, .. } => !type_params.is_empty(),
         TypeKind::Named { name, args } if args.is_empty() && depth < 8 => {
-            let Some(Element::Typedef(td)) = element(program, u, name) else { return false };
+            let Some(Element::Typedef(td)) = element(program, u, name) else {
+                return false;
+            };
             let d = program.typedef(td).decl;
             let ad = &program.unit(d.unit).ast;
             match &ad.decl(d.decl).kind {
                 DeclKind::Typedef(x) => match &x.kind {
-                    TypedefKind::Alias(body) => generic_function(program, d.unit, ad, *body, depth + 1),
+                    TypedefKind::Alias(body) => {
+                        generic_function(program, d.unit, ad, *body, depth + 1)
+                    }
                     TypedefKind::Legacy { .. } => false,
                 },
                 _ => false,
@@ -434,20 +552,35 @@ fn generic_function(program: &Program, u: UnitId, a: &ast::Ast, t: ast::TypeId, 
     }
 }
 
-pub fn check(program: &Program, lib: LibraryId, names: &Interner, bounds: &SimpleBounds) -> Vec<(UnitId, Diagnostic)> {
+pub fn check(
+    program: &Program,
+    lib: LibraryId,
+    names: &Interner,
+    bounds: &SimpleBounds,
+) -> Vec<(UnitId, Diagnostic)> {
     let mut out = Vec::new();
     // `generic-metadata` (2.14): before it, a generic function type as a
     // written type argument is `GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT`
     // (`type_arguments_verifier.dart:300-310`), on the argument.
-    let without_generic_metadata = program.library(lib).features.version() < dartforge_frontend::features::LanguageVersion::new(2, 14);
+    let without_generic_metadata = program.library(lib).features.version()
+        < dartforge_frontend::features::LanguageVersion::new(2, 14);
     for &u in &program.library(lib).units {
         let a = &program.unit(u).ast;
         if without_generic_metadata {
             for t in &a.types {
-                let TypeKind::Named { args, .. } = &t.kind else { continue };
+                let TypeKind::Named { args, .. } = &t.kind else {
+                    continue;
+                };
                 for &x in args.iter() {
                     if generic_function(program, u, a, x, 0) {
-                        out.push((u, Diagnostic::with_code(c::GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT, a.ty(x).span, [] as [&str; 0])));
+                        out.push((
+                            u,
+                            Diagnostic::with_code(
+                                c::GENERIC_FUNCTION_TYPE_CANNOT_BE_TYPE_ARGUMENT,
+                                a.ty(x).span,
+                                [] as [&str; 0],
+                            ),
+                        ));
                     }
                 }
             }
@@ -456,7 +589,11 @@ pub fn check(program: &Program, lib: LibraryId, names: &Interner, bounds: &Simpl
         // The type parameters in scope at a position: those of the lists
         // whose owner contains it.
         let visible = |pos: usize, name: SymbolId| {
-            all.iter().any(|l| l.scope.start <= pos && pos <= l.scope.end && l.params.iter().any(|p| p.name.sym == name))
+            all.iter().any(|l| {
+                l.scope.start <= pos
+                    && pos <= l.scope.end
+                    && l.params.iter().any(|p| p.name.sym == name)
+            })
         };
         for l in &all {
             // `visitTypeParameter`: the bound of each parameter.
@@ -474,7 +611,9 @@ pub fn check(program: &Program, lib: LibraryId, names: &Interner, bounds: &Simpl
                 let mut current = Some(i);
                 let mut step = 0usize;
                 while let Some(k) = current {
-                    current = l.params[k].bound.and_then(|b| param_of_bound(program, u, a, b, l.params, 0));
+                    current = l.params[k]
+                        .bound
+                        .and_then(|b| param_of_bound(program, u, a, b, l.params, 0));
                     if step == n {
                         // `{1}` (only in the correction): the `element.bound`.
                         // In the linked declaration, `_breakSelfCycles`
@@ -485,19 +624,35 @@ pub fn check(program: &Program, lib: LibraryId, names: &Interner, bounds: &Simpl
                         let name_cycle = {
                             let mut current = Some(i);
                             for _ in 0..n {
-                                current = current.and_then(|k| l.params[k].bound).and_then(|b| match &a.ty(b).kind {
-                                    TypeKind::Named { name, .. } if name.len() == 1 => l.params.iter().position(|p| p.name.sym == name[0].sym),
-                                    _ => None,
-                                });
+                                current =
+                                    current
+                                        .and_then(|k| l.params[k].bound)
+                                        .and_then(|b| match &a.ty(b).kind {
+                                            TypeKind::Named { name, .. } if name.len() == 1 => l
+                                                .params
+                                                .iter()
+                                                .position(|p| p.name.sym == name[0].sym),
+                                            _ => None,
+                                        });
                             }
                             current.is_some()
                         };
                         let bound = if l.linked && name_cycle {
                             "dynamic".to_string()
                         } else {
-                            tp.bound.map(|b| a.ty(b).span).map(|s| program.unit(u).source[s.start..s.end].to_string()).unwrap_or_default()
+                            tp.bound
+                                .map(|b| a.ty(b).span)
+                                .map(|s| program.unit(u).source[s.start..s.end].to_string())
+                                .unwrap_or_default()
                         };
-                        out.push((u, Diagnostic::with_code(c::TYPE_PARAMETER_SUPERTYPE_OF_ITS_BOUND, tp.name.span, [name.as_str(), bound.as_str()])));
+                        out.push((
+                            u,
+                            Diagnostic::with_code(
+                                c::TYPE_PARAMETER_SUPERTYPE_OF_ITS_BOUND,
+                                tp.name.span,
+                                [name.as_str(), bound.as_str()],
+                            ),
+                        ));
                         break;
                     }
                     step += 1;

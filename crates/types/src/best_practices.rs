@@ -12,8 +12,10 @@
 use crate::resolve::OutlineTypes;
 use crate::resolved::BodyTypes;
 use crate::table::{CoreTypes, DisplayDecoration, Type, TypeId, TypeTable};
-use dartforge_diagnostics::{codes::warning as w, Diagnostic, Span};
-use dartforge_elements::model::{ClassId, ClassKind, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, UnitId};
+use dartforge_diagnostics::{Diagnostic, Span, codes::warning as w};
+use dartforge_elements::model::{
+    ClassId, ClassKind, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, UnitId,
+};
 use dartforge_frontend::ast::{self, ExprKind, FunctionBody, StmtKind};
 use dartforge_intern::{Interner, SymbolId};
 
@@ -44,17 +46,27 @@ pub fn nullable_equality_parameter(
     lib: LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
-    for (i, f) in program.index().library_functions[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.function(x))) {
-        if f.library != lib || (f.class.is_none() && f.extension.is_none()) || interner.resolve(f.name) != "==" {
+    for (i, f) in program.index().library_functions[lib.0 as usize]
+        .iter()
+        .map(|&x| (x.0 as usize, program.function(x)))
+    {
+        if f.library != lib
+            || (f.class.is_none() && f.extension.is_none())
+            || interner.resolve(f.name) != "=="
+        {
             continue;
         }
-        let FunctionRef::Function { unit, function } = f.node else { continue };
+        let FunctionRef::Function { unit, function } = f.node else {
+            continue;
+        };
         let af = program.unit(unit).ast.function(function);
         let Some(ps) = &af.parameters else { continue };
         if ps.len() != 1 {
             continue;
         }
-        let Some(p) = outline.functions.get(i).and_then(|d| d.parameters.first()) else { continue };
+        let Some(p) = outline.functions.get(i).and_then(|d| d.parameters.first()) else {
+            continue;
+        };
         if matches!(table.decoration(p.ty), Some(DisplayDecoration::Invalid)) {
             continue;
         }
@@ -67,7 +79,14 @@ pub fn nullable_equality_parameter(
             continue;
         }
         let Some(the_name) = af.name else { continue };
-        output.push((unit, Diagnostic::with_code(w::NON_NULLABLE_EQUALS_PARAMETER, the_name.span, Vec::<&str>::new())));
+        output.push((
+            unit,
+            Diagnostic::with_code(
+                w::NON_NULLABLE_EQUALS_PARAMETER,
+                the_name.span,
+                Vec::<&str>::new(),
+            ),
+        ));
     }
     output
 }
@@ -104,13 +123,23 @@ fn super_member(program: &Program, c: ClassId, the_name: SymbolId) -> Option<Fun
 /// `super.noSuchMethod(x)` (with `=>` or `{ return …; }`, one argument) and
 /// whose called `noSuchMethod` is a method of a class that is not `Object` —
 /// at the method name.
-pub fn unnecessary_no_such_method(program: &Program, interner: &Interner, core: &CoreTypes, lib: LibraryId) -> Vec<(UnitId, Diagnostic)> {
+pub fn unnecessary_no_such_method(
+    program: &Program,
+    interner: &Interner,
+    core: &CoreTypes,
+    lib: LibraryId,
+) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
     for f in program.functions.iter() {
-        if f.library != lib || interner.resolve(f.name) != "noSuchMethod" || f.kind != FunctionKind::Function {
+        if f.library != lib
+            || interner.resolve(f.name) != "noSuchMethod"
+            || f.kind != FunctionKind::Function
+        {
             continue;
         }
-        let (Some(c), FunctionRef::Function { unit, function }) = (f.class, f.node) else { continue };
+        let (Some(c), FunctionRef::Function { unit, function }) = (f.class, f.node) else {
+            continue;
+        };
         let a = &program.unit(unit).ast;
         let af = a.function(function);
         let invocation = match af.body {
@@ -125,26 +154,49 @@ pub fn unnecessary_no_such_method(program: &Program, interner: &Interner, core: 
             _ => None,
         };
         let Some(e) = invocation else { continue };
-        let ExprKind::Call { target, arguments } = &a.expr(e).kind else { continue };
+        let ExprKind::Call { target, arguments } = &a.expr(e).kind else {
+            continue;
+        };
         if arguments.args.len() != 1 {
             continue;
         }
-        let ExprKind::Property { target: receiver, name, null_aware: false } = &a.expr(*target).kind else { continue };
-        if !matches!(a.expr(*receiver).kind, ExprKind::Super) || interner.resolve(name.sym) != "noSuchMethod" {
+        let ExprKind::Property {
+            target: receiver,
+            name,
+            null_aware: false,
+        } = &a.expr(*target).kind
+        else {
+            continue;
+        };
+        if !matches!(a.expr(*receiver).kind, ExprKind::Super)
+            || interner.resolve(name.sym) != "noSuchMethod"
+        {
             continue;
         }
-        let Some(callee) = super_member(program, c, f.name) else { continue };
+        let Some(callee) = super_member(program, c, f.name) else {
+            continue;
+        };
         let fc = program.function(callee);
         let Some(owner) = fc.class else { continue };
         // `methodElement is MethodElement && classElement is ClassElement`.
         if fc.kind != FunctionKind::Function
-            || !matches!(program.class(owner).kind, ClassKind::Class | ClassKind::MixinApplication)
+            || !matches!(
+                program.class(owner).kind,
+                ClassKind::Class | ClassKind::MixinApplication
+            )
             || Some(owner) == core.object_class
         {
             continue;
         }
         let Some(the_name) = af.name else { continue };
-        output.push((unit, Diagnostic::with_code(w::UNNECESSARY_NO_SUCH_METHOD, the_name.span, Vec::<&str>::new())));
+        output.push((
+            unit,
+            Diagnostic::with_code(
+                w::UNNECESSARY_NO_SUCH_METHOD,
+                the_name.span,
+                Vec::<&str>::new(),
+            ),
+        ));
     }
     output
 }
@@ -167,15 +219,24 @@ pub fn unnecessary_question_marks(
             if !ty.nullable {
                 continue;
             }
-            let ast::TypeKind::Named { name, .. } = &ty.kind else { continue };
+            let ast::TypeKind::Named { name, .. } = &ty.kind else {
+                continue;
+            };
             let id = ast::TypeId(i as u32);
-            let resolved = outline
-                .written_types
-                .get(&(u, id))
-                .copied()
-                .or_else(|| bodies.and_then(|c| c.units.get(u.0 as usize)).and_then(|b| b.annotation_types.get(&id).copied()));
+            let resolved = outline.written_types.get(&(u, id)).copied().or_else(|| {
+                bodies
+                    .and_then(|c| c.units.get(u.0 as usize))
+                    .and_then(|b| b.annotation_types.get(&id).copied())
+            });
             let Some(t) = resolved else { continue };
-            if matches!(table.decoration(t), Some(DisplayDecoration::Alias { .. } | DisplayDecoration::Invalid | DisplayDecoration::NeverNullable)) {
+            if matches!(
+                table.decoration(t),
+                Some(
+                    DisplayDecoration::Alias { .. }
+                        | DisplayDecoration::Invalid
+                        | DisplayDecoration::NeverNullable
+                )
+            ) {
                 continue;
             }
             let last = name.last().map(|n| interner.resolve(n.sym)).unwrap_or("");
@@ -189,8 +250,14 @@ pub fn unnecessary_question_marks(
             }
             let text: Vec<&str> = name.iter().map(|n| interner.resolve(n.sym)).collect();
             let qualified = text.join(".");
-            let sp = Span { start: ty.span.end - 1, end: ty.span.end };
-            output.push((u, Diagnostic::with_code(w::UNNECESSARY_QUESTION_MARK, sp, [qualified.as_str()])));
+            let sp = Span {
+                start: ty.span.end - 1,
+                end: ty.span.end,
+            };
+            output.push((
+                u,
+                Diagnostic::with_code(w::UNNECESSARY_QUESTION_MARK, sp, [qualified.as_str()]),
+            ));
         }
     }
     output

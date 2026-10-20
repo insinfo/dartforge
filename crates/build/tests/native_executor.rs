@@ -16,10 +16,10 @@
 #[path = "support/corpus_cases.rs"]
 mod corpus_cases;
 
-use dartforge_build::query::NoDb;
-use dartforge_build::native_executor::{NativeConfig, NativeExecutor};
 use dartforge_build::graph::AssetId;
-use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions, EngineReport};
+use dartforge_build::native_executor::{NativeConfig, NativeExecutor};
+use dartforge_build::query::NoDb;
+use dartforge_build::{Demand, Engine, EngineOptions, EngineReport, UpdateContext};
 use dartforge_elements::config::PackageConfig;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -55,7 +55,10 @@ fn references(dir: &Path) -> BTreeMap<AssetId, Vec<u8>> {
                 .join(id.package.as_ref())
                 .join(id.path.as_ref()),
         };
-        r.insert(id, std::fs::read(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display())));
+        r.insert(
+            id,
+            std::fs::read(&file).unwrap_or_else(|e| panic!("{}: {e}", file.display())),
+        );
     }
     r
 }
@@ -74,7 +77,11 @@ fn copy_case(from: &Path, to: &Path) {
         if p.is_dir() {
             if name == ".dart_tool" {
                 std::fs::create_dir_all(&target).unwrap();
-                std::fs::copy(p.join("package_config.json"), target.join("package_config.json")).unwrap();
+                std::fs::copy(
+                    p.join("package_config.json"),
+                    target.join("package_config.json"),
+                )
+                .unwrap();
                 continue;
             }
             copy_case(&p, &target);
@@ -125,7 +132,14 @@ fn native_engine(dir: &Path) -> Engine {
 fn update(m: &mut Engine, changed: &[PathBuf]) -> (EngineReport, f64) {
     let t0 = Instant::now();
     let at = m
-        .update(&UpdateContext { db: &NoDb, program: None }, changed, Demand::Everything)
+        .update(
+            &UpdateContext {
+                db: &NoDb,
+                program: None,
+            },
+            changed,
+            Demand::Everything,
+        )
         .expect("update");
     for a in &at.warnings {
         println!("warning: {a}");
@@ -138,7 +152,11 @@ fn update(m: &mut Engine, changed: &[PathBuf]) -> (EngineReport, f64) {
 #[test]
 #[ignore = "requires dartforge with the native feature and `dart pub get` in each case of corpus/builders"]
 fn corpus_builders_through_the_native_executor() {
-    assert!(compiler().is_file(), "compiler {} does not exist", compiler().display());
+    assert!(
+        compiler().is_file(),
+        "compiler {} does not exist",
+        compiler().display()
+    );
     let filter: Option<Vec<String>> = std::env::var("DARTFORGE_CASES")
         .ok()
         .map(|s| s.split(',').map(|x| x.trim().to_string()).collect());
@@ -195,9 +213,14 @@ fn corpus_builders_through_the_native_executor() {
             let mut fresh = native_engine(&dir);
             update(&mut fresh, &[]);
             let step_name = step.file_name().unwrap().to_string_lossy().to_string();
-            println!("{name}/{step_name}: {ms:.0} ms, {} actions run", rel.executed_actions);
+            println!(
+                "{name}/{step_name}: {ms:.0} ms, {} actions run",
+                rel.executed_actions
+            );
             if m.canonical_state() != fresh.canonical_state() {
-                different.push(format!("{name}: incremental ≠ from scratch after {step_name}"));
+                different.push(format!(
+                    "{name}: incremental ≠ from scratch after {step_name}"
+                ));
             }
         }
     }

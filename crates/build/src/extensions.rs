@@ -60,7 +60,10 @@ fn groups(s: &str) -> Vec<(usize, usize, String)> {
 }
 
 impl Extensions {
-    pub fn new_for(declared: &[(String, Vec<String>)], builder: &str) -> Result<Extensions, String> {
+    pub fn new_for(
+        declared: &[(String, Vec<String>)],
+        builder: &str,
+    ) -> Result<Extensions, String> {
         let mut rules = Vec::new();
         for (input, outputs) in declared {
             let gs = groups(input);
@@ -196,11 +199,7 @@ impl Extensions {
 
 /// First match of `lit0(.+)lit1(.+)…litN$` (with `^` if anchored): the
 /// leftmost start, greedy groups. Returns the start and the groups.
-fn first_match(
-    t: &str,
-    anchored: bool,
-    literals: &[String],
-) -> Option<(usize, Vec<String>)> {
+fn first_match(t: &str, anchored: bool, literals: &[String]) -> Option<(usize, Vec<String>)> {
     let boundaries: Vec<usize> = t
         .char_indices()
         .map(|(i, _)| i)

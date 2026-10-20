@@ -12,8 +12,8 @@
 //! the `dart_style` source.
 pub mod arena;
 pub mod arguments;
-pub mod chain;
 pub mod builder;
+pub mod chain;
 pub mod splitter;
-pub mod writer;
 pub mod visitor;
+pub mod writer;

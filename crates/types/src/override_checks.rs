@@ -67,7 +67,11 @@ impl Ctx<'_> {
             FunctionKind::Setter => Some(Kind::Setter),
             FunctionKind::ImplicitAccessor => {
                 let v = self.program.variable(func.variable?);
-                if v.getter == Some(f) { Some(Kind::Getter) } else { Some(Kind::Setter) }
+                if v.getter == Some(f) {
+                    Some(Kind::Getter)
+                } else {
+                    Some(Kind::Setter)
+                }
             }
             _ => None,
         }
@@ -77,16 +81,21 @@ impl Ctx<'_> {
     fn key(&self, f: FunctionElementId) -> Option<SymbolId> {
         let func = self.program.function(f);
         if self.kind(f)? == Kind::Setter {
-            self.interner.lookup(&format!("{}_=", self.interner.resolve(func.name)))
+            self.interner
+                .lookup(&format!("{}_=", self.interner.resolve(func.name)))
         } else {
             Some(func.name)
         }
     }
 
-
     /// The member `key` in the interface of class `d` (`getMember2`) or
     /// inherited by it (`getInherited2`), by the `Name` of the verified library.
-    fn inheritance_member(&mut self, d: ClassId, key: SymbolId, inherited: bool) -> Option<crate::inheritance::InterfaceMember> {
+    fn inheritance_member(
+        &mut self,
+        d: ClassId,
+        key: SymbolId,
+        inherited: bool,
+    ) -> Option<crate::inheritance::InterfaceMember> {
         let the_name = crate::inheritance::MemberName::new(self.interner, self.library, key);
         let mut h = std::mem::take(&mut self.inheritance);
         let r = {
@@ -97,7 +106,11 @@ impl Ctx<'_> {
                 outline: self.outline,
                 table: &mut *self.table,
             };
-            if inherited { h.inherited(&mut p, d, the_name) } else { h.member(&mut p, d, the_name, false, None, false) }
+            if inherited {
+                h.inherited(&mut p, d, the_name)
+            } else {
+                h.member(&mut p, d, the_name, false, None, false)
+            }
         };
         self.inheritance = h;
         r
@@ -115,44 +128,72 @@ impl Ctx<'_> {
         self.in_interface_ex(s, key, true)
     }
 
-    fn in_interface_ex(&mut self, s: TypeId, key: SymbolId, inherited: bool) -> Option<(Finding, TypeId)> {
+    fn in_interface_ex(
+        &mut self,
+        s: TypeId,
+        key: SymbolId,
+        inherited: bool,
+    ) -> Option<(Finding, TypeId)> {
         let (d, args) = match self.table.get(s).clone() {
             Type::Interface { class, args, .. } => (class, args),
             _ => return None,
         };
         let m = self.inheritance_member(d, key, inherited)?;
-        let formals: Box<[TypeParamId]> = self.outline.classes.get(d.0 as usize)?.type_params.clone();
+        let formals: Box<[TypeParamId]> =
+            self.outline.classes.get(d.0 as usize)?.type_params.clone();
         let t = if !formals.is_empty() && formals.len() == args.len() {
-            let subst: HashMap<TypeParamId, TypeId> = formals.iter().copied().zip(args.iter().copied()).collect();
+            let subst: HashMap<TypeParamId, TypeId> =
+                formals.iter().copied().zip(args.iter().copied()).collect();
             substitute(m.ty, &subst, self.table)
         } else {
             m.ty
         };
-        Some((Finding { owner: m.class, function: m.function }, t))
+        Some((
+            Finding {
+                owner: m.class,
+                function: m.function,
+            },
+            t,
+        ))
     }
 
     /// The type of member `a` as seen by supertype `s` (which inherits or
     /// declares it).
     fn seen_type(&mut self, s: TypeId, a: Finding) -> Option<TypeId> {
         let sig = self.outline.functions.get(a.function.0 as usize)?.signature;
-        let seen = self.outline.hierarchy.supertype_of(s, a.owner, self.table, self.core)?;
+        let seen = self
+            .outline
+            .hierarchy
+            .supertype_of(s, a.owner, self.table, self.core)?;
         let args = match self.table.get(seen) {
             Type::Interface { args, .. } | Type::ExtensionType { args, .. } => args.clone(),
             _ => return None,
         };
-        let params: Box<[TypeParamId]> = self.outline.classes.get(a.owner.0 as usize)?.type_params.clone();
+        let params: Box<[TypeParamId]> = self
+            .outline
+            .classes
+            .get(a.owner.0 as usize)?
+            .type_params
+            .clone();
         if params.len() != args.len() {
             return None;
         }
-        let subst: HashMap<TypeParamId, TypeId> = params.iter().copied().zip(args.iter().copied()).collect();
+        let subst: HashMap<TypeParamId, TypeId> =
+            params.iter().copied().zip(args.iter().copied()).collect();
         Some(substitute(sig, &subst, self.table))
     }
 
     /// `ParameterElement.isCovariant` of member `f` as seen by class `c`: the one
     /// declared in it (written plus inherited from the overridden members) or the
     /// implemented one (with inherited covariance).
-    fn effective_covariant(&mut self, c: ClassId, f: FunctionElementId, key: SymbolId) -> (Vec<usize>, Vec<SymbolId>) {
-        let the_name = crate::inheritance::MemberName::new(self.interner, self.program.class(c).library, key);
+    fn effective_covariant(
+        &mut self,
+        c: ClassId,
+        f: FunctionElementId,
+        key: SymbolId,
+    ) -> (Vec<usize>, Vec<SymbolId>) {
+        let the_name =
+            crate::inheritance::MemberName::new(self.interner, self.program.class(c).library, key);
         let mut h = std::mem::take(&mut self.inheritance);
         let i = {
             let mut p = crate::inheritance::OutlineProvider {
@@ -187,45 +228,80 @@ impl Ctx<'_> {
     /// corresponding one of the same-named member declared in each supertype of
     /// the class; types with no subtype relation in either direction are an
     /// error. The message shows the supertype's member without substitution.
-    fn covariant_against_supertypes(&mut self, m: &Check, key: SymbolId, output: &mut Vec<Diagnostic>) {
+    fn covariant_against_supertypes(
+        &mut self,
+        m: &Check,
+        key: SymbolId,
+        output: &mut Vec<Diagnostic>,
+    ) {
         let (pos, names) = self.effective_covariant(m.declaring, m.function, key);
         if pos.is_empty() && names.is_empty() {
             return;
         }
-        let Some(own) = self.outline.functions.get(m.function.0 as usize) else { return };
-        let the_own: Vec<(usize, ParameterKind, Option<SymbolId>, TypeId)> =
-            own.parameters.iter().enumerate().map(|(i, p)| (i, p.kind, p.external_name, p.ty)).collect();
-        let Some(data) = self.outline.hierarchy.get(m.declaring) else { return };
-        let mut supers: Vec<(ClassId, TypeId)> =
-            data.supertypes.iter().filter(|(k, _)| **k != m.declaring).map(|(k, v)| (*k, *v)).collect();
+        let Some(own) = self.outline.functions.get(m.function.0 as usize) else {
+            return;
+        };
+        let the_own: Vec<(usize, ParameterKind, Option<SymbolId>, TypeId)> = own
+            .parameters
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (i, p.kind, p.external_name, p.ty))
+            .collect();
+        let Some(data) = self.outline.hierarchy.get(m.declaring) else {
+            return;
+        };
+        let mut supers: Vec<(ClassId, TypeId)> = data
+            .supertypes
+            .iter()
+            .filter(|(k, _)| **k != m.declaring)
+            .map(|(k, v)| (*k, *v))
+            .collect();
         supers.sort_by_key(|(k, _)| k.0);
         let the_kind = self.kind(m.function);
         for (s, st) in supers {
-            let Some(&g) = self.program.class(s).instance_members.get(&key) else { continue };
+            let Some(&g) = self.program.class(s).instance_members.get(&key) else {
+                continue;
+            };
             if self.kind(g) != the_kind {
                 continue;
             }
-            let Some(data_g) = self.outline.functions.get(g.0 as usize) else { continue };
+            let Some(data_g) = self.outline.functions.get(g.0 as usize) else {
+                continue;
+            };
             let args = match self.table.get(st) {
                 Type::Interface { args, .. } => args.clone(),
                 _ => continue,
             };
-            let Some(params_s) = self.outline.classes.get(s.0 as usize).map(|d| d.type_params.clone()) else { continue };
+            let Some(params_s) = self
+                .outline
+                .classes
+                .get(s.0 as usize)
+                .map(|d| d.type_params.clone())
+            else {
+                continue;
+            };
             if params_s.len() != args.len() {
                 continue;
             }
-            let mut subst: HashMap<TypeParamId, TypeId> = params_s.iter().copied().zip(args.iter().copied()).collect();
+            let mut subst: HashMap<TypeParamId, TypeId> =
+                params_s.iter().copied().zip(args.iter().copied()).collect();
             // `_superSubstitution` (3.6.2 `correct_override.dart:195-215`): with
             // the same count, the type parameters of the supertype's method become
             // those of the method itself.
             if !own.type_params.is_empty() && own.type_params.len() == data_g.type_params.len() {
                 for (&sp, &tp) in data_g.type_params.iter().zip(own.type_params.iter()) {
-                    let t = self.table.intern(Type::TypeParameter { param: tp, nullable: false });
+                    let t = self.table.intern(Type::TypeParameter {
+                        param: tp,
+                        nullable: false,
+                    });
                     subst.insert(sp, t);
                 }
             }
-            let super_params: Vec<(ParameterKind, Option<SymbolId>, TypeId)> =
-                data_g.parameters.iter().map(|p| (p.kind, p.external_name, p.ty)).collect();
+            let super_params: Vec<(ParameterKind, Option<SymbolId>, TypeId)> = data_g
+                .parameters
+                .iter()
+                .map(|p| (p.kind, p.external_name, p.ty))
+                .collect();
             let super_sig = data_g.signature;
             let mut positional_one = 0usize;
             for &(i, kind, the_name, ty) in &the_own {
@@ -243,26 +319,42 @@ impl Ctx<'_> {
                     continue;
                 }
                 let corresponding = if kind == ParameterKind::Named {
-                    super_params.iter().find(|p| p.0 == ParameterKind::Named && p.1 == the_name).map(|p| p.2)
+                    super_params
+                        .iter()
+                        .find(|p| p.0 == ParameterKind::Named && p.1 == the_name)
+                        .map(|p| p.2)
                 } else {
-                    super_params.iter().filter(|p| p.0 != ParameterKind::Named).nth(pos_index).map(|p| p.2)
+                    super_params
+                        .iter()
+                        .filter(|p| p.0 != ParameterKind::Named)
+                        .nth(pos_index)
+                        .map(|p| p.2)
                 };
-                let Some(sup_ty) = corresponding else { continue };
+                let Some(sup_ty) = corresponding else {
+                    continue;
+                };
                 let sup_ty = substitute(sup_ty, &subst, self.table);
                 let related = {
                     let mut env = SubtypeEnv::new(self.table, &self.outline.hierarchy, self.core);
                     is_subtype(sup_ty, ty, &mut env) || is_subtype(ty, sup_ty, &mut env)
                 };
                 if !related {
-                    let mut name_m = self.interner.resolve(self.program.function(m.function).name).to_string();
+                    let mut name_m = self
+                        .interner
+                        .resolve(self.program.function(m.function).name)
+                        .to_string();
                     if the_kind == Some(Kind::Setter) {
                         name_m.push('=');
                     }
                     let args = [
                         name_m,
-                        self.interner.resolve(self.program.class(m.declaring).name).to_string(),
+                        self.interner
+                            .resolve(self.program.class(m.declaring).name)
+                            .to_string(),
                         display_string(self.table, m.ty, self.interner, self.program),
-                        self.interner.resolve(self.program.class(s).name).to_string(),
+                        self.interner
+                            .resolve(self.program.class(s).name)
+                            .to_string(),
                         display_string(self.table, super_sig, self.interner, self.program),
                     ];
                     output.push(Diagnostic::with_code(c::INVALID_OVERRIDE, m.span, args));
@@ -276,18 +368,41 @@ impl Ctx<'_> {
         if pos.is_empty() && names.is_empty() {
             return sig;
         }
-        let Type::Function { type_params, ret, positional, optional, named, nullable } = self.table.get(sig).clone() else {
+        let Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            nullable,
+        } = self.table.get(sig).clone()
+        else {
             return sig;
         };
         let obj = self.core.object_nullable;
         let n_pos = positional.len();
-        let positional: Box<[TypeId]> =
-            positional.iter().enumerate().map(|(i, &t)| if pos.contains(&i) { obj } else { t }).collect();
-        let optional: Box<[TypeId]> =
-            optional.iter().enumerate().map(|(i, &t)| if pos.contains(&(i + n_pos)) { obj } else { t }).collect();
-        let named: Box<[(SymbolId, TypeId, bool)]> =
-            named.iter().map(|&(n, t, r)| (n, if names.contains(&n) { obj } else { t }, r)).collect();
-        self.table.intern(Type::Function { type_params, ret, positional, optional, named, nullable })
+        let positional: Box<[TypeId]> = positional
+            .iter()
+            .enumerate()
+            .map(|(i, &t)| if pos.contains(&i) { obj } else { t })
+            .collect();
+        let optional: Box<[TypeId]> = optional
+            .iter()
+            .enumerate()
+            .map(|(i, &t)| if pos.contains(&(i + n_pos)) { obj } else { t })
+            .collect();
+        let named: Box<[(SymbolId, TypeId, bool)]> = named
+            .iter()
+            .map(|&(n, t, r)| (n, if names.contains(&n) { obj } else { t }, r))
+            .collect();
+        self.table.intern(Type::Function {
+            type_params,
+            ret,
+            positional,
+            optional,
+            named,
+            nullable,
+        })
     }
 }
 
@@ -305,13 +420,20 @@ struct Check {
 impl Ctx<'_> {
     /// `_checkDeclaredMember` against the superinterfaces `supers`.
     fn check(&mut self, m: Check, supers: &[TypeId], output: &mut Vec<Diagnostic>) {
-        let (Some(the_kind), Some(key)) = (self.kind(m.function), self.key(m.function)) else { return };
-        let the_name = self.interner.resolve(self.program.function(m.function).name).to_string();
+        let (Some(the_kind), Some(key)) = (self.kind(m.function), self.key(m.function)) else {
+            return;
+        };
+        let the_name = self
+            .interner
+            .resolve(self.program.function(m.function).name)
+            .to_string();
         let library = self.program.class(m.declaring).library;
         let (pos, names) = self.effective_covariant(m.declaring, m.function, key);
         let to_sub = self.for_subtype(m.ty, &pos, &names);
         for &s in supers {
-            let Some((finding, from_super)) = self.in_interface(s, key, 0) else { continue };
+            let Some((finding, from_super)) = self.in_interface(s, key, 0) else {
+                continue;
+            };
             if the_name.starts_with('_') && self.program.class(finding.owner).library != library {
                 continue;
             }
@@ -323,22 +445,42 @@ impl Ctx<'_> {
                 is_subtype(to_sub, from_super, &mut env)
             };
             if !ok {
-                let code = if the_kind == Kind::Setter { c::INVALID_OVERRIDE_SETTER } else { c::INVALID_OVERRIDE };
+                let code = if the_kind == Kind::Setter {
+                    c::INVALID_OVERRIDE_SETTER
+                } else {
+                    c::INVALID_OVERRIDE
+                };
                 let args = [
                     the_name.clone(),
-                    self.interner.resolve(self.program.class(m.declaring).name).to_string(),
+                    self.interner
+                        .resolve(self.program.class(m.declaring).name)
+                        .to_string(),
                     display_string(self.table, m.ty, self.interner, self.program),
-                    self.interner.resolve(self.program.class(finding.owner).name).to_string(),
+                    self.interner
+                        .resolve(self.program.class(finding.owner).name)
+                        .to_string(),
                     display_string(self.table, from_super, self.interner, self.program),
                 ];
                 // `invalidOverride`: the overridden member, at its non-synthetic
                 // name (in its own file, if it is a different one).
                 let mut d = Diagnostic::with_code(code, m.span, args);
-                if let Some((u, span)) = self.program.non_synthetic_function_name(finding.function) {
-                    let error_unit = self.program.non_synthetic_function_name(m.function).map(|(x, _)| x);
+                if let Some((u, span)) = self.program.non_synthetic_function_name(finding.function)
+                {
+                    let error_unit = self
+                        .program
+                        .non_synthetic_function_name(m.function)
+                        .map(|(x, _)| x);
                     let file = (Some(u) != error_unit).then(|| self.program.unit_path(u).into());
-                    let text = if the_kind == Kind::Setter { "The setter being overridden." } else { "The member being overridden." };
-                    d.context.push(dartforge_diagnostics::ContextMessage { file, span, message: text.into() });
+                    let text = if the_kind == Kind::Setter {
+                        "The setter being overridden."
+                    } else {
+                        "The member being overridden."
+                    };
+                    d.context.push(dartforge_diagnostics::ContextMessage {
+                        file,
+                        span,
+                        message: text.into(),
+                    });
                 }
                 output.push(d);
             }
@@ -360,7 +502,12 @@ pub fn invalid_overrides(
     // `_reportNoCombinedSuperSignature` reported: the method skips
     // `_checkDeclaredMember` (`inheritance_override.dart:259-263`).
     let without_signature: std::collections::HashSet<FunctionElementId> =
-        crate::phase_inheritance::methods_without_combined_signature(program, interner, table, core, outline, classes).into_iter().map(|(_, f, _, _)| f).collect();
+        crate::phase_inheritance::methods_without_combined_signature(
+            program, interner, table, core, outline, classes,
+        )
+        .into_iter()
+        .map(|(_, f, _, _)| f)
+        .collect();
     // The classes whose declared members are read: the checked ones and the
     // mixins they apply (the engine calls this once per library, so the maps
     // below cover only these, not every class of the program).
@@ -375,7 +522,15 @@ pub fn invalid_overrides(
             }
         }
     }
-    let mut cx = Ctx { program, interner, table, core, outline, inheritance: crate::inheritance::InheritanceManager::default(), library: dartforge_elements::model::LibraryId(0) };
+    let mut cx = Ctx {
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        inheritance: crate::inheritance::InheritanceManager::default(),
+        library: dartforge_elements::model::LibraryId(0),
+    };
     let mut output = Vec::new();
     // Accessors and methods by source node.
     let mut by_function: HashMap<(UnitId, u32), FunctionElementId> = HashMap::new();
@@ -393,7 +548,12 @@ pub fn invalid_overrides(
             FunctionRef::None => {
                 if let Some(v) = f.variable {
                     let var = program.variable(v);
-                    if let VariableRef::Field { unit, member, index } = var.node {
+                    if let VariableRef::Field {
+                        unit,
+                        member,
+                        index,
+                    } = var.node
+                    {
                         by_variable.insert((unit, member.0, index), (var.getter, var.setter));
                     }
                 }
@@ -404,7 +564,9 @@ pub fn invalid_overrides(
     // The instance members declared in a class: `(function, the name in the error)`.
     let the_declared = |cid: ClassId| -> Vec<(FunctionElementId, Span)> {
         let mut v = Vec::new();
-        let Some(decl) = program.class(cid).decl else { return v };
+        let Some(decl) = program.class(cid).decl else {
+            return v;
+        };
         let ast_ = &program.unit(decl.unit).ast;
         let members: &[ast::MemberId] = match &ast_.decl(decl.decl).kind {
             DeclKind::Class(d) => &d.members,
@@ -436,7 +598,9 @@ pub fn invalid_overrides(
         let cls = program.class(cid);
         cx.library = cls.library;
         let Some(decl) = cls.decl else { continue };
-        let Some(data) = outline.classes.get(cid.0 as usize) else { continue };
+        let Some(data) = outline.classes.get(cid.0 as usize) else {
+            continue;
+        };
         let ast_ = &program.unit(decl.unit).ast;
         let with: &[ast::TypeId] = match &ast_.decl(decl.decl).kind {
             DeclKind::Class(d) => &d.with,
@@ -468,8 +632,25 @@ pub fn invalid_overrides(
                 let span = ast_.ty(with[i]).span;
                 for (f, _) in the_declared(m) {
                     // The type of the member of the applied mixin (`M<args>`).
-                    let Some(typ) = cx.seen_type(mt, Finding { owner: m, function: f }) else { continue };
-                    cx.check(Check { function: f, ty: typ, declaring: m, span }, &supers.clone(), &mut diags);
+                    let Some(typ) = cx.seen_type(
+                        mt,
+                        Finding {
+                            owner: m,
+                            function: f,
+                        },
+                    ) else {
+                        continue;
+                    };
+                    cx.check(
+                        Check {
+                            function: f,
+                            ty: typ,
+                            declaring: m,
+                            span,
+                        },
+                        &supers.clone(),
+                        &mut diags,
+                    );
                 }
             }
             supers.push(mt);
@@ -483,8 +664,15 @@ pub fn invalid_overrides(
             if without_signature.contains(&f) {
                 continue;
             }
-            let Some(typ) = outline.functions.get(f.0 as usize).map(|d| d.signature) else { continue };
-            let conf = Check { function: f, ty: typ, declaring: cid, span };
+            let Some(typ) = outline.functions.get(f.0 as usize).map(|d| d.signature) else {
+                continue;
+            };
+            let conf = Check {
+                function: f,
+                ty: typ,
+                declaring: cid,
+                span,
+            };
             cx.check(Check { ..conf }, &supers, &mut diags);
             if let Some(key) = cx.key(f) {
                 cx.covariant_against_supertypes(&conf, key, &mut diags);
@@ -500,9 +688,12 @@ pub fn invalid_overrides(
 fn name_of(program: &Program, f: FunctionElementId) -> Option<(UnitId, Span)> {
     let func = program.function(f);
     match func.node {
-        FunctionRef::Function { unit, function } => {
-            Some((unit, program.unit(unit).ast.functions[function.0 as usize].name?.span))
-        }
+        FunctionRef::Function { unit, function } => Some((
+            unit,
+            program.unit(unit).ast.functions[function.0 as usize]
+                .name?
+                .span,
+        )),
         FunctionRef::None => variable_name(program, func.variable?),
         FunctionRef::Constructor { .. } => None,
     }
@@ -510,25 +701,38 @@ fn name_of(program: &Program, f: FunctionElementId) -> Option<(UnitId, Span)> {
 
 /// The declared name of a variable (field, top-level, enum constant,
 /// representation).
-fn variable_name(program: &Program, v: dartforge_elements::model::VariableId) -> Option<(UnitId, Span)> {
+fn variable_name(
+    program: &Program,
+    v: dartforge_elements::model::VariableId,
+) -> Option<(UnitId, Span)> {
     {
         match program.variable(v).node {
-            VariableRef::Field { unit, member, index } => match &program.unit(unit).ast.member(member).kind {
+            VariableRef::Field {
+                unit,
+                member,
+                index,
+            } => match &program.unit(unit).ast.member(member).kind {
                 MemberKind::Field(vl) => Some((unit, vl.variables.get(index)?.name.span)),
                 _ => None,
             },
-            VariableRef::TopLevel { unit, decl, index } => match &program.unit(unit).ast.decl(decl).kind {
-                DeclKind::Variables(vl) => Some((unit, vl.variables.get(index)?.name.span)),
-                _ => None,
-            },
-            VariableRef::EnumConstant { unit, decl, index } => match &program.unit(unit).ast.decl(decl).kind {
-                DeclKind::Enum(d) => Some((unit, d.constants.get(index)?.name.span)),
-                _ => None,
-            },
-            VariableRef::Representation { unit, decl } => match &program.unit(unit).ast.decl(decl).kind {
-                DeclKind::ExtensionType(d) => Some((unit, d.representation_name.span)),
-                _ => None,
-            },
+            VariableRef::TopLevel { unit, decl, index } => {
+                match &program.unit(unit).ast.decl(decl).kind {
+                    DeclKind::Variables(vl) => Some((unit, vl.variables.get(index)?.name.span)),
+                    _ => None,
+                }
+            }
+            VariableRef::EnumConstant { unit, decl, index } => {
+                match &program.unit(unit).ast.decl(decl).kind {
+                    DeclKind::Enum(d) => Some((unit, d.constants.get(index)?.name.span)),
+                    _ => None,
+                }
+            }
+            VariableRef::Representation { unit, decl } => {
+                match &program.unit(unit).ast.decl(decl).kind {
+                    DeclKind::ExtensionType(d) => Some((unit, d.representation_name.span)),
+                    _ => None,
+                }
+            }
             VariableRef::None => None,
         }
     }
@@ -548,7 +752,13 @@ impl Ctx<'_> {
                 let (written, t) = if getter {
                     (af.return_type, data.return_type)
                 } else {
-                    (af.parameters.as_deref().and_then(|p| p.first()).and_then(|p| p.ty), data.parameters.first()?.ty)
+                    (
+                        af.parameters
+                            .as_deref()
+                            .and_then(|p| p.first())
+                            .and_then(|p| p.ty),
+                        data.parameters.first()?.ty,
+                    )
                 };
                 // A written type that does not resolve (`InvalidType` in the analyzer,
                 // which is a subtype of everything and accepts everything): undecided.
@@ -592,7 +802,15 @@ pub fn getters_and_setters(
     lib: dartforge_elements::model::LibraryId,
     classes: &[ClassId],
 ) -> Vec<(UnitId, Diagnostic)> {
-    let mut cx = Ctx { program, interner, table, core, outline, inheritance: crate::inheritance::InheritanceManager::default(), library: dartforge_elements::model::LibraryId(0) };
+    let mut cx = Ctx {
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        inheritance: crate::inheritance::InheritanceManager::default(),
+        library: dartforge_elements::model::LibraryId(0),
+    };
     let mut output = Vec::new();
     // Local accessors: `(holder, the_name)` → getters and setters.
     #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
@@ -638,7 +856,10 @@ pub fn getters_and_setters(
             }
         }
     }
-    for (i, f) in program.index().library_functions[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.function(x))) {
+    for (i, f) in program.index().library_functions[lib.0 as usize]
+        .iter()
+        .map(|&x| (x.0 as usize, program.function(x)))
+    {
         if f.library != lib || f.patched_by.is_some() {
             continue;
         }
@@ -656,11 +877,17 @@ pub fn getters_and_setters(
                 && program.class(c).kind == dartforge_elements::model::ClassKind::Enum
                 && interner.resolve(f.name) == "values"
             {
-                groups.entry((Holder::Class(c), f.name)).or_default().0.push(Accessor::Values(c));
+                groups
+                    .entry((Holder::Class(c), f.name))
+                    .or_default()
+                    .0
+                    .push(Accessor::Values(c));
             }
             continue;
         }
-        let Some(the_kind) = cx.kind(id) else { continue };
+        let Some(the_kind) = cx.kind(id) else {
+            continue;
+        };
         if the_kind == Kind::Method {
             continue;
         }
@@ -675,7 +902,9 @@ pub fn getters_and_setters(
             // Instance members of an extension type: those declared in it
             // (`checkExtensionType`, the part of the interface it declares itself),
             // including the representation.
-            (Some(c), None) if program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType => {
+            (Some(c), None)
+                if program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType =>
+            {
                 Holder::Instance(c)
             }
             (Some(_), None) => continue,
@@ -685,22 +914,37 @@ pub fn getters_and_setters(
             },
         };
         let g = groups.entry((holder, f.name)).or_default();
-        if the_kind == Kind::Getter { g.0.push(Accessor::Function(id)) } else { g.1.push(Accessor::Function(id)) }
+        if the_kind == Kind::Getter {
+            g.0.push(Accessor::Function(id))
+        } else {
+            g.1.push(Accessor::Function(id))
+        }
     }
     // Variables without an access function: the enum constant (static
     // getter), the representation (instance getter of the extension type) and
     // the extension field (getter, and setter if neither `final` nor `const`).
-    for (i, v) in program.index().library_variables[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.variable(x))) {
+    for (i, v) in program.index().library_variables[lib.0 as usize]
+        .iter()
+        .map(|&x| (x.0 as usize, program.variable(x)))
+    {
         if v.library != lib || v.getter.is_some() {
             continue;
         }
         let vid = dartforge_elements::model::VariableId(i as u32);
         match (v.node, v.class, v.extension) {
             (VariableRef::EnumConstant { .. }, Some(c), _) => {
-                groups.entry((Holder::Class(c), v.name)).or_default().0.push(Accessor::Variable(vid));
+                groups
+                    .entry((Holder::Class(c), v.name))
+                    .or_default()
+                    .0
+                    .push(Accessor::Variable(vid));
             }
             (VariableRef::Representation { .. }, Some(c), _) => {
-                groups.entry((Holder::Instance(c), v.name)).or_default().0.push(Accessor::Variable(vid));
+                groups
+                    .entry((Holder::Instance(c), v.name))
+                    .or_default()
+                    .0
+                    .push(Accessor::Variable(vid));
             }
             (VariableRef::Field { .. }, None, Some(e)) => {
                 let g = groups.entry((Holder::Extension(e.0), v.name)).or_default();
@@ -713,27 +957,54 @@ pub fn getters_and_setters(
         }
     }
     let this_type = |table: &mut TypeTable, c: ClassId| -> TypeId {
-        let params = outline.classes.get(c.0 as usize).map(|d| d.type_params.clone()).unwrap_or_default();
-        let args: Box<[TypeId]> = params.iter().map(|&p| table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        table.intern(Type::Interface { class: c, args, nullable: false })
+        let params = outline
+            .classes
+            .get(c.0 as usize)
+            .map(|d| d.type_params.clone())
+            .unwrap_or_default();
+        let args: Box<[TypeId]> = params
+            .iter()
+            .map(|&p| {
+                table.intern(Type::TypeParameter {
+                    param: p,
+                    nullable: false,
+                })
+            })
+            .collect();
+        table.intern(Type::Interface {
+            class: c,
+            args,
+            nullable: false,
+        })
     };
     let mut keys: Vec<_> = groups.keys().copied().collect();
     keys.sort_by_key(|(r, n)| (interner.resolve(*n).to_string(), format!("{r:?}")));
     for k in keys {
         let (gs, ss) = &groups[&k];
-        let ([g], [s]) = (gs.as_slice(), ss.as_slice()) else { continue };
+        let ([g], [s]) = (gs.as_slice(), ss.as_slice()) else {
+            continue;
+        };
         let typ = |cx: &mut Ctx<'_>, a: Accessor, getter: bool| -> Option<TypeId> {
             match a {
                 Accessor::Function(f) => cx.accessor_type(f, getter),
-                Accessor::Variable(v) => outline.variables.get(v.0 as usize).and_then(|d| d.declared_type.or(d.inferred)),
+                Accessor::Variable(v) => outline
+                    .variables
+                    .get(v.0 as usize)
+                    .and_then(|d| d.declared_type.or(d.inferred)),
                 Accessor::Values(c) => {
                     let list = core.list_class?;
                     let e = this_type(cx.table, c);
-                    Some(cx.table.intern(Type::Interface { class: list, args: Box::new([e]), nullable: false }))
+                    Some(cx.table.intern(Type::Interface {
+                        class: list,
+                        args: Box::new([e]),
+                        nullable: false,
+                    }))
                 }
             }
         };
-        let (Some(tg), Some(ts)) = (typ(&mut cx, *g, true), typ(&mut cx, *s, false)) else { continue };
+        let (Some(tg), Some(ts)) = (typ(&mut cx, *g, true), typ(&mut cx, *s, false)) else {
+            continue;
+        };
         let ok = {
             let mut env = SubtypeEnv::new(cx.table, &outline.hierarchy, core);
             is_subtype(tg, ts, &mut env)
@@ -755,11 +1026,23 @@ pub fn getters_and_setters(
                 }
             }
         };
-        let place = if representation { place_of(*s) } else { place_of(*g) };
+        let place = if representation {
+            place_of(*s)
+        } else {
+            place_of(*g)
+        };
         if !ok && let Some((u, span)) = place {
             let the_name = interner.resolve(k.1).to_string();
-            let args = [the_name.clone(), display_string(cx.table, tg, interner, program), display_string(cx.table, ts, interner, program), the_name];
-            output.push((u, Diagnostic::with_code(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));
+            let args = [
+                the_name.clone(),
+                display_string(cx.table, tg, interner, program),
+                display_string(cx.table, ts, interner, program),
+                the_name,
+            ];
+            output.push((
+                u,
+                Diagnostic::with_code(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args),
+            ));
         }
     }
     // `dart:core`'s `Enum`: an enum's synthetic getters `index` and `name`
@@ -767,14 +1050,18 @@ pub fn getters_and_setters(
     let core_enum = program
         .classes
         .iter()
-        .position(|k| interner.resolve(k.name) == "Enum" && program.library(k.library).uri == "dart:core")
+        .position(|k| {
+            interner.resolve(k.name) == "Enum" && program.library(k.library).uri == "dart:core"
+        })
         .map(|i| ClassId(i as u32));
     let enum_synthetic = |f: FunctionElementId| {
         let func = program.function(f);
         matches!(func.node, FunctionRef::None)
             && func.variable.is_none()
             && !func.static_
-            && func.class.is_some_and(|c| program.class(c).kind == dartforge_elements::model::ClassKind::Enum)
+            && func.class.is_some_and(|c| {
+                program.class(c).kind == dartforge_elements::model::ClassKind::Enum
+            })
     };
     // The interface of each class (`InheritanceOverrideVerifier`'s
     // `checkInterface`) and of each extension type (`checkExtensionType`, from
@@ -784,7 +1071,9 @@ pub fn getters_and_setters(
         .classes
         .iter()
         .enumerate()
-        .filter(|(_, k)| k.library == lib && k.kind == dartforge_elements::model::ClassKind::ExtensionType)
+        .filter(|(_, k)| {
+            k.library == lib && k.kind == dartforge_elements::model::ClassKind::ExtensionType
+        })
         .map(|(i, _)| ClassId(i as u32))
         .filter(|c| !classes.contains(c))
         .collect();
@@ -793,10 +1082,30 @@ pub fn getters_and_setters(
         let of_extension = cls.kind == dartforge_elements::model::ClassKind::ExtensionType;
         cx.library = cls.library;
         let Some(decl) = cls.decl else { continue };
-        let Some(data_h) = outline.hierarchy.get(cid) else { continue };
-        let Some(params) = outline.classes.get(cid.0 as usize).map(|d| d.type_params.clone()) else { continue };
-        let args: Box<[TypeId]> = params.iter().map(|&p| cx.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        let this_one = cx.table.intern(Type::Interface { class: cid, args, nullable: false });
+        let Some(data_h) = outline.hierarchy.get(cid) else {
+            continue;
+        };
+        let Some(params) = outline
+            .classes
+            .get(cid.0 as usize)
+            .map(|d| d.type_params.clone())
+        else {
+            continue;
+        };
+        let args: Box<[TypeId]> = params
+            .iter()
+            .map(|&p| {
+                cx.table.intern(Type::TypeParameter {
+                    param: p,
+                    nullable: false,
+                })
+            })
+            .collect();
+        let this_one = cx.table.intern(Type::Interface {
+            class: cid,
+            args,
+            nullable: false,
+        });
         let mut names: Vec<SymbolId> = Vec::new();
         for s in std::iter::once(cid).chain(data_h.supertypes.keys().copied()) {
             for (&key, &f) in &program.class(s).instance_members {
@@ -808,9 +1117,15 @@ pub fn getters_and_setters(
         names.sort_by_key(|n| interner.resolve(*n).to_string());
         for the_name in names {
             let text = interner.resolve(the_name).to_string();
-            let Some(setter_key) = interner.lookup(&format!("{text}_=")) else { continue };
-            let Some((mut g, tg)) = cx.in_interface(this_one, the_name, 0) else { continue };
-            let Some((s, ts)) = cx.in_interface(this_one, setter_key, 0) else { continue };
+            let Some(setter_key) = interner.lookup(&format!("{text}_=")) else {
+                continue;
+            };
+            let Some((mut g, tg)) = cx.in_interface(this_one, the_name, 0) else {
+                continue;
+            };
+            let Some((s, ts)) = cx.in_interface(this_one, setter_key, 0) else {
+                continue;
+            };
             if of_extension && g.owner == cid && s.owner == cid {
                 continue;
             }
@@ -820,22 +1135,34 @@ pub fn getters_and_setters(
                 g.owner = e;
             }
             if text.starts_with('_')
-                && (program.class(g.owner).library != cls.library || program.class(s.owner).library != cls.library)
+                && (program.class(g.owner).library != cls.library
+                    || program.class(s.owner).library != cls.library)
             {
                 continue;
             }
-            if cx.kind(g.function) != Some(Kind::Getter) || cx.kind(s.function) != Some(Kind::Setter) {
+            if cx.kind(g.function) != Some(Kind::Getter)
+                || cx.kind(s.function) != Some(Kind::Setter)
+            {
                 continue;
             }
-            let (Type::Function { ret, .. }, Type::Function { positional, optional, named, .. }) =
-                (cx.table.get(tg).clone(), cx.table.get(ts).clone())
+            let (
+                Type::Function { ret, .. },
+                Type::Function {
+                    positional,
+                    optional,
+                    named,
+                    ..
+                },
+            ) = (cx.table.get(tg).clone(), cx.table.get(ts).clone())
             else {
                 continue;
             };
             if positional.len() + optional.len() + named.len() != 1 {
                 continue;
             }
-            let Some(&param) = positional.first().or(optional.first()) else { continue };
+            let Some(&param) = positional.first().or(optional.first()) else {
+                continue;
+            };
             let ok = {
                 let mut env = SubtypeEnv::new(cx.table, &outline.hierarchy, core);
                 is_subtype(ret, param, &mut env)
@@ -859,10 +1186,22 @@ pub fn getters_and_setters(
             };
             let Some((u, span)) = place else { continue };
             let qualified = |owner: ClassId| {
-                if owner == cid { text.clone() } else { format!("{}.{text}", interner.resolve(program.class(owner).name)) }
+                if owner == cid {
+                    text.clone()
+                } else {
+                    format!("{}.{text}", interner.resolve(program.class(owner).name))
+                }
             };
-            let args = [qualified(g.owner), display_string(cx.table, ret, interner, program), display_string(cx.table, param, interner, program), qualified(s.owner)];
-            output.push((u, Diagnostic::with_code(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args)));
+            let args = [
+                qualified(g.owner),
+                display_string(cx.table, ret, interner, program),
+                display_string(cx.table, param, interner, program),
+                qualified(s.owner),
+            ];
+            output.push((
+                u,
+                Diagnostic::with_code(c::GETTER_NOT_SUBTYPE_SETTER_TYPES, span, args),
+            ));
         }
     }
     output
@@ -872,11 +1211,20 @@ pub fn getters_and_setters(
 /// documentation comment right before it, if any.
 /// The source before `pos` without the whitespace and comments that end
 /// there (`// … method.` before a member is not a `.` before its name).
-fn before_skipping_comments<'s>(source: &'s str, comments: &dartforge_frontend::comments::Comments, pos: usize) -> &'s str {
+fn before_skipping_comments<'s>(
+    source: &'s str,
+    comments: &dartforge_frontend::comments::Comments,
+    pos: usize,
+) -> &'s str {
     let mut end = pos;
     loop {
         let trimmed = source[..end].trim_end();
-        match comments.all().iter().find(|c| c.end <= end && source[c.end..end].trim().is_empty() && c.end > 0 && c.start < trimmed.len()) {
+        match comments.all().iter().find(|c| {
+            c.end <= end
+                && source[c.end..end].trim().is_empty()
+                && c.end > 0
+                && c.start < trimmed.len()
+        }) {
             Some(c) => end = c.start,
             None => return trimmed,
         }
@@ -927,7 +1275,10 @@ impl Ctx<'_> {
             h.member(&mut p, d, the_name, true, None, false)
         };
         self.inheritance = h;
-        r.map(|m| Finding { owner: m.class, function: m.function })
+        r.map(|m| Finding {
+            owner: m.class,
+            function: m.function,
+        })
     }
 
     /// `InterfaceElement.supertype`: the model's, and `Enum` for an enum
@@ -939,7 +1290,9 @@ impl Ctx<'_> {
             // supertype becomes `Object`.
             Some(s) if self.outside_hierarchy(d, s) => self.core_class("Object"),
             Some(s) => Some(s),
-            None if cls.kind == dartforge_elements::model::ClassKind::Enum => self.core_class("Enum"),
+            None if cls.kind == dartforge_elements::model::ClassKind::Enum => {
+                self.core_class("Enum")
+            }
             None => None,
         }
     }
@@ -948,7 +1301,9 @@ impl Ctx<'_> {
     /// or enum (the analyzer drops it from the clause).
     fn outside_hierarchy(&self, d: ClassId, s: ClassId) -> bool {
         use dartforge_elements::model::ClassKind as K;
-        if self.program.class(d).kind != K::ExtensionType && matches!(self.program.class(s).kind, K::Enum | K::ExtensionType) {
+        if self.program.class(d).kind != K::ExtensionType
+            && matches!(self.program.class(s).kind, K::Enum | K::ExtensionType)
+        {
             return true;
         }
         // A class (not an enum) only reaches `dart:core`'s `Enum`/`_Enum` through
@@ -962,7 +1317,8 @@ impl Ctx<'_> {
 
     fn of_object(&self, c: ClassId) -> bool {
         let cls = self.program.class(c);
-        self.interner.resolve(cls.name) == "Object" && self.program.library(cls.library).uri == "dart:core"
+        self.interner.resolve(cls.name) == "Object"
+            && self.program.library(cls.library).uri == "dart:core"
     }
 
     fn core_class(&self, the_name: &str) -> Option<ClassId> {
@@ -976,15 +1332,33 @@ impl Ctx<'_> {
 
     /// The private name `k` is declared by `c` or by a supertype from library
     /// `lib`.
-    fn library_private(&self, c: ClassId, k: SymbolId, lib: dartforge_elements::model::LibraryId) -> bool {
-        let supers = self.outline.hierarchy.get(c).map(|d| d.supertypes.keys().copied().collect::<Vec<_>>()).unwrap_or_default();
-        std::iter::once(c).chain(supers).any(|s| self.program.class(s).library == lib && self.program.class(s).instance_members.contains_key(&k))
+    fn library_private(
+        &self,
+        c: ClassId,
+        k: SymbolId,
+        lib: dartforge_elements::model::LibraryId,
+    ) -> bool {
+        let supers = self
+            .outline
+            .hierarchy
+            .get(c)
+            .map(|d| d.supertypes.keys().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
+        std::iter::once(c).chain(supers).any(|s| {
+            self.program.class(s).library == lib
+                && self.program.class(s).instance_members.contains_key(&k)
+        })
     }
 
     /// All instance member keys of `c` and of its supertypes.
     fn hierarchy_keys(&self, c: ClassId) -> Vec<SymbolId> {
         let mut v: Vec<SymbolId> = Vec::new();
-        let supers = self.outline.hierarchy.get(c).map(|d| d.supertypes.keys().copied().collect::<Vec<_>>()).unwrap_or_default();
+        let supers = self
+            .outline
+            .hierarchy
+            .get(c)
+            .map(|d| d.supertypes.keys().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
         for s in std::iter::once(c).chain(supers) {
             if s != c && self.outside_hierarchy(c, s) {
                 continue;
@@ -1001,8 +1375,20 @@ impl Ctx<'_> {
 
     fn own_type(&mut self, c: ClassId) -> Option<TypeId> {
         let params = self.outline.classes.get(c.0 as usize)?.type_params.clone();
-        let args: Box<[TypeId]> = params.iter().map(|&p| self.table.intern(Type::TypeParameter { param: p, nullable: false })).collect();
-        Some(self.table.intern(Type::Interface { class: c, args, nullable: false }))
+        let args: Box<[TypeId]> = params
+            .iter()
+            .map(|&p| {
+                self.table.intern(Type::TypeParameter {
+                    param: p,
+                    nullable: false,
+                })
+            })
+            .collect();
+        Some(self.table.intern(Type::Interface {
+            class: c,
+            args,
+            nullable: false,
+        }))
     }
 }
 
@@ -1024,7 +1410,15 @@ pub fn abstract_members(
     outline: &OutlineTypes,
     classes: &[ClassId],
 ) -> Vec<(UnitId, Diagnostic)> {
-    let mut cx = Ctx { program, interner, table, core, outline, inheritance: crate::inheritance::InheritanceManager::default(), library: dartforge_elements::model::LibraryId(0) };
+    let mut cx = Ctx {
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        inheritance: crate::inheritance::InheritanceManager::default(),
+        library: dartforge_elements::model::LibraryId(0),
+    };
     let mut output = Vec::new();
     let nsm = interner.lookup("noSuchMethod");
     for &cid in classes {
@@ -1033,8 +1427,11 @@ pub fn abstract_members(
         let Some(decl) = cls.decl else { continue };
         let ast_ = &program.unit(decl.unit).ast;
         let source = &program.unit(decl.unit).source;
-        let (class_name, members): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {
-            DeclKind::Class(d) if !d.modifiers.abstract_ && !d.modifiers.sealed => (d.name, &d.members),
+        let (class_name, members): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind
+        {
+            DeclKind::Class(d) if !d.modifiers.abstract_ && !d.modifiers.sealed => {
+                (d.name, &d.members)
+            }
             DeclKind::Enum(d) => (d.name, &d.members),
             _ => continue,
         };
@@ -1059,7 +1456,9 @@ pub fn abstract_members(
         // Without the experiment, the parser reads `augment` as an identifier
         // and the recovery is the analyzer's (T1.1 f): nothing to skip.
         let augment_in_text = program.library_has_augmentations(cls.library)
-            && decl_text.lines().any(|l| l.trim_start().starts_with("augment "));
+            && decl_text
+                .lines()
+                .any(|l| l.trim_start().starts_with("augment "));
         if recovered || augment_in_text || ast_.decl(decl.decl).augment {
             continue;
         }
@@ -1068,7 +1467,9 @@ pub fn abstract_members(
         // in the tree of the declaration itself
         // (`_reportConcreteClassWithAbstractMember`).
         let intf = program.class_owner(cid);
-        let Some(this_one) = cx.own_type(intf) else { continue };
+        let Some(this_one) = cx.own_type(intf) else {
+            continue;
+        };
         // An implemented `noSuchMethod` other than `Object`'s: the name without a
         // concrete implementation gets the forwarder (the interface member
         // becomes the `implemented`, 3.6.2 `inheritance_manager3.dart`), so
@@ -1076,7 +1477,8 @@ pub fn abstract_members(
         // still checked (`Enum.index` against a `Never get index` in the
         // interface).
         let forwards = nsm.is_some_and(|n| {
-            cx.implemented(intf, n, 0).is_some_and(|a| program.library(program.class(a.owner).library).uri != "dart:core")
+            cx.implemented(intf, n, 0)
+                .is_some_and(|a| program.library(program.class(a.owner).library).uri != "dart:core")
         });
         // `_isNotImplementedInConcreteSuperClass`: the declared superclass,
         // if concrete.
@@ -1107,7 +1509,9 @@ pub fn abstract_members(
             if text.starts_with('_') && program.class(mem.owner).library != cls.library {
                 continue;
             }
-            let Some(the_kind) = cx.kind(mem.function) else { continue };
+            let Some(the_kind) = cx.kind(mem.function) else {
+                continue;
+            };
             let displayed = text.strip_suffix("_=").unwrap_or(&text).to_string();
             match cx.implemented(intf, key, 0) {
                 None if forwards => {}
@@ -1122,7 +1526,11 @@ pub fn abstract_members(
                             let af = ast_.function(*f);
                             af.name.is_some_and(|n| {
                                 let base = interner.resolve(n.sym);
-                                if af.kind == ast::FunctionKind::Setter { format!("{base}_=") == text } else { base == text && af.kind != ast::FunctionKind::Setter }
+                                if af.kind == ast::FunctionKind::Setter {
+                                    format!("{base}_=") == text
+                                } else {
+                                    base == text && af.kind != ast::FunctionKind::Setter
+                                }
                             })
                         }
                         MemberKind::Field(vl) => vl.variables.iter().any(|v| {
@@ -1137,20 +1545,45 @@ pub fn abstract_members(
                         // modifiers that `MethodDeclaration` does not keep (syntax
                         // errors) are outside the node; `external`/`static` stay.
                         if let MemberKind::Method(_) = &ast_.member(m).kind {
-                            const OUTSIDE: [&str; 7] = ["var", "const", "final", "abstract", "covariant", "late", "required"];
-                            while let Some(rest) =
-                                OUTSIDE.iter().find_map(|k| source[sp.start..sp.end].strip_prefix(k).filter(|r| r.starts_with(char::is_whitespace)))
-                            {
+                            const OUTSIDE: [&str; 7] = [
+                                "var",
+                                "const",
+                                "final",
+                                "abstract",
+                                "covariant",
+                                "late",
+                                "required",
+                            ];
+                            while let Some(rest) = OUTSIDE.iter().find_map(|k| {
+                                source[sp.start..sp.end]
+                                    .strip_prefix(k)
+                                    .filter(|r| r.starts_with(char::is_whitespace))
+                            }) {
                                 sp.start = sp.end - rest.trim_start().len();
                             }
                         }
-                        let span = Span { start: start_with_documentation(source, sp.start), end: sp.end };
-                        let code = if is_enum { c::ENUM_WITH_ABSTRACT_MEMBER } else { c::CONCRETE_CLASS_WITH_ABSTRACT_MEMBER };
-                        output.push((decl.unit, Diagnostic::with_code(code, span, [displayed.as_str(), interner.resolve(cls.name)])));
+                        let span = Span {
+                            start: start_with_documentation(source, sp.start),
+                            end: sp.end,
+                        };
+                        let code = if is_enum {
+                            c::ENUM_WITH_ABSTRACT_MEMBER
+                        } else {
+                            c::CONCRETE_CLASS_WITH_ABSTRACT_MEMBER
+                        };
+                        output.push((
+                            decl.unit,
+                            Diagnostic::with_code(
+                                code,
+                                span,
+                                [displayed.as_str(), interner.resolve(cls.name)],
+                            ),
+                        ));
                         continue;
                     }
                     if let Some(s) = concrete_superclass
-                        && let Some(st) = outline.hierarchy.supertype_of(this_one, s, cx.table, core)
+                        && let Some(st) =
+                            outline.hierarchy.supertype_of(this_one, s, cx.table, core)
                         && cx.in_interface(st, key, 0).is_some()
                     {
                         continue;
@@ -1163,14 +1596,19 @@ pub fn abstract_members(
                         Kind::Setter => "setter ",
                         Kind::Method => "",
                     };
-                    the_inherited.push(format!("{prefix}{}.{displayed}", interner.resolve(program.class(mem.owner).name)));
+                    the_inherited.push(format!(
+                        "{prefix}{}.{displayed}",
+                        interner.resolve(program.class(mem.owner).name)
+                    ));
                 }
                 Some(concrete) => {
                     // The concrete implementation against the interface signature.
                     if concrete == mem || cx.kind(concrete.function) != Some(the_kind) {
                         continue;
                     }
-                    let Some(concrete_type) = cx.seen_type(this_one, concrete) else { continue };
+                    let Some(concrete_type) = cx.seen_type(this_one, concrete) else {
+                        continue;
+                    };
                     // `_inheritCovariance`: the covariance comes from all the
                     // same-named members in the class hierarchy.
                     let (pos, names) = cx.effective_covariant(intf, concrete.function, key);
@@ -1187,12 +1625,17 @@ pub fn abstract_members(
                         };
                         let args = [
                             displayed.clone(),
-                            interner.resolve(program.class(concrete.owner).name).to_string(),
+                            interner
+                                .resolve(program.class(concrete.owner).name)
+                                .to_string(),
                             display_string(cx.table, concrete_type, interner, program),
                             interner.resolve(program.class(mem.owner).name).to_string(),
                             display_string(cx.table, member_type, interner, program),
                         ];
-                        output.push((decl.unit, Diagnostic::with_code(code, class_name.span, args)));
+                        output.push((
+                            decl.unit,
+                            Diagnostic::with_code(code, class_name.span, args),
+                        ));
                     }
                 }
             }
@@ -1212,7 +1655,10 @@ pub fn abstract_members(
         if the_inherited.len() > 4 {
             args.push((the_inherited.len() - 4).to_string());
         }
-        output.push((decl.unit, Diagnostic::with_code(code, class_name.span, args)));
+        output.push((
+            decl.unit,
+            Diagnostic::with_code(code, class_name.span, args),
+        ));
     }
     output
 }
@@ -1247,16 +1693,25 @@ pub fn uninitialized_variables(
 ) -> Vec<(UnitId, Diagnostic)> {
     use dartforge_elements::model::VariableRef;
     let mut output = Vec::new();
-    for (i, v) in program.index().library_variables[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.variable(x))) {
+    for (i, v) in program.index().library_variables[lib.0 as usize]
+        .iter()
+        .map(|&x| (x.0 as usize, program.variable(x)))
+    {
         if v.library != lib {
             continue;
         }
         let (unit, list, top) = match v.node {
-            VariableRef::TopLevel { unit, decl, index } => match &program.unit(unit).ast.decl(decl).kind {
-                ast::DeclKind::Variables(l) => (unit, (l, index), true),
-                _ => continue,
-            },
-            VariableRef::Field { unit, member, index } => match &program.unit(unit).ast.member(member).kind {
+            VariableRef::TopLevel { unit, decl, index } => {
+                match &program.unit(unit).ast.decl(decl).kind {
+                    ast::DeclKind::Variables(l) => (unit, (l, index), true),
+                    _ => continue,
+                }
+            }
+            VariableRef::Field {
+                unit,
+                member,
+                index,
+            } => match &program.unit(unit).ast.member(member).kind {
                 MemberKind::Field(l) if l.static_ => (unit, (l, index), false),
                 _ => continue,
             },
@@ -1266,17 +1721,28 @@ pub fn uninitialized_variables(
         if l.const_ || (top && l.final_) || l.late || l.external || l.ty.is_none() {
             continue;
         }
-        let Some(var) = l.variables.get(index) else { continue };
+        let Some(var) = l.variables.get(index) else {
+            continue;
+        };
         if var.initializer.is_some() {
             continue;
         }
-        let Some(t) = outline.variables.get(i).and_then(|d| d.declared_type) else { continue };
+        let Some(t) = outline.variables.get(i).and_then(|d| d.declared_type) else {
+            continue;
+        };
         if is_nullable(table, t) {
             continue;
         }
         // Also at the synthetic (empty) name, like the analyzer.
         let the_name = var.name;
-        output.push((unit, Diagnostic::with_code(c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE, the_name.span, [interner.resolve(the_name.sym)])));
+        output.push((
+            unit,
+            Diagnostic::with_code(
+                c::NOT_INITIALIZED_NON_NULLABLE_VARIABLE,
+                the_name.span,
+                [interner.resolve(the_name.sym)],
+            ),
+        ));
     }
     output
 }
@@ -1305,9 +1771,18 @@ pub fn default_values(
 /// `element.dart:9291-9310`): by name, if named; otherwise by position among
 /// the constructor's `super.x` parameters, in the positionals of the
 /// superclass constructor (that of `super.the_name(…)`, or the unnamed one).
-fn super_parameter(program: &Program, interner: &Interner, f: FunctionElementId, i: usize) -> Option<(FunctionElementId, usize)> {
-    let FunctionRef::Constructor { unit, member } = program.function(f).node else { return None };
-    let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else { return None };
+fn super_parameter(
+    program: &Program,
+    interner: &Interner,
+    f: FunctionElementId,
+    i: usize,
+) -> Option<(FunctionElementId, usize)> {
+    let FunctionRef::Constructor { unit, member } = program.function(f).node else {
+        return None;
+    };
+    let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else {
+        return None;
+    };
     let p = k.parameters.get(i)?;
     let c = program.function(f).class?;
     let s = program.class(c).supertype_class?;
@@ -1320,15 +1795,32 @@ fn super_parameter(program: &Program, interner: &Interner, f: FunctionElementId,
         _ => interner.lookup(""),
     }?;
     let fs = *program.class(s).constructors.get(&key)?;
-    let FunctionRef::Constructor { unit: su, member: sm } = program.function(fs).node else { return None };
-    let MemberKind::Constructor(sk) = &program.unit(su).ast.member(sm).kind else { return None };
+    let FunctionRef::Constructor {
+        unit: su,
+        member: sm,
+    } = program.function(fs).node
+    else {
+        return None;
+    };
+    let MemberKind::Constructor(sk) = &program.unit(su).ast.member(sm).kind else {
+        return None;
+    };
     if p.kind == ast::ParameterKind::Named {
         let the_name = p.external_name()?.sym;
-        let j = sk.parameters.iter().position(|q| q.kind == ast::ParameterKind::Named && q.external_name().is_some_and(|n| n.sym == the_name))?;
+        let j = sk.parameters.iter().position(|q| {
+            q.kind == ast::ParameterKind::Named
+                && q.external_name().is_some_and(|n| n.sym == the_name)
+        })?;
         return Some((fs, j));
     }
     let the_index = k.parameters[..i].iter().filter(|q| q.super_).count();
-    let positional_args: Vec<usize> = sk.parameters.iter().enumerate().filter(|(_, q)| q.kind != ast::ParameterKind::Named).map(|(j, _)| j).collect();
+    let positional_args: Vec<usize> = sk
+        .parameters
+        .iter()
+        .enumerate()
+        .filter(|(_, q)| q.kind != ast::ParameterKind::Named)
+        .map(|(j, _)| j)
+        .collect();
     positional_args.get(the_index).map(|&j| (fs, j))
 }
 
@@ -1349,12 +1841,21 @@ fn parameter_default_value(
     if prof > 32 {
         return None;
     }
-    let FunctionRef::Constructor { unit, member } = program.function(f).node else { return None };
-    let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else { return None };
+    let FunctionRef::Constructor { unit, member } = program.function(f).node else {
+        return None;
+    };
+    let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else {
+        return None;
+    };
     let p = k.parameters.get(i)?;
     let type_p = outline.functions.get(f.0 as usize)?.parameters.get(i)?.ty;
     if let Some(d) = p.default_value {
-        return Some(bodies.and_then(|c| c.units.get(unit.0 as usize)).and_then(|u| u.get_type(d)).unwrap_or(type_p));
+        return Some(
+            bodies
+                .and_then(|c| c.units.get(unit.0 as usize))
+                .and_then(|u| u.get_type(d))
+                .unwrap_or(type_p),
+        );
     }
     if !p.super_ {
         return None;
@@ -1362,7 +1863,15 @@ fn parameter_default_value(
     // `_superConstructorParameterDefaultValue`: the value of the superclass
     // parameter, if its type fits this one's.
     let (fs, j) = super_parameter(program, interner, f, i)?;
-    let v = parameter_default_value(program, interner, table, core, outline, bodies, (fs, j, prof + 1))?;
+    let v = parameter_default_value(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        bodies,
+        (fs, j, prof + 1),
+    )?;
     let core = core?;
     // The value's type is not known here (the superclass's library without
     // inferred bodies, as when analyzing a single file in the LSP): the value
@@ -1395,20 +1904,46 @@ fn has_default(
     if prof > 32 {
         return false;
     }
-    let FunctionRef::Constructor { unit, member } = program.function(f).node else { return false };
-    let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else { return false };
-    let Some(p) = k.parameters.get(i) else { return false };
+    let FunctionRef::Constructor { unit, member } = program.function(f).node else {
+        return false;
+    };
+    let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else {
+        return false;
+    };
+    let Some(p) = k.parameters.get(i) else {
+        return false;
+    };
     if p.default_value.is_some() {
         return true;
     }
     if !p.super_ || p.required || p.kind == ast::ParameterKind::Required {
         return false;
     }
-    if parameter_default_value(program, interner, table, core, outline, bodies, (f, i, prof)).is_none() {
+    if parameter_default_value(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        bodies,
+        (f, i, prof),
+    )
+    .is_none()
+    {
         return false;
     }
     match super_parameter(program, interner, f, i) {
-        Some((fs, j)) => has_default(program, interner, table, core, outline, bodies, fs, j, prof + 1),
+        Some((fs, j)) => has_default(
+            program,
+            interner,
+            table,
+            core,
+            outline,
+            bodies,
+            fs,
+            j,
+            prof + 1,
+        ),
         None => false,
     }
 }
@@ -1426,22 +1961,38 @@ pub fn default_values_with(
     lib: dartforge_elements::model::LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
     let mut output = Vec::new();
-    for (i, f) in program.index().library_functions[lib.0 as usize].iter().map(|&x| (x.0 as usize, program.function(x))) {
+    for (i, f) in program.index().library_functions[lib.0 as usize]
+        .iter()
+        .map(|&x| (x.0 as usize, program.function(x)))
+    {
         if f.library != lib || f.patched_by.is_some() {
             continue;
         }
-        let Some(data) = outline.functions.get(i) else { continue };
+        let Some(data) = outline.functions.get(i) else {
+            continue;
+        };
         let (unit, params, expected): (UnitId, &[ast::Parameter], bool) = match f.node {
             FunctionRef::Function { unit, function } => {
                 let af = &program.unit(unit).ast.functions[function.0 as usize];
                 let native = matches!(af.body, ast::FunctionBody::Native(_));
-                let the_abstract_ = f.class.is_some() && matches!(af.body, ast::FunctionBody::Empty);
-                (unit, af.parameters.as_deref().unwrap_or(&[]), !af.external && !native && !the_abstract_)
+                let the_abstract_ =
+                    f.class.is_some() && matches!(af.body, ast::FunctionBody::Empty);
+                (
+                    unit,
+                    af.parameters.as_deref().unwrap_or(&[]),
+                    !af.external && !native && !the_abstract_,
+                )
             }
-            FunctionRef::Constructor { unit, member } => match &program.unit(unit).ast.member(member).kind {
-                MemberKind::Constructor(k) => (unit, &k.parameters[..], !k.external && !(k.factory && k.redirect.is_some())),
-                _ => continue,
-            },
+            FunctionRef::Constructor { unit, member } => {
+                match &program.unit(unit).ast.member(member).kind {
+                    MemberKind::Constructor(k) => (
+                        unit,
+                        &k.parameters[..],
+                        !k.external && !(k.factory && k.redirect.is_some()),
+                    ),
+                    _ => continue,
+                }
+            }
             FunctionRef::None => continue,
         };
         if !expected || params.len() != data.parameters.len() {
@@ -1452,19 +2003,31 @@ pub fn default_values_with(
         // differently.
         let source = &program.unit(unit).source;
         let line_starts_with_augment = |pos: usize| {
-            let begin = source[..pos.min(source.len())].rfind('\n').map_or(0, |i| i + 1);
+            let begin = source[..pos.min(source.len())]
+                .rfind('\n')
+                .map_or(0, |i| i + 1);
             source[begin..].trim_start().starts_with("augment ")
         };
         let start = match f.node {
-            FunctionRef::Function { function, .. } => program.unit(unit).ast.functions[function.0 as usize].span.start,
-            FunctionRef::Constructor { member, .. } => program.unit(unit).ast.member(member).span.start,
+            FunctionRef::Function { function, .. } => {
+                program.unit(unit).ast.functions[function.0 as usize]
+                    .span
+                    .start
+            }
+            FunctionRef::Constructor { member, .. } => {
+                program.unit(unit).ast.member(member).span.start
+            }
             FunctionRef::None => 0,
         };
-        let of_class = f.class.and_then(|c| program.class(c).decl).is_some_and(|d| {
-            d.unit == unit && line_starts_with_augment(program.unit(unit).ast.decl(d.decl).span.start)
-        });
-        let the_augmented =
-            program.library_has_augmentations(program.unit(unit).library) && (line_starts_with_augment(start) || of_class);
+        let of_class = f
+            .class
+            .and_then(|c| program.class(c).decl)
+            .is_some_and(|d| {
+                d.unit == unit
+                    && line_starts_with_augment(program.unit(unit).ast.decl(d.decl).span.start)
+            });
+        let the_augmented = program.library_has_augmentations(program.unit(unit).library)
+            && (line_starts_with_augment(start) || of_class);
         if the_augmented {
             continue;
         }
@@ -1481,14 +2044,32 @@ pub fn default_values_with(
                 // does not reach the superclass parameter: no inherited default
                 // (checked against the 3.6.2 oracle, `C(this.c, super._, [super._])`).
                 let repeated = p.name.is_some_and(|n| {
-                    interner.resolve(n.sym) == "_" && params[..idx].iter().any(|q| q.name.is_some_and(|m| m.sym == n.sym))
+                    interner.resolve(n.sym) == "_"
+                        && params[..idx]
+                            .iter()
+                            .any(|q| q.name.is_some_and(|m| m.sym == n.sym))
                 });
-                if !repeated && has_default(program, interner, table, core, outline, bodies, FunctionElementId(i as u32), idx, 0) {
+                if !repeated
+                    && has_default(
+                        program,
+                        interner,
+                        table,
+                        core,
+                        outline,
+                        bodies,
+                        FunctionElementId(i as u32),
+                        idx,
+                        0,
+                    )
+                {
                     continue;
                 }
                 let wildcard = p.kind == ast::ParameterKind::Optional
                     && p.name.is_some_and(|n| interner.resolve(n.sym) == "_")
-                    && program.library(lib).features.has(dartforge_frontend::Feature::WildcardVariables);
+                    && program
+                        .library(lib)
+                        .features
+                        .has(dartforge_frontend::Feature::WildcardVariables);
                 if wildcard {
                     continue;
                 }
@@ -1498,9 +2079,17 @@ pub fn default_values_with(
                 continue;
             }
             let Some(the_name) = p.name else { continue };
-            let annotated = p.metadata.iter().any(|a| a.name.last().is_some_and(|n| interner.resolve(n.sym) == "required"));
+            let annotated = p.metadata.iter().any(|a| {
+                a.name
+                    .last()
+                    .is_some_and(|n| interner.resolve(n.sym) == "required")
+            });
             let d = if annotated {
-                Diagnostic::with_code(c::MISSING_DEFAULT_VALUE_FOR_PARAMETER_WITH_ANNOTATION, the_name.span, [] as [&str; 0])
+                Diagnostic::with_code(
+                    c::MISSING_DEFAULT_VALUE_FOR_PARAMETER_WITH_ANNOTATION,
+                    the_name.span,
+                    [] as [&str; 0],
+                )
             } else {
                 let code = if p.kind == ast::ParameterKind::Optional {
                     c::MISSING_DEFAULT_VALUE_FOR_PARAMETER_POSITIONAL
@@ -1532,7 +2121,15 @@ pub fn conflicting_members(
     lib: dartforge_elements::model::LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
     use dartforge_elements::model::ClassKind as K;
-    let mut cx = Ctx { program, interner, table, core, outline, inheritance: crate::inheritance::InheritanceManager::default(), library: dartforge_elements::model::LibraryId(0) };
+    let mut cx = Ctx {
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        inheritance: crate::inheritance::InheritanceManager::default(),
+        library: dartforge_elements::model::LibraryId(0),
+    };
     let mut output = Vec::new();
     for (ci, cls) in program.classes.iter().enumerate() {
         cx.library = cls.library;
@@ -1546,10 +2143,15 @@ pub fn conflicting_members(
             continue;
         }
         let source = &program.unit(decl.unit).source;
-        if program.library_has_augmentations(lib) && source.lines().any(|l| l.trim_start().starts_with("augment ")) {
+        if program.library_has_augmentations(lib)
+            && source
+                .lines()
+                .any(|l| l.trim_start().starts_with("augment "))
+        {
             continue;
         }
-        let (class_name, members): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {
+        let (class_name, members): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind
+        {
             DeclKind::Class(d) => (d.name, &d.members),
             DeclKind::Mixin(d) => (d.name, &d.members),
             DeclKind::ExtensionType(d) => (d.name, &d.members),
@@ -1558,7 +2160,9 @@ pub fn conflicting_members(
         // T1.1 e: the inherited interface is that of the owner of the same-named
         // group; the declared members are those of the declaration itself.
         let intf = program.class_owner(cid);
-        let Some(this_one) = cx.own_type(intf) else { continue };
+        let Some(this_one) = cx.own_type(intf) else {
+            continue;
+        };
         let class_text = interner.resolve(cls.name).to_string();
         let visible_inherited = |cx: &mut Ctx<'_>, the_name: &str| -> Option<Finding> {
             let key = interner.lookup(the_name)?;
@@ -1572,9 +2176,14 @@ pub fn conflicting_members(
         let mut conflicting: Vec<String> = Vec::new();
         // Declared methods against inherited accessors.
         for &m in members {
-            let MemberKind::Method(f) = &ast_.member(m).kind else { continue };
+            let MemberKind::Method(f) = &ast_.member(m).kind else {
+                continue;
+            };
             let af = ast_.function(*f);
-            if !matches!(af.kind, ast::FunctionKind::Function | ast::FunctionKind::Operator) {
+            if !matches!(
+                af.kind,
+                ast::FunctionKind::Function | ast::FunctionKind::Operator
+            ) {
                 continue;
             }
             let Some(n) = af.name else { continue };
@@ -1586,18 +2195,28 @@ pub fn conflicting_members(
             {
                 output.push((
                     decl.unit,
-                    Diagnostic::with_code(c::CONFLICTING_STATIC_AND_INSTANCE, n.span, [class_text.clone(), the_name.clone(), owner(a)]),
+                    Diagnostic::with_code(
+                        c::CONFLICTING_STATIC_AND_INSTANCE,
+                        n.span,
+                        [class_text.clone(), the_name.clone(), owner(a)],
+                    ),
                 ));
                 continue;
             }
             if cls.kind == K::ExtensionType {
                 continue;
             }
-            let accessor = |a: Option<Finding>| a.filter(|a| cx.kind(a.function).is_some_and(|e| e != Kind::Method));
+            let accessor = |a: Option<Finding>| {
+                a.filter(|a| cx.kind(a.function).is_some_and(|e| e != Kind::Method))
+            };
             if let Some(a) = accessor(getter).or(accessor(setter)) {
                 output.push((
                     decl.unit,
-                    Diagnostic::with_code(c::CONFLICTING_METHOD_AND_FIELD, n.span, [class_text.clone(), the_name.clone(), owner(a)]),
+                    Diagnostic::with_code(
+                        c::CONFLICTING_METHOD_AND_FIELD,
+                        n.span,
+                        [class_text.clone(), the_name.clone(), owner(a)],
+                    ),
                 ));
             }
         }
@@ -1608,8 +2227,10 @@ pub fn conflicting_members(
             match &ast_.member(m).kind {
                 MemberKind::Method(f) => {
                     let af = ast_.function(*f);
-                    if matches!(af.kind, ast::FunctionKind::Getter | ast::FunctionKind::Setter)
-                        && let Some(n) = af.name
+                    if matches!(
+                        af.kind,
+                        ast::FunctionKind::Getter | ast::FunctionKind::Setter
+                    ) && let Some(n) = af.name
                     {
                         accessors.push((interner.resolve(n.sym).to_string(), n.span, af.static_));
                     }
@@ -1626,11 +2247,16 @@ pub fn conflicting_members(
                 MemberKind::Constructor(_) => {}
             }
             for (the_name, span, static_) in accessors {
-                let inherited = visible_inherited(&mut cx, &the_name).or_else(|| visible_inherited(&mut cx, &format!("{the_name}_=")));
+                let inherited = visible_inherited(&mut cx, &the_name)
+                    .or_else(|| visible_inherited(&mut cx, &format!("{the_name}_=")));
                 if static_ && let Some(a) = inherited {
                     output.push((
                         decl.unit,
-                        Diagnostic::with_code(c::CONFLICTING_STATIC_AND_INSTANCE, span, [class_text.clone(), the_name.clone(), owner(a)]),
+                        Diagnostic::with_code(
+                            c::CONFLICTING_STATIC_AND_INSTANCE,
+                            span,
+                            [class_text.clone(), the_name.clone(), owner(a)],
+                        ),
                     ));
                     conflicting.push(the_name);
                 } else if let Some(a) = inherited
@@ -1641,7 +2267,11 @@ pub fn conflicting_members(
                     }
                     output.push((
                         decl.unit,
-                        Diagnostic::with_code(c::CONFLICTING_FIELD_AND_METHOD, span, [class_text.clone(), the_name.clone(), owner(a)]),
+                        Diagnostic::with_code(
+                            c::CONFLICTING_FIELD_AND_METHOD,
+                            span,
+                            [class_text.clone(), the_name.clone(), owner(a)],
+                        ),
                     ));
                     conflicting.push(the_name);
                 }
@@ -1653,7 +2283,9 @@ pub fn conflicting_members(
             if the_name.ends_with("_=") || conflicting.contains(&the_name) {
                 continue;
             }
-            let Some(method) = visible_inherited(&mut cx, &the_name) else { continue };
+            let Some(method) = visible_inherited(&mut cx, &the_name) else {
+                continue;
+            };
             if cx.kind(method.function) != Some(Kind::Method) {
                 continue;
             }
@@ -1667,8 +2299,15 @@ pub fn conflicting_members(
                 };
                 // The two context messages: where the method and the setter come from
                 // (the type and the name of the owner class, at the member's name).
-                let mut d = Diagnostic::with_code(c::CONFLICTING_INHERITED_METHOD_AND_SETTER, class_name.span, [typ, class_text.as_str(), the_name.as_str()]);
-                for (a, template) in [(method, "The method is inherited from the"), (setter, "The setter is inherited from the")] {
+                let mut d = Diagnostic::with_code(
+                    c::CONFLICTING_INHERITED_METHOD_AND_SETTER,
+                    class_name.span,
+                    [typ, class_text.as_str(), the_name.as_str()],
+                );
+                for (a, template) in [
+                    (method, "The method is inherited from the"),
+                    (setter, "The setter is inherited from the"),
+                ] {
                     let p = program;
                     let (f, owner) = (a.function, a.owner);
                     let owner_kind = match p.class(owner).kind {
@@ -1677,10 +2316,19 @@ pub fn conflicting_members(
                         K::ExtensionType => "extension type",
                         _ => "class",
                     };
-                    let Some((u, span)) = p.non_synthetic_function_name(f) else { continue };
+                    let Some((u, span)) = p.non_synthetic_function_name(f) else {
+                        continue;
+                    };
                     let file = (u != decl.unit).then(|| p.unit_path(u).into());
-                    let text = format!("{template} {owner_kind} '{}'.", interner.resolve(p.class(owner).name));
-                    d.context.push(dartforge_diagnostics::ContextMessage { file, span, message: text.into() });
+                    let text = format!(
+                        "{template} {owner_kind} '{}'.",
+                        interner.resolve(p.class(owner).name)
+                    );
+                    d.context.push(dartforge_diagnostics::ContextMessage {
+                        file,
+                        span,
+                        message: text.into(),
+                    });
                 }
                 output.push((decl.unit, d));
             }
@@ -1703,7 +2351,15 @@ pub fn enum_statics(
     lib: dartforge_elements::model::LibraryId,
 ) -> Vec<(UnitId, Diagnostic)> {
     use dartforge_elements::model::ClassKind as K;
-    let mut cx = Ctx { program, interner, table, core, outline, inheritance: crate::inheritance::InheritanceManager::default(), library: lib };
+    let mut cx = Ctx {
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        inheritance: crate::inheritance::InheritanceManager::default(),
+        library: lib,
+    };
     let mut output = Vec::new();
     for (ci, cls) in program.classes.iter().enumerate() {
         if cls.library != lib || cls.kind != K::Enum {
@@ -1711,7 +2367,9 @@ pub fn enum_statics(
         }
         let Some(decl) = cls.decl else { continue };
         let ast_ = &program.unit(decl.unit).ast;
-        let DeclKind::Enum(d) = &ast_.decl(decl.decl).kind else { continue };
+        let DeclKind::Enum(d) = &ast_.decl(decl.decl).kind else {
+            continue;
+        };
         let owner = program.class_owner(ClassId(ci as u32));
         let enum_text = interner.resolve(program.class(owner).name).to_string();
         let in_interface = |cx: &mut Ctx<'_>, the_name: &str| -> bool {
@@ -1721,10 +2379,15 @@ pub fn enum_statics(
             // in an enum does not conflict.
             let synthetic = |m: &crate::inheritance::InterfaceMember| {
                 let f = program.function(m.function);
-                m.class == owner && f.node == dartforge_elements::model::FunctionRef::None && interner.resolve(f.name) == "name"
+                m.class == owner
+                    && f.node == dartforge_elements::model::FunctionRef::None
+                    && interner.resolve(f.name) == "name"
             };
             let found = |cx: &mut Ctx<'_>, text: &str| {
-                interner.lookup(text).is_some_and(|k| cx.inheritance_member(owner, k, false).is_some_and(|m| !synthetic(&m)))
+                interner.lookup(text).is_some_and(|k| {
+                    cx.inheritance_member(owner, k, false)
+                        .is_some_and(|m| !synthetic(&m))
+                })
             };
             found(cx, the_name) || found(cx, &format!("{the_name}_="))
         };
@@ -1754,7 +2417,9 @@ pub fn enum_statics(
                     let Some(n) = af.name else { continue };
                     let the_name = interner.resolve(n.sym).to_string();
                     match af.kind {
-                        ast::FunctionKind::Getter | ast::FunctionKind::Setter => accessors.push((the_name, n.span)),
+                        ast::FunctionKind::Getter | ast::FunctionKind::Setter => {
+                            accessors.push((the_name, n.span))
+                        }
                         _ => methods.push((the_name, n.span)),
                     }
                 }
@@ -1763,12 +2428,26 @@ pub fn enum_statics(
         }
         for (the_name, span) in accessors {
             if the_name != "values" && in_interface(&mut cx, &the_name) {
-                output.push((decl.unit, Diagnostic::with_code(c::CONFLICTING_STATIC_AND_INSTANCE, span, [enum_text.as_str(), the_name.as_str(), enum_text.as_str()])));
+                output.push((
+                    decl.unit,
+                    Diagnostic::with_code(
+                        c::CONFLICTING_STATIC_AND_INSTANCE,
+                        span,
+                        [enum_text.as_str(), the_name.as_str(), enum_text.as_str()],
+                    ),
+                ));
             }
         }
         for (the_name, span) in methods {
             if in_interface(&mut cx, &the_name) {
-                output.push((decl.unit, Diagnostic::with_code(c::CONFLICTING_STATIC_AND_INSTANCE, span, [enum_text.as_str(), the_name.as_str(), enum_text.as_str()])));
+                output.push((
+                    decl.unit,
+                    Diagnostic::with_code(
+                        c::CONFLICTING_STATIC_AND_INSTANCE,
+                        span,
+                        [enum_text.as_str(), the_name.as_str(), enum_text.as_str()],
+                    ),
+                ));
             }
         }
         // `_checkEnum` (3.6.2 `duplicate_definition_verifier.dart:600-640`): the
@@ -1780,12 +2459,17 @@ pub fn enum_statics(
         // as another declaration, or a repeated `enum E`), 3.6.2 reports nothing,
         // in any order: both elements are equal by location.
         let same_name = program.classes.iter().enumerate().any(|(j, k)| {
-            j != ci && k.kind == K::Enum && k.name == cls.name && k.decl.is_some_and(|x| x.unit == decl.unit)
+            j != ci
+                && k.kind == K::Enum
+                && k.name == cls.name
+                && k.decl.is_some_and(|x| x.unit == decl.unit)
         });
         if same_name {
             continue;
         }
-        let Some(this_one) = cx.own_type(owner) else { continue };
+        let Some(this_one) = cx.own_type(owner) else {
+            continue;
+        };
         let inherited = |cx: &mut Ctx<'_>, the_name: &str| -> Option<Finding> {
             let visible = |cx: &mut Ctx<'_>, text: &str| -> Option<Finding> {
                 let key = interner.lookup(text)?;
@@ -1818,7 +2502,9 @@ pub fn enum_statics(
                     let Some(n) = af.name else { continue };
                     let the_name = interner.resolve(n.sym).to_string();
                     match af.kind {
-                        ast::FunctionKind::Getter | ast::FunctionKind::Setter => accessors.push((the_name, n.span)),
+                        ast::FunctionKind::Getter | ast::FunctionKind::Setter => {
+                            accessors.push((the_name, n.span))
+                        }
                         _ => methods.push((the_name, n.span)),
                     }
                 }
@@ -1831,7 +2517,14 @@ pub fn enum_statics(
                 && cx.kind(a.function) == Some(Kind::Method)
             {
                 let d_ = owner_of(&a);
-                output.push((decl.unit, Diagnostic::with_code(c::CONFLICTING_FIELD_AND_METHOD, span, [enum_text.as_str(), the_name.as_str(), d_.as_str()])));
+                output.push((
+                    decl.unit,
+                    Diagnostic::with_code(
+                        c::CONFLICTING_FIELD_AND_METHOD,
+                        span,
+                        [enum_text.as_str(), the_name.as_str(), d_.as_str()],
+                    ),
+                ));
             }
         }
         for (the_name, span) in methods {
@@ -1839,7 +2532,14 @@ pub fn enum_statics(
                 && cx.kind(a.function).is_some_and(|e| e != Kind::Method)
             {
                 let d_ = owner_of(&a);
-                output.push((decl.unit, Diagnostic::with_code(c::CONFLICTING_METHOD_AND_FIELD, span, [enum_text.as_str(), the_name.as_str(), d_.as_str()])));
+                output.push((
+                    decl.unit,
+                    Diagnostic::with_code(
+                        c::CONFLICTING_METHOD_AND_FIELD,
+                        span,
+                        [enum_text.as_str(), the_name.as_str(), d_.as_str()],
+                    ),
+                ));
             }
         }
     }
@@ -1862,24 +2562,42 @@ pub fn enum_members(
     classes: &[ClassId],
 ) -> Vec<(UnitId, Diagnostic)> {
     use dartforge_elements::model::ClassKind as K;
-    let mut cx = Ctx { program, interner, table, core, outline, inheritance: crate::inheritance::InheritanceManager::default(), library: dartforge_elements::model::LibraryId(0) };
+    let mut cx = Ctx {
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        inheritance: crate::inheritance::InheritanceManager::default(),
+        library: dartforge_elements::model::LibraryId(0),
+    };
     let mut output = Vec::new();
-    let Some(enum_core) = cx.core_class("Enum") else { return output };
+    let Some(enum_core) = cx.core_class("Enum") else {
+        return output;
+    };
     for &cid in classes {
         let cls = program.class(cid);
         cx.library = cls.library;
         let Some(decl) = cls.decl else { continue };
         let implements_enum = cls.kind == K::Enum
-            || outline.hierarchy.get(cid).is_some_and(|d| d.supertypes.contains_key(&enum_core));
+            || outline
+                .hierarchy
+                .get(cid)
+                .is_some_and(|d| d.supertypes.contains_key(&enum_core));
         if !implements_enum || cid == enum_core {
             continue;
         }
         let ast_ = &program.unit(decl.unit).ast;
         let source = &program.unit(decl.unit).source;
-        if program.library_has_augmentations(cls.library) && source.lines().any(|l| l.trim_start().starts_with("augment ")) {
+        if program.library_has_augmentations(cls.library)
+            && source
+                .lines()
+                .any(|l| l.trim_start().starts_with("augment "))
+        {
             continue;
         }
-        let (class_name, members): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind {
+        let (class_name, members): (ast::Name, &[ast::MemberId]) = match &ast_.decl(decl.decl).kind
+        {
             DeclKind::Class(d) => (d.name, &d.members),
             DeclKind::Enum(d) => (d.name, &d.members),
             DeclKind::Mixin(d) => (d.name, &d.members),
@@ -1894,10 +2612,24 @@ pub fn enum_members(
                     for v in vl.variables.iter() {
                         let n = interner.resolve(v.name.sym);
                         if !is_enum && n == "values" {
-                            output.push((decl.unit, Diagnostic::with_code(c::ILLEGAL_ENUM_VALUES_DECLARATION, v.name.span, [] as [&str; 0])));
+                            output.push((
+                                decl.unit,
+                                Diagnostic::with_code(
+                                    c::ILLEGAL_ENUM_VALUES_DECLARATION,
+                                    v.name.span,
+                                    [] as [&str; 0],
+                                ),
+                            ));
                         }
                         if forbidden(n) {
-                            output.push((decl.unit, Diagnostic::with_code(c::ILLEGAL_CONCRETE_ENUM_MEMBER_DECLARATION, v.name.span, [n])));
+                            output.push((
+                                decl.unit,
+                                Diagnostic::with_code(
+                                    c::ILLEGAL_CONCRETE_ENUM_MEMBER_DECLARATION,
+                                    v.name.span,
+                                    [n],
+                                ),
+                            ));
                         }
                     }
                 }
@@ -1908,10 +2640,24 @@ pub fn enum_members(
                     let the_abstract_ = !af.external && matches!(af.body, ast::FunctionBody::Empty);
                     let setter = af.kind == ast::FunctionKind::Setter;
                     if !(af.static_ || the_abstract_ || setter) && forbidden(n) {
-                        output.push((decl.unit, Diagnostic::with_code(c::ILLEGAL_CONCRETE_ENUM_MEMBER_DECLARATION, the_name.span, [n])));
+                        output.push((
+                            decl.unit,
+                            Diagnostic::with_code(
+                                c::ILLEGAL_CONCRETE_ENUM_MEMBER_DECLARATION,
+                                the_name.span,
+                                [n],
+                            ),
+                        ));
                     }
                     if !af.static_ && !is_enum && n == "values" {
-                        output.push((decl.unit, Diagnostic::with_code(c::ILLEGAL_ENUM_VALUES_DECLARATION, the_name.span, [] as [&str; 0])));
+                        output.push((
+                            decl.unit,
+                            Diagnostic::with_code(
+                                c::ILLEGAL_ENUM_VALUES_DECLARATION,
+                                the_name.span,
+                                [] as [&str; 0],
+                            ),
+                        ));
                     }
                 }
                 _ => {}
@@ -1920,7 +2666,9 @@ pub fn enum_members(
         // Inherited (`getInheritedConcreteMap2`; mixins do not inherit).
         if cls.kind != K::Mixin {
             for n in ["hashCode", "==", "index"] {
-                let Some(key) = interner.lookup(n) else { continue };
+                let Some(key) = interner.lookup(n) else {
+                    continue;
+                };
                 let mut inherited = None;
                 for &m in cls.mixin_classes.iter().rev() {
                     if cx.outside_hierarchy(cid, m) {
@@ -1950,19 +2698,31 @@ pub fn enum_members(
                 if count {
                     output.push((
                         decl.unit,
-                        Diagnostic::with_code(c::ILLEGAL_CONCRETE_ENUM_MEMBER_INHERITANCE, class_name.span, [n, interner.resolve(owner.name)]),
+                        Diagnostic::with_code(
+                            c::ILLEGAL_CONCRETE_ENUM_MEMBER_INHERITANCE,
+                            class_name.span,
+                            [n, interner.resolve(owner.name)],
+                        ),
                     ));
                 }
             }
         }
-        let Some(this_one) = cx.own_type(cid) else { continue };
+        let Some(this_one) = cx.own_type(cid) else {
+            continue;
+        };
         let values = interner.lookup("values");
         let values_set = interner.lookup("values_=");
-        let inherited = values.and_then(|k| cx.inherited(this_one, k)).or_else(|| values_set.and_then(|k| cx.inherited(this_one, k)));
+        let inherited = values
+            .and_then(|k| cx.inherited(this_one, k))
+            .or_else(|| values_set.and_then(|k| cx.inherited(this_one, k)));
         if let Some((a, _)) = inherited {
             output.push((
                 decl.unit,
-                Diagnostic::with_code(c::ILLEGAL_ENUM_VALUES_INHERITANCE, class_name.span, [interner.resolve(program.class(a.owner).name)]),
+                Diagnostic::with_code(
+                    c::ILLEGAL_ENUM_VALUES_INHERITANCE,
+                    class_name.span,
+                    [interner.resolve(program.class(a.owner).name)],
+                ),
             ));
         }
     }

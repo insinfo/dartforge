@@ -18,14 +18,19 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
 use super::rules16::is_method_invocation;
-use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
-use dartforge_elements::model::{ClassId, Element, ExtensionId, FunctionElementId, FunctionKind, LibraryId, VariableId};
-use dartforge_frontend::ast::{self, Ast, AssignOp, CollectionElement, ExprId, ExprKind, FunctionBody, Initializer, MemberKind, StmtKind};
+use dartforge_elements::model::{
+    ClassId, Element, ExtensionId, FunctionElementId, FunctionKind, LibraryId, VariableId,
+};
+use dartforge_frontend::ast::{
+    self, AssignOp, Ast, CollectionElement, ExprId, ExprKind, FunctionBody, Initializer,
+    MemberKind, StmtKind,
+};
 use dartforge_frontend::token::{Kind, Op, Token};
 use dartforge_intern::{Interner, SymbolId};
 use dartforge_types::resolved::{MemberRef, Resolved};
@@ -90,7 +95,10 @@ fn canonical(s: &super::Semantics<'_>, a: &Ast, mut e: ExprId) -> Option<Canonic
     while let ExprKind::Parenthesized(x) = &a.expr(e).kind {
         e = *x;
     }
-    if !matches!(a.expr(e).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) {
+    if !matches!(
+        a.expr(e).kind,
+        ExprKind::Identifier(_) | ExprKind::Property { .. }
+    ) {
         return None;
     }
     element_of(s, a, e)
@@ -101,9 +109,19 @@ fn canonical(s: &super::Semantics<'_>, a: &Ast, mut e: ExprId) -> Option<Canonic
 fn element_of(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> Option<Canonical> {
     Some(match s.body.get_resolved(e)? {
         Resolved::Local(_) => Canonical::Local(s.body.local_declaration(e)?),
-        Resolved::Parameter { name, .. } => Canonical::Parameter(declared_parameter(a, a.expr(e).span, *name)?),
-        Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => Canonical::Variable(*v),
-        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => function_canonical(s, *f),
+        Resolved::Parameter { name, .. } => {
+            Canonical::Parameter(declared_parameter(a, a.expr(e).span, *name)?)
+        }
+        Resolved::Member {
+            member: MemberRef::Variable(v),
+            ..
+        }
+        | Resolved::Element(Element::Variable(v)) => Canonical::Variable(*v),
+        Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }
+        | Resolved::Element(Element::Function(f)) => function_canonical(s, *f),
         Resolved::ExtensionMember { member, .. } => function_canonical(s, *member),
         Resolved::Constructor(f) => Canonical::Function(*f),
         Resolved::Element(x) => Canonical::Element(*x),
@@ -127,10 +145,20 @@ fn from_statement(s: &super::Semantics<'_>, a: &Ast, st: &ast::Stmt) -> Cascadab
     match &st.kind {
         StmtKind::Variables(l) => {
             let element = match &l.variables[..] {
-                [v] if !v.initializer.is_some_and(|i| matches!(a.expr(i).kind, ExprKind::Await(_))) => Some(Canonical::Local(v.name.span.start)),
+                [v] if !v
+                    .initializer
+                    .is_some_and(|i| matches!(a.expr(i).kind, ExprKind::Await(_))) =>
+                {
+                    Some(Canonical::Local(v.name.span.start))
+                }
                 _ => None,
             };
-            Cascadable { element, receives: true, critical: true, ..Default::default() }
+            Cascadable {
+                element,
+                receives: true,
+                critical: true,
+                ..Default::default()
+            }
         }
         StmtKind::Expression(e) => {
             let mut e = *e;
@@ -153,12 +181,24 @@ fn from_expression(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> Cascadable {
             let critical_spans = vec![a.expr(*value).span];
             if matches!(a.expr(left).kind, ExprKind::Identifier(_)) {
                 // The simple left side has no `staticElement`.
-                return Cascadable { element: None, critical_spans, receives: *op != AssignOp::Compound(dartforge_frontend::ast::BinaryOp::IfNull), critical: true, ..Default::default() };
+                return Cascadable {
+                    element: None,
+                    critical_spans,
+                    receives: *op != AssignOp::Compound(dartforge_frontend::ast::BinaryOp::IfNull),
+                    critical: true,
+                    ..Default::default()
+                };
             }
             // Setter: the prefix of `a.b` (the `PropertyAccess` only with `.` and a
             // simple target).
             let variable = match &a.expr(left).kind {
-                ExprKind::Property { target, null_aware: false, .. } if matches!(a.expr(*target).kind, ExprKind::Identifier(_)) => element_of(s, a, *target),
+                ExprKind::Property {
+                    target,
+                    null_aware: false,
+                    ..
+                } if matches!(a.expr(*target).kind, ExprKind::Identifier(_)) => {
+                    element_of(s, a, *target)
+                }
                 _ => None,
             };
             let is_instance_variable = match variable {
@@ -166,11 +206,26 @@ fn from_expression(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> Cascadable {
                 Some(Canonical::Variable(v)) => !s.program.variable(v).static_,
                 _ => false,
             };
-            Cascadable { element: variable, critical_spans, joins: true, receives: *op != AssignOp::Compound(dartforge_frontend::ast::BinaryOp::IfNull) && is_instance_variable, cascadable: true, critical: false }
+            Cascadable {
+                element: variable,
+                critical_spans,
+                joins: true,
+                receives: *op != AssignOp::Compound(dartforge_frontend::ast::BinaryOp::IfNull)
+                    && is_instance_variable,
+                cascadable: true,
+                critical: false,
+            }
         }
         ExprKind::Call { target, arguments } if is_method_invocation(s, a, *target) => {
             // `_getExecutableElementFromMethodInvocation`: only with `.`.
-            let ExprKind::Property { target: recv, null_aware: false, .. } = &a.expr(*target).kind else { return Cascadable::default() };
+            let ExprKind::Property {
+                target: recv,
+                null_aware: false,
+                ..
+            } = &a.expr(*target).kind
+            else {
+                return Cascadable::default();
+            };
             let non_static = match element_of(s, a, *target) {
                 Some(Canonical::Function(f)) => {
                     let g = s.program.function(f);
@@ -182,9 +237,18 @@ fn from_expression(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> Cascadable {
                 return Cascadable::default();
             }
             let simple = matches!(a.expr(*recv).kind, ExprKind::Identifier(_));
-            Cascadable { element: canonical(s, a, *recv), critical_spans: vec![arguments.span], joins: simple, receives: simple, cascadable: true, critical: false }
+            Cascadable {
+                element: canonical(s, a, *recv),
+                critical_spans: vec![arguments.span],
+                joins: simple,
+                receives: simple,
+                cascadable: true,
+                critical: false,
+            }
         }
-        ExprKind::Cascade { target, sections, .. } => {
+        ExprKind::Cascade {
+            target, sections, ..
+        } => {
             let simple = matches!(a.expr(*target).kind, ExprKind::Identifier(_));
             Cascadable {
                 element: canonical(s, a, *target),
@@ -195,13 +259,27 @@ fn from_expression(s: &super::Semantics<'_>, a: &Ast, e: ExprId) -> Cascadable {
                 critical: false,
             }
         }
-        ExprKind::Property { target, null_aware: false, .. } => {
+        ExprKind::Property {
+            target,
+            null_aware: false,
+            ..
+        } => {
             if matches!(a.expr(*target).kind, ExprKind::Identifier(_)) {
                 // `PrefixedIdentifier`.
-                Cascadable { element: element_of(s, a, *target), joins: true, receives: true, cascadable: true, ..Default::default() }
+                Cascadable {
+                    element: element_of(s, a, *target),
+                    joins: true,
+                    receives: true,
+                    cascadable: true,
+                    ..Default::default()
+                }
             } else {
                 // `PropertyAccess` with `.`.
-                Cascadable { element: canonical(s, a, *target), cascadable: true, ..Default::default() }
+                Cascadable {
+                    element: canonical(s, a, *target),
+                    cascadable: true,
+                    ..Default::default()
+                }
             }
         }
         _ => Cascadable::default(),
@@ -256,12 +334,21 @@ impl Tokens {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let _ = interner;
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let mut report = |code: &'static LintCode, span: Span| {
-        out.push(LintReport { code, span, args: Vec::new() });
+        out.push(LintReport {
+            code,
+            span,
+            args: Vec::new(),
+        });
     };
 
     // `cascade_invocations`.
@@ -269,7 +356,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         && let Some(s) = sem
     {
         for st in a.stmts.iter() {
-            let StmtKind::Block(cmds) = &st.kind else { continue };
+            let StmtKind::Block(cmds) = &st.kind else {
+                continue;
+            };
             if cmds.len() < 2 {
                 continue;
             }
@@ -288,7 +377,10 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                             a.exprs.iter().enumerate().any(|(i, y)| {
                                 y.span.start >= sp.start
                                     && y.span.end <= sp.end
-                                    && matches!(y.kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
+                                    && matches!(
+                                        y.kind,
+                                        ExprKind::Identifier(_) | ExprKind::Property { .. }
+                                    )
                                     && element_of(s, a, ExprId(i as u32)) == previous.element
                             })
                         }));
@@ -312,44 +404,56 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         // `close` the closing token, `last` the range of the last node,
         // `exception` whether the last node allows an exception and `error`
         // the reported token.
-        let mut check = |open: usize, close: Span, last: Span, exception: &dyn Fn() -> bool, error: Span| {
-            let i = tk.first_at(last.end);
-            if tk.is_op(i, Op::Comma) {
-                return;
-            }
-            if same_line(open, close.end) {
-                return;
-            }
-            if !same_line(last.start, last.end) && exception() {
-                return;
-            }
-            findings.insert((error.start, error.end));
-        };
+        let mut check =
+            |open: usize, close: Span, last: Span, exception: &dyn Fn() -> bool, error: Span| {
+                let i = tk.first_at(last.end);
+                if tk.is_op(i, Op::Comma) {
+                    return;
+                }
+                if same_line(open, close.end) {
+                    return;
+                }
+                if !same_line(last.start, last.end) && exception() {
+                    return;
+                }
+                findings.insert((error.start, error.end));
+            };
         // The exception for an expression as the last node.
         let exception_of = |e: ExprId| -> bool {
             match &a.expr(e).kind {
-                ExprKind::FunctionExpression(f) => matches!(a.function(*f).body, FunctionBody::Block(_)),
+                ExprKind::FunctionExpression(f) => {
+                    matches!(a.function(*f).body, FunctionBody::Block(_))
+                }
                 ExprKind::String(_) => true,
-                ExprKind::Call { target, arguments } if matches!(a.expr(*target).kind, ExprKind::FunctionExpression(_)) => {
+                ExprKind::Call { target, arguments }
+                    if matches!(a.expr(*target).kind, ExprKind::FunctionExpression(_)) =>
+                {
                     same_line(arguments.span.start, arguments.span.end)
                 }
                 ExprKind::List { .. } | ExprKind::SetOrMap { .. } => true,
                 _ => false,
             }
         };
-        let close_of = |args: &ast::Arguments| Span { start: args.span.end.saturating_sub(1), end: args.span.end };
+        let close_of = |args: &ast::Arguments| Span {
+            start: args.span.end.saturating_sub(1),
+            end: args.span.end,
+        };
         // `visitArgumentList`.
         let mut lists: Vec<&ast::Arguments> = Vec::new();
         for e in a.exprs.iter() {
             match &e.kind {
-                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => lists.push(arguments),
+                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
+                    lists.push(arguments)
+                }
                 _ => {}
             }
         }
         for m in a.members.iter() {
             if let MemberKind::Constructor(k) = &m.kind {
                 for i in k.initializers.iter() {
-                    if let Initializer::Super { arguments, .. } | Initializer::Redirect { arguments, .. } = i {
+                    if let Initializer::Super { arguments, .. }
+                    | Initializer::Redirect { arguments, .. } = i
+                    {
                         lists.push(arguments);
                     }
                 }
@@ -366,12 +470,25 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
         }
         for args in lists {
-            let Some(last) = args.args.last() else { continue };
-            let start = last.name.map_or(a.expr(last.value).span.start, |n| n.span.start);
-            let sp = Span { start, end: a.expr(last.value).span.end };
+            let Some(last) = args.args.last() else {
+                continue;
+            };
+            let start = last
+                .name
+                .map_or(a.expr(last.value).span.start, |n| n.span.start);
+            let sp = Span {
+                start,
+                end: a.expr(last.value).span.end,
+            };
             let named = last.name.is_some();
             let v = last.value;
-            check(args.span.start, close_of(args), sp, &|| !named && exception_of(v), close_of(args));
+            check(
+                args.span.start,
+                close_of(args),
+                sp,
+                &|| !named && exception_of(v),
+                close_of(args),
+            );
         }
         // `visitAssertStatement` and `visitAssertInitializer`: the parentheses
         // after the `assert`.
@@ -384,7 +501,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         for m in a.members.iter() {
             if let MemberKind::Constructor(k) = &m.kind {
                 for i in k.initializers.iter() {
-                    if let Initializer::Assert { span, condition, message } = i {
+                    if let Initializer::Assert {
+                        span,
+                        condition,
+                        message,
+                    } = i
+                    {
                         asserts.push((*span, *condition, *message));
                     }
                 }
@@ -442,7 +564,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
         }
         for ps in params {
-            let (Some(first), Some(last)) = (ps.first(), ps.last()) else { continue };
+            let (Some(first), Some(last)) = (ps.first(), ps.last()) else {
+                continue;
+            };
             // The `(`: before the first parameter, skipping the opening `[`/`{`.
             let mut i = tk.first_at(first.span.start);
             if i == 0 {
@@ -470,30 +594,74 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             }
             let close = tk.t[j].span;
             // A parameter is none of the nodes with an exception.
-            check(open, close, last.span, &|| false, delimiter.unwrap_or(close));
+            check(
+                open,
+                close,
+                last.span,
+                &|| false,
+                delimiter.unwrap_or(close),
+            );
         }
         // `visitListLiteral` and `visitSetOrMapLiteral`.
         for e in a.exprs.iter() {
-            let (ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. }) = &e.kind else { continue };
-            let Some(last) = elements.last() else { continue };
+            let (ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. }) = &e.kind
+            else {
+                continue;
+            };
+            let Some(last) = elements.last() else {
+                continue;
+            };
             let (usp, expr) = match last {
                 CollectionElement::Expression(x) => (a.expr(*x).span, Some(*x)),
-                CollectionElement::NullAwareExpression(x) => (Span { start: tk.t[tk.first_at(a.expr(*x).span.start).saturating_sub(1)].span.start, end: a.expr(*x).span.end }, None),
-                CollectionElement::MapEntry { key, value, .. } => (Span { start: a.expr(*key).span.start, end: a.expr(*value).span.end }, None),
+                CollectionElement::NullAwareExpression(x) => (
+                    Span {
+                        start: tk.t[tk.first_at(a.expr(*x).span.start).saturating_sub(1)]
+                            .span
+                            .start,
+                        end: a.expr(*x).span.end,
+                    },
+                    None,
+                ),
+                CollectionElement::MapEntry { key, value, .. } => (
+                    Span {
+                        start: a.expr(*key).span.start,
+                        end: a.expr(*value).span.end,
+                    },
+                    None,
+                ),
                 CollectionElement::Spread { value, .. } => {
                     let i = tk.first_at(a.expr(*value).span.start).saturating_sub(1);
-                    (Span { start: tk.t[i].span.start, end: a.expr(*value).span.end }, None)
+                    (
+                        Span {
+                            start: tk.t[i].span.start,
+                            end: a.expr(*value).span.end,
+                        },
+                        None,
+                    )
                 }
-                CollectionElement::If { .. } | CollectionElement::For { .. } | CollectionElement::ForIn { .. } => match element_end(a, last) {
-                    Some(end) => (Span { start: element_start(a, &tk, u.source, last), end }, None),
+                CollectionElement::If { .. }
+                | CollectionElement::For { .. }
+                | CollectionElement::ForIn { .. } => match element_end(a, last) {
+                    Some(end) => (
+                        Span {
+                            start: element_start(a, &tk, u.source, last),
+                            end,
+                        },
+                        None,
+                    ),
                     None => continue,
                 },
             };
             // The literal's `]`/`}`: the node's last token.
-            let close = Span { start: e.span.end.saturating_sub(1), end: e.span.end };
+            let close = Span {
+                start: e.span.end.saturating_sub(1),
+                end: e.span.end,
+            };
             // The literal's `[`/`{`: after the type arguments and the `const`.
             let i = tk.first_at(e.span.start);
-            let open = (i..tk.t.len()).find(|&k| tk.is_op(k, Op::LBracket) || tk.is_op(k, Op::LBrace)).map_or(e.span.start, |k| tk.t[k].span.start);
+            let open = (i..tk.t.len())
+                .find(|&k| tk.is_op(k, Op::LBracket) || tk.is_op(k, Op::LBrace))
+                .map_or(e.span.start, |k| tk.t[k].span.start);
             check(open, close, usp, &|| expr.is_some_and(exception_of), close);
         }
         let mut v: Vec<(usize, usize)> = findings.into_iter().collect();
@@ -525,9 +693,15 @@ fn element_start(a: &Ast, tk: &Tokens, source: &str, x: &CollectionElement) -> u
     while i > 0 {
         i -= 1;
         if let Kind::Keyword(k) = tk.t[i].kind
-            && matches!(k, dartforge_frontend::token::Keyword::If | dartforge_frontend::token::Keyword::For)
+            && matches!(
+                k,
+                dartforge_frontend::token::Keyword::If | dartforge_frontend::token::Keyword::For
+            )
         {
-            if i > 0 && tk.t[i - 1].kind == Kind::Ident && &source[tk.t[i - 1].span.start..tk.t[i - 1].span.end] == "await" {
+            if i > 0
+                && tk.t[i - 1].kind == Kind::Ident
+                && &source[tk.t[i - 1].span.start..tk.t[i - 1].span.end] == "await"
+            {
                 return tk.t[i - 1].span.start;
             }
             return tk.t[i].span.start;
@@ -539,11 +713,20 @@ fn element_start(a: &Ast, tk: &Tokens, source: &str, x: &CollectionElement) -> u
 fn first_in_for(a: &Ast, x: &CollectionElement) -> Option<usize> {
     match x {
         CollectionElement::ForIn { iterable, .. } => Some(a.expr(*iterable).span.start),
-        CollectionElement::For { init, condition, updates, body, .. } => match init {
+        CollectionElement::For {
+            init,
+            condition,
+            updates,
+            body,
+            ..
+        } => match init {
             Some(ast::ForInit::Expression(e)) => Some(a.expr(*e).span.start),
             Some(ast::ForInit::Variables(l)) => l.variables.first().map(|v| v.name.span.start),
             Some(ast::ForInit::Pattern { pattern, .. }) => Some(a.pattern(*pattern).span.start),
-            None => condition.map(|c| a.expr(c).span.start).or_else(|| updates.first().map(|u| a.expr(*u).span.start)).or_else(|| element_end(a, body)),
+            None => condition
+                .map(|c| a.expr(c).span.start)
+                .or_else(|| updates.first().map(|u| a.expr(*u).span.start))
+                .or_else(|| element_end(a, body)),
         },
         _ => None,
     }
@@ -552,13 +735,17 @@ fn first_in_for(a: &Ast, x: &CollectionElement) -> Option<usize> {
 /// The end of a collection element.
 fn element_end(a: &Ast, x: &CollectionElement) -> Option<usize> {
     Some(match x {
-        CollectionElement::Expression(e) | CollectionElement::NullAwareExpression(e) => a.expr(*e).span.end,
+        CollectionElement::Expression(e) | CollectionElement::NullAwareExpression(e) => {
+            a.expr(*e).span.end
+        }
         CollectionElement::MapEntry { value, .. } => a.expr(*value).span.end,
         CollectionElement::Spread { value, .. } => a.expr(*value).span.end,
         CollectionElement::If { then, else_, .. } => match else_ {
             Some(x) => element_end(a, x)?,
             None => element_end(a, then)?,
         },
-        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => element_end(a, body)?,
+        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+            element_end(a, body)?
+        }
     })
 }

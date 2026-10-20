@@ -7,15 +7,21 @@
 pub mod contract;
 pub mod corpus;
 pub mod matrix;
-pub mod oracles;
 mod oracle_validation;
+pub mod oracles;
 pub mod process;
 pub mod report;
 
 pub use corpus::{Program, list};
-pub use oracles::{Environment, dart_oracle, dartforge, dartforge_jit, dartforge_native, dartforge_native_ir, dartforge_production, ddc_oracle};
+pub use oracles::{
+    Environment, dart_oracle, dartforge, dartforge_jit, dartforge_native, dartforge_native_ir,
+    dartforge_production, ddc_oracle,
+};
 pub use process::Output;
-pub use report::{AotFromSameIr, Divergence, JitRun, ProgramIr, ProgramResult, compare, format_ir_report, format_report, ir_differences};
+pub use report::{
+    AotFromSameIr, Divergence, JitRun, ProgramIr, ProgramResult, compare, format_ir_report,
+    format_report, ir_differences,
+};
 
 use dartforge_emit_native::summary::IrSummary;
 use std::sync::{Condvar, Mutex};
@@ -44,7 +50,14 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Options { with_forge: true, threads: 0, native: false, with_production: false, jit: false, jit_aot: false }
+        Options {
+            with_forge: true,
+            threads: 0,
+            native: false,
+            with_production: false,
+            jit: false,
+            jit_aot: false,
+        }
     }
 }
 
@@ -54,26 +67,61 @@ pub fn run_program(env: &Environment, program: &Program, op: Options) -> Program
     // The JS production profile is independent of the chosen backend: it is a
     // fourth executor of the same program, and it can run alongside native.
     // The executor names passed to `output_dir` are directories on disk.
-    let production = op.with_production.then(|| dartforge_production(env, program, &env.output_dir("production", program)));
+    let production = op
+        .with_production
+        .then(|| dartforge_production(env, program, &env.output_dir("production", program)));
     if op.native {
         // In native mode there is no DDC contract to compare; the reference
         // is always the VM (see `ProgramResult::reference`).
-        let ddc = Output { stdout: String::new(), stderr: String::new(), code: 0 };
+        let ddc = Output {
+            stdout: String::new(),
+            stderr: String::new(),
+            code: 0,
+        };
         if op.jit {
             let (forge, jit) = if op.with_forge {
-                let (s, j) = dartforge_jit(env, program, &env.output_dir("jit", program), op.jit_aot);
+                let (s, j) =
+                    dartforge_jit(env, program, &env.output_dir("jit", program), op.jit_aot);
                 (Some(s), Some(j))
             } else {
                 (None, None)
             };
-            return ProgramResult { program: program.clone(), dart, ddc, forge, native: true, production, jit };
+            return ProgramResult {
+                program: program.clone(),
+                dart,
+                ddc,
+                forge,
+                native: true,
+                production,
+                jit,
+            };
         }
-        let forge = op.with_forge.then(|| dartforge_native(env, program, &env.output_dir("native", program)));
-        ProgramResult { program: program.clone(), dart, ddc, forge, native: true, production, jit: None }
+        let forge = op
+            .with_forge
+            .then(|| dartforge_native(env, program, &env.output_dir("native", program)));
+        ProgramResult {
+            program: program.clone(),
+            dart,
+            ddc,
+            forge,
+            native: true,
+            production,
+            jit: None,
+        }
     } else {
         let ddc = ddc_oracle(env, program, &env.output_dir("ddc", program));
-        let forge = op.with_forge.then(|| dartforge(env, program, &env.output_dir("forge", program)));
-        ProgramResult { program: program.clone(), dart, ddc, forge, native: false, production, jit: None }
+        let forge = op
+            .with_forge
+            .then(|| dartforge(env, program, &env.output_dir("forge", program)));
+        ProgramResult {
+            program: program.clone(),
+            dart,
+            ddc,
+            forge,
+            native: false,
+            production,
+            jit: None,
+        }
     }
 }
 
@@ -87,7 +135,13 @@ pub fn in_parallel<T: Send>(
     f: impl Fn(&Program) -> T + Sync,
     progress: impl Fn(&T) + Sync,
 ) -> Vec<T> {
-    let n = if threads == 0 { std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4) } else { threads };
+    let n = if threads == 0 {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+    } else {
+        threads
+    };
     let n = n.max(1).min(programs.len().max(1));
     let next = Mutex::new(0usize);
     let results: Mutex<Vec<Option<T>>> = Mutex::new((0..programs.len()).map(|_| None).collect());
@@ -111,12 +165,22 @@ pub fn in_parallel<T: Send>(
             });
         }
     });
-    results.into_inner().unwrap().into_iter().map(|r| r.expect("every program was run")).collect()
+    results
+        .into_inner()
+        .unwrap()
+        .into_iter()
+        .map(|r| r.expect("every program was run"))
+        .collect()
 }
 
 /// Runs the whole corpus with `std::thread` (shared queue), preserving the order.
 /// `progress` is called at the end of each program (to print progress).
-pub fn run_corpus(env: &Environment, programs: &[Program], op: Options, progress: impl Fn(&ProgramResult) + Sync) -> Vec<ProgramResult> {
+pub fn run_corpus(
+    env: &Environment,
+    programs: &[Program],
+    op: Options,
+    progress: impl Fn(&ProgramResult) + Sync,
+) -> Vec<ProgramResult> {
     in_parallel(programs, op.threads, |p| run_program(env, p, op), progress)
 }
 
@@ -147,7 +211,11 @@ pub struct Limiter {
 impl Limiter {
     pub fn new(max: usize) -> Limiter {
         let max = max.max(1);
-        Limiter { max, free: Mutex::new(max), slot: Condvar::new() }
+        Limiter {
+            max,
+            free: Mutex::new(max),
+            slot: Condvar::new(),
+        }
     }
 
     /// `DARTFORGE_IR_PARALLEL_MAX` when it is a positive number, otherwise
@@ -257,6 +325,9 @@ mod tests {
             |_| {},
         );
         let peak = peak.load(Ordering::SeqCst);
-        assert!((1..=2).contains(&peak), "peak of {peak} inside the limiter of 2");
+        assert!(
+            (1..=2).contains(&peak),
+            "peak of {peak} inside the limiter of 2"
+        );
     }
 }

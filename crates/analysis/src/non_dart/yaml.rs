@@ -70,7 +70,10 @@ impl Node {
     /// The pair with string key `key` of a map (`nodes[key]`): the key and the
     /// value. The last occurrence wins, as in `package:yaml`'s map.
     pub fn par(&self, key: &str) -> Option<&(Node, Node)> {
-        self.map()?.iter().rev().find(|(k, _)| k.text() == Some(key))
+        self.map()?
+            .iter()
+            .rev()
+            .find(|(k, _)| k.text() == Some(key))
     }
 
     pub fn field(&self, key: &str) -> Option<&Node> {
@@ -93,7 +96,10 @@ struct Builder<'a> {
 
 impl Builder<'_> {
     fn offset(&self, m: &Marker) -> usize {
-        self.bytes.get(m.index()).copied().unwrap_or(self.source.len())
+        self.bytes
+            .get(m.index())
+            .copied()
+            .unwrap_or(self.source.len())
     }
 
     fn deliver(&mut self, node: Node) {
@@ -114,7 +120,9 @@ impl Builder<'_> {
     /// The end of a quoted scalar starting at `start`.
     fn quotes_end(&self, start: usize) -> usize {
         let b = self.source.as_bytes();
-        let Some(&quote) = b.get(start) else { return start };
+        let Some(&quote) = b.get(start) else {
+            return start;
+        };
         let mut i = start + 1;
         while i < b.len() {
             if quote == b'"' && b[i] == b'\\' {
@@ -137,7 +145,9 @@ impl Builder<'_> {
     /// block's indentation.
     fn block_end(&self, start: usize) -> usize {
         let rest = &self.source[start..];
-        let Some(first_break) = rest.find('\n') else { return self.source.len() };
+        let Some(first_break) = rest.find('\n') else {
+            return self.source.len();
+        };
         let mut end = start + first_break;
         let mut pos = end + 1;
         let mut indent: Option<usize> = None;
@@ -160,17 +170,28 @@ impl Builder<'_> {
 
     fn is_scalar(&self, value: String, style: TScalarStyle, start: usize) -> Node {
         match style {
-            TScalarStyle::SingleQuoted | TScalarStyle::DoubleQuoted => {
-                Node { span: Span { start, end: self.quotes_end(start) }, value: Value::Text(value) }
-            }
-            TScalarStyle::Literal | TScalarStyle::Folded => {
-                Node { span: Span { start, end: self.block_end(start) }, value: Value::Text(value) }
-            }
+            TScalarStyle::SingleQuoted | TScalarStyle::DoubleQuoted => Node {
+                span: Span {
+                    start,
+                    end: self.quotes_end(start),
+                },
+                value: Value::Text(value),
+            },
+            TScalarStyle::Literal | TScalarStyle::Folded => Node {
+                span: Span {
+                    start,
+                    end: self.block_end(start),
+                },
+                value: Value::Text(value),
+            },
             TScalarStyle::Plain => {
                 let rest = &self.source[start.min(self.source.len())..];
                 // The empty node arrives as `~` without the `~` being in the source.
                 if value == "~" && !rest.starts_with('~') {
-                    return Node { span: Span { start, end: start }, value: Value::Null };
+                    return Node {
+                        span: Span { start, end: start },
+                        value: Value::Null,
+                    };
                 }
                 let length = if rest.starts_with(value.as_str()) {
                     value.len()
@@ -178,13 +199,22 @@ impl Builder<'_> {
                     // A multi-line plain scalar: up to the end of the first line,
                     // without the comment.
                     let line = rest.split('\n').next().unwrap_or("");
-                    line.find(" #").unwrap_or(line.len()).min(line.trim_end().len())
+                    line.find(" #")
+                        .unwrap_or(line.len())
+                        .min(line.trim_end().len())
                 };
-                let span = Span { start, end: start + length };
+                let span = Span {
+                    start,
+                    end: start + length,
+                };
                 let lowercase = value.to_ascii_lowercase();
                 let value = if value.is_empty() || value == "~" || lowercase == "null" {
                     Value::Null
-                } else if lowercase == "true" || lowercase == "false" || value.parse::<f64>().is_ok() || value.starts_with("0x") {
+                } else if lowercase == "true"
+                    || lowercase == "false"
+                    || value.parse::<f64>().is_ok()
+                    || value.starts_with("0x")
+                {
                     Value::Other(value)
                 } else {
                     Value::Text(value)
@@ -197,12 +227,25 @@ impl Builder<'_> {
     fn close(&mut self, mark: usize) {
         let Some(open) = self.stack.pop() else { return };
         let (start, last_end, value) = match open {
-            OpenNode::List(start, items) => (start, items.last().map(|n| n.span.end), Value::List(items)),
-            OpenNode::Map(start, pairs, _) => (start, pairs.last().map(|(_, v)| v.span.end), Value::Map(pairs)),
+            OpenNode::List(start, items) => {
+                (start, items.last().map(|n| n.span.end), Value::List(items))
+            }
+            OpenNode::Map(start, pairs, _) => (
+                start,
+                pairs.last().map(|(_, v)| v.span.end),
+                Value::Map(pairs),
+            ),
         };
         let in_flow = self.source[start.min(self.source.len())..].starts_with(['[', '{']);
-        let end = if in_flow { (mark + 1).min(self.source.len()) } else { last_end.unwrap_or(start).max(start) };
-        self.deliver(Node { span: Span { start, end }, value });
+        let end = if in_flow {
+            (mark + 1).min(self.source.len())
+        } else {
+            last_end.unwrap_or(start).max(start)
+        };
+        self.deliver(Node {
+            span: Span { start, end },
+            value,
+        });
     }
 }
 
@@ -218,7 +261,13 @@ impl MarkedEventReceiver for Builder<'_> {
             Event::MappingStart(..) => self.stack.push(OpenNode::Map(offset, Vec::new(), None)),
             Event::SequenceEnd | Event::MappingEnd => self.close(offset),
             // A reference to an anchor: without the resolved value, a null.
-            Event::Alias(_) => self.deliver(Node { span: Span { start: offset, end: offset }, value: Value::Null }),
+            Event::Alias(_) => self.deliver(Node {
+                span: Span {
+                    start: offset,
+                    end: offset,
+                },
+                value: Value::Null,
+            }),
             _ => {}
         }
     }
@@ -236,13 +285,25 @@ pub struct YamlError {
 pub fn parse(source: &str) -> Result<Option<Node>, YamlError> {
     let mut bytes: Vec<usize> = source.char_indices().map(|(i, _)| i).collect();
     bytes.push(source.len());
-    let mut builder = Builder { source, bytes, stack: Vec::new(), root: None };
+    let mut builder = Builder {
+        source,
+        bytes,
+        stack: Vec::new(),
+        root: None,
+    };
     let mut parser = Parser::new_from_str(source);
     match parser.load(&mut builder, false) {
         Ok(()) => Ok(builder.root),
         Err(e) => {
-            let offset = builder.bytes.get(e.marker().index()).copied().unwrap_or(source.len());
-            Err(YamlError { message: e.info().to_string(), offset })
+            let offset = builder
+                .bytes
+                .get(e.marker().index())
+                .copied()
+                .unwrap_or(source.len());
+            Err(YamlError {
+                message: e.info().to_string(),
+                offset,
+            })
         }
     }
 }
@@ -257,10 +318,14 @@ mod tests {
 
     #[test]
     fn key_and_value_positions() {
-        let source = "name: app\ndependencies:\n  a: ^1.0.0\n  b:\n    path: '../b' # perto\nflutter:\n";
+        let source =
+            "name: app\ndependencies:\n  a: ^1.0.0\n  b:\n    path: '../b' # perto\nflutter:\n";
         let root = parse(source).unwrap().unwrap();
         let (key, value) = root.par("name").unwrap();
-        assert_eq!((fragment(source, key), fragment(source, value)), ("name", "app"));
+        assert_eq!(
+            (fragment(source, key), fragment(source, value)),
+            ("name", "app")
+        );
         let b = root.field("dependencies").unwrap().field("b").unwrap();
         let (key_of_path, path) = b.par("path").unwrap();
         assert_eq!(fragment(source, key_of_path), "path");
@@ -278,7 +343,11 @@ mod tests {
         let a = root.field("a").unwrap();
         assert_eq!(fragment(source, a), "[1, x, true]");
         let items = a.list().unwrap();
-        assert!(matches!(items[0].value, Value::Other(_)) && items[1].text() == Some("x") && matches!(items[2].value, Value::Other(_)));
+        assert!(
+            matches!(items[0].value, Value::Other(_))
+                && items[1].text() == Some("x")
+                && matches!(items[2].value, Value::Other(_))
+        );
         assert_eq!(fragment(source, root.field("b").unwrap()), "{k: v}");
     }
 

@@ -22,11 +22,11 @@
 //! versions, and the 2.4 `package_config.json` gives the engine the same
 //! package graph (no resolved package other than the root defines builders).
 //! What decides the profile is the 2.16 case's `pubspec.lock`.
-use dartforge_build::query::NoDb;
-use dartforge_build::graph::AssetId;
 use dartforge_build::command_line::BuildOptions;
+use dartforge_build::graph::AssetId;
+use dartforge_build::query::NoDb;
 use dartforge_build::vm::{VmConfig, VmExecutor};
-use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions, EngineReport};
+use dartforge_build::{Demand, Engine, EngineOptions, EngineReport, UpdateContext};
 use dartforge_elements::config::PackageConfig;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

@@ -61,10 +61,18 @@ pub enum Ty {
 
 impl Ty {
     pub fn iface(class: ClassId) -> Ty {
-        Ty::Iface { class, args: vec![], nullable: false }
+        Ty::Iface {
+            class,
+            args: vec![],
+            nullable: false,
+        }
     }
     pub fn iface_args(class: ClassId, args: Vec<Ty>) -> Ty {
-        Ty::Iface { class, args, nullable: false }
+        Ty::Iface {
+            class,
+            args,
+            nullable: false,
+        }
     }
     pub fn is_dynamic(&self) -> bool {
         matches!(self, Ty::Dynamic)
@@ -124,40 +132,76 @@ impl Ty {
         }
         match self {
             Ty::Dynamic | Ty::Void | Ty::Never | Ty::Null => self.clone(),
-            Ty::Iface { class, args, nullable } => Ty::Iface {
+            Ty::Iface {
+                class,
+                args,
+                nullable,
+            } => Ty::Iface {
                 class: *class,
                 args: args.iter().map(|a| a.subst(map)).collect(),
                 nullable: *nullable,
             },
-            Ty::Fn { type_params, ret, pos, opt, named, nullable } => Ty::Fn {
+            Ty::Fn {
+                type_params,
+                ret,
+                pos,
+                opt,
+                named,
+                nullable,
+            } => Ty::Fn {
                 type_params: type_params
                     .iter()
-                    .map(|p| TyParam { id: p.id, name: p.name.clone(), bound: Box::new(p.bound.subst(map)) })
+                    .map(|p| TyParam {
+                        id: p.id,
+                        name: p.name.clone(),
+                        bound: Box::new(p.bound.subst(map)),
+                    })
                     .collect(),
                 ret: Box::new(ret.subst(map)),
                 pos: pos.iter().map(|a| a.subst(map)).collect(),
                 opt: opt.iter().map(|a| a.subst(map)).collect(),
-                named: named.iter().map(|(n, t, r)| (n.clone(), t.subst(map), *r)).collect(),
+                named: named
+                    .iter()
+                    .map(|(n, t, r)| (n.clone(), t.subst(map), *r))
+                    .collect(),
                 nullable: *nullable,
             },
-            Ty::Record { pos, named, nullable } => Ty::Record {
+            Ty::Record {
+                pos,
+                named,
+                nullable,
+            } => Ty::Record {
                 pos: pos.iter().map(|a| a.subst(map)).collect(),
-                named: named.iter().map(|(n, t)| (n.clone(), t.subst(map))).collect(),
+                named: named
+                    .iter()
+                    .map(|(n, t)| (n.clone(), t.subst(map)))
+                    .collect(),
                 nullable: *nullable,
             },
             Ty::Param { id, nullable, .. } => match map.get(id) {
                 Some(t) => {
-                    if *nullable { t.with_nullable(true) } else { t.clone() }
+                    if *nullable {
+                        t.with_nullable(true)
+                    } else {
+                        t.clone()
+                    }
                 }
                 None => self.clone(),
             },
-            Ty::FutureOr { arg, nullable } => Ty::FutureOr { arg: Box::new(arg.subst(map)), nullable: *nullable },
+            Ty::FutureOr { arg, nullable } => Ty::FutureOr {
+                arg: Box::new(arg.subst(map)),
+                nullable: *nullable,
+            },
         }
     }
     /// Like [`Ty::subst`], consuming the type: with an empty map it returns
     /// the value itself instead of cloning the whole tree.
     pub fn subst_prop(self, map: &HashMap<u32, Ty>) -> Ty {
-        if map.is_empty() { self } else { self.subst(map) }
+        if map.is_empty() {
+            self
+        } else {
+            self.subst(map)
+        }
     }
 
     /// Collects the ids of the type parameters used.
@@ -165,7 +209,14 @@ impl Ty {
         match self {
             Ty::Dynamic | Ty::Void | Ty::Never | Ty::Null => {}
             Ty::Iface { args, .. } => args.iter().for_each(|a| a.collect_params(out)),
-            Ty::Fn { type_params, ret, pos, opt, named, .. } => {
+            Ty::Fn {
+                type_params,
+                ret,
+                pos,
+                opt,
+                named,
+                ..
+            } => {
                 ret.collect_params(out);
                 pos.iter().for_each(|a| a.collect_params(out));
                 opt.iter().for_each(|a| a.collect_params(out));
@@ -201,7 +252,14 @@ impl Ty {
             Ty::Dynamic | Ty::Void | Ty::Never | Ty::Null => true,
             Ty::Param { .. } => false,
             Ty::Iface { args, .. } => args.iter().all(|a| a.has_no_params()),
-            Ty::Fn { type_params, ret, pos, opt, named, .. } => {
+            Ty::Fn {
+                type_params,
+                ret,
+                pos,
+                opt,
+                named,
+                ..
+            } => {
                 type_params.is_empty()
                     && ret.has_no_params()
                     && pos.iter().all(|a| a.has_no_params())
@@ -209,7 +267,8 @@ impl Ty {
                     && named.iter().all(|(_, t, _)| t.has_no_params())
             }
             Ty::Record { pos, named, .. } => {
-                pos.iter().all(|a| a.has_no_params()) && named.iter().all(|(_, t)| t.has_no_params())
+                pos.iter().all(|a| a.has_no_params())
+                    && named.iter().all(|(_, t)| t.has_no_params())
             }
             Ty::FutureOr { arg, .. } => arg.has_no_params(),
         }

@@ -68,7 +68,9 @@ fn constant_definitions(function: &Function) -> HashMap<ValueId, (Constant, Type
         .iter()
         .flat_map(|b| &b.instructions)
         .filter_map(|(v, inst, ty)| match inst {
-            Instruction::Const(c) if operand_type(&Operand::Constant(c.clone()), &HashMap::new()) == Some(*ty) => {
+            Instruction::Const(c)
+                if operand_type(&Operand::Constant(c.clone()), &HashMap::new()) == Some(*ty) =>
+            {
                 Some((*v, (c.clone(), *ty)))
             }
             _ => None,
@@ -77,7 +79,11 @@ fn constant_definitions(function: &Function) -> HashMap<ValueId, (Constant, Type
 }
 
 /// The constant an argument operand carries into a parameter of type `ty`.
-fn argument(operand: &Operand, ty: Type, definitions: &HashMap<ValueId, (Constant, Type)>) -> Option<Arg> {
+fn argument(
+    operand: &Operand,
+    ty: Type,
+    definitions: &HashMap<ValueId, (Constant, Type)>,
+) -> Option<Arg> {
     match operand {
         Operand::Constant(c) => Arg::read(c, ty),
         Operand::Val(v) => {
@@ -99,10 +105,25 @@ fn address_taken(module: &Module) -> HashSet<String> {
     taken.extend(module.source_roots.iter().cloned());
     taken.extend(module.helpers.iter().map(|(_, symbol)| symbol.clone()));
     taken.extend(module.table_functions.values().cloned());
-    taken.extend(module.ffi_trampolines.iter().map(|(_, symbol)| symbol.clone()));
+    taken.extend(
+        module
+            .ffi_trampolines
+            .iter()
+            .map(|(_, symbol)| symbol.clone()),
+    );
     taken.extend(module.ffi_callbacks.iter().map(|c| c.body.clone()));
-    taken.extend(module.stack_trace_tearoffs.iter().map(|(symbol, _)| symbol.clone()));
-    taken.extend(module.async_frame_layouts.iter().map(|(_, _, body, _)| body.clone()));
+    taken.extend(
+        module
+            .stack_trace_tearoffs
+            .iter()
+            .map(|(symbol, _)| symbol.clone()),
+    );
+    taken.extend(
+        module
+            .async_frame_layouts
+            .iter()
+            .map(|(_, _, body, _)| body.clone()),
+    );
     taken.extend(module.arc_shared_functions.iter().cloned());
     taken.extend(module.arc_uniform_returns.iter().cloned());
     for (_, _, pairs) in &module.method_tables {
@@ -116,10 +137,13 @@ fn address_taken(module: &Module) -> HashSet<String> {
         for block in &function.blocks {
             for (_, inst, _) in &block.instructions {
                 match inst {
-                    Instruction::TearOff { code_symbol } | Instruction::AllocClosure { code_symbol, .. } => {
+                    Instruction::TearOff { code_symbol }
+                    | Instruction::AllocClosure { code_symbol, .. } => {
                         taken.insert(code_symbol.clone());
                     }
-                    Instruction::AllocClosureTyped { code_symbol, typed, .. } => {
+                    Instruction::AllocClosureTyped {
+                        code_symbol, typed, ..
+                    } => {
                         taken.insert(code_symbol.clone());
                         taken.insert(typed.clone());
                     }
@@ -178,7 +202,10 @@ fn round(module: &mut Module) -> usize {
     // The unique symbols: a duplicated one is never a candidate.
     let mut index: HashMap<&str, Option<usize>> = HashMap::new();
     for (position, function) in module.functions.iter().enumerate() {
-        index.entry(function.symbol.as_str()).and_modify(|entry| *entry = None).or_insert(Some(position));
+        index
+            .entry(function.symbol.as_str())
+            .and_modify(|entry| *entry = None)
+            .or_insert(Some(position));
     }
     let taken = address_taken(module);
     let with_errors: HashSet<&str> = module
@@ -194,8 +221,12 @@ fn round(module: &mut Module) -> usize {
     for caller in &module.functions {
         let definitions = constant_definitions(caller);
         for (_, inst, _) in caller.blocks.iter().flat_map(|b| &b.instructions) {
-            let Instruction::CallStatic { symbol, args, .. } = inst else { continue };
-            let Some(Some(callee)) = index.get(symbol.as_str()).copied() else { continue };
+            let Instruction::CallStatic { symbol, args, .. } = inst else {
+                continue;
+            };
+            let Some(Some(callee)) = index.get(symbol.as_str()).copied() else {
+                continue;
+            };
             if excluded.contains(&callee) {
                 continue;
             }
@@ -210,8 +241,11 @@ fn round(module: &mut Module) -> usize {
                 agreement.remove(&callee);
                 continue;
             }
-            let facts: Vec<Option<Arg>> =
-                args.iter().zip(&target.params).map(|(a, (_, _, ty))| argument(a, *ty, &definitions)).collect();
+            let facts: Vec<Option<Arg>> = args
+                .iter()
+                .zip(&target.params)
+                .map(|(a, (_, _, ty))| argument(a, *ty, &definitions))
+                .collect();
             match agreement.get_mut(&callee) {
                 None => {
                     agreement.insert(callee, facts);
@@ -261,7 +295,10 @@ fn round(module: &mut Module) -> usize {
             }
             used
         };
-        let constants: Vec<(ValueId, Arg)> = constants.into_iter().filter(|(v, _)| used.contains(v)).collect();
+        let constants: Vec<(ValueId, Arg)> = constants
+            .into_iter()
+            .filter(|(v, _)| used.contains(v))
+            .collect();
         if constants.is_empty() {
             continue;
         }
@@ -291,7 +328,11 @@ fn substitute(function: &mut Function, constants: &[(ValueId, Arg)]) {
             Arg::Str(bytes) => {
                 next_value += 1;
                 let value = ValueId(next_value);
-                strings.push((value, Instruction::Const(Constant::StringWtf8(bytes.clone())), Type::Ref));
+                strings.push((
+                    value,
+                    Instruction::Const(Constant::StringWtf8(bytes.clone())),
+                    Type::Ref,
+                ));
                 Operand::Val(value)
             }
         };
@@ -315,7 +356,11 @@ pub(super) fn fold_string_equality(function: &mut Function) -> bool {
     let text = |o: &Operand| -> Option<Option<Vec<u8>>> {
         let c = match o {
             Operand::Constant(c) => c.clone(),
-            Operand::Val(v) => definitions.get(v).filter(|(_, ty)| *ty == Type::Ref)?.0.clone(),
+            Operand::Val(v) => definitions
+                .get(v)
+                .filter(|(_, ty)| *ty == Type::Ref)?
+                .0
+                .clone(),
         };
         match c {
             Constant::Null => Some(None),
@@ -338,12 +383,28 @@ pub(super) fn fold_string_equality(function: &mut Function) -> bool {
             }
             continue;
         }
-        let Instruction::CallRuntime { name, args, ret_ty: Type::I1 } = inst else { continue };
-        if *ty != Type::I1 || !matches!(name.as_str(), "df.string_equals_object" | "df.string_equals") {
+        let Instruction::CallRuntime {
+            name,
+            args,
+            ret_ty: Type::I1,
+        } = inst
+        else {
+            continue;
+        };
+        if *ty != Type::I1
+            || !matches!(
+                name.as_str(),
+                "df.string_equals_object" | "df.string_equals"
+            )
+        {
             continue;
         }
-        let [(a, Type::Ref), (b, Type::Ref)] = args.as_slice() else { continue };
-        let (Some(a), Some(b)) = (text(a), text(b)) else { continue };
+        let [(a, Type::Ref), (b, Type::Ref)] = args.as_slice() else {
+            continue;
+        };
+        let (Some(a), Some(b)) = (text(a), text(b)) else {
+            continue;
+        };
         // A string never equals null; two strings compare by their code units.
         let equal = match (a, b) {
             (Some(a), Some(b)) => a == b,
@@ -355,7 +416,9 @@ pub(super) fn fold_string_equality(function: &mut Function) -> bool {
         return false;
     }
     for block in &mut function.blocks {
-        block.instructions.retain(|(v, _, _)| !folded.contains_key(v));
+        block
+            .instructions
+            .retain(|(v, _, _)| !folded.contains_key(v));
     }
     replace(function, &|v| folded.get(&v).cloned());
     true
@@ -399,32 +462,97 @@ mod tests {
             blocks: vec![
                 BasicBlock {
                     id: BlockId(0),
-                    instructions: vec![(v(1), Instruction::ICmp(ICmpOp::Eq, Operand::Val(v(0)), Operand::Constant(Constant::Int(0))), Type::I1)],
-                    terminator: Terminator::CondBranch { cond: Operand::Val(v(1)), then_block: BlockId(1), else_block: BlockId(2) },
+                    instructions: vec![(
+                        v(1),
+                        Instruction::ICmp(
+                            ICmpOp::Eq,
+                            Operand::Val(v(0)),
+                            Operand::Constant(Constant::Int(0)),
+                        ),
+                        Type::I1,
+                    )],
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Val(v(1)),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
                 },
                 BasicBlock {
                     id: BlockId(1),
-                    instructions: vec![(v(2), Instruction::Const(Constant::StringWtf8(b"macos".to_vec())), Type::Ref)],
+                    instructions: vec![(
+                        v(2),
+                        Instruction::Const(Constant::StringWtf8(b"macos".to_vec())),
+                        Type::Ref,
+                    )],
                     terminator: Terminator::Branch(BlockId(3)),
                 },
-                BasicBlock { id: BlockId(2), instructions: vec![], terminator: Terminator::Branch(BlockId(3)) },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
                 BasicBlock {
                     id: BlockId(3),
                     instructions: vec![
-                        (v(3), Instruction::Phi { incoming: vec![(BlockId(1), Operand::Val(v(2))), (BlockId(2), Operand::Val(v(0)))], ty: Type::Ref }, Type::Ref),
-                        (v(4), Instruction::Const(Constant::StringWtf8(b"windows".to_vec())), Type::Ref),
-                        (v(5), Instruction::CallRuntime { name: "df.string_equals_object".into(), args: vec![(Operand::Val(v(3)), Type::Ref), (Operand::Val(v(4)), Type::Ref)], ret_ty: Type::I1 }, Type::I1),
+                        (
+                            v(3),
+                            Instruction::Phi {
+                                incoming: vec![
+                                    (BlockId(1), Operand::Val(v(2))),
+                                    (BlockId(2), Operand::Val(v(0))),
+                                ],
+                                ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        ),
+                        (
+                            v(4),
+                            Instruction::Const(Constant::StringWtf8(b"windows".to_vec())),
+                            Type::Ref,
+                        ),
+                        (
+                            v(5),
+                            Instruction::CallRuntime {
+                                name: "df.string_equals_object".into(),
+                                args: vec![
+                                    (Operand::Val(v(3)), Type::Ref),
+                                    (Operand::Val(v(4)), Type::Ref),
+                                ],
+                                ret_ty: Type::I1,
+                            },
+                            Type::I1,
+                        ),
                     ],
-                    terminator: Terminator::CondBranch { cond: Operand::Val(v(5)), then_block: BlockId(4), else_block: BlockId(5) },
+                    terminator: Terminator::CondBranch {
+                        cond: Operand::Val(v(5)),
+                        then_block: BlockId(4),
+                        else_block: BlockId(5),
+                    },
                 },
                 BasicBlock {
                     id: BlockId(4),
-                    instructions: vec![(v(6), Instruction::CallStatic { symbol: "windows".into(), args: vec![], ret_ty: Type::Ref }, Type::Ref)],
+                    instructions: vec![(
+                        v(6),
+                        Instruction::CallStatic {
+                            symbol: "windows".into(),
+                            args: vec![],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
                     terminator: Terminator::Return(Some(Operand::Val(v(6)))),
                 },
                 BasicBlock {
                     id: BlockId(5),
-                    instructions: vec![(v(7), Instruction::CallStatic { symbol: "other".into(), args: vec![], ret_ty: Type::Ref }, Type::Ref)],
+                    instructions: vec![(
+                        v(7),
+                        Instruction::CallStatic {
+                            symbol: "other".into(),
+                            args: vec![],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
                     terminator: Terminator::Return(Some(Operand::Val(v(7)))),
                 },
             ],
@@ -438,7 +566,11 @@ mod tests {
             debug_info: None,
             params: vec![],
             return_ty: Type::Ref,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }],
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+            }],
         }
     }
 
@@ -451,7 +583,15 @@ mod tests {
             return_ty: Type::Ref,
             blocks: vec![BasicBlock {
                 id: BlockId(0),
-                instructions: vec![(v(0), Instruction::CallStatic { symbol: "resolve".into(), args: vec![argument], ret_ty: Type::Ref }, Type::Ref)],
+                instructions: vec![(
+                    v(0),
+                    Instruction::CallStatic {
+                        symbol: "resolve".into(),
+                        args: vec![argument],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                )],
                 terminator: Terminator::Return(Some(Operand::Val(v(0)))),
             }],
         }
@@ -472,43 +612,105 @@ mod tests {
     #[test]
     fn omitted_optional_folds_the_platform_branch() {
         let mut module = Module {
-            functions: vec![caller("main", Operand::Constant(Constant::Null)), resolver(), leaf("windows"), leaf("other")],
+            functions: vec![
+                caller("main", Operand::Constant(Constant::Null)),
+                resolver(),
+                leaf("windows"),
+                leaf("other"),
+            ],
             ..Default::default()
         };
         assert_eq!(propagate(&mut module), 1);
         let resolve = &module.functions[1];
-        assert_eq!(calls(resolve), vec!["other".to_string()], "{:?}", resolve.blocks);
+        assert_eq!(
+            calls(resolve),
+            vec!["other".to_string()],
+            "{:?}",
+            resolve.blocks
+        );
         assert_eq!(resolve.params.len(), 1, "the ABI does not change");
-        assert!(resolve.blocks.iter().all(|b| !matches!(b.terminator, Terminator::CondBranch { .. })), "{:?}", resolve.blocks);
+        assert!(
+            resolve
+                .blocks
+                .iter()
+                .all(|b| !matches!(b.terminator, Terminator::CondBranch { .. })),
+            "{:?}",
+            resolve.blocks
+        );
     }
 
     #[test]
     fn explicit_string_argument_selects_the_other_branch() {
         let mut main = caller("main", Operand::Val(v(9)));
-        main.blocks[0].instructions.insert(0, (v(9), Instruction::Const(Constant::StringWtf8(b"windows".to_vec())), Type::Ref));
-        let mut module = Module { functions: vec![main, resolver(), leaf("windows"), leaf("other")], ..Default::default() };
+        main.blocks[0].instructions.insert(
+            0,
+            (
+                v(9),
+                Instruction::Const(Constant::StringWtf8(b"windows".to_vec())),
+                Type::Ref,
+            ),
+        );
+        let mut module = Module {
+            functions: vec![main, resolver(), leaf("windows"), leaf("other")],
+            ..Default::default()
+        };
         assert_eq!(propagate(&mut module), 1);
         let resolve = &module.functions[1];
-        assert_eq!(calls(resolve), vec!["windows".to_string()], "{:?}", resolve.blocks);
+        assert_eq!(
+            calls(resolve),
+            vec!["windows".to_string()],
+            "{:?}",
+            resolve.blocks
+        );
         // Once its null guard and equality fold, the materialized string may
         // itself be dead. The ABI stays intact and every branch is resolved.
         assert_eq!(resolve.params.len(), 1);
-        assert!(resolve.blocks.iter().all(|b| !matches!(b.terminator, Terminator::CondBranch { .. })));
+        assert!(
+            resolve
+                .blocks
+                .iter()
+                .all(|b| !matches!(b.terminator, Terminator::CondBranch { .. }))
+        );
     }
 
     #[test]
     fn constant_parameter_flows_through_a_lowered_local() {
         let mut resolve = resolver();
         let block = &mut resolve.blocks[3];
-        block.instructions.splice(1..1, [
-            (v(8), Instruction::Alloca(Type::Ref), Type::Ptr),
-            (v(9), Instruction::Store { ptr: Operand::Val(v(8)), val: Operand::Val(v(3)) }, Type::Void),
-            (v(10), Instruction::Load { ptr: Operand::Val(v(8)), ty: Type::Ref }, Type::Ref),
-        ]);
-        let (_, Instruction::CallRuntime { args, .. }, _) = block.instructions.last_mut().unwrap() else { panic!("equality") };
+        block.instructions.splice(
+            1..1,
+            [
+                (v(8), Instruction::Alloca(Type::Ref), Type::Ptr),
+                (
+                    v(9),
+                    Instruction::Store {
+                        ptr: Operand::Val(v(8)),
+                        val: Operand::Val(v(3)),
+                    },
+                    Type::Void,
+                ),
+                (
+                    v(10),
+                    Instruction::Load {
+                        ptr: Operand::Val(v(8)),
+                        ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ),
+            ],
+        );
+        let (_, Instruction::CallRuntime { args, .. }, _) = block.instructions.last_mut().unwrap()
+        else {
+            panic!("equality")
+        };
         args[0].0 = Operand::Val(v(10));
         let mut module = Module {
-            functions: vec![caller("main", Operand::Constant(Constant::Null)), resolve, leaf("windows"), leaf("other")],
+            functions: vec![
+                caller("main", Operand::Constant(Constant::Null)),
+                resolve,
+                leaf("windows"),
+                leaf("other"),
+            ],
             ..Default::default()
         };
         assert_eq!(propagate(&mut module), 1);
@@ -518,35 +720,85 @@ mod tests {
     #[test]
     fn disagreeing_sites_tear_offs_and_sdk_modules_keep_the_body() {
         let intact = |module: &Module| {
-            let resolve = module.functions.iter().find(|f| f.symbol == "resolve").unwrap();
+            let resolve = module
+                .functions
+                .iter()
+                .find(|f| f.symbol == "resolve")
+                .unwrap();
             let mut names = calls(resolve);
             names.sort();
-            assert_eq!(names, vec!["other".to_string(), "windows".to_string()], "{:?}", resolve.blocks);
+            assert_eq!(
+                names,
+                vec!["other".to_string(), "windows".to_string()],
+                "{:?}",
+                resolve.blocks
+            );
         };
         // Two call sites, two constants.
         let mut second = caller("second", Operand::Val(v(9)));
-        second.blocks[0].instructions.insert(0, (v(9), Instruction::Const(Constant::StringWtf8(b"linux".to_vec())), Type::Ref));
+        second.blocks[0].instructions.insert(
+            0,
+            (
+                v(9),
+                Instruction::Const(Constant::StringWtf8(b"linux".to_vec())),
+                Type::Ref,
+            ),
+        );
         let mut module = Module {
-            functions: vec![caller("main", Operand::Constant(Constant::Null)), second, resolver(), leaf("windows"), leaf("other")],
+            functions: vec![
+                caller("main", Operand::Constant(Constant::Null)),
+                second,
+                resolver(),
+                leaf("windows"),
+                leaf("other"),
+            ],
             ..Default::default()
         };
         assert_eq!(propagate(&mut module), 0);
         intact(&module);
         // A computed argument.
         let mut computed = caller("main", Operand::Val(v(9)));
-        computed.blocks[0].instructions.insert(0, (v(9), Instruction::CallStatic { symbol: "other".into(), args: vec![], ret_ty: Type::Ref }, Type::Ref));
-        let mut module = Module { functions: vec![computed, resolver(), leaf("windows"), leaf("other")], ..Default::default() };
+        computed.blocks[0].instructions.insert(
+            0,
+            (
+                v(9),
+                Instruction::CallStatic {
+                    symbol: "other".into(),
+                    args: vec![],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            ),
+        );
+        let mut module = Module {
+            functions: vec![computed, resolver(), leaf("windows"), leaf("other")],
+            ..Default::default()
+        };
         assert_eq!(propagate(&mut module), 0);
         intact(&module);
         // The address taken by a tear-off.
         let mut main = caller("main", Operand::Constant(Constant::Null));
-        main.blocks[0].instructions.push((v(1), Instruction::TearOff { code_symbol: "resolve".into() }, Type::Ref));
-        let mut module = Module { functions: vec![main, resolver(), leaf("windows"), leaf("other")], ..Default::default() };
+        main.blocks[0].instructions.push((
+            v(1),
+            Instruction::TearOff {
+                code_symbol: "resolve".into(),
+            },
+            Type::Ref,
+        ));
+        let mut module = Module {
+            functions: vec![main, resolver(), leaf("windows"), leaf("other")],
+            ..Default::default()
+        };
         assert_eq!(propagate(&mut module), 0);
         intact(&module);
         // An SDK library module: open world.
         let mut module = Module {
-            functions: vec![caller("main", Operand::Constant(Constant::Null)), resolver(), leaf("windows"), leaf("other")],
+            functions: vec![
+                caller("main", Operand::Constant(Constant::Null)),
+                resolver(),
+                leaf("windows"),
+                leaf("other"),
+            ],
             sdk_library: true,
             ..Default::default()
         };
@@ -569,18 +821,40 @@ mod tests {
             blocks: vec![BasicBlock {
                 id: BlockId(0),
                 instructions: vec![
-                    (v(1), Instruction::Const(Constant::StringWtf8(b"a".to_vec())), Type::Ref),
-                    (v(2), Instruction::Const(Constant::String("a".into())), Type::Ref),
-                    (v(3), Instruction::CallRuntime { name: "df.string_equals_object".into(), args: vec![(a, Type::Ref), (b, Type::Ref)], ret_ty: Type::I1 }, Type::I1),
+                    (
+                        v(1),
+                        Instruction::Const(Constant::StringWtf8(b"a".to_vec())),
+                        Type::Ref,
+                    ),
+                    (
+                        v(2),
+                        Instruction::Const(Constant::String("a".into())),
+                        Type::Ref,
+                    ),
+                    (
+                        v(3),
+                        Instruction::CallRuntime {
+                            name: "df.string_equals_object".into(),
+                            args: vec![(a, Type::Ref), (b, Type::Ref)],
+                            ret_ty: Type::I1,
+                        },
+                        Type::I1,
+                    ),
                 ],
                 terminator: Terminator::Return(Some(Operand::Val(v(3)))),
             }],
         };
         let mut same = equals(Operand::Val(v(1)), Operand::Val(v(2)));
         assert!(fold_string_equality(&mut same));
-        assert!(matches!(same.blocks[0].terminator, Terminator::Return(Some(Operand::Constant(Constant::Bool(true))))));
+        assert!(matches!(
+            same.blocks[0].terminator,
+            Terminator::Return(Some(Operand::Constant(Constant::Bool(true))))
+        ));
         let mut null = equals(Operand::Val(v(1)), Operand::Constant(Constant::Null));
         assert!(fold_string_equality(&mut null));
-        assert!(matches!(null.blocks[0].terminator, Terminator::Return(Some(Operand::Constant(Constant::Bool(false))))));
+        assert!(matches!(
+            null.blocks[0].terminator,
+            Terminator::Return(Some(Operand::Constant(Constant::Bool(false))))
+        ));
     }
 }

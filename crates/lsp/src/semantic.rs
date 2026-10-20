@@ -3,9 +3,14 @@
 //! entry, discarded at each text change); completion, which analyzes a text
 //! with a sentinel, is always transient.
 
-use crate::{Analyzer, SyntacticAnalyzer, DocumentStore, Hover, References};
+use crate::{Analyzer, DocumentStore, Hover, References, SyntacticAnalyzer};
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_elements::{generated::GenerationBuilder, load::load_lenient_generated, model::{Program, UnitId}, sdk::SdkLayout};
+use dartforge_elements::{
+    generated::GenerationBuilder,
+    load::load_lenient_generated,
+    model::{Program, UnitId},
+    sdk::SdkLayout,
+};
 use dartforge_intern::Interner;
 use url::Url;
 
@@ -45,7 +50,18 @@ impl SemanticAnalyzer {
     /// assert_eq!(a.session_stats().loaded, 0);
     /// ```
     pub fn new(sdk: Option<SdkLayout>) -> Self {
-        Self { syntactic: SyntacticAnalyzer::new(), sdk, session: crate::session::Session::new(), wide_session: crate::session::Session::wide(), known: Default::default(), completion_max: crate::completion::MAX_PATTERN, not_imported_in_completion: true, incremental: std::env::var("DARTFORGE_LSP_INCREMENTAL").map(|v| v.trim() != "0").unwrap_or(true) }
+        Self {
+            syntactic: SyntacticAnalyzer::new(),
+            sdk,
+            session: crate::session::Session::new(),
+            wide_session: crate::session::Session::wide(),
+            known: Default::default(),
+            completion_max: crate::completion::MAX_PATTERN,
+            not_imported_in_completion: true,
+            incremental: std::env::var("DARTFORGE_LSP_INCREMENTAL")
+                .map(|v| v.trim() != "0")
+                .unwrap_or(true),
+        }
     }
 
     /// Changes the semantic session budget (MiB of retained source; `0` turns
@@ -80,32 +96,55 @@ impl SemanticAnalyzer {
     }
 
     /// The library of `uri` (definition, hover, actions), from the session or loaded.
-    pub(crate) fn library(&mut self, documents: &DocumentStore, uri: &str) -> Option<crate::session::Use<'_>> {
+    pub(crate) fn library(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+    ) -> Option<crate::session::Use<'_>> {
         let sdk = self.sdk.as_ref()?;
         let file = crate::project::uri_file(uri)?;
-        self.session.get(crate::session::Scope::Library(file), documents, || {
-            crate::project::load_library(sdk, documents, uri)
-        })
+        self.session
+            .get(crate::session::Scope::Library(file), documents, || {
+                crate::project::load_library(sdk, documents, uri)
+            })
     }
 
     /// The whole project of `uri` (references, rename), from the session or loaded.
-    pub(crate) fn project(&mut self, documents: &DocumentStore, uri: &str) -> Option<crate::session::Use<'_>> {
+    pub(crate) fn project(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+    ) -> Option<crate::session::Use<'_>> {
         let sdk = self.sdk.as_ref()?;
         let root = crate::project::project_root(&crate::project::uri_file(uri)?);
-        self.session.get(crate::session::Scope::Project(root), documents, || {
-            crate::project::load_project(sdk, documents, uri)
-        })
+        self.session
+            .get(crate::session::Scope::Project(root), documents, || {
+                crate::project::load_project(sdk, documents, uri)
+            })
     }
 
     /// The wide load of `uri` with the bodies of the libraries that cite or
     /// declare `name` inferred (the candidates of `_addResults`, §11.2), from
     /// the wide session or loaded.
-    pub(crate) fn wide(&mut self, documents: &DocumentStore, uri: &str, name: &str) -> Option<crate::session::Use<'_>> {
-        let SemanticAnalyzer { wide_session, sdk: Some(sdk), .. } = self else { return None };
+    pub(crate) fn wide(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        name: &str,
+    ) -> Option<crate::session::Use<'_>> {
+        let SemanticAnalyzer {
+            wide_session,
+            sdk: Some(sdk),
+            ..
+        } = self
+        else {
+            return None;
+        };
         let root = crate::project::project_root(&crate::project::uri_file(uri)?);
-        let mut usage = wide_session.get(crate::session::Scope::Project(root), documents, || {
-            crate::project::load_wide_project(sdk, documents, uri)
-        })?;
+        let mut usage =
+            wide_session.get(crate::session::Scope::Project(root), documents, || {
+                crate::project::load_wide_project(sdk, documents, uri)
+            })?;
         usage.widen_to(name);
         Some(usage)
     }
@@ -123,10 +162,14 @@ impl SemanticAnalyzer {
     pub(crate) fn open(documents: &DocumentStore) -> GenerationBuilder {
         let mut generator = GenerationBuilder::new();
         for open in documents.uris() {
-            let Some(source) = documents.get(open) else { continue };
+            let Some(source) = documents.get(open) else {
+                continue;
+            };
             // The canonical path (the disk's case on a case-insensitive file system),
             // the same as `uri_file`'s.
-            let Some(file) = crate::project::uri_file(open) else { continue };
+            let Some(file) = crate::project::uri_file(open) else {
+                continue;
+            };
             if file.extension().is_some_and(|e| e == "dart") {
                 generator.put(file, source.to_owned(), "lsp", vec![]);
             }
@@ -146,7 +189,13 @@ impl SemanticAnalyzer {
     /// literal stays syntactic (the pointed-to file); names come from the common
     /// inference's resolution. Without an SDK, or if the library does not load,
     /// the conservative syntactic answers apply.
-    fn define(&mut self, uri: &str, text: &str, offset: usize, documents: &DocumentStore) -> Option<(String, Option<Span>)> {
+    fn define(
+        &mut self,
+        uri: &str,
+        text: &str,
+        offset: usize,
+        documents: &DocumentStore,
+    ) -> Option<(String, Option<Span>)> {
         if let Some((target, None)) = self.syntactic.definition(uri, text, offset) {
             return Some((target, None));
         }
@@ -157,11 +206,18 @@ impl SemanticAnalyzer {
             let (u, span) = project.definition(unit, offset)?;
             return Some((project.unit_uri(u)?, Some(span)));
         }
-        self.syntactic.definition_in_workspace(uri, text, offset, documents)
+        self.syntactic
+            .definition_in_workspace(uri, text, offset, documents)
     }
 
     /// Hover through semantic identity; without it, the conservative syntactic one.
-    fn pass_hover(&mut self, uri: &str, text: &str, offset: usize, documents: &DocumentStore) -> Option<Hover> {
+    fn pass_hover(
+        &mut self,
+        uri: &str,
+        text: &str,
+        offset: usize,
+        documents: &DocumentStore,
+    ) -> Option<Hover> {
         if let Some(project) = self.library(documents, uri)
             && let Some(unit) = project.uri_unit(uri)
             && let Ok(Some(d)) = project.identify(unit, offset)
@@ -175,13 +231,19 @@ impl SemanticAnalyzer {
         {
             return Some(h);
         }
-        self.syntactic.hover_in_workspace(uri, text, offset, documents)
+        self.syntactic
+            .hover_in_workspace(uri, text, offset, documents)
     }
 
     /// References through declaration identity, in every library of the project
     /// (open or only on disk). Declarations from dependencies (SDK, packages)
     /// come in as declarations, but uses are only searched for in the project.
-    fn semantic_references(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<References> {
+    fn semantic_references(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<References> {
         // Non-local search: the wide load, with the SDK and the packages that cite
         // the name (docs/LSP-ESPECIFICACAO.md §11.9 B); a local one stays in the
         // project.
@@ -202,13 +264,20 @@ impl SemanticAnalyzer {
 }
 
 /// The references of what is at `offset` of `uri`, in the given project.
-fn references_in(project: &crate::project::Project, uri: &str, offset: usize) -> Option<References> {
+fn references_in(
+    project: &crate::project::Project,
+    uri: &str,
+    offset: usize,
+) -> Option<References> {
     {
         let unit = project.uri_unit(uri)?;
         let d = project.identify(unit, offset).ok()??;
         if let crate::project::Target::Prefix { library, name } = d.target {
             let (declaration, uses) = project.prefix_references(unit, offset, library, name)?;
-            let mut uses: Vec<(String, Span)> = uses.into_iter().filter_map(|(u, s)| Some((project.unit_uri(u)?, s))).collect();
+            let mut uses: Vec<(String, Span)> = uses
+                .into_iter()
+                .filter_map(|(u, s)| Some((project.unit_uri(u)?, s)))
+                .collect();
             uses.sort_by(|a, b| (a.0.as_str(), a.1.start).cmp(&(b.0.as_str(), b.1.start)));
             let declaration = declaration.and_then(|(u, s)| Some((project.unit_uri(u)?, s)));
             return Some(References { declaration, uses });
@@ -228,14 +297,23 @@ fn references_in(project: &crate::project::Project, uri: &str, offset: usize) ->
         });
         let mut uses: Vec<(String, Span)> = Vec::new();
         // Only the candidates accept uses: the scan stays within them.
-        for (u, from, until) in project.occurrences_in(&d.target, false, candidates.as_ref()).ok()? {
+        for (u, from, until) in project
+            .occurrences_in(&d.target, false, candidates.as_ref())
+            .ok()?
+        {
             if declarations.contains(&(u, from, until)) {
                 continue;
             }
             if candidates.as_ref().is_some_and(|c| !c.contains(&u)) {
                 continue;
             }
-            uses.push((project.unit_uri(u)?, Span { start: from, end: until }));
+            uses.push((
+                project.unit_uri(u)?,
+                Span {
+                    start: from,
+                    end: until,
+                },
+            ));
         }
         uses.sort_by(|a, b| (a.0.as_str(), a.1.start).cmp(&(b.0.as_str(), b.1.start)));
         let declaration = declaration.and_then(|(u, s)| Some((project.unit_uri(u)?, s)));
@@ -246,9 +324,16 @@ fn references_in(project: &crate::project::Project, uri: &str, offset: usize) ->
 /// Loads the program of `uri` with `text` and the other open documents with
 /// their current texts (the other files come from disk). A part comes in
 /// through its owning library.
-pub(crate) fn load(sdk: &SdkLayout, uri: &str, text: &str, documents: Option<&DocumentStore>) -> Option<(Program, Interner, UnitId)> {
+pub(crate) fn load(
+    sdk: &SdkLayout,
+    uri: &str,
+    text: &str,
+    documents: Option<&DocumentStore>,
+) -> Option<(Program, Interner, UnitId)> {
     let path = crate::project::uri_file(uri)?;
-    if path.extension().is_none_or(|e| e != "dart") { return None; }
+    if path.extension().is_none_or(|e| e != "dart") {
+        return None;
+    }
     let mut generator = documents.map_or_else(GenerationBuilder::new, SemanticAnalyzer::open);
     // A direct trait call also uses the received text, even without a
     // DocumentStore. The request's file wins over the collection.
@@ -261,8 +346,22 @@ pub(crate) fn load(sdk: &SdkLayout, uri: &str, text: &str, documents: Option<&Do
     let key = dartforge_elements::generated::key(&path);
     for entry in owning.iter().chain([&path]) {
         let mut names = Interner::new();
-        let (program, _) = load_lenient_generated(entry, sdk, None, &mut names, None, None, Some(generation.clone()));
-        let unit = program.units.iter().position(|u| u.path.as_deref().map(dartforge_elements::generated::key).as_ref() == Some(&key));
+        let (program, _) = load_lenient_generated(
+            entry,
+            sdk,
+            None,
+            &mut names,
+            None,
+            None,
+            Some(generation.clone()),
+        );
+        let unit = program.units.iter().position(|u| {
+            u.path
+                .as_deref()
+                .map(dartforge_elements::generated::key)
+                .as_ref()
+                == Some(&key)
+        });
         if let Some(unit) = unit {
             return Some((program, names, UnitId(unit as u32)));
         }
@@ -273,7 +372,11 @@ pub(crate) fn load(sdk: &SdkLayout, uri: &str, text: &str, documents: Option<&Do
 /// The owning library of `path` when the text is a part (`part of`): through
 /// the written URI (relative or `package:`), or, in the old `part of name;`
 /// form, through the project file that declares `part` for it.
-pub(crate) fn owning_library(path: &std::path::Path, text: &str, documents: Option<&DocumentStore>) -> Option<std::path::PathBuf> {
+pub(crate) fn owning_library(
+    path: &std::path::Path,
+    text: &str,
+    documents: Option<&DocumentStore>,
+) -> Option<std::path::PathBuf> {
     use dartforge_elements::generated::key;
     use dartforge_frontend::ast::DirectiveKind;
     if !text.contains("part") {
@@ -281,35 +384,52 @@ pub(crate) fn owning_library(path: &std::path::Path, text: &str, documents: Opti
     }
     let mut names = Interner::new();
     let analyzed = dartforge_frontend::parser::parse(text, &mut names);
-    let uri = analyzed.unit.directives.iter().find_map(|d| match &d.kind {
-        DirectiveKind::PartOf { uri, .. } => Some(uri.as_ref().and_then(dartforge_elements::load::string_lit_value)),
-        _ => None,
-    })?;
+    let uri = analyzed
+        .unit
+        .directives
+        .iter()
+        .find_map(|d| match &d.kind {
+            DirectiveKind::PartOf { uri, .. } => Some(
+                uri.as_ref()
+                    .and_then(dartforge_elements::load::string_lit_value),
+            ),
+            _ => None,
+        })?;
     if let Some(uri) = uri {
         if uri.starts_with("package:") {
             let config = dartforge_elements::config::PackageConfig::discover(path)?;
-            return dartforge_elements::config::PackageConfig::load(&config).ok()?.resolve_package_uri(&uri).ok();
+            return dartforge_elements::config::PackageConfig::load(&config)
+                .ok()?
+                .resolve_package_uri(&uri)
+                .ok();
         }
         return Some(key(&path.parent()?.join(uri)));
     }
     let target = key(path);
     let root = crate::project::project_root(path);
-    crate::project::project_files(&root).into_iter().find(|candidate| {
-        let open = documents
-            .and_then(|d| Url::from_file_path(candidate).ok().and_then(|u| d.get(u.as_str()).map(str::to_string)));
-        let Some(source) = open.or_else(|| std::fs::read_to_string(candidate).ok()) else { return false };
-        if !source.contains("part") {
-            return false;
-        }
-        let mut names = Interner::new();
-        let analyzed = dartforge_frontend::parser::parse(&source, &mut names);
-        analyzed.unit.directives.iter().any(|d| match &d.kind {
-            DirectiveKind::Part { uri } => dartforge_elements::load::string_lit_value(uri)
-                .and_then(|u| candidate.parent().map(|dir| key(&dir.join(u))))
-                .is_some_and(|p| p == target),
-            _ => false,
+    crate::project::project_files(&root)
+        .into_iter()
+        .find(|candidate| {
+            let open = documents.and_then(|d| {
+                Url::from_file_path(candidate)
+                    .ok()
+                    .and_then(|u| d.get(u.as_str()).map(str::to_string))
+            });
+            let Some(source) = open.or_else(|| std::fs::read_to_string(candidate).ok()) else {
+                return false;
+            };
+            if !source.contains("part") {
+                return false;
+            }
+            let mut names = Interner::new();
+            let analyzed = dartforge_frontend::parser::parse(&source, &mut names);
+            analyzed.unit.directives.iter().any(|d| match &d.kind {
+                DirectiveKind::Part { uri } => dartforge_elements::load::string_lit_value(uri)
+                    .and_then(|u| candidate.parent().map(|dir| key(&dir.join(u))))
+                    .is_some_and(|p| p == target),
+                _ => false,
+            })
         })
-    })
 }
 
 impl Analyzer for SemanticAnalyzer {
@@ -321,12 +441,23 @@ impl Analyzer for SemanticAnalyzer {
         self.syntactic.symbols(uri, text)
     }
 
-    fn definition(&mut self, uri: &str, text: &str, offset: usize) -> Option<(String, Option<Span>)> {
+    fn definition(
+        &mut self,
+        uri: &str,
+        text: &str,
+        offset: usize,
+    ) -> Option<(String, Option<Span>)> {
         let only_this = Self::only_this(uri, text);
         self.define(uri, text, offset, &only_this)
     }
 
-    fn definition_in_workspace(&mut self, uri: &str, text: &str, offset: usize, documents: &DocumentStore) -> Option<(String, Option<Span>)> {
+    fn definition_in_workspace(
+        &mut self,
+        uri: &str,
+        text: &str,
+        offset: usize,
+        documents: &DocumentStore,
+    ) -> Option<(String, Option<Span>)> {
         self.define(uri, text, offset, documents)
     }
 
@@ -334,7 +465,12 @@ impl Analyzer for SemanticAnalyzer {
         self.syntactic.references(uri, text, offset)
     }
 
-    fn references_in(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<References> {
+    fn references_in(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<References> {
         if self.sdk.is_some() && documents.get(uri).is_some() {
             return self.semantic_references(documents, uri, offset);
         }
@@ -346,7 +482,13 @@ impl Analyzer for SemanticAnalyzer {
         self.pass_hover(uri, text, offset, &only_this)
     }
 
-    fn hover_in_workspace(&mut self, uri: &str, text: &str, offset: usize, documents: &DocumentStore) -> Option<Hover> {
+    fn hover_in_workspace(
+        &mut self,
+        uri: &str,
+        text: &str,
+        offset: usize,
+        documents: &DocumentStore,
+    ) -> Option<Hover> {
         self.pass_hover(uri, text, offset, documents)
     }
 
@@ -395,32 +537,63 @@ impl Analyzer for SemanticAnalyzer {
         self.sdk.as_ref().map(|s| s.root.clone())
     }
 
-    fn prepare_rename(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Result<Option<(Span, String)>, String> {
-        let Some(project) = self.project(documents, uri) else { return Ok(None) };
+    fn prepare_rename(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Result<Option<(Span, String)>, String> {
+        let Some(project) = self.project(documents, uri) else {
+            return Ok(None);
+        };
         crate::rename::prepare(&project, uri, offset)
     }
 
-    fn rename(&mut self, documents: &DocumentStore, uri: &str, offset: usize, new: &str) -> Result<crate::Rename, String> {
-        let project = self.project(documents, uri)
-            .ok_or_else(|| "The file's project could not be loaded (missing SDK or a URI that is not a file).".to_string())?;
+    fn rename(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+        new: &str,
+    ) -> Result<crate::Rename, String> {
+        let project = self.project(documents, uri).ok_or_else(|| {
+            "The file's project could not be loaded (missing SDK or a URI that is not a file)."
+                .to_string()
+        })?;
         crate::rename::rename(&project, uri, offset, new)
     }
 
-    fn actions(&mut self, documents: &DocumentStore, uri: &str, start: usize, end: usize, published_: &[Diagnostic]) -> Vec<crate::CodeAction> {
-        let Some(text) = documents.get(uri) else { return Vec::new() };
+    fn actions(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        start: usize,
+        end: usize,
+        published_: &[Diagnostic],
+    ) -> Vec<crate::CodeAction> {
+        let Some(text) = documents.get(uri) else {
+            return Vec::new();
+        };
         // The immediate ones of the current version and the typed ones already
         // published for it.
         let mut diagnostics = self.diagnose(uri, text);
         for d in published_ {
-            if !diagnostics.iter().any(|x| x.code == d.code && x.span == d.span) {
+            if !diagnostics
+                .iter()
+                .any(|x| x.code == d.code && x.span == d.span)
+            {
                 diagnostics.push(d.clone());
             }
         }
         // The fixes apply to the diagnostics of the requested lines (the Dart
         // server filters by line); the assists, to the cursor.
         let (line_start_, line_end) = {
-            let a = text[..start.min(text.len())].rfind('\n').map_or(0, |i| i + 1);
-            let b = text[end.min(text.len())..].find('\n').map_or(text.len(), |i| end + i);
+            let a = text[..start.min(text.len())]
+                .rfind('\n')
+                .map_or(0, |i| i + 1);
+            let b = text[end.min(text.len())..]
+                .find('\n')
+                .map_or(text.len(), |i| end + i);
             (a, b)
         };
         let mut output = crate::actions::fix_syntax(uri, text, &diagnostics, line_start_, line_end);
@@ -431,7 +604,8 @@ impl Analyzer for SemanticAnalyzer {
         output.extend(all);
         output.push(crate::actions::organize_imports(uri, text));
         // The ignore ones come last, like Dart's priority.
-        let ignore = crate::ignore_diagnostic::ignore(uri, text, &diagnostics, line_start_, line_end);
+        let ignore =
+            crate::ignore_diagnostic::ignore(uri, text, &diagnostics, line_start_, line_end);
         if self.sdk.is_none() {
             output.extend(ignore);
             return output;
@@ -440,28 +614,51 @@ impl Analyzer for SemanticAnalyzer {
             output.extend(ignore);
             return output;
         };
-        let SemanticAnalyzer { session, sdk: Some(sdk), known, .. } = self else {
+        let SemanticAnalyzer {
+            session,
+            sdk: Some(sdk),
+            known,
+            ..
+        } = self
+        else {
             output.extend(ignore);
             return output;
         };
-        if let Some(mut project) = session.get(crate::session::Scope::Library(file), documents, || {
-            crate::project::load_library(sdk, documents, uri)
-        }) {
-            let published = crate::actions::fix_published(&project, uri, &diagnostics, line_start_, line_end);
-            let all = crate::actions::fix_in_whole_file(&published, &diagnostics, text, |o, a, b| {
-                crate::actions::fix_published(&project, uri, std::slice::from_ref(o), a, b)
-            });
+        if let Some(mut project) =
+            session.get(crate::session::Scope::Library(file), documents, || {
+                crate::project::load_library(sdk, documents, uri)
+            })
+        {
+            let published =
+                crate::actions::fix_published(&project, uri, &diagnostics, line_start_, line_end);
+            let all =
+                crate::actions::fix_in_whole_file(&published, &diagnostics, text, |o, a, b| {
+                    crate::actions::fix_published(&project, uri, std::slice::from_ref(o), a, b)
+                });
             output.extend(published);
             output.extend(all);
             // Import before create: the priority of Dart's fixes.
-            output.extend(crate::actions::import(&project, Some(&*sdk), known, documents, uri, line_start_, line_end));
+            output.extend(crate::actions::import(
+                &project,
+                Some(&*sdk),
+                known,
+                documents,
+                uri,
+                line_start_,
+                line_end,
+            ));
             let fixed = crate::fixes::fix(&mut project, uri, &diagnostics, line_start_, line_end);
             let all = crate::actions::fix_in_whole_file(&fixed, &diagnostics, text, |o, a, b| {
                 crate::fixes::fix(&mut project, uri, std::slice::from_ref(o), a, b)
             });
             output.extend(fixed);
             output.extend(all);
-            output.extend(crate::fixes::required_arguments(&project, uri, line_start_, line_end));
+            output.extend(crate::fixes::required_arguments(
+                &project,
+                uri,
+                line_start_,
+                line_end,
+            ));
             if let Some(unit) = project.uri_unit(uri) {
                 let created = project.create_undefined(uri, unit, line_start_, line_end);
                 output.extend(created);
@@ -484,13 +681,20 @@ impl Analyzer for SemanticAnalyzer {
                     output.extend(cx.convert_to_async_body(uri, start, end));
                     // `ConvertIntoBlockBody.missingBody` as an assist: the selection node
                     // (`NodeLocator`).
-                    if let Some((span, text)) = cx.convert_to_block_body(dartforge_diagnostics::Span { start, end }) {
+                    if let Some((span, text)) =
+                        cx.convert_to_block_body(dartforge_diagnostics::Span { start, end })
+                    {
                         output.push(crate::fixes::block_body(crate::actions::CodeAction {
                             title: "Convert to block body".into(),
                             kind: "refactor.convert.bodyToBlock".into(),
-                            edits: vec![crate::Edit { uri: uri.to_string(), span, text }],
+                            edits: vec![crate::Edit {
+                                uri: uri.to_string(),
+                                span,
+                                text,
+                            }],
                             diagnostic: None,
-                            create_file: None, linked: Default::default(),
+                            create_file: None,
+                            linked: Default::default(),
                         }));
                     }
                     output.extend(cx.convert_to_final_field(uri, start, end));
@@ -537,19 +741,46 @@ impl Analyzer for SemanticAnalyzer {
         output
     }
 
-    fn refactorings(&mut self, documents: &DocumentStore, uri: &str, offset: usize, length: usize, create_files: bool) -> Vec<crate::Refactoring> {
-        let Some(project) = self.library(documents, uri) else { return Vec::new() };
-        let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+    fn refactorings(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+        length: usize,
+        create_files: bool,
+    ) -> Vec<crate::Refactoring> {
+        let Some(project) = self.library(documents, uri) else {
+            return Vec::new();
+        };
+        let Some(unit) = project.uri_unit(uri) else {
+            return Vec::new();
+        };
         project.refactorings(unit, offset, length, create_files)
     }
 
-    fn run_refactoring(&mut self, documents: &DocumentStore, uri: &str, request: &crate::RefactoringRequest) -> crate::RefactoringResult {
-        let Some(project) = self.project(documents, uri) else { return crate::RefactoringResult::NotAnalyzed };
+    fn run_refactoring(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        request: &crate::RefactoringRequest,
+    ) -> crate::RefactoringResult {
+        let Some(project) = self.project(documents, uri) else {
+            return crate::RefactoringResult::NotAnalyzed;
+        };
         crate::refactorings_exec::run(&project, uri, request)
     }
 
-    fn move_to_file(&mut self, documents: &DocumentStore, uri: &str, offset: usize, length: usize, target: &str) -> crate::RefactoringResult {
-        let Some(project) = self.project(documents, uri) else { return crate::RefactoringResult::NotAnalyzed };
+    fn move_to_file(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+        length: usize,
+        target: &str,
+    ) -> crate::RefactoringResult {
+        let Some(project) = self.project(documents, uri) else {
+            return crate::RefactoringResult::NotAnalyzed;
+        };
         crate::refactorings_exec::move_(&project, uri, offset, length, target)
     }
 
@@ -561,13 +792,24 @@ impl Analyzer for SemanticAnalyzer {
         self.syntactic.selections(uri, text, offset)
     }
 
-    fn signature(&mut self, documents: &DocumentStore, uri: &str, offset: usize, auto: bool) -> Option<crate::Signature> {
+    fn signature(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+        auto: bool,
+    ) -> Option<crate::Signature> {
         let mut project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         project.signature(unit, offset, auto)
     }
 
-    fn document_highlights(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<Vec<Span>> {
+    fn document_highlights(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<Vec<Span>> {
         if self.sdk.is_none() {
             let text = documents.get(uri)?.to_string();
             return self.syntactic.references(uri, &text, offset);
@@ -577,7 +819,12 @@ impl Analyzer for SemanticAnalyzer {
         project.document_highlights(unit, offset)
     }
 
-    fn implementations(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Vec<(String, Span)> {
+    fn implementations(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Vec<(String, Span)> {
         // `searchAllSubtypes` searches every known file, including the whole SDK
         // (`JSString` from `dart:_interceptors` implements `String`): the wide
         // load, like the references'.
@@ -590,10 +837,18 @@ impl Analyzer for SemanticAnalyzer {
             && let Some(wide) = self.wide(documents, uri, &name)
             && let Some(unit) = wide.uri_unit(uri)
         {
-            return wide.implementations(unit, offset).into_iter().filter_map(|(u, s)| Some((wide.unit_uri(u)?, s))).collect();
+            return wide
+                .implementations(unit, offset)
+                .into_iter()
+                .filter_map(|(u, s)| Some((wide.unit_uri(u)?, s)))
+                .collect();
         }
-        let Some(project) = self.project(documents, uri) else { return Vec::new() };
-        let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+        let Some(project) = self.project(documents, uri) else {
+            return Vec::new();
+        };
+        let Some(unit) = project.uri_unit(uri) else {
+            return Vec::new();
+        };
         project
             .implementations(unit, offset)
             .into_iter()
@@ -605,36 +860,89 @@ impl Analyzer for SemanticAnalyzer {
         // The libraries of the color constants (Flutter's `Colors`) need their
         // bodies: without them inferred, a dedicated load with them.
         let extras = {
-            let Some(project) = self.library(documents, uri) else { return Vec::new() };
-            let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+            let Some(project) = self.library(documents, uri) else {
+                return Vec::new();
+            };
+            let Some(unit) = project.uri_unit(uri) else {
+                return Vec::new();
+            };
             project.color_libraries(unit)
         };
         if extras.is_empty() {
-            let Some(mut project) = self.library(documents, uri) else { return Vec::new() };
-            let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+            let Some(mut project) = self.library(documents, uri) else {
+                return Vec::new();
+            };
+            let Some(unit) = project.uri_unit(uri) else {
+                return Vec::new();
+            };
             return project.colors(unit);
         }
-        let Some(sdk) = self.sdk.as_ref() else { return Vec::new() };
-        let Some(project) = crate::project::load_library(sdk, documents, uri) else { return Vec::new() };
-        let crate::project::Project { query, root, mut libraries, referenced_names, reverse_index, comments, occurrences_by_unit, written_subtypes } = project;
-        let mut list: Vec<dartforge_elements::model::LibraryId> = libraries.iter().copied().chain(extras.iter().copied()).collect();
+        let Some(sdk) = self.sdk.as_ref() else {
+            return Vec::new();
+        };
+        let Some(project) = crate::project::load_library(sdk, documents, uri) else {
+            return Vec::new();
+        };
+        let crate::project::Project {
+            query,
+            root,
+            mut libraries,
+            referenced_names,
+            reverse_index,
+            comments,
+            occurrences_by_unit,
+            written_subtypes,
+        } = project;
+        let mut list: Vec<dartforge_elements::model::LibraryId> = libraries
+            .iter()
+            .copied()
+            .chain(extras.iter().copied())
+            .collect();
         list.sort();
         list.dedup();
         libraries.extend(extras);
-        let mut project = crate::project::Project { query: query.reinfer(&list), root, libraries, referenced_names, reverse_index, comments, occurrences_by_unit, written_subtypes };
-        let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+        let mut project = crate::project::Project {
+            query: query.reinfer(&list),
+            root,
+            libraries,
+            referenced_names,
+            reverse_index,
+            comments,
+            occurrences_by_unit,
+            written_subtypes,
+        };
+        let Some(unit) = project.uri_unit(uri) else {
+            return Vec::new();
+        };
         project.colors(unit)
     }
 
-    fn color_presentation(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<bool> {
+    fn color_presentation(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<bool> {
         let project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
-        project.has_flutter_color().then(|| project.requires_const(unit, offset))
+        project
+            .has_flutter_color()
+            .then(|| project.requires_const(unit, offset))
     }
 
-    fn augmentation_lenses(&mut self, documents: &DocumentStore, uri: &str, augmented: bool, augmentations: bool) -> Vec<(Span, &'static str, String, Span)> {
-        let Some(project) = self.library(documents, uri) else { return Vec::new() };
-        let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+    fn augmentation_lenses(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        augmented: bool,
+        augmentations: bool,
+    ) -> Vec<(Span, &'static str, String, Span)> {
+        let Some(project) = self.library(documents, uri) else {
+            return Vec::new();
+        };
+        let Some(unit) = project.uri_unit(uri) else {
+            return Vec::new();
+        };
         project
             .augmentation_lenses(unit, augmented, augmentations)
             .into_iter()
@@ -642,21 +950,37 @@ impl Analyzer for SemanticAnalyzer {
             .collect()
     }
 
-    fn augmentation_neighbor(&mut self, documents: &DocumentStore, uri: &str, offset: usize, next: bool) -> Option<(String, Span)> {
+    fn augmentation_neighbor(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+        next: bool,
+    ) -> Option<(String, Span)> {
         let project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let (u, s) = project.augmentation_neighbor(unit, offset, next)?;
         Some((project.unit_uri(u)?, s))
     }
 
-    fn upper(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<(String, Span)> {
+    fn upper(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<(String, Span)> {
         let mut project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let (u, s) = project.upper(unit, offset)?;
         Some((project.unit_uri(u)?, s))
     }
 
-    fn type_definition(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<(String, Span)> {
+    fn type_definition(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<(String, Span)> {
         let project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let (u, s) = project.type_definition(unit, offset)?;
@@ -664,40 +988,83 @@ impl Analyzer for SemanticAnalyzer {
     }
 
     fn closing_labels(&mut self, documents: &DocumentStore, uri: &str) -> Vec<(Span, String)> {
-        let Some(project) = self.library(documents, uri) else { return Vec::new() };
-        let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+        let Some(project) = self.library(documents, uri) else {
+            return Vec::new();
+        };
+        let Some(unit) = project.uri_unit(uri) else {
+            return Vec::new();
+        };
         project.closing_labels(unit)
     }
 
     fn hints(&mut self, documents: &DocumentStore, uri: &str) -> Vec<crate::Hint> {
-        let Some(project) = self.library(documents, uri) else { return Vec::new() };
-        let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
+        let Some(project) = self.library(documents, uri) else {
+            return Vec::new();
+        };
+        let Some(unit) = project.uri_unit(uri) else {
+            return Vec::new();
+        };
         project.hints(unit)
     }
 
-    fn semantic_tokens(&mut self, documents: &DocumentStore, uri: &str, multiline: bool, range: Option<(usize, usize)>) -> Option<Vec<u32>> {
+    fn semantic_tokens(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        multiline: bool,
+        range: Option<(usize, usize)>,
+    ) -> Option<Vec<u32>> {
         let project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let highlights = project.highlights(unit);
         let text = documents.get(uri)?;
         let table = documents.lines(uri)?;
-        Some(crate::semantic_tokens::encode(text, table, &highlights, multiline, range))
+        Some(crate::semantic_tokens::encode(
+            text,
+            table,
+            &highlights,
+            multiline,
+            range,
+        ))
     }
 
-    fn prepare_calls(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<crate::CallItem> {
+    fn prepare_calls(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<crate::CallItem> {
         let project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let e = project.call_target(unit, offset)?;
         project.call_item(e)
     }
 
-    fn calls(&mut self, documents: &DocumentStore, uri: &str, offset: usize, name: &str, constructor: bool, received: bool) -> Vec<(crate::CallItem, Vec<Span>)> {
-        let Some(project) = self.project(documents, uri) else { return Vec::new() };
-        let Some(unit) = project.uri_unit(uri) else { return Vec::new() };
-        let Some((e, _)) = project.item_target(unit, offset, name, constructor) else { return Vec::new() };
+    fn calls(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+        name: &str,
+        constructor: bool,
+        received: bool,
+    ) -> Vec<(crate::CallItem, Vec<Span>)> {
+        let Some(project) = self.project(documents, uri) else {
+            return Vec::new();
+        };
+        let Some(unit) = project.uri_unit(uri) else {
+            return Vec::new();
+        };
+        let Some((e, _)) = project.item_target(unit, offset, name, constructor) else {
+            return Vec::new();
+        };
         if received {
             // Only executables receive calls.
-            if !matches!(e, crate::call_hierarchy::CallElem::Function(_) | crate::call_hierarchy::CallElem::Local(..)) {
+            if !matches!(
+                e,
+                crate::call_hierarchy::CallElem::Function(_)
+                    | crate::call_hierarchy::CallElem::Local(..)
+            ) {
                 return Vec::new();
             }
             project.incoming_calls(e)
@@ -706,16 +1073,32 @@ impl Analyzer for SemanticAnalyzer {
         }
     }
 
-    fn prepare_hierarchy(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<crate::TypeItem> {
+    fn prepare_hierarchy(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<crate::TypeItem> {
         let mut project = self.library(documents, uri)?;
         let unit = project.uri_unit(uri)?;
         let (c, ty) = project.hierarchy_target(unit, offset)?;
         project.type_item(c, ty)
     }
 
-    fn hierarchy(&mut self, documents: &DocumentStore, uri: &str, reference: &str, anchor: Option<(&str, &[usize])>, supertypes: bool) -> Option<Vec<crate::TypeItem>> {
+    fn hierarchy(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        reference: &str,
+        anchor: Option<(&str, &[usize])>,
+        supertypes: bool,
+    ) -> Option<Vec<crate::TypeItem>> {
         let mut project = self.project(documents, uri)?;
-        if supertypes { project.reference_supertypes(reference, anchor) } else { project.reference_subtypes(reference) }
+        if supertypes {
+            project.reference_supertypes(reference, anchor)
+        } else {
+            project.reference_subtypes(reference)
+        }
     }
 
     fn set_completion_max(&mut self, max: usize) {
@@ -726,13 +1109,25 @@ impl Analyzer for SemanticAnalyzer {
         self.not_imported_in_completion = yes;
     }
 
-    fn completion(&mut self, documents: &DocumentStore, uri: &str, offset: usize) -> Option<crate::Completion> {
+    fn completion(
+        &mut self,
+        documents: &DocumentStore,
+        uri: &str,
+        offset: usize,
+    ) -> Option<crate::Completion> {
         let text = documents.get(uri)?;
         let features = self.syntactic.features(uri, text);
         self.sdk.as_ref()?;
         let self_max = self.completion_max;
         let not_imported = self.not_imported_in_completion;
-        let SemanticAnalyzer { sdk: Some(sdk), known, session, incremental, .. } = self else {
+        let SemanticAnalyzer {
+            sdk: Some(sdk),
+            known,
+            session,
+            incremental,
+            ..
+        } = self
+        else {
             return None;
         };
         let sdk: &SdkLayout = sdk;
@@ -742,10 +1137,25 @@ impl Analyzer for SemanticAnalyzer {
         // here if missing, so that the following keystrokes find it.
         let file = crate::project::uri_file(uri)?;
         let mut retained = if *incremental {
-            session.get(crate::session::Scope::Library(file), documents, || crate::project::load_library(sdk, documents, uri))
+            session.get(crate::session::Scope::Library(file), documents, || {
+                crate::project::load_library(sdk, documents, uri)
+            })
         } else {
             None
         };
-        crate::completion::completion(crate::completion::CompletionInput { sdk, indices, documents, uri, text, offset, features, max: self_max, not_imported }, retained.as_deref_mut())
+        crate::completion::completion(
+            crate::completion::CompletionInput {
+                sdk,
+                indices,
+                documents,
+                uri,
+                text,
+                offset,
+                features,
+                max: self_max,
+                not_imported,
+            },
+            retained.as_deref_mut(),
+        )
     }
 }

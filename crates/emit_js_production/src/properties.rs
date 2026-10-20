@@ -19,24 +19,193 @@ use std::collections::HashSet;
 /// Names of the JavaScript (and browser) protocol that the engine calls
 /// implicitly on any object.
 const JS_PROTOCOL: &[&str] = &[
-    "toString", "valueOf", "toJSON", "then", "catch", "finally", "length", "name", "message", "stack", "constructor", "prototype", "call", "apply", "bind",
-    "next", "done", "value", "return", "throw", "get", "set", "handleEvent", "caller", "callee", "arguments", "__proto__", "toLocaleString",
-    "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "default", "enumerable", "configurable", "writable",
+    "toString",
+    "valueOf",
+    "toJSON",
+    "then",
+    "catch",
+    "finally",
+    "length",
+    "name",
+    "message",
+    "stack",
+    "constructor",
+    "prototype",
+    "call",
+    "apply",
+    "bind",
+    "next",
+    "done",
+    "value",
+    "return",
+    "throw",
+    "get",
+    "set",
+    "handleEvent",
+    "caller",
+    "callee",
+    "arguments",
+    "__proto__",
+    "toLocaleString",
+    "hasOwnProperty",
+    "isPrototypeOf",
+    "propertyIsEnumerable",
+    "default",
+    "enumerable",
+    "configurable",
+    "writable",
     // Members of built-in objects that the emitter, the *bootstrap* and the
     // *templates* call directly (`$constCache.get`, `Object.create`,
     // `a.push`): a Dart member with the same name cannot be renamed.
-    "create", "defineProperty", "defineProperties", "getOwnPropertyDescriptor", "getOwnPropertyNames", "getOwnPropertySymbols", "getPrototypeOf",
-    "setPrototypeOf", "keys", "values", "entries", "assign", "freeze", "isFrozen", "seal", "is", "fromEntries", "has", "delete", "clear", "add", "forEach",
-    "size", "push", "pop", "shift", "unshift", "slice", "splice", "concat", "join", "reverse", "sort", "indexOf", "lastIndexOf", "includes", "find",
-    "findIndex", "filter", "map", "reduce", "reduceRight", "some", "every", "fill", "copyWithin", "flat", "flatMap", "from", "of", "isArray", "at",
-    "charCodeAt", "codePointAt", "charAt", "fromCharCode", "fromCodePoint", "substring", "substr", "toUpperCase", "toLowerCase", "trim", "trimStart",
-    "trimEnd", "split", "replace", "replaceAll", "match", "matchAll", "search", "startsWith", "endsWith", "padStart", "padEnd", "repeat",
-    "localeCompare", "normalize", "raw", "exec", "test", "source", "flags", "global", "multiline", "ignoreCase", "unicode", "sticky", "lastIndex",
-    "index", "input", "groups", "iterator", "asyncIterator", "hasInstance", "toPrimitive", "toStringTag", "for", "keyFor", "description", "resolve",
-    "reject", "all", "allSettled", "race", "any", "parse", "stringify", "floor", "ceil", "round", "trunc", "abs", "max", "min", "pow", "sqrt", "random",
-    "sign", "log", "exp", "isNaN", "isFinite", "isInteger", "isSafeInteger", "toFixed", "toPrecision", "toExponential", "parseInt", "parseFloat",
-    "buffer", "byteLength", "byteOffset", "subarray", "BYTES_PER_ELEMENT", "now", "getTime", "ownKeys", "construct", "deleteProperty", "error",
-    "warn", "info", "debug", "cause", "lineNumber", "columnNumber", "fileName", "stackTraceLimit", "captureStackTrace",
+    "create",
+    "defineProperty",
+    "defineProperties",
+    "getOwnPropertyDescriptor",
+    "getOwnPropertyNames",
+    "getOwnPropertySymbols",
+    "getPrototypeOf",
+    "setPrototypeOf",
+    "keys",
+    "values",
+    "entries",
+    "assign",
+    "freeze",
+    "isFrozen",
+    "seal",
+    "is",
+    "fromEntries",
+    "has",
+    "delete",
+    "clear",
+    "add",
+    "forEach",
+    "size",
+    "push",
+    "pop",
+    "shift",
+    "unshift",
+    "slice",
+    "splice",
+    "concat",
+    "join",
+    "reverse",
+    "sort",
+    "indexOf",
+    "lastIndexOf",
+    "includes",
+    "find",
+    "findIndex",
+    "filter",
+    "map",
+    "reduce",
+    "reduceRight",
+    "some",
+    "every",
+    "fill",
+    "copyWithin",
+    "flat",
+    "flatMap",
+    "from",
+    "of",
+    "isArray",
+    "at",
+    "charCodeAt",
+    "codePointAt",
+    "charAt",
+    "fromCharCode",
+    "fromCodePoint",
+    "substring",
+    "substr",
+    "toUpperCase",
+    "toLowerCase",
+    "trim",
+    "trimStart",
+    "trimEnd",
+    "split",
+    "replace",
+    "replaceAll",
+    "match",
+    "matchAll",
+    "search",
+    "startsWith",
+    "endsWith",
+    "padStart",
+    "padEnd",
+    "repeat",
+    "localeCompare",
+    "normalize",
+    "raw",
+    "exec",
+    "test",
+    "source",
+    "flags",
+    "global",
+    "multiline",
+    "ignoreCase",
+    "unicode",
+    "sticky",
+    "lastIndex",
+    "index",
+    "input",
+    "groups",
+    "iterator",
+    "asyncIterator",
+    "hasInstance",
+    "toPrimitive",
+    "toStringTag",
+    "for",
+    "keyFor",
+    "description",
+    "resolve",
+    "reject",
+    "all",
+    "allSettled",
+    "race",
+    "any",
+    "parse",
+    "stringify",
+    "floor",
+    "ceil",
+    "round",
+    "trunc",
+    "abs",
+    "max",
+    "min",
+    "pow",
+    "sqrt",
+    "random",
+    "sign",
+    "log",
+    "exp",
+    "isNaN",
+    "isFinite",
+    "isInteger",
+    "isSafeInteger",
+    "toFixed",
+    "toPrecision",
+    "toExponential",
+    "parseInt",
+    "parseFloat",
+    "buffer",
+    "byteLength",
+    "byteOffset",
+    "subarray",
+    "BYTES_PER_ELEMENT",
+    "now",
+    "getTime",
+    "ownKeys",
+    "construct",
+    "deleteProperty",
+    "error",
+    "warn",
+    "info",
+    "debug",
+    "cause",
+    "lineNumber",
+    "columnNumber",
+    "fileName",
+    "stackTraceLimit",
+    "captureStackTrace",
 ];
 
 /// What the minifier may rename and what it must keep.
@@ -63,15 +232,26 @@ pub struct Names {
 }
 
 fn has_interop_annotation(p: &Program, i: &Interner, c: ClassId) -> bool {
-    let Some(d) = p.class(c).decl else { return false };
+    let Some(d) = p.class(c).decl else {
+        return false;
+    };
     p.unit(d.unit).ast.decl(d.decl).metadata.iter().any(|a| {
-        a.name.last().is_some_and(|n| matches!(i.resolve(n.sym), "JS" | "JSExport" | "anonymous" | "staticInterop" | "Native" | "JsPeerInterface"))
+        a.name.last().is_some_and(|n| {
+            matches!(
+                i.resolve(n.sym),
+                "JS" | "JSExport" | "anonymous" | "staticInterop" | "Native" | "JsPeerInterface"
+            )
+        })
     })
 }
 
 /// Computes the sets from the model. `js_names` are the words of the live
 /// `JS()` *templates* (`dartforge_world::World::js_names`).
-pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, named_args: Option<&std::collections::HashMap<String, String>>) -> Names {
+pub fn compute(
+    a: &dartforge_emit_js::Analysis<'_>,
+    js_names: &HashSet<String>,
+    named_args: Option<&std::collections::HashMap<String, String>>,
+) -> Names {
     use dartforge_elements::model::ClassKind;
     use dartforge_emit_js::body::{js_member_name, static_member_name, top_level_name};
     let (p, i, table) = (a.program, a.interner, a.table);
@@ -79,7 +259,9 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, 
     let mut n = Names::default();
     for (k, l) in p.libraries.iter().enumerate() {
         if !l.is_sdk {
-            n.tags.insert(dartforge_emit_js::recipe_tag(dartforge_elements::model::LibraryId(k as u32)));
+            n.tags.insert(dartforge_emit_js::recipe_tag(
+                dartforge_elements::model::LibraryId(k as u32),
+            ));
         }
     }
     // Interop: `@JS` classes, extension types (those of `package:web` are the
@@ -87,7 +269,9 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, 
     let interop: Vec<bool> = (0..p.classes.len())
         .map(|k| {
             let c = ClassId(k as u32);
-            has_interop_annotation(p, i, c) || ctx.is_js_class(c) || p.class(c).kind == ClassKind::ExtensionType
+            has_interop_annotation(p, i, c)
+                || ctx.is_js_class(c)
+                || p.class(c).kind == ClassKind::ExtensionType
         })
         .collect();
     // The JS names given by `@JS(a.b)` (class, library, member).
@@ -103,7 +287,13 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, 
             parts(x, &mut n.reserved);
         }
     }
-    for x in ctx.js_libs.values().chain(ctx.fn_js.values()).chain(ctx.var_js.values()).flatten() {
+    for x in ctx
+        .js_libs
+        .values()
+        .chain(ctx.fn_js.values())
+        .chain(ctx.var_js.values())
+        .flatten()
+    {
         parts(x, &mut n.reserved);
     }
     let from_interop = |c: Option<ClassId>| c.is_some_and(|c| interop[c.0 as usize]);
@@ -117,11 +307,18 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, 
     }
     for f in p.functions.iter() {
         let name = i.resolve(f.name);
-        if matches!(f.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
+        if matches!(
+            f.kind,
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+        ) {
             // `C.new`, `C.name`: a class property that only the text cites
             // (`new C.new(…)`, `C.name.call(this, …)`).
             if f.class.is_some_and(|c| !interop[c.0 as usize]) {
-                n.renamable.insert(if name.is_empty() { "new".to_string() } else { static_member_name(name) });
+                n.renamable.insert(if name.is_empty() {
+                    "new".to_string()
+                } else {
+                    static_member_name(name)
+                });
             }
             continue;
         }
@@ -205,7 +402,8 @@ pub fn compute(a: &dartforge_emit_js::Analysis<'_>, js_names: &HashSet<String>, 
     // `new` in the *templates* (`#.new = function`,
     // `Object.getPrototypeOf(#).new`) is the Dart constructor, never a
     // JavaScript property: renamed along with it.
-    n.reserved.extend(js_names.iter().filter(|w| *w != "new").cloned());
+    n.reserved
+        .extend(js_names.iter().filter(|w| *w != "new").cloned());
     n.reserved.extend(JS_PROTOCOL.iter().map(|s| s.to_string()));
     if std::env::var("DARTFORGE_JSPROD_SHARED_NAMES").map_or(true, |v| v != "0") {
         cohabitation(a, &mut n);
@@ -232,25 +430,31 @@ fn cohabitation(a: &dartforge_emit_js::Analysis<'_>, n: &mut Names) {
     let (p, i) = (a.program, a.interner);
     let classes = p.classes.len();
     let mut declared: Vec<HashSet<String>> = vec![HashSet::new(); classes];
-    let spellings = |name: &str, lib: dartforge_elements::model::LibraryId, out: &mut dyn FnMut(String)| {
-        let sdk = p.library(lib).is_sdk;
-        if name.starts_with('_') {
-            if !sdk {
-                out(production_private_name(name, lib));
+    let spellings =
+        |name: &str, lib: dartforge_elements::model::LibraryId, out: &mut dyn FnMut(String)| {
+            let sdk = p.library(lib).is_sdk;
+            if name.starts_with('_') {
+                if !sdk {
+                    out(production_private_name(name, lib));
+                }
+            } else {
+                out(name.to_string());
+                if !sdk {
+                    out(production_private_name(name, lib));
+                }
             }
-        } else {
-            out(name.to_string());
-            if !sdk {
-                out(production_private_name(name, lib));
-            }
-        }
-    };
+        };
     for f in p.functions.iter() {
         let name = i.resolve(f.name);
         if name.is_empty() || f.extension.is_some() {
             continue;
         }
-        let instance = f.class.is_some() && !f.static_ && !matches!(f.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor);
+        let instance = f.class.is_some()
+            && !f.static_
+            && !matches!(
+                f.kind,
+                FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+            );
         if instance {
             let c = f.class.map_or(0, |c| c.0 as usize);
             let js = js_member_name(name.trim_end_matches('='));
@@ -258,7 +462,11 @@ fn cohabitation(a: &dartforge_emit_js::Analysis<'_>, n: &mut Names) {
                 declared[c].insert(x);
             });
         } else {
-            for x in [name.to_string(), static_member_name(name), top_level_name(name)] {
+            for x in [
+                name.to_string(),
+                static_member_name(name),
+                top_level_name(name),
+            ] {
                 spellings(&x, f.library, &mut |y| {
                     n.solitary.insert(y);
                 });
@@ -277,7 +485,11 @@ fn cohabitation(a: &dartforge_emit_js::Analysis<'_>, n: &mut Names) {
                 declared[c].insert(x);
             });
         } else {
-            for x in [name.to_string(), static_member_name(name), top_level_name(name)] {
+            for x in [
+                name.to_string(),
+                static_member_name(name),
+                top_level_name(name),
+            ] {
                 spellings(&x, v.library, &mut |y| {
                     n.solitary.insert(y);
                 });

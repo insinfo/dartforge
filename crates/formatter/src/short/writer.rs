@@ -26,11 +26,21 @@ pub struct LineWriter<'c> {
 }
 
 /// `formatBlock(chunk, column)`.
-pub fn format_block(a: &mut Arenas, cache: &mut BlockCache, chunk: ChunkId, column: i32) -> WriteResult {
+pub fn format_block(
+    a: &mut Arenas,
+    cache: &mut BlockCache,
+    chunk: ChunkId,
+    column: i32,
+) -> WriteResult {
     if let Some(r) = cache.get(&(chunk, column)) {
         return r.clone();
     }
-    let children = a.chunks[chunk as usize].block.as_ref().expect("block").children.clone();
+    let children = a.chunks[chunk as usize]
+        .block
+        .as_ref()
+        .expect("block")
+        .children
+        .clone();
     let r = {
         let mut writer = LineWriter {
             output: String::new(),
@@ -111,7 +121,12 @@ impl<'c> LineWriter<'c> {
     }
 
     fn write_without_splits(&mut self, a: &Arenas, block: ChunkId) {
-        let children = a.chunks[block as usize].block.as_ref().expect("block").children.clone();
+        let children = a.chunks[block as usize]
+            .block
+            .as_ref()
+            .expect("block")
+            .children
+            .clone();
         for c in children {
             if a.chunks[c as usize].space {
                 self.output.push(' ');

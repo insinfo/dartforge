@@ -33,7 +33,8 @@ fn main() {
     println!(" Target: {}", entry_point.display());
     println!("============================================================");
 
-    let sdk_dir = SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
+    let sdk_dir =
+        SdkLayout::discover().unwrap_or_else(|| PathBuf::from("C:/tools/dartsdk-3.6.2/lib"));
     let sdk = SdkLayout::load(&sdk_dir, "dartdevc").expect("Failed to load SdkLayout");
 
     let package_config = entry_point
@@ -48,7 +49,8 @@ fn main() {
     // 1. Loading the Elements
     let t0 = Instant::now();
     let mut interner = Interner::new();
-    let (program, elements_diags) = load_lenient(&entry_point, &sdk, package_config.as_deref(), &mut interner);
+    let (program, elements_diags) =
+        load_lenient(&entry_point, &sdk, package_config.as_deref(), &mut interner);
     let t_elements = t0.elapsed();
     let bytes_after_elements = dartforge_instrument::live_bytes();
 
@@ -64,7 +66,8 @@ fn main() {
 
     // 4. Body Inference
     let t2 = Instant::now();
-    let (body_types, body_diags) = infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
+    let (body_types, body_diags) =
+        infer_program_bodies(&program, &interner, &mut table, &core, &mut outline);
     let t_bodies = t2.elapsed();
     let bytes_after_bodies = dartforge_instrument::live_bytes();
 
@@ -80,16 +83,30 @@ fn main() {
     }
 
     println!("\n--- Structural Metrics ---");
-    println!("Loaded libraries:               {}", program.libraries.len());
+    println!(
+        "Loaded libraries:               {}",
+        program.libraries.len()
+    );
     println!("Units (.dart):                  {}", program.units.len());
     println!("Classes / Mixins / Enums:       {}", program.classes.len());
-    println!("Functions and Methods:          {}", program.functions.len());
-    println!("Variables and Fields:           {}", program.variables.len());
+    println!(
+        "Functions and Methods:          {}",
+        program.functions.len()
+    );
+    println!(
+        "Variables and Fields:           {}",
+        program.variables.len()
+    );
     println!("Distinct types (TypeTable):     {}", table.len());
     println!("Typed expressions:              {}", total_exprs);
-    println!("Resolved expressions:           {} ({:.1}%)",
+    println!(
+        "Resolved expressions:           {} ({:.1}%)",
         resolved_exprs,
-        if total_exprs > 0 { (resolved_exprs as f64 / total_exprs as f64) * 100.0 } else { 0.0 }
+        if total_exprs > 0 {
+            (resolved_exprs as f64 / total_exprs as f64) * 100.0
+        } else {
+            0.0
+        }
     );
 
     println!("\n--- Emitted Diagnostics ---");
@@ -98,26 +115,38 @@ fn main() {
     println!("Bodies (Inference and Flow):    {}", body_diags.len());
 
     println!("\n--- Memory Usage ---");
-    println!("Base Memory:                    {:.2} MB", base_bytes as f64 / 1_048_576.0);
-    println!("After Loading Elements:         {:.2} MB (+{:.2} MB)",
+    println!(
+        "Base Memory:                    {:.2} MB",
+        base_bytes as f64 / 1_048_576.0
+    );
+    println!(
+        "After Loading Elements:         {:.2} MB (+{:.2} MB)",
         bytes_after_elements as f64 / 1_048_576.0,
         (bytes_after_elements.saturating_sub(base_bytes)) as f64 / 1_048_576.0
     );
-    println!("After Outline Resolution:       {:.2} MB (+{:.2} MB)",
+    println!(
+        "After Outline Resolution:       {:.2} MB (+{:.2} MB)",
         bytes_after_outline as f64 / 1_048_576.0,
         (bytes_after_outline.saturating_sub(bytes_after_elements)) as f64 / 1_048_576.0
     );
-    println!("After Body Inference:           {:.2} MB (+{:.2} MB)",
+    println!(
+        "After Body Inference:           {:.2} MB (+{:.2} MB)",
         bytes_after_bodies as f64 / 1_048_576.0,
         (bytes_after_bodies.saturating_sub(bytes_after_outline)) as f64 / 1_048_576.0
     );
-    println!("Global Peak Memory:             {:.2} MB", peak_bytes as f64 / 1_048_576.0);
+    println!(
+        "Global Peak Memory:             {:.2} MB",
+        peak_bytes as f64 / 1_048_576.0
+    );
     println!("Total Allocations:              {}", total_allocations);
 
     println!("\n--- Execution Times ---");
     println!("Load and Parse (Elements):      {:.2?}", t_elements);
     println!("Outline Resolution:             {:.2?}", t_outline);
     println!("Body Inference:                 {:.2?}", t_bodies);
-    println!("Total Front-end Time:           {:.2?}", t_elements + t_outline + t_bodies);
+    println!(
+        "Total Front-end Time:           {:.2?}",
+        t_elements + t_outline + t_bodies
+    );
     println!("============================================================");
 }

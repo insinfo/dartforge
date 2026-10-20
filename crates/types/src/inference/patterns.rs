@@ -3,18 +3,18 @@
 //! variables, `switch` as an expression, `if-case`, declarations and
 //! assignments by pattern.
 
+use super::BodyInferrer;
 use super::body::{Body, Local, MemberName};
 use super::expr::{self, declare_local, infer, infer_free};
 use super::flow::Flow;
 use super::members::Search;
-use super::BodyInferrer;
 use crate::constraints::GenericInferrer;
 use crate::table::{Type, TypeId};
 use dartforge_elements::model::{ClassId, Element};
 use dartforge_frontend::ast::{self, ExprId, ListPatternElement, PatternId, PatternKind};
 
 mod matching;
-pub(crate) use matching::{declared_variables, Matching};
+pub(crate) use matching::{Matching, declared_variables};
 
 /// The analyzer's pattern flow (T6) is in use in this body.
 pub(crate) fn pattern_flow_enabled(inf: &BodyInferrer<'_>) -> bool {
@@ -30,16 +30,15 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
             Some(t) => inf.type_from_annotation(cx, *t),
             None => u,
         },
-        PatternKind::Constant(_) | PatternKind::Relational { .. } | PatternKind::Cast { .. } | PatternKind::Or(..) => u,
+        PatternKind::Constant(_)
+        | PatternKind::Relational { .. }
+        | PatternKind::Cast { .. }
+        | PatternKind::Or(..) => u,
         PatternKind::And(x, y) => {
             let (x, y) = (*x, *y);
             let a1 = schema(inf, cx, x);
             let a2 = schema(inf, cx, y);
-            if inf.the_is_unknown(a1) {
-                a2
-            } else {
-                a1
-            }
+            if inf.the_is_unknown(a1) { a2 } else { a1 }
         }
         PatternKind::NullCheck(x) => {
             let s = schema(inf, cx, *x);
@@ -50,7 +49,10 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
             }
         }
         PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => schema(inf, cx, *x),
-        PatternKind::List { type_args, elements } => {
+        PatternKind::List {
+            type_args,
+            elements,
+        } => {
             let el = if let Some(t) = type_args.first() {
                 inf.type_argument_type(cx, *t)
             } else {
@@ -67,7 +69,10 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
         }
         PatternKind::Map { type_args, .. } => {
             let (k, v) = if type_args.len() == 2 {
-                (inf.type_argument_type(cx, type_args[0]), inf.type_argument_type(cx, type_args[1]))
+                (
+                    inf.type_argument_type(cx, type_args[0]),
+                    inf.type_argument_type(cx, type_args[1]),
+                )
             } else {
                 (u, u)
             };
@@ -76,7 +81,8 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
         PatternKind::Record { fields } => {
             let mut pos = Vec::new();
             let mut nm = Vec::new();
-            let fields: Vec<(Option<ast::Name>, PatternId)> = fields.iter().map(|f| (f.name, f.pattern)).collect();
+            let fields: Vec<(Option<ast::Name>, PatternId)> =
+                fields.iter().map(|f| (f.name, f.pattern)).collect();
             for (n, x) in fields {
                 let s = schema(inf, cx, x);
                 match n {
@@ -87,21 +93,28 @@ pub(crate) fn schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
                     },
                 }
             }
-            inf.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
+            inf.table.intern(Type::Record {
+                positional: pos.into_boxed_slice(),
+                named: nm.into_boxed_slice(),
+                nullable: false,
+            })
         }
-        PatternKind::Object { ty, .. } => {
-
-            inf.type_from_annotation(cx, *ty)
-        }
+        PatternKind::Object { ty, .. } => inf.type_from_annotation(cx, *ty),
     }
 }
 
 /// `:x` in a named record/object field uses the variable's name.
-fn implicit_name(inf: &BodyInferrer<'_>, cx: &Body, p: PatternId) -> Option<dartforge_intern::SymbolId> {
+fn implicit_name(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    p: PatternId,
+) -> Option<dartforge_intern::SymbolId> {
     let a = &inf.program.unit(cx.unit).ast;
     match &a.pattern(p).kind {
         PatternKind::Variable { name, .. } => Some(name.sym),
-        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => implicit_name(inf, cx, *x),
+        PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => {
+            implicit_name(inf, cx, *x)
+        }
         PatternKind::Cast { pattern, .. } => implicit_name(inf, cx, *pattern),
         _ => None,
     }
@@ -109,24 +122,48 @@ fn implicit_name(inf: &BodyInferrer<'_>, cx: &Body, p: PatternId) -> Option<dart
 
 /// The field was written as `:x` (name omitted but with a colon): the parser
 /// records `name = None` with the field's span starting at `:`.
-fn implicit_named_field(inf: &BodyInferrer<'_>, cx: &Body, parent: PatternId, child: PatternId) -> bool {
+fn implicit_named_field(
+    inf: &BodyInferrer<'_>,
+    cx: &Body,
+    parent: PatternId,
+    child: PatternId,
+) -> bool {
     let a = &inf.program.unit(cx.unit).ast;
     let fields = match &a.pattern(parent).kind {
         PatternKind::Record { fields } | PatternKind::Object { fields, .. } => fields,
         _ => return false,
     };
-    fields.iter().any(|f| f.pattern == child && f.name.is_none() && inf.program.unit(cx.unit).source.as_bytes().get(f.span.start) == Some(&b':'))
+    fields.iter().any(|f| {
+        f.pattern == child
+            && f.name.is_none()
+            && inf
+                .program
+                .unit(cx.unit)
+                .source
+                .as_bytes()
+                .get(f.span.start)
+                == Some(&b':')
+    })
 }
 
 /// Types pattern `p` against the matched type `t`, declaring variables.
 /// `decl`: declaration context (untyped variables are declared with the
 /// matched type); in an assignment, the identifiers are existing variables.
-fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId, final_: bool, assignment: bool) {
+fn type_check(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    p: PatternId,
+    t: TypeId,
+    final_: bool,
+    assignment: bool,
+) {
     let a = &inf.program.unit(cx.unit).ast;
     // The matched type of each pattern, read by the constant verifier
     // (`UnitBodyTypes::matched_types`); still without the pattern flow's
     // promotion (T6 of the specification).
-    inf.body_types.units[cx.unit.0 as usize].matched_types.insert(p, t);
+    inf.body_types.units[cx.unit.0 as usize]
+        .matched_types
+        .insert(p, t);
     match &a.pattern(p).kind {
         PatternKind::Wildcard { ty: Some(x) } => {
             let x = *x;
@@ -137,7 +174,12 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
             never_matches(inf, cx, t, r, sp);
         }
         PatternKind::Wildcard { .. } => {}
-        PatternKind::Variable { final_: f2, var_, ty, name } => {
+        PatternKind::Variable {
+            final_: f2,
+            var_,
+            ty,
+            name,
+        } => {
             let (f2, ty, name) = (*f2, *ty, *name);
             if cx.refutable_pattern && !*var_ && !f2 && ty.is_none() {
                 // `case limite:`: a constant (the name of a const), not a variable that
@@ -156,11 +198,16 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                     super::expr::write_in_primary(inf, cx, id, name.span);
                     if inf.record_locals {
                         let offset = cx.local(id).offset;
-                        inf.body_types.units[cx.unit.0 as usize].pattern_declarations.insert(p, offset);
+                        inf.body_types.units[cx.unit.0 as usize]
+                            .pattern_declarations
+                            .insert(p, offset);
                     }
                     let decl = cx.local(id).ty;
                     let mut f = std::mem::replace(&mut cx.flow, Flow::reachable());
-                    let reason = super::flow::NonPromotionReason::Write { name: name.sym, span: name.span };
+                    let reason = super::flow::NonPromotionReason::Write {
+                        name: name.sym,
+                        span: name.span,
+                    };
                     inf.assign_flow(&mut f, id, decl, t, Some(reason));
                     cx.flow = f;
                 }
@@ -176,7 +223,20 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
             };
             let inv = ty.is_some_and(|x| invalid_annotation(inf, cx, x, typ));
             record_pattern_type(inf, cx, p, typ, inv);
-            declare_local(inf, cx, Local { name: name.sym, ty: typ, final_: final_ || f2, late: false, const_: false, offset: name.span.start, local_function: false }, true);
+            declare_local(
+                inf,
+                cx,
+                Local {
+                    name: name.sym,
+                    ty: typ,
+                    final_: final_ || f2,
+                    late: false,
+                    const_: false,
+                    offset: name.span.start,
+                    local_function: false,
+                },
+                true,
+            );
         }
         PatternKind::Constant(e) => {
             let e = *e;
@@ -214,28 +274,40 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
             never_matches(inf, cx, t, c, sp);
             type_check(inf, cx, pattern, c, final_, assignment);
         }
-        PatternKind::List { type_args, elements } => {
+        PatternKind::List {
+            type_args,
+            elements,
+        } => {
             let el = if let Some(x) = type_args.first() {
                 inf.type_argument_type(cx, *x)
             } else if inf.is_dynamic(t) {
                 inf.core.dynamic_
             } else {
-                inf.as_instance_of(t, inf.core.list_class).map(|a| a[0]).unwrap_or(inf.core.object_nullable)
+                inf.as_instance_of(t, inf.core.list_class)
+                    .map(|a| a[0])
+                    .unwrap_or(inf.core.object_nullable)
             };
             {
                 let the_required = inf.list(el);
-                let inv = type_args.first().is_some_and(|&x| invalid_annotation(inf, cx, x, el));
+                let inv = type_args
+                    .first()
+                    .is_some_and(|&x| invalid_annotation(inf, cx, x, el));
                 record_pattern_type(inf, cx, p, the_required, inv);
                 let sp = inf.program.unit(cx.unit).ast.pattern(p).span;
                 never_matches(inf, cx, t, the_required, sp);
             }
-            let els: Vec<ListPatternElement> = elements.iter().map(|e| match e {
-                ListPatternElement::Pattern(x) => ListPatternElement::Pattern(*x),
-                ListPatternElement::Rest(x) => ListPatternElement::Rest(*x),
-            }).collect();
+            let els: Vec<ListPatternElement> = elements
+                .iter()
+                .map(|e| match e {
+                    ListPatternElement::Pattern(x) => ListPatternElement::Pattern(*x),
+                    ListPatternElement::Rest(x) => ListPatternElement::Rest(*x),
+                })
+                .collect();
             for e in els {
                 match e {
-                    ListPatternElement::Pattern(x) => type_check(inf, cx, x, el, final_, assignment),
+                    ListPatternElement::Pattern(x) => {
+                        type_check(inf, cx, x, el, final_, assignment)
+                    }
                     ListPatternElement::Rest(Some(x)) => {
                         let l = inf.list(el);
                         type_check(inf, cx, x, l, final_, assignment);
@@ -244,9 +316,14 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                 }
             }
         }
-        PatternKind::Map { type_args, entries, .. } => {
+        PatternKind::Map {
+            type_args, entries, ..
+        } => {
             let (k, v) = if type_args.len() == 2 {
-                (inf.type_argument_type(cx, type_args[0]), inf.type_argument_type(cx, type_args[1]))
+                (
+                    inf.type_argument_type(cx, type_args[0]),
+                    inf.type_argument_type(cx, type_args[1]),
+                )
             } else if inf.is_dynamic(t) {
                 (inf.core.dynamic_, inf.core.dynamic_)
             } else {
@@ -256,8 +333,14 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                 }
             };
             if let Some(mc) = inf.core.map_class {
-                let the_required = inf.table.intern(Type::Interface { class: mc, args: vec![k, v].into_boxed_slice(), nullable: false });
-                let inv = type_args.len() == 2 && (invalid_annotation(inf, cx, type_args[0], k) || invalid_annotation(inf, cx, type_args[1], v));
+                let the_required = inf.table.intern(Type::Interface {
+                    class: mc,
+                    args: vec![k, v].into_boxed_slice(),
+                    nullable: false,
+                });
+                let inv = type_args.len() == 2
+                    && (invalid_annotation(inf, cx, type_args[0], k)
+                        || invalid_annotation(inf, cx, type_args[1], v));
                 record_pattern_type(inf, cx, p, the_required, inv);
             }
             let es: Vec<(ExprId, PatternId)> = entries.iter().map(|e| (e.key, e.value)).collect();
@@ -267,17 +350,28 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
             }
         }
         PatternKind::Record { fields } => {
-            let fields: Vec<(Option<ast::Name>, PatternId, dartforge_diagnostics::Span)> = fields.iter().map(|f| (f.name, f.pattern, f.span)).collect();
+            let fields: Vec<(Option<ast::Name>, PatternId, dartforge_diagnostics::Span)> =
+                fields.iter().map(|f| (f.name, f.pattern, f.span)).collect();
             let tnn = inf.non_null(t);
             let rec = match inf.table.get(tnn).clone() {
-                Type::Record { positional, named, .. } => Some((positional, named)),
+                Type::Record {
+                    positional, named, ..
+                } => Some((positional, named)),
                 _ => None,
             };
             let mut ipos = 0;
             for (n, x, _) in fields {
-                let the_name = n.map(|n| n.sym).or_else(|| if implicit_named_field(inf, cx, p, x) { implicit_name(inf, cx, x) } else { None });
+                let the_name = n.map(|n| n.sym).or_else(|| {
+                    if implicit_named_field(inf, cx, p, x) {
+                        implicit_name(inf, cx, x)
+                    } else {
+                        None
+                    }
+                });
                 let ft = match (&rec, the_name) {
-                    (Some((_, named)), Some(nm)) => named.iter().find(|(s, _)| *s == nm).map(|(_, t)| *t),
+                    (Some((_, named)), Some(nm)) => {
+                        named.iter().find(|(s, _)| *s == nm).map(|(_, t)| *t)
+                    }
                     (Some((pos, _)), None) => {
                         let r = pos.get(ipos).copied();
                         ipos += 1;
@@ -285,13 +379,18 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                     }
                     _ => None,
                 };
-                let ft = ft.unwrap_or(if inf.is_dynamic(t) { inf.core.dynamic_ } else { inf.core.object_nullable });
+                let ft = ft.unwrap_or(if inf.is_dynamic(t) {
+                    inf.core.dynamic_
+                } else {
+                    inf.core.object_nullable
+                });
                 type_check(inf, cx, x, ft, final_, assignment);
             }
         }
         PatternKind::Object { ty, fields } => {
             let ty = *ty;
-            let fields: Vec<(Option<ast::Name>, PatternId)> = fields.iter().map(|f| (f.name, f.pattern)).collect();
+            let fields: Vec<(Option<ast::Name>, PatternId)> =
+                fields.iter().map(|f| (f.name, f.pattern)).collect();
             let obj = object_pattern_type(inf, cx, ty, t);
             let inv = invalid_annotation(inf, cx, ty, obj);
             record_pattern_type(inf, cx, p, obj, inv);
@@ -312,7 +411,9 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
                                     if inf.program.class(*class).kind == dartforge_elements::model::ClassKind::ExtensionType
                             );
                             if m.of_extension || of_extension_type {
-                                inf.body_types.units[cx.unit.0 as usize].extension_fields.insert(x, m.ty);
+                                inf.body_types.units[cx.unit.0 as usize]
+                                    .extension_fields
+                                    .insert(x, m.ty);
                             }
                             m.ty
                         }
@@ -331,7 +432,13 @@ fn type_check(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId
 /// [`crate::resolved::UnitBodyTypes::pattern_types`]); a written type that
 /// does not resolve (it is `dynamic` without being `dynamic`) marks the
 /// pattern as invalid, like the analyzer's `InvalidType`.
-fn record_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId, invalid: bool) {
+fn record_pattern_type(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    p: PatternId,
+    t: TypeId,
+    invalid: bool,
+) {
     let b = &mut inf.body_types.units[cx.unit.0 as usize];
     b.pattern_types.insert(p, t);
     if invalid {
@@ -346,7 +453,9 @@ fn invalid_annotation(inf: &BodyInferrer<'_>, cx: &Body, x: ast::TypeId, r: Type
         return false;
     }
     match &inf.program.unit(cx.unit).ast.ty(x).kind {
-        ast::TypeKind::Named { name, .. } => !name.last().is_some_and(|n| inf.interner.resolve(n.sym) == "dynamic"),
+        ast::TypeKind::Named { name, .. } => !name
+            .last()
+            .is_some_and(|n| inf.interner.resolve(n.sym) == "dynamic"),
         _ => true,
     }
 }
@@ -356,7 +465,13 @@ fn invalid_annotation(inf: &BodyInferrer<'_>, cx: &Body, x: ast::TypeId, r: Type
 /// matched type cannot be a subtype of the type required by the pattern.
 /// Reported at the written type (variable, wildcard, cast, object) or at the
 /// pattern (list).
-fn never_matches(inf: &mut BodyInferrer<'_>, cx: &Body, matched: TypeId, the_required: TypeId, span: dartforge_diagnostics::Span) {
+fn never_matches(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    matched: TypeId,
+    the_required: TypeId,
+    span: dartforge_diagnostics::Span,
+) {
     if !cx.refutable_pattern || span.start == span.end {
         return;
     }
@@ -366,7 +481,10 @@ fn never_matches(inf: &mut BodyInferrer<'_>, cx: &Body, matched: TypeId, the_req
     inf.warning_with_args(
         dartforge_diagnostics::codes::warning::PATTERN_NEVER_MATCHES_VALUE_TYPE,
         span,
-        &[crate::display::Arg::Type_(matched), crate::display::Arg::Type_(the_required)],
+        &[
+            crate::display::Arg::Type_(matched),
+            crate::display::Arg::Type_(the_required),
+        ],
     );
 }
 
@@ -374,13 +492,20 @@ fn never_matches(inf: &mut BodyInferrer<'_>, cx: &Body, matched: TypeId, the_req
 /// 147-315`): can a value of `left` be of `right`? On the optimistic side: it
 /// only says "no" when it knows (Null, functions against interfaces, enums,
 /// `final`/`sealed` classes with all subtypes in the library, records).
-pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: TypeId, prof: u32) -> bool {
+pub(crate) fn can_be_subtype(
+    inf: &mut BodyInferrer<'_>,
+    left: TypeId,
+    right: TypeId,
+    prof: u32,
+) -> bool {
     if prof > 16 {
         return true;
     }
     let left = inf.erase_extension(left);
     let right = inf.erase_extension(right);
-    if matches!(inf.table.get(left), Type::Dynamic | Type::Void) || matches!(inf.table.get(right), Type::Dynamic | Type::Void) {
+    if matches!(inf.table.get(left), Type::Dynamic | Type::Void)
+        || matches!(inf.table.get(right), Type::Dynamic | Type::Void)
+    {
         return true;
     }
     let left_nullable = !inf.is_non_nullable(left);
@@ -398,22 +523,41 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
     let right = inf.non_null(right);
     let is_function = |inf: &BodyInferrer<'_>, c: ClassId| Some(c) == inf.core.function_class;
     let is_object = |inf: &BodyInferrer<'_>, c: ClassId| Some(c) == inf.core.object_class;
-    let is_record = |inf: &BodyInferrer<'_>, c: ClassId| inf.interner.resolve(inf.program.class(c).name) == "Record" && inf.program.library(inf.program.class(c).library).is_sdk;
+    let is_record = |inf: &BodyInferrer<'_>, c: ClassId| {
+        inf.interner.resolve(inf.program.class(c).name) == "Record"
+            && inf.program.library(inf.program.class(c).library).is_sdk
+    };
     match (inf.table.get(left).clone(), inf.table.get(right).clone()) {
-        (Type::Function { .. }, Type::Interface { class, .. }) => return is_function(inf, class) || is_object(inf, class),
-        (Type::Interface { class, .. }, Type::Function { .. }) => return is_function(inf, class) || is_object(inf, class),
+        (Type::Function { .. }, Type::Interface { class, .. }) => {
+            return is_function(inf, class) || is_object(inf, class);
+        }
+        (Type::Interface { class, .. }, Type::Function { .. }) => {
+            return is_function(inf, class) || is_object(inf, class);
+        }
         _ => {}
     }
     if let Type::FutureOr { arg, .. } = inf.table.get(left).clone() {
         let fut = inf.future(arg);
-        return can_be_subtype(inf, arg, right, prof + 1) || can_be_subtype(inf, fut, right, prof + 1);
+        return can_be_subtype(inf, arg, right, prof + 1)
+            || can_be_subtype(inf, fut, right, prof + 1);
     }
     if let Type::FutureOr { arg, .. } = inf.table.get(right).clone() {
         let fut = inf.future(arg);
-        return can_be_subtype(inf, left, arg, prof + 1) || can_be_subtype(inf, left, fut, prof + 1);
+        return can_be_subtype(inf, left, arg, prof + 1)
+            || can_be_subtype(inf, left, fut, prof + 1);
     }
-    if let (Type::Interface { class: lc, args: la, .. }, Type::Interface { class: rc, args: ra, .. }) =
-        (inf.table.get(left).clone(), inf.table.get(right).clone())
+    if let (
+        Type::Interface {
+            class: lc,
+            args: la,
+            ..
+        },
+        Type::Interface {
+            class: rc,
+            args: ra,
+            ..
+        },
+    ) = (inf.table.get(left).clone(), inf.table.get(right).clone())
     {
         let int = inf.core.int_class;
         let double = inf.core.double_class;
@@ -431,7 +575,10 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
             });
         }
         if lc == rc {
-            return la.iter().zip(ra.iter()).all(|(&a, &b)| can_be_subtype(inf, a, b, prof + 1));
+            return la
+                .iter()
+                .zip(ra.iter())
+                .all(|(&a, &b)| can_be_subtype(inf, a, b, prof + 1));
         }
         if let Some(subtypes) = all_subtypes(inf, lc) {
             for cand in std::iter::once(lc).chain(subtypes) {
@@ -440,7 +587,10 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
                     // `_canBeEqualArguments`: only different classes prevent it.
                     let equal = args.iter().zip(ra.iter()).all(|(&a, &b)| {
                         match (inf.table.get(a), inf.table.get(b)) {
-                            (Type::Interface { class: x, .. }, Type::Interface { class: y, .. }) => x == y,
+                            (
+                                Type::Interface { class: x, .. },
+                                Type::Interface { class: y, .. },
+                            ) => x == y,
                             _ => true,
                         }
                     });
@@ -453,21 +603,42 @@ pub(crate) fn can_be_subtype(inf: &mut BodyInferrer<'_>, left: TypeId, right: Ty
         }
         if let Some(subtypes) = all_subtypes(inf, rc) {
             for cand in std::iter::once(rc).chain(subtypes) {
-                let tc = if cand == rc { right } else { inf.class_this_type(cand) };
+                let tc = if cand == rc {
+                    right
+                } else {
+                    inf.class_this_type(cand)
+                };
                 if let Some(args) = inf.as_instance_of(tc, Some(lc))
-                    && la.iter().zip(args.iter()).all(|(&a, &b)| can_be_subtype(inf, a, b, prof + 1)) {
-                        return true;
-                    }
+                    && la
+                        .iter()
+                        .zip(args.iter())
+                        .all(|(&a, &b)| can_be_subtype(inf, a, b, prof + 1))
+                {
+                    return true;
+                }
             }
             return false;
         }
     }
     match (inf.table.get(left).clone(), inf.table.get(right).clone()) {
-        (Type::Record { .. }, Type::Function { .. }) | (Type::Function { .. }, Type::Record { .. }) => return false,
-        (Type::Record { .. }, Type::Interface { class, .. }) | (Type::Interface { class, .. }, Type::Record { .. }) => {
+        (Type::Record { .. }, Type::Function { .. })
+        | (Type::Function { .. }, Type::Record { .. }) => return false,
+        (Type::Record { .. }, Type::Interface { class, .. })
+        | (Type::Interface { class, .. }, Type::Record { .. }) => {
             return is_object(inf, class) || is_record(inf, class);
         }
-        (Type::Record { positional: lp, named: ln, .. }, Type::Record { positional: rp, named: rn, .. }) => {
+        (
+            Type::Record {
+                positional: lp,
+                named: ln,
+                ..
+            },
+            Type::Record {
+                positional: rp,
+                named: rn,
+                ..
+            },
+        ) => {
             if lp.len() != rp.len() || ln.len() != rn.len() {
                 return false;
             }
@@ -504,7 +675,10 @@ fn all_subtypes(inf: &mut BodyInferrer<'_>, c: ClassId) -> Option<Vec<ClassId>> 
     let mut out = Vec::new();
     for i in 0..inf.program.classes.len() {
         let cand = ClassId(i as u32);
-        if cand == c || inf.program.class(cand).library != lib || inf.program.class(cand).decl.is_none() {
+        if cand == c
+            || inf.program.class(cand).library != lib
+            || inf.program.class(cand).decl.is_none()
+        {
             continue;
         }
         let tc = inf.class_this_type(cand);
@@ -515,7 +689,9 @@ fn all_subtypes(inf: &mut BodyInferrer<'_>, c: ClassId) -> Option<Vec<ClassId>> 
             let ck = inf.program.class(cand);
             let ok = match ck.kind {
                 dartforge_elements::model::ClassKind::Enum => true,
-                dartforge_elements::model::ClassKind::Class => ck.modifiers.final_ || ck.modifiers.sealed,
+                dartforge_elements::model::ClassKind::Class => {
+                    ck.modifiers.final_ || ck.modifiers.sealed
+                }
                 _ => false,
             };
             if !ok {
@@ -530,31 +706,38 @@ fn all_subtypes(inf: &mut BodyInferrer<'_>, c: ClassId) -> Option<Vec<ClassId>> 
 /// Type of an object pattern `C(...)`: with `C` a raw generic, the arguments
 /// come from the matched type (`Option<int>` matched with `Some()` →
 /// `Some<int>`).
-fn object_pattern_type(inf: &mut BodyInferrer<'_>, cx: &Body, ty: ast::TypeId, matched: TypeId) -> TypeId {
+fn object_pattern_type(
+    inf: &mut BodyInferrer<'_>,
+    cx: &Body,
+    ty: ast::TypeId,
+    matched: TypeId,
+) -> TypeId {
     let a = &inf.program.unit(cx.unit).ast;
     let node = a.ty(ty);
     if let ast::TypeKind::Named { name, args } = &node.kind
-        && args.is_empty() {
-            let binding = if name.len() == 2 {
-                inf.program.lookup_prefixed_in_unit(cx.unit, name[0].sym, name[1].sym)
-            } else {
-                inf.program.lookup_in_unit(cx.unit, name[0].sym)
-            };
-            if let Some(Element::Class(c)) = binding.and_then(|b| b.getter) {
-                let params = inf.outline.classes[c.0 as usize].type_params.clone();
-                if !params.is_empty() && !inf.is_dynamic(matched) {
-                    let this = inf.class_this_type(c);
-                    let mut gi = GenericInferrer::new(&params);
-                    let mut env = inf.env();
-                    gi.constrain_return(this, matched, &mut env);
-                    let args = gi.choose_final(&mut env);
-                    drop(env);
-                    let map = inf.map(&params, &args);
-                    let t = inf.subst(this, &map);
-                    return if node.nullable { inf.nullable(t) } else { t };
-                }
+        && args.is_empty()
+    {
+        let binding = if name.len() == 2 {
+            inf.program
+                .lookup_prefixed_in_unit(cx.unit, name[0].sym, name[1].sym)
+        } else {
+            inf.program.lookup_in_unit(cx.unit, name[0].sym)
+        };
+        if let Some(Element::Class(c)) = binding.and_then(|b| b.getter) {
+            let params = inf.outline.classes[c.0 as usize].type_params.clone();
+            if !params.is_empty() && !inf.is_dynamic(matched) {
+                let this = inf.class_this_type(c);
+                let mut gi = GenericInferrer::new(&params);
+                let mut env = inf.env();
+                gi.constrain_return(this, matched, &mut env);
+                let args = gi.choose_final(&mut env);
+                drop(env);
+                let map = inf.map(&params, &args);
+                let t = inf.subst(this, &map);
+                return if node.nullable { inf.nullable(t) } else { t };
             }
         }
+    }
     inf.type_from_annotation(cx, ty)
 }
 
@@ -574,7 +757,10 @@ fn matched_type(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) 
             let nn = inf.non_null(t);
             Some(matched_type(inf, cx, x, nn).unwrap_or(nn))
         }
-        PatternKind::Relational { op: ast::BinaryOp::NotEq, value } if matches!(a.expr(*value).kind, ast::ExprKind::Null) => Some(inf.non_null(t)),
+        PatternKind::Relational {
+            op: ast::BinaryOp::NotEq,
+            value,
+        } if matches!(a.expr(*value).kind, ast::ExprKind::Null) => Some(inf.non_null(t)),
         PatternKind::Parenthesized(x) => {
             let x = *x;
             matched_type(inf, cx, x, t)
@@ -600,7 +786,14 @@ fn matched_type(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) 
 /// `(matched, not matched)`. `scrutinee`: the matched expression; a promotable
 /// variable is promoted to the matched type on the matching branch, before
 /// the guard (R-FLU-14).
-pub(crate) fn case(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: TypeId, guard: Option<ExprId>, scrutinee: Option<ExprId>) -> (Flow, Flow) {
+pub(crate) fn case(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    p: PatternId,
+    t: TypeId,
+    guard: Option<ExprId>,
+    scrutinee: Option<ExprId>,
+) -> (Flow, Flow) {
     if matching::enabled(inf) {
         return matching::the_case(inf, cx, p, t, guard, scrutinee);
     }
@@ -624,7 +817,11 @@ pub(crate) fn case(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, t: T
     // A pattern that matches any value of the type (`case _:`,
     // `case var x:`, `case Object o:` over `Object`): the match failure is
     // unreachable, as in the analyzer's flow analysis.
-    let mut not_ = if irrefutable(inf, cx, p, t) { before.unreachable() } else { before };
+    let mut not_ = if irrefutable(inf, cx, p, t) {
+        before.unreachable()
+    } else {
+        before
+    };
     if let Some(g) = guard {
         let (gv, gf) = expr::checked_condition(inf, cx, g);
         yes = gv;
@@ -642,7 +839,12 @@ fn irrefutable(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -
     let kind = &inf.program.unit(cx.unit).ast.pattern(p).kind;
     match kind {
         PatternKind::Wildcard { ty: None } => true,
-        PatternKind::Variable { ty: None, var_, final_, .. } => *var_ || *final_,
+        PatternKind::Variable {
+            ty: None,
+            var_,
+            final_,
+            ..
+        } => *var_ || *final_,
         PatternKind::Wildcard { ty: Some(a) } | PatternKind::Variable { ty: Some(a), .. } => {
             let a = *a;
             let tt = inf.type_from_annotation(cx, a);
@@ -671,7 +873,13 @@ fn irrefutable(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId, t: TypeId) -
 }
 
 /// `var (a, b) = e;` / `final [x] = e;`
-pub(crate) fn declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_: bool, p: PatternId, the_value: ExprId) {
+pub(crate) fn declaration(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    final_: bool,
+    p: PatternId,
+    the_value: ExprId,
+) {
     let s = schema(inf, cx, p);
     let t = infer(inf, cx, the_value, s);
     if matching::enabled(inf) {
@@ -683,7 +891,13 @@ pub(crate) fn declaration(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_: boo
 
 /// Declares the variables of a pattern matched with `t`
 /// (`for (var (a, b) in …)`).
-pub(crate) fn declare_by_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_: bool, p: PatternId, t: TypeId) {
+pub(crate) fn declare_by_type(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    final_: bool,
+    p: PatternId,
+    t: TypeId,
+) {
     if matching::enabled(inf) {
         matching::irrefutable(inf, cx, p, t, final_, false, None);
         return;
@@ -692,7 +906,12 @@ pub(crate) fn declare_by_type(inf: &mut BodyInferrer<'_>, cx: &mut Body, final_:
 }
 
 /// `(a, b) = e`: pattern assignment to existing variables.
-pub(crate) fn pattern_assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, the_value: ExprId) -> TypeId {
+pub(crate) fn pattern_assignment(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    p: PatternId,
+    the_value: ExprId,
+) -> TypeId {
     let s = assignment_schema(inf, cx, p);
     // `patternAssignment_afterRhs` pushes the scrutinee with the right side's
     // information (`_pushScrutinee`, `addPreviousInfo`); a top-level variable
@@ -714,7 +933,9 @@ pub(crate) fn pattern_assignment(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
     let (t, saved_condition) = if local.is_some() && expr::is_condition_form(inf, cx, the_value) {
         let (yes, not_) = expr::the_condition(inf, cx, the_value);
         cx.flow = inf.join(&yes, &not_);
-        let t = inf.body_types.units[cx.unit.0 as usize].get_type(the_value).unwrap_or(inf.core.bool_);
+        let t = inf.body_types.units[cx.unit.0 as usize]
+            .get_type(the_value)
+            .unwrap_or(inf.core.bool_);
         (t, Some((yes, not_)))
     } else {
         (infer(inf, cx, the_value, s), None)
@@ -741,7 +962,8 @@ fn assignment_schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
             _ => inf.core.unknown,
         },
         PatternKind::Record { fields } => {
-            let fields: Vec<(Option<ast::Name>, PatternId)> = fields.iter().map(|f| (f.name, f.pattern)).collect();
+            let fields: Vec<(Option<ast::Name>, PatternId)> =
+                fields.iter().map(|f| (f.name, f.pattern)).collect();
             let mut pos = Vec::new();
             let mut nm = Vec::new();
             for (n, x) in fields {
@@ -751,14 +973,24 @@ fn assignment_schema(inf: &mut BodyInferrer<'_>, cx: &Body, p: PatternId) -> Typ
                     None => pos.push(s),
                 }
             }
-            inf.table.intern(Type::Record { positional: pos.into_boxed_slice(), named: nm.into_boxed_slice(), nullable: false })
+            inf.table.intern(Type::Record {
+                positional: pos.into_boxed_slice(),
+                named: nm.into_boxed_slice(),
+                nullable: false,
+            })
         }
         _ => schema(inf, cx, p),
     }
 }
 
 /// `switch (v) { p => e, ... }` as an expression.
-pub(crate) fn switch_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_value: ExprId, cases: &[ast::SwitchExprCase], ctx: TypeId) -> TypeId {
+pub(crate) fn switch_expression(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    the_value: ExprId,
+    cases: &[ast::SwitchExprCase],
+    ctx: TypeId,
+) -> TypeId {
     let t = infer_free(inf, cx, the_value);
     expr::void_use(inf, cx, the_value, t);
     let before = cx.flow.clone();
@@ -784,7 +1016,13 @@ pub(crate) fn switch_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_v
         cx.flow = yes;
         if new_ && !cx.flow.reachable && cx.dead_code.is_none() {
             let start = inf.span_expr(cx.unit, c.body).start;
-            inf.warning(crate::codes::DEAD_CODE.template.to_string(), dartforge_diagnostics::Span { start, end: c.span.end });
+            inf.warning(
+                crate::codes::DEAD_CODE.template.to_string(),
+                dartforge_diagnostics::Span {
+                    start,
+                    end: c.span.end,
+                },
+            );
             cx.dead_code = Some(cx.flow_ends.len());
         }
         let tc = infer(inf, cx, c.body, ctx);
@@ -820,7 +1058,14 @@ pub(crate) fn switch_expression(inf: &mut BodyInferrer<'_>, cx: &mut Body, the_v
 /// operand with its parameter as context (nullable for equality); the
 /// operand against the parameter (`RELATIONAL_PATTERN_OPERAND_TYPE_NOT_ASSIGNABLE`)
 /// and the return against `bool`. Returns the operand's type.
-pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: PatternId, op: ast::BinaryOp, value: ExprId, t: TypeId) -> TypeId {
+pub(crate) fn relational_pattern(
+    inf: &mut BodyInferrer<'_>,
+    cx: &mut Body,
+    p: PatternId,
+    op: ast::BinaryOp,
+    value: ExprId,
+    t: TypeId,
+) -> TypeId {
     let u = inf.core.unknown;
     let (the_name, lexeme, equality) = match op {
         ast::BinaryOp::Eq => ("==", "==", true),
@@ -840,17 +1085,28 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
         && inf.requires_null_check(cx.lib, t, s, false)
     {
         let start = inf.program.unit(cx.unit).ast.pattern(p).span.start;
-        let token = dartforge_diagnostics::Span { start, end: start + lexeme.len() };
+        let token = dartforge_diagnostics::Span {
+            start,
+            end: start + lexeme.len(),
+        };
         inf.null_warning(t, dartforge_diagnostics::codes::compile_time_error::UNCHECKED_OPERATOR_INVOCATION_OF_NULLABLE_VALUE, token, &[the_name]);
     }
-    let operator = match inf.interner.lookup(the_name).map(|s| inf.lookup_member(cx.lib, t, s, false)) {
+    let operator = match inf
+        .interner
+        .lookup(the_name)
+        .map(|s| inf.lookup_member(cx.lib, t, s, false))
+    {
         Some(Search::Finding(m)) => {
-            inf.body_types.units[cx.unit.0 as usize].relational_operators.insert(p, m.resolved.clone());
+            inf.body_types.units[cx.unit.0 as usize]
+                .relational_operators
+                .insert(p, m.resolved.clone());
             match inf.table.get(m.ty).clone() {
-                Type::Function { positional, ret, .. } => positional.first().copied().map(|p| (p, ret)),
+                Type::Function {
+                    positional, ret, ..
+                } => positional.first().copied().map(|p| (p, ret)),
                 _ => None,
             }
-        },
+        }
         _ => None,
     };
     let ctx = match operator {
@@ -873,7 +1129,10 @@ pub(crate) fn relational_pattern(inf: &mut BodyInferrer<'_>, cx: &mut Body, p: P
         let bool_ = inf.core.bool_;
         if !inf.assignable(return_, bool_) {
             let start = inf.program.unit(cx.unit).ast.pattern(p).span.start;
-            let token = dartforge_diagnostics::Span { start, end: start + lexeme.len() };
+            let token = dartforge_diagnostics::Span {
+                start,
+                end: start + lexeme.len(),
+            };
             inf.warning_with_code(
                 dartforge_diagnostics::codes::compile_time_error::RELATIONAL_PATTERN_OPERATOR_RETURN_TYPE_NOT_ASSIGNABLE_TO_BOOL,
                 token,

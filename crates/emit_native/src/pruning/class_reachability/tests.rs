@@ -830,20 +830,44 @@ fn malformed_bodies_and_uniform_entry_signatures_cannot_publish_a_certificate() 
 #[test]
 fn scalar_field_bits_cannot_create_managed_reference_capabilities() {
     let mut module = fixture();
-    module.classes.iter_mut().find(|class| class.id == 300).unwrap().field_count = 1;
+    module
+        .classes
+        .iter_mut()
+        .find(|class| class.id == 300)
+        .unwrap()
+        .field_count = 1;
     let main = &mut module.functions[0];
-    main.params.push((ValueId(10), "scalar input".into(), Type::I64));
+    main.params
+        .push((ValueId(10), "scalar input".into(), Type::I64));
     main.blocks[0].instructions[0].1 = Instruction::AllocObject {
-        class_id: 300, fields: vec![Operand::Val(ValueId(10))],
+        class_id: 300,
+        fields: vec![Operand::Val(ValueId(10))],
     };
     main.blocks[0].instructions.extend([
-        (ValueId(1), Instruction::GetField { object: Operand::Val(ValueId(0)), index: 0 }, Type::Ref),
-        (ValueId(2), Instruction::CallSelector {
-            selector: "c:used".into(), recv: Operand::Val(ValueId(1)), args: vec![],
-            names: vec![], tuple_types: Operand::Constant(Constant::Null),
-        }, Type::Ref),
+        (
+            ValueId(1),
+            Instruction::GetField {
+                object: Operand::Val(ValueId(0)),
+                index: 0,
+            },
+            Type::Ref,
+        ),
+        (
+            ValueId(2),
+            Instruction::CallSelector {
+                selector: "c:used".into(),
+                recv: Operand::Val(ValueId(1)),
+                args: vec![],
+                names: vec![],
+                tuple_types: Operand::Constant(Constant::Null),
+            },
+            Type::Ref,
+        ),
     ]);
-    assert!(audit(&mut module, &[]).is_err(), "scalar storage must not become a Ref source");
+    assert!(
+        audit(&mut module, &[]).is_err(),
+        "scalar storage must not become a Ref source"
+    );
     assert!(module.closed_class_tables.is_none());
 }
 
@@ -2010,28 +2034,63 @@ fn image_entry_names_do_not_authorize_runtime_shadowing_or_unproved_bodies() {
 
 #[test]
 fn shared_universal_parent_requires_both_declarations_and_never_authorizes_allocation() {
-    for (marker, local_root, allocate, accepted) in [(true, true, false, true),
-        (false, true, false, false), (true, false, false, false), (true, true, true, false)] {
-        let ir = format!("{}; df.cone-class 0\ndefine void @df.dart$3atest..universal_startup() {{\n ret void\n}}\n",
-            if marker { "; df.universal-parent 0\n" } else { "" });
+    for (marker, local_root, allocate, accepted) in [
+        (true, true, false, true),
+        (false, true, false, false),
+        (true, false, false, false),
+        (true, true, true, false),
+    ] {
+        let ir = format!(
+            "{}; df.cone-class 0\ndefine void @df.dart$3atest..universal_startup() {{\n ret void\n}}\n",
+            if marker {
+                "; df.universal-parent 0\n"
+            } else {
+                ""
+            }
+        );
         let (_directory, summary, inventory) = checked_scalar_sdk(&ir);
         let mut module = fixture();
-        module.classes.push(ClassDef { id: 0, name: "Object".into(), field_count: 0,
-            vtable: vec![], to_string_symbol: None });
+        module.classes.push(ClassDef {
+            id: 0,
+            name: "Object".into(),
+            field_count: 0,
+            vtable: vec![],
+            to_string_symbol: None,
+        });
         module.pruning_class_ids.insert(0);
         module.pruning_metadata_only_class_ids.insert(0);
-        if !local_root { module.classes.last_mut().unwrap().name = "UnprovedRoot".into(); }
-        if allocate {
-            module.functions[0].blocks[0].instructions.push((ValueId(99),
-                Instruction::AllocObject { class_id: 0, fields: vec![] }, Type::Ref));
+        if !local_root {
+            module.classes.last_mut().unwrap().name = "UnprovedRoot".into();
         }
-        module.sdk_records.push("df.dart$3atest..universal_startup".into());
+        if allocate {
+            module.functions[0].blocks[0].instructions.push((
+                ValueId(99),
+                Instruction::AllocObject {
+                    class_id: 0,
+                    fields: vec![],
+                },
+                Type::Ref,
+            ));
+        }
+        module
+            .sdk_records
+            .push("df.dart$3atest..universal_startup".into());
         module.imported_allocation_inventory = Some(inventory);
         let result = audit(&mut module, &[&summary]);
-        assert_eq!(result.is_ok(), accepted, "marker={marker}, local={local_root}, allocate={allocate}: {:?}", result.as_ref().err());
+        assert_eq!(
+            result.is_ok(),
+            accepted,
+            "marker={marker}, local={local_root}, allocate={allocate}: {:?}",
+            result.as_ref().err()
+        );
         if accepted {
-            assert_eq!(module.closed_class_tables.as_ref().unwrap(), &HashSet::from([300]));
-        } else { assert!(module.closed_class_tables.is_none()); }
+            assert_eq!(
+                module.closed_class_tables.as_ref().unwrap(),
+                &HashSet::from([300])
+            );
+        } else {
+            assert!(module.closed_class_tables.is_none());
+        }
     }
 }
 
@@ -2393,7 +2452,14 @@ fn imported_helper_rejection_explains_the_target_without_publishing_classes() {
     module.sdk_records.push("df.register.dart$3atest".into());
     module.imported_allocation_inventory = Some(inventory);
     let reason = audit(&mut module, &[&summary]).err().unwrap();
-    assert!(reason.contains("entry root df.register.dart$3atest has an unproved body or input ABI"));
-    assert!(reason.contains("helper_target\": allocation footprint observed; invocation coverage unproved"), "{reason}");
+    assert!(
+        reason.contains("entry root df.register.dart$3atest has an unproved body or input ABI")
+    );
+    assert!(
+        reason.contains(
+            "helper_target\": allocation footprint observed; invocation coverage unproved"
+        ),
+        "{reason}"
+    );
     assert!(module.closed_class_tables.is_none());
 }

@@ -274,9 +274,7 @@ pub(super) fn extract_with_calls<'a>(
             Instruction::Bitcast {
                 op: Operand::Val(origin),
                 ..
-            } if *t == Type::Ref && types[origin] == Type::Ref => {
-                copies.push((ids[origin], dest))
-            }
+            } if *t == Type::Ref && types[origin] == Type::Ref => copies.push((ids[origin], dest)),
             Instruction::Phi { incoming, .. } if *t == Type::Ref => {
                 for (_, o) in incoming {
                     copies.push((op(o), dest));
@@ -287,13 +285,7 @@ pub(super) fn extract_with_calls<'a>(
                 args,
                 ret_ty,
             } if *t == Type::Ref && *ret_ty == Type::Ref => match call(symbol) {
-                Some((
-                    callee,
-                    ArcHeapReturn::Aliases {
-                        parameters,
-                        null,
-                    },
-                )) => {
+                Some((callee, ArcHeapReturn::Aliases { parameters, null })) => {
                     if args.len() != callee.params.len() {
                         return Err(format!("summary: arity of {symbol}"));
                     }
@@ -409,29 +401,28 @@ fn value_coverage<'a>(
             Terminator::Branch(_) | Terminator::Unreachable => true,
             Terminator::Throw(_) => false,
         };
-        exit
-            && b.instructions.iter().all(|(_, i, t)| match i {
-                Instruction::Const(c) => exact(&Operand::Constant(c.clone()), *t),
-                Instruction::Phi { incoming, ty } => {
-                    ty == t && incoming.iter().all(|(_, o)| exact(o, *t))
-                }
-                Instruction::CallStatic {
-                    symbol,
-                    args,
-                    ret_ty,
-                } => call(symbol).is_some_and(|(callee, summary)| {
-                    summary.fields == ArcHeapFields::Preserved
-                        && summary.publications == ArcHeapPublications::ResultOnly
-                        && *t == *ret_ty
-                        && *ret_ty == callee.return_ty
-                        && args.len() == callee.params.len()
-                        && args
-                            .iter()
-                            .zip(&callee.params)
-                            .all(|(o, (_, _, ty))| exact(o, *ty))
-                }),
-                i => super::hir::pure_scalar(i, *t, types),
-            })
+        exit && b.instructions.iter().all(|(_, i, t)| match i {
+            Instruction::Const(c) => exact(&Operand::Constant(c.clone()), *t),
+            Instruction::Phi { incoming, ty } => {
+                ty == t && incoming.iter().all(|(_, o)| exact(o, *t))
+            }
+            Instruction::CallStatic {
+                symbol,
+                args,
+                ret_ty,
+            } => call(symbol).is_some_and(|(callee, summary)| {
+                summary.fields == ArcHeapFields::Preserved
+                    && summary.publications == ArcHeapPublications::ResultOnly
+                    && *t == *ret_ty
+                    && *ret_ty == callee.return_ty
+                    && args.len() == callee.params.len()
+                    && args
+                        .iter()
+                        .zip(&callee.params)
+                        .all(|(o, (_, _, ty))| exact(o, *ty))
+            }),
+            i => super::hir::pure_scalar(i, *t, types),
+        })
     })
 }
 
@@ -578,11 +569,7 @@ mod tests {
             };
             let r = extract(&f, 8).unwrap();
             assert_eq!(r.fields(), ArcHeapFields::Preserved, "{i:?}");
-            assert_eq!(
-                r.publications(),
-                ArcHeapPublications::ResultOnly,
-                "{i:?}"
-            );
+            assert_eq!(r.publications(), ArcHeapPublications::ResultOnly, "{i:?}");
             // Even a scalar result provides neither a Ref alias nor freshness.
             assert_eq!(r.ret(), &ArcHeapReturn::UnknownValue);
             let mut m = Module::new();
@@ -657,10 +644,7 @@ mod tests {
         let mut f = identity();
         assert_eq!(extract(&f, 8).unwrap().fields(), ArcHeapFields::Preserved);
         f.blocks[0].terminator = Terminator::Throw(Operand::Val(ValueId(0)));
-        assert_eq!(
-            extract(&f, 8).unwrap().fields(),
-            ArcHeapFields::UnknownSet
-        );
+        assert_eq!(extract(&f, 8).unwrap().fields(), ArcHeapFields::UnknownSet);
         f = identity();
         f.blocks[0].instructions.push((
             ValueId(1),
@@ -681,10 +665,7 @@ mod tests {
             Instruction::Const(Constant::String("texto".into())),
             Type::Ref,
         ));
-        assert_eq!(
-            extract(&f, 8).unwrap().fields(),
-            ArcHeapFields::UnknownSet
-        );
+        assert_eq!(extract(&f, 8).unwrap().fields(), ArcHeapFields::UnknownSet);
     }
 
     #[test]
@@ -711,16 +692,10 @@ mod tests {
     #[test]
     fn opaque_producer_width_and_budget_do_not_forge_parameter_alias() {
         let mut f = identity();
-        assert_eq!(
-            extract(&f, 0).unwrap().ret(),
-            &ArcHeapReturn::UnknownValue
-        );
+        assert_eq!(extract(&f, 0).unwrap().ret(), &ArcHeapReturn::UnknownValue);
         f.params[0].2 = Type::I64;
         f.return_ty = Type::I64;
-        assert_eq!(
-            extract(&f, 8).unwrap().ret(),
-            &ArcHeapReturn::UnknownValue
-        );
+        assert_eq!(extract(&f, 8).unwrap().ret(), &ArcHeapReturn::UnknownValue);
         f.params[0].2 = Type::Ref;
         f.return_ty = Type::Ref;
         f.blocks[0].instructions.push((
@@ -733,10 +708,7 @@ mod tests {
             Type::Ref,
         ));
         f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
-        assert_eq!(
-            extract(&f, 8).unwrap().ret(),
-            &ArcHeapReturn::UnknownValue
-        );
+        assert_eq!(extract(&f, 8).unwrap().ret(), &ArcHeapReturn::UnknownValue);
     }
 
     #[test]

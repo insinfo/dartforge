@@ -16,11 +16,7 @@ pub(crate) fn resume_instruction(i: &Instruction) -> bool {
 
 // The emitter and the tokens share the contract before referencing the landing pad.
 pub(crate) fn check(f: &Function, t: &FunctionTables) -> Result<(), String> {
-    if !t
-        .exits
-        .values()
-        .any(|mode| *mode == ExceptionExit::Resume)
-    {
+    if !t.exits.values().any(|mode| *mode == ExceptionExit::Resume) {
         return Ok(());
     }
     let mut resumes = t.clone();
@@ -34,7 +30,9 @@ pub(crate) fn check(f: &Function, t: &FunctionTables) -> Result<(), String> {
     if let Some(c) = &t.shared_frames {
         c.check(f)?;
         super::frames::analyze_shared(f, c.pairs(), &c.targets())?;
-    } else { super::frames::verify(f)?; }
+    } else {
+        super::frames::verify(f)?;
+    }
     let mut invocations = HashMap::<BlockId, usize>::new();
     for id in t.invocations.values() {
         *invocations.entry(*id).or_default() += 1;

@@ -79,7 +79,9 @@ impl Context<'_> {
             Operand::Constant(Constant::Int(_)) => Type::I64,
             Operand::Constant(Constant::Double(_)) => Type::F64,
             Operand::Constant(Constant::Bool(_)) => Type::I1,
-            Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
+            Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => {
+                Type::Ref
+            }
             Operand::Constant(Constant::Function(_)) => Type::I64,
         }
     }
@@ -125,7 +127,10 @@ impl Context<'_> {
     /// The `env` parameter of this function (the environment of a closure body).
     fn is_env_parameter(&self, op: &Operand) -> bool {
         let Operand::Val(v) = op else { return false };
-        self.function.params.iter().any(|(p, name, _)| p == v && name == "env")
+        self.function
+            .params
+            .iter()
+            .any(|(p, name, _)| p == v && name == "env")
     }
 
     /// The representations written into cell `cell`, if known: a
@@ -142,8 +147,13 @@ impl Context<'_> {
     /// Risk 12: the value read from a capture must be in the representation
     /// it was written with.
     fn check_read(&mut self, location: &str, read_value: Type, written_set: &[Type]) {
-        if let Some(g) = written_set.iter().find(|&&g| !same_representation(g, read_value)) {
-            self.error(format!("{location}: read as {read_value:?}, written as {g:?}"));
+        if let Some(g) = written_set
+            .iter()
+            .find(|&&g| !same_representation(g, read_value))
+        {
+            self.error(format!(
+                "{location}: read as {read_value:?}, written as {g:?}"
+            ));
         }
     }
 }
@@ -166,7 +176,10 @@ fn function_envs(f: &Function) -> HashMap<ValueId, Vec<Capture>> {
     }
     for b in &f.blocks {
         for (_, inst, _) in &b.instructions {
-            if let Instruction::CellSet { cell: Operand::Val(c), value } = inst
+            if let Instruction::CellSet {
+                cell: Operand::Val(c),
+                value,
+            } = inst
                 && let Some(t) = cells.get_mut(c)
             {
                 t.push(operand_type(&types, value));
@@ -201,7 +214,9 @@ fn operand_type(types: &HashMap<ValueId, Type>, op: &Operand) -> Type {
         Operand::Constant(Constant::Int(_) | Constant::Function(_)) => Type::I64,
         Operand::Constant(Constant::Double(_)) => Type::F64,
         Operand::Constant(Constant::Bool(_)) => Type::I1,
-        Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => Type::Ref,
+        Operand::Constant(Constant::Null | Constant::String(_) | Constant::StringWtf8(_)) => {
+            Type::Ref
+        }
     }
 }
 
@@ -229,7 +244,13 @@ fn body_envs(module: &Module) -> HashMap<String, Option<Vec<Capture>>> {
             for (_, inst, _) in &b.instructions {
                 match inst {
                     Instruction::AllocClosure { code_symbol, env } => register(code_symbol, env),
-                    Instruction::AllocClosureTyped { code_symbol, env, typed, direct: false, .. } => {
+                    Instruction::AllocClosureTyped {
+                        code_symbol,
+                        env,
+                        typed,
+                        direct: false,
+                        ..
+                    } => {
                         register(code_symbol, env);
                         register(typed, env);
                     }
@@ -290,7 +311,10 @@ pub fn verify(module: &Module) -> Vec<String> {
         }
         for b in &f.blocks {
             for (_, inst, _) in &b.instructions {
-                if let Instruction::CellSet { cell: Operand::Val(cel), value } = inst
+                if let Instruction::CellSet {
+                    cell: Operand::Val(cel),
+                    value,
+                } = inst
                     && c.cells.contains_key(cel)
                 {
                     let t = c.ty(value);
@@ -301,11 +325,23 @@ pub fn verify(module: &Module) -> Vec<String> {
         for b in &f.blocks {
             for (_, inst, ty) in &b.instructions {
                 verify_instruction(&mut c, inst, *ty);
-                if let Instruction::ArcLoadStrong { slot: StrongSlot::Global { symbol } }
-                    | Instruction::ArcStoreStrong { slot: StrongSlot::Global { symbol }, .. } = inst {
-                    let declarations: Vec<_> = module.globals.iter().filter(|(_, _, s)| s == symbol).collect();
+                if let Instruction::ArcLoadStrong {
+                    slot: StrongSlot::Global { symbol },
+                }
+                | Instruction::ArcStoreStrong {
+                    slot: StrongSlot::Global { symbol },
+                    ..
+                } = inst
+                {
+                    let declarations: Vec<_> = module
+                        .globals
+                        .iter()
+                        .filter(|(_, _, s)| s == symbol)
+                        .collect();
                     if declarations.len() != 1 || declarations[0].1 != Type::Ref {
-                        c.error(format!("global ARC slot @{symbol} requires a single Ref declaration"));
+                        c.error(format!(
+                            "global ARC slot @{symbol} requires a single Ref declaration"
+                        ));
                     }
                 }
             }
@@ -321,31 +357,49 @@ pub fn verify(module: &Module) -> Vec<String> {
 fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
     match inst {
         Instruction::ArcLoadStrong { slot } | Instruction::ArcStoreStrong { slot, .. } => {
-            let result = if matches!(inst, Instruction::ArcLoadStrong { .. }) { Type::Ref } else { Type::Void };
+            let result = if matches!(inst, Instruction::ArcLoadStrong { .. }) {
+                Type::Ref
+            } else {
+                Type::Void
+            };
             if ty != result {
                 c.error(format!("ARC slot: result {ty:?}, expected {result:?}"));
             }
             if let StrongSlot::Frame { frame, .. } = slot
-                && (c.ty(frame) != Type::I64 || !matches!(frame, Operand::Val(_))) {
-                    c.error(format!("ARC slot requires an SSA I64 frame ID: {frame:?}"));
-                }
+                && (c.ty(frame) != Type::I64 || !matches!(frame, Operand::Val(_)))
+            {
+                c.error(format!("ARC slot requires an SSA I64 frame ID: {frame:?}"));
+            }
             if let Instruction::ArcStoreStrong { value, .. } = inst
-                && (c.ty(value) != Type::Ref || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null))) {
-                    c.error(format!("ARC store requires an already evaluated reference: {value:?}"));
-                }
+                && (c.ty(value) != Type::Ref
+                    || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null)))
+            {
+                c.error(format!(
+                    "ARC store requires an already evaluated reference: {value:?}"
+                ));
+            }
         }
-        Instruction::ArcCopy { value } | Instruction::ArcDrop { value } | Instruction::ArcMove { value } => {
-            let result = if matches!(inst, Instruction::ArcDrop { .. }) { Type::Void } else { Type::Ref };
+        Instruction::ArcCopy { value }
+        | Instruction::ArcDrop { value }
+        | Instruction::ArcMove { value } => {
+            let result = if matches!(inst, Instruction::ArcDrop { .. }) {
+                Type::Void
+            } else {
+                Type::Ref
+            };
             if ty != result {
                 c.error(format!("ARC operation: result {ty:?}, expected {result:?}"));
             }
             if c.ty(value) != Type::Ref
                 || !matches!(value, Operand::Val(_) | Operand::Constant(Constant::Null))
             {
-                c.error(format!("ARC operation requires an already evaluated reference: {value:?}"));
+                c.error(format!(
+                    "ARC operation requires an already evaluated reference: {value:?}"
+                ));
             }
         }
-        Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
+        Instruction::CallRuntime { name, args, .. }
+        | Instruction::DeclaredFieldCall { name, args, .. } => {
             for &(b, t) in pairs_with_tag(name) {
                 if let (Some((bits, _)), Some((tag, _))) = (args.get(b), args.get(t)) {
                     c.check_tag(name, bits, tag);
@@ -423,7 +477,12 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
         Instruction::Const(Constant::Int(_)) if ty == Type::Ref => {
             c.error("integer constant recorded as Ref".to_string());
         }
-        Instruction::CallClosure { closure, args, tuple_types, .. } => {
+        Instruction::CallClosure {
+            closure,
+            args,
+            tuple_types,
+            ..
+        } => {
             c.check_ref("closure call", closure, Type::Ref);
             if c.ty(tuple_types) != Type::I64 {
                 c.error(format!("closure type tuple is not I64: {tuple_types:?}"));
@@ -438,7 +497,12 @@ fn verify_instruction(c: &mut Context, inst: &Instruction, ty: Type) {
         Instruction::CallSelectorForward { recv, .. } => {
             c.check_ref("selector forwarding", recv, Type::Ref);
         }
-        Instruction::CallSelector { recv, args, tuple_types, .. } => {
+        Instruction::CallSelector {
+            recv,
+            args,
+            tuple_types,
+            ..
+        } => {
             c.check_ref("selector call", recv, Type::Ref);
             if c.ty(tuple_types) != Type::I64 {
                 c.error(format!("selector type tuple is not I64: {tuple_types:?}"));

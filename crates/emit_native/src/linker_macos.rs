@@ -31,12 +31,20 @@ pub enum Arch {
 impl Arch {
     /// That of this host.
     pub const fn host() -> Arch {
-        if cfg!(target_arch = "aarch64") { Arch::Arm64 } else { Arch::X86_64 }
+        if cfg!(target_arch = "aarch64") {
+            Arch::Arm64
+        } else {
+            Arch::X86_64
+        }
     }
 
     /// Architecture of the selected compilation destination.
     pub fn target() -> Arch {
-        if crate::target::is_aarch64() { Arch::Arm64 } else { Arch::X86_64 }
+        if crate::target::is_aarch64() {
+            Arch::Arm64
+        } else {
+            Arch::X86_64
+        }
     }
 
     /// The triple of the sysroot (`lib/sysroot/<triple>`).
@@ -801,7 +809,13 @@ pub const SYSTEM_LIBRARIES: &[SystemLibrary] = &[
 ];
 
 /// The system libraries, in the `ld64.lld` format.
-const LIBRARIES: &[&str] = &["-lSystem", "-framework", "CoreFoundation", "-framework", "Security"];
+const LIBRARIES: &[&str] = &[
+    "-lSystem",
+    "-framework",
+    "CoreFoundation",
+    "-framework",
+    "Security",
+];
 
 /// The file with the SDK version (the `-platform_version`) of the sysroots that
 /// copied the SDK `.tbd` files; in the generated ones it does not exist, and the version is the
@@ -876,21 +890,32 @@ impl SysrootMacos {
         static S: std::sync::OnceLock<Result<SysrootMacos, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
             if let Some(root) = crate::cross::sysroot() {
-                let version = std::fs::read_to_string(root.join(VERSION_FILE)).unwrap_or_default().trim().to_string();
+                let version = std::fs::read_to_string(root.join(VERSION_FILE))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
                 return Ok(SysrootMacos { root, version });
             }
             let arch = Arch::target();
-            if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{}", arch.sysroot_triple()))
-                && dir.join(SYSTEM_LIBRARIES[0].file).is_file()
+            if let Some(dir) = dartforge_elements::distribution::in_lib(&format!(
+                "sysroot/{}",
+                arch.sysroot_triple()
+            )) && dir.join(SYSTEM_LIBRARIES[0].file).is_file()
             {
-                let version = std::fs::read_to_string(dir.join(VERSION_FILE)).unwrap_or_default().trim().to_string();
+                let version = std::fs::read_to_string(dir.join(VERSION_FILE))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
                 return Ok(SysrootMacos { root: dir, version });
             }
             let root = crate::cache::native_cache_dir().join("ligacao-macos");
             let key = format!("{}-{}", arch.name(), printing(arch));
             let dir = root.join(&key);
             if dir.join("pronto").is_file() {
-                return Ok(SysrootMacos { root: dir, version: String::new() });
+                return Ok(SysrootMacos {
+                    root: dir,
+                    version: String::new(),
+                });
             }
             let tmp = root.join(format!("{key}.tmp.{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&tmp);
@@ -910,7 +935,10 @@ impl SysrootMacos {
                 }
                 let _ = std::fs::remove_dir_all(&tmp);
             }
-            Ok(SysrootMacos { root: dir, version: String::new() })
+            Ok(SysrootMacos {
+                root: dir,
+                version: String::new(),
+            })
         })
         .as_ref()
         .map_err(Clone::clone)
@@ -924,7 +952,10 @@ pub enum Product<'a> {
     Executable,
     /// A dynamic library with the given `install_name`, exporting (and
     /// pulling from the `staticlib`s) the given symbols.
-    Dynamic { install_name: &'a str, exported: &'a [String] },
+    Dynamic {
+        install_name: &'a str,
+        exported: &'a [String],
+    },
 }
 
 /// A link through `ld64.lld`.
@@ -952,7 +983,11 @@ pub fn ld64_lld(clang: &Path) -> PathBuf {
         return l;
     }
     let alongside = clang.with_file_name("ld64.lld");
-    if alongside.is_file() { alongside } else { PathBuf::from("ld64.lld") }
+    if alongside.is_file() {
+        alongside
+    } else {
+        PathBuf::from("ld64.lld")
+    }
 }
 
 /// Links with `ld64.lld` and the `.tbd` files of the sysroot.
@@ -968,27 +1003,52 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
     // Re-reading the generated native objects preserves that association. Keep
     // the optimized machine code, but perform the final link without bitcode.
     // The guard removes the retained objects on both success and failure.
-    let retained = if l.lto && arch == Arch::Arm64
+    let retained = if l.lto
+        && arch == Arch::Arm64
         && (crate::target::table_exceptions()? || crate::target::roots_by_maps()?)
     {
-        let parent = l.exit.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-        Some(tempfile::Builder::new().prefix(".df-lto-unwind-").tempdir_in(parent)
-            .map_err(|e| format!("failed to create LTO unwind staging directory: {e}"))?)
+        let parent = l
+            .exit
+            .parent()
+            .filter(|p| !p.as_os_str().is_empty())
+            .unwrap_or(Path::new("."));
+        Some(
+            tempfile::Builder::new()
+                .prefix(".df-lto-unwind-")
+                .tempdir_in(parent)
+                .map_err(|e| format!("failed to create LTO unwind staging directory: {e}"))?,
+        )
     } else {
         None
     };
     let initial_output = retained.as_ref().map(|d| d.path().join("initial"));
-    let minimum =
-        std::env::var("MACOSX_DEPLOYMENT_TARGET").ok().filter(|v| !v.is_empty()).unwrap_or_else(|| arch.minimum().to_string());
-    let sdk_version = if sysroot.version.is_empty() { minimum.clone() } else { sysroot.version.clone() };
+    let minimum = std::env::var("MACOSX_DEPLOYMENT_TARGET")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| arch.minimum().to_string());
+    let sdk_version = if sysroot.version.is_empty() {
+        minimum.clone()
+    } else {
+        sysroot.version.clone()
+    };
     let mut cmd = Command::new(ld);
-    cmd.args(["-arch", arch.name(), "-platform_version", "macos", &minimum, &sdk_version]);
+    cmd.args([
+        "-arch",
+        arch.name(),
+        "-platform_version",
+        "macos",
+        &minimum,
+        &sdk_version,
+    ]);
     cmd.arg("-syslibroot").arg(&sysroot.root);
     match &l.product {
         Product::Executable => {
             cmd.args(["-execute", "-dynamic"]);
         }
-        Product::Dynamic { install_name, exported } => {
+        Product::Dynamic {
+            install_name,
+            exported,
+        } => {
             cmd.args(["-dylib", "-install_name", install_name]);
             let mut rsp = String::new();
             for n in exported.iter() {
@@ -999,7 +1059,8 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
             cmd.arg(format!("@{}", file.display()));
         }
     }
-    cmd.arg("-o").arg(initial_output.as_deref().unwrap_or(l.exit));
+    cmd.arg("-o")
+        .arg(initial_output.as_deref().unwrap_or(l.exit));
     if let Some(d) = &retained {
         cmd.arg("-object_path_lto").arg(d.path());
     }
@@ -1023,9 +1084,14 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
             // `"deopt"` (`dartforge_llvm`, `tirar_estaticos_do_deopt`), and
             // with them in registers the code generator may fail
             // (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md §14.12).
-            cmd.arg(format!("--lto-newpm-passes=lto<O{level}>,rewrite-statepoints-for-gc,verify"));
+            cmd.arg(format!(
+                "--lto-newpm-passes=lto<O{level}>,rewrite-statepoints-for-gc,verify"
+            ));
         }
-        cmd.arg(format!("--thinlto-jobs={}", crate::driver::generation_tasks()));
+        cmd.arg(format!(
+            "--thinlto-jobs={}",
+            crate::driver::generation_tasks()
+        ));
         // The outliner (`driver::outliner_at_link`) is a global LLVM option,
         // which the ThinLTO cache key does not see: the modules generated with it
         // stay in a separate cache.
@@ -1099,16 +1165,27 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
     }
     cmd.args(&l.entries);
     cmd.args(LIBRARIES);
-    let exit = cmd.output().map_err(|e| format!("failed to run {}: {e}", ld.display()))?;
+    let exit = cmd
+        .output()
+        .map_err(|e| format!("failed to run {}: {e}", ld.display()))?;
     if !exit.status.success() {
         let text = String::from_utf8_lossy(&exit.stderr);
         // The errors (and the `>>>` lines that explain them) before the warnings: with
         // many objects, the minimum-version warnings hid the error.
-        let (errors, warnings): (Vec<&str>, Vec<&str>) =
-            text.lines().filter(|l| !l.trim().is_empty()).partition(|l| !l.contains("warning:"));
+        let (errors, warnings): (Vec<&str>, Vec<&str>) = text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .partition(|l| !l.contains("warning:"));
         let n_warnings = 40usize.saturating_sub(errors.len());
-        let lines: Vec<&str> = errors.into_iter().chain(warnings.into_iter().take(n_warnings)).collect();
-        return Err(format!("ld64.lld failed to link ({}):\n{}", exit.status, lines.join("\n")));
+        let lines: Vec<&str> = errors
+            .into_iter()
+            .chain(warnings.into_iter().take(n_warnings))
+            .collect();
+        return Err(format!(
+            "ld64.lld failed to link ({}):\n{}",
+            exit.status,
+            lines.join("\n")
+        ));
     }
     if let Some(d) = &retained {
         let mut objects: Vec<PathBuf> = std::fs::read_dir(d.path())
@@ -1119,10 +1196,18 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
         objects.retain(|p| p.extension().is_some_and(|e| e == "o"));
         objects.sort_by_key(|p| {
             let name = p.file_name().unwrap().to_string_lossy();
-            (name.split('.').next().and_then(|n| n.parse::<usize>().ok()).unwrap_or(usize::MAX), name.into_owned())
+            (
+                name.split('.')
+                    .next()
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .unwrap_or(usize::MAX),
+                name.into_owned(),
+            )
         });
         if objects.is_empty() {
-            return Err("ld64.lld did not retain native LTO objects for unwind-safe linking".into());
+            return Err(
+                "ld64.lld did not retain native LTO objects for unwind-safe linking".into(),
+            );
         }
         let mut entries = Vec::new();
         let mut replaced = false;
@@ -1139,10 +1224,20 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
         if !replaced {
             return Err("LTO unwind-safe linking requires standalone bitcode inputs".into());
         }
-        return link(ld, sysroot, &Linkage {
-            product: l.product, entries, executable_rpath: l.executable_rpath,
-            lto: false, cpu: l.cpu, prune: l.prune, keep_debug_info: l.keep_debug_info, exit: l.exit,
-        });
+        return link(
+            ld,
+            sysroot,
+            &Linkage {
+                product: l.product,
+                entries,
+                executable_rpath: l.executable_rpath,
+                lto: false,
+                cpu: l.cpu,
+                prune: l.prune,
+                keep_debug_info: l.keep_debug_info,
+                exit: l.exit,
+            },
+        );
     }
     Ok(())
 }
@@ -1152,7 +1247,9 @@ pub fn link(ld: &Path, sysroot: &SysrootMacos, l: &Linkage<'_>) -> Result<(), St
 fn is_bitcode(path: &Path) -> bool {
     use std::io::Read;
     let mut magic = [0; 4];
-    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut magic)).is_ok()
+    std::fs::File::open(path)
+        .and_then(|mut f| f.read_exact(&mut magic))
+        .is_ok()
         && (magic == *b"BC\xc0\xde" || magic == [0xde, 0xc0, 0x17, 0x0b])
 }
 
@@ -1166,7 +1263,11 @@ mod tests {
             let mut all: Vec<&str> = Vec::new();
             for b in SYSTEM_LIBRARIES {
                 all.extend(b.symbols);
-                all.extend(if arch == Arch::Arm64 { b.arm64_only } else { b.x86_64_only });
+                all.extend(if arch == Arch::Arm64 {
+                    b.arm64_only
+                } else {
+                    b.x86_64_only
+                });
             }
             let total = all.len();
             all.sort_unstable();
@@ -1179,8 +1280,16 @@ mod tests {
     fn tbd_by_architecture() {
         let arm = tbd(&SYSTEM_LIBRARIES[0], Arch::Arm64);
         let x86 = tbd(&SYSTEM_LIBRARIES[0], Arch::X86_64);
-        assert!(arm.contains("targets:         [ arm64-macos ]") && arm.contains("'_stat'") && !arm.contains("INODE64"));
-        assert!(x86.contains("targets:         [ x86_64-macos ]") && x86.contains("'_stat$INODE64'") && !x86.contains("'_stat'"));
+        assert!(
+            arm.contains("targets:         [ arm64-macos ]")
+                && arm.contains("'_stat'")
+                && !arm.contains("INODE64")
+        );
+        assert!(
+            x86.contains("targets:         [ x86_64-macos ]")
+                && x86.contains("'_stat$INODE64'")
+                && !x86.contains("'_stat'")
+        );
         assert!(arm.ends_with("...\n"));
     }
 
@@ -1207,7 +1316,9 @@ mod tests {
         let mut exit = Vec::new();
         for chunk in text.split(['\'', '"', ' ', ',', '[', ']', '\n']) {
             let path = chunk.trim();
-            if !(path.starts_with("/usr/lib/") || path.starts_with("/System/Library/")) || own_set.contains(&path) {
+            if !(path.starts_with("/usr/lib/") || path.starts_with("/System/Library/"))
+                || own_set.contains(&path)
+            {
                 continue;
             }
             let rel = path.trim_start_matches('/');
@@ -1233,8 +1344,13 @@ mod tests {
             if !seen_set.insert(rel.clone()) {
                 continue;
             }
-            let Ok(text) = std::fs::read_to_string(root.join(&rel)) else { continue };
-            names.extend(text.split(['\'', '"', ' ', ',', '[', ']', '\n']).map(|p| p.trim().to_string()));
+            let Ok(text) = std::fs::read_to_string(root.join(&rel)) else {
+                continue;
+            };
+            names.extend(
+                text.split(['\'', '"', ' ', ',', '[', ']', '\n'])
+                    .map(|p| p.trim().to_string()),
+            );
             pending_set.extend(external_reexports(&text));
         }
         names
@@ -1249,15 +1365,27 @@ mod tests {
         let mut missing_set = Vec::new();
         for b in SYSTEM_LIBRARIES {
             let names = names_in_sdk(root, b.file);
-            assert!(names.contains(b.install_name), "{}: install-name {} outside the SDK", b.file, b.install_name);
-            let own_set = if Arch::host() == Arch::Arm64 { b.arm64_only } else { b.x86_64_only };
+            assert!(
+                names.contains(b.install_name),
+                "{}: install-name {} outside the SDK",
+                b.file,
+                b.install_name
+            );
+            let own_set = if Arch::host() == Arch::Arm64 {
+                b.arm64_only
+            } else {
+                b.x86_64_only
+            };
             for n in b.symbols.iter().chain(own_set) {
                 if !names.contains(*n) {
                     missing_set.push(format!("{}: {n}", b.file));
                 }
             }
         }
-        assert!(missing_set.is_empty(), "not exported by the SDK: {missing_set:#?}");
+        assert!(
+            missing_set.is_empty(),
+            "not exported by the SDK: {missing_set:#?}"
+        );
     }
 
     /// The two runtime `staticlib`s link only with the generated `.tbd` files, with
@@ -1277,37 +1405,68 @@ mod tests {
         let clang = crate::driver::NativeDriverOptions::default().clang;
         let dir = tempfile::tempdir().unwrap();
         generate(&dir.path().join("sysroot"), Arch::host()).unwrap();
-        let sysroot = SysrootMacos { root: dir.path().join("sysroot"), version: String::new() };
+        let sysroot = SysrootMacos {
+            root: dir.path().join("sysroot"),
+            version: String::new(),
+        };
         let c = dir.path().join("entrada.c");
         std::fs::write(&c, "void dartforge_entry(void) {}\n").unwrap();
         let obj = dir.path().join("entrada.o");
-        let status = Command::new(&clang).arg("-c").arg(&c).arg("-o").arg(&obj).status().expect("executar o Clang");
+        let status = Command::new(&clang)
+            .arg("-c")
+            .arg(&c)
+            .arg("-o")
+            .arg(&obj)
+            .status()
+            .expect("executar o Clang");
         assert!(status.success(), "Clang did not compile {}", c.display());
         let exe = dir.path().join("programa");
         let dylib = dir.path().join("libteste.dylib");
         let cases = [
-            (crate::cache::RuntimeCache::get_or_compile(), Product::Executable, &exe),
+            (
+                crate::cache::RuntimeCache::get_or_compile(),
+                Product::Executable,
+                &exe,
+            ),
             (
                 crate::cache::RuntimeCache::for_dll(),
-                Product::Dynamic { install_name: "@rpath/libteste.dylib", exported: &[] },
+                Product::Dynamic {
+                    install_name: "@rpath/libteste.dylib",
+                    exported: &[],
+                },
                 &dylib,
             ),
         ];
         for (lib, product, exit) in cases {
             let lib = lib.expect("precompiled runtime").lib_path;
             let mut entries = vec![PathBuf::from("--error-limit=0"), obj.clone()];
-            for n in dartforge_runtime::symbols::NAMES.iter().filter(|n| **n != "main") {
+            for n in dartforge_runtime::symbols::NAMES
+                .iter()
+                .filter(|n| **n != "main")
+            {
                 entries.push(PathBuf::from("-u"));
                 entries.push(PathBuf::from(format!("_{n}")));
             }
             entries.push(lib);
-            let l = Linkage { product, entries, executable_rpath: false, lto: false, cpu: None, prune: false, keep_debug_info: false, exit };
+            let l = Linkage {
+                product,
+                entries,
+                executable_rpath: false,
+                lto: false,
+                cpu: None,
+                prune: false,
+                keep_debug_info: false,
+                exit,
+            };
             if let Err(e) = link(&ld64_lld(&clang), &sysroot, &l) {
                 panic!("the runtime uses names outside SYSTEM_LIBRARIES:\n{e}");
             }
         }
         // The executable runs (only the empty `dartforge_entry`).
         let exit = Command::new(&exe).output().expect("run the program");
-        assert!(exit.status.code().is_some(), "the program ended by a signal: {exit:?}");
+        assert!(
+            exit.status.code().is_some(),
+            "the program ended by a signal: {exit:?}"
+        );
     }
 }

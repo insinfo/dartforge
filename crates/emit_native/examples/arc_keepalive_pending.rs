@@ -256,17 +256,34 @@ mod tests {
         let getter = entry.iter().position(|(v, _, _)| *v == ValueId(6)).unwrap();
         assert!(matches!(
             entry[getter + 1],
-            (ValueId(2), Instruction::ArcCopy { value: Operand::Val(ValueId(6)) }, Type::Ref)
+            (
+                ValueId(2),
+                Instruction::ArcCopy {
+                    value: Operand::Val(ValueId(6))
+                },
+                Type::Ref
+            )
         ));
         let Terminator::CondBranch { then_block, .. } = f.blocks[0].terminator else {
             panic!("missing pending guard");
         };
         let error = f.blocks.iter().find(|b| b.id == then_block).unwrap();
-        let released: Vec<_> = error.instructions.iter().filter_map(|(_, i, _)| match i {
-            Instruction::ArcDrop { value: Operand::Val(v) } => Some(*v),
-            _ => None,
-        }).collect();
+        let released: Vec<_> = error
+            .instructions
+            .iter()
+            .filter_map(|(_, i, _)| match i {
+                Instruction::ArcDrop {
+                    value: Operand::Val(v),
+                } => Some(*v),
+                _ => None,
+            })
+            .collect();
         assert_eq!(released, [ValueId(1), ValueId(2)]);
-        assert!(error.instructions.iter().all(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. })));
+        assert!(
+            error
+                .instructions
+                .iter()
+                .all(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. }))
+        );
     }
 }

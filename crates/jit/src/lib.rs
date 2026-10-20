@@ -53,13 +53,13 @@
 //! [`docs/JIT.md`]: https://github.com/insinfo/dartforge/blob/main/docs/JIT.md
 mod delta;
 mod ffi;
-mod migration;
 mod frame_layouts;
-mod reload;
 mod live;
+mod migration;
+mod reload;
 
-pub use reload::{HotReloadReport, StableEntry};
 pub use live::LiveProgram;
+pub use reload::{HotReloadReport, StableEntry};
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -75,8 +75,12 @@ pub const ENTRY_SYMBOL: &str = "dartforge_entry";
 /// `df.register.*` declaration may also appear in IR that does not call the
 /// DLL's runtime; the decision depends on the actual call to `dartforge_init`.
 pub fn ir_uses_source_sdk(ir: &str) -> bool {
-    let main = ir.lines().any(|line| line.trim_start().starts_with("define i32 @main()"));
-    let start = ir.lines().any(|line| line.contains("call i32 @dartforge_init(ptr @dartforge_entry,"));
+    let main = ir
+        .lines()
+        .any(|line| line.trim_start().starts_with("define i32 @main()"));
+    let start = ir
+        .lines()
+        .any(|line| line.contains("call i32 @dartforge_init(ptr @dartforge_entry,"));
     main && start
 }
 
@@ -324,36 +328,72 @@ impl JitSession {
         let lljit = ffi::Lljit::new()
             .map_err(|detail| JitError::new("lljit", "could not open the LLJIT", detail))?;
         // Map-based roots: the SDK library's runtime is the one that collects.
-        lljit
-            .use_library_registry(dll)
-            .map_err(|detail| JitError::new("sdk", "could not link the stack maps to the SDK DLL runtime", detail))?;
+        lljit.use_library_registry(dll).map_err(|detail| {
+            JitError::new(
+                "sdk",
+                "could not link the stack maps to the SDK DLL runtime",
+                detail,
+            )
+        })?;
         let mut requested = used_count.to_vec();
-        if requested.iter().any(|name| matches!(name.as_str(), "dartforge_ffi_register_callback" | "dartforge_ffi_register_callback_owned")) {
+        if requested.iter().any(|name| {
+            matches!(
+                name.as_str(),
+                "dartforge_ffi_register_callback" | "dartforge_ffi_register_callback_owned"
+            )
+        }) {
             // Host-only owner operations are not in the original Dart IR.
             // Resolve every operation from this SDK's runtime, never ours.
             for name in ffi::CALLBACK_OWNER_APIS {
-                if !requested.iter().any(|existing| existing == name) { requested.push(name.to_owned()); }
+                if !requested.iter().any(|existing| existing == name) {
+                    requested.push(name.to_owned());
+                }
             }
         }
         let names = lljit
             .define_symbols_from_dll(dll, &requested, true)
-            .map_err(|detail| JitError::new("sdk", "could not publish the SDK DLL symbols", detail))?;
+            .map_err(|detail| {
+                JitError::new("sdk", "could not publish the SDK DLL symbols", detail)
+            })?;
         // The program's runtime is the library's: the arguments of `main`
         // go to it.
         let mut arguments = Vec::new();
-        for a in program_arguments().lock().unwrap_or_else(|e| e.into_inner()).iter() {
+        for a in program_arguments()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+        {
             arguments.extend_from_slice(a.as_bytes());
             arguments.push(0);
         }
-        ffi::set_arguments_in_library(dll, &arguments)
-            .map_err(|detail| JitError::new("sdk", "could not hand the main arguments to the SDK DLL", detail))?;
-        if let Some(script) = program_script().lock().unwrap_or_else(|e| e.into_inner()).as_deref() {
-            ffi::set_script_in_library(dll, script)
-                .map_err(|detail| JitError::new("sdk", "could not hand the script to the SDK DLL", detail))?;
+        ffi::set_arguments_in_library(dll, &arguments).map_err(|detail| {
+            JitError::new(
+                "sdk",
+                "could not hand the main arguments to the SDK DLL",
+                detail,
+            )
+        })?;
+        if let Some(script) = program_script()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_deref()
+        {
+            ffi::set_script_in_library(dll, script).map_err(|detail| {
+                JitError::new("sdk", "could not hand the script to the SDK DLL", detail)
+            })?;
         }
-        if let Some(config) = program_package_config().lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            ffi::set_package_config_in_library(dll, config.as_deref())
-                .map_err(|detail| JitError::new("sdk", "could not hand the package configuration to the SDK DLL", detail))?;
+        if let Some(config) = program_package_config()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            ffi::set_package_config_in_library(dll, config.as_deref()).map_err(|detail| {
+                JitError::new(
+                    "sdk",
+                    "could not hand the package configuration to the SDK DLL",
+                    detail,
+                )
+            })?;
         }
         static NEXT_ID: AtomicU64 = AtomicU64::new(1_000_000);
         Ok(Self {
@@ -380,9 +420,16 @@ impl JitSession {
         if !ir_uses_source_sdk(ir) {
             return Self::new();
         }
-        let dll = sdk.map(|p| p.as_os_str().to_owned()).or_else(|| std::env::var_os("DARTFORGE_SDK_DLL")).ok_or_else(|| {
-            JitError::new("sdk", "program with the source SDK without DARTFORGE_SDK_DLL", String::new())
-        })?;
+        let dll = sdk
+            .map(|p| p.as_os_str().to_owned())
+            .or_else(|| std::env::var_os("DARTFORGE_SDK_DLL"))
+            .ok_or_else(|| {
+                JitError::new(
+                    "sdk",
+                    "program with the source SDK without DARTFORGE_SDK_DLL",
+                    String::new(),
+                )
+            })?;
         let used_count: Vec<String> = ir
             .lines()
             .filter_map(|l| {
@@ -411,13 +458,22 @@ impl JitSession {
             .iter()
             .filter(|module| !module.removed)
             .flat_map(|module| module.globals.iter())
-            .chain(self.reloadables.iter().flat_map(|module| module.globals.iter()))
+            .chain(
+                self.reloadables
+                    .iter()
+                    .flat_map(|module| module.globals.iter()),
+            )
             .collect();
         let (lookup, exit_code, execute) = self
             .lljit
             .run_main(PROGRAM_STACK_BYTES, &globals)
             .map_err(|detail| JitError::new("execute", "the program execution failed", detail))?;
-        Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
+        Ok(EntryReport {
+            lookup,
+            execute,
+            total: started.elapsed(),
+            exit_code,
+        })
     }
 
     /// Version of the `LLVM-C.dll` loaded in this process, `(major, minor, patch)`.
@@ -432,15 +488,24 @@ impl JitSession {
     /// Binds reviewed external data to the SDK runtime before materialization.
     /// Keep data separate from callable imports and never reset imported cells.
     fn import_sdk_runtime_data(&mut self, parsed: &ffi::ParsedModule) -> Result<(), JitError> {
-        let Some(dll) = &self.sdk_dll else { return Ok(()) };
-        let names: Vec<_> = parsed.external_globals().into_iter()
-            .filter(|name| ffi::RUNTIME_DATA_SYMBOLS.contains(&name.as_str()) && !self.sdk_data.contains(name))
+        let Some(dll) = &self.sdk_dll else {
+            return Ok(());
+        };
+        let names: Vec<_> = parsed
+            .external_globals()
+            .into_iter()
+            .filter(|name| {
+                ffi::RUNTIME_DATA_SYMBOLS.contains(&name.as_str()) && !self.sdk_data.contains(name)
+            })
             .collect();
         if names.is_empty() {
             return Ok(());
         }
-        self.lljit.define_runtime_data_from_dll(dll, &names)
-            .map_err(|detail| JitError::new("sdk", "could not publish the SDK runtime data", detail))?;
+        self.lljit
+            .define_runtime_data_from_dll(dll, &names)
+            .map_err(|detail| {
+                JitError::new("sdk", "could not publish the SDK runtime data", detail)
+            })?;
         self.sdk_data.extend(names);
         Ok(())
     }
@@ -522,7 +587,12 @@ impl JitSession {
         self.add_ir_module_with(name, ir, Some(&["main", ENTRY_SYMBOL]))
     }
 
-    fn add_ir_module_with(&mut self, name: &str, ir: &str, export_only: Option<&[&str]>) -> Result<ModuleReport, JitError> {
+    fn add_ir_module_with(
+        &mut self,
+        name: &str,
+        ir: &str,
+        export_only: Option<&[&str]>,
+    ) -> Result<ModuleReport, JitError> {
         let started = Instant::now();
         let phase = Instant::now();
         let parsed = ffi::parse_module(name, ir)
@@ -551,23 +621,39 @@ impl JitSession {
         // The contract fingerprint is read here, and not only in hot reload,
         // because it is what allows a future reload to compare the new version with
         // this one — including when this module came in through the simple path.
-        let callback_registration = parsed.callback_registration_plan(self.lljit.supports_callback_owners());
-        let (layouts, async_frames) = parsed.frame_contract(ir, &frame_layouts::BodyLayouts::new())
-            .map_err(|message| JitError { stage: "contract", message })?;
+        let callback_registration =
+            parsed.callback_registration_plan(self.lljit.supports_callback_owners());
+        let (layouts, async_frames) = parsed
+            .frame_contract(ir, &frame_layouts::BodyLayouts::new())
+            .map_err(|message| JitError {
+                stage: "contract",
+                message,
+            })?;
         let class_names = parsed.class_names();
-        let globals = parsed
-            .prepare_mutable_globals()
-            .map_err(|detail| JitError::new("globals", "the module has state the session cannot reset", detail))?;
+        let globals = parsed.prepare_mutable_globals().map_err(|detail| {
+            JitError::new(
+                "globals",
+                "the module has state the session cannot reset",
+                detail,
+            )
+        })?;
         let module = parsed.into_thread_safe();
         let parse_ir = phase.elapsed();
         let tracker = self.lljit.create_tracker();
         let phase = Instant::now();
-        self.lljit
-            .add_module(&tracker, module)
-            .map_err(|detail| JitError::new("add-module", "the LLJIT refused the module", detail))?;
+        self.lljit.add_module(&tracker, module).map_err(|detail| {
+            JitError::new("add-module", "the LLJIT refused the module", detail)
+        })?;
         let add_module = phase.elapsed();
-        self.lljit.initialize_callback_owner(&tracker, &callback_registration)
-            .map_err(|detail| JitError::new("callback-owner", "could not initialize callback ownership", detail))?;
+        self.lljit
+            .initialize_callback_owner(&tracker, &callback_registration)
+            .map_err(|detail| {
+                JitError::new(
+                    "callback-owner",
+                    "could not initialize callback ownership",
+                    detail,
+                )
+            })?;
         self.modules.push(Module {
             name: name.to_owned(),
             tracker,
@@ -600,7 +686,10 @@ impl JitSession {
     /// # Errors
     /// Divergent target (`layout`), unknown external (`symbols`) or refusal
     /// by LLVM (`add-module`, for example a duplicate symbol).
-    pub fn add_compiled_module(&mut self, module: &CompiledModule) -> Result<ModuleReport, JitError> {
+    pub fn add_compiled_module(
+        &mut self,
+        module: &CompiledModule,
+    ) -> Result<ModuleReport, JitError> {
         let started = Instant::now();
         let phase = Instant::now();
         let parts = &module.parts;
@@ -624,10 +713,19 @@ impl JitSession {
         let phase = Instant::now();
         self.lljit
             .add_object(&tracker, &parts.object, &module.name)
-            .map_err(|detail| JitError::new("add-module", "the LLJIT refused the object", detail))?;
+            .map_err(|detail| {
+                JitError::new("add-module", "the LLJIT refused the object", detail)
+            })?;
         let add_module = phase.elapsed();
-        self.lljit.initialize_callback_owner(&tracker, &parts.callback_registration)
-            .map_err(|detail| JitError::new("callback-owner", "could not initialize callback ownership", detail))?;
+        self.lljit
+            .initialize_callback_owner(&tracker, &parts.callback_registration)
+            .map_err(|detail| {
+                JitError::new(
+                    "callback-owner",
+                    "could not initialize callback ownership",
+                    detail,
+                )
+            })?;
         self.modules.push(Module {
             name: module.name.clone(),
             tracker,
@@ -695,10 +793,16 @@ impl JitSession {
             .iter()
             .filter(|module| !module.removed)
             .flat_map(|module| module.globals.iter())
-            .chain(self.reloadables.iter().flat_map(|module| module.globals.iter()))
+            .chain(
+                self.reloadables
+                    .iter()
+                    .flat_map(|module| module.globals.iter()),
+            )
             .collect();
-        let (lookup, exit_code, execute) =
-            self.lljit.run_entry(PROGRAM_STACK_BYTES, &globals).map_err(|detail| {
+        let (lookup, exit_code, execute) = self
+            .lljit
+            .run_entry(PROGRAM_STACK_BYTES, &globals)
+            .map_err(|detail| {
                 if detail.starts_with("could not create the thread")
                     || detail.starts_with("the program thread")
                 {
@@ -727,7 +831,11 @@ impl JitSession {
     /// another initialization contract (`dartforge_init`) and is refused here.
     pub fn run_reloadable_entry(&self) -> Result<EntryReport, JitError> {
         if self.sdk_dll.is_some() {
-            return Err(JitError::new("execute", "stateful reload does not support the source SDK yet", String::new()));
+            return Err(JitError::new(
+                "execute",
+                "stateful reload does not support the source SDK yet",
+                String::new(),
+            ));
         }
         let started = Instant::now();
         let phase = Instant::now();
@@ -737,7 +845,12 @@ impl JitSession {
         entry.call_void(self)?;
         let exit_code = dartforge_runtime::abi::finalize_program();
         let execute = phase.elapsed();
-        Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
+        Ok(EntryReport {
+            lookup,
+            execute,
+            total: started.elapsed(),
+            exit_code,
+        })
     }
 
     /// Runs the reloadable `main` of the source SDK on the calling thread.
@@ -745,7 +858,11 @@ impl JitSession {
     /// finalization; no global of the JIT modules is zeroed here.
     pub fn run_reloadable_main(&self) -> Result<EntryReport, JitError> {
         if self.sdk_dll.is_none() {
-            return Err(JitError::new("execute", "the reloadable main entry requires the source SDK", String::new()));
+            return Err(JitError::new(
+                "execute",
+                "the reloadable main entry requires the source SDK",
+                String::new(),
+            ));
         }
         let started = Instant::now();
         let phase = Instant::now();
@@ -754,7 +871,12 @@ impl JitSession {
         let phase = Instant::now();
         let exit_code = entry.call_i32(self)?;
         let execute = phase.elapsed();
-        Ok(EntryReport { lookup, execute, total: started.elapsed(), exit_code })
+        Ok(EntryReport {
+            lookup,
+            execute,
+            total: started.elapsed(),
+            exit_code,
+        })
     }
 
     /// Names of the still resident modules, in inclusion order.
@@ -791,7 +913,11 @@ impl JitSession {
     /// `resource` stage.
     pub fn remove_module(&mut self, index: usize) -> Result<(), JitError> {
         if self.lljit.retains_callback_code() {
-            return Err(JitError::new("resource", "cannot unload modules after publishing native callback code; this session remains resident until process exit", String::new()));
+            return Err(JitError::new(
+                "resource",
+                "cannot unload modules after publishing native callback code; this session remains resident until process exit",
+                String::new(),
+            ));
         }
         let module = self.modules.get_mut(index).ok_or_else(|| JitError {
             stage: "resource",
@@ -803,9 +929,10 @@ impl JitSession {
                 message: format!("the module {} was already removed", module.name),
             });
         }
-        module.tracker.remove().map_err(|detail| {
-            JitError::new("resource", "could not unload the module", detail)
-        })?;
+        module
+            .tracker
+            .remove()
+            .map_err(|detail| JitError::new("resource", "could not unload the module", detail))?;
         module.removed = true;
         Ok(())
     }
@@ -853,14 +980,19 @@ pub fn compile_module(name: &str, ir: &str) -> Result<CompiledModule, JitError> 
         };
         JitError::new(stage, "could not compile the module", detail)
     })?;
-    Ok(CompiledModule { name: name.to_owned(), parts })
+    Ok(CompiledModule {
+        name: name.to_owned(),
+        parts,
+    })
 }
 
 /// The arguments that the program's `main(List<String> args)` receives: the
 /// JIT process is not the program, so its command line does not
 /// apply (the AOT uses the executable's).
 pub fn set_arguments(arguments: Vec<String>) {
-    *program_arguments().lock().unwrap_or_else(|e| e.into_inner()) = arguments.clone();
+    *program_arguments()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = arguments.clone();
     dartforge_runtime::abi::set_main_arguments(arguments);
 }
 
@@ -878,9 +1010,14 @@ pub fn set_script(file_path: &std::path::Path) {
 /// do not call this setter retain the builder environment fallback.
 pub fn set_package_config(file_path: Option<&std::path::Path>) {
     let selected = file_path.map(|path| {
-        std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().into_owned()
+        std::path::absolute(path)
+            .unwrap_or_else(|_| path.to_path_buf())
+            .to_string_lossy()
+            .into_owned()
     });
-    *program_package_config().lock().unwrap_or_else(|e| e.into_inner()) = Some(selected.clone());
+    *program_package_config()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some(selected.clone());
     dartforge_runtime::abi::set_program_package_config(selected);
 }
 
@@ -931,7 +1068,11 @@ pub fn run_ir_with(ir: &str, sdk: Option<&std::path::Path>) -> Result<JitReport,
     let mut session = JitSession::new_for_ir_with(ir, sdk)?;
     let session_time = phase.elapsed();
     let module = session.add_program_module("dartforge", ir)?;
-    let entry = if session.uses_source_sdk() { session.run_main()? } else { session.run_entry()? };
+    let entry = if session.uses_source_sdk() {
+        session.run_main()?
+    } else {
+        session.run_entry()?
+    };
     drop(session);
     Ok(JitReport {
         session: session_time,
@@ -946,7 +1087,8 @@ mod tests {
     use super::*;
     #[test]
     fn registry_declaration_does_not_change_runtime_profile() {
-        let without_sdk = "declare void @df.register.fake()\ndefine void @dartforge_entry() { ret void }\n";
+        let without_sdk =
+            "declare void @df.register.fake()\ndefine void @dartforge_entry() { ret void }\n";
         assert!(!ir_uses_source_sdk(without_sdk));
         let with_sdk = "declare void @df.register.core()\ndefine void @dartforge_entry() { ret void }\n\
             define i32 @main() {\n  %r = call i32 @dartforge_init(ptr @dartforge_entry, ptr @dartforge_dispatch_toString)\n  ret i32 %r\n}\n";
@@ -955,11 +1097,7 @@ mod tests {
     /// The error message identifies the stage and preserves the LLVM text.
     #[test]
     fn error_display_keeps_stage_and_detail() {
-        let error = JitError::new(
-            "parse-ir",
-            "invalid IR",
-            "expected top-level entity".into(),
-        );
+        let error = JitError::new("parse-ir", "invalid IR", "expected top-level entity".into());
         assert_eq!(
             error.to_string(),
             "parse-ir: invalid IR: expected top-level entity"
@@ -985,7 +1123,13 @@ mod tests {
         let ir = "declare void @df.sdk_test()\ndefine void @dartforge_entry() {\n  call void @df.sdk_test()\n  ret void\n}\n";
         let compiled = compile_module("sdk", ir).unwrap();
         let mut without_sdk = JitSession::new().unwrap();
-        assert_eq!(without_sdk.add_compiled_module(&compiled).unwrap_err().stage, "symbols");
+        assert_eq!(
+            without_sdk
+                .add_compiled_module(&compiled)
+                .unwrap_err()
+                .stage,
+            "symbols"
+        );
 
         let mut with_sdk = JitSession::new().unwrap();
         with_sdk.sdk_externals.insert("df.sdk_test".to_owned());
@@ -1028,7 +1172,12 @@ fn normalize_target(triple: &str) -> NormalizedTarget {
     }
     .to_string();
     let env = part_list.get(3..).map(|r| r.join("-")).unwrap_or_default();
-    NormalizedTarget { architecture, vendor, system, env }
+    NormalizedTarget {
+        architecture,
+        vendor,
+        system,
+        env,
+    }
 }
 
 /// Whether code emitted for `module` runs in the `LLJIT` of `jit`: same
@@ -1052,18 +1201,45 @@ mod target_tests {
 
     #[test]
     fn spellings_of_same_target_are_compatible() {
-        assert!(compatible_targets("x86_64-unknown-linux-gnu", "x86_64-pc-linux-gnu"));
-        assert!(compatible_targets("arm64-apple-darwin", "arm64-apple-macosx15.7.3"));
-        assert!(compatible_targets("aarch64-apple-darwin", "arm64-apple-macosx14.0.0"));
-        assert!(compatible_targets("x86_64-pc-windows-msvc", "x86_64-pc-windows-msvc"));
+        assert!(compatible_targets(
+            "x86_64-unknown-linux-gnu",
+            "x86_64-pc-linux-gnu"
+        ));
+        assert!(compatible_targets(
+            "arm64-apple-darwin",
+            "arm64-apple-macosx15.7.3"
+        ));
+        assert!(compatible_targets(
+            "aarch64-apple-darwin",
+            "arm64-apple-macosx14.0.0"
+        ));
+        assert!(compatible_targets(
+            "x86_64-pc-windows-msvc",
+            "x86_64-pc-windows-msvc"
+        ));
     }
 
     #[test]
     fn different_targets_are_rejected() {
-        assert!(!compatible_targets("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"));
-        assert!(!compatible_targets("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"));
-        assert!(!compatible_targets("x86_64-pc-windows-msvc", "x86_64-pc-windows-gnu"));
-        assert!(!compatible_targets("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"));
-        assert!(!compatible_targets("arm64-apple-darwin", "arm64-apple-ios17.0"));
+        assert!(!compatible_targets(
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu"
+        ));
+        assert!(!compatible_targets(
+            "x86_64-unknown-linux-gnu",
+            "x86_64-unknown-linux-musl"
+        ));
+        assert!(!compatible_targets(
+            "x86_64-pc-windows-msvc",
+            "x86_64-pc-windows-gnu"
+        ));
+        assert!(!compatible_targets(
+            "x86_64-unknown-linux-gnu",
+            "x86_64-pc-windows-msvc"
+        ));
+        assert!(!compatible_targets(
+            "arm64-apple-darwin",
+            "arm64-apple-ios17.0"
+        ));
     }
 }

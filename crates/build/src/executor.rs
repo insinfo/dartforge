@@ -3,9 +3,9 @@
 //! VM process of [`crate::vm`], or [`Unavailable`] when it was not enabled)
 //! and **fallback** (what `build_runner` left on disk, in `engine.rs`). An
 //! executor that cannot generate refuses with a reason.
-use crate::query::{SemanticDb, Query, Digest, digest_file, digest_bytes};
 use crate::graph::{AssetId, Graph};
 use crate::packages::PackageGraph;
+use crate::query::{Digest, Query, SemanticDb, digest_bytes, digest_file};
 use crate::value::Map;
 use dartforge_elements::model::Program;
 use dartforge_intern::Interner;
@@ -862,9 +862,9 @@ mod service_tests {
         );
         assert!(s.read(&AssetId::new("q", "lib/missing.dart")).is_none());
         assert!(
-            s.queries.iter().any(
-                |(c, d)| matches!(c, Query::File(p) if p.ends_with("q.dart")) && d.is_some()
-            ),
+            s.queries
+                .iter()
+                .any(|(c, d)| matches!(c, Query::File(p) if p.ends_with("q.dart")) && d.is_some()),
             "reading the dependency is a query of the action"
         );
     }

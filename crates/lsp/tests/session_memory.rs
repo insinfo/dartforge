@@ -41,8 +41,5 @@ fn memory_returns_to_baseline_after_each_edit() {
         retained > 0,
         "the session should retain the program between queries"
     );
-    assert!(
-        after < 64 * 1024,
-        "{after} bytes stuck after the edits"
-    );
+    assert!(after < 64 * 1024, "{after} bytes stuck after the edits");
 }

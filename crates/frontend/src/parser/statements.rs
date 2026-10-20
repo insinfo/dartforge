@@ -99,7 +99,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             // (`parseForStatement`, `handleForInitializerPatternVariableAssignment`).
             if self.eat_op(Op::Assign) {
                 let value = self.parse_expression()?;
-                return self.parse_classic_for_rest(Some(ForInit::Pattern { final_, pattern, value }));
+                return self.parse_classic_for_rest(Some(ForInit::Pattern {
+                    final_,
+                    pattern,
+                    value,
+                }));
             }
             self.expect_kw(Keyword::In)?;
             let iterable = self.parse_expression()?;
@@ -214,7 +218,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // the text is that of the last token read (the statement's synthetic `;`);
                     // in the others, that of the skipped token.
                     if self.pos == statement_start && !self.at_eof() {
-                        let text = if body_node { ";".to_string() } else { self.text().to_string() };
+                        let text = if body_node {
+                            ";".to_string()
+                        } else {
+                            self.text().to_string()
+                        };
                         self.error(codes::parser::UNEXPECTED_TOKEN, &[&text]);
                         self.advance();
                     }
@@ -388,7 +396,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // an error of the next phase, `CONST_NOT_INITIALIZED`).
                 let declaration = self.declaration_type_at(self.pos + 1, false)
                     || (self.at_identifier_at(1)
-                        && matches!(self.kind_at(2), Kind::Op(Op::Assign | Op::Semicolon | Op::Comma)));
+                        && matches!(
+                            self.kind_at(2),
+                            Kind::Op(Op::Assign | Op::Semicolon | Op::Comma)
+                        ));
                 if declaration {
                     self.parse_local_declaration(start)
                 } else {
@@ -478,7 +489,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             && !self.is_assignable(target)
         {
             let span = self.ast.expr(target).span;
-            self.error_at(codes::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE, span, &[]);
+            self.error_at(
+                codes::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE,
+                span,
+                &[],
+            );
         }
         self.expect_semicolon()?;
         Ok(self.push_stmt(start, StmtKind::Expression(expr)))
@@ -503,7 +518,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             return Err(self.error(codes::parser::MISSING_STATEMENT, &[]));
         };
         if !metadata.is_empty() {
-            self.ast.local_metadata.push((s, metadata.into_boxed_slice()));
+            self.ast
+                .local_metadata
+                .push((s, metadata.into_boxed_slice()));
         }
         Ok(s)
     }
@@ -626,11 +643,21 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.looks_like_statement_start(self.pos) {
                 self.error(codes::parser::MISSING_IDENTIFIER, &[]);
                 let here = self.span().start;
-                return Ok(self.name_from("", Span { start: here, end: here }));
+                return Ok(self.name_from(
+                    "",
+                    Span {
+                        start: here,
+                        end: here,
+                    },
+                ));
             }
             let text = self.text().to_string();
             let token = self.advance();
-            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&text]);
+            self.error_at(
+                codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD,
+                token.span,
+                &[&text],
+            );
             return Ok(self.name_from(&text, token.span));
         }
         self.expect_identifier()
@@ -660,7 +687,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         let i_var = index(self, variable.name.span)?;
         let (member, reinjected) = if self.text_of(i_type) == "await" {
             let s = self.tokens[i_type].span.start;
-            (self.name_from("", Span { start: s, end: s }), vec![i_type, i_var])
+            (
+                self.name_from("", Span { start: s, end: s }),
+                vec![i_type, i_var],
+            )
         } else if self.is_plain_identifier(i_var) || self.text_of(i_var) == "await" {
             (name, vec![i_var])
         } else {
@@ -691,7 +721,9 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// outside a plain synchronous body, `await`/`yield` as a declared name is
     /// `ASYNC_KEYWORD_USED_AS_IDENTIFIER`.
     pub(crate) fn check_await_yield_as_name(&mut self, name: Span) {
-        if (self.in_async || self.in_generator) && matches!(&self.source[name.start..name.end], "await" | "yield") {
+        if (self.in_async || self.in_generator)
+            && matches!(&self.source[name.start..name.end], "await" | "yield")
+        {
             self.error_at(codes::parser::ASYNC_KEYWORD_USED_AS_IDENTIFIER, name, &[]);
         }
     }
@@ -856,7 +888,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         if !self.at_op(Op::LBrace) {
             let closes = self.tokens[self.pos - 1].span;
             self.error_at(codes::parser::EXPECTED_SWITCH_STATEMENT_BODY, closes, &[]);
-            return Ok(self.push_stmt(start, StmtKind::Switch { value, cases: Vec::new().into_boxed_slice() }));
+            return Ok(self.push_stmt(
+                start,
+                StmtKind::Switch {
+                    value,
+                    cases: Vec::new().into_boxed_slice(),
+                },
+            ));
         }
         let close = self.matching_close(self.pos);
         self.expect_op(Op::LBrace)?;
@@ -910,13 +948,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             let (pattern, guard) = if self.eat_kw(Keyword::Case) {
                 // Before 3.0 (`allowPatterns` false), `case` takes an expression
                 // (`parseSwitchCase`: `parseExpression`).
-                let pattern = if self.features.version() < crate::features::LanguageVersion::new(3, 0) {
-                    let start_offset = self.span();
-                    let e = self.parse_expression()?;
-                    self.push_pattern(start_offset, crate::ast::PatternKind::Constant(e))
-                } else {
-                    self.parse_pattern()?
-                };
+                let pattern =
+                    if self.features.version() < crate::features::LanguageVersion::new(3, 0) {
+                        let start_offset = self.span();
+                        let e = self.parse_expression()?;
+                        self.push_pattern(start_offset, crate::ast::PatternKind::Constant(e))
+                    } else {
+                        self.parse_pattern()?
+                    };
                 let guard = if self.eat_ident("when") {
                     Some(self.parse_expression()?)
                 } else {
@@ -937,7 +976,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 while self.at_identifier_at(k) && self.at_op_at(k + 1, Op::Colon) {
                     k += 2;
                 }
-                !matches!(self.kind_at(k), Kind::Keyword(Keyword::Case | Keyword::Default))
+                !matches!(
+                    self.kind_at(k),
+                    Kind::Keyword(Keyword::Case | Keyword::Default)
+                )
             };
             if let (true, Some(d)) = (group_end_after_default, last_default) {
                 cases.push(SwitchCase {
@@ -950,7 +992,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let body = self.parse_statement_list(true);
                 let end_offset = self.last_end().max(d);
                 cases.push(SwitchCase {
-                    span: Span { start: d, end: end_offset },
+                    span: Span {
+                        start: d,
+                        end: end_offset,
+                    },
                     labels: Box::default(),
                     pattern: None,
                     guard: None,
@@ -981,7 +1026,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         let previous = self.tokens[self.pos.saturating_sub(1)].span;
         self.error_at(code, previous, &[]);
         let here = self.span().start;
-        Ok(self.ast.push_stmt(crate::ast::Stmt { span: Span { start: here, end: here }, kind: StmtKind::Block(Vec::new().into_boxed_slice()) }))
+        Ok(self.ast.push_stmt(crate::ast::Stmt {
+            span: Span {
+                start: here,
+                end: here,
+            },
+            kind: StmtKind::Block(Vec::new().into_boxed_slice()),
+        }))
     }
 
     fn parse_try(&mut self, start: Span) -> PResult<StmtId> {
@@ -1164,7 +1215,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `looksLikeAwaitExpression`).
                 if self.text_of(pos) == "yield"
                     || self.text_of(pos) == "await"
-                        && (self.in_async || self.in_generator || self.looks_like_expression_after_await(pos, false))
+                        && (self.in_async
+                            || self.in_generator
+                            || self.looks_like_expression_after_await(pos, false))
                 {
                     return false;
                 }
@@ -1199,7 +1252,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                     Kind::Op(Op::Question) => {
                         // `T? Function(…) name`: after the function type tail comes a name, which
                         // no conditional allows — it is a declaration, even with `? … :` ahead.
-                        if self.at_function_tail(pos + 2) && self.looks_like_type_then_identifier(pos) {
+                        if self.at_function_tail(pos + 2)
+                            && self.looks_like_type_then_identifier(pos)
+                        {
                             return true;
                         }
                         if could_be_expression && self.conditional_after_question(pos + 1) {
@@ -1238,7 +1293,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn is_expression_continuation(&self, pos: usize) -> bool {
         match self.text_of(pos) {
             // Only with the body right after: `int async;` declares `async`.
-            "async" | "sync" => matches!(self.kind_of(pos + 1), Kind::Op(Op::LBrace | Op::Arrow | Op::Star)),
+            "async" | "sync" => matches!(
+                self.kind_of(pos + 1),
+                Kind::Op(Op::LBrace | Op::Arrow | Op::Star)
+            ),
             "as" => !matches!(
                 self.kind_of(pos + 1),
                 Kind::Op(Op::Assign | Op::Semicolon | Op::Comma)
@@ -1300,8 +1358,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.depth = depth;
         self.diagnostics.truncate(diagnostics);
         self.ast.exprs.truncate(exprs);
-        self.ast.assert_invocations.retain(|e| (e.0 as usize) < exprs);
-        self.ast.implicit_creations.retain(|e| (e.0 as usize) < exprs);
+        self.ast
+            .assert_invocations
+            .retain(|e| (e.0 as usize) < exprs);
+        self.ast
+            .implicit_creations
+            .retain(|e| (e.0 as usize) < exprs);
         self.ast.stmts.truncate(stmts);
         self.ast.types.truncate(types);
         self.ast.patterns.truncate(patterns);
@@ -1401,13 +1463,29 @@ mod tests {
     #[test]
     fn function_type_after_nullable_type() {
         let out = ok("int? Function(int) talvez = (x) => x > 0 ? x : null;");
-        assert!(matches!(out.kind(), StmtKind::Variables(_)), "{:?}", out.kind());
+        assert!(
+            matches!(out.kind(), StmtKind::Variables(_)),
+            "{:?}",
+            out.kind()
+        );
         let out = ok("String? Function<T>(T) g = h;");
-        assert!(matches!(out.kind(), StmtKind::Variables(_)), "{:?}", out.kind());
+        assert!(
+            matches!(out.kind(), StmtKind::Variables(_)),
+            "{:?}",
+            out.kind()
+        );
         let out = ok("a ? b : c;");
-        assert!(matches!(out.kind(), StmtKind::Expression(_)), "{:?}", out.kind());
+        assert!(
+            matches!(out.kind(), StmtKind::Expression(_)),
+            "{:?}",
+            out.kind()
+        );
         let out = ok("a ? Function : c;");
-        assert!(matches!(out.kind(), StmtKind::Expression(_)), "{:?}", out.kind());
+        assert!(
+            matches!(out.kind(), StmtKind::Expression(_)),
+            "{:?}",
+            out.kind()
+        );
     }
 
     #[test]
@@ -1554,7 +1632,11 @@ mod tests {
         };
         assert_eq!(out.name(&list.variables[0].name), "enum");
         assert_eq!(out.diagnostics.len(), 1);
-        assert!(out.diagnostics[0].message.contains("'enum' can't be used as an identifier"));
+        assert!(
+            out.diagnostics[0]
+                .message
+                .contains("'enum' can't be used as an identifier")
+        );
         assert!(out.at_eof);
 
         let out = stmt("var if;");
@@ -1562,7 +1644,11 @@ mod tests {
             panic!()
         };
         assert_eq!(out.name(&list.variables[0].name), "");
-        assert!(out.diagnostics[0].message.contains("Expected an identifier"));
+        assert!(
+            out.diagnostics[0]
+                .message
+                .contains("Expected an identifier")
+        );
         assert!(!out.at_eof, "the `if` is left for the next statement");
     }
 
@@ -1607,7 +1693,11 @@ mod tests {
         // Unclosed block.
         let out = stmt("{ break;");
         assert!(out.result.is_err());
-        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "expected_token")));
+        assert!(
+            out.diagnostics
+                .iter()
+                .any(|d| d.code.is_some_and(|c| c.info().name == "expected_token"))
+        );
     }
 
     #[test]
@@ -1616,11 +1706,19 @@ mod tests {
         // `handleExpressionStatement`), as in fasta.
         for src in ["case 1:", "class A {}", "finally {}"] {
             let out = stmt(src);
-            assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "missing_statement")), "{src}");
+            assert!(
+                out.diagnostics
+                    .iter()
+                    .any(|d| d.code.is_some_and(|c| c.info().name == "missing_statement")),
+                "{src}"
+            );
         }
         // `else` starts a statement: a synthetic identifier before it.
         let out = stmt("else;");
-        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "missing_identifier")));
+        assert!(out.diagnostics.iter().any(|d| {
+            d.code
+                .is_some_and(|c| c.info().name == "missing_identifier")
+        }));
     }
 
     #[test]
@@ -1630,7 +1728,11 @@ mod tests {
         let out = stmt(&src);
         assert!(out.result.is_ok());
         assert_eq!(out.diagnostics.len(), 1);
-        assert!(out.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "stack_overflow")));
+        assert!(
+            out.diagnostics
+                .iter()
+                .any(|d| d.code.is_some_and(|c| c.info().name == "stack_overflow"))
+        );
         assert!(out.at_eof);
     }
 

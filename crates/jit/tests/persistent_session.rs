@@ -42,7 +42,10 @@ fn sequential_runs_start_clean() {
     session.add_ir_module("estatico", WITH_STATIC).unwrap();
     for turn in 1..=3 {
         let report_data = session.run_entry().unwrap();
-        assert_eq!(report_data.exit_code, 0, "execution {turn} inherited the previous one's state");
+        assert_eq!(
+            report_data.exit_code, 0,
+            "execution {turn} inherited the previous one's state"
+        );
     }
 }
 
@@ -126,7 +129,11 @@ fn persistent_session_measurement() {
         drop(session);
         d
     });
-    println!("(i)   create the session (LLJIT + runtime symbols): median {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
+    println!(
+        "(i)   create the session (LLJIT + runtime symbols): median {:.3} ms, p95 {:.3} ms",
+        ms(p50),
+        ms(p95)
+    );
 
     /// Removes the directory on `Drop`, also when emission panics.
     struct Directory(std::path::PathBuf);
@@ -135,18 +142,36 @@ fn persistent_session_measurement() {
             let _ = std::fs::remove_dir_all(&self.0);
         }
     }
-    let dir = Directory(std::env::temp_dir().join(format!("dartforge-sessao-{}", std::process::id())));
+    let dir =
+        Directory(std::env::temp_dir().join(format!("dartforge-sessao-{}", std::process::id())));
     std::fs::create_dir_all(&dir.0).unwrap();
     let source = dir.0.join("macro.dart");
-    std::fs::write(&source, "int dobro(int x) { return x * 2; }\nvoid main() {\n  int y = dobro(21);\n}\n").unwrap();
+    std::fs::write(
+        &source,
+        "int dobro(int x) { return x * 2; }\nvoid main() {\n  int y = dobro(21);\n}\n",
+    )
+    .unwrap();
     let emitted = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify, sdk: None, packages: None, timings: false, optimize: false, language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None };
+            let options = dartforge_emit_native::CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                sdk: None,
+                packages: None,
+                timings: false,
+                optimize: false,
+                language_version: None,
+                experiments: Vec::new(),
+                debug: false,
+                generator: None,
+                cpu: None,
+            };
             // With the source SDK (the emitter's only mode since the unified
             // space): the program imports the runtime and the SDK from the shared
             // library, which the session loads (`JitSession::new_for_ir_with`).
-            dartforge_emit_native::emit_reloadable_ir(&source, &options, None).unwrap().text
+            dartforge_emit_native::emit_reloadable_ir(&source, &options, None)
+                .unwrap()
+                .text
         })
         .unwrap()
         .join()
@@ -156,7 +181,13 @@ fn persistent_session_measurement() {
     // The IR session: the embedded runtime for the trivial one, the SDK library
     // for the emitted one; and execution through each profile's entry.
     let new_session = |ir: &str| JitSession::new_for_ir_with(ir, Some(&dll)).unwrap();
-    let execute_fn = |s: &JitSession| if s.uses_source_sdk() { s.run_main().unwrap().total } else { s.run_entry().unwrap().total };
+    let execute_fn = |s: &JitSession| {
+        if s.uses_source_sdk() {
+            s.run_main().unwrap().total
+        } else {
+            s.run_entry().unwrap().total
+        }
+    };
 
     for (label_name, ir) in [("trivial", TRIVIAL), ("emitter IR", emitted.as_str())] {
         let (p50, p95) = measure(n, || {
@@ -177,7 +208,11 @@ fn persistent_session_measurement() {
             compile_module("m", ir).unwrap();
             t.elapsed()
         });
-        println!("      compile into the cache, {label_name}: median {:.3} ms, p95 {:.3} ms (once per module)", ms(c50), ms(c95));
+        println!(
+            "      compile into the cache, {label_name}: median {:.3} ms, p95 {:.3} ms (once per module)",
+            ms(c50),
+            ms(c95)
+        );
         let compiled = compile_module("m", ir).unwrap();
         let (p50, p95) = measure(n, || {
             let mut session = new_session(ir);
@@ -195,6 +230,10 @@ fn persistent_session_measurement() {
         let mut session = new_session(ir);
         session.add_compiled_module(&compiled).unwrap();
         let (p50, p95) = measure(100, || execute_fn(&session));
-        println!("(iii) one execution, {label_name}, warmed-up session: median {:.3} ms, p95 {:.3} ms", ms(p50), ms(p95));
+        println!(
+            "(iii) one execution, {label_name}, warmed-up session: median {:.3} ms, p95 {:.3} ms",
+            ms(p50),
+            ms(p95)
+        );
     }
 }

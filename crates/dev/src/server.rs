@@ -16,7 +16,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::Path;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
 
 /// Version of the development protocol; the client checks it on connect.
@@ -46,13 +46,18 @@ impl Message {
     pub fn json(&self) -> String {
         match self {
             Message::Hello { generation } => {
-                format!("{{\"type\":\"hello\",\"protocol\":{PROTOCOL_VERSION},\"generation\":{generation}}}")
+                format!(
+                    "{{\"type\":\"hello\",\"protocol\":{PROTOCOL_VERSION},\"generation\":{generation}}}"
+                )
             }
             Message::Reload { generation } => {
                 format!("{{\"type\":\"reload\",\"generation\":{generation}}}")
             }
             Message::CompileError { message } => {
-                format!("{{\"type\":\"error\",\"message\":{}}}", json_string(message))
+                format!(
+                    "{{\"type\":\"error\",\"message\":{}}}",
+                    json_string(message)
+                )
             }
         }
     }
@@ -102,19 +107,27 @@ impl Reload {
     /// The compilation failed: the browser shows it in the console and stays
     /// connected.
     pub fn error(&self, message: &str) {
-        self.send(Message::CompileError { message: message.to_string() });
+        self.send(Message::CompileError {
+            message: message.to_string(),
+        });
     }
     fn current_generation(&self) -> u64 {
         *self.generation.lock().unwrap_or_else(|e| e.into_inner())
     }
     fn subscribe(&self) -> Receiver<Message> {
         let (tx, rx) = channel();
-        self.subscribers.lock().unwrap_or_else(|e| e.into_inner()).push(tx);
+        self.subscribers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(tx);
         rx
     }
     /// Tabs open at the moment.
     pub fn open_tabs(&self) -> usize {
-        self.subscribers.lock().unwrap_or_else(|e| e.into_inner()).len()
+        self.subscribers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
     }
 }
 
@@ -150,7 +163,8 @@ pub fn serve_with_generated(
     reload: Arc<Reload>,
     generated: Option<crate::generation::Provider>,
 ) -> Result<u16, String> {
-    let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("port {port}: {e}"))?;
+    let listener =
+        TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("port {port}: {e}"))?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let output = output.to_path_buf();
     let web = web.map(|p| p.to_path_buf());
@@ -159,11 +173,18 @@ pub fn serve_with_generated(
         .spawn(move || {
             for connection in listener.incoming() {
                 let Ok(stream) = connection else { continue };
-                let (output, web, reload, generated) = (output.clone(), web.clone(), reload.clone(), generated.clone());
+                let (output, web, reload, generated) = (
+                    output.clone(),
+                    web.clone(),
+                    reload.clone(),
+                    generated.clone(),
+                );
                 // One thread per connection: the WebSocket stays open while the tab lives.
                 let _ = std::thread::Builder::new()
                     .stack_size(256 * 1024)
-                    .spawn(move || handle(stream, &output, web.as_deref(), &reload, generated.as_ref()));
+                    .spawn(move || {
+                        handle(stream, &output, web.as_deref(), &reload, generated.as_ref())
+                    });
             }
         })
         .map_err(|e| e.to_string())?;
@@ -210,7 +231,12 @@ fn handle(
     let method = parts.next().unwrap_or("");
     let target = parts.next().unwrap_or("/");
     if method != "GET" && method != "HEAD" {
-        let _ = respond(&mut stream, 405, "text/plain; charset=utf-8", b"method not supported");
+        let _ = respond(
+            &mut stream,
+            405,
+            "text/plain; charset=utf-8",
+            b"method not supported",
+        );
         return;
     }
     let path = target.split(['?', '#']).next().unwrap_or("/");
@@ -219,14 +245,21 @@ fn handle(
     // per compilation (`webdev`'s auto-refresh uses the same design).
     if path == RELOAD_ROUTE {
         let Some(key) = ws_key else {
-            let _ = respond(&mut stream, 400, "text/plain; charset=utf-8", b"expected a WebSocket");
+            let _ = respond(
+                &mut stream,
+                400,
+                "text/plain; charset=utf-8",
+                b"expected a WebSocket",
+            );
             return;
         };
         if crate::ws::handshake(&mut stream, &key).is_err() {
             return;
         }
         let rx = reload.subscribe();
-        let hello = Message::Hello { generation: reload.current_generation() };
+        let hello = Message::Hello {
+            generation: reload.current_generation(),
+        };
         if crate::ws::text_frame(&mut stream, &hello.json()).is_err() {
             return;
         }
@@ -242,17 +275,32 @@ fn handle(
     let rel = if rel.is_empty() { "index.html" } else { rel };
     // `..` in the path does not leave the served directory.
     if rel.split('/').any(|p| p == "..") {
-        let _ = respond(&mut stream, 400, "text/plain; charset=utf-8", b"invalid path");
+        let _ = respond(
+            &mut stream,
+            400,
+            "text/plain; charset=utf-8",
+            b"invalid path",
+        );
         return;
     }
 
     if rel == "index.html" {
         match index_html(output, web) {
             Some(html) => {
-                let _ = respond(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes());
+                let _ = respond(
+                    &mut stream,
+                    200,
+                    "text/html; charset=utf-8",
+                    html.as_bytes(),
+                );
             }
             None => {
-                let _ = respond(&mut stream, 404, "text/plain; charset=utf-8", b"no index.html");
+                let _ = respond(
+                    &mut stream,
+                    404,
+                    "text/plain; charset=utf-8",
+                    b"no index.html",
+                );
             }
         }
         return;
@@ -270,25 +318,36 @@ fn handle(
     // `web` directory.
     let mut file = output.join(rel);
     if !file.is_file()
-        && let Some(w) = web {
-            let alternative = w.join(rel);
-            if alternative.is_file() {
-                file = alternative;
-            }
+        && let Some(w) = web
+    {
+        let alternative = w.join(rel);
+        if alternative.is_file() {
+            file = alternative;
         }
+    }
     if !file.is_file() {
         // SPA fallback only for navigation: an API `fetch` keeps getting 404.
         let no_extension = !rel.rsplit('/').next().unwrap_or("").contains('.');
-        if accepts_html && no_extension
-            && let Some(html) = index_html(output, web) {
-                let _ = respond(&mut stream, 200, "text/html; charset=utf-8", html.as_bytes());
-                return;
-            }
+        if accepts_html
+            && no_extension
+            && let Some(html) = index_html(output, web)
+        {
+            let _ = respond(
+                &mut stream,
+                200,
+                "text/html; charset=utf-8",
+                html.as_bytes(),
+            );
+            return;
+        }
         let _ = respond(&mut stream, 404, "text/plain; charset=utf-8", b"not found");
         return;
     }
     let mut data = Vec::new();
-    if std::fs::File::open(&file).and_then(|mut f| f.read_to_end(&mut data)).is_err() {
+    if std::fs::File::open(&file)
+        .and_then(|mut f| f.read_to_end(&mut data))
+        .is_err()
+    {
         let _ = respond(&mut stream, 500, "text/plain; charset=utf-8", b"read error");
         return;
     }
@@ -364,7 +423,12 @@ fn index_html(output: &Path, web: Option<&Path>) -> Option<String> {
     Some(html)
 }
 
-fn respond(stream: &mut TcpStream, code: u16, content_type: &str, body: &[u8]) -> std::io::Result<()> {
+fn respond(
+    stream: &mut TcpStream,
+    code: u16,
+    content_type: &str,
+    body: &[u8],
+) -> std::io::Result<()> {
     let reason = match code {
         200 => "OK",
         400 => "Bad Request",
@@ -382,7 +446,13 @@ fn respond(stream: &mut TcpStream, code: u16, content_type: &str, body: &[u8]) -
 }
 
 fn mime_type(p: &Path) -> &'static str {
-    match p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+    match p
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "html" => "text/html; charset=utf-8",
         "js" | "mjs" => "text/javascript; charset=utf-8",
         "css" => "text/css; charset=utf-8",

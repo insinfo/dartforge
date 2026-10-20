@@ -23,14 +23,14 @@
 use crate::applications::{Application, Target, detect, order};
 use crate::assembly::{ExecutionResult, Header, assemble};
 use crate::cache::{
-    ApplicationIdentity, Digest, InstanceKey, MacroCache, Recorder, Revalidation, implementation_identity, prune, record,
-    request_digest, revalidate,
+    ApplicationIdentity, Digest, InstanceKey, MacroCache, Recorder, Revalidation,
+    implementation_identity, prune, record, request_digest, revalidate,
 };
 use crate::executor::{ExecutionRequest, MacroExecutor, Phase, QueryError, QueryService};
 use crate::model::{Key, Table, View};
 use crate::queries::{ProgramResolver, QueryHandler};
 use dartforge_diagnostics::Diagnostic;
-use dartforge_elements::generated::{GenerationBuilder, Generation};
+use dartforge_elements::generated::{Generation, GenerationBuilder};
 use dartforge_elements::model::Program;
 use dartforge_elements::unit_cache::AnalyzedUnitCache;
 use dartforge_intern::Interner;
@@ -52,7 +52,8 @@ pub fn sessions() -> usize {
 }
 
 /// Reloads the program with the given generated sources.
-pub type Load<'c> = dyn FnMut(&mut Interner, Option<Arc<Generation>>) -> (Program, Vec<Diagnostic>) + 'c;
+pub type Load<'c> =
+    dyn FnMut(&mut Interner, Option<Arc<Generation>>) -> (Program, Vec<Diagnostic>) + 'c;
 
 /// Reloads the program with the given generated sources, reusing the units
 /// kept in the [`AnalyzedUnitCache`] (the one from `dartforge_elements`, the
@@ -61,8 +62,12 @@ pub type Load<'c> = dyn FnMut(&mut Interner, Option<Arc<Generation>>) -> (Progra
 /// augmentation (which changed) and the loader only analyzes again what is
 /// not stored. The `Interner` is always the session's own, a condition of
 /// the unit cache.
-pub type LoadByDiff<'c> =
-    dyn FnMut(&mut Interner, Option<Arc<Generation>>, &mut AnalyzedUnitCache) -> (Program, Vec<Diagnostic>) + 'c;
+pub type LoadByDiff<'c> = dyn FnMut(
+        &mut Interner,
+        Option<Arc<Generation>>,
+        &mut AnalyzedUnitCache,
+    ) -> (Program, Vec<Diagnostic>)
+    + 'c;
 
 /// The assembled text of a library.
 #[derive(Debug, Clone)]
@@ -154,7 +159,11 @@ impl Measurement {
              revalidation {:.1} ms ({} reused, {} queries replayed, {} rerun unchanged); \
              assembly {:.1} ms ({} assemblies, {} results); reload {:.1} ms ({} reloads, {} units reused)",
             ms(self.startup),
-            if self.executor_started { "" } else { " (executor not started)" },
+            if self.executor_started {
+                ""
+            } else {
+                " (executor not started)"
+            },
             ms(self.model),
             ms(self.execution),
             self.executions,
@@ -215,9 +224,9 @@ fn applies_in_phase(interfaces: &[String], target: &Target, phase: Phase) -> boo
         "Class" => &["Mixin", "Enum"],
         _ => &[],
     };
-    interfaces
-        .iter()
-        .any(|i| *i == format!("{kind}{suffix}") || alternatives.iter().any(|a| *i == format!("{a}{suffix}")))
+    interfaces.iter().any(|i| {
+        *i == format!("{kind}{suffix}") || alternatives.iter().any(|a| *i == format!("{a}{suffix}"))
+    })
 }
 
 fn is_non_empty(r: &ExecutionResult) -> bool {
@@ -231,7 +240,10 @@ fn is_non_empty(r: &ExecutionResult) -> bool {
 
 fn diagnostic(app: &Application, msg: &str) -> Diagnostic {
     let class = app.macro_.rsplit('#').next().unwrap_or("");
-    Diagnostic::new(format!("{}: application of @{class}: {msg}", app.unit), app.span)
+    Diagnostic::new(
+        format!("{}: application of @{class}: {msg}", app.unit),
+        app.span,
+    )
 }
 
 /// The texts assembled from `results` (grouped by library, in execution
@@ -253,15 +265,28 @@ fn generate(
     }
     let view = View { program, interner };
     let cell = RefCell::new(table);
-    let resolver = ProgramResolver { view: &view, table: &cell };
+    let resolver = ProgramResolver {
+        view: &view,
+        table: &cell,
+    };
     let mut texts = Vec::new();
     for (lib, rs) in by_library {
         let text = assemble(&rs, &resolver, Header::AugmentationLibrary(&lib))?;
-        let lib_id = view.library_by_uri(&lib).ok_or_else(|| format!("library {lib} disappeared from the program"))?;
-        let main = program.library(lib_id).units.first().and_then(|u| program.unit(*u).path.clone());
+        let lib_id = view
+            .library_by_uri(&lib)
+            .ok_or_else(|| format!("library {lib} disappeared from the program"))?;
+        let main = program
+            .library(lib_id)
+            .units
+            .first()
+            .and_then(|u| program.unit(*u).path.clone());
         let main = main.ok_or_else(|| format!("library {lib} has no file"))?;
         let path = dartforge_elements::load::macro_augmentation_path(&main);
-        texts.push(GeneratedText { library: lib, path, text });
+        texts.push(GeneratedText {
+            library: lib,
+            path,
+            text,
+        });
     }
     let mut c = GenerationBuilder::new();
     if let Some(b) = base {
@@ -302,7 +327,14 @@ pub fn apply(
     executor: &mut dyn MacroExecutor,
 ) -> Result<Output, Vec<Diagnostic>> {
     let mut cache = MacroCache::disabled();
-    run_session(program, interner, base, Reload::Full(load), executor, &mut cache)
+    run_session(
+        program,
+        interner,
+        base,
+        Reload::Full(load),
+        executor,
+        &mut cache,
+    )
 }
 
 /// Like [`apply`], with the diff-based reload ([`LoadByDiff`]) and, if
@@ -330,7 +362,14 @@ pub fn apply_incremental(
             &mut disabled
         }
     };
-    run_session(program, interner, base, Reload::ByDiff(load, AnalyzedUnitCache::new()), executor, cache)
+    run_session(
+        program,
+        interner,
+        base,
+        Reload::ByDiff(load, AnalyzedUnitCache::new()),
+        executor,
+        cache,
+    )
 }
 
 /// How the session reloads the program.
@@ -380,7 +419,12 @@ struct LazyExecutor<'e> {
 impl LazyExecutor<'_> {
     /// Handshake and one instance per distinct key, in the order of `apps`
     /// (the same message sequence as always in a clean compilation).
-    fn ensure_started(&mut self, apps: &[Application], keys: &[InstanceKey], measurement: &mut Measurement) -> Result<(), Vec<Diagnostic>> {
+    fn ensure_started(
+        &mut self,
+        apps: &[Application],
+        keys: &[InstanceKey],
+        measurement: &mut Measurement,
+    ) -> Result<(), Vec<Diagnostic>> {
         if self.started {
             return Ok(());
         }
@@ -395,7 +439,10 @@ impl LazyExecutor<'_> {
             if self.instances.contains_key(k) {
                 continue;
             }
-            match self.executor.instantiate(&a.macro_, &a.constructor, &a.arguments) {
+            match self
+                .executor
+                .instantiate(&a.macro_, &a.constructor, &a.arguments)
+            {
                 Ok(x) => {
                     self.instances.insert(k.clone(), x);
                 }
@@ -444,7 +491,14 @@ fn run_session(
     }
     SESSIONS.fetch_add(1, Ordering::Relaxed);
     let mut measurement = Measurement::default();
-    let MacroCache { enabled, executor_identity, table, statics, interfaces: recorded_interfaces, records } = cache;
+    let MacroCache {
+        enabled,
+        executor_identity,
+        table,
+        statics,
+        interfaces: recorded_interfaces,
+        records,
+    } = cache;
     let enabled = *enabled;
 
     // The stable identity of each application and that of its instance; the
@@ -455,9 +509,14 @@ fn run_session(
     let keys: Vec<InstanceKey> = apps
         .iter()
         .map(|a| {
-            let uri = a.macro_.split_once('#').map_or(a.macro_.as_str(), |(u, _)| u);
+            let uri = a
+                .macro_
+                .split_once('#')
+                .map_or(a.macro_.as_str(), |(u, _)| u);
             let implementation = if enabled {
-                *implementations.entry(uri).or_insert_with(|| implementation_identity(&program, uri))
+                *implementations
+                    .entry(uri)
+                    .or_insert_with(|| implementation_identity(&program, uri))
             } else {
                 [0; 32]
             };
@@ -470,7 +529,11 @@ fn run_session(
         })
         .collect();
 
-    let mut executor = LazyExecutor { executor, started: false, instances: HashMap::new() };
+    let mut executor = LazyExecutor {
+        executor,
+        started: false,
+        instances: HashMap::new(),
+    };
     let mut results: Vec<(String, ExecutionResult)> = Vec::new();
     let mut errors: Vec<Diagnostic> = Vec::new();
     let mut warnings: Vec<Diagnostic> = Vec::new();
@@ -488,8 +551,13 @@ fn run_session(
                            measurement: &mut Measurement|
      -> Result<Vec<GeneratedText>, Vec<Diagnostic>> {
         let t = Instant::now();
-        let (texts, g) = generate(results, table, program, interner, base.as_ref())
-            .map_err(|e| vec![Diagnostic::new(format!("assembling the macro augmentation: {e}"), dartforge_diagnostics::Span { start: 0, end: 0 })])?;
+        let (texts, g) =
+            generate(results, table, program, interner, base.as_ref()).map_err(|e| {
+                vec![Diagnostic::new(
+                    format!("assembling the macro augmentation: {e}"),
+                    dartforge_diagnostics::Span { start: 0, end: 0 },
+                )]
+            })?;
         measurement.assembly += t.elapsed();
         measurement.assemblies += 1;
         measurement.assembled_results += results.len();
@@ -506,7 +574,14 @@ fn run_session(
 
     let mut texts = Vec::new();
     for phase in Phase::ALL {
-        let sequence = order(phase, &apps, &View { program: &program, interner });
+        let sequence = order(
+            phase,
+            &apps,
+            &View {
+                program: &program,
+                interner,
+            },
+        );
         let mut changed = false;
         for i in sequence {
             let app = &apps[i];
@@ -533,7 +608,10 @@ fn run_session(
             }
             let record_key = (identities[i].clone(), phase);
             let result = {
-                let view = View { program: &program, interner };
+                let view = View {
+                    program: &program,
+                    interner,
+                };
                 let t = Instant::now();
                 let (target, model) = match target_and_model(&view, table, &app.target) {
                     Ok(x) => x,
@@ -554,7 +632,11 @@ fn run_session(
                 let reused = match &request {
                     Some(d) => {
                         let t = Instant::now();
-                        let mut handler = QueryHandler { view: &view, table: &mut *table, statics: &mut *statics };
+                        let mut handler = QueryHandler {
+                            view: &view,
+                            table: &mut *table,
+                            statics: &mut *statics,
+                        };
                         let r = revalidate(records, &record_key, d, &mut handler);
                         measurement.revalidation += t.elapsed();
                         match r {
@@ -575,15 +657,32 @@ fn run_session(
                 match reused {
                     Some(r) => {
                         measurement.reused += 1;
-                        expansions.push(Expansion { application: identities[i].clone(), phase, reused: true });
+                        expansions.push(Expansion {
+                            application: identities[i].clone(),
+                            phase,
+                            reused: true,
+                        });
                         Ok(r)
                     }
                     None => {
                         executor.ensure_started(&apps, &keys, &mut measurement)?;
                         let instance = executor.instances[&keys[i]].0;
-                        let execution_request = ExecutionRequest { instance, phase, target, model };
-                        let mut handler = QueryHandler { view: &view, table: &mut *table, statics: &mut *statics };
-                        let mut timed = Timed { inner: &mut handler, elapsed: Duration::ZERO, count: 0 };
+                        let execution_request = ExecutionRequest {
+                            instance,
+                            phase,
+                            target,
+                            model,
+                        };
+                        let mut handler = QueryHandler {
+                            view: &view,
+                            table: &mut *table,
+                            statics: &mut *statics,
+                        };
+                        let mut timed = Timed {
+                            inner: &mut handler,
+                            elapsed: Duration::ZERO,
+                            count: 0,
+                        };
                         let mut recorder = Recorder::new(&mut timed, enabled);
                         executed += 1;
                         let t = Instant::now();
@@ -599,7 +698,11 @@ fn run_session(
                         {
                             measurement.rerun_unchanged += 1;
                         }
-                        expansions.push(Expansion { application: identities[i].clone(), phase, reused: false });
+                        expansions.push(Expansion {
+                            application: identities[i].clone(),
+                            phase,
+                            reused: false,
+                        });
                         r
                     }
                 }
@@ -617,7 +720,14 @@ fn run_session(
                 changed = true;
                 // Phase 2: the next application sees what this one declared.
                 if phase == Phase::Declarations && errors.is_empty() {
-                    texts = match reload_with(&mut program, &mut generation, interner, table, &results, &mut measurement) {
+                    texts = match reload_with(
+                        &mut program,
+                        &mut generation,
+                        interner,
+                        table,
+                        &results,
+                        &mut measurement,
+                    ) {
                         Ok(texts) => texts,
                         Err(diagnostics) => {
                             executor.shut_down();
@@ -633,7 +743,14 @@ fn run_session(
             return Err(errors);
         }
         if changed {
-            texts = match reload_with(&mut program, &mut generation, interner, table, &results, &mut measurement) {
+            texts = match reload_with(
+                &mut program,
+                &mut generation,
+                interner,
+                table,
+                &results,
+                &mut measurement,
+            ) {
                 Ok(texts) => texts,
                 Err(diagnostics) => {
                     executor.shut_down();
@@ -644,7 +761,12 @@ fn run_session(
     }
     executor.shut_down();
     if enabled {
-        prune(records, recorded_interfaces, &used, &keys.iter().cloned().collect());
+        prune(
+            records,
+            recorded_interfaces,
+            &used,
+            &keys.iter().cloned().collect(),
+        );
     }
     measurement.executions = executed;
     Ok(Output {
@@ -660,53 +782,82 @@ fn run_session(
 
 /// The target as JSON and the prefetch model: the target's library and, for
 /// a class, its members (`@JsonCodable` makes no round trip).
-fn target_and_model(v: &View<'_>, t: &mut Table, target: &Target) -> Result<(Value, Value), String> {
+fn target_and_model(
+    v: &View<'_>,
+    t: &mut Table,
+    target: &Target,
+) -> Result<(Value, Value), String> {
     match target {
         Target::Library(uri) => {
-            let lib = v.library_by_uri(uri).ok_or_else(|| format!("library {uri} not found"))?;
+            let lib = v
+                .library_by_uri(uri)
+                .ok_or_else(|| format!("library {uri} not found"))?;
             let b = v.library_json(t, lib);
             Ok((b.clone(), json!({"libraries": [b]})))
         }
         Target::Declaration(c) => {
-            let d = v.declaration_json(t, c).ok_or_else(|| format!("target {} not supported or not found", c.name()))?;
+            let d = v
+                .declaration_json(t, c)
+                .ok_or_else(|| format!("target {} not supported or not found", c.name()))?;
             let lib = match c {
-                Key::Type { lib, .. } | Key::Method { lib, .. } | Key::Field { lib, .. } | Key::Constructor { lib, .. }
-                | Key::TopLevelFunction { lib, .. } | Key::TopLevelVariable { lib, .. } => lib,
+                Key::Type { lib, .. }
+                | Key::Method { lib, .. }
+                | Key::Field { lib, .. }
+                | Key::Constructor { lib, .. }
+                | Key::TopLevelFunction { lib, .. }
+                | Key::TopLevelVariable { lib, .. } => lib,
                 _ => return Err(format!("target {} not supported yet", c.name())),
             };
-            let lib_id = v.library_by_uri(lib).ok_or_else(|| format!("library {lib} not found"))?;
+            let lib_id = v
+                .library_by_uri(lib)
+                .ok_or_else(|| format!("library {lib} not found"))?;
             let libraries = json!([v.library_json(t, lib_id)]);
             let mut members = serde_json::Map::new();
             let owner = match c {
                 Key::Type { .. } => Some(c.clone()),
-                Key::Method { lib, owner, .. } | Key::Field { lib, owner, .. } | Key::Constructor { lib, owner, .. } => {
-                    Some(Key::Type { lib: lib.clone(), name: owner.clone() })
-                }
+                Key::Method { lib, owner, .. }
+                | Key::Field { lib, owner, .. }
+                | Key::Constructor { lib, owner, .. } => Some(Key::Type {
+                    lib: lib.clone(),
+                    name: owner.clone(),
+                }),
                 _ => None,
             };
             if let Some(owner) = owner
-                && let Some(cid) = v.class_of(&owner) {
-                    let id = t.id(owner);
-                    members.insert(
-                        id.to_string(),
-                        json!({
-                            "fields": v.members_json(t, cid, "fields"),
-                            "methods": v.members_json(t, cid, "methods"),
-                            "constructors": v.members_json(t, cid, "constructors"),
-                        }),
-                    );
-                }
+                && let Some(cid) = v.class_of(&owner)
+            {
+                let id = t.id(owner);
+                members.insert(
+                    id.to_string(),
+                    json!({
+                        "fields": v.members_json(t, cid, "fields"),
+                        "methods": v.members_json(t, cid, "methods"),
+                        "constructors": v.members_json(t, cid, "constructors"),
+                    }),
+                );
+            }
             Ok((d, json!({"libraries": libraries, "members": members})))
         }
     }
 }
 
 /// Diagnostics and exception of a result, pointing at the annotation.
-fn report(app: &Application, r: &ExecutionResult, errors: &mut Vec<Diagnostic>, warnings: &mut Vec<Diagnostic>) {
+fn report(
+    app: &Application,
+    r: &ExecutionResult,
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+) {
     for d in &r.diagnostics {
         let text = d["message"]["text"].as_str().unwrap_or("");
-        let correction = d["correction"].as_str().map(|c| format!(" ({c})")).unwrap_or_default();
-        let context: Vec<&str> = d["context"].as_array().map(|l| l.iter().filter_map(|m| m["text"].as_str()).collect()).unwrap_or_default();
+        let correction = d["correction"]
+            .as_str()
+            .map(|c| format!(" ({c})"))
+            .unwrap_or_default();
+        let context: Vec<&str> = d["context"]
+            .as_array()
+            .map(|l| l.iter().filter_map(|m| m["text"].as_str()).collect())
+            .unwrap_or_default();
         let mut msg = format!("{text}{correction}");
         for c in context {
             msg.push_str("\n  ");
@@ -727,8 +878,26 @@ fn report(app: &Application, r: &ExecutionResult, errors: &mut Vec<Diagnostic>, 
 /// Does library `uri` already have, among the units loaded from disk, the
 /// materialized augmentation `<library>.macro.dart`?
 fn already_materialized(program: &Program, uri: &str) -> bool {
-    let Some(lib) = program.libraries.iter().find(|l| l.uri == uri) else { return false };
-    let Some(main) = lib.units.first().and_then(|u| program.unit(*u).path.clone()) else { return false };
-    let target = dartforge_elements::generated::key(&dartforge_elements::load::macro_augmentation_path(&main));
-    lib.units.iter().skip(1).any(|u| program.unit(*u).path.as_deref().map(dartforge_elements::generated::key).as_ref() == Some(&target))
+    let Some(lib) = program.libraries.iter().find(|l| l.uri == uri) else {
+        return false;
+    };
+    let Some(main) = lib
+        .units
+        .first()
+        .and_then(|u| program.unit(*u).path.clone())
+    else {
+        return false;
+    };
+    let target = dartforge_elements::generated::key(
+        &dartforge_elements::load::macro_augmentation_path(&main),
+    );
+    lib.units.iter().skip(1).any(|u| {
+        program
+            .unit(*u)
+            .path
+            .as_deref()
+            .map(dartforge_elements::generated::key)
+            .as_ref()
+            == Some(&target)
+    })
 }

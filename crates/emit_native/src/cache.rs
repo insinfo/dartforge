@@ -18,7 +18,11 @@ use std::path::{Path, PathBuf};
 /// that compiled this binary.
 pub fn native_cache_dir() -> PathBuf {
     let base = host_cache_dir();
-    if crate::target::is_cross() { base.join(crate::target::current().triple()) } else { base }
+    if crate::target::is_cross() {
+        base.join(crate::target::current().triple())
+    } else {
+        base
+    }
 }
 
 fn host_cache_dir() -> PathBuf {
@@ -43,14 +47,18 @@ pub struct RuntimeCache {
 impl RuntimeCache {
     /// The executable runtime (with the C `main`).
     pub fn get_or_compile() -> Result<Self, String> {
-        if let Some(lib_path) = crate::cross::runtime("main")? { return Ok(Self { lib_path }); }
+        if let Some(lib_path) = crate::cross::runtime("main")? {
+            return Ok(Self { lib_path });
+        }
         precompiled_runtime(env!("DARTFORGE_RUNTIME_MAIN")).map(|lib_path| Self { lib_path })
     }
 
     /// The runtime variant that goes into the DLL of the source SDK (P5c): without the
     /// C `main` (cfg `dartforge_runtime_dll`); the `main` is the executable's.
     pub fn for_dll() -> Result<Self, String> {
-        if let Some(lib_path) = crate::cross::runtime("dll")? { return Ok(Self { lib_path }); }
+        if let Some(lib_path) = crate::cross::runtime("dll")? {
+            return Ok(Self { lib_path });
+        }
         precompiled_runtime(env!("DARTFORGE_RUNTIME_DLL")).map(|lib_path| Self { lib_path })
     }
 
@@ -58,7 +66,9 @@ impl RuntimeCache {
     /// with the source SDK links statically: compiled with `panic=abort`
     /// (`build.rs`, `ABORT`). The DLL one, which the JIT also loads, unwinds.
     pub fn for_production() -> Result<Self, String> {
-        if let Some(lib_path) = crate::cross::runtime("production")? { return Ok(Self { lib_path }); }
+        if let Some(lib_path) = crate::cross::runtime("production")? {
+            return Ok(Self { lib_path });
+        }
         precompiled_runtime(env!("DARTFORGE_RUNTIME_PRODUCTION")).map(|lib_path| Self { lib_path })
     }
 }
@@ -75,10 +85,13 @@ pub fn distribution_lib_dir() -> Option<PathBuf> {
 /// The precompiled runtime `name`: in the distribution, otherwise in the build
 /// directory.
 fn precompiled_runtime(name: &str) -> Result<PathBuf, String> {
-    let candidates: Vec<PathBuf> = [distribution_lib_dir(), Some(PathBuf::from(env!("DARTFORGE_RUNTIME_BUILD_DIR")))]
-        .into_iter()
-        .flatten()
-        .collect();
+    let candidates: Vec<PathBuf> = [
+        distribution_lib_dir(),
+        Some(PathBuf::from(env!("DARTFORGE_RUNTIME_BUILD_DIR"))),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     candidates.iter().map(|d| d.join(name)).find(|p| p.is_file()).ok_or_else(|| {
         let location: Vec<String> = candidates.iter().map(|d| d.display().to_string()).collect();
         format!(

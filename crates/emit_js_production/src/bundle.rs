@@ -84,7 +84,12 @@ pub fn split(path: &str, text: &str) -> Module {
         }
         body.push_str(line);
     }
-    Module { path: path.to_string(), namespaces, deps, body }
+    Module {
+        path: path.to_string(),
+        namespaces,
+        deps,
+        body,
+    }
 }
 
 /// Topological order of the modules: a dependency comes before whoever
@@ -97,8 +102,11 @@ pub fn split(path: &str, text: &str) -> Module {
 /// declaration because classes only touch each other inside functions. The
 /// cycle is returned for the caller to record.
 pub fn order(modules: Vec<Module>) -> (Vec<Module>, Vec<String>) {
-    let index: HashMap<String, usize> =
-        modules.iter().enumerate().map(|(i, m)| (m.path.clone(), i)).collect();
+    let index: HashMap<String, usize> = modules
+        .iter()
+        .enumerate()
+        .map(|(i, m)| (m.path.clone(), i))
+        .collect();
     let mut state = vec![0u8; modules.len()]; // 0 = new, 1 = visiting, 2 = done
     let mut order = Vec::with_capacity(modules.len());
     let mut cycles = Vec::new();
@@ -112,7 +120,9 @@ pub fn order(modules: Vec<Module>) -> (Vec<Module>, Vec<String>) {
         while let Some((n, k)) = stack.pop() {
             if k < modules[n].deps.len() {
                 stack.push((n, k + 1));
-                let Some(&d) = index.get(&modules[n].deps[k]) else { continue };
+                let Some(&d) = index.get(&modules[n].deps[k]) else {
+                    continue;
+                };
                 match state[d] {
                     0 => {
                         state[d] = 1;
@@ -128,7 +138,10 @@ pub fn order(modules: Vec<Module>) -> (Vec<Module>, Vec<String>) {
         }
     }
     let mut by_index: Vec<Option<Module>> = modules.into_iter().map(Some).collect();
-    let out = order.into_iter().filter_map(|i| by_index[i].take()).collect();
+    let out = order
+        .into_iter()
+        .filter_map(|i| by_index[i].take())
+        .collect();
     cycles.sort();
     cycles.dedup();
     (out, cycles)
@@ -140,7 +153,11 @@ pub fn order(modules: Vec<Module>) -> (Vec<Module>, Vec<String>) {
 /// bindings before running any module.
 pub fn exported_aliases(sdk: &str) -> Vec<(String, String)> {
     sdk.lines()
-        .filter_map(|l| l.trim().strip_prefix("export {").and_then(|r| r.split_once('}').map(|(body, _)| body)))
+        .filter_map(|l| {
+            l.trim()
+                .strip_prefix("export {")
+                .and_then(|r| r.split_once('}').map(|(body, _)| body))
+        })
         .flat_map(|body| body.split(','))
         .filter_map(|entry| {
             let (original, alias) = entry.trim().split_once(" as ")?;
@@ -169,7 +186,12 @@ pub fn sdk_without_export(sdk: &str) -> String {
 /// `async`, read from the `main.mjs` the emitter generated (`import { X as m } from './p.js'`).
 pub fn entry_from_mjs(mjs: &str, modules: &[Module]) -> Option<String> {
     let line = mjs.lines().find(|l| l.contains(" as m } from './"))?;
-    let ident = line.split("import { ").nth(1)?.split(" as m }").next()?.trim();
+    let ident = line
+        .split("import { ")
+        .nth(1)?
+        .split(" as m }")
+        .next()?
+        .trim();
     let path = line.rsplit("from './").next()?.trim_end_matches("';");
     // The `export { L$foo as foo }` disappeared in `split`; the matching
     // namespace is that module's `var L$foo`. Matched by identifier suffix.
@@ -180,7 +202,12 @@ pub fn entry_from_mjs(mjs: &str, modules: &[Module]) -> Option<String> {
             return Some(var.to_string());
         }
     }
-    m.namespaces.first().and_then(|ns| ns.trim_start_matches("var ").split(' ').next().map(str::to_string))
+    m.namespaces.first().and_then(|ns| {
+        ns.trim_start_matches("var ")
+            .split(' ')
+            .next()
+            .map(str::to_string)
+    })
 }
 
 /// The verifier mode's `dart_podado` (`DARTFORGE_JSPROD_VERIFY=stub`): a
@@ -192,7 +219,8 @@ pub const STUB_PREAMBLE: &str = "function dart_podado(nome) {\n  const m = 'DART
 /// Assembles the single file. `preamble` goes right after the header (empty
 /// in normal mode).
 pub fn assemble(sdk: &str, modules: &[Module], entry: &str, preamble: &str) -> String {
-    let mut out = String::with_capacity(sdk.len() + modules.iter().map(|m| m.body.len() + 64).sum::<usize>());
+    let mut out =
+        String::with_capacity(sdk.len() + modules.iter().map(|m| m.body.len() + 64).sum::<usize>());
     out.push_str("// dartforge — production profile (docs/JS-PRODUCAO.md)\n");
     out.push_str(preamble);
     // DDC's `dart_sdk.js` is the browser one: `self` is the global object.
@@ -239,7 +267,10 @@ mod tests {
     #[test]
     fn resolves_relative_paths() {
         assert_eq!(resolve("main.js", "./x.js"), "x.js");
-        assert_eq!(resolve("packages/a/b.js", "../../dart_sdk.js"), "dart_sdk.js");
+        assert_eq!(
+            resolve("packages/a/b.js", "../../dart_sdk.js"),
+            "dart_sdk.js"
+        );
         assert_eq!(resolve("packages/a/b.js", "../c.js"), "packages/c.js");
     }
 
@@ -254,9 +285,14 @@ mod tests {
 
     #[test]
     fn node_list_gets_list_methods_before_user_code() {
-        let m = split("main.js", "var L$main = Object.create(dart.library);\nL$main.main = function () {};\n");
+        let m = split(
+            "main.js",
+            "var L$main = Object.create(dart.library);\nL$main.main = function () {};\n",
+        );
         let js = assemble("var dart = {};\n", &[m], "L$main", "");
-        let bridge = js.find("dart.registerExtension('NodeList', _interceptors.JSArray)").unwrap();
+        let bridge = js
+            .find("dart.registerExtension('NodeList', _interceptors.JSArray)")
+            .unwrap();
         let main = js.find("L$main.main = function").unwrap();
         assert!(bridge < main);
     }
@@ -272,17 +308,32 @@ mod tests {
 
     #[test]
     fn orders_dependency_first() {
-        let a = split("a.js", "var L$a = Object.create(dart.library);\nimport { b as L$b } from './b.js';\nL$a.f = 1;\n");
-        let b = split("b.js", "var L$b = Object.create(dart.library);\nL$b.g = 2;\n");
+        let a = split(
+            "a.js",
+            "var L$a = Object.create(dart.library);\nimport { b as L$b } from './b.js';\nL$a.f = 1;\n",
+        );
+        let b = split(
+            "b.js",
+            "var L$b = Object.create(dart.library);\nL$b.g = 2;\n",
+        );
         let (ord, cycles) = order(vec![a, b]);
         assert!(cycles.is_empty());
-        assert_eq!(ord.iter().map(|m| m.path.as_str()).collect::<Vec<_>>(), vec!["b.js", "a.js"]);
+        assert_eq!(
+            ord.iter().map(|m| m.path.as_str()).collect::<Vec<_>>(),
+            vec!["b.js", "a.js"]
+        );
     }
 
     #[test]
     fn cycle_does_not_abort() {
-        let a = split("a.js", "var L$a = Object.create(dart.library);\nimport { b as L$b } from './b.js';\n");
-        let b = split("b.js", "var L$b = Object.create(dart.library);\nimport { a as L$a } from './a.js';\n");
+        let a = split(
+            "a.js",
+            "var L$a = Object.create(dart.library);\nimport { b as L$b } from './b.js';\n",
+        );
+        let b = split(
+            "b.js",
+            "var L$b = Object.create(dart.library);\nimport { a as L$a } from './a.js';\n",
+        );
         let (ord, cycles) = order(vec![a, b]);
         assert_eq!(ord.len(), 2);
         assert_eq!(cycles.len(), 1);

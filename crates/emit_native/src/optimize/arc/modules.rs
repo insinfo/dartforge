@@ -20,7 +20,10 @@ pub fn certify_arc_module_ports(
     let mut union_set: HashMap<u32, Vec<Type>> = HashMap::new();
     for m in modules.iter() {
         for (cid, layout) in &m.arc_field_layouts {
-            if union_set.insert(*cid, layout.clone()).is_some_and(|previous| previous != *layout) {
+            if union_set
+                .insert(*cid, layout.clone())
+                .is_some_and(|previous| previous != *layout)
+            {
                 return Err(format!("ARC modules: conflicting layout of class {cid}"));
             }
         }
@@ -33,7 +36,10 @@ pub fn certify_arc_module_ports(
     let changes = prepare_arc_dart_modules(&mut again, &mut plans_again)?;
     let equal = again.iter().zip(&new_set).all(|(a, b)| {
         a.functions.len() == b.functions.len()
-            && a.functions.iter().zip(&b.functions).all(|(x, y)| format!("{x:?}") == format!("{y:?}"))
+            && a.functions
+                .iter()
+                .zip(&b.functions)
+                .all(|(x, y)| format!("{x:?}") == format!("{y:?}"))
     });
     if changes != (0, 0) || !equal || plans_again != plans {
         return Err("ARC ports: set not prepared yet or divergent".into());
@@ -91,8 +97,7 @@ pub fn prepare_arc_dart_modules(
         return Ok((0, 0));
     };
     if modules.iter().any(|m| {
-        m.arc_memory != first_one.arc_memory
-            || m.table_exceptions != first_one.table_exceptions
+        m.arc_memory != first_one.arc_memory || m.table_exceptions != first_one.table_exceptions
     }) {
         return Err("ARC modules: incompatible memory/exception modes".into());
     }
@@ -188,11 +193,7 @@ pub fn prepare_arc_dart_modules(
             }
         }
         for (cid, layout) in &m.arc_field_layouts {
-            if set
-                .arc_field_layouts
-                .get(cid)
-                .is_some_and(|l| l != layout)
-            {
+            if set.arc_field_layouts.get(cid).is_some_and(|l| l != layout) {
                 return Err(format!("ARC modules: conflicting layout of class {cid}"));
             }
             set.arc_field_layouts.insert(*cid, layout.clone());
@@ -212,9 +213,7 @@ pub fn prepare_arc_dart_modules(
                 if protocol(previous, &previous.functions[af], &plans[am][symbol])
                     != protocol(m, original, &p[symbol])
                 {
-                    return Err(format!(
-                        "ARC modules: divergent shared ABI {symbol}"
-                    ));
+                    return Err(format!("ARC modules: divergent shared ABI {symbol}"));
                 }
                 let name = private_name(&mut used_set, &mut next_item, "funcao")?;
                 variants
@@ -239,9 +238,7 @@ pub fn prepare_arc_dart_modules(
             if set.table_exceptions {
                 let t = &m.tables[function_index];
                 if plan.tables != FunctionTables::default() && plan.tables != *t {
-                    return Err(format!(
-                        "ARC modules: conflicting local tables {symbol}"
-                    ));
+                    return Err(format!("ARC modules: conflicting local tables {symbol}"));
                 }
                 plan.tables = t.clone();
             }
@@ -251,18 +248,15 @@ pub fn prepare_arc_dart_modules(
             }
             plan.tables.foreign_cleanup = ForeignCleanup::new(&f, &plan)?;
             if let Some(facts) = m.dart_scalar_parameters.get(symbol) {
-                set
-                    .dart_scalar_parameters
+                set.dart_scalar_parameters
                     .insert(private.clone(), facts.clone());
             }
             if let Some(facts) = m.dart_rti_parameters.get(symbol) {
-                set
-                    .dart_rti_parameters
+                set.dart_rti_parameters
                     .insert(private.clone(), facts.clone());
             }
             if let Some(facts) = m.dart_vector_parameters.get(symbol) {
-                set
-                    .dart_vector_parameters
+                set.dart_vector_parameters
                     .insert(private.clone(), facts.clone());
             }
             if let Some(facts) = m.arc_sites.get(symbol) {
@@ -296,15 +290,15 @@ pub fn prepare_arc_dart_modules(
     let names_before: Vec<_> = set.functions.iter().map(|f| f.symbol.clone()).collect();
     let result = super::functions::prepare_with_variants(&mut set, &mut new_set, &variants)
         .map_err(|mut error| {
-        variant_origins.sort_by_key(|(s, _, _)| std::cmp::Reverse(s.len()));
-        for (private, original, module) in &variant_origins {
-            if error.contains(private) {
-                error = error.replace(private, original);
-                error.push_str(&format!(" (variant of module {module})"));
+            variant_origins.sort_by_key(|(s, _, _)| std::cmp::Reverse(s.len()));
+            for (private, original, module) in &variant_origins {
+                if error.contains(private) {
+                    error = error.replace(private, original);
+                    error.push_str(&format!(" (variant of module {module})"));
+                }
             }
-        }
-        error
-    })?;
+            error
+        })?;
     // Restores the physical names and rebinds the certificates still in
     // private copies. Any failure preserves all the input modules.
     let mut physical_names = HashMap::new();
@@ -314,16 +308,25 @@ pub fn prepare_arc_dart_modules(
         for (original, &index) in m.functions.iter().zip(indices) {
             let before = &names_before[index];
             let current = &set.functions[index].symbol;
-            let physical = if current == before { original.symbol.clone() }
-                else if current == &format!("{before}$arcslots_v1") { format!("{}$arcslots_v1", original.symbol) }
-                else { return Err("ARC modules: unrecognized signature/symbol change".into()); };
+            let physical = if current == before {
+                original.symbol.clone()
+            } else if current == &format!("{before}$arcslots_v1") {
+                format!("{}$arcslots_v1", original.symbol)
+            } else {
+                return Err("ARC modules: unrecognized signature/symbol change".into());
+            };
             physical_names.insert(current.clone(), physical.clone());
             map.insert(original.symbol.clone(), physical);
         }
         physical_facts.push(map);
     }
     let mut publications = Vec::new();
-    for (module_index, ((m, (indices, area)), facts)) in modules.iter().zip(distribution).zip(physical_facts).enumerate() {
+    for (module_index, ((m, (indices, area)), facts)) in modules
+        .iter()
+        .zip(distribution)
+        .zip(physical_facts)
+        .enumerate()
+    {
         let inverse: HashMap<_, _> = area.into_iter().map(|(a, b)| (b, a)).collect();
         let mut functions = Vec::new();
         let mut ps = plans[module_index].clone();
@@ -379,13 +382,8 @@ type FunctionProtocol = (Type, TokenReturn, Vec<ParameterProtocol>);
 
 // A verified interface, not equality of the body nor a promise of functional ODR.
 // SSA IDs are local: the semantic roles belong to the positions of the signature.
-fn protocol(
-    m: &Module,
-    f: &Function,
-    p: &DartFunctionPlan,
-) -> FunctionProtocol {
-    let ret = if m.dart_ref_returns.contains(&f.symbol)
-        || m.arc_uniform_returns.contains(&f.symbol)
+fn protocol(m: &Module, f: &Function, p: &DartFunctionPlan) -> FunctionProtocol {
+    let ret = if m.dart_ref_returns.contains(&f.symbol) || m.arc_uniform_returns.contains(&f.symbol)
     {
         TokenReturn::Owned
     } else {
@@ -425,17 +423,26 @@ fn remap_area(f: &mut Function, area: &HashMap<String, String>) -> Result<(), St
             });
         }
         super::super::operands::terminator_operands(&b.terminator, &mut |o| {
-            address |= matches!(o, Operand::Constant(Constant::Function(s)) if area.contains_key(s));
+            address |=
+                matches!(o, Operand::Constant(Constant::Function(s)) if area.contains_key(s));
         });
         if address {
-            return Err(format!("address of the global area published in {}", f.symbol));
+            return Err(format!(
+                "address of the global area published in {}",
+                f.symbol
+            ));
         }
     }
     for (_, i, _) in f.blocks.iter_mut().flat_map(|b| &mut b.instructions) {
-        if let Instruction::LoadGlobal { symbol, .. } | Instruction::StoreGlobal { symbol, .. }
-            | Instruction::ArcLoadStrong { slot: StrongSlot::Global { symbol } }
-            | Instruction::ArcStoreStrong { slot: StrongSlot::Global { symbol }, .. } =
-            i
+        if let Instruction::LoadGlobal { symbol, .. }
+        | Instruction::StoreGlobal { symbol, .. }
+        | Instruction::ArcLoadStrong {
+            slot: StrongSlot::Global { symbol },
+        }
+        | Instruction::ArcStoreStrong {
+            slot: StrongSlot::Global { symbol },
+            ..
+        } = i
         {
             *symbol = area
                 .get(symbol)
@@ -454,29 +461,43 @@ mod tests {
     fn cross_module_shared_slots_publish_abi_and_contracts_together() {
         let mut origin = super::super::slot_lives::tests::origin();
         origin.functions.pop();
-        origin.functions[1].blocks[0].instructions
+        origin.functions[1].blocks[0]
+            .instructions
             .retain(|(_, i, _)| !matches!(i, Instruction::CallStatic { .. }));
         let leaf = origin.functions.pop().unwrap();
         let mut library = Module::new();
         library.arc_memory = true;
         library.functions.push(leaf);
         let mut ms = [origin, library];
-        let mut ps: Vec<HashMap<String, DartFunctionPlan>> = ms.iter().map(|m| {
-            m.functions.iter().map(|f| (f.symbol.clone(), DartFunctionPlan::default())).collect()
-        }).collect();
+        let mut ps: Vec<HashMap<String, DartFunctionPlan>> = ms
+            .iter()
+            .map(|m| {
+                m.functions
+                    .iter()
+                    .map(|f| (f.symbol.clone(), DartFunctionPlan::default()))
+                    .collect()
+            })
+            .collect();
         prepare_arc_dart_modules(&mut ms, &mut ps).unwrap();
         assert_eq!(ms[1].functions[0].symbol, "a$arcslots_v1");
         assert!(!ps[1].contains_key("a"));
         assert_eq!(ms[1].functions[0].params.len(), 4);
-        assert!(ms[0].functions[0].blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| {
-            matches!(i, Instruction::CallStatic { symbol, args, .. }
+        assert!(
+            ms[0].functions[0]
+                .blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .any(|(_, i, _)| {
+                    matches!(i, Instruction::CallStatic { symbol, args, .. }
                 if symbol == "a$arcslots_v1" && args.len() == 4)
-        }));
+                })
+        );
         for (m, plans) in ms.iter().zip(&ps) {
             for f in &m.functions {
                 let p = &plans[&f.symbol];
                 assert!(p.tokens.shared_frames.is_some());
-                verify_dart_function_contract(f, &p.classes, &p.tokens, &p.tables, &p.scopes).unwrap();
+                verify_dart_function_contract(f, &p.classes, &p.tokens, &p.tables, &p.scopes)
+                    .unwrap();
             }
         }
     }
@@ -757,8 +778,7 @@ mod tests {
                     }],
                 });
             }
-            m.arc_shared_functions
-                .insert("nome_sem_prefixo".into());
+            m.arc_shared_functions.insert("nome_sem_prefixo".into());
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
             assert_eq!(
                 ir.contains("define linkonce_odr void @nome_sem_prefixo("),
@@ -986,10 +1006,7 @@ mod tests {
                     let shifted = plans[1].remove("biblioteca").unwrap();
                     plans[0].insert("biblioteca".into(), shifted);
                 }
-                18 => {
-                    plans[1].get_mut("biblioteca").unwrap().tokens.ret =
-                        TokenReturn::Borrowed
-                }
+                18 => plans[1].get_mut("biblioteca").unwrap().tokens.ret = TokenReturn::Borrowed,
                 19 => {
                     modules[0].arc_rti_caches.insert("da_biblioteca".into());
                     modules[1]

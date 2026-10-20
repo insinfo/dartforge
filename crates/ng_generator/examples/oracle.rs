@@ -16,7 +16,7 @@ use dartforge_elements::load::load_lenient_entries_hiding;
 use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
 use dartforge_ng_generator::resolution::Resolver;
-use dartforge_ng_generator::{Package, Scoreboard, template_path, generate_in};
+use dartforge_ng_generator::{Package, Scoreboard, generate_in, template_path};
 use std::path::PathBuf;
 
 fn main() -> std::process::ExitCode {
@@ -331,7 +331,11 @@ fn main() -> std::process::ExitCode {
         for d in divergent.iter() {
             println!("  != {d}");
         }
-        for (p, c) in scoreboard.pending.iter().zip(scoreboard.refusal_sets.iter()) {
+        for (p, c) in scoreboard
+            .pending
+            .iter()
+            .zip(scoreboard.refusal_sets.iter())
+        {
             let refusals: Vec<String> = c.iter().map(|r| r.text()).collect();
             println!("  .. {} :: {}", p.display(), refusals.join("; "));
         }

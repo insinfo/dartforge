@@ -48,7 +48,10 @@ pub struct IrSummary {
 
 impl IrSummary {
     pub fn of(text: &str) -> IrSummary {
-        IrSummary { hash: fnv1a_128(text.as_bytes()), bytes: text.len() }
+        IrSummary {
+            hash: fnv1a_128(text.as_bytes()),
+            bytes: text.len(),
+        }
     }
 
     /// The hash as 32 hexadecimal digits.
@@ -63,14 +66,30 @@ mod tests {
 
     #[test]
     fn published_vectors() {
-        assert_eq!(format!("{:032x}", fnv1a_128(b"")), "6c62272e07bb014262b821756295c58d");
-        assert_eq!(format!("{:032x}", fnv1a_128(b"a")), "d228cb696f1a8caf78912b704e4a8964");
-        assert_eq!(format!("{:032x}", fnv1a_128(b"foobar")), "343e1662793c64bf6f0d3597ba446f18");
+        assert_eq!(
+            format!("{:032x}", fnv1a_128(b"")),
+            "6c62272e07bb014262b821756295c58d"
+        );
+        assert_eq!(
+            format!("{:032x}", fnv1a_128(b"a")),
+            "d228cb696f1a8caf78912b704e4a8964"
+        );
+        assert_eq!(
+            format!("{:032x}", fnv1a_128(b"foobar")),
+            "343e1662793c64bf6f0d3597ba446f18"
+        );
     }
 
     #[test]
     fn in_parts_is_same_as_whole() {
-        assert_eq!(Fnv128::default().write(b"foo").write(b"").write(b"bar").end(), fnv1a_128(b"foobar"));
+        assert_eq!(
+            Fnv128::default()
+                .write(b"foo")
+                .write(b"")
+                .write(b"bar")
+                .end(),
+            fnv1a_128(b"foobar")
+        );
     }
 
     #[test]

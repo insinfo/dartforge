@@ -2,8 +2,8 @@
 //! main declaration uses the values of the whole augmented enum.
 
 use crate::Unit;
-use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_frontend::ast::DeclKind;
 use dartforge_intern::SymbolId;
 use std::collections::HashSet;
@@ -20,9 +20,11 @@ pub fn without_constants(units: &[Unit<'_>]) -> Vec<(usize, Diagnostic)> {
         for &id in &unit.unit.declarations {
             let decl = unit.ast.decl(id);
             if let DeclKind::Enum(e) = &decl.kind
-                && decl.augment && !e.constants.is_empty() {
-                    augmented_with_constants.insert(e.name.sym);
-                }
+                && decl.augment
+                && !e.constants.is_empty()
+            {
+                augmented_with_constants.insert(e.name.sym);
+            }
         }
     }
 
@@ -31,16 +33,19 @@ pub fn without_constants(units: &[Unit<'_>]) -> Vec<(usize, Diagnostic)> {
         for &id in &unit.unit.declarations {
             let decl = unit.ast.decl(id);
             if let DeclKind::Enum(e) = &decl.kind
-                && !decl.augment && e.constants.is_empty() && !augmented_with_constants.contains(&e.name.sym) {
-                    out.push((
-                        i,
-                        Diagnostic::with_code(
-                            c::ENUM_WITHOUT_CONSTANTS,
-                            e.name.span,
-                            std::iter::empty::<&str>(),
-                        ),
-                    ));
-                }
+                && !decl.augment
+                && e.constants.is_empty()
+                && !augmented_with_constants.contains(&e.name.sym)
+            {
+                out.push((
+                    i,
+                    Diagnostic::with_code(
+                        c::ENUM_WITHOUT_CONSTANTS,
+                        e.name.span,
+                        std::iter::empty::<&str>(),
+                    ),
+                ));
+            }
         }
     }
     out
@@ -55,7 +60,10 @@ mod tests {
 
     #[test]
     fn empty_enum_matches_the_3_6_oracle() {
-        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/enum_without_constants/EnumWithoutConstants__noConstants.dart"));
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../corpus/diagnostics/analyzer/enum_without_constants/EnumWithoutConstants__noConstants.dart"
+        ));
         let mut names = Interner::new();
         let parsed = parse(source, &mut names);
         let found = without_constants(&[Unit {

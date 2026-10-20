@@ -1,13 +1,13 @@
 //! Command-line interface of the DartForge compiler.
 use std::{env, path::PathBuf, process::ExitCode};
 mod analyze;
-#[cfg(feature = "native")]
-mod pack;
 mod engine;
 mod format;
 mod jit;
 mod macros;
 mod native;
+#[cfg(feature = "native")]
+mod pack;
 mod pub_get;
 mod test_runner;
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,7 +36,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "serve" {
         return run_dev(&args[1..], true);
     }
-    if args[0] == "compile-native" { return native::run_compile_native(&args[1..]); }
+    if args[0] == "compile-native" {
+        return native::run_compile_native(&args[1..]);
+    }
     if args[0] == "build" {
         return engine::run_build(&args[1..]);
     }
@@ -58,7 +60,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if args[0] == "export-target" {
         #[cfg(feature = "native")]
         {
-            let [_, destination] = args.as_slice() else { return Err("usage: dartforge export-target <directory>".into()); };
+            let [_, destination] = args.as_slice() else {
+                return Err("usage: dartforge export-target <directory>".into());
+            };
             dartforge_emit_native::cross::export(PathBuf::from(destination).as_path())?;
             return Ok(());
         }
@@ -88,7 +92,9 @@ fn main() -> ExitCode {
     }
     if args.first().is_some_and(|a| a == "pub") {
         if args.get(1).is_none_or(|a| a != "get") {
-            eprintln!("error: usage: dartforge pub get [--offline] [--directory <dir>] [--sdk <lib>] [--sdk-version <version>]");
+            eprintln!(
+                "error: usage: dartforge pub get [--offline] [--directory <dir>] [--sdk <lib>] [--sdk-version <version>]"
+            );
             return ExitCode::from(64);
         }
         return match pub_get::run(&args[2..]) {
@@ -129,7 +135,10 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
     let mut packages: Option<PathBuf> = None;
     let mut timings = false;
     let mut language = dartforge_emit_js::LanguageOptions::default();
-    let texts: Vec<String> = args.iter().map(|a| a.to_string_lossy().into_owned()).collect();
+    let texts: Vec<String> = args
+        .iter()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let mut it = texts.iter().map(String::as_str);
     while let Some(a) = it.next() {
         if language.read_option(a, &mut it)? {
@@ -144,7 +153,9 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
             _ => return Err(usage.into()),
         }
     }
-    let (Some(input), Some(out)) = (input, out) else { return Err(usage.into()) };
+    let (Some(input), Some(out)) = (input, out) else {
+        return Err(usage.into());
+    };
     // Deep bodies (long chains of `+`, widget trees) recurse deeply: own stack.
     let (i2, s2, p2) = (input.clone(), sdk.clone(), packages.clone());
     let (emitted, mut report, engine_report) = std::thread::Builder::new()
@@ -153,7 +164,8 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
             // Build engine only if the project uses builders (zero cost).
             let engine = engine::detect(&i2, p2.as_deref());
             let engine_report = std::cell::RefCell::new(None);
-            let generate = |program: &dartforge_elements::model::Program, names: &dartforge_intern::Interner| {
+            let generate = |program: &dartforge_elements::model::Program,
+                            names: &dartforge_intern::Interner| {
                 let (root, cfg, cfg_path) = engine.as_ref().ok_or("no engine")?;
                 match engine::generate_once(root, cfg, cfg_path, program, names) {
                     Ok((g, text)) => {
@@ -167,15 +179,23 @@ fn run_compile_js(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std::error:
                     Err(e) => Err(format!("build engine: {e}")),
                 }
             };
-            let generator: Option<dartforge_emit_js::Generator<'_>> = engine.as_ref().map(|_| &generate as _);
-            let (e, r) = dartforge_emit_js::compile_with_report_and_generator(&i2, s2.as_deref(), p2.as_deref(), &language, generator)?;
+            let generator: Option<dartforge_emit_js::Generator<'_>> =
+                engine.as_ref().map(|_| &generate as _);
+            let (e, r) = dartforge_emit_js::compile_with_report_and_generator(
+                &i2,
+                s2.as_deref(),
+                p2.as_deref(),
+                &language,
+                generator,
+            )?;
             Ok((e, r, engine_report.into_inner()))
         })
         .map_err(|e| e.to_string())?
         .join()
         .map_err(|_| "the compilation aborted")??;
     let t = std::time::Instant::now();
-    let written = dartforge_emit_js::write(&emitted, &out, &dartforge_emit_js::default_dart_sdk_js())?;
+    let written =
+        dartforge_emit_js::write(&emitted, &out, &dartforge_emit_js::default_dart_sdk_js())?;
     report.phase("write", t);
     println!(
         "{} -> {} ({} modules, {} file(s) rewritten)",
@@ -237,7 +257,9 @@ fn run_dev(args: &[std::ffi::OsString], serve: bool) -> Result<(), Box<dyn std::
             _ => return Err(usage.into()),
         }
     }
-    let (Some(input), Some(out)) = (input, out) else { return Err(usage.into()) };
+    let (Some(input), Some(out)) = (input, out) else {
+        return Err(usage.into());
+    };
 
     // Deep bodies recurse deeply: the session runs on a thread with its own stack.
     let output = out.clone();
@@ -273,7 +295,10 @@ fn run_dev(args: &[std::ffi::OsString], serve: bool) -> Result<(), Box<dyn std::
                 )?;
                 println!("serving at http://127.0.0.1:{p}/ (automatic reload over WebSocket)");
             }
-            println!("watching {} files every {interval_ms} ms (ctrl+c to quit)…", session.watched().len());
+            println!(
+                "watching {} files every {interval_ms} ms (ctrl+c to quit)…",
+                session.watched().len()
+            );
             loop {
                 std::thread::sleep(std::time::Duration::from_millis(interval_ms));
                 let changed = session.changes();
@@ -290,7 +315,8 @@ fn run_dev(args: &[std::ffi::OsString], serve: bool) -> Result<(), Box<dyn std::
                         if serve {
                             // Only reload the browser if some module changed:
                             // a new module, or a served generated output (a `.css`).
-                            let generated = rep.engine.as_ref().is_some_and(|m| m.changed_outputs > 0);
+                            let generated =
+                                rep.engine.as_ref().is_some_and(|m| m.changed_outputs > 0);
                             if rep.written_modules > 0 || generated {
                                 reload.trigger();
                             }

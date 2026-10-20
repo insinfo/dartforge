@@ -20,72 +20,75 @@ pub const GENERIC_OWNED_PREFIX: &str = "df.arc.owned.";
 pub const NATIVE_SCOPE_PREFIX: &str = "df.arc.scope.";
 pub(crate) use natives::ERRORS_WITH_ARC_VARIANT;
 
-mod classification;
 pub mod analysis;
 mod boxes;
-mod natives;
-mod scopes;
-mod tokens;
+mod classification;
 mod contracts;
 mod locals;
+mod natives;
+mod scopes;
 mod shared_slots;
 mod slot_lives;
 mod slot_plans;
-pub use slot_plans::{SharedFramesCfgContract, produce_cfg_ref_slot_plans};
+mod tokens;
+pub use shared_slots::{ArcRefSlotsDraft, audit_shared_ref_slots, lower_shared_ref_slots};
 pub use slot_lives::verify_cfg_ref_slot_lives;
-pub use shared_slots::{audit_shared_ref_slots, lower_shared_ref_slots, ArcRefSlotsDraft};
-mod pure_set;
-mod derived_set;
+pub use slot_plans::{SharedFramesCfgContract, produce_cfg_ref_slot_plans};
 mod borrows;
+mod derived_set;
 mod edges;
-mod phis;
+mod fields;
 mod layouts;
 mod objects;
-mod fields;
+mod phis;
+mod pure_set;
 pub(super) fn fold_fixed_subtype_tests(module: &mut Module) -> bool {
     fields::fold_fixed_subtype_tests(module)
 }
-mod globals;
-mod receivers;
-mod cfg_classes;
 mod calls;
+mod cfg_classes;
 mod functions;
+mod globals;
 mod modules;
+mod receivers;
 pub use modules::{certify_arc_module_ports, prepare_arc_dart_modules};
 mod plans;
-pub use plans::produce_module_arc_tables;
 pub use plans::prepare_arc_tabled_module;
+pub use plans::produce_module_arc_tables;
 mod parameters;
-mod vectors;
+mod ports;
 mod selectors;
 mod typed_set;
-mod ports;
+mod vectors;
 pub use ports::{ArcAotPorts, certify_arc_aot_ports};
 mod rti_caches;
-pub use parameters::produce_lowering_scalar_parameters;
 pub use parameters::produce_lowering_rti_parameters;
+pub use parameters::produce_lowering_scalar_parameters;
 mod returns;
 pub use returns::produce_lowering_ref_returns;
-mod invocations;
 mod exits;
-mod ssa;
-mod frames;
 mod foreign_cleanup;
-pub use foreign_cleanup::ForeignCleanup;
-pub use contracts::{HELPER_CONTRACTS, RuntimeCallContract, contract, runtime_call_contract, produce_runtime_contracts, produce_arc_contracts};
-pub use contracts::produce_and_verify_tokens;
-pub use contracts::produce_dart_ref_parameters;
-pub use contracts::produce_and_verify_dart_tokens;
-pub use contracts::insert_dart_return_retention;
-pub use contracts::insert_arc_dart_exits;
-pub use calls::{DartFunctionContract, verify_dart_function_contract, produce_dart_calls};
-pub use functions::{DartFunctionPlan, insert_arc_dart_functions, prepare_arc_dart_functions};
-pub use functions::prepare_arc_dart_module;
-pub use tokens::{TokenEffect, TokenPlan, TokenReturn, verify_tokens, tokens_at_landing_pad_entry};
-pub use scopes::{ScopeChange, ScopePlan, verify_scopes};
+mod frames;
+mod invocations;
+mod ssa;
+pub use calls::{DartFunctionContract, produce_dart_calls, verify_dart_function_contract};
 pub use classification::{
     OwnerOrigin, Ownership, classified_liveness, classified_liveness_with_exceptions,
 };
+pub use contracts::insert_arc_dart_exits;
+pub use contracts::insert_dart_return_retention;
+pub use contracts::produce_and_verify_dart_tokens;
+pub use contracts::produce_and_verify_tokens;
+pub use contracts::produce_dart_ref_parameters;
+pub use contracts::{
+    HELPER_CONTRACTS, RuntimeCallContract, contract, produce_arc_contracts,
+    produce_runtime_contracts, runtime_call_contract,
+};
+pub use foreign_cleanup::ForeignCleanup;
+pub use functions::prepare_arc_dart_module;
+pub use functions::{DartFunctionPlan, insert_arc_dart_functions, prepare_arc_dart_functions};
+pub use scopes::{ScopeChange, ScopePlan, verify_scopes};
+pub use tokens::{TokenEffect, TokenPlan, TokenReturn, tokens_at_landing_pad_entry, verify_tokens};
 
 /// Liveness of the values classified by the caller, only in reachable blocks.
 ///
@@ -370,7 +373,9 @@ fn analyze(f: &Function, references: &Inventory<'_>) -> Liveness {
                 on_edge(f, b, s, &entry, references),
             );
         }
-        terminator_operands(&block.terminator, &mut |o| uses(o, references, &mut live_set));
+        terminator_operands(&block.terminator, &mut |o| {
+            uses(o, references, &mut live_set)
+        });
         for (v, inst, _) in block.instructions.iter().rev() {
             result.after.insert(*v, live_set.clone());
             retreat(*v, inst, references, &mut live_set);

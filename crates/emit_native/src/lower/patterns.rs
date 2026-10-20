@@ -19,9 +19,7 @@ use super::locals::Mode;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, Element, FunctionKind};
-use dartforge_frontend::ast::{
-    self, BinaryOp, ExprId, ExprKind, PatternId, PatternKind, StmtId,
-};
+use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, PatternId, PatternKind, StmtId};
 use dartforge_intern::SymbolId;
 use dartforge_types::resolved::MemberRef;
 use std::collections::HashSet;
@@ -145,7 +143,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return self.read_member_te(val_ref, m, None, span);
         }
         if let Some(c) = class
-            && self.ctx.compiled_library(self.ctx.program.classes[c.0 as usize].library)
+            && self
+                .ctx
+                .compiled_library(self.ctx.program.classes[c.0 as usize].library)
             && !self.ctx.is_extension_type(c)
         {
             // `index`/`name` of an enum.
@@ -202,7 +202,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 PatternKind::List { .. } => self.ctx.core.list_class,
                 _ => self.ctx.core.map_class,
             };
-            let mut r = super::rti::Recipe { text: String::new(), variables: false };
+            let mut r = super::rti::Recipe {
+                text: String::new(),
+                variables: false,
+            };
             let mut ok = class.is_some();
             if let Some(c) = class {
                 r.text.push_str(&format!("C{}<", self.ctx.id_rti(c)));
@@ -242,7 +245,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name,
                 var_: false,
                 final_: false,
-            } if self.refutable_pattern && linkage == Linkage::Declare && self.ctx.symbol_name(name.sym) != "_" => {
+            } if self.refutable_pattern
+                && linkage == Linkage::Declare
+                && self.ctx.symbol_name(name.sym) != "_" =>
+            {
                 // In a matching pattern, a bare name is a constant
                 // pattern (patterns specification, "Constant patterns"):
                 // it matches if `constant == value`.
@@ -272,10 +278,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // parser reads it as a one-field record; without the trailing comma
                 // it is just `e`).
                 let e = match &ast.expr(*e).kind {
-                    ExprKind::Record { positional, named, .. } if positional.len() == 1 && named.is_empty() => {
+                    ExprKind::Record {
+                        positional, named, ..
+                    } if positional.len() == 1 && named.is_empty() => {
                         let s = ast.expr(*e).span;
                         let text = &self.source()[s.start..s.end];
-                        if text.trim_end().trim_end_matches(')').trim_end().ends_with(',') {
+                        if text
+                            .trim_end()
+                            .trim_end_matches(')')
+                            .trim_end()
+                            .ends_with(',')
+                        {
                             e
                         } else {
                             &positional[0]
@@ -284,7 +297,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     _ => e,
                 };
                 let c = self.lower_expr(ast, *e);
-                let ok = self.enum_constant_pattern_identity(*e, c.clone(), val_ref.clone())
+                let ok = self
+                    .enum_constant_pattern_identity(*e, c.clone(), val_ref.clone())
                     .unwrap_or_else(|| self.operate(BinaryOp::Eq, c, val_ref, false, span));
                 self.require(ok, failure);
             }
@@ -314,11 +328,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.match_pattern(ast, *a, (val_ref.clone(), origin), failure, linkage, linked);
                 self.match_pattern(ast, *b, (val_ref, origin), failure, linkage, linked);
             }
-            PatternKind::Parenthesized(x) => self.match_pattern(ast, *x, (val_ref, origin), failure, linkage, linked),
+            PatternKind::Parenthesized(x) => {
+                self.match_pattern(ast, *x, (val_ref, origin), failure, linkage, linked)
+            }
             PatternKind::NullCheck(x) => {
                 if self.operand_type(&val_ref) == Type::Ref {
                     let nn = self.emit(
-                        Instruction::ICmp(ICmpOp::Ne, val_ref.clone(), Operand::Constant(Constant::Int(0))),
+                        Instruction::ICmp(
+                            ICmpOp::Ne,
+                            val_ref.clone(),
+                            Operand::Constant(Constant::Int(0)),
+                        ),
                         Type::I1,
                     );
                     self.require(nn, failure);
@@ -328,7 +348,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             PatternKind::NullAssert(x) => {
                 if self.operand_type(&val_ref) == Type::Ref {
                     let null = self.emit(
-                        Instruction::ICmp(ICmpOp::Eq, val_ref.clone(), Operand::Constant(Constant::Int(0))),
+                        Instruction::ICmp(
+                            ICmpOp::Eq,
+                            val_ref.clone(),
+                            Operand::Constant(Constant::Int(0)),
+                        ),
                         Type::I1,
                     );
                     let b_error = self.new_block();
@@ -358,7 +382,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             PatternKind::Map { entries, .. } => {
                 self.match_source_map(ast, entries, val_ref, failure, linkage, linked, origin);
             }
-            PatternKind::Record { fields } if fields.iter().any(|f| f.name.is_some() || self.implicit_name(ast, f).is_some()) => {
+            PatternKind::Record { fields }
+                if fields
+                    .iter()
+                    .any(|f| f.name.is_some() || self.implicit_name(ast, f).is_some()) =>
+            {
                 // A shape with a named field (`records.rs`): the class of the
                 // value must be that of the pattern's shape.
                 let mut npos = 0usize;
@@ -393,7 +421,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::I64,
                 );
                 let ok = self.emit(
-                    Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(i64::from(id)))),
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        cls,
+                        Operand::Constant(Constant::Int(i64::from(id))),
+                    ),
                     Type::I1,
                 );
                 self.require(ok, failure);
@@ -429,7 +461,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // Positional-only record: the `_Record` class (fixed cid,
                 // `REFS`); a record with names is of another class (that of its shape).
                 let record_cid = i64::from(dartforge_runtime::layout::cid::RECORD);
-                let is_rec = self.emit(Instruction::ICmp(ICmpOp::Eq, cls, Operand::Constant(Constant::Int(record_cid))), Type::I1);
+                let is_rec = self.emit(
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        cls,
+                        Operand::Constant(Constant::Int(record_cid)),
+                    ),
+                    Type::I1,
+                );
                 self.require(is_rec, failure);
                 let n = self.emit(
                     Instruction::CallRuntime {
@@ -440,7 +479,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     Type::I64,
                 );
                 let ok = self.emit(
-                    Instruction::ICmp(ICmpOp::Eq, n, Operand::Constant(Constant::Int(fields.len() as i64))),
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        n,
+                        Operand::Constant(Constant::Int(fields.len() as i64)),
+                    ),
                     Type::I1,
                 );
                 self.require(ok, failure);
@@ -468,7 +511,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // The written type arguments of a generic extension type:
                 // the tuple of its getters.
                 let tuple_te = match class {
-                    Some(c) if self.ctx.is_extension_type(c) && self.generic_class(c) => self.annotation_tuple(t),
+                    Some(c) if self.ctx.is_extension_type(c) && self.generic_class(c) => {
+                        self.annotation_tuple(t)
+                    }
                     _ => None,
                 };
                 let saved_tuple = std::mem::replace(&mut self.pattern_tuple_te, tuple_te);
@@ -506,9 +551,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // and the text starts with `:`.
                     let source = self.source();
                     let ini = f.span.start;
-                    return source[ini..].trim_start().starts_with(':').then_some(name.sym);
+                    return source[ini..]
+                        .trim_start()
+                        .starts_with(':')
+                        .then_some(name.sym);
                 }
-                PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Cast { pattern: x, .. } => {
+                PatternKind::NullCheck(x)
+                | PatternKind::NullAssert(x)
+                | PatternKind::Cast { pattern: x, .. } => {
                     p = *x;
                 }
                 _ => return None,
@@ -522,7 +572,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `switch` as a statement: cases in order, `when`, an empty body that falls into the
     /// next one (several `case`s labeling the same body), `default`, `break`
     /// and `continue label` to the label of a `case`.
-    pub fn lower_switch_statement(&mut self, ast: &ast::Ast, value: ExprId, cases: &[ast::SwitchCase]) {
+    pub fn lower_switch_statement(
+        &mut self,
+        ast: &ast::Ast,
+        value: ExprId,
+        cases: &[ast::SwitchCase],
+    ) {
         let v = self.lower_expr(ast, value);
         let exit = self.new_block();
         let external_labels = std::mem::take(&mut self.pending_labels);
@@ -557,14 +612,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let default_target = plan.default_case.map_or(exit, |i| bodies[i]);
             if plan.nullable {
                 // `null` matches no constant: the `default`, or the exit.
-                let is_null = self.emit(Instruction::ICmp(ICmpOp::Eq, v.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+                let is_null = self.emit(
+                    Instruction::ICmp(ICmpOp::Eq, v.clone(), Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                );
                 let b_value = self.new_block();
-                self.terminate(Terminator::CondBranch { cond: is_null, then_block: default_target, else_block: b_value });
+                self.terminate(Terminator::CondBranch {
+                    cond: is_null,
+                    then_block: default_target,
+                    else_block: b_value,
+                });
                 self.set_block(b_value);
             }
-            let index = self.emit(Instruction::GetField { object: v, index: 0 }, Type::I64);
+            let index = self.emit(
+                Instruction::GetField {
+                    object: v,
+                    index: 0,
+                },
+                Type::I64,
+            );
             let switch_cases = plan.cases.iter().map(|&(k, i)| (k, bodies[i])).collect();
-            self.terminate(Terminator::Switch { val: index, default: default_target, cases: switch_cases });
+            self.terminate(Terminator::Switch {
+                val: index,
+                default: default_target,
+                cases: switch_cases,
+            });
             for _ in cases {
                 self.open_scope();
                 successes.push(None);
@@ -577,7 +649,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let mut linked = HashSet::new();
                 if let Some(p) = c.pattern {
                     let saved = std::mem::replace(&mut self.refutable_pattern, true);
-                    self.match_pattern(ast, p, (v.clone(), value), next_item, Linkage::Declare, &mut linked);
+                    self.match_pattern(
+                        ast,
+                        p,
+                        (v.clone(), value),
+                        next_item,
+                        Linkage::Declare,
+                        &mut linked,
+                    );
                     self.refutable_pattern = saved;
                 }
                 if let Some(g) = c.guard {
@@ -604,8 +683,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // locals of the last case that labels it. Without that, the body reads an
         // uninitialized `alloca` when the first pattern matches.
         for i in 0..cases.len() {
-            let Some(passing) = successes[i] else { continue };
-            let Some(j) = (i + 1..cases.len()).find(|&j| bodies[j] == bodies[i] && !cases[j].body.is_empty()) else {
+            let Some(passing) = successes[i] else {
+                continue;
+            };
+            let Some(j) =
+                (i + 1..cases.len()).find(|&j| bodies[j] == bodies[i] && !cases[j].body.is_empty())
+            else {
                 self.set_block(passing);
                 self.terminate(Terminator::Branch(bodies[i]));
                 continue;
@@ -614,20 +697,36 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let mut names: Vec<_> = case_scopes[i].keys().copied().collect();
             names.sort_by_key(|&sym| self.ctx.symbol_name(sym).to_string());
             for name_str in names {
-                let Some(dest) = case_scopes[j].get(&name_str) else { continue };
+                let Some(dest) = case_scopes[j].get(&name_str) else {
+                    continue;
+                };
                 let val_ref = self.read_local(&case_scopes[i][&name_str]);
                 let val_ref = self.coerce(val_ref, dest.ty);
                 match &dest.mode {
                     Mode::Memory(ptr) => {
-                        self.emit(Instruction::Store { ptr: ptr.clone(), val: val_ref }, Type::Void);
+                        self.emit(
+                            Instruction::Store {
+                                ptr: ptr.clone(),
+                                val: val_ref,
+                            },
+                            Type::Void,
+                        );
                     }
                     Mode::Cell(ptr) => {
                         // The last case did not run its declarator on this
                         // path: create the cell that the captured body uses.
                         let cell = self.emit(Instruction::AllocCell { value: val_ref }, Type::Ref);
-                        self.emit(Instruction::Store { ptr: ptr.clone(), val: cell }, Type::Void);
+                        self.emit(
+                            Instruction::Store {
+                                ptr: ptr.clone(),
+                                val: cell,
+                            },
+                            Type::Void,
+                        );
                     }
-                    Mode::Value(_) | Mode::Environment { .. } => unreachable!("variable declared by case"),
+                    Mode::Value(_) | Mode::Environment { .. } => {
+                        unreachable!("variable declared by case")
+                    }
                 }
             }
             self.terminate(Terminator::Branch(bodies[i]));
@@ -674,12 +773,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// sequential matching does not matter. A repeated constant keeps its
     /// first case, as the sequential tests would. Under ARC, and with
     /// `DARTFORGE_NO_ENUM_PATTERN_IDENTITY=1`, the general path.
-    fn enum_switch_plan(&mut self, ast: &ast::Ast, value: ExprId, cases: &[ast::SwitchCase]) -> Option<EnumSwitchPlan> {
+    fn enum_switch_plan(
+        &mut self,
+        ast: &ast::Ast,
+        value: ExprId,
+        cases: &[ast::SwitchCase],
+    ) -> Option<EnumSwitchPlan> {
         if cases.is_empty() || self.ctx.arc_memory || !self.ctx.enum_pattern_identity_enabled {
             return None;
         }
-        let dartforge_types::table::Type::Interface { class, nullable, .. } =
-            self.ctx.table.get(self.ctx.get_type(self.unit_id, value)?)
+        let dartforge_types::table::Type::Interface {
+            class, nullable, ..
+        } = self.ctx.table.get(self.ctx.get_type(self.unit_id, value)?)
         else {
             return None;
         };
@@ -687,7 +792,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if !super::enums::enum_identity_operator(self.ctx, class) {
             return None;
         }
-        let mut plan = EnumSwitchPlan { cases: Vec::with_capacity(cases.len()), default_case: None, nullable };
+        let mut plan = EnumSwitchPlan {
+            cases: Vec::with_capacity(cases.len()),
+            default_case: None,
+            nullable,
+        };
         for (i, c) in cases.iter().enumerate() {
             if c.guard.is_some() {
                 return None;
@@ -699,13 +808,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 plan.default_case = Some(i);
                 continue;
             };
-            let PatternKind::Constant(e) = &ast.pattern(p).kind else { return None };
+            let PatternKind::Constant(e) = &ast.pattern(p).kind else {
+                return None;
+            };
             // The parenthesized constant (`const (e)`) is read as a record by
             // the parser: the general path knows that spelling.
             if matches!(ast.expr(*e).kind, ExprKind::Record { .. }) {
                 return None;
             }
-            let (constant_class, index) = super::enums::certified_enum_constant(self.ctx, self.unit_id, *e)?;
+            let (constant_class, index) =
+                super::enums::certified_enum_constant(self.ctx, self.unit_id, *e)?;
             if constant_class != class {
                 return None;
             }
@@ -736,7 +848,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.open_scope();
             let mut linked = HashSet::new();
             let saved = std::mem::replace(&mut self.refutable_pattern, true);
-            self.match_pattern(ast, c.pattern, (v.clone(), value), next_item, Linkage::Declare, &mut linked);
+            self.match_pattern(
+                ast,
+                c.pattern,
+                (v.clone(), value),
+                next_item,
+                Linkage::Declare,
+                &mut linked,
+            );
             self.refutable_pattern = saved;
             if let Some(g) = c.guard {
                 let ok = self.lower_expr(ast, g);
@@ -758,7 +877,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             self.set_block(next_item);
         }
         let msg = self.emit(
-            Instruction::Const(Constant::String("switch sem caso correspondente".to_string())),
+            Instruction::Const(Constant::String(
+                "switch sem caso correspondente".to_string(),
+            )),
             Type::Ref,
         );
         let e = self.new_runtime_error("dartforge_state_error_new", vec![(msg, Type::Ref)]);
@@ -768,7 +889,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if entries.is_empty() {
             return Self::zero_value(ty);
         }
-        self.emit(Instruction::Phi { incoming: entries, ty }, ty)
+        self.emit(
+            Instruction::Phi {
+                incoming: entries,
+                ty,
+            },
+            ty,
+        )
     }
 
     /// `if (e case p when g) S else T`.
@@ -787,7 +914,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.open_scope();
         let mut linked = HashSet::new();
         let saved = std::mem::replace(&mut self.refutable_pattern, true);
-        self.match_pattern(ast, pattern, (v, condition), b_else, Linkage::Declare, &mut linked);
+        self.match_pattern(
+            ast,
+            pattern,
+            (v, condition),
+            b_else,
+            Linkage::Declare,
+            &mut linked,
+        );
         self.refutable_pattern = saved;
         if let Some(g) = guard {
             let ok = self.lower_expr(ast, g);
@@ -823,7 +957,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let follows = self.current_block;
         self.set_block(failure);
         let msg = self.emit(
-            Instruction::Const(Constant::String("irrefutable pattern did not match".to_string())),
+            Instruction::Const(Constant::String(
+                "irrefutable pattern did not match".to_string(),
+            )),
             Type::Ref,
         );
         let e = self.new_runtime_error("dartforge_state_error_new", vec![(msg, Type::Ref)]);

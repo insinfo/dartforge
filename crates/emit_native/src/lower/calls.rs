@@ -25,7 +25,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let saved = self.armed_tuple.take();
         // The type of the called value, for the typed closure call; saved and
         // restored like the tuple (calls nested in the arguments).
-        let saved_type = std::mem::replace(&mut self.callee_type, self.ctx.get_type(self.unit_id, *target));
+        let saved_type = std::mem::replace(
+            &mut self.callee_type,
+            self.ctx.get_type(self.unit_id, *target),
+        );
         let saved_call = self.current_call.replace(expr_id);
         let armed = self.arm_arg_types(*target, expr_id, &arguments.args);
         let r = self.lower_call_internal(ast, expr_id, expr, target, arguments);
@@ -50,10 +53,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         // `Native.addressOf<T>(f)`: the VM front end rewrites it into the
         // address of the symbol; the argument is the element, not a value.
-        if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = self.ctx.get_resolved(self.unit_id, *target).cloned() {
+        if let Some(Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }) = self.ctx.get_resolved(self.unit_id, *target).cloned()
+        {
             let fe = &self.ctx.program.functions[f.0 as usize];
             if self.ctx.symbol_name(fe.name) == "addressOf"
-                && fe.class.is_some_and(|c| self.ctx.symbol_name(self.ctx.program.classes[c.0 as usize].name) == "Native")
+                && fe.class.is_some_and(|c| {
+                    self.ctx
+                        .symbol_name(self.ctx.program.classes[c.0 as usize].name)
+                        == "Native"
+                })
                 && self.ctx.program.library(fe.library).uri == "dart:ffi"
                 && let Some(a) = arguments.args.first()
             {
@@ -63,14 +74,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
         // `value(args)` resolved to the `call` of an extension
         // (`calloc<Int32>(4)`, the `AllocatorAlloc.call`): the value is the receiver.
-        if let Some(Resolved::ExtensionMember { member, .. }) = self.ctx.get_resolved(self.unit_id, expr_id).cloned()
-            && self.ctx.symbol_name(self.ctx.program.functions[member.0 as usize].name) == "call"
+        if let Some(Resolved::ExtensionMember { member, .. }) =
+            self.ctx.get_resolved(self.unit_id, expr_id).cloned()
+            && self
+                .ctx
+                .symbol_name(self.ctx.program.functions[member.0 as usize].name)
+                == "call"
         {
             let recv = self.lower_expr(ast, *target);
             let recv = self.coerce(recv, Type::Ref);
             let evaluated = self.evaluate_args(ast, &arguments.args);
             let receiver = self.ctx.get_type_raw(self.unit_id, *target);
-            return self.call_extension(recv, member.0 as usize, &evaluated, receiver, Some((expr_id, arguments)), expr.span);
+            return self.call_extension(
+                recv,
+                member.0 as usize,
+                &evaluated,
+                receiver,
+                Some((expr_id, arguments)),
+                expr.span,
+            );
         }
 
         if let ExprKind::Identifier(id) = &ast.expr(*target).kind {
@@ -99,7 +121,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // `E(x)`: explicit extension application (override,
             // §13.3). It only appears as the receiver of a member of `E`, which
             // inference already resolved; the value is `x` itself.
-            if let Some(Resolved::Element(dartforge_elements::model::Element::Extension(_))) = resolved {
+            if let Some(Resolved::Element(dartforge_elements::model::Element::Extension(_))) =
+                resolved
+            {
                 let Some(a) = arguments.args.first() else {
                     return self.unsupported("extension application without a receiver", expr.span);
                 };
@@ -107,7 +131,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             // Extension type member with the implicit `this`.
             if let Some(m) = self.resolved_member_te(resolved.as_ref()) {
-                let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
+                let this = self
+                    .this_param
+                    .clone()
+                    .unwrap_or(Operand::Constant(Constant::Null));
                 let receiver = self.implicit_receiver();
                 return self.call_member_te(ast, this, m, receiver, expr_id, arguments, expr.span);
             }
@@ -115,7 +142,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // static: through the resolved element of the target.
             if let Some(Resolved::ExtensionMember { member, .. }) = resolved {
                 let evaluated = self.evaluate_args(ast, &arguments.args);
-                let this = self.this_param.clone().unwrap_or(Operand::Constant(Constant::Null));
+                let this = self
+                    .this_param
+                    .clone()
+                    .unwrap_or(Operand::Constant(Constant::Null));
                 let receiver = self.implicit_receiver();
                 return self.call_extension(
                     this,
@@ -128,7 +158,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             // An SDK method called without a receiver (in the body of an extension
             // on an SDK type): through the selector, with `this`.
-            if let Some(Resolved::Member { member: MemberRef::Function(f), .. }) = resolved
+            if let Some(Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            }) = resolved
                 && !crate::lower::user_function(self.ctx, f.0 as usize)
                 && let Some(this) = self.this_param.clone()
             {
@@ -165,7 +198,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     return self.call_function_value(v, &evaluated);
                 }
                 Some(Resolved::Element(dartforge_elements::model::Element::Variable(vid)))
-                    if self.ctx.compiled_library(self.ctx.program.variables[vid.0 as usize].library) =>
+                    if self
+                        .ctx
+                        .compiled_library(self.ctx.program.variables[vid.0 as usize].library) =>
                 {
                     let v = self.read_global(vid, expr.span);
                     let evaluated = self.evaluate_args(ast, &arguments.args);
@@ -187,10 +222,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         return self.call_direct(fid, None, args);
                     }
                     let Some(this) = self.this_param.clone() else {
-                        return self.unsupported(
-                            "instance method outside an instance member",
-                            expr.span,
-                        );
+                        return self
+                            .unsupported("instance method outside an instance member", expr.span);
                     };
                     self.arm_tuple(fid, expr_id, arguments);
                     return self.call_member(this, fid, &evaluated, expr.span);
@@ -208,7 +241,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
                 Some(Resolved::Member { member, class, .. })
-                    if self.ctx.compiled_library(self.ctx.program.classes[class.0 as usize].library) =>
+                    if self
+                        .ctx
+                        .compiled_library(self.ctx.program.classes[class.0 as usize].library) =>
                 {
                     // A field or getter of function type: reads and calls the value.
                     let v = self.read_implicit_member(member, expr.span);
@@ -261,7 +296,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let args = self.match_args(fid, &evaluated);
                         return self.call_direct(fid, None, args);
                     }
-                    Element::Class(c) if self.ctx.compiled_library(self.ctx.program.classes[c.0 as usize].library) => {
+                    Element::Class(c)
+                        if self
+                            .ctx
+                            .compiled_library(self.ctx.program.classes[c.0 as usize].library) =>
+                    {
                         let empty = self.ctx.interner.lookup("");
                         if let Some(f) = empty.and_then(|v| self.constructor_of(c, v)) {
                             self.creation_type = self.ctx.get_type_raw(self.unit_id, expr_id);
@@ -272,7 +311,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // with a prefix (§13.3), like `E(x)` above: the value is `x`.
                     Element::Extension(_) => {
                         let Some(a) = arguments.args.first() else {
-                            return self.unsupported("extension application without a receiver", expr.span);
+                            return self.unsupported(
+                                "extension application without a receiver",
+                                expr.span,
+                            );
                         };
                         return self.lower_expr(ast, a.value);
                     }
@@ -288,7 +330,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // of function type that gets called).
             if matches!(
                 self.ctx.get_resolved(self.unit_id, *inner_target),
-                Some(Resolved::Element(dartforge_elements::model::Element::Extension(_)))
+                Some(Resolved::Element(
+                    dartforge_elements::model::Element::Extension(_)
+                ))
             ) {
                 match resolved_target {
                     Some(Resolved::ExtensionMember { member, .. })
@@ -312,19 +356,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let evaluated = self.evaluate_args(ast, &arguments.args);
                         return self.call_function_value(v, &evaluated);
                     }
-                    _ => return self.unsupported(&format!("static extension member `{m_name}`"), expr.span),
+                    _ => {
+                        return self.unsupported(
+                            &format!("static extension member `{m_name}`"),
+                            expr.span,
+                        );
+                    }
                 }
             }
 
             // `A<T>.name(…)` of a named mixin application (`class A = B
             // with M;`): the forwarded constructor of the superclass, with the
             // `A<T>` object.
-            if let ExprKind::TypeArguments { target: t, type_args } = &ast.expr(*inner_target).kind
-                && !matches!(self.ctx.get_resolved(self.unit_id, expr_id), Some(Resolved::Constructor(_)))
+            if let ExprKind::TypeArguments {
+                target: t,
+                type_args,
+            } = &ast.expr(*inner_target).kind
+                && !matches!(
+                    self.ctx.get_resolved(self.unit_id, expr_id),
+                    Some(Resolved::Constructor(_))
+                )
                 && let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                     self.resolution_or_name(ast, *t)
-                && self.ctx.program.classes[c.0 as usize].kind == dartforge_elements::model::ClassKind::MixinApplication
-                && self.ctx.compiled_library(self.ctx.program.classes[c.0 as usize].library)
+                && self.ctx.program.classes[c.0 as usize].kind
+                    == dartforge_elements::model::ClassKind::MixinApplication
+                && self
+                    .ctx
+                    .compiled_library(self.ctx.program.classes[c.0 as usize].library)
                 && let Some(f) = self.constructor_of(c, method_name.sym)
             {
                 let concrete = self.concrete_class.take();
@@ -339,7 +397,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     text: format!("L<{}>", args.text),
                     variables: args.variables,
                 });
-                return self.instantiate_evaluated_with_rti(f, &evaluated, expr.span, Some(object), Some(tuple));
+                return self.instantiate_evaluated_with_rti(
+                    f,
+                    &evaluated,
+                    expr.span,
+                    Some(object),
+                    Some(tuple),
+                );
             }
 
             // `C.m(…)`: a static user method.
@@ -347,7 +411,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let target_is_class = matches!(
                 self.ctx.get_resolved(self.unit_id, *inner_target),
                 Some(Resolved::Element(
-                    dartforge_elements::model::Element::Class(_) | dartforge_elements::model::Element::Typedef(_)
+                    dartforge_elements::model::Element::Class(_)
+                        | dartforge_elements::model::Element::Typedef(_)
                 ))
             );
             if target_is_class {
@@ -369,8 +434,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     else {
                         return None;
                     };
-                    let f = *self.ctx.program.classes[c.0 as usize].static_members.get(&method_name.sym)?;
-                    Some(Resolved::Member { class: c, member: MemberRef::Function(f), via_super: false })
+                    let f = *self.ctx.program.classes[c.0 as usize]
+                        .static_members
+                        .get(&method_name.sym)?;
+                    Some(Resolved::Member {
+                        class: c,
+                        member: MemberRef::Function(f),
+                        via_super: false,
+                    })
                 });
                 if let Some(Resolved::Member { member, .. }) = &resolved_target {
                     let value_member = match *member {
@@ -428,10 +499,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // through the static member of the class with that name.
                 if let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                     self.ctx.get_resolved(self.unit_id, *inner_target).cloned()
-                    && let Some(&f) = self.ctx.program.classes[c.0 as usize].static_members.get(&method_name.sym)
+                    && let Some(&f) = self.ctx.program.classes[c.0 as usize]
+                        .static_members
+                        .get(&method_name.sym)
                 {
                     let evaluated = self.evaluate_args(ast, &arguments.args);
-                    if let Some(op) = self.runtime_error_static(f.0 as usize, &evaluated, expr.span) {
+                    if let Some(op) = self.runtime_error_static(f.0 as usize, &evaluated, expr.span)
+                    {
                         return op;
                     }
                 }
@@ -444,7 +518,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 && self.lookup_local(cn.sym).is_none()
                 && let Some(Resolved::Element(dartforge_elements::model::Element::Class(c))) =
                     self.resolve_by_name(cn.sym)
-                && self.ctx.compiled_library(self.ctx.program.classes[c.0 as usize].library)
+                && self
+                    .ctx
+                    .compiled_library(self.ctx.program.classes[c.0 as usize].library)
             {
                 let cls = &self.ctx.program.classes[c.0 as usize];
                 if let Some(f) = self.constructor_of(c, method_name.sym) {
@@ -497,7 +573,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // of the receiver.
             if let Some(m) = self.resolved_member_te(resolved_target.as_ref()) {
                 let receiver = self.ctx.get_type_raw(self.unit_id, *inner_target);
-                return self.call_member_te(ast, recv_op, m, receiver, expr_id, arguments, expr.span);
+                return self
+                    .call_member_te(ast, recv_op, m, receiver, expr_id, arguments, expr.span);
             }
             // User class method: through the resolved element, with
             // dispatch on the dynamic class (R7).
@@ -545,11 +622,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     m_name,
                     &mut |s: &mut Self| s.evaluate_args(ast, &arguments.args),
                     &mut |s: &mut Self| {
-                        s.call_without_member(ast, expr, target, inner_target, &name, r2.clone(), arguments)
+                        s.call_without_member(
+                            ast,
+                            expr,
+                            target,
+                            inner_target,
+                            &name,
+                            r2.clone(),
+                            arguments,
+                        )
                     },
                 );
             }
-            return self.call_without_member(ast, expr, target, inner_target, m_name, recv_op, arguments);
+            return self.call_without_member(
+                ast,
+                expr,
+                target,
+                inner_target,
+                m_name,
+                recv_op,
+                arguments,
+            );
         }
 
         // Any other expression as the target (`f()()`, m['k']!(x),
@@ -570,7 +663,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match self.ctx.table.get(t) {
             dartforge_types::table::Type::Function { .. } => true,
             dartforge_types::table::Type::Interface { class, .. } => {
-                self.ctx.symbol_name(self.ctx.program.classes[class.0 as usize].name) == "Function"
+                self.ctx
+                    .symbol_name(self.ctx.program.classes[class.0 as usize].name)
+                    == "Function"
             }
             _ => t == self.ctx.core.dynamic_,
         }
@@ -612,7 +707,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 variables: args.variables,
             });
             let lib = self.ctx.program.unit(self.unit_id).library;
-            let s = super::sdk_source::selector_string(self.ctx, super::sdk_source::AccessKind::Call, m_name, lib);
+            let s = super::sdk_source::selector_string(
+                self.ctx,
+                super::sdk_source::AccessKind::Call,
+                m_name,
+                lib,
+            );
             return self.call_by_selector_with_tuple(recv_op, s, &ev, tuple);
         }
         self.call_by_name(recv_op, super::sdk_source::AccessKind::Call, m_name, &ev)
@@ -645,21 +745,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `prefix.name` with `prefix` from an `import … as prefix`: the element.
     /// `target` is the prefix of an `import … deferred as`.
     fn deferred_prefix(&self, ast: &ast::Ast, target: ExprId) -> bool {
-        let ExprKind::Identifier(p) = &ast.expr(target).kind else { return false };
-        if !matches!(self.ctx.get_resolved(self.unit_id, target), Some(Resolved::Prefix(_)) | None)
-            || self.lookup_local(p.sym).is_some()
+        let ExprKind::Identifier(p) = &ast.expr(target).kind else {
+            return false;
+        };
+        if !matches!(
+            self.ctx.get_resolved(self.unit_id, target),
+            Some(Resolved::Prefix(_)) | None
+        ) || self.lookup_local(p.sym).is_some()
         {
             return false;
         }
         let lib = self.ctx.program.unit(self.unit_id).library;
-        self.ctx.program.library(lib).imports.iter().any(|i| i.deferred && i.prefix == Some(p.sym))
+        self.ctx
+            .program
+            .library(lib)
+            .imports
+            .iter()
+            .any(|i| i.deferred && i.prefix == Some(p.sym))
     }
 
     /// The class whose static members `target.x` reaches: the class
     /// literal `C` (or `p.C`), or an alias `typedef A = C<…>` (specification
     /// §15 "Type Aliases": `A.x` is the static member `x` of `C`; the type
     /// arguments of the alias do not count for static members).
-    pub fn static_target_class(&self, target: ExprId) -> Option<dartforge_elements::model::ClassId> {
+    pub fn static_target_class(
+        &self,
+        target: ExprId,
+    ) -> Option<dartforge_elements::model::ClassId> {
         use dartforge_elements::model::Element;
         match self.ctx.get_resolved(self.unit_id, target)? {
             Resolved::Element(Element::Class(c)) => Some(*c),

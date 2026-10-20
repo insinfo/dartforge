@@ -1,7 +1,7 @@
 //! The code generation engine on the command line: `dartforge build` and the
 //! hookup of the engine in `compile-js` (`crates/build`, `docs/BUILD-MOTOR.md`).
 use dartforge_build::query::NoDb;
-use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions};
+use dartforge_build::{Demand, Engine, EngineOptions, UpdateContext};
 use dartforge_elements::config::PackageConfig;
 use dartforge_elements::generated::Generation;
 use std::collections::BTreeMap;
@@ -23,7 +23,13 @@ const COMPILING_EXECUTOR: &str = "DARTFORGE_BUILD_COMPILING_EXECUTOR";
 /// `DARTFORGE_BUILD_NATIVE=1`, because the executor's first compilation costs
 /// minutes. `DARTFORGE_BUILD_NATIVE=0` always turns it off (the fallback
 /// remains). Without the `native` feature, only the VM.
-pub fn attach_executor(engine: &mut Engine, dart: Option<PathBuf>, sdk: Option<PathBuf>, cfg_path: &Path, default: bool) {
+pub fn attach_executor(
+    engine: &mut Engine,
+    dart: Option<PathBuf>,
+    sdk: Option<PathBuf>,
+    cfg_path: &Path,
+    default: bool,
+) {
     if let Some(d) = dart {
         dartforge_build::vm::attach(engine, d, cfg_path);
         return;
@@ -34,7 +40,10 @@ pub fn attach_executor(engine: &mut Engine, dart: Option<PathBuf>, sdk: Option<P
         Some(_) => true,
         None => default,
     };
-    if cfg!(feature = "native") && enabled && let Ok(exe) = std::env::current_exe() {
+    if cfg!(feature = "native")
+        && enabled
+        && let Ok(exe) = std::env::current_exe()
+    {
         dartforge_build::native_executor::attach(engine, exe, sdk, cfg_path);
     }
 }
@@ -42,10 +51,7 @@ pub fn attach_executor(engine: &mut Engine, dart: Option<PathBuf>, sdk: Option<P
 /// Does the input's project use builders? It costs reading the
 /// `package_config.json` (which the loader also reads) and the `build.yaml`
 /// files of the resolved packages.
-pub fn detect(
-    input: &Path,
-    packages: Option<&Path>,
-) -> Option<(PathBuf, PackageConfig, PathBuf)> {
+pub fn detect(input: &Path, packages: Option<&Path>) -> Option<(PathBuf, PackageConfig, PathBuf)> {
     if std::env::var_os(COMPILING_EXECUTOR).is_some() {
         return None;
     }
@@ -78,7 +84,13 @@ pub fn generate_once(
     )?;
     // Dart builders: through the VM when asked (DARTFORGE_BUILD_DART),
     // otherwise through the native executor.
-    attach_executor(&mut m, dartforge_build::vm::dart_from_env(), None, cfg_path, false);
+    attach_executor(
+        &mut m,
+        dartforge_build::vm::dart_from_env(),
+        None,
+        cfg_path,
+        false,
+    );
     let up = m.update(
         &UpdateContext {
             db: &NoDb,
@@ -93,15 +105,15 @@ pub fn generate_once(
         text.push_str(&format!("\nwarning: {a}"));
     }
     if n > 5 {
-        text.push_str(&format!(
-            "\n({} warnings about possibly stale fallback)",
-            n
-        ));
+        text.push_str(&format!("\n({} warnings about possibly stale fallback)", n));
     }
     // A builder that failed: the generation failed (DF-BUILD-005), not a
     // partial generation presented as ready.
     if !up.rel.failures.is_empty() {
-        return Err(format!("{text}\n{} builder action(s) failed", up.rel.failures.len()));
+        return Err(format!(
+            "{text}\n{} builder action(s) failed",
+            up.rel.failures.len()
+        ));
     }
     Ok((up.generation, text))
 }
@@ -120,7 +132,8 @@ pub fn with_generator<R>(
         return compile(None);
     };
     let text = std::sync::Mutex::new(None);
-    let generate = |program: &dartforge_elements::model::Program, names: &dartforge_intern::Interner| {
+    let generate = |program: &dartforge_elements::model::Program,
+                    names: &dartforge_intern::Interner| {
         let (g, t) = generate_once(&root, &cfg, &cfg_path, program, names)?;
         if let Ok(mut x) = text.lock() {
             *x = Some(t);
@@ -314,9 +327,9 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
     let mut names = dartforge_intern::Interner::new();
     let program = match &input {
         Some(e) => {
-            let dir = sdk.or_else(dartforge_elements::sdk::SdkLayout::discover).ok_or(
-                "Dart SDK not found: set DARTFORGE_SDK_LIB (the SDK's lib/) or DART_SDK",
-            )?;
+            let dir = sdk
+                .or_else(dartforge_elements::sdk::SdkLayout::discover)
+                .ok_or("Dart SDK not found: set DARTFORGE_SDK_LIB (the SDK's lib/) or DART_SDK")?;
             let layout = dartforge_elements::sdk::SdkLayout::load(&dir, "dartdevc")?;
             // The plan's ngdart builder: the one from `ngdart` 8 or the one from
             // the `ngx_dart` 9 fork (`docs/NGDART-COMPILADOR-DE-VISOES.md` part B).
@@ -429,7 +442,10 @@ fn build(args: &[std::ffi::OsString]) -> Result<(), String> {
             }
         }
         let p = engine.scoreboard(&reference);
-        println!("scoreboard against the build_runner fallback: {}", p.summary());
+        println!(
+            "scoreboard against the build_runner fallback: {}",
+            p.summary()
+        );
         let mut by_ext: BTreeMap<String, [usize; 3]> = BTreeMap::new();
         let ext = |c: &str| {
             let name = c.rsplit('/').next().unwrap_or(c);

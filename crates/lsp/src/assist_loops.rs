@@ -5,11 +5,11 @@
 //! |---|---|---|
 //! | `Convert to for-index loop` | `refactor.convert.forEachToForIndex` | `ConvertIntoForIndex` |
 
+use crate::Edit;
 use crate::actions::CodeAction;
 use crate::analyzer_tree::Mark;
 use crate::refactorings::Context;
-use crate::refactorings_exec::{Text, ONE_INDENT};
-use crate::Edit;
+use crate::refactorings_exec::{ONE_INDENT, Text};
 use dartforge_diagnostics::Span;
 use dartforge_types::{Resolved, Type};
 
@@ -19,7 +19,13 @@ use dartforge_types::{Resolved, Type};
 /// `ToSourceVisitor` (`<`, `>` and `, `).
 pub(crate) fn as_source(text: &str) -> String {
     let mut s = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    for (from, to) in [("< ", "<"), (" <", "<"), (" >", ">"), (" ,", ","), (" ?", "?")] {
+    for (from, to) in [
+        ("< ", "<"),
+        (" <", "<"),
+        (" >", ">"),
+        (" ,", ","),
+        (" ?", "?"),
+    ] {
         while s.contains(from) {
             s = s.replace(from, to);
         }
@@ -32,10 +38,21 @@ impl Context<'_> {
     /// list) { … }` over a local variable or parameter of type `List` becomes
     /// `for (int i = 0; i < list.length; i++)` with `final x = list[i];` at the
     /// start of the block.
-    pub(crate) fn convert_to_for_index(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_to_for_index(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
-        let loop_ = self.with_parents(node).find(|&k| self.kind(k) == "ForStatement")?;
-        let parts = self.children(loop_).iter().copied().find(|&k| self.kind(k).starts_with("ForEachParts"))?;
+        let loop_ = self
+            .with_parents(node)
+            .find(|&k| self.kind(k) == "ForStatement")?;
+        let parts = self
+            .children(loop_)
+            .iter()
+            .copied()
+            .find(|&k| self.kind(k).starts_with("ForEachParts"))?;
         let body = *self.children(loop_).last()?;
         // `selectionOffset < forStatement.offset || rightParenthesis.end < selectionOffset`.
         let closes = self.previous_token(self.tree.nodes[body].start)?;
@@ -46,15 +63,22 @@ impl Context<'_> {
             return None;
         }
         let children = self.children(parts);
-        let variable = *children.iter().find(|&&k| self.kind(k) == "DeclaredIdentifier")?;
+        let variable = *children
+            .iter()
+            .find(|&&k| self.kind(k) == "DeclaredIdentifier")?;
         let iterable = *children.last()?;
         if self.kind(iterable) != "SimpleIdentifier" {
             return None;
         }
         // `iterable.element is VariableElement2`: a local or a parameter (a field
         // and a top-level variable resolve to the getter).
-        let Mark::Expr(x) = self.tree.nodes[iterable].mark else { return None };
-        if !matches!(self.bodies.get_resolved(x), Some(Resolved::Local(_) | Resolved::Parameter { .. })) {
+        let Mark::Expr(x) = self.tree.nodes[iterable].mark else {
+            return None;
+        };
+        if !matches!(
+            self.bodies.get_resolved(x),
+            Some(Resolved::Local(_) | Resolved::Parameter { .. })
+        ) {
             return None;
         }
         let list = self.p.query.core.list_class?;
@@ -66,7 +90,9 @@ impl Context<'_> {
             return None;
         }
         let conflicts = self.local_conflicts(self.tree.nodes[loop_].start);
-        let index = ["i", "j", "k"].into_iter().find(|n| !conflicts.contains(*n))?;
+        let index = ["i", "j", "k"]
+            .into_iter()
+            .find(|n| !conflicts.contains(*n))?;
         let list_name = self.node_text(iterable).to_string();
         let tx = Text::new(self.source);
         let prefix = self.node_prefix(loop_);
@@ -80,17 +106,26 @@ impl Context<'_> {
             edits: vec![
                 Edit {
                     uri: uri.to_string(),
-                    span: Span { start: self.tree.nodes[loop_].start, end: closes.end },
+                    span: Span {
+                        start: self.tree.nodes[loop_].start,
+                        end: closes.end,
+                    },
                     text: format!("for (int {index} = 0; {index} < {list_name}.length; {index}++)"),
                 },
                 Edit {
                     uri: uri.to_string(),
-                    span: Span { start: first_line, end: first_line },
-                    text: format!("{prefix}{ONE_INDENT}{variable_source} = {list_name}[{index}];{eol}"),
+                    span: Span {
+                        start: first_line,
+                        end: first_line,
+                    },
+                    text: format!(
+                        "{prefix}{ONE_INDENT}{variable_source} = {list_name}[{index}];{eol}"
+                    ),
                 },
             ],
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 }

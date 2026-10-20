@@ -27,9 +27,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 /// assert!(audit_shared_ref_slots(&m)?.is_empty());
 /// # Ok::<(), String>(())
 /// ```
-pub fn audit_shared_ref_slots(
-    m: &Module,
-) -> Result<HashMap<String, HashSet<ValueId>>, String> {
+pub fn audit_shared_ref_slots(m: &Module) -> Result<HashMap<String, HashSet<ValueId>>, String> {
     if !m.arc_memory {
         return Ok(HashMap::new());
     }
@@ -70,9 +68,7 @@ pub fn audit_shared_ref_slots(
                     open_set.insert(s.as_str());
                 }
                 Instruction::AllocClosureTyped {
-                    code_symbol,
-                    typed,
-                    ..
+                    code_symbol, typed, ..
                 } => {
                     open_set.insert(code_symbol.as_str());
                     open_set.insert(typed.as_str());
@@ -130,16 +126,17 @@ pub fn audit_shared_ref_slots(
                         continue;
                     }
                     let ci = *names.get(symbol.as_str()).ok_or_else(|| {
-                        format!("ARC Ref slots in {}: target without a body {symbol}", f.symbol)
+                        format!(
+                            "ARC Ref slots in {}: target without a body {symbol}",
+                            f.symbol
+                        )
                     })?;
                     let callee = &m.functions[ci];
                     if open_set.contains(symbol.as_str()) || operand_symbols.contains(symbol) {
                         return Err(format!("ARC Ref slots: open entry {symbol}"));
                     }
                     if args.len() != callee.params.len() || callee.params[ai].2 != Type::Ptr {
-                        return Err(format!(
-                            "ARC Ref slots: incompatible signature of {symbol}"
-                        ));
+                        return Err(format!("ARC Ref slots: incompatible signature of {symbol}"));
                     }
                     let key = (ci, callee.params[ai].0);
                     if slots.insert(key) {
@@ -169,7 +166,8 @@ pub fn audit_shared_ref_slots(
                     .map(|(v, _, t)| (*v, *t)),
             )
             .collect();
-        let error = |v: ValueId, msg: &str| format!("ARC Ref slots in {} v{}: {msg}", f.symbol, v.0);
+        let error =
+            |v: ValueId, msg: &str| format!("ARC Ref slots in {} v{}: {msg}", f.symbol, v.0);
         for (bi, b) in f.blocks.iter().enumerate() {
             for (v, i, ty) in &b.instructions {
                 if locals.contains(v)
@@ -725,9 +723,7 @@ mod tests {
             ));
             let before = format!("{m:?}");
             assert!(
-                audit_shared_ref_slots(&m)
-                    .unwrap_err()
-                    .contains("caller"),
+                audit_shared_ref_slots(&m).unwrap_err().contains("caller"),
                 "caso {case}"
             );
             assert_eq!(format!("{m:?}"), before);
@@ -818,10 +814,9 @@ mod tests {
                     },
                     Type::Void,
                 )),
-                _ => {
-                    b.instructions
-                        .push((ValueId(3), call("sem_corpo", vec![val(0)]), Type::Void))
-                }
+                _ => b
+                    .instructions
+                    .push((ValueId(3), call("sem_corpo", vec![val(0)]), Type::Void)),
             }
             assert!(audit_shared_ref_slots(&m).is_err(), "caso {case}");
         }

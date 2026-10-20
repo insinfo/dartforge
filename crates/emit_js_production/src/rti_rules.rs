@@ -26,7 +26,10 @@
 
 use std::collections::HashSet;
 
-const CALLS: &[&str] = &["_Universe.addRules(dart.typeUniverse, JSON.parse(", "_Universe.addOrUpdateRules(dart.typeUniverse, JSON.parse("];
+const CALLS: &[&str] = &[
+    "_Universe.addRules(dart.typeUniverse, JSON.parse(",
+    "_Universe.addOrUpdateRules(dart.typeUniverse, JSON.parse(",
+];
 
 /// Reads the double-quoted JS *string* that starts at `start` (on the `"`):
 /// the end (after the quote) and the content without JS escapes.
@@ -124,8 +127,14 @@ const RESOURCES: &str = "addRtiResources(";
 /// and the corresponding interface marks. Returns the text unchanged if
 /// something does not have the expected shape.
 pub fn prune(js: &str) -> String {
-    let Some((cited, found, lists)) = citations(js) else { return js.to_string() };
-    let variables = if std::env::var("DARTFORGE_JSPROD_TYPE_VARIABLES").is_ok_and(|v| v == "0") { None } else { Some(cited_type_variables(js, &found)) };
+    let Some((cited, found, lists)) = citations(js) else {
+        return js.to_string();
+    };
+    let variables = if std::env::var("DARTFORGE_JSPROD_TYPE_VARIABLES").is_ok_and(|v| v == "0") {
+        None
+    } else {
+        Some(cited_type_variables(js, &found))
+    };
     rewrite(js, &cited, variables.as_ref(), found, lists)
 }
 
@@ -178,7 +187,9 @@ fn citations(js: &str) -> Option<Citations> {
     for (p, _) in js.match_indices(RESOURCES) {
         let rest = &js[p..];
         let Some(a) = rest.find(", [") else { continue };
-        let Some(f) = rest[a..].find("]);") else { continue };
+        let Some(f) = rest[a..].find("]);") else {
+            continue;
+        };
         if rest[..a + f].contains('\n') {
             continue;
         }
@@ -201,7 +212,11 @@ fn citations(js: &str) -> Option<Citations> {
     // The names cited outside the rules and the lists, and in the values of
     // the rules.
     let mut cited: HashSet<String> = HashSet::new();
-    let mut outside: Vec<(usize, usize)> = found.iter().map(|a| (a.0, a.1)).chain(lists.iter().copied()).collect();
+    let mut outside: Vec<(usize, usize)> = found
+        .iter()
+        .map(|a| (a.0, a.1))
+        .chain(lists.iter().copied())
+        .collect();
     outside.sort();
     let mut pos = 0;
     for (start, end) in &outside {
@@ -235,11 +250,19 @@ fn citations(js: &str) -> Option<Citations> {
 /// Rewrites each JSON without the uncited supertype entries (and, with
 /// `variables`, the unwritten type variable substitutions) and each mark
 /// list without the uncited interfaces.
-fn rewrite(js: &str, cited: &HashSet<String>, variables: Option<&HashSet<String>>, mut found: Found, lists: Vec<(usize, usize)>) -> String {
+fn rewrite(
+    js: &str,
+    cited: &HashSet<String>,
+    variables: Option<&HashSet<String>>,
+    mut found: Found,
+    lists: Vec<(usize, usize)>,
+) -> String {
     for (_, _, v) in found.iter_mut() {
         if let Some(o) = v.as_object_mut() {
             for rule in o.values_mut() {
-                let Some(r) = rule.as_object_mut() else { continue };
+                let Some(r) = rule.as_object_mut() else {
+                    continue;
+                };
                 r.retain(|k, _| match variables {
                     Some(v) if is_type_variable_key(k) => v.contains(k),
                     _ => !k.contains('|') || cited.contains(k),
@@ -264,7 +287,12 @@ fn rewrite(js: &str, cited: &HashSet<String>, variables: Option<&HashSet<String>
         let kept: Vec<&str> = items
             .iter()
             .enumerate()
-            .filter(|(i, x)| *i == 0 || x.strip_prefix('"').and_then(|y| y.strip_suffix('"')).is_none_or(|y| cited.contains(y)))
+            .filter(|(i, x)| {
+                *i == 0
+                    || x.strip_prefix('"')
+                        .and_then(|y| y.strip_suffix('"'))
+                        .is_none_or(|y| cited.contains(y))
+            })
             .map(|(_, x)| *x)
             .collect();
         edits.push((start, end, format!("[{}]", kept.join(", "))));
@@ -322,7 +350,9 @@ fn forward_identical(js: &str, found: &mut Found) {
             }
             let body = serde_json::to_string(rule).unwrap_or_default();
             match first.get(&body) {
-                Some(target) if target != k && body.len() > target.len() + MIN_FORWARD_GAIN => *rule = serde_json::Value::String(target.clone()),
+                Some(target) if target != k && body.len() > target.len() + MIN_FORWARD_GAIN => {
+                    *rule = serde_json::Value::String(target.clone())
+                }
                 Some(_) => {}
                 None if count.get(k) == Some(&1) => {
                     first.insert(body, k.clone());
@@ -351,8 +381,14 @@ pub fn merge_program_rules(js: &str, program_start: usize) -> String {
     for (k, c) in CALLS.iter().enumerate() {
         for (p, _) in js[program_start..].match_indices(c) {
             let p = program_start + p;
-            let Some((end, content)) = js_string(js, p + c.len()) else { return js.to_string() };
-            let Ok(serde_json::Value::Object(o)) = serde_json::from_str::<serde_json::Value>(&content) else { return js.to_string() };
+            let Some((end, content)) = js_string(js, p + c.len()) else {
+                return js.to_string();
+            };
+            let Ok(serde_json::Value::Object(o)) =
+                serde_json::from_str::<serde_json::Value>(&content)
+            else {
+                return js.to_string();
+            };
             if k == 1 {
                 updated.extend(o.keys().cloned());
                 continue;
@@ -364,7 +400,11 @@ pub fn merge_program_rules(js: &str, program_start: usize) -> String {
             calls.push((p - PREFIX.len(), end + 3, o));
         }
     }
-    if calls.len() < 2 || calls.iter().any(|(_, _, o)| o.keys().any(|k| updated.contains(k))) {
+    if calls.len() < 2
+        || calls
+            .iter()
+            .any(|(_, _, o)| o.keys().any(|k| updated.contains(k)))
+    {
         return js.to_string();
     }
     calls.sort_by_key(|c| c.0);
@@ -381,7 +421,11 @@ pub fn merge_program_rules(js: &str, program_start: usize) -> String {
     for (i, (start, end, _)) in calls.iter().enumerate() {
         out.push_str(&js[pos..*start]);
         if i == last {
-            out.push_str(&format!("{PREFIX}{}{}));", CALLS[0], dartforge_emit_js::js::string_literal(&json)));
+            out.push_str(&format!(
+                "{PREFIX}{}{}));",
+                CALLS[0],
+                dartforge_emit_js::js::string_literal(&json)
+            ));
         }
         pos = *end;
     }
@@ -419,19 +463,39 @@ pub fn batch_program_resources(js: &str, program_start: usize) -> String {
             continue;
         }
         let rest = &js[p + CALL.len()..];
-        let Some(line_end) = rest.find('\n') else { continue };
+        let Some(line_end) = rest.find('\n') else {
+            continue;
+        };
         let line = &rest[..line_end];
-        let Some((class, list)) = line.split_once(", [") else { continue };
-        let Some(list) = list.strip_suffix("]);") else { continue };
+        let Some((class, list)) = line.split_once(", [") else {
+            continue;
+        };
+        let Some(list) = list.strip_suffix("]);") else {
+            continue;
+        };
         // Only a class reached through its library's namespace (`L$lib.C`):
         // a local of the library's IIFE (a mixin application) would not be
         // in scope at the last statement.
-        let Some((namespace, _)) = class.split_once('.') else { continue };
-        if !namespace.starts_with("L$") || copied.contains(class) || !class.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b == b'.') {
+        let Some((namespace, _)) = class.split_once('.') else {
+            continue;
+        };
+        if !namespace.starts_with("L$")
+            || copied.contains(class)
+            || !class
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b == b'.')
+        {
             continue;
         }
         let items: Vec<&str> = list.split(", ").collect();
-        if items.is_empty() || !items.iter().all(|x| x.len() >= 2 && x.starts_with('"') && x.ends_with('"') && !x[1..x.len() - 1].contains(['"', '\\'])) {
+        if items.is_empty()
+            || !items.iter().all(|x| {
+                x.len() >= 2
+                    && x.starts_with('"')
+                    && x.ends_with('"')
+                    && !x[1..x.len() - 1].contains(['"', '\\'])
+            })
+        {
             continue;
         }
         found.push((p, p + CALL.len() + line_end + 1, class, items));
@@ -445,9 +509,16 @@ pub fn batch_program_resources(js: &str, program_start: usize) -> String {
     let mut flat: Vec<String> = Vec::new();
     for (_, _, class, items) in &found {
         flat.push(class.to_string());
-        flat.push(if items.len() == 1 { items[0].to_string() } else { format!("[{}]", items.join(", ")) });
+        flat.push(if items.len() == 1 {
+            items[0].to_string()
+        } else {
+            format!("[{}]", items.join(", "))
+        });
     }
-    let call = resource_batch_call(&flat, std::env::var("DARTFORGE_JSPROD_RESOURCE_IDS").as_deref() != Ok("0"));
+    let call = resource_batch_call(
+        &flat,
+        std::env::var("DARTFORGE_JSPROD_RESOURCE_IDS").as_deref() != Ok("0"),
+    );
     let last = found.len() - 1;
     let mut out = String::with_capacity(js.len());
     let mut pos = 0;
@@ -475,8 +546,14 @@ fn resource_batch_call(flat: &[String], compact: bool) -> String {
     let mut encoded = flat.to_vec();
     let mut previous = None;
     for index in (1..flat.len()).step_by(2) {
-        let Some(number) = resource_id_number(&flat[index]) else { continue };
-        let token = if previous.is_some_and(|p| p + 1 == number) { "0".to_string() } else { (number + 1).to_string() };
+        let Some(number) = resource_id_number(&flat[index]) else {
+            continue;
+        };
+        let token = if previous.is_some_and(|p| p + 1 == number) {
+            "0".to_string()
+        } else {
+            (number + 1).to_string()
+        };
         if token.len() < flat[index].len() {
             encoded[index] = token;
             previous = Some(number);
@@ -489,7 +566,11 @@ fn resource_batch_call(flat: &[String], compact: bool) -> String {
     );
     // Leave small batches alone; the decoder and a gzip dictionary can cost
     // more than the removed literals. Real application sizes are measured.
-    if candidate.len().saturating_add(512) < ordinary.len() { candidate } else { ordinary }
+    if candidate.len().saturating_add(512) < ordinary.len() {
+        candidate
+    } else {
+        ordinary
+    }
 }
 
 fn resource_id_number(literal: &str) -> Option<usize> {
@@ -521,16 +602,33 @@ mod tests {
     #[test]
     fn resource_transport_accepts_only_bounded_canonical_singletons() {
         for n in 0..(54 + 54 * 64) {
-            assert_eq!(resource_id_number(&format!("\"|{}\"", recipe_id(n))), Some(n));
+            assert_eq!(
+                resource_id_number(&format!("\"|{}\"", recipe_id(n))),
+                Some(n)
+            );
         }
         for n in [54 * 65, 54 * 65 + 1, 1_000_000, 919_151_669] {
-            assert_eq!(resource_id_number(&format!("\"|{}\"", recipe_id(n))), Some(n));
+            assert_eq!(
+                resource_id_number(&format!("\"|{}\"", recipe_id(n))),
+                Some(n)
+            );
         }
-        for invalid in ["\"|\"", "\"|0\"", "\"|é\"", "\"|a\\n\"", "\"|aaaaaa\"", "[\"|a\"]", "\"named.Type\""] {
+        for invalid in [
+            "\"|\"",
+            "\"|0\"",
+            "\"|é\"",
+            "\"|a\\n\"",
+            "\"|aaaaaa\"",
+            "[\"|a\"]",
+            "\"named.Type\"",
+        ] {
             assert_eq!(resource_id_number(invalid), None, "{invalid}");
         }
         let small = vec!["L$a.C".to_string(), "\"|aaaaa\"".to_string()];
-        assert_eq!(resource_batch_call(&small, true), resource_batch_call(&small, false));
+        assert_eq!(
+            resource_batch_call(&small, true),
+            resource_batch_call(&small, false)
+        );
     }
 
     #[test]
@@ -545,10 +643,24 @@ mod tests {
         };
         // Exhaust both short-id alphabets, consecutive and gapped sequences,
         // then repeat backwards to exercise explicit ordinals and resets.
-        for n in 0..(54 + 54 * 64) { add(format!("\"|{}\"", recipe_id(n))); }
-        for n in (0..300).rev() { add(format!("\"|{}\"", recipe_id(n * 17))); }
-        for n in [1_000_000, 919_151_669] { add(format!("\"|{}\"", recipe_id(n))); }
-        for literal in ["\"ordinary.Type\"", "[\"|a\", \"|b\"]", "\"|é\"", "\"|aaaaaa\"", "\"|0\""] { add(literal.to_string()); }
+        for n in 0..(54 + 54 * 64) {
+            add(format!("\"|{}\"", recipe_id(n)));
+        }
+        for n in (0..300).rev() {
+            add(format!("\"|{}\"", recipe_id(n * 17)));
+        }
+        for n in [1_000_000, 919_151_669] {
+            add(format!("\"|{}\"", recipe_id(n)));
+        }
+        for literal in [
+            "\"ordinary.Type\"",
+            "[\"|a\", \"|b\"]",
+            "\"|é\"",
+            "\"|aaaaaa\"",
+            "\"|0\"",
+        ] {
+            add(literal.to_string());
+        }
         let ordinary = resource_batch_call(&flat, false);
         let compact = resource_batch_call(&flat, true);
         assert!(compact.len() + 512 < ordinary.len());
@@ -557,10 +669,24 @@ mod tests {
             "const classes=Array.from({{length:{}}},(_,i)=>({{i}})); let calls=[]; const dart={{addRtiResources(c,r){{if(c!==classes[c.i])throw Error('identity');calls.push([c.i,r]);}}}}; {ordinary} const expected=JSON.stringify(calls); calls=[]; {compact} if(JSON.stringify(calls)!==expected)throw Error('resource transport mismatch'); console.log('resources-exact');",
             flat.len() / 2
         );
-        let mut child = Command::new("node").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().expect("Node");
-        child.stdin.take().unwrap().write_all(source.as_bytes()).unwrap();
+        let mut child = Command::new("node")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("Node");
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(source.as_bytes())
+            .unwrap();
         let output = child.wait_with_output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(output.stdout, b"resources-exact\n");
     }
 
@@ -572,8 +698,14 @@ mod tests {
         }
         js.push_str("main();\n");
         let out = batch_program_resources(&js, js.find("END").unwrap());
-        assert!(out.starts_with("dart.addRtiResources(core.S, [\"|s\"]);"), "{out}");
-        assert!(out.contains("})([L$a.A, \"|a\", L$a.B, [\"|b\", \"|c\"], L$a.C0, \"|c0\""), "{out}");
+        assert!(
+            out.starts_with("dart.addRtiResources(core.S, [\"|s\"]);"),
+            "{out}"
+        );
+        assert!(
+            out.contains("})([L$a.A, \"|a\", L$a.B, [\"|b\", \"|c\"], L$a.C0, \"|c0\""),
+            "{out}"
+        );
         assert!(out.contains("L$a.C39, \"|c39\"]);\nmain();"), "{out}");
         assert_eq!(out.matches("addRtiResources(L$").count(), 0, "{out}");
     }
@@ -589,13 +721,22 @@ mod tests {
         let start = js.find("SDK_END").unwrap();
         let out = merge_program_rules(&js, start);
         assert_eq!(out.matches("addRules").count(), 2, "{out}");
-        assert!(out.contains(r#"{\"|A\":{\"|x\":[]},\"|B\":{\"|y\":[]},\"|C\":\"|A\"}"#), "{out}");
-        assert!(out.find("f();").unwrap() < out.rfind("addRules").unwrap(), "{out}");
+        assert!(
+            out.contains(r#"{\"|A\":{\"|x\":[]},\"|B\":{\"|y\":[]},\"|C\":\"|A\"}"#),
+            "{out}"
+        );
+        assert!(
+            out.find("f();").unwrap() < out.rfind("addRules").unwrap(),
+            "{out}"
+        );
         assert!(out.trim_end().ends_with("\"));"), "{out}");
     }
 
     fn rules(json: &str) -> String {
-        format!("dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n", dartforge_emit_js::js::string_literal(json))
+        format!(
+            "dart_rti._Universe.addRules(dart.typeUniverse, JSON.parse({}));\n",
+            dartforge_emit_js::js::string_literal(json)
+        )
     }
 
     #[test]

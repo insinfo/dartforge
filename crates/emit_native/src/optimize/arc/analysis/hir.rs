@@ -290,7 +290,11 @@ pub(crate) fn analyze_with_summaries(
     }
     let mut value_list: Vec<_> = types.keys().copied().collect();
     value_list.sort_by_key(|v| v.0);
-    let ids: HashMap<_, _> = value_list.iter().enumerate().map(|(i, v)| (*v, i)).collect();
+    let ids: HashMap<_, _> = value_list
+        .iter()
+        .enumerate()
+        .map(|(i, v)| (*v, i))
+        .collect();
     let empty = ids.len();
     let opaque = empty + 1;
     let mut rs = vec![Constraint::Unknown { dest: opaque }];
@@ -333,7 +337,11 @@ pub(crate) fn analyze_with_summaries(
             }
         }
         for path in paths {
-            if let super::writes::PathOrigin::Allocation { node, fields: field_list } = &path.origin {
+            if let super::writes::PathOrigin::Allocation {
+                node,
+                fields: field_list,
+            } = &path.origin
+            {
                 if schemas_by_index
                     .insert(node.clone(), field_list.clone())
                     .is_some_and(|previous| previous != *field_list)
@@ -663,10 +671,9 @@ fn materialize_summary(
     rs: &mut Vec<Constraint>,
 ) -> Result<usize, String> {
     let origin = match &path.origin {
-        super::writes::PathOrigin::Parameter(p) => operand(
-            args.get(*p)
-                .ok_or("points-to: invalid summary parameter")?,
-        ),
+        super::writes::PathOrigin::Parameter(p) => {
+            operand(args.get(*p).ok_or("points-to: invalid summary parameter")?)
+        }
         super::writes::PathOrigin::Allocation { node, .. } => {
             let origin = *variable_count;
             *variable_count = variable_count
@@ -848,7 +855,8 @@ mod tests {
             })
             .collect();
         let schemas = std::sync::Arc::new(
-            nodes.iter()
+            nodes
+                .iter()
                 .cloned()
                 .zip(field_list.iter().cloned().map(|c| vec![c]))
                 .collect(),
@@ -1087,8 +1095,10 @@ mod tests {
         assert!(a.unknown_set.is_empty());
         assert_eq!(a.value(ValueId(3)), a.value(ValueId(1)));
         assert_eq!(
-            a.points
-                .field(&facts.objects[&ValueId(1)].node, &facts.accesses[&ValueId(3)]),
+            a.points.field(
+                &facts.objects[&ValueId(1)].node,
+                &facts.accesses[&ValueId(3)]
+            ),
             a.value(ValueId(0))
         );
     }

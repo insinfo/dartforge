@@ -29,9 +29,9 @@
 //! 1 and 2 is the one in `E:\dftemp\spec-maps\dtlto` (two C files); the scale
 //! (the dozens of parts of a large program) was not measured.
 
-use crate::object_cache::{self, ObjectCache};
 use crate::generator::Cpu;
 use crate::linker_windows as lw;
+use crate::object_cache::{self, ObjectCache};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -51,7 +51,9 @@ pub struct Request<'a> {
 fn is_bitcode(path: &Path) -> bool {
     use std::io::Read;
     let mut start = [0u8; 4];
-    let Ok(mut f) = std::fs::File::open(path) else { return false };
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
     if f.read_exact(&mut start).is_err() {
         return false;
     }
@@ -68,8 +70,16 @@ fn index_of(entry: &Path) -> PathBuf {
 fn failure_of(statement: &str, exit: &std::process::Output) -> String {
     let mut text = String::from_utf8_lossy(&exit.stderr).into_owned();
     text.push_str(&String::from_utf8_lossy(&exit.stdout));
-    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-    format!("{statement} falhou ({}):\n{}", exit.status, lines.join("\n"))
+    let lines: Vec<&str> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .take(40)
+        .collect();
+    format!(
+        "{statement} falhou ({}):\n{}",
+        exit.status,
+        lines.join("\n")
+    )
 }
 
 /// The inputs of the final link: each bitcode replaced by its native object
@@ -103,14 +113,24 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             entries.push(e.clone());
             continue;
         }
-        let name = e.file_name().map_or_else(|| format!("e{i}"), |n| format!("e{i}-{}", n.to_string_lossy()));
+        let name = e.file_name().map_or_else(
+            || format!("e{i}"),
+            |n| format!("e{i}-{}", n.to_string_lossy()),
+        );
         let dest = private.join(name);
         if std::fs::hard_link(e, &dest).is_err() {
-            std::fs::copy(e, &dest).map_err(|x| format!("{} → {}: {x}", e.display(), dest.display()))?;
+            std::fs::copy(e, &dest)
+                .map_err(|x| format!("{} → {}: {x}", e.display(), dest.display()))?;
         }
         entries.push(dest);
     }
-    let p = &Request { clang: p.clang, entries: &entries, cpu: p.cpu, staging: &private, cache: p.cache };
+    let p = &Request {
+        clang: p.clang,
+        entries: &entries,
+        cpu: p.cpu,
+        staging: &private,
+        cache: p.cache,
+    };
     // 1. The indices: the whole link, only up to symbol resolution.
     // `lld-link` (Windows) and `ld.lld` (Linux) accept the mode; `ld64.lld`
     // does not (on macOS production with maps uses the linker's LTO with the
@@ -123,7 +143,9 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             let mut args = lw::arguments(
                 sysroot,
                 &lw::Linkage {
-                    product: lw::Product::Executable { subsystem: lw::Subsystem::from_environment()? },
+                    product: lw::Product::Executable {
+                        subsystem: lw::Subsystem::from_environment()?,
+                    },
                     entries: p.entries.to_vec(),
                     lto: true,
                     cpu: p.cpu.map(Cpu::name),
@@ -159,15 +181,24 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             (fictitious_exit, c)
         }
         crate::target::Os::MacOs => {
-            return Err("distributed ThinLTO does not exist on macOS (ld64.lld does not split the indices)".to_string());
+            return Err(
+                "distributed ThinLTO does not exist on macOS (ld64.lld does not split the indices)"
+                    .to_string(),
+            );
         }
     };
-    let exit = statement.output().map_err(|e| format!("failed to run the linker (ThinLTO indices): {e}"))?;
+    let exit = statement
+        .output()
+        .map_err(|e| format!("failed to run the linker (ThinLTO indices): {e}"))?;
     if !exit.status.success() {
         return Err(failure_of("the linker (ThinLTO indices)", &exit));
     }
     // 2 and 3. The ThinLTO backend of each bitcode and the closing with the maps.
-    let identity = format!("{}|{}", dartforge_llvm::identity()?, object_cache::clang_identity(p.clang)?);
+    let identity = format!(
+        "{}|{}",
+        dartforge_llvm::identity()?,
+        object_cache::clang_identity(p.clang)?
+    );
     let level = format!("-O{}", crate::driver::lto_level());
     let cpu_description = p.cpu.map_or(String::new(), Cpu::description);
     let convert_map = crate::gcmap::convert_here();
@@ -175,7 +206,8 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
     let keep = std::env::var_os("DARTFORGE_KEEP_IR").is_some();
     let n = p.entries.len();
     let next_one = std::sync::atomic::AtomicUsize::new(0);
-    let results: std::sync::Mutex<Vec<Option<Result<PathBuf, String>>>> = std::sync::Mutex::new((0..n).map(|_| None).collect());
+    let results: std::sync::Mutex<Vec<Option<Result<PathBuf, String>>>> =
+        std::sync::Mutex::new((0..n).map(|_| None).collect());
     let one = |i: usize| -> Result<PathBuf, String> {
         let entry = &p.entries[i];
         if !bitcodes[i] {
@@ -196,14 +228,20 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             statement.arg(c.march());
         }
         statement.args(["-emit-llvm", "-c", "-o"]).arg(&pos);
-        let exit = statement.output().map_err(|e| format!("failed to run {}: {e}", p.clang.display()))?;
+        let exit = statement
+            .output()
+            .map_err(|e| format!("failed to run {}: {e}", p.clang.display()))?;
         if !exit.status.success() {
-            return Err(failure_of(&format!("the ThinLTO backend of {}", entry.display()), &exit));
+            return Err(failure_of(
+                &format!("the ThinLTO backend of {}", entry.display()),
+                &exit,
+            ));
         }
         let bitcode = std::fs::read(&pos).map_err(|e| format!("{}: {e}", pos.display()))?;
         let name = format!("parte{i}");
         let close = |dest: &Path| -> Result<(), String> {
-            let (mut object, with_maps) = dartforge_llvm::generate_from_bitcode(&name, &bitcode, p.cpu.map(Cpu::name))?;
+            let (mut object, with_maps) =
+                dartforge_llvm::generate_from_bitcode(&name, &bitcode, p.cpu.map(Cpu::name))?;
             if with_maps && convert_map {
                 crate::gcmap::convert(&mut object)?;
             }
@@ -212,17 +250,37 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
             if convert_stack_trace {
                 crate::compact_stack_trace::convert(&mut object)?;
             }
-            std::fs::write(dest, object).map_err(|e| format!("failed to write {}: {e}", dest.display()))
+            std::fs::write(dest, object)
+                .map_err(|e| format!("failed to write {}: {e}", dest.display()))
         };
         let object = match p.cache {
             Some(c) => {
-                let compact = if convert_map { "mapa-compacto" } else { "mapa-cru" };
-                let stack_trace = if convert_stack_trace { "rastro-compacto" } else { "rastro-cru" };
-                let key = object_cache::bytes_key(&bitcode, &identity, &["lto-distribuida", compact, stack_trace, cpu_description.as_str()]);
+                let compact = if convert_map {
+                    "mapa-compacto"
+                } else {
+                    "mapa-cru"
+                };
+                let stack_trace = if convert_stack_trace {
+                    "rastro-compacto"
+                } else {
+                    "rastro-cru"
+                };
+                let key = object_cache::bytes_key(
+                    &bitcode,
+                    &identity,
+                    &[
+                        "lto-distribuida",
+                        compact,
+                        stack_trace,
+                        cpu_description.as_str(),
+                    ],
+                );
                 c.get_or_create(key, close).map(|(o, _)| o)
             }
             None => {
-                let o = p.staging.join(format!("parte{i}.{}", crate::target::ext_object()));
+                let o = p
+                    .staging
+                    .join(format!("parte{i}.{}", crate::target::ext_object()));
                 close(&o).map(|()| o)
             }
         };
@@ -235,13 +293,15 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
     let parallel = crate::driver::generation_tasks();
     std::thread::scope(|s| {
         for _ in 0..parallel.min(n) {
-            s.spawn(|| loop {
-                let i = next_one.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if i >= n {
-                    break;
+            s.spawn(|| {
+                loop {
+                    let i = next_one.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if i >= n {
+                        break;
+                    }
+                    let r = one(i);
+                    results.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
                 }
-                let r = one(i);
-                results.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
             });
         }
     });
@@ -253,7 +313,9 @@ pub fn objects(p: &Request<'_>) -> Result<Vec<PathBuf>, String> {
         .unwrap_or_else(|e| e.into_inner())
         .into_iter()
         .enumerate()
-        .map(|(i, r)| r.unwrap_or_else(|| Err(format!("part {i} of the distributed LTO was not generated"))))
+        .map(|(i, r)| {
+            r.unwrap_or_else(|| Err(format!("part {i} of the distributed LTO was not generated")))
+        })
         .collect();
     // With the cache, the objects live in it and the directory of this link goes away;
     // without it, the objects are from here and stay for the final link.

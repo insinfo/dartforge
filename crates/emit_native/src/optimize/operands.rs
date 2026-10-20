@@ -177,7 +177,11 @@ pub fn terminator_operands(t: &Terminator, f: &mut dyn FnMut(&Operand)) {
 pub fn successors_mut(t: &mut Terminator, f: &mut dyn FnMut(&mut BlockId)) {
     match t {
         Terminator::Branch(b) => f(b),
-        Terminator::CondBranch { then_block, else_block, .. } => {
+        Terminator::CondBranch {
+            then_block,
+            else_block,
+            ..
+        } => {
             f(then_block);
             f(else_block);
         }
@@ -236,7 +240,8 @@ pub fn operand_type(o: &Operand, types: &std::collections::HashMap<ValueId, Type
 
 /// The types of all the values of the function (parameters and instructions).
 pub fn function_types(func: &Function) -> std::collections::HashMap<ValueId, Type> {
-    let mut t: std::collections::HashMap<ValueId, Type> = func.params.iter().map(|(v, _, ty)| (*v, *ty)).collect();
+    let mut t: std::collections::HashMap<ValueId, Type> =
+        func.params.iter().map(|(v, _, ty)| (*v, *ty)).collect();
     for b in &func.blocks {
         for (v, _, ty) in &b.instructions {
             t.insert(*v, *ty);

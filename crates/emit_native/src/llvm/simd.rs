@@ -31,7 +31,11 @@ impl LlvmEmitter<'_> {
     /// `%v{v}` = the operation `op` over `args`, with result `ty`.
     pub(super) fn emit_simd(&mut self, v: u32, op: OpSimd, args: &[Operand], ty: Type) {
         // The vector type: that of the first vector operand, or the result.
-        let k = args.iter().map(|a| self.type_of(a)).find(|t| t.is_vector()).unwrap_or(ty);
+        let k = args
+            .iter()
+            .map(|a| self.type_of(a))
+            .find(|t| t.is_vector())
+            .unwrap_or(ty);
         let (n, el, suf) = if k.is_vector() { shape(k) } else { shape(ty) };
         let kt = k.llvm_ir();
         let floating_point = k != Type::V4I32;
@@ -42,7 +46,13 @@ impl LlvmEmitter<'_> {
         let mut w = String::new();
         let r = format!("%v{v}");
         match op {
-            OpSimd::Add | OpSimd::Sub | OpSimd::Mul | OpSimd::Div | OpSimd::And | OpSimd::Or | OpSimd::Xor => {
+            OpSimd::Add
+            | OpSimd::Sub
+            | OpSimd::Mul
+            | OpSimd::Div
+            | OpSimd::And
+            | OpSimd::Or
+            | OpSimd::Xor => {
                 let (x, y) = (a(self, 0), a(self, 1));
                 let instr = match (op, floating_point) {
                     (OpSimd::Add, true) => "fadd",
@@ -81,28 +91,52 @@ impl LlvmEmitter<'_> {
                 let (x, lo, hi) = (a(self, 0), a(self, 1), a(self, 2));
                 let it = format!("<{n} x i{}>", if k == Type::V2F64 { 64 } else { 32 });
                 writeln!(w, "  %sa{v} = fcmp ogt {kt} {x}, {hi}").unwrap();
-                writeln!(w, "  %sd{v} = select <{n} x i1> %sa{v}, {kt} {hi}, {kt} {x}").unwrap();
+                writeln!(
+                    w,
+                    "  %sd{v} = select <{n} x i1> %sa{v}, {kt} {hi}, {kt} {x}"
+                )
+                .unwrap();
                 writeln!(w, "  %sx{v} = bitcast {kt} {x} to {it}").unwrap();
                 writeln!(w, "  %sh{v} = bitcast {kt} {hi} to {it}").unwrap();
                 writeln!(w, "  %so{v} = or {it} %sx{v}, %sh{v}").unwrap();
                 writeln!(w, "  %sof{v} = bitcast {it} %so{v} to {kt}").unwrap();
                 writeln!(w, "  %se{v} = fcmp oeq {kt} {x}, {hi}").unwrap();
-                writeln!(w, "  %sm{v} = select <{n} x i1> %se{v}, {kt} %sof{v}, {kt} %sd{v}").unwrap();
+                writeln!(
+                    w,
+                    "  %sm{v} = select <{n} x i1> %se{v}, {kt} %sof{v}, {kt} %sd{v}"
+                )
+                .unwrap();
                 writeln!(w, "  %sb{v} = fcmp olt {kt} %sm{v}, {lo}").unwrap();
-                writeln!(w, "  %sg{v} = select <{n} x i1> %sb{v}, {kt} {lo}, {kt} %sm{v}").unwrap();
+                writeln!(
+                    w,
+                    "  %sg{v} = select <{n} x i1> %sb{v}, {kt} {lo}, {kt} %sm{v}"
+                )
+                .unwrap();
                 writeln!(w, "  %smi{v} = bitcast {kt} %sm{v} to {it}").unwrap();
                 writeln!(w, "  %sl{v} = bitcast {kt} {lo} to {it}").unwrap();
                 writeln!(w, "  %sy{v} = and {it} %smi{v}, %sl{v}").unwrap();
                 writeln!(w, "  %syf{v} = bitcast {it} %sy{v} to {kt}").unwrap();
                 writeln!(w, "  %sf{v} = fcmp oeq {kt} %sm{v}, {lo}").unwrap();
-                writeln!(w, "  {r} = select <{n} x i1> %sf{v}, {kt} %syf{v}, {kt} %sg{v}").unwrap();
+                writeln!(
+                    w,
+                    "  {r} = select <{n} x i1> %sf{v}, {kt} %syf{v}, {kt} %sg{v}"
+                )
+                .unwrap();
             }
             OpSimd::Clamp => {
                 let (x, lo, hi) = (a(self, 0), a(self, 1), a(self, 2));
                 writeln!(w, "  %sa{v} = fcmp olt {kt} {x}, {hi}").unwrap();
-                writeln!(w, "  %sm{v} = select <{n} x i1> %sa{v}, {kt} {x}, {kt} {hi}").unwrap();
+                writeln!(
+                    w,
+                    "  %sm{v} = select <{n} x i1> %sa{v}, {kt} {x}, {kt} {hi}"
+                )
+                .unwrap();
                 writeln!(w, "  %sb{v} = fcmp ogt {kt} %sm{v}, {lo}").unwrap();
-                writeln!(w, "  {r} = select <{n} x i1> %sb{v}, {kt} %sm{v}, {kt} {lo}").unwrap();
+                writeln!(
+                    w,
+                    "  {r} = select <{n} x i1> %sb{v}, {kt} %sm{v}, {kt} {lo}"
+                )
+                .unwrap();
             }
             // `-Int32x4` and `Int32x4.abs()` (3.14): wrapping, and the `abs` of
             // -2^31 is -2^31 (`llvm.abs` with `is_int_min_poison` false).
@@ -153,7 +187,11 @@ impl LlvmEmitter<'_> {
                 let x = a(self, 0);
                 writeln!(w, "  %sz{v} = icmp ne {kt} {x}, zeroinitializer").unwrap();
                 writeln!(w, "  %sb{v} = bitcast <{n} x i1> %sz{v} to i{n}").unwrap();
-                let (p, target) = if op == OpSimd::Any { ("ne", "0") } else { ("eq", "-1") };
+                let (p, target) = if op == OpSimd::Any {
+                    ("ne", "0")
+                } else {
+                    ("eq", "-1")
+                };
                 writeln!(w, "  {r} = icmp {p} i{n} %sb{v}, {target}").unwrap();
             }
             OpSimd::Neg => {
@@ -168,7 +206,11 @@ impl LlvmEmitter<'_> {
             OpSimd::Recip | OpSimd::RecipSqrt => {
                 let x = a(self, 0);
                 let one = self.constant_splat(n, el, "1.0");
-                let dest = if op == OpSimd::Recip { r.clone() } else { format!("%sr{v}") };
+                let dest = if op == OpSimd::Recip {
+                    r.clone()
+                } else {
+                    format!("%sr{v}")
+                };
                 writeln!(w, "  {dest} = fdiv {kt} {one}, {x}").unwrap();
                 if op == OpSimd::RecipSqrt {
                     writeln!(w, "  {r} = call {kt} @llvm.sqrt.{suf}({kt} %sr{v})").unwrap();
@@ -249,23 +291,47 @@ impl LlvmEmitter<'_> {
                         let s = self.coerce(arg, Type::F64);
                         self.lane_scalar(&mut w, v, &format!("q{i}_"), &s, k)
                     };
-                    let next_item = if i + 1 == args.len() { r.clone() } else { format!("%sv{v}_{i}") };
-                    writeln!(w, "  {next_item} = insertelement {kt} {current}, {el} {esc}, i32 {i}").unwrap();
+                    let next_item = if i + 1 == args.len() {
+                        r.clone()
+                    } else {
+                        format!("%sv{v}_{i}")
+                    };
+                    writeln!(
+                        w,
+                        "  {next_item} = insertelement {kt} {current}, {el} {esc}, i32 {i}"
+                    )
+                    .unwrap();
                     current = next_item;
                 }
             }
             OpSimd::Splat => {
                 let s = self.coerce(&args[0], Type::F64);
                 let esc = self.lane_scalar(&mut w, v, "e", &s, k);
-                writeln!(w, "  %sie{v} = insertelement {kt} poison, {el} {esc}, i32 0").unwrap();
-                writeln!(w, "  {r} = shufflevector {kt} %sie{v}, {kt} poison, <{n} x i32> zeroinitializer").unwrap();
+                writeln!(
+                    w,
+                    "  %sie{v} = insertelement {kt} poison, {el} {esc}, i32 0"
+                )
+                .unwrap();
+                writeln!(
+                    w,
+                    "  {r} = shufflevector {kt} %sie{v}, {kt} poison, <{n} x i32> zeroinitializer"
+                )
+                .unwrap();
             }
             OpSimd::Zero => {
-                writeln!(w, "  {r} = select i1 true, {kt} zeroinitializer, {kt} zeroinitializer").unwrap();
+                writeln!(
+                    w,
+                    "  {r} = select i1 true, {kt} zeroinitializer, {kt} zeroinitializer"
+                )
+                .unwrap();
             }
             OpSimd::SignMask => {
                 let x = a(self, 0);
-                let bits = if k == Type::V2F64 { format!("<{n} x i64>") } else { format!("<{n} x i32>") };
+                let bits = if k == Type::V2F64 {
+                    format!("<{n} x i64>")
+                } else {
+                    format!("<{n} x i32>")
+                };
                 writeln!(w, "  %sb{v} = bitcast {kt} {x} to {bits}").unwrap();
                 writeln!(w, "  %sc{v} = icmp slt {bits} %sb{v}, zeroinitializer").unwrap();
                 writeln!(w, "  %sm{v} = bitcast <{n} x i1> %sc{v} to i{n}").unwrap();
@@ -273,10 +339,23 @@ impl LlvmEmitter<'_> {
             }
             OpSimd::Shuffle(m) | OpSimd::ShuffleMix(m) => {
                 let x = a(self, 0);
-                let y = if op == OpSimd::ShuffleMix(m) { a(self, 1) } else { x.clone() };
+                let y = if op == OpSimd::ShuffleMix(m) {
+                    a(self, 1)
+                } else {
+                    x.clone()
+                };
                 let m = u32::from(m);
-                let high = if matches!(op, OpSimd::ShuffleMix(_)) { 4 } else { 0 };
-                let ind = [m & 3, (m >> 2) & 3, high + ((m >> 4) & 3), high + ((m >> 6) & 3)];
+                let high = if matches!(op, OpSimd::ShuffleMix(_)) {
+                    4
+                } else {
+                    0
+                };
+                let ind = [
+                    m & 3,
+                    (m >> 2) & 3,
+                    high + ((m >> 4) & 3),
+                    high + ((m >> 6) & 3),
+                ];
                 writeln!(
                     w,
                     "  {r} = shufflevector {kt} {x}, {kt} {y}, <4 x i32> <i32 {}, i32 {}, i32 {}, i32 {}>",
@@ -289,7 +368,11 @@ impl LlvmEmitter<'_> {
                 writeln!(w, "  %st{v} = bitcast <4 x float> {t} to <4 x i32>").unwrap();
                 writeln!(w, "  %sf{v} = bitcast <4 x float> {f} to <4 x i32>").unwrap();
                 writeln!(w, "  %sa{v} = and <4 x i32> {m}, %st{v}").unwrap();
-                writeln!(w, "  %sn{v} = xor <4 x i32> {m}, <i32 -1, i32 -1, i32 -1, i32 -1>").unwrap();
+                writeln!(
+                    w,
+                    "  %sn{v} = xor <4 x i32> {m}, <i32 -1, i32 -1, i32 -1, i32 -1>"
+                )
+                .unwrap();
                 writeln!(w, "  %sb{v} = and <4 x i32> %sn{v}, %sf{v}").unwrap();
                 writeln!(w, "  %so{v} = or <4 x i32> %sa{v}, %sb{v}").unwrap();
                 writeln!(w, "  {r} = bitcast <4 x i32> %so{v} to <4 x float>").unwrap();
@@ -303,19 +386,33 @@ impl LlvmEmitter<'_> {
                 if k == Type::V2F64 {
                     // `Float32x4.fromFloat64x2`: [x, y, 0, 0].
                     for i in 0..2 {
-                        writeln!(w, "  %sd{v}_{i} = extractelement <2 x double> {x}, i32 {i}").unwrap();
+                        writeln!(w, "  %sd{v}_{i} = extractelement <2 x double> {x}, i32 {i}")
+                            .unwrap();
                         writeln!(w, "  %sf{v}_{i} = fptrunc double %sd{v}_{i} to float").unwrap();
                     }
                     writeln!(w, "  %sv{v}_0 = insertelement <4 x float> zeroinitializer, float %sf{v}_0, i32 0").unwrap();
-                    writeln!(w, "  {r} = insertelement <4 x float> %sv{v}_0, float %sf{v}_1, i32 1").unwrap();
+                    writeln!(
+                        w,
+                        "  {r} = insertelement <4 x float> %sv{v}_0, float %sf{v}_1, i32 1"
+                    )
+                    .unwrap();
                 } else {
                     // `Float64x2.fromFloat32x4`: lanes 0 and 1.
                     for i in 0..2 {
-                        writeln!(w, "  %sf{v}_{i} = extractelement <4 x float> {x}, i32 {i}").unwrap();
+                        writeln!(w, "  %sf{v}_{i} = extractelement <4 x float> {x}, i32 {i}")
+                            .unwrap();
                         writeln!(w, "  %sd{v}_{i} = fpext float %sf{v}_{i} to double").unwrap();
                     }
-                    writeln!(w, "  %sv{v}_0 = insertelement <2 x double> poison, double %sd{v}_0, i32 0").unwrap();
-                    writeln!(w, "  {r} = insertelement <2 x double> %sv{v}_0, double %sd{v}_1, i32 1").unwrap();
+                    writeln!(
+                        w,
+                        "  %sv{v}_0 = insertelement <2 x double> poison, double %sd{v}_0, i32 0"
+                    )
+                    .unwrap();
+                    writeln!(
+                        w,
+                        "  {r} = insertelement <2 x double> %sv{v}_0, double %sd{v}_1, i32 1"
+                    )
+                    .unwrap();
                 }
             }
             OpSimd::IntToFloat => {
@@ -375,7 +472,11 @@ impl LlvmEmitter<'_> {
     fn spread(&self, w: &mut String, v: u32, suffix: &str, esc: &str, k: Type) {
         let (n, el, _) = shape(k);
         let kt = k.llvm_ir();
-        writeln!(w, "  %si{suffix}{v} = insertelement {kt} poison, {el} {esc}, i32 0").unwrap();
+        writeln!(
+            w,
+            "  %si{suffix}{v} = insertelement {kt} poison, {el} {esc}, i32 0"
+        )
+        .unwrap();
         writeln!(w, "  %ss{suffix}{v} = shufflevector {kt} %si{suffix}{v}, {kt} poison, <{n} x i32> zeroinitializer").unwrap();
     }
 

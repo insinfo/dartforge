@@ -25,13 +25,19 @@
 //!
 //! Written without compiling or running (2026-10-04; redone on 2026-10-05).
 
-use crate::typed_lints::Finding;
 use crate::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use crate::table::{Type, TypeTable};
+use crate::typed_lints::Finding;
 use dartforge_diagnostics::codes::hint as h;
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_elements::model::{Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, UnitId, VariableId, VariableRef};
-use dartforge_frontend::ast::{self, Combinator, DeclKind, DirectiveKind, ExprId, ExprKind, Initializer, MemberKind, ParameterKind, PatternKind, TypeKind, UnaryOp};
+use dartforge_elements::model::{
+    Element, FunctionElementId, FunctionKind, FunctionRef, LibraryId, Program, UnitId, VariableId,
+    VariableRef,
+};
+use dartforge_frontend::ast::{
+    self, Combinator, DeclKind, DirectiveKind, ExprId, ExprKind, Initializer, MemberKind,
+    ParameterKind, PatternKind, TypeKind, UnaryOp,
+};
 use dartforge_intern::Interner;
 
 /// The text of a constant string expression: the literal, or the literal
@@ -42,14 +48,27 @@ fn constant_text(program: &Program, u: UnitId, e: ExprId, prof: u32) -> Option<S
         ExprKind::String(lit) => dartforge_elements::load::string_lit_value(lit),
         ExprKind::Parenthesized(x) => constant_text(program, u, *x, prof),
         ExprKind::Identifier(n) if prof < 8 => {
-            let Some(Element::Variable(v)) = program.lookup_in_unit(u, n.sym).and_then(|b| b.getter) else { return None };
+            let Some(Element::Variable(v)) =
+                program.lookup_in_unit(u, n.sym).and_then(|b| b.getter)
+            else {
+                return None;
+            };
             let x = program.variable(v);
             if !x.const_ {
                 return None;
             }
-            let VariableRef::TopLevel { unit, decl, index } = x.node else { return None };
-            let DeclKind::Variables(l) = &program.unit(unit).ast.decl(decl).kind else { return None };
-            constant_text(program, unit, l.variables.get(index)?.initializer?, prof + 1)
+            let VariableRef::TopLevel { unit, decl, index } = x.node else {
+                return None;
+            };
+            let DeclKind::Variables(l) = &program.unit(unit).ast.decl(decl).kind else {
+                return None;
+            };
+            constant_text(
+                program,
+                unit,
+                l.variables.get(index)?.initializer?,
+                prof + 1,
+            )
         }
         _ => None,
     }
@@ -58,7 +77,12 @@ fn constant_text(program: &Program, u: UnitId, e: ExprId, prof: u32) -> Option<S
 /// `ElementAnnotation.isDeprecated` of annotation `m` (written in unit
 /// `u`): `Some(message)` when it is the `deprecated` getter (without a
 /// message) or the constructor of `Deprecated` of `dart:core`.
-fn deprecated_annotation(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Option<Option<String>> {
+fn deprecated_annotation(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    m: &ast::Annotation,
+) -> Option<Option<String>> {
     let from_core = |b: Option<dartforge_elements::model::Binding>| -> Option<Element> {
         let e = b?.getter?;
         let lib = match e {
@@ -77,13 +101,25 @@ fn deprecated_annotation(program: &Program, interner: &Interner, u: UnitId, m: &
         [p, n] => match from_core(program.lookup_prefixed_in_unit(u, p.sym, n.sym)) {
             Some(e) => (Some(e), n.sym, None),
             // `Deprecated.new(…)`, `Deprecated.the_name(…)`.
-            None => (from_core(program.lookup_in_unit(u, p.sym)), p.sym, Some(n.sym)),
+            None => (
+                from_core(program.lookup_in_unit(u, p.sym)),
+                p.sym,
+                Some(n.sym),
+            ),
         },
-        [p, c, k] => (from_core(program.lookup_prefixed_in_unit(u, p.sym, c.sym)), c.sym, Some(k.sym)),
+        [p, c, k] => (
+            from_core(program.lookup_prefixed_in_unit(u, p.sym, c.sym)),
+            c.sym,
+            Some(k.sym),
+        ),
         _ => return None,
     };
     if let (Some(Element::Class(c)), Some(k)) = (element, the_constructor) {
-        let key = if interner.resolve(k) == "new" { interner.lookup("") } else { Some(k) };
+        let key = if interner.resolve(k) == "new" {
+            interner.lookup("")
+        } else {
+            Some(k)
+        };
         if !key.is_some_and(|ch| program.class(c).constructors.contains_key(&ch)) {
             return None;
         }
@@ -97,7 +133,11 @@ fn deprecated_annotation(program: &Program, interner: &Interner, u: UnitId, m: &
                 .args
                 .iter()
                 .find(|x| x.name.is_none())
-                .or_else(|| args.args.iter().find(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == "message")))
+                .or_else(|| {
+                    args.args
+                        .iter()
+                        .find(|x| x.name.is_some_and(|n| interner.resolve(n.sym) == "message"))
+                })
                 .and_then(|x| constant_text(program, u, x.value, 0));
             Some(message)
         }
@@ -107,12 +147,22 @@ fn deprecated_annotation(program: &Program, interner: &Interner, u: UnitId, m: &
 
 /// `Some(message)` if the list has a deprecation annotation (the message of
 /// the first one).
-fn deprecated(program: &Program, interner: &Interner, u: UnitId, metadata: &[ast::Annotation]) -> Option<Option<String>> {
-    metadata.iter().find_map(|m| deprecated_annotation(program, interner, u, m))
+fn deprecated(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    metadata: &[ast::Annotation],
+) -> Option<Option<String>> {
+    metadata
+        .iter()
+        .find_map(|m| deprecated_annotation(program, interner, u, m))
 }
 
 /// The annotations of a function, method or constructor, with their unit.
-pub(crate) fn of_function(program: &Program, f: FunctionElementId) -> Option<(&[ast::Annotation], UnitId)> {
+pub(crate) fn of_function(
+    program: &Program,
+    f: FunctionElementId,
+) -> Option<(&[ast::Annotation], UnitId)> {
     let e = program.function(f);
     // Implicit accessor: the annotations are those of the variable.
     if let Some(v) = e.variable
@@ -121,32 +171,52 @@ pub(crate) fn of_function(program: &Program, f: FunctionElementId) -> Option<(&[
         return of_variable(program, v);
     }
     match e.node {
-        FunctionRef::Constructor { unit, member } => Some((&program.unit(unit).ast.member(member).metadata[..], unit)),
+        FunctionRef::Constructor { unit, member } => {
+            Some((&program.unit(unit).ast.member(member).metadata[..], unit))
+        }
         FunctionRef::Function { unit, function } => {
             let a = &program.unit(unit).ast;
-            if let Some(m) = a.members.iter().find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function)) {
+            if let Some(m) = a
+                .members
+                .iter()
+                .find(|m| matches!(&m.kind, MemberKind::Method(g) if *g == function))
+            {
                 return Some((&m.metadata[..], unit));
             }
-            a.decls.iter().find(|d| matches!(&d.kind, DeclKind::Function(g) if *g == function)).map(|d| (&d.metadata[..], unit))
+            a.decls
+                .iter()
+                .find(|d| matches!(&d.kind, DeclKind::Function(g) if *g == function))
+                .map(|d| (&d.metadata[..], unit))
         }
         FunctionRef::None => e.variable.and_then(|v| of_variable(program, v)),
     }
 }
 
-pub(crate) fn of_variable(program: &Program, v: VariableId) -> Option<(&[ast::Annotation], UnitId)> {
+pub(crate) fn of_variable(
+    program: &Program,
+    v: VariableId,
+) -> Option<(&[ast::Annotation], UnitId)> {
     match program.variable(v).node {
-        VariableRef::TopLevel { unit, decl, .. } => Some((&program.unit(unit).ast.decl(decl).metadata[..], unit)),
-        VariableRef::Field { unit, member, .. } => Some((&program.unit(unit).ast.member(member).metadata[..], unit)),
-        VariableRef::EnumConstant { unit, decl, index } => match &program.unit(unit).ast.decl(decl).kind {
-            DeclKind::Enum(x) => x.constants.get(index).map(|k| (&k.metadata[..], unit)),
-            _ => None,
-        },
+        VariableRef::TopLevel { unit, decl, .. } => {
+            Some((&program.unit(unit).ast.decl(decl).metadata[..], unit))
+        }
+        VariableRef::Field { unit, member, .. } => {
+            Some((&program.unit(unit).ast.member(member).metadata[..], unit))
+        }
+        VariableRef::EnumConstant { unit, decl, index } => {
+            match &program.unit(unit).ast.decl(decl).kind {
+                DeclKind::Enum(x) => x.constants.get(index).map(|k| (&k.metadata[..], unit)),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
 
 pub(crate) fn of_element(program: &Program, e: Element) -> Option<(&[ast::Annotation], UnitId)> {
-    let of_declaration = |d: dartforge_elements::model::DeclRef| Some((&program.unit(d.unit).ast.decl(d.decl).metadata[..], d.unit));
+    let of_declaration = |d: dartforge_elements::model::DeclRef| {
+        Some((&program.unit(d.unit).ast.decl(d.decl).metadata[..], d.unit))
+    };
     match e {
         Element::Class(c) => program.class(c).decl.and_then(of_declaration),
         Element::Typedef(t) => of_declaration(program.typedef(t).decl),
@@ -158,10 +228,18 @@ pub(crate) fn of_element(program: &Program, e: Element) -> Option<(&[ast::Annota
 }
 
 /// The library is deprecated: its `library` directive has the annotation.
-fn deprecated_library(program: &Program, interner: &Interner, lib: LibraryId) -> Option<Option<String>> {
+fn deprecated_library(
+    program: &Program,
+    interner: &Interner,
+    lib: LibraryId,
+) -> Option<Option<String>> {
     let first = *program.library(lib).units.first()?;
     let unit_id = program.unit(first);
-    let directive = unit_id.unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::Library { .. }))?;
+    let directive = unit_id
+        .unit
+        .directives
+        .iter()
+        .find(|d| matches!(d.kind, DirectiveKind::Library { .. }))?;
     deprecated(program, interner, first, &directive.metadata)
 }
 
@@ -190,7 +268,14 @@ struct Target<'p> {
 }
 
 /// The core of the verifier over unit `u`.
-fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Option<&UnitBodyTypes>, u: UnitId, mode: Mode) -> Vec<Use> {
+fn verify(
+    program: &Program,
+    interner: &Interner,
+    table: &TypeTable,
+    body: Option<&UnitBodyTypes>,
+    u: UnitId,
+    mode: Mode,
+) -> Vec<Use> {
     let mut out: Vec<Use> = Vec::new();
     // Without either of the two interned annotations, nothing to do.
     if interner.lookup("deprecated").is_none() && interner.lookup("Deprecated").is_none() {
@@ -207,7 +292,12 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
     // parameters of this unit.
     let mut regions: Vec<Span> = Vec::new();
     regions.extend(a.decls.iter().filter(|d| dep(&d.metadata)).map(|d| d.span));
-    regions.extend(a.members.iter().filter(|m| dep(&m.metadata)).map(|m| m.span));
+    regions.extend(
+        a.members
+            .iter()
+            .filter(|m| dep(&m.metadata))
+            .map(|m| m.span),
+    );
     {
         let mut lists: Vec<&[ast::Parameter]> = Vec::new();
         for f in a.functions.iter() {
@@ -237,26 +327,51 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         if in_deprecated(span) {
             return;
         }
-        let Some(message) = deprecated(program, interner, tgt.unit, tgt.metadata) else { return };
+        let Some(message) = deprecated(program, interner, tgt.unit, tgt.metadata) else {
+            return;
+        };
         let lib = program.unit(tgt.unit).library;
         // The analyzer's listener is a set: one report per position.
         if !out.iter().any(|x| x.span == span && x.name == tgt.name) {
-            out.push(Use { span, name: tgt.name, message, lib });
+            out.push(Use {
+                span,
+                name: tgt.name,
+                message,
+                lib,
+            });
         }
     };
     let text = |s: dartforge_intern::SymbolId| interner.resolve(s).to_string();
     // The display name of a function (that of a setter without `=`).
     let function_name = |f: FunctionElementId| -> String {
         let k = program.function(f);
-        if matches!(k.kind, FunctionKind::Constructor | FunctionKind::SyntheticConstructor) {
-            let cls = k.class.map_or(String::new(), |c| text(program.class(c).name));
+        if matches!(
+            k.kind,
+            FunctionKind::Constructor | FunctionKind::SyntheticConstructor
+        ) {
+            let cls = k
+                .class
+                .map_or(String::new(), |c| text(program.class(c).name));
             let ctor = interner.resolve(k.name);
-            return if ctor.is_empty() { format!("{cls}.new") } else { format!("{cls}.{ctor}") };
+            return if ctor.is_empty() {
+                format!("{cls}.new")
+            } else {
+                format!("{cls}.{ctor}")
+            };
         }
         let t = interner.resolve(k.name);
-        t.strip_suffix("_=").or_else(|| t.strip_suffix('=')).unwrap_or(t).to_string()
+        t.strip_suffix("_=")
+            .or_else(|| t.strip_suffix('='))
+            .unwrap_or(t)
+            .to_string()
     };
-    let function_target = |f: FunctionElementId| of_function(program, f).map(|(metadata, unit_id)| Target { metadata, unit: unit_id, name: function_name(f) });
+    let function_target = |f: FunctionElementId| {
+        of_function(program, f).map(|(metadata, unit_id)| Target {
+            metadata,
+            unit: unit_id,
+            name: function_name(f),
+        })
+    };
     let element_target = |e: Element| -> Option<Target<'_>> {
         let the_name = match e {
             Element::Class(c) => text(program.class(c).name),
@@ -266,24 +381,46 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             Element::Variable(v) => text(program.variable(v).name),
             Element::Prefix(..) => return None,
         };
-        of_element(program, e).map(|(metadata, unit_id)| Target { metadata, unit: unit_id, name: the_name })
+        of_element(program, e).map(|(metadata, unit_id)| Target {
+            metadata,
+            unit: unit_id,
+            name: the_name,
+        })
     };
-    let variable_target = |v: VariableId| of_variable(program, v).map(|(metadata, unit_id)| Target { metadata, unit: unit_id, name: text(program.variable(v).name) });
+    let variable_target = |v: VariableId| {
+        of_variable(program, v).map(|(metadata, unit_id)| Target {
+            metadata,
+            unit: unit_id,
+            name: text(program.variable(v).name),
+        })
+    };
     // The element of a resolution (locals and parameters are not included:
     // `_isLocalParameter` silences the parameter inside its own function).
     let resolved_target = |r: &Resolved| -> Option<Target<'_>> {
         match r {
             Resolved::Constructor(f) => function_target(*f),
             Resolved::Element(e) => element_target(*e),
-            Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => function_target(*f),
-            Resolved::Member { member: MemberRef::Variable(v), .. } => variable_target(*v),
+            Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            }
+            | Resolved::ExtensionMember { member: f, .. } => function_target(*f),
+            Resolved::Member {
+                member: MemberRef::Variable(v),
+                ..
+            } => variable_target(*v),
             _ => None,
         }
     };
     // The getter that accompanies a written setter (the `readElement`).
     let read = |r: &Resolved| -> Option<Target<'_>> {
         let f = match r {
-            Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } | Resolved::Element(Element::Function(f)) => *f,
+            Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            }
+            | Resolved::ExtensionMember { member: f, .. }
+            | Resolved::Element(Element::Function(f)) => *f,
             _ => return None,
         };
         let g = program.function(f);
@@ -293,8 +430,18 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         let t = interner.resolve(g.name);
         let the_name = interner.lookup(t.strip_suffix("_=").unwrap_or(t))?;
         let getter = match (g.class, g.extension) {
-            (Some(c), _) => program.class(c).instance_members.get(&the_name).or_else(|| program.class(c).static_members.get(&the_name)).copied(),
-            (None, Some(e)) => program.extension(e).instance_members.get(&the_name).or_else(|| program.extension(e).static_members.get(&the_name)).copied(),
+            (Some(c), _) => program
+                .class(c)
+                .instance_members
+                .get(&the_name)
+                .or_else(|| program.class(c).static_members.get(&the_name))
+                .copied(),
+            (None, Some(e)) => program
+                .extension(e)
+                .instance_members
+                .get(&the_name)
+                .or_else(|| program.extension(e).static_members.get(&the_name))
+                .copied(),
             _ => match program.lookup(g.library, the_name).and_then(|b| b.getter) {
                 Some(Element::Function(h)) => Some(h),
                 _ => None,
@@ -305,7 +452,9 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
 
     // 1. Named types (`namedType`): at the last name.
     for (k, t) in a.types.iter().enumerate() {
-        let TypeKind::Named { name, .. } = &t.kind else { continue };
+        let TypeKind::Named { name, .. } = &t.kind else {
+            continue;
+        };
         let binding = match &name[..] {
             [n] => program.lookup_in_unit(u, n.sym),
             [p, n] => program.lookup_prefixed_in_unit(u, p.sym, n.sym),
@@ -318,7 +467,9 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         {
             continue;
         }
-        let (Some(element), Some(last)) = (binding.and_then(|b| b.getter), name.last()) else { continue };
+        let (Some(element), Some(last)) = (binding.and_then(|b| b.getter), name.last()) else {
+            continue;
+        };
         if matches!(element, Element::Class(_) | Element::Typedef(_))
             && let Some(tgt) = element_target(element)
         {
@@ -334,23 +485,46 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         .iter()
         .filter(|i| i.unit == u)
         .map(|i| (i.directive, i.library))
-        .chain(library.exports.iter().filter(|e| e.unit == u).map(|e| (e.directive, e.library)));
+        .chain(
+            library
+                .exports
+                .iter()
+                .filter(|e| e.unit == u)
+                .map(|e| (e.directive, e.library)),
+        );
     for (idx, tgt) in targets {
-        let Some(directive) = unit_id.unit.directives.get(idx) else { continue };
+        let Some(directive) = unit_id.unit.directives.get(idx) else {
+            continue;
+        };
         // The deprecated library: the metadata of its `library` directive.
         if let Some(first) = program.library(tgt).units.first().copied()
-            && let Some(d) = program.unit(first).unit.directives.iter().find(|d| matches!(d.kind, DirectiveKind::Library { .. }))
+            && let Some(d) = program
+                .unit(first)
+                .unit
+                .directives
+                .iter()
+                .find(|d| matches!(d.kind, DirectiveKind::Library { .. }))
         {
-            report(directive.span, Target { metadata: &d.metadata, unit: first, name: program.library(tgt).uri.clone() });
+            report(
+                directive.span,
+                Target {
+                    metadata: &d.metadata,
+                    unit: first,
+                    name: program.library(tgt).uri.clone(),
+                },
+            );
         }
         let the_combinators = match &directive.kind {
-            DirectiveKind::Import { combinators, .. } | DirectiveKind::Export { combinators, .. } => combinators,
+            DirectiveKind::Import { combinators, .. }
+            | DirectiveKind::Export { combinators, .. } => combinators,
             _ => continue,
         };
         for c in the_combinators.iter() {
             let Combinator::Show(names) = c else { continue };
             for n in names {
-                let Some(b) = program.library(tgt).exported.get(&n.sym) else { continue };
+                let Some(b) = program.library(tgt).exported.get(&n.sym) else {
+                    continue;
+                };
                 if let Some(e) = b.getter.or(b.setter)
                     && let Some(x) = element_target(e)
                 {
@@ -372,7 +546,8 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             .iter()
             .flat_map(|(_, ms)| ms.iter().map(|m| m.span.start))
             .collect();
-        let mut containers: Vec<(Span, std::collections::HashSet<dartforge_intern::SymbolId>)> = Vec::new();
+        let mut containers: Vec<(Span, std::collections::HashSet<dartforge_intern::SymbolId>)> =
+            Vec::new();
         for d in a.decls.iter() {
             let (members, constants): (&[ast::MemberId], &[ast::EnumConstant]) = match &d.kind {
                 DeclKind::Class(x) => (&x.members, &[]),
@@ -382,7 +557,8 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                 DeclKind::ExtensionType(x) => (&x.members, &[]),
                 _ => continue,
             };
-            let mut names: std::collections::HashSet<dartforge_intern::SymbolId> = constants.iter().map(|k| k.name.sym).collect();
+            let mut names: std::collections::HashSet<dartforge_intern::SymbolId> =
+                constants.iter().map(|k| k.name.sym).collect();
             if let DeclKind::ExtensionType(x) = &d.kind {
                 names.insert(x.representation_name.sym);
             }
@@ -400,21 +576,39 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             .iter()
             .filter(|d| dep(&d.metadata))
             .flat_map(|d| d.metadata.iter().map(|m| m.span))
-            .chain(a.members.iter().filter(|m| dep(&m.metadata)).flat_map(|m| m.metadata.iter().map(|x| x.span)))
+            .chain(
+                a.members
+                    .iter()
+                    .filter(|m| dep(&m.metadata))
+                    .flat_map(|m| m.metadata.iter().map(|x| x.span)),
+            )
             .collect();
         for m in dartforge_frontend::parents::all_annotations(a, &unit_id.unit) {
             if local.contains(&m.span.start) || deprecated_owner.contains(&m.span) {
                 continue;
             }
-            let Some(first) = m.name.first() else { continue };
-            if containers.iter().any(|(sp, names)| sp.start <= m.span.start && m.span.end <= sp.end && names.contains(&first.sym)) {
+            let Some(first) = m.name.first() else {
+                continue;
+            };
+            if containers.iter().any(|(sp, names)| {
+                sp.start <= m.span.start && m.span.end <= sp.end && names.contains(&first.sym)
+            }) {
                 continue;
             }
-            let prefixed = m.name.len() >= 2 && program.prefixes_in_unit(u).contains_key(&first.sym);
+            let prefixed =
+                m.name.len() >= 2 && program.prefixes_in_unit(u).contains_key(&first.sym);
             let (head, rest): (Option<Element>, &[ast::Name]) = if prefixed {
-                (program.lookup_prefixed_in_unit(u, first.sym, m.name[1].sym).and_then(|b| b.getter), &m.name[1..])
+                (
+                    program
+                        .lookup_prefixed_in_unit(u, first.sym, m.name[1].sym)
+                        .and_then(|b| b.getter),
+                    &m.name[1..],
+                )
             } else {
-                (program.lookup_in_unit(u, first.sym).and_then(|b| b.getter), &m.name[..])
+                (
+                    program.lookup_in_unit(u, first.sym).and_then(|b| b.getter),
+                    &m.name[..],
+                )
             };
             let Some(head) = head else { continue };
             if let Some(tgt) = element_target(head) {
@@ -423,7 +617,11 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             // `@C.x` / `@C.named(…)`: the static member or the constructor.
             if let (Element::Class(c), Some(member)) = (head, rest.get(1)) {
                 let k = program.class(c);
-                let f = k.static_members.get(&member.sym).copied().or_else(|| k.constructors.get(&member.sym).copied());
+                let f = k
+                    .static_members
+                    .get(&member.sym)
+                    .copied()
+                    .or_else(|| k.constructors.get(&member.sym).copied());
                 if let Some(f) = f
                     && let Some(tgt) = function_target(f)
                 {
@@ -444,33 +642,73 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         let comments = dartforge_frontend::comments::Comments::scan(source);
         let doc = |metadata: &[Annotation], start: usize| -> Option<(Span, Vec<Span>)> {
             let after = match metadata.last() {
-                Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
+                Some(m) => {
+                    dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end)
+                }
                 None => start,
             };
             let (d, pos) = match comments.dart_doc(source, after) {
                 Some(d) => (d, after),
-                None => metadata.iter().rev().find_map(|m| comments.dart_doc(source, m.span.start).map(|d| (d, m.span.start)))?,
+                None => metadata.iter().rev().find_map(|m| {
+                    comments
+                        .dart_doc(source, m.span.start)
+                        .map(|d| (d, m.span.start))
+                })?,
             };
-            let chain: Vec<Span> = comments.before(source, pos).into_iter().filter(|c| c.start >= d.start).collect();
+            let chain: Vec<Span> = comments
+                .before(source, pos)
+                .into_iter()
+                .filter(|c| c.start >= d.start)
+                .collect();
             Some((d, chain))
         };
-        let names_of = |ps: &[Parameter], tps: &[ast::TypeParameter]| -> Vec<dartforge_intern::SymbolId> {
-            ps.iter().filter_map(|p| p.name.map(|n| n.sym)).chain(tps.iter().map(|t| t.name.sym)).collect()
-        };
+        let names_of =
+            |ps: &[Parameter], tps: &[ast::TypeParameter]| -> Vec<dartforge_intern::SymbolId> {
+                ps.iter()
+                    .filter_map(|p| p.name.map(|n| n.sym))
+                    .chain(tps.iter().map(|t| t.name.sym))
+                    .collect()
+            };
         let lib = unit_id.library;
-        let class_of = |n: dartforge_intern::SymbolId| match program.library(lib).declared.get(&n).and_then(|b| b.getter) {
+        let class_of = |n: dartforge_intern::SymbolId| match program
+            .library(lib)
+            .declared
+            .get(&n)
+            .and_then(|b| b.getter)
+        {
             Some(Element::Class(c)) => Some(c),
             _ => None,
         };
         // (comment chain, names to leave out, enclosing type, documented item deprecated)
-        type DocumentedScope = (Vec<Span>, Vec<dartforge_intern::SymbolId>, Option<dartforge_elements::model::ClassId>, bool);
+        type DocumentedScope = (
+            Vec<Span>,
+            Vec<dartforge_intern::SymbolId>,
+            Option<dartforge_elements::model::ClassId>,
+            bool,
+        );
         let mut docs: Vec<DocumentedScope> = Vec::new();
-        let mut owners: std::collections::HashMap<u32, (Option<dartforge_elements::model::ClassId>, Vec<dartforge_intern::SymbolId>)> = std::collections::HashMap::new();
+        let mut owners: std::collections::HashMap<
+            u32,
+            (
+                Option<dartforge_elements::model::ClassId>,
+                Vec<dartforge_intern::SymbolId>,
+            ),
+        > = std::collections::HashMap::new();
         for decl in a.decls.iter() {
-            let (extras, owner, members, tps): (Vec<dartforge_intern::SymbolId>, Option<dartforge_elements::model::ClassId>, &[ast::MemberId], &[ast::TypeParameter]) = match &decl.kind {
+            let (extras, owner, members, tps): (
+                Vec<dartforge_intern::SymbolId>,
+                Option<dartforge_elements::model::ClassId>,
+                &[ast::MemberId],
+                &[ast::TypeParameter],
+            ) = match &decl.kind {
                 DeclKind::Function(f) => {
                     let g = a.function(*f);
-                    (names_of(g.parameters.as_deref().unwrap_or(&[]), &g.type_params), None, &[], &[])
+                    (
+                        names_of(g.parameters.as_deref().unwrap_or(&[]), &g.type_params),
+                        None,
+                        &[],
+                        &[],
+                    )
                 }
                 DeclKind::Typedef(t) => {
                     let ps: &[Parameter] = match &t.kind {
@@ -479,15 +717,27 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                     };
                     (names_of(ps, &t.type_params), None, &[], &[])
                 }
-                DeclKind::Class(c) => (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params),
-                DeclKind::Mixin(c) => (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params),
+                DeclKind::Class(c) => {
+                    (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params)
+                }
+                DeclKind::Mixin(c) => {
+                    (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params)
+                }
                 DeclKind::Enum(c) => (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params),
-                DeclKind::ExtensionType(c) => (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params),
+                DeclKind::ExtensionType(c) => {
+                    (Vec::new(), class_of(c.name.sym), &c.members, &c.type_params)
+                }
                 // An extension's members: only the library's scope here.
-                DeclKind::Extension(c) => (c.type_params.iter().map(|t| t.name.sym).collect(), None, &c.members, &c.type_params),
+                DeclKind::Extension(c) => (
+                    c.type_params.iter().map(|t| t.name.sym).collect(),
+                    None,
+                    &c.members,
+                    &c.type_params,
+                ),
                 DeclKind::Variables(_) => (Vec::new(), None, &[], &[]),
             };
-            let type_param_names: Vec<dartforge_intern::SymbolId> = tps.iter().map(|t| t.name.sym).collect();
+            let type_param_names: Vec<dartforge_intern::SymbolId> =
+                tps.iter().map(|t| t.name.sym).collect();
             for &m in members {
                 owners.insert(m.0, (owner, type_param_names.clone()));
             }
@@ -497,8 +747,12 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             if matches!(decl.kind, DeclKind::Extension(_)) {
                 for &m in members {
                     match &a.member(m).kind {
-                        MemberKind::Field(v) => extension_names.extend(v.variables.iter().map(|x| x.name.sym)),
-                        MemberKind::Method(f) => extension_names.extend(a.function(*f).name.map(|n| n.sym)),
+                        MemberKind::Field(v) => {
+                            extension_names.extend(v.variables.iter().map(|x| x.name.sym))
+                        }
+                        MemberKind::Method(f) => {
+                            extension_names.extend(a.function(*f).name.map(|n| n.sym))
+                        }
                         MemberKind::Constructor(_) => {}
                     }
                 }
@@ -517,18 +771,31 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             if let DeclKind::Enum(c) = &decl.kind {
                 for k in c.constants.iter() {
                     if let Some((_, chain)) = doc(&k.metadata, k.span.start) {
-                        docs.push((chain, type_param_names.clone(), owner, dep(&decl.metadata) || dep(&k.metadata)));
+                        docs.push((
+                            chain,
+                            type_param_names.clone(),
+                            owner,
+                            dep(&decl.metadata) || dep(&k.metadata),
+                        ));
                     }
                 }
             }
         }
         for (i, m) in a.members.iter().enumerate() {
-            let Some((_, chain)) = doc(&m.metadata, m.span.start) else { continue };
-            let (owner, mut extras) = owners.get(&(i as u32)).cloned().unwrap_or((None, Vec::new()));
+            let Some((_, chain)) = doc(&m.metadata, m.span.start) else {
+                continue;
+            };
+            let (owner, mut extras) = owners
+                .get(&(i as u32))
+                .cloned()
+                .unwrap_or((None, Vec::new()));
             match &m.kind {
                 MemberKind::Method(f) => {
                     let g = a.function(*f);
-                    extras.extend(names_of(g.parameters.as_deref().unwrap_or(&[]), &g.type_params));
+                    extras.extend(names_of(
+                        g.parameters.as_deref().unwrap_or(&[]),
+                        &g.type_params,
+                    ));
                 }
                 MemberKind::Constructor(k) => extras.extend(names_of(&k.parameters, &[])),
                 MemberKind::Field(_) => {}
@@ -538,17 +805,31 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         }
         // A member of class `c` by name: methods and accessors (instance or
         // static), constructors (`[C.named]`), enum constants.
-        let member_target = |c: dartforge_elements::model::ClassId, n: &str, inherited: bool| -> Option<Option<Target<'_>>> {
+        let member_target = |c: dartforge_elements::model::ClassId,
+                             n: &str,
+                             inherited: bool|
+         -> Option<Option<Target<'_>>> {
             let sym = interner.lookup(n)?;
             let k = program.class(c);
-            if let Some(&f) = k.instance_members.get(&sym).or_else(|| k.static_members.get(&sym)) {
+            if let Some(&f) = k
+                .instance_members
+                .get(&sym)
+                .or_else(|| k.static_members.get(&sym))
+            {
                 return Some(function_target(f));
             }
-            if let Some(&v) = k.enum_constants.iter().find(|&&v| program.variable(v).name == sym) {
+            if let Some(&v) = k
+                .enum_constants
+                .iter()
+                .find(|&&v| program.variable(v).name == sym)
+            {
                 return Some(variable_target(v));
             }
             if let Some(setter) = interner.lookup(&format!("{n}="))
-                && let Some(&f) = k.instance_members.get(&setter).or_else(|| k.static_members.get(&setter))
+                && let Some(&f) = k
+                    .instance_members
+                    .get(&setter)
+                    .or_else(|| k.static_members.get(&setter))
             {
                 return Some(function_target(f));
             }
@@ -561,9 +842,12 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             // An inherited instance member (`_lookUpMember` on the enclosing
             // class): the supertypes, breadth-first.
             let setter = interner.lookup(&format!("{n}="));
-            let mut queue: std::collections::VecDeque<dartforge_elements::model::ClassId> = std::collections::VecDeque::new();
-            let mut seen: std::collections::HashSet<dartforge_elements::model::ClassId> = std::collections::HashSet::new();
-            let push = |x: dartforge_elements::model::ClassId, queue: &mut std::collections::VecDeque<_>| {
+            let mut queue: std::collections::VecDeque<dartforge_elements::model::ClassId> =
+                std::collections::VecDeque::new();
+            let mut seen: std::collections::HashSet<dartforge_elements::model::ClassId> =
+                std::collections::HashSet::new();
+            let push = |x: dartforge_elements::model::ClassId,
+                        queue: &mut std::collections::VecDeque<_>| {
                 let kx = program.class(x);
                 queue.extend(kx.supertype_class);
                 queue.extend(kx.mixin_classes.iter().copied());
@@ -576,7 +860,11 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                     continue;
                 }
                 let kx = program.class(x);
-                if let Some(&f) = kx.instance_members.get(&sym).or_else(|| setter.and_then(|st| kx.instance_members.get(&st))) {
+                if let Some(&f) = kx
+                    .instance_members
+                    .get(&sym)
+                    .or_else(|| setter.and_then(|st| kx.instance_members.get(&st)))
+                {
                     return Some(function_target(f));
                 }
                 push(x, &mut queue);
@@ -589,8 +877,12 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             }
             for r in dartforge_frontend::doc_references::references(source, &chain) {
                 let parts = &r.parts;
-                let Some((s1, t1)) = parts.first() else { continue };
-                let Some(n1) = interner.lookup(t1) else { continue };
+                let Some((s1, t1)) = parts.first() else {
+                    continue;
+                };
+                let Some(n1) = interner.lookup(t1) else {
+                    continue;
+                };
                 if extras.contains(&n1) {
                     continue;
                 }
@@ -613,17 +905,22 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                     }
                     continue;
                 }
-                let (head, rest) = if parts.len() >= 2 && program.prefixes_in_unit(u).contains_key(&n1) {
-                    let Some(n2) = interner.lookup(&parts[1].1) else { continue };
-                    (program.lookup_prefixed_in_unit(u, n1, n2), &parts[1..])
-                } else if parts.len() <= 2 {
-                    (program.lookup_in_unit(u, n1), &parts[..])
-                } else {
-                    // `[A.b.c]` without an import prefix: not resolved
-                    // (`[DartType.element.name]` reports nothing).
+                let (head, rest) =
+                    if parts.len() >= 2 && program.prefixes_in_unit(u).contains_key(&n1) {
+                        let Some(n2) = interner.lookup(&parts[1].1) else {
+                            continue;
+                        };
+                        (program.lookup_prefixed_in_unit(u, n1, n2), &parts[1..])
+                    } else if parts.len() <= 2 {
+                        (program.lookup_in_unit(u, n1), &parts[..])
+                    } else {
+                        // `[A.b.c]` without an import prefix: not resolved
+                        // (`[DartType.element.name]` reports nothing).
+                        continue;
+                    };
+                let Some(head) = head.and_then(|b| b.getter.or(b.setter)) else {
                     continue;
                 };
-                let Some(head) = head.and_then(|b| b.getter.or(b.setter)) else { continue };
                 if let Some(tgt) = element_target(head) {
                     report(rest[0].0, tgt);
                 }
@@ -644,12 +941,25 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             DeclKind::Enum(c) => (c.name.sym, &c.members),
             _ => continue,
         };
-        let Some(Element::Class(c)) = program.library(unit_id.library).declared.get(&the_name).and_then(|b| b.getter) else { continue };
+        let Some(Element::Class(c)) = program
+            .library(unit_id.library)
+            .declared
+            .get(&the_name)
+            .and_then(|b| b.getter)
+        else {
+            continue;
+        };
         for &m in members {
-            let MemberKind::Constructor(k) = &a.member(m).kind else { continue };
+            let MemberKind::Constructor(k) = &a.member(m).kind else {
+                continue;
+            };
             for init in k.initializers.iter() {
-                let Initializer::Field { name, .. } = init else { continue };
-                let field = program.class(c).fields.iter().copied().find(|&v| program.variable(v).name == name.sym && !program.variable(v).static_);
+                let Initializer::Field { name, .. } = init else {
+                    continue;
+                };
+                let field = program.class(c).fields.iter().copied().find(|&v| {
+                    program.variable(v).name == name.sym && !program.variable(v).static_
+                });
                 if let Some(v) = field
                     && let Some(tgt) = variable_target(v)
                 {
@@ -669,7 +979,11 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
             ExprKind::Assign { target, .. } => {
                 written_ones.insert(*target);
             }
-            ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } => {
+            ExprKind::Unary {
+                op:
+                    UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec,
+                operand,
+            } => {
                 written_ones.insert(*operand);
             }
             _ => {}
@@ -683,22 +997,35 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
     // The operator resolved on the node itself (`staticElement`).
     let operator = |e: ExprId| -> Option<Target<'_>> {
         match body.get_resolved(e)? {
-            Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => function_target(*f),
+            Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            }
+            | Resolved::ExtensionMember { member: f, .. } => function_target(*f),
             _ => None,
         }
     };
     // `_invocationArguments`: the arguments passed to non-required deprecated
     // parameters, outside the function that declares them.
-    let args_list = |f: FunctionElementId, args: &ast::Arguments, the_call: Span, report: &mut dyn FnMut(Span, Target<'_>)| {
+    let args_list = |f: FunctionElementId,
+                     args: &ast::Arguments,
+                     the_call: Span,
+                     report: &mut dyn FnMut(Span, Target<'_>)| {
         let (ps, pu, owner) = match program.function(f).node {
             FunctionRef::Function { unit, function } => {
                 let x = program.unit(unit).ast.function(function);
                 (x.parameters.as_deref().unwrap_or(&[]), unit, x.span)
             }
-            FunctionRef::Constructor { unit, member } => match &program.unit(unit).ast.member(member).kind {
-                MemberKind::Constructor(k) => (&k.parameters[..], unit, program.unit(unit).ast.member(member).span),
-                _ => return,
-            },
+            FunctionRef::Constructor { unit, member } => {
+                match &program.unit(unit).ast.member(member).kind {
+                    MemberKind::Constructor(k) => (
+                        &k.parameters[..],
+                        unit,
+                        program.unit(unit).ast.member(member).span,
+                    ),
+                    _ => return,
+                }
+            }
             FunctionRef::None => return,
         };
         let local = pu == u && owner.start <= the_call.start && the_call.end <= owner.end;
@@ -708,7 +1035,10 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         let mut positional_one = 0;
         for x in args.args.iter() {
             let p = match x.name {
-                Some(n) => ps.iter().find(|p| p.kind == ParameterKind::Named && p.external_name().is_some_and(|m| m.sym == n.sym)),
+                Some(n) => ps.iter().find(|p| {
+                    p.kind == ParameterKind::Named
+                        && p.external_name().is_some_and(|m| m.sym == n.sym)
+                }),
                 None => {
                     let p = ps.get(positional_one);
                     positional_one += 1;
@@ -724,13 +1054,25 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                 Some(n) => n.span,
                 None => a.expr(x.value).span,
             };
-            report(span, Target { metadata: &p.metadata, unit: pu, name: text(the_name.sym) });
+            report(
+                span,
+                Target {
+                    metadata: &p.metadata,
+                    unit: pu,
+                    name: text(the_name.sym),
+                },
+            );
         }
     };
     // The element invoked by a method call.
     let invoked = |tgt: ExprId| -> Option<FunctionElementId> {
         match body.get_resolved(tgt)? {
-            Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } | Resolved::Element(Element::Function(f)) => {
+            Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            }
+            | Resolved::ExtensionMember { member: f, .. }
+            | Resolved::Element(Element::Function(f)) => {
                 (program.function(*f).kind != FunctionKind::Getter).then_some(*f)
             }
             _ => None,
@@ -743,7 +1085,9 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         match &expr.kind {
             // `simpleIdentifier` (the property name too).
             ExprKind::Identifier(_) | ExprKind::Property { .. } if !written_ones.contains(&id) => {
-                let Some(r) = body.get_resolved(id) else { continue };
+                let Some(r) = body.get_resolved(id) else {
+                    continue;
+                };
                 if matches!(r, Resolved::Constructor(_)) {
                     // O tear-off `C.the_name`/`C.new`: o `ConstructorName`.
                     if let Some(tgt) = resolved_target(r) {
@@ -773,8 +1117,13 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                 }
             }
             ExprKind::Unary { op, operand } => {
-                if matches!(op, UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec)
-                    && let Some(r) = body.get_resolved(*operand)
+                if matches!(
+                    op,
+                    UnaryOp::PrefixInc
+                        | UnaryOp::PrefixDec
+                        | UnaryOp::PostfixInc
+                        | UnaryOp::PostfixDec
+                ) && let Some(r) = body.get_resolved(*operand)
                 {
                     // On the whole operand.
                     let sp = a.expr(*operand).span;
@@ -796,12 +1145,23 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                     report(expr.span, tgt);
                 }
             }
-            ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
+            ExprKind::InstanceCreation {
+                ty,
+                constructor,
+                arguments,
+                ..
+            } => {
                 if let Some(Resolved::Constructor(f)) = body.get_resolved(id) {
                     // The `ConstructorName`: from the type to the constructor name.
                     let end = constructor.map_or(a.ty(*ty).span.end, |n| n.span.end);
                     if let Some(tgt) = function_target(*f) {
-                        report(Span { start: a.ty(*ty).span.start, end }, tgt);
+                        report(
+                            Span {
+                                start: a.ty(*ty).span.start,
+                                end,
+                            },
+                            tgt,
+                        );
                     }
                     args_list(*f, arguments, expr.span, &mut report);
                 }
@@ -817,12 +1177,18 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                     loop {
                         match &a.expr(x).kind {
                             ExprKind::TypeArguments { target: t, .. } => x = *t,
-                            ExprKind::Property { target: t, .. } if !matches!(body.get_resolved(x), Some(Resolved::Element(_))) => x = *t,
+                            ExprKind::Property { target: t, .. }
+                                if !matches!(body.get_resolved(x), Some(Resolved::Element(_))) =>
+                            {
+                                x = *t
+                            }
                             _ => break,
                         }
                     }
                     let typ = match body.get_resolved(x) {
-                        Some(Resolved::Element(e @ (Element::Class(_) | Element::Typedef(_)))) => Some(*e),
+                        Some(Resolved::Element(e @ (Element::Class(_) | Element::Typedef(_)))) => {
+                            Some(*e)
+                        }
                         _ => program.function(*f).class.map(Element::Class),
                     };
                     if let Some(e) = typ
@@ -842,7 +1208,11 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                 // `functionExpressionInvocation`: the `call` of a class object called as a
                 // function.
                 if let Some(t) = body.get_type(*target)
-                    && let Type::Interface { class, nullable: false, .. } = table.get(t)
+                    && let Type::Interface {
+                        class,
+                        nullable: false,
+                        ..
+                    } = table.get(t)
                     && let Some(call) = interner.lookup("call")
                     && let Some(f) = class_member(program, *class, call)
                     && program.function(f).kind == FunctionKind::Function
@@ -858,7 +1228,9 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
     // 4. `super(…)` and `this(…)`: the whole node, the arguments, and the name
     // of `this.the_name(…)` (its identifier has the constructor).
     for m in a.members.iter() {
-        let MemberKind::Constructor(k) = &m.kind else { continue };
+        let MemberKind::Constructor(k) = &m.kind else {
+            continue;
+        };
         let cls = (0..program.functions.len())
             .map(|i| FunctionElementId(i as u32))
             .find(|f| matches!(program.function(*f).node, FunctionRef::Constructor { unit, member } if unit == u && std::ptr::eq(a.member(member), m)))
@@ -866,8 +1238,22 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
         let Some(cls) = cls else { continue };
         for i in k.initializers.iter() {
             let (span, owner, the_name, args, redirection) = match i {
-                Initializer::Super { span, constructor, arguments } => (*span, program.class(cls).supertype_class, *constructor, arguments, false),
-                Initializer::Redirect { span, constructor, arguments } => (*span, Some(cls), *constructor, arguments, true),
+                Initializer::Super {
+                    span,
+                    constructor,
+                    arguments,
+                } => (
+                    *span,
+                    program.class(cls).supertype_class,
+                    *constructor,
+                    arguments,
+                    false,
+                ),
+                Initializer::Redirect {
+                    span,
+                    constructor,
+                    arguments,
+                } => (*span, Some(cls), *constructor, arguments, true),
                 _ => continue,
             };
             let Some(owner) = owner else { continue };
@@ -875,7 +1261,10 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                 Some(n) => Some(n.sym),
                 None => interner.lookup(""),
             };
-            let Some(f) = key.and_then(|c| program.class(owner).constructors.get(&c).copied()) else { continue };
+            let Some(f) = key.and_then(|c| program.class(owner).constructors.get(&c).copied())
+            else {
+                continue;
+            };
             if let Some(tgt) = function_target(f) {
                 report(span, tgt);
             }
@@ -893,7 +1282,9 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
     // that of the shorthand's variable.
     if mode == Mode::Warning {
         for p in a.patterns.iter() {
-            let PatternKind::Object { ty, fields } = &p.kind else { continue };
+            let PatternKind::Object { ty, fields } = &p.kind else {
+                continue;
+            };
             let cls = match body.annotation_types.get(ty).map(|x| table.get(*x)) {
                 Some(Type::Interface { class, .. }) => Some(*class),
                 Some(Type::ExtensionType { decl, .. }) => Some(*decl),
@@ -907,8 +1298,12 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
                         let mut q = f.pattern;
                         loop {
                             match &a.pattern(q).kind {
-                                PatternKind::Variable { name, .. } => break Some((name.sym, name.span)),
-                                PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Cast { pattern: x, .. } => q = *x,
+                                PatternKind::Variable { name, .. } => {
+                                    break Some((name.sym, name.span));
+                                }
+                                PatternKind::NullCheck(x)
+                                | PatternKind::NullAssert(x)
+                                | PatternKind::Cast { pattern: x, .. } => q = *x,
                                 _ => break None,
                             }
                         }
@@ -927,7 +1322,11 @@ fn verify(program: &Program, interner: &Interner, table: &TypeTable, body: Optio
 }
 
 /// The instance member `the_name` of the class or of one of its supertypes.
-fn class_member(program: &Program, cls: dartforge_elements::model::ClassId, the_name: dartforge_intern::SymbolId) -> Option<FunctionElementId> {
+fn class_member(
+    program: &Program,
+    cls: dartforge_elements::model::ClassId,
+    the_name: dartforge_intern::SymbolId,
+) -> Option<FunctionElementId> {
     let mut seen: Vec<dartforge_elements::model::ClassId> = Vec::new();
     let mut stack = vec![cls];
     while let Some(c) = stack.pop() {
@@ -961,15 +1360,31 @@ pub fn deprecated_uses(
     let mut out: Vec<Diagnostic> = Vec::new();
     for x in verify(program, interner, table, body, u, Mode::Warning) {
         let the_same = same_package(x.lib);
-        let d = match x.message.as_deref().map(str::trim).filter(|m| !m.is_empty() && *m != ".") {
+        let d = match x
+            .message
+            .as_deref()
+            .map(str::trim)
+            .filter(|m| !m.is_empty() && *m != ".")
+        {
             None => {
-                let code = if the_same { h::DEPRECATED_MEMBER_USE_FROM_SAME_PACKAGE } else { h::DEPRECATED_MEMBER_USE };
+                let code = if the_same {
+                    h::DEPRECATED_MEMBER_USE_FROM_SAME_PACKAGE
+                } else {
+                    h::DEPRECATED_MEMBER_USE
+                };
                 Diagnostic::with_code(code, x.span, [x.name.as_str()])
             }
             Some(m) => {
-                let dotted = if m.ends_with(['.', '?', '!']) { m.to_string() } else { format!("{m}.") };
-                let code =
-                    if the_same { h::DEPRECATED_MEMBER_USE_FROM_SAME_PACKAGE_WITH_MESSAGE } else { h::DEPRECATED_MEMBER_USE_WITH_MESSAGE };
+                let dotted = if m.ends_with(['.', '?', '!']) {
+                    m.to_string()
+                } else {
+                    format!("{m}.")
+                };
+                let code = if the_same {
+                    h::DEPRECATED_MEMBER_USE_FROM_SAME_PACKAGE_WITH_MESSAGE
+                } else {
+                    h::DEPRECATED_MEMBER_USE_WITH_MESSAGE
+                };
                 Diagnostic::with_code(code, x.span, [x.name.as_str(), dotted.as_str()])
             }
         };
@@ -998,14 +1413,26 @@ pub fn same_package_lint(
         }
         let normalized = x.message.as_deref().map(str::trim);
         match normalized.filter(|m| !m.is_empty() && *m != ".") {
-            None => out.push((x.span, "deprecated_member_use_from_same_package_without_message", vec![x.name])),
+            None => out.push((
+                x.span,
+                "deprecated_member_use_from_same_package_without_message",
+                vec![x.name],
+            )),
             Some(_) => {
                 // The lint emitter appends the period to the original message (without the
                 // `trim`).
                 let original = x.message.clone().unwrap_or_default();
                 let m = normalized.unwrap_or_default();
-                let dotted = if m.ends_with(['.', '?', '!']) { m.to_string() } else { format!("{original}.") };
-                out.push((x.span, "deprecated_member_use_from_same_package_with_message", vec![x.name, dotted]));
+                let dotted = if m.ends_with(['.', '?', '!']) {
+                    m.to_string()
+                } else {
+                    format!("{original}.")
+                };
+                out.push((
+                    x.span,
+                    "deprecated_member_use_from_same_package_with_message",
+                    vec![x.name, dotted],
+                ));
             }
         }
     }
@@ -1027,7 +1454,12 @@ pub fn same_package_lint(
 /// rule only applies to the library judged by 3.13.4
 /// ([`Program::library_reference`]), in which the oracle resolves the
 /// annotation against its own SDK.
-fn deprecation_type(program: &Program, interner: &Interner, u: UnitId, m: &ast::Annotation) -> Option<String> {
+fn deprecation_type(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    m: &ast::Annotation,
+) -> Option<String> {
     let from_core = |b: Option<dartforge_elements::model::Binding>| -> Option<Element> {
         let e = b?.getter?;
         let lib = match e {
@@ -1041,19 +1473,34 @@ fn deprecation_type(program: &Program, interner: &Interner, u: UnitId, m: &ast::
         [n] => (from_core(program.lookup_in_unit(u, n.sym)), n.sym, None),
         [p, n] => match from_core(program.lookup_prefixed_in_unit(u, p.sym, n.sym)) {
             Some(e) => (Some(e), n.sym, None),
-            None => (from_core(program.lookup_in_unit(u, p.sym)), p.sym, Some(n.sym)),
+            None => (
+                from_core(program.lookup_in_unit(u, p.sym)),
+                p.sym,
+                Some(n.sym),
+            ),
         },
-        [p, c, k] => (from_core(program.lookup_prefixed_in_unit(u, p.sym, c.sym)), c.sym, Some(k.sym)),
+        [p, c, k] => (
+            from_core(program.lookup_prefixed_in_unit(u, p.sym, c.sym)),
+            c.sym,
+            Some(k.sym),
+        ),
         _ => return None,
     };
     let text = interner.resolve(the_name);
     match element? {
-        Element::Variable(_) if text == "deprecated" && m.arguments.is_none() && the_constructor.is_none() => Some("use".to_string()),
+        Element::Variable(_)
+            if text == "deprecated" && m.arguments.is_none() && the_constructor.is_none() =>
+        {
+            Some("use".to_string())
+        }
         Element::Class(_) if text == "Deprecated" => {
             m.arguments.as_ref()?;
             match the_constructor.map(|k| interner.resolve(k)) {
                 None | Some("new") => Some("use".to_string()),
-                Some(k @ ("extend" | "implement" | "subclass" | "instantiate" | "mixin" | "optional")) => Some(k.to_string()),
+                Some(
+                    k
+                    @ ("extend" | "implement" | "subclass" | "instantiate" | "mixin" | "optional"),
+                ) => Some(k.to_string()),
                 Some(_) => None,
             }
         }
@@ -1063,18 +1510,40 @@ fn deprecation_type(program: &Program, interner: &Interner, u: UnitId, m: &ast::
 
 /// `Element.isDeprecatedWithKind(kind)`: some deprecation annotation in the
 /// list has the kind `kind`.
-fn deprecated_with_type(program: &Program, interner: &Interner, u: UnitId, metadata: &[ast::Annotation], kind: &str) -> bool {
-    metadata.iter().any(|m| deprecation_type(program, interner, u, m).as_deref() == Some(kind))
+fn deprecated_with_type(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    metadata: &[ast::Annotation],
+    kind: &str,
+) -> bool {
+    metadata
+        .iter()
+        .any(|m| deprecation_type(program, interner, u, m).as_deref() == Some(kind))
 }
 
 /// The formal parameters of a function or constructor, with their unit.
-fn formal_parameters(program: &Program, f: FunctionElementId) -> Option<(&[ast::Parameter], UnitId)> {
+fn formal_parameters(
+    program: &Program,
+    f: FunctionElementId,
+) -> Option<(&[ast::Parameter], UnitId)> {
     match program.function(f).node {
-        FunctionRef::Function { unit, function } => Some((program.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[]), unit)),
-        FunctionRef::Constructor { unit, member } => match &program.unit(unit).ast.member(member).kind {
-            MemberKind::Constructor(k) => Some((&k.parameters[..], unit)),
-            _ => None,
-        },
+        FunctionRef::Function { unit, function } => Some((
+            program
+                .unit(unit)
+                .ast
+                .function(function)
+                .parameters
+                .as_deref()
+                .unwrap_or(&[]),
+            unit,
+        )),
+        FunctionRef::Constructor { unit, member } => {
+            match &program.unit(unit).ast.member(member).kind {
+                MemberKind::Constructor(k) => Some((&k.parameters[..], unit)),
+                _ => None,
+            }
+        }
         FunctionRef::None => None,
     }
 }
@@ -1093,11 +1562,17 @@ fn the_optional(p: &ast::Parameter) -> bool {
 /// method, of a constructor, of a dot shorthand and of `this(…)`), in the
 /// constructors that go through the superclass constructor without it (the
 /// `super.` parameters and the `super(…)`) and in redirected constructors.
-pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option<&UnitBodyTypes>, u: UnitId) -> Vec<Diagnostic> {
+pub fn deprecated_optionals(
+    program: &Program,
+    interner: &Interner,
+    body: Option<&UnitBodyTypes>,
+    u: UnitId,
+) -> Vec<Diagnostic> {
     use dartforge_diagnostics::codes::warning::DEPRECATED_OPTIONAL;
     let mut out: Vec<Diagnostic> = Vec::new();
     let unit_id = program.unit(u);
-    if program.library_reference(unit_id.library) != dartforge_diagnostics::AnalyzerReference::V3_13 {
+    if program.library_reference(unit_id.library) != dartforge_diagnostics::AnalyzerReference::V3_13
+    {
         return out;
     }
     if interner.lookup("Deprecated").is_none() {
@@ -1107,21 +1582,34 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
     let text = |s: dartforge_intern::SymbolId| interner.resolve(s).to_string();
     let report = |out: &mut Vec<Diagnostic>, span: Span, the_name: String| {
         let d = Diagnostic::with_code(DEPRECATED_OPTIONAL, span, [the_name.as_str()]);
-        if !out.iter().any(|y| y.code == d.code && y.span == d.span && y.message == d.message) {
+        if !out
+            .iter()
+            .any(|y| y.code == d.code && y.span == d.span && y.message == d.message)
+        {
             out.push(d);
         }
     };
     // `_checkForDeprecatedOptional`: the parameters that no argument fills
     // (the `correspondingParameter`), with the kind `optional`.
-    let omitted = |out: &mut Vec<Diagnostic>, f: FunctionElementId, args: &ast::Arguments, entity: Span| {
-        let Some((ps, pu)) = formal_parameters(program, f) else { return };
+    let omitted = |out: &mut Vec<Diagnostic>,
+                   f: FunctionElementId,
+                   args: &ast::Arguments,
+                   entity: Span| {
+        let Some((ps, pu)) = formal_parameters(program, f) else {
+            return;
+        };
         let mut filled = vec![false; ps.len()];
-        let positional: Vec<usize> = (0..ps.len()).filter(|&i| ps[i].kind != ParameterKind::Named).collect();
+        let positional: Vec<usize> = (0..ps.len())
+            .filter(|&i| ps[i].kind != ParameterKind::Named)
+            .collect();
         let mut k = 0;
         for x in args.args.iter() {
             match x.name {
                 Some(n) => {
-                    if let Some(i) = (0..ps.len()).find(|&i| ps[i].kind == ParameterKind::Named && ps[i].external_name().is_some_and(|m| m.sym == n.sym)) {
+                    if let Some(i) = (0..ps.len()).find(|&i| {
+                        ps[i].kind == ParameterKind::Named
+                            && ps[i].external_name().is_some_and(|m| m.sym == n.sym)
+                    }) {
                         filled[i] = true;
                     }
                 }
@@ -1135,7 +1623,9 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
         }
         for (i, p) in ps.iter().enumerate() {
             if !filled[i] && deprecated_with_type(program, interner, pu, &p.metadata, "optional") {
-                let the_name = p.name.map_or_else(|| "<unknown>".to_string(), |n| text(n.sym));
+                let the_name = p
+                    .name
+                    .map_or_else(|| "<unknown>".to_string(), |n| text(n.sym));
                 report(out, entity, the_name);
             }
         }
@@ -1145,10 +1635,23 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
             let id = ExprId(i as u32);
             match &expr.kind {
                 // `instanceCreationExpression`: at the `ConstructorName`.
-                ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
+                ExprKind::InstanceCreation {
+                    ty,
+                    constructor,
+                    arguments,
+                    ..
+                } => {
                     if let Some(Resolved::Constructor(f)) = body.get_resolved(id) {
                         let end = constructor.map_or(a.ty(*ty).span.end, |n| n.span.end);
-                        omitted(&mut out, *f, arguments, Span { start: a.ty(*ty).span.start, end });
+                        omitted(
+                            &mut out,
+                            *f,
+                            arguments,
+                            Span {
+                                start: a.ty(*ty).span.start,
+                                end,
+                            },
+                        );
                     }
                 }
                 ExprKind::Call { target, arguments } => {
@@ -1164,7 +1667,9 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
                                     .static_members
                                     .get(&name.sym)
                                     .copied()
-                                    .filter(|f| program.function(*f).kind == FunctionKind::Function),
+                                    .filter(|f| {
+                                        program.function(*f).kind == FunctionKind::Function
+                                    }),
                                 _ => None,
                             },
                         };
@@ -1182,7 +1687,10 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
                     // (`LocalFunctionElement`) does not count.
                     if crate::typed_lints4::is_method_invocation(program, a, body, *target) {
                         let f = match body.get_resolved(*target) {
-                            Some(Resolved::Member { member: MemberRef::Function(f), .. })
+                            Some(Resolved::Member {
+                                member: MemberRef::Function(f),
+                                ..
+                            })
                             | Some(Resolved::ExtensionMember { member: f, .. })
                             | Some(Resolved::Element(Element::Function(f))) => Some(*f),
                             _ => None,
@@ -1202,14 +1710,18 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
     }
     // The declared constructors (and the elaborated primary ones).
     for (mi, m) in a.members.iter().enumerate() {
-        let MemberKind::Constructor(k) = &m.kind else { continue };
+        let MemberKind::Constructor(k) = &m.kind else {
+            continue;
+        };
         let Some(f) = (0..program.functions.len())
             .map(|i| FunctionElementId(i as u32))
             .find(|f| matches!(program.function(*f).node, FunctionRef::Constructor { unit, member } if unit == u && member.0 as usize == mi))
         else {
             continue;
         };
-        let Some(cls) = program.function(f).class else { continue };
+        let Some(cls) = program.function(f).class else {
+            continue;
+        };
         // `ConstructorDeclaration.errorRange`: from the class name to the
         // constructor name; in a primary one with `const`, from the `const`
         // (`PrimaryConstructorDeclaration.errorRange`, the `beginToken`).
@@ -1218,19 +1730,38 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
             DeclKind::Enum(e) => e.primary_constructor.is_some_and(|p| p.0 as usize == mi),
             _ => false,
         });
-        let start = if primary && k.const_ { m.span.start.min(k.class_name.span.start) } else { k.class_name.span.start };
-        let error_range = Span { start, end: k.name.map_or(k.class_name.span.end, |n| n.span.end) };
+        let start = if primary && k.const_ {
+            m.span.start.min(k.class_name.span.start)
+        } else {
+            k.class_name.span.start
+        };
+        let error_range = Span {
+            start,
+            end: k.name.map_or(k.class_name.span.end, |n| n.span.end),
+        };
 
         // `this(…)`/`this.the_name(…)` in the initializer list: at the constructor
         // name, or at the `this`.
         for i in k.initializers.iter() {
-            if let Initializer::Redirect { span, constructor, arguments } = i {
+            if let Initializer::Redirect {
+                span,
+                constructor,
+                arguments,
+            } = i
+            {
                 let key = match constructor {
                     Some(n) => Some(n.sym),
                     None => interner.lookup(""),
                 };
-                if let Some(g) = key.and_then(|c| program.class(cls).constructors.get(&c).copied()) {
-                    let entity = constructor.map_or(Span { start: span.start, end: span.start + 4 }, |n| n.span);
+                if let Some(g) = key.and_then(|c| program.class(cls).constructors.get(&c).copied())
+                {
+                    let entity = constructor.map_or(
+                        Span {
+                            start: span.start,
+                            end: span.start + 4,
+                        },
+                        |n| n.span,
+                    );
                     omitted(&mut out, g, arguments, entity);
                 }
             }
@@ -1242,15 +1773,25 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
             && let Some(g) = redirect_target(program, interner, u, r)
             && let Some((ps, pu)) = formal_parameters(program, g)
         {
-            let positional = k.parameters.iter().filter(|p| p.kind != ParameterKind::Named).count();
-            let named: Vec<dartforge_intern::SymbolId> =
-                k.parameters.iter().filter(|p| p.kind == ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+            let positional = k
+                .parameters
+                .iter()
+                .filter(|p| p.kind != ParameterKind::Named)
+                .count();
+            let named: Vec<dartforge_intern::SymbolId> = k
+                .parameters
+                .iter()
+                .filter(|p| p.kind == ParameterKind::Named)
+                .filter_map(|p| p.name.map(|n| n.sym))
+                .collect();
             let mut count = 0;
             for p in ps.iter() {
                 if p.kind != ParameterKind::Named {
                     count += 1;
                 }
-                if !the_optional(p) || !deprecated_with_type(program, interner, pu, &p.metadata, "optional") {
+                if !the_optional(p)
+                    || !deprecated_with_type(program, interner, pu, &p.metadata, "optional")
+                {
                     continue;
                 }
                 if p.kind != ParameterKind::Named {
@@ -1260,7 +1801,9 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
                 } else if p.name.is_some_and(|n| named.contains(&n.sym)) {
                     continue;
                 }
-                let the_name = p.name.map_or_else(|| "<unknown>".to_string(), |n| text(n.sym));
+                let the_name = p
+                    .name
+                    .map_or_else(|| "<unknown>".to_string(), |n| text(n.sym));
                 report(&mut out, error_range, the_name);
             }
         }
@@ -1268,17 +1811,38 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
         // `_checkForDeprecatedOptionalSuperParameters`: the superclass constructor
         // that this one invokes (the `super(…)`, or the implicit unnamed one of a
         // non-redirecting generative constructor).
-        if k.factory || k.redirect.is_some() || k.initializers.iter().any(|i| matches!(i, Initializer::Redirect { .. })) {
+        if k.factory
+            || k.redirect.is_some()
+            || k.initializers
+                .iter()
+                .any(|i| matches!(i, Initializer::Redirect { .. }))
+        {
             continue;
         }
-        let supers: Vec<&Initializer> = k.initializers.iter().filter(|i| matches!(i, Initializer::Super { .. })).collect();
+        let supers: Vec<&Initializer> = k
+            .initializers
+            .iter()
+            .filter(|i| matches!(i, Initializer::Super { .. }))
+            .collect();
         if supers.len() > 1 {
             continue;
         }
-        let Some(superclass) = program.class(cls).supertype_class else { continue };
+        let Some(superclass) = program.class(cls).supertype_class else {
+            continue;
+        };
         let (super_name, super_arguments, range) = match supers.first() {
-            Some(Initializer::Super { span, constructor, arguments }) => {
-                let entity = constructor.map_or(Span { start: span.start, end: span.start + 5 }, |n| n.span);
+            Some(Initializer::Super {
+                span,
+                constructor,
+                arguments,
+            }) => {
+                let entity = constructor.map_or(
+                    Span {
+                        start: span.start,
+                        end: span.start + 5,
+                    },
+                    |n| n.span,
+                );
                 (constructor.map(|n| n.sym), Some(arguments), entity)
             }
             _ => (None, None, error_range),
@@ -1287,16 +1851,32 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
             Some(n) => Some(n),
             None => interner.lookup(""),
         };
-        let Some(g) = key.and_then(|c| program.class(superclass).constructors.get(&c).copied()) else { continue };
-        let Some((ps, pu)) = formal_parameters(program, g) else { continue };
+        let Some(g) = key.and_then(|c| program.class(superclass).constructors.get(&c).copied())
+        else {
+            continue;
+        };
+        let Some((ps, pu)) = formal_parameters(program, g) else {
+            continue;
+        };
         // `verifySuperFormalParameters`: the positional `super.` ones and the
         // names of the named `super.` ones.
-        let super_positional = k.parameters.iter().filter(|p| p.super_ && p.kind != ParameterKind::Named).count();
-        let super_named: Vec<dartforge_intern::SymbolId> =
-            k.parameters.iter().filter(|p| p.super_ && p.kind == ParameterKind::Named).filter_map(|p| p.name.map(|n| n.sym)).collect();
+        let super_positional = k
+            .parameters
+            .iter()
+            .filter(|p| p.super_ && p.kind != ParameterKind::Named)
+            .count();
+        let super_named: Vec<dartforge_intern::SymbolId> = k
+            .parameters
+            .iter()
+            .filter(|p| p.super_ && p.kind == ParameterKind::Named)
+            .filter_map(|p| p.name.map(|n| n.sym))
+            .collect();
         let (the_super_named, the_super_positional) = match super_arguments {
             Some(args) => (
-                args.args.iter().filter_map(|x| x.name.map(|n| n.sym)).collect::<Vec<_>>(),
+                args.args
+                    .iter()
+                    .filter_map(|x| x.name.map(|n| n.sym))
+                    .collect::<Vec<_>>(),
                 args.args.iter().filter(|x| x.name.is_none()).count(),
             ),
             None => (Vec::new(), 0),
@@ -1306,7 +1886,9 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
             if p.kind != ParameterKind::Named {
                 count += 1;
             }
-            if !the_optional(p) || !deprecated_with_type(program, interner, pu, &p.metadata, "optional") {
+            if !the_optional(p)
+                || !deprecated_with_type(program, interner, pu, &p.metadata, "optional")
+            {
                 continue;
             }
             if p.kind != ParameterKind::Named {
@@ -1319,7 +1901,9 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
                     continue;
                 }
             }
-            let the_name = p.name.map_or_else(|| "<unknown>".to_string(), |n| text(n.sym));
+            let the_name = p
+                .name
+                .map_or_else(|| "<unknown>".to_string(), |n| text(n.sym));
             report(&mut out, range, the_name);
         }
     }
@@ -1327,15 +1911,24 @@ pub fn deprecated_optionals(program: &Program, interner: &Interner, body: Option
 }
 
 /// The target constructor of `factory C(…) = D.the_name;` (the `redirectedConstructor`).
-fn redirect_target(program: &Program, interner: &Interner, u: UnitId, r: &ast::RedirectTarget) -> Option<FunctionElementId> {
+fn redirect_target(
+    program: &Program,
+    interner: &Interner,
+    u: UnitId,
+    r: &ast::RedirectTarget,
+) -> Option<FunctionElementId> {
     let a = &program.unit(u).ast;
-    let TypeKind::Named { name, .. } = &a.ty(r.ty).kind else { return None };
+    let TypeKind::Named { name, .. } = &a.ty(r.ty).kind else {
+        return None;
+    };
     let binding = match &name[..] {
         [n] => program.lookup_in_unit(u, n.sym),
         [p, n] => program.lookup_prefixed_in_unit(u, p.sym, n.sym),
         _ => None,
     }?;
-    let Element::Class(c) = binding.getter? else { return None };
+    let Element::Class(c) = binding.getter? else {
+        return None;
+    };
     let key = match r.constructor {
         Some(n) => Some(n.sym),
         None => interner.lookup(""),

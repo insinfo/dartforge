@@ -33,7 +33,13 @@ pub fn selector_hash(text: &str) -> i64 {
 pub(super) fn llvm_bytes(s: &str) -> String {
     let mut t = String::new();
     for &b in s.as_bytes() {
-        if b.is_ascii_alphanumeric() || b == b' ' || b == b'_' || b == b'.' || b == b':' || b == b'@' {
+        if b.is_ascii_alphanumeric()
+            || b == b' '
+            || b == b'_'
+            || b == b'.'
+            || b == b':'
+            || b == b'@'
+        {
             t.push(b as char);
         } else {
             t.push_str(&format!("\\{b:02X}"));
@@ -60,11 +66,20 @@ impl LlvmEmitter<'_> {
         let n = args.len() + 1;
         for (i, a) in args.iter().enumerate() {
             let s = self.coerce(a, Type::I64);
-            writeln!(self.out, "  %sa{v}_{i} = getelementptr [{n} x i64], ptr %sargs{v}, i64 0, i64 {i}").unwrap();
+            writeln!(
+                self.out,
+                "  %sa{v}_{i} = getelementptr [{n} x i64], ptr %sargs{v}, i64 0, i64 {i}"
+            )
+            .unwrap();
             writeln!(self.out, "  store i64 {s}, ptr %sa{v}_{i}").unwrap();
         }
         let tuple = self.coerce(tuple_types, Type::I64);
-        writeln!(self.out, "  %sat{v} = getelementptr [{n} x i64], ptr %sargs{v}, i64 0, i64 {}", args.len()).unwrap();
+        writeln!(
+            self.out,
+            "  %sat{v} = getelementptr [{n} x i64], ptr %sargs{v}, i64 0, i64 {}",
+            args.len()
+        )
+        .unwrap();
         writeln!(self.out, "  store i64 {tuple}, ptr %sat{v}").unwrap();
         let r = self.coerce(recv, Type::Ref);
         let name = match self.selector_names.iter().position(|s| s == selector) {
@@ -77,11 +92,19 @@ impl LlvmEmitter<'_> {
         self.selector_caches += 1;
         let h = selector_hash(selector);
         let slot = self.cache_slot();
-        writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+        writeln!(
+            self.out,
+            "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}"
+        )
+        .unwrap();
         if let Operand::Val(value) = recv
             && let Some(classes) = self.current_exact_receivers.get(value)
         {
-            let classes = classes.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+            let classes = classes
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
             writeln!(self.out, "  ; df.selector-exact {classes}").unwrap();
         } else if let Some((parameter, cid)) = self.current_receiver_cone.as_ref()
             && recv == &Operand::Val(*parameter)
@@ -91,7 +114,11 @@ impl LlvmEmitter<'_> {
         if self.compact_selector {
             // The hash, the name and the length in a static descriptor
             // (`@df.seld.<k>`): three arguments instead of five.
-            writeln!(self.out, "  %sf{v} = call ptr @df.selector_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{name})").unwrap();
+            writeln!(
+                self.out,
+                "  %sf{v} = call ptr @df.selector_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{name})"
+            )
+            .unwrap();
         } else {
             writeln!(
                 self.out,
@@ -103,10 +130,20 @@ impl LlvmEmitter<'_> {
         if self.arc_uniform_abi() {
             writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
             writeln!(self.out, "  %sav{v} = ptrtoint ptr %sargs{v} to i64").unwrap();
-            writeln!(self.out, "  %sdv{v} = ptrtoint ptr @{} to i64", self.vector_symbols[k]).unwrap();
+            writeln!(
+                self.out,
+                "  %sdv{v} = ptrtoint ptr @{} to i64",
+                self.vector_symbols[k]
+            )
+            .unwrap();
             writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_v1(i64 %sc{v}, i64 {r}, i64 %sav{v}, i64 %sdv{v})").unwrap();
         } else {
-            writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr %sargs{v}, ptr @{})", self.vector_symbols[k]).unwrap();
+            writeln!(
+                self.out,
+                "  %v{v} = call i64 %sf{v}(i64 {r}, ptr %sargs{v}, ptr @{})",
+                self.vector_symbols[k]
+            )
+            .unwrap();
         }
     }
 
@@ -135,11 +172,19 @@ impl LlvmEmitter<'_> {
         self.selector_caches += 1;
         let h = selector_hash(selector);
         let slot = self.cache_slot();
-        writeln!(self.out, "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+        writeln!(
+            self.out,
+            "  %sic{v} = getelementptr i64, ptr %area, i64 {slot}"
+        )
+        .unwrap();
         if let Operand::Val(value) = recv
             && let Some(classes) = self.current_exact_receivers.get(value)
         {
-            let classes = classes.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+            let classes = classes
+                .iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(",");
             writeln!(self.out, "  ; df.selector-exact {classes}").unwrap();
         } else if let Some((parameter, cid)) = self.current_receiver_cone.as_ref()
             && recv == &Operand::Val(*parameter)
@@ -149,7 +194,11 @@ impl LlvmEmitter<'_> {
         if self.compact_selector {
             // The hash, the name and the length in a static descriptor
             // (`@df.seld.<k>`): three arguments instead of five.
-            writeln!(self.out, "  %sf{v} = call ptr @df.selector_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{name})").unwrap();
+            writeln!(
+                self.out,
+                "  %sf{v} = call ptr @df.selector_d(ptr %sic{v}, i64 {r}, ptr @df.seld.{name})"
+            )
+            .unwrap();
         } else {
             writeln!(
                 self.out,
@@ -159,23 +208,37 @@ impl LlvmEmitter<'_> {
             .unwrap();
         }
         if arc_owned {
-            assert!(self.module.arc_memory && self.module.arc_aot_ports.is_some(),
-                "ARC forwarding requires certified AOT ports");
+            assert!(
+                self.module.arc_memory && self.module.arc_aot_ports.is_some(),
+                "ARC forwarding requires certified AOT ports"
+            );
             writeln!(self.out, "  %sc{v} = ptrtoint ptr %sf{v} to i64").unwrap();
             writeln!(self.out, "  %sav{v} = ptrtoint ptr {a} to i64").unwrap();
             writeln!(self.out, "  %sdv{v} = ptrtoint ptr {d} to i64").unwrap();
             writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_v1(i64 %sc{v}, i64 {r}, i64 %sav{v}, i64 %sdv{v})").unwrap();
         } else {
-            writeln!(self.out, "  %v{v} = call i64 %sf{v}(i64 {r}, ptr {a}, ptr {d})").unwrap();
+            writeln!(
+                self.out,
+                "  %v{v} = call i64 %sf{v}(i64 {r}, ptr {a}, ptr {d})"
+            )
+            .unwrap();
         }
     }
 
     /// The names of the call-trace functions (`DARTFORGE_CALL_TRACE=1`).
     pub(super) fn emit_stack_trace_names(&mut self) {
-        for (k, s) in std::mem::take(&mut self.stack_trace_names).iter().enumerate() {
-            writeln!(self.out, "@df.call_trace.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), llvm_bytes(s)).unwrap();
+        for (k, s) in std::mem::take(&mut self.stack_trace_names)
+            .iter()
+            .enumerate()
+        {
+            writeln!(
+                self.out,
+                "@df.call_trace.{k} = private unnamed_addr constant [{} x i8] c\"{}\"",
+                s.len(),
+                llvm_bytes(s)
+            )
+            .unwrap();
         }
-
     }
 
     /// The call-site caches and the names of the selectors.
@@ -212,7 +275,12 @@ impl LlvmEmitter<'_> {
         let module = self.module;
         let mut body = String::new();
         if module.arc_aot_ports.is_some() {
-            writeln!(body, "  call void @{}()", self.arc_ports_registration_symbol()).unwrap();
+            writeln!(
+                body,
+                "  call void @{}()",
+                self.arc_ports_registration_symbol()
+            )
+            .unwrap();
         }
         for class in &module.classes {
             let idx = self.string_const_index(class.name.as_bytes()).unwrap_or(0);
@@ -225,7 +293,11 @@ impl LlvmEmitter<'_> {
             .unwrap();
         }
         for (sub, sup) in &module.subtyping_edges {
-            writeln!(body, "  call void @dartforge_register_subclass(i64 {sub}, i64 {sup})").unwrap();
+            writeln!(
+                body,
+                "  call void @dartforge_register_subclass(i64 {sub}, i64 {sup})"
+            )
+            .unwrap();
         }
         body.push_str(&self.emit_method_tables());
         // The section of the static objects of this image (docs/NATIVO-ESPACO-UNIFICADO.md
@@ -237,7 +309,11 @@ impl LlvmEmitter<'_> {
             let (globals, start, end) = crate::target::image_markers();
             self.out.push_str(&globals);
             if self.static_image_registration {
-                writeln!(body, "  call void @dartforge_register_image(ptr {start}, ptr {end})").unwrap();
+                writeln!(
+                    body,
+                    "  call void @dartforge_register_image(ptr {start}, ptr {end})"
+                )
+                .unwrap();
             }
         }
         // Roots by maps: the stack maps of the image this module
@@ -255,22 +331,51 @@ impl LlvmEmitter<'_> {
         // at startup. The SDK's `_StackTrace` needs it too: the runtime creates the
         // first trace directly, without going through `object_new_t`, which is the
         // lazy registration point of the other SDK classes.
-        let tables: Vec<_> = module.method_tables.iter().filter(|(cid, _, _)| {
-            let runtime_trace = module.sdk_library && module.classes.iter()
-                .any(|cls| cls.id == *cid && cls.name == "_StackTrace");
-            let active = module.closed_class_tables.as_ref().is_none_or(|classes| classes.contains(cid));
-            (!module.sdk_library || runtime_trace) && active
-        }).collect();
+        let tables: Vec<_> = module
+            .method_tables
+            .iter()
+            .filter(|(cid, _, _)| {
+                let runtime_trace = module.sdk_library
+                    && module
+                        .classes
+                        .iter()
+                        .any(|cls| cls.id == *cid && cls.name == "_StackTrace");
+                let active = module
+                    .closed_class_tables
+                    .as_ref()
+                    .is_none_or(|classes| classes.contains(cid));
+                (!module.sdk_library || runtime_trace) && active
+            })
+            .collect();
         // Amortize the array and loop overhead for larger program startups.
         // Generated table getters are pure and return their own embedded CID.
-        if !module.sdk_library && tables.len() >= crate::pruning::assembled_registration::BATCH_MIN {
+        if !module.sdk_library && tables.len() >= crate::pruning::assembled_registration::BATCH_MIN
+        {
             let array = format!("df.table_batch.{record}");
-            let pointers = tables.iter().map(|(_, symbol, _)| format!("ptr @{symbol}")).collect::<Vec<_>>().join(", ");
-            writeln!(self.out, "@{array} = private unnamed_addr constant [{} x ptr] [{pointers}], align 8", tables.len()).unwrap();
-            writeln!(body, "  call void @dartforge_register_tables(ptr @{array}, i64 {})", tables.len()).unwrap();
+            let pointers = tables
+                .iter()
+                .map(|(_, symbol, _)| format!("ptr @{symbol}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(
+                self.out,
+                "@{array} = private unnamed_addr constant [{} x ptr] [{pointers}], align 8",
+                tables.len()
+            )
+            .unwrap();
+            writeln!(
+                body,
+                "  call void @dartforge_register_tables(ptr @{array}, i64 {})",
+                tables.len()
+            )
+            .unwrap();
         } else {
             for (cid, symbol, _) in &tables {
-                writeln!(body, "  call void @dartforge_register_table(i64 {cid}, ptr @{symbol})").unwrap();
+                writeln!(
+                    body,
+                    "  call void @dartforge_register_table(i64 {cid}, ptr @{symbol})"
+                )
+                .unwrap();
             }
         }
         if self.tables_at_link {
@@ -364,16 +469,31 @@ impl LlvmEmitter<'_> {
         }
         let module = self.module;
         for (cid, symbol, methods) in &module.method_tables {
-            if module.closed_class_tables.as_ref().is_some_and(|active| !active.contains(cid)) {
+            if module
+                .closed_class_tables
+                .as_ref()
+                .is_some_and(|active| !active.contains(cid))
+            {
                 continue;
             }
             let pairs = crate::pruning::table_pairs(*cid, methods);
             for (_, _, f) in &pairs {
                 self.annotate_external(f, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
             }
-            let items: Vec<(i64, String)> = pairs.iter().map(|(h, _, f)| (*h, format!("@{f}"))).collect();
-            self.out.push_str(&crate::pruning::table_line(&format!("@{symbol}$d = private unnamed_addr constant "), i64::from(*cid), &items));
-            writeln!(self.out, "define ptr @{symbol}() {{\nb0:\n  ret ptr @{symbol}$d\n}}").unwrap();
+            let items: Vec<(i64, String)> = pairs
+                .iter()
+                .map(|(h, _, f)| (*h, format!("@{f}")))
+                .collect();
+            self.out.push_str(&crate::pruning::table_line(
+                &format!("@{symbol}$d = private unnamed_addr constant "),
+                i64::from(*cid),
+                &items,
+            ));
+            writeln!(
+                self.out,
+                "define ptr @{symbol}() {{\nb0:\n  ret ptr @{symbol}$d\n}}"
+            )
+            .unwrap();
         }
         String::new()
     }
@@ -414,7 +534,11 @@ impl LlvmEmitter<'_> {
         let retain = self.arc_retain_target();
         let thunks = std::mem::take(&mut self.owned_thunks);
         for (name, (base, types)) in thunks {
-            let params: Vec<String> = types.iter().enumerate().map(|(i, t)| format!("{} %a{i}", t.llvm_ir())).collect();
+            let params: Vec<String> = types
+                .iter()
+                .enumerate()
+                .map(|(i, t)| format!("{} %a{i}", t.llvm_ir()))
+                .collect();
             let params = params.join(", ");
             let _ = write!(
                 self.out,
@@ -443,13 +567,23 @@ impl LlvmEmitter<'_> {
     fn emit_scope_thunks(&mut self) {
         let thunks = std::mem::take(&mut self.scope_thunks);
         for (name, (base, types, ret)) in thunks {
-            let params: Vec<String> = types.iter().enumerate().map(|(i, t)| format!("{} %a{i}", t.llvm_ir())).collect();
+            let params: Vec<String> = types
+                .iter()
+                .enumerate()
+                .map(|(i, t)| format!("{} %a{i}", t.llvm_ir()))
+                .collect();
             let params = params.join(", ");
             let r = ret.llvm_ir();
             let (call, ret_val) = if ret == Type::Void {
-                (format!("call void @{base}({params})"), "ret void".to_string())
+                (
+                    format!("call void @{base}({params})"),
+                    "ret void".to_string(),
+                )
             } else {
-                (format!("%r = call {r} @{base}({params})"), format!("ret {r} %r"))
+                (
+                    format!("%r = call {r} @{base}({params})"),
+                    format!("ret {r} %r"),
+                )
             };
             let _ = write!(
                 self.out,
@@ -470,13 +604,23 @@ impl LlvmEmitter<'_> {
         self.emit_stack_trace_names();
         // `DARTFORGE_EFFECTS=check`: the names of the checked externs.
         for (k, s) in std::mem::take(&mut self.checked_externs).iter().enumerate() {
-            writeln!(self.out, "@df.efn.{k} = private unnamed_addr constant [{} x i8] c\"{}\"", s.len(), llvm_bytes(s)).unwrap();
+            writeln!(
+                self.out,
+                "@df.efn.{k} = private unnamed_addr constant [{} x i8] c\"{}\"",
+                s.len(),
+                llvm_bytes(s)
+            )
+            .unwrap();
         }
         for c in std::mem::take(&mut self.comdats) {
             writeln!(self.out, "$\"{c}\" = comdat any").unwrap();
         }
-        let mut defined: std::collections::HashSet<&str> =
-            self.module.functions.iter().map(|f| f.symbol.as_str()).collect();
+        let mut defined: std::collections::HashSet<&str> = self
+            .module
+            .functions
+            .iter()
+            .map(|f| f.symbol.as_str())
+            .collect();
         // The functions of the method tables of the module (`emit_method_tables`).
         // With the tables at link time, they belong to the program module.
         if !self.tables_at_link {
@@ -507,7 +651,8 @@ impl LlvmEmitter<'_> {
         if exit.is_empty() {
             return;
         }
-        self.out.push_str("; Defined in another module (source SDK) or in the runtime\n");
+        self.out
+            .push_str("; Defined in another module (source SDK) or in the runtime\n");
         for (symbol, d) in exit {
             self.out.push_str(&d);
             if self.maps {
@@ -532,7 +677,9 @@ impl LlvmEmitter<'_> {
             return;
         }
         let a: Vec<&str> = args.iter().map(|t| t.llvm_ir()).collect();
-        self.externals
-            .insert(symbol.to_string(), format!("declare {} @{symbol}({})", ret.llvm_ir(), a.join(", ")));
+        self.externals.insert(
+            symbol.to_string(),
+            format!("declare {} @{symbol}({})", ret.llvm_ir(), a.join(", ")),
+        );
     }
 }

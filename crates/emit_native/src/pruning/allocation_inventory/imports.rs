@@ -12,9 +12,9 @@ use std::path::Path;
 
 #[cfg(all(test, feature = "embedded-llvm"))]
 mod bitcode_tests;
+mod diagnostics;
 mod registry;
 mod tables;
-mod diagnostics;
 
 const SCOPE: &str =
     "allocation closure only; import pruning and native/registry exposure remain unverified";
@@ -257,11 +257,13 @@ impl Inventory {
                     .is_some_and(|cs| !ordered(cs) || cs.iter().any(|cid| *cid > i32::MAX as u32))
                 || f.calls.iter().any(|c| {
                     c.symbol.is_empty()
-                        || !(stack_read(c) || c.abi.valid() && super::closure::arguments_match(
-                            &c.abi.result,
-                            &c.abi.parameters,
-                            &c.arguments,
-                        ))
+                        || !(stack_read(c)
+                            || c.abi.valid()
+                                && super::closure::arguments_match(
+                                    &c.abi.result,
+                                    &c.abi.parameters,
+                                    &c.arguments,
+                                ))
                 })
                 || f.dependencies.iter().collect::<HashSet<_>>().len() != f.dependencies.len()
             {
@@ -573,32 +575,42 @@ impl Inventory {
     /// Explain a rejected imported startup using the verified snapshot only.
     /// Diagnostic observations never grant call or allocation capabilities.
     pub(crate) fn entry_obligations(&self, symbol: &str) -> Option<&str> {
-        if self.entry(symbol) { return None; }
+        if self.entry(symbol) {
+            return None;
+        }
         self.entry_obligations.get(symbol).map(String::as_str)
     }
     /// Discharge only edges owned by certified metadata startup bodies. Other
     /// uses of the runtime API remain visible and require their own proof.
     pub(crate) fn class_proof_summaries(&self) -> Vec<std::borrow::Cow<'_, Summary>> {
-        self.summaries.iter().map(|summary| {
-            let mut proof = std::borrow::Cow::Borrowed(summary);
-            for (index, definition) in summary.definitions.iter().enumerate() {
-                let symbol = summary.names.get(definition.name as usize);
-                let bytes = symbol.is_some_and(|symbol| self.bytes.contains(symbol));
-                let metadata = symbol.is_some_and(|symbol| self.metadata_startups.contains(symbol));
-                let keep = |node: &u32| {
-                    // Checked byte contents contain no address edges, even when
-                    // this snapshot has no certified metadata startup at all.
-                    !bytes && (!metadata || !summary.names.get(*node as usize)
-                        .is_some_and(|name| registry::metadata_api(name)))
-                };
-                if definition.refs.iter().any(|node| !keep(node)) {
-                    // Clone this summary only on its first actual edge change.
-                    // Unchanged modules continue borrowing the verified snapshot.
-                    proof.to_mut().definitions[index].refs.retain(keep);
+        self.summaries
+            .iter()
+            .map(|summary| {
+                let mut proof = std::borrow::Cow::Borrowed(summary);
+                for (index, definition) in summary.definitions.iter().enumerate() {
+                    let symbol = summary.names.get(definition.name as usize);
+                    let bytes = symbol.is_some_and(|symbol| self.bytes.contains(symbol));
+                    let metadata =
+                        symbol.is_some_and(|symbol| self.metadata_startups.contains(symbol));
+                    let keep = |node: &u32| {
+                        // Checked byte contents contain no address edges, even when
+                        // this snapshot has no certified metadata startup at all.
+                        !bytes
+                            && (!metadata
+                                || !summary
+                                    .names
+                                    .get(*node as usize)
+                                    .is_some_and(|name| registry::metadata_api(name)))
+                    };
+                    if definition.refs.iter().any(|node| !keep(node)) {
+                        // Clone this summary only on its first actual edge change.
+                        // Unchanged modules continue borrowing the verified snapshot.
+                        proof.to_mut().definitions[index].refs.retain(keep);
+                    }
                 }
-            }
-            proof
-        }).collect()
+                proof
+            })
+            .collect()
     }
     pub(crate) fn contains_definition(&self, key: &str) -> bool {
         self.definitions.contains(key)

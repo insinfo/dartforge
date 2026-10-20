@@ -9,7 +9,7 @@
 //! bytes, or is refused when the oracle refuses it (`.erro`). The `r*`
 //! shapes 1.66 compiles, but the 1.66 mode does not guarantee the output and
 //! must refuse them — never generate something else.
-use dartforge_sass::{from_path, Options, OutputStyle, DartSassVersion};
+use dartforge_sass::{from_path, DartSassVersion, Options, OutputStyle};
 use std::path::Path;
 
 #[test]

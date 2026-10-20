@@ -1482,8 +1482,7 @@ fn token_tree(
         }
         let child = children.get(&x.name);
         let matched = child.is_some_and(|f| {
-            (f.uri_dart == uri && f.class == class)
-                || f.metadata.as_deref().is_some_and(&provides)
+            (f.uri_dart == uri && f.class == class) || f.metadata.as_deref().is_some_and(&provides)
         }) || matched_directives(used, x).iter().any(|d| provides(d));
         if matched {
             let on_push = child.is_some_and(|f| f.on_push && f.uri_dart == uri && f.class == class);
@@ -1862,8 +1861,10 @@ fn template_as_container(nodes: &[Node]) -> Vec<Node> {
                 // `*dir` of another directive: the `<template>` that the
                 // microsyntax produces, with the element inside, through the
                 // path of the written `<template>`.
-                template_as_container(std::slice::from_ref(&Node::Element(Box::new(star_template(e)))))
-                    .remove(0)
+                template_as_container(std::slice::from_ref(&Node::Element(Box::new(
+                    star_template(e),
+                ))))
+                .remove(0)
             }
             Node::Element(e) => {
                 let mut e = e.clone();
@@ -9965,7 +9966,10 @@ fn embedded_body(
         ctx.used,
         &ctx.asset,
         &ctx.pipes.field_imports(spec.index),
-        (&promoted_nodes(&spec.nodes, &promoted), &ctx.directive_types),
+        (
+            &promoted_nodes(&spec.nodes, &promoted),
+            &ctx.directive_types,
+        ),
     ) {
         inside.record_refusal(r)?;
     }
@@ -10851,16 +10855,18 @@ fn instantiate_raw(text: &str, scope: &Path, r: &dyn Resolution) -> Option<Strin
             }
             output.push_str(&name);
             let followed_by_args = chars[i..].iter().find(|c| !c.is_whitespace()) == Some(&'<');
-            if !followed_by_args && !matches!(name.as_str(), "dynamic" | "void" | "Function")
+            if !followed_by_args
+                && !matches!(name.as_str(), "dynamic" | "void" | "Function")
                 && let Some(bounds) = r.type_bounds(scope, &name)
-                    && !bounds.is_empty() {
-                        if bounds.iter().any(|&l| l) {
-                            return None;
-                        }
-                        output.push('<');
-                        output.push_str(&vec!["dynamic"; bounds.len()].join(", "));
-                        output.push('>');
-                    }
+                && !bounds.is_empty()
+            {
+                if bounds.iter().any(|&l| l) {
+                    return None;
+                }
+                output.push('<');
+                output.push_str(&vec!["dynamic"; bounds.len()].join(", "));
+                output.push('>');
+            }
             continue;
         }
         output.push(c);
@@ -10902,7 +10908,8 @@ fn qualified_type(
             if name == "Function" {
                 return None;
             }
-            let simple = crate::resolution::without_anchor(name.rsplit('.').next().unwrap_or(&name));
+            let simple =
+                crate::resolution::without_anchor(name.rsplit('.').next().unwrap_or(&name));
             // A private type is not visible in the generated file:
             // `fromDartType` replaces it with `dynamic`, with its arguments and
             // `?` (`convert.dart:35-37`).

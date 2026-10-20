@@ -195,13 +195,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // With wildcards (Dart 3.7), `_` may repeat: it binds no name.
         let library = self.ctx.program.unit(self.unit_id).library;
         let wildcard = self.ctx.symbol_name(sym) == "_"
-            && self.ctx.program.library(library).features.has(dartforge_frontend::Feature::WildcardVariables);
+            && self
+                .ctx
+                .program
+                .library(library)
+                .features
+                .has(dartforge_frontend::Feature::WildcardVariables);
         let repeated = !wildcard
-            && self.scopes.last().and_then(|e| e.get(&sym)).is_some_and(|l| l.offset.is_some_and(|o| o != offset));
+            && self
+                .scopes
+                .last()
+                .and_then(|e| e.get(&sym))
+                .is_some_and(|l| l.offset.is_some_and(|o| o != offset));
         if repeated {
             let name = self.ctx.symbol_name(sym).to_string();
             let end = offset + name.len();
-            self.language_error(&format!("'{name}' is already declared in this scope."), dartforge_diagnostics::Span { start: offset, end });
+            self.language_error(
+                &format!("'{name}' is already declared in this scope."),
+                dartforge_diagnostics::Span { start: offset, end },
+            );
         }
         let ty = Self::local_repr(ty);
         // Captured only by direct functions and assigned: goes by the address of the
@@ -263,13 +275,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Enables the `late` semantics. The state of a captured local follows the
     /// handle of its `Cell`, shared between the function and closures.
-    pub fn configure_late_local(&mut self, sym: SymbolId, final_: bool, init: Option<ExprId>) -> bool {
-        let Some(local) = self.lookup_local(sym) else { return false };
+    pub fn configure_late_local(
+        &mut self,
+        sym: SymbolId,
+        final_: bool,
+        init: Option<ExprId>,
+    ) -> bool {
+        let Some(local) = self.lookup_local(sym) else {
+            return false;
+        };
         let (state, cell) = match &local.mode {
             Mode::Memory(_) => {
                 let state = self.entry_alloca(Type::I8);
                 self.emit(
-                    Instruction::Store { ptr: state.clone(), val: Operand::Constant(Constant::Int(0)) },
+                    Instruction::Store {
+                        ptr: state.clone(),
+                        val: Operand::Constant(Constant::Int(0)),
+                    },
                     Type::Void,
                 );
                 (state, false)
@@ -304,7 +326,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::I8,
             )
         } else {
-            self.emit(Instruction::Load { ptr: late.initialized.clone(), ty: Type::I8 }, Type::I8)
+            self.emit(
+                Instruction::Load {
+                    ptr: late.initialized.clone(),
+                    ty: Type::I8,
+                },
+                Type::I8,
+            )
         }
     }
 
@@ -324,7 +352,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
         } else {
             self.emit(
-                Instruction::Store { ptr: late.initialized.clone(), val: Operand::Constant(Constant::Int(state)) },
+                Instruction::Store {
+                    ptr: late.initialized.clone(),
+                    val: Operand::Constant(Constant::Int(state)),
+                },
                 Type::Void,
             );
         }
@@ -341,7 +372,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         origin: &Local,
     ) {
         let late = origin.late.as_ref().filter(|l| l.cell && cell).map(|l| {
-            let state = self.emit(Instruction::EnvGet { env: env.clone(), index }, Type::Ref);
+            let state = self.emit(
+                Instruction::EnvGet {
+                    env: env.clone(),
+                    index,
+                },
+                Type::Ref,
+            );
             LateLocal {
                 initialized: state,
                 cell: true,
@@ -353,11 +390,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.insert_local(
             sym,
             Local {
-                mode: Mode::Environment {
-                    env,
-                    index,
-                    cell,
-                },
+                mode: Mode::Environment { env, index, cell },
                 ty,
                 static_type: origin.static_type,
                 finalizable: origin.finalizable,
@@ -396,9 +429,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ///
     /// # Panics
     /// If the caller did not bind the local in the visible scope before this update.
-    pub(super) fn assign_semantic_type(&mut self, sym: SymbolId, ty: Option<dartforge_types::TypeId>) {
+    pub(super) fn assign_semantic_type(
+        &mut self,
+        sym: SymbolId,
+        ty: Option<dartforge_types::TypeId>,
+    ) {
         let finalizable = ty.and_then(|t| self.ctx.classify_finalizable(t));
-        let local = self.scopes.iter_mut().rev().find_map(|e| e.get_mut(&sym))
+        let local = self
+            .scopes
+            .iter_mut()
+            .rev()
+            .find_map(|e| e.get_mut(&sym))
             .expect("semantic local must be bound");
         local.static_type = ty;
         local.finalizable = finalizable;
@@ -439,7 +480,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn read_local(&mut self, local: &Local) -> Operand {
         if let Some(late) = &local.late {
             if let Some((unit, init)) = late.initializer
-                && !local.offset.is_some_and(|off| self.late_initializers_in_lowering.contains(&off))
+                && !local
+                    .offset
+                    .is_some_and(|off| self.late_initializers_in_lowering.contains(&off))
             {
                 let state = self.read_late_state(late);
                 let empty = self.emit(
@@ -448,7 +491,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 let b_init = self.new_block();
                 let b_verify = self.new_block();
-                self.terminate(Terminator::CondBranch { cond: empty, then_block: b_init, else_block: b_verify });
+                self.terminate(Terminator::CondBranch {
+                    cond: empty,
+                    then_block: b_init,
+                    else_block: b_verify,
+                });
                 self.set_block(b_init);
                 self.define_late_state(late, 2);
                 let b_fail = self.new_block();
@@ -462,8 +509,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 self.exception_targets.pop();
                 let value = self.coerce(value, local.ty);
-                let Mode::Memory(ptr) = &local.mode else { unreachable!("captured late rejected") };
-                self.emit(Instruction::Store { ptr: ptr.clone(), val: value }, Type::Void);
+                let Mode::Memory(ptr) = &local.mode else {
+                    unreachable!("captured late rejected")
+                };
+                self.emit(
+                    Instruction::Store {
+                        ptr: ptr.clone(),
+                        val: value,
+                    },
+                    Type::Void,
+                );
                 self.define_late_state(late, 1);
                 self.terminate(Terminator::Branch(b_verify));
                 self.set_block(b_fail);
@@ -488,7 +543,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             let b_error = self.new_block();
             let b_read = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: ready, then_block: b_read, else_block: b_error });
+            self.terminate(Terminator::CondBranch {
+                cond: ready,
+                then_block: b_read,
+                else_block: b_error,
+            });
             self.set_block(b_error);
             self.throw_late_error(&late.name, 2);
             self.set_block(b_read);
@@ -531,12 +590,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(late) = &local.late {
             let state = self.read_late_state(late);
             let starting = self.emit(
-                Instruction::ICmp(ICmpOp::Eq, state.clone(), Operand::Constant(Constant::Int(2))),
+                Instruction::ICmp(
+                    ICmpOp::Eq,
+                    state.clone(),
+                    Operand::Constant(Constant::Int(2)),
+                ),
                 Type::I1,
             );
             let b_add = self.new_block();
             let b_next = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: starting, then_block: b_add, else_block: b_next });
+            self.terminate(Terminator::CondBranch {
+                cond: starting,
+                then_block: b_add,
+                else_block: b_next,
+            });
             self.set_block(b_add);
             self.throw_late_error(&late.name, 5);
             self.set_block(b_next);
@@ -547,7 +614,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 );
                 let b_error = self.new_block();
                 let b_store = self.new_block();
-                self.terminate(Terminator::CondBranch { cond: already_initialized, then_block: b_error, else_block: b_store });
+                self.terminate(Terminator::CondBranch {
+                    cond: already_initialized,
+                    then_block: b_error,
+                    else_block: b_store,
+                });
                 self.set_block(b_error);
                 self.throw_late_error(&late.name, 3);
                 self.set_block(b_store);
@@ -749,10 +820,7 @@ void main() {}
                     b.scopes.push(saved.clone());
                     assert_eq!(b.scopes.last().unwrap().id, first_one);
                     assert_eq!(b.lookup_local(parameter).unwrap().scope, first_one);
-                    assert_eq!(
-                        b.lookup_local(parameter).unwrap().static_type,
-                        None
-                    );
+                    assert_eq!(b.lookup_local(parameter).unwrap().static_type, None);
                     b.close_scope();
                     b.open_scope();
                     let third = b.scopes.last().unwrap().id;
@@ -784,15 +852,26 @@ void main() {}
                     b.close_scope();
                     assert_eq!(b.scopes.len(), 1);
                 }
-                let fid = program.functions.iter().position(|f| ctx.symbol_name(f.name) == "escalares").unwrap();
-                let mut tracing = FnBuilder::new(&ctx, unit, "tracing".into(), "tracing".into(), Type::I64);
+                let fid = program
+                    .functions
+                    .iter()
+                    .position(|f| ctx.symbol_name(f.name) == "escalares")
+                    .unwrap();
+                let mut tracing =
+                    FnBuilder::new(&ctx, unit, "tracing".into(), "tracing".into(), Type::I64);
                 tracing.declare_parameters(fid, false);
                 assert!(tracing.dart_scalar_parameters.is_empty());
                 tracing.add_param_rti("$types".into());
                 assert!(tracing.dart_rti_parameters.is_empty());
                 drop(tracing);
                 ctx.arc_memory = true;
-                let mut b = FnBuilder::new(&ctx, unit, "escalares".into(), "escalares".into(), Type::I64);
+                let mut b = FnBuilder::new(
+                    &ctx,
+                    unit,
+                    "escalares".into(),
+                    "escalares".into(),
+                    Type::I64,
+                );
                 b.declare_parameters(fid, false);
                 let native = b.add_param_rti("$types".into());
                 assert!(b.dart_rti_parameters["escalares"].contains(&native));
@@ -813,14 +892,46 @@ void main() {}
                     assert!(module.functions[0].params.iter().any(|(v, _, _)| v == id));
                 }
                 module.arc_memory = true;
-                let mut plans = std::collections::HashMap::from([("escalares".into(), crate::optimize::arc::DartFunctionPlan::default())]);
-                assert_eq!(crate::optimize::arc::produce_lowering_scalar_parameters(&module, &mut plans).unwrap(), 3);
+                let mut plans = std::collections::HashMap::from([(
+                    "escalares".into(),
+                    crate::optimize::arc::DartFunctionPlan::default(),
+                )]);
+                assert_eq!(
+                    crate::optimize::arc::produce_lowering_scalar_parameters(&module, &mut plans)
+                        .unwrap(),
+                    3
+                );
                 assert!(!plans["escalares"].classes.contains_key(&native));
-                assert_eq!(crate::optimize::arc::produce_lowering_scalar_parameters(&module, &mut plans).unwrap(), 0);
-                assert!(crate::optimize::arc::insert_arc_dart_functions(&mut module.functions, &mut plans).is_err());
-                assert_eq!(crate::optimize::arc::produce_lowering_rti_parameters(&module, &mut plans).unwrap(), 1);
-                assert_eq!(crate::optimize::arc::produce_lowering_rti_parameters(&module, &mut plans).unwrap(), 0);
-                assert_eq!(crate::optimize::arc::insert_arc_dart_functions(&mut module.functions, &mut plans).unwrap(), (0, 0));
+                assert_eq!(
+                    crate::optimize::arc::produce_lowering_scalar_parameters(&module, &mut plans)
+                        .unwrap(),
+                    0
+                );
+                assert!(
+                    crate::optimize::arc::insert_arc_dart_functions(
+                        &mut module.functions,
+                        &mut plans
+                    )
+                    .is_err()
+                );
+                assert_eq!(
+                    crate::optimize::arc::produce_lowering_rti_parameters(&module, &mut plans)
+                        .unwrap(),
+                    1
+                );
+                assert_eq!(
+                    crate::optimize::arc::produce_lowering_rti_parameters(&module, &mut plans)
+                        .unwrap(),
+                    0
+                );
+                assert_eq!(
+                    crate::optimize::arc::insert_arc_dart_functions(
+                        &mut module.functions,
+                        &mut plans
+                    )
+                    .unwrap(),
+                    (0, 0)
+                );
             })
             .unwrap()
             .join()

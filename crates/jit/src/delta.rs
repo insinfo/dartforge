@@ -84,11 +84,16 @@ fn name_at(s: &str) -> Option<(String, usize)> {
 
 /// The `@name` references of a text.
 fn references(text: &str) -> impl Iterator<Item = String> + '_ {
-    text.match_indices('@').filter_map(|(i, _)| name_at(&text[i + 1..]).map(|(n, _)| n))
+    text.match_indices('@')
+        .filter_map(|(i, _)| name_at(&text[i + 1..]).map(|(n, _)| n))
 }
 
 fn do_read(ir: &str) -> Option<IrModule<'_>> {
-    let mut m = IrModule { fragments: Vec::new(), items: Vec::new(), by_name: HashMap::new() };
+    let mut m = IrModule {
+        fragments: Vec::new(),
+        items: Vec::new(),
+        by_name: HashMap::new(),
+    };
     let mut pos = 0;
     let mut start_pass = 0;
     while pos < ir.len() {
@@ -100,7 +105,9 @@ fn do_read(ir: &str) -> Option<IrModule<'_>> {
             let at = rest.find('@')?;
             let (name, _) = name_at(&rest[at + 1..])?;
             let before = &rest[..at];
-            let local = before.split_whitespace().any(|p| p == "internal" || p == "private");
+            let local = before
+                .split_whitespace()
+                .any(|p| p == "internal" || p == "private");
             Some((name, Type::Function { local }, end))
         } else if let Some(rest) = line.strip_prefix('@') {
             let (name, n) = name_at(rest)?;
@@ -109,12 +116,17 @@ fn do_read(ir: &str) -> Option<IrModule<'_>> {
             if after.starts_with("external ") {
                 None
             } else {
-                let mutable = after.split_whitespace().find(|p| *p == "constant" || *p == "global") == Some("global");
+                let mutable = after
+                    .split_whitespace()
+                    .find(|p| *p == "constant" || *p == "global")
+                    == Some("global");
                 Some((name, Type::Global { mutable }, line_end))
             }
         } else if let Some(rest) = line.strip_prefix('$') {
             let (name, n) = name_at(rest)?;
-            rest[n..].starts_with(" = comdat ").then_some((name, Type::Comdat, line_end))
+            rest[n..]
+                .starts_with(" = comdat ")
+                .then_some((name, Type::Comdat, line_end))
         } else {
             None
         };
@@ -131,7 +143,11 @@ fn do_read(ir: &str) -> Option<IrModule<'_>> {
                     return None;
                 }
                 m.fragments.push(Ok(m.items.len()));
-                m.items.push(Item { name, ty, text: &ir[pos..end] });
+                m.items.push(Item {
+                    name,
+                    ty,
+                    text: &ir[pos..end],
+                });
                 pos = end;
                 start_pass = pos;
             }
@@ -170,7 +186,12 @@ fn fn_signature(text: &str) -> Option<String> {
     let closes = closes?;
     let head: Vec<&str> = line[..opens]
         .split_whitespace()
-        .filter(|p| !matches!(*p, "linkonce_odr" | "internal" | "private" | "dso_local" | "weak_odr" | "linkonce"))
+        .filter(|p| {
+            !matches!(
+                *p,
+                "linkonce_odr" | "internal" | "private" | "dso_local" | "weak_odr" | "linkonce"
+            )
+        })
         .collect();
     // `comdat` and `comdat($name)`: the declaration does not belong to a comdat.
     let after = line[closes + 1..]
@@ -199,7 +220,12 @@ fn fn_signature(text: &str) -> Option<String> {
     }
     let params: Vec<String> = params
         .iter()
-        .map(|p| p.split_whitespace().filter(|t| !t.starts_with('%')).collect::<Vec<_>>().join(" "))
+        .map(|p| {
+            p.split_whitespace()
+                .filter(|t| !t.starts_with('%'))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
         .collect();
     let mut s = format!("{}({})", head.join(" "), params.join(", "));
     if !after.is_empty() {
@@ -231,7 +257,9 @@ fn closure_set(m: &IrModule, i: usize) -> (BTreeSet<usize>, BTreeSet<String>, bo
             if INFRASTRUCTURE.contains(&r.as_str()) {
                 continue;
             }
-            let Some(&j) = m.by_name.get(&r) else { continue };
+            let Some(&j) = m.by_name.get(&r) else {
+                continue;
+            };
             match m.items[j].ty {
                 Type::Function { local: false } => {
                     if j != i {
@@ -255,7 +283,10 @@ fn closure_set(m: &IrModule, i: usize) -> (BTreeSet<usize>, BTreeSet<String>, bo
 fn fingerprint(m: &IrModule, i: usize, locals: &BTreeSet<usize>) -> u64 {
     let mut h = std::collections::hash_map::DefaultHasher::new();
     m.items[i].text.hash(&mut h);
-    let mut names: Vec<(&str, &str)> = locals.iter().map(|&j| (m.items[j].name.as_str(), m.items[j].text)).collect();
+    let mut names: Vec<(&str, &str)> = locals
+        .iter()
+        .map(|&j| (m.items[j].name.as_str(), m.items[j].text))
+        .collect();
     names.sort();
     names.hash(&mut h);
     h.finish()
@@ -275,7 +306,11 @@ pub(crate) struct Delta {
 /// The delta of `ir` against the implementations `live_list`. `excluded`:
 /// functions that the new generation always defines (the registrations). `None`
 /// when the IR is not in the expected shape — then it goes through whole.
-pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: &[&str]) -> Option<Delta> {
+pub(crate) fn delta(
+    ir: &str,
+    live_list: &HashMap<String, Published>,
+    excluded: &[&str],
+) -> Option<Delta> {
     let m = do_read(ir)?;
     let mut new_items = HashMap::new();
     let mut kept_fns: HashSet<usize> = HashSet::new();
@@ -292,17 +327,22 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
         }
         let fn_signature = fn_signatures.get(item.name.as_str())?.clone();
         let (locals, program, mutable) = closure_set(&m, i);
-        let published = Published { fingerprint: fingerprint(&m, i, &locals), fn_signature };
+        let published = Published {
+            fingerprint: fingerprint(&m, i, &locals),
+            fn_signature,
+        };
         let keep = !mutable
             && !excluded.contains(&item.name.as_str())
             && live_list.get(&item.name) == Some(&published)
-            && program.iter().all(|r| match (fn_signatures.get(r.as_str()), live_list.get(r)) {
-                (Some(new_area), Some(live_one)) => *new_area == live_one.fn_signature,
-                // A program function the new IR does not define: the reference
-                // is the same the live one already made.
-                (None, _) => true,
-                (Some(_), None) => false,
-            });
+            && program.iter().all(
+                |r| match (fn_signatures.get(r.as_str()), live_list.get(r)) {
+                    (Some(new_area), Some(live_one)) => *new_area == live_one.fn_signature,
+                    // A program function the new IR does not define: the reference
+                    // is the same the live one already made.
+                    (None, _) => true,
+                    (Some(_), None) => false,
+                },
+            );
         if keep {
             kept_fns.insert(i);
             declarations.insert(i, format!("declare {}\n", published.fn_signature));
@@ -311,7 +351,11 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
         }
     }
     if kept_fns.is_empty() {
-        return Some(Delta { ir: ir.to_string(), kept_fns: Vec::new(), new_items });
+        return Some(Delta {
+            ir: ir.to_string(),
+            kept_fns: Vec::new(),
+            new_items,
+        });
     }
     // What is still reached: from the program functions that stay defined and
     // from the globals that are not local (the local ones only exist through
@@ -323,7 +367,11 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
         .enumerate()
         .filter(|(i, it)| match it.ty {
             Type::Function { local: false } => !kept_fns.contains(i),
-            Type::Global { .. } => !it.text.split_whitespace().nth(2).is_some_and(|p| p == "private" || p == "internal"),
+            Type::Global { .. } => !it
+                .text
+                .split_whitespace()
+                .nth(2)
+                .is_some_and(|p| p == "private" || p == "internal"),
             _ => false,
         })
         .map(|(i, _)| i)
@@ -331,7 +379,9 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
     live_set.extend(stack.iter().copied());
     while let Some(k) = stack.pop() {
         for r in references(m.items[k].text) {
-            let Some(&j) = m.by_name.get(&r) else { continue };
+            let Some(&j) = m.by_name.get(&r) else {
+                continue;
+            };
             if !kept_fns.contains(&j) && live_set.insert(j) {
                 stack.push(j);
             }
@@ -340,7 +390,9 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
     // Comdat with only the defined member.
     for (i, it) in m.items.iter().enumerate() {
         if it.ty == Type::Comdat
-            && m.by_name.get(&it.name).is_some_and(|&f| live_set.contains(&f))
+            && m.by_name
+                .get(&it.name)
+                .is_some_and(|&f| live_set.contains(&f))
         {
             live_set.insert(i);
         }
@@ -360,7 +412,11 @@ pub(crate) fn delta(ir: &str, live_list: &HashMap<String, Published>, excluded: 
     }
     let mut names: Vec<String> = kept_fns.iter().map(|&i| m.items[i].name.clone()).collect();
     names.sort();
-    Some(Delta { ir: out, kept_fns: names, new_items })
+    Some(Delta {
+        ir: out,
+        kept_fns: names,
+        new_items,
+    })
 }
 
 #[cfg(test)]
@@ -369,7 +425,9 @@ mod tests_mod {
 
     /// What the first generation of `ir` publishes.
     fn published_list(ir: &str) -> HashMap<String, Published> {
-        delta(ir, &HashMap::new(), &[]).expect("known shape").new_items
+        delta(ir, &HashMap::new(), &[])
+            .expect("known shape")
+            .new_items
     }
 
     const V1: &str = r#"; cabeçalho
@@ -405,13 +463,18 @@ b0:
 
     #[test]
     fn signature_without_names_or_linkage() {
-        assert_eq!(fn_signature("define linkonce_odr i64 @\"g\"(i64 %v0) comdat {\n}").unwrap(), "i64 @\"g\"(i64)");
         assert_eq!(
-            fn_signature("define linkonce_odr i64 @g$t(i64 %v0, ptr %v1) comdat($\"g$t\") {\n}").unwrap(),
+            fn_signature("define linkonce_odr i64 @\"g\"(i64 %v0) comdat {\n}").unwrap(),
+            "i64 @\"g\"(i64)"
+        );
+        assert_eq!(
+            fn_signature("define linkonce_odr i64 @g$t(i64 %v0, ptr %v1) comdat($\"g$t\") {\n}")
+                .unwrap(),
             "i64 @g$t(i64, ptr)"
         );
         assert_eq!(
-            fn_signature("define internal signext i8 @k({ i64, ptr } %a, ptr noalias %b) {\n}").unwrap(),
+            fn_signature("define internal signext i8 @k({ i64, ptr } %a, ptr noalias %b) {\n}")
+                .unwrap(),
             "signext i8 @k({ i64, ptr }, ptr noalias)"
         );
     }
@@ -423,7 +486,10 @@ b0:
         // `g` changed: only it is compiled; `f` (which calls `g` through the
         // trampoline) stays in the live implementation; `h` uses a mutable global
         // and is never kept.
-        let v2 = V1.replace("  ret i64 %v0\n}\n\ndefine i64 @h", "  %y = add i64 %v0, 1\n  ret i64 %y\n}\n\ndefine i64 @h");
+        let v2 = V1.replace(
+            "  ret i64 %v0\n}\n\ndefine i64 @h",
+            "  %y = add i64 %v0, 1\n  ret i64 %y\n}\n\ndefine i64 @h",
+        );
         let d = delta(&v2, &live_list, &[]).expect("known shape");
         assert_eq!(d.kept_fns, vec!["f".to_string()]);
         assert!(d.ir.contains("declare i64 @f(i64, ptr)\n"), "{}", d.ir);
@@ -432,7 +498,10 @@ b0:
         assert!(d.ir.contains("$\"g\" = comdat any"));
         assert!(d.ir.contains("%y = add i64 %v0, 1"));
         assert!(d.ir.contains("define i64 @h("));
-        assert_eq!(d.new_items.keys().collect::<BTreeSet<_>>(), BTreeSet::from([&"g".to_string(), &"h".to_string()]));
+        assert_eq!(
+            d.new_items.keys().collect::<BTreeSet<_>>(),
+            BTreeSet::from([&"g".to_string(), &"h".to_string()])
+        );
     }
 
     #[test]
@@ -448,8 +517,10 @@ b0:
     #[test]
     fn changed_callee_signature_recompiles_caller() {
         let live_list = published_list(V1);
-        let v2 = V1
-            .replace("define linkonce_odr i64 @\"g\"(i64 %v0)", "define linkonce_odr i64 @\"g\"(i64 %v0, i64 %v1)");
+        let v2 = V1.replace(
+            "define linkonce_odr i64 @\"g\"(i64 %v0)",
+            "define linkonce_odr i64 @\"g\"(i64 %v0, i64 %v1)",
+        );
         let d = delta(&v2, &live_list, &[]).unwrap();
         assert!(d.kept_fns.is_empty(), "{:?}", d.kept_fns);
     }

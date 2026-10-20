@@ -25,7 +25,12 @@ pub fn successors(t: &Terminator) -> Vec<BlockId> {
 
 impl Cfg {
     pub fn new(func: &Function) -> Cfg {
-        let pos: HashMap<BlockId, usize> = func.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
+        let pos: HashMap<BlockId, usize> = func
+            .blocks
+            .iter()
+            .enumerate()
+            .map(|(i, b)| (b.id, i))
+            .collect();
         let n = func.blocks.len();
         let mut succ = vec![Vec::new(); n];
         let mut pred = vec![Vec::new(); n];
@@ -77,7 +82,11 @@ impl Cfg {
                     if idom[p] == usize::MAX {
                         continue;
                     }
-                    new = if new == usize::MAX { p } else { intersection(&idom, &order, p, new) };
+                    new = if new == usize::MAX {
+                        p
+                    } else {
+                        intersection(&idom, &order, p, new)
+                    };
                 }
                 if new != usize::MAX && idom[b] != new {
                     idom[b] = new;
@@ -85,7 +94,12 @@ impl Cfg {
                 }
             }
         }
-        Cfg { successors: succ, predecessors: pred, rpo, idom }
+        Cfg {
+            successors: succ,
+            predecessors: pred,
+            rpo,
+            idom,
+        }
     }
 
     pub fn reachable(&self, b: usize) -> bool {
@@ -100,7 +114,11 @@ impl Cfg {
             if !self.reachable(b) {
                 continue;
             }
-            let preds: Vec<usize> = self.predecessors[b].iter().copied().filter(|&p| self.reachable(p)).collect();
+            let preds: Vec<usize> = self.predecessors[b]
+                .iter()
+                .copied()
+                .filter(|&p| self.reachable(p))
+                .collect();
             if preds.len() < 2 {
                 continue;
             }

@@ -11,10 +11,10 @@
 //! | `Convert to field formal parameter` | `refactor.convert.toConstructorFieldParameter` | `ConvertToFieldParameter` |
 //! | `Create a local variable that shadows the field` | `refactor.shadowField` | `ShadowField` |
 
+use crate::Edit;
 use crate::actions::CodeAction;
 use crate::analyzer_tree::Mark;
 use crate::refactorings::Context;
-use crate::Edit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{self, FunctionBody, StmtKind};
 use dartforge_types::TypeId;
@@ -23,18 +23,35 @@ use dartforge_types::TypeId;
 const TYPES: &[&str] = &["NamedType", "GenericFunctionType", "RecordTypeAnnotation"];
 
 impl Context<'_> {
-    fn member_action(&self, uri: &str, title: &str, kind: &str, span: Span, text: String) -> CodeAction {
+    fn member_action(
+        &self,
+        uri: &str,
+        title: &str,
+        kind: &str,
+        span: Span,
+        text: String,
+    ) -> CodeAction {
         CodeAction {
             title: title.into(),
             kind: kind.into(),
-            edits: vec![Edit { uri: uri.to_string(), span, text }],
+            edits: vec![Edit {
+                uri: uri.to_string(),
+                span,
+                text,
+            }],
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         }
     }
 
     /// `ConvertIntoFinalField` (convert_into_final_field.dart).
-    pub(crate) fn convert_to_final_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_to_final_field(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
         // The enclosing getter: goes through identifiers and types.
         let mut getter = None;
@@ -50,7 +67,9 @@ impl Context<'_> {
             break;
         }
         let getter = getter?;
-        let Mark::Function(fid) = self.tree.nodes[getter].mark else { return None };
+        let Mark::Function(fid) = self.tree.nodes[getter].mark else {
+            return None;
+        };
         let f = self.ast.function(fid);
         if f.kind != ast::FunctionKind::Getter {
             return None;
@@ -60,15 +79,27 @@ impl Context<'_> {
         let element = self.p.node_function(self.unit, fid)?;
         let prog = self.p.program();
         let fe = prog.function(element);
-        let key = self.p.query.names.lookup(&format!("{}=", self.p.name(fe.name)));
+        let key = self
+            .p
+            .query
+            .names
+            .lookup(&format!("{}=", self.p.name(fe.name)));
         let has_setter = key.is_some_and(|k| match (fe.class, fe.extension) {
             (Some(c), _) => {
                 let k_ = prog.class(c);
-                if fe.static_ { k_.static_members.contains_key(&k) } else { k_.instance_members.contains_key(&k) }
+                if fe.static_ {
+                    k_.static_members.contains_key(&k)
+                } else {
+                    k_.instance_members.contains_key(&k)
+                }
             }
             (None, Some(x)) => {
                 let x_ = prog.extension(x);
-                if fe.static_ { x_.static_members.contains_key(&k) } else { x_.instance_members.contains_key(&k) }
+                if fe.static_ {
+                    x_.static_members.contains_key(&k)
+                } else {
+                    x_.instance_members.contains_key(&k)
+                }
             }
             _ => false,
         });
@@ -107,16 +138,32 @@ impl Context<'_> {
             None => self
                 .tokens
                 .iter()
-                .filter(|t| t.span.end <= name.span.start && &self.source[t.span.start..t.span.end] == "get")
+                .filter(|t| {
+                    t.span.end <= name.span.start && &self.source[t.span.start..t.span.end] == "get"
+                })
                 .map(|t| t.span.start)
                 .next_back()?,
         };
-        let range = Span { start: start_swap, end: self.tree.nodes[getter].end };
-        Some(self.member_action(uri, "Convert to final field", "refactor.convert.getterToFinalField", range, code))
+        let range = Span {
+            start: start_swap,
+            end: self.tree.nodes[getter].end,
+        };
+        Some(self.member_action(
+            uri,
+            "Convert to final field",
+            "refactor.convert.getterToFinalField",
+            range,
+            code,
+        ))
     }
 
     /// `ConvertIntoGetter` (convert_into_getter.dart).
-    pub(crate) fn convert_to_getter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_to_getter(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
         let mut declaration = None;
         for n in self.with_parents(node) {
@@ -125,25 +172,47 @@ impl Context<'_> {
                 declaration = Some(n);
                 break;
             }
-            if matches!(e, "SimpleIdentifier" | "VariableDeclaration" | "VariableDeclarationList" | "TypeArgumentList") || TYPES.contains(&e) {
+            if matches!(
+                e,
+                "SimpleIdentifier"
+                    | "VariableDeclaration"
+                    | "VariableDeclarationList"
+                    | "TypeArgumentList"
+            ) || TYPES.contains(&e)
+            {
                 continue;
             }
             break;
         }
         let declaration = declaration?;
-        let list = self.children(declaration).iter().copied().find(|&f| self.kind(f) == "VariableDeclarationList")?;
+        let list = self
+            .children(declaration)
+            .iter()
+            .copied()
+            .find(|&f| self.kind(f) == "VariableDeclarationList")?;
         let variables = self.kind_children(list, "VariableDeclaration");
         if variables.len() != 1 {
             return None;
         }
         let field = variables[0];
         // The list's `keyword` (`final`, `const` or `var`).
-        let ty = self.children(list).iter().copied().find(|&f| TYPES.contains(&self.kind(f)));
+        let ty = self
+            .children(list)
+            .iter()
+            .copied()
+            .find(|&f| TYPES.contains(&self.kind(f)));
         let limit = ty.map_or(self.tree.nodes[field].start, |t| self.tree.nodes[t].start);
         let word = self
             .tokens
             .iter()
-            .find(|t| t.span.start >= self.tree.nodes[list].start && t.span.end <= limit && matches!(&self.source[t.span.start..t.span.end], "final" | "const" | "var"))?
+            .find(|t| {
+                t.span.start >= self.tree.nodes[list].start
+                    && t.span.end <= limit
+                    && matches!(
+                        &self.source[t.span.start..t.span.end],
+                        "final" | "const" | "var"
+                    )
+            })?
             .span;
         let initializer = *self.children(field).first()?;
         let name = self.next_token(self.tree.nodes[field].start)?;
@@ -157,14 +226,28 @@ impl Context<'_> {
         code.push_str(" => ");
         code.push_str(self.node_text(initializer));
         code.push(';');
-        let range = Span { start: word.start, end: self.tree.nodes[declaration].end };
-        Some(self.member_action(uri, "Convert to getter", "refactor.convert.finalFieldToGetter", range, code))
+        let range = Span {
+            start: word.start,
+            end: self.tree.nodes[declaration].end,
+        };
+        Some(self.member_action(
+            uri,
+            "Convert to getter",
+            "refactor.convert.finalFieldToGetter",
+            range,
+            code,
+        ))
     }
 
     /// `ConvertToNormalParameter` (convert_to_normal_parameter.dart): a `this.x`
     /// directly in a constructor's parameter list becomes an ordinary parameter
     /// with the initializer `x = x`.
-    pub(crate) fn convert_to_normal_parameter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_to_normal_parameter(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let parameter = self.tree.locate(start, end)?;
         if self.kind(parameter) != "FieldFormalParameter" {
             return None;
@@ -183,9 +266,21 @@ impl Context<'_> {
         // The element's type: that of the constructor parameter, by position.
         let index = self.children(list).iter().position(|&k| k == parameter)?;
         let node_end = self.tree.nodes[constructor].end;
-        let mi = self.ast.members.iter().position(|m| matches!(m.kind, ast::MemberKind::Constructor(_)) && m.span.end == node_end)?;
-        let element = self.p.node_constructor(self.unit, ast::MemberId(mi as u32))?;
-        let ty = self.p.query.outline.functions.get(element.0 as usize)?.parameters.get(index)?.ty;
+        let mi = self.ast.members.iter().position(|m| {
+            matches!(m.kind, ast::MemberKind::Constructor(_)) && m.span.end == node_end
+        })?;
+        let element = self
+            .p
+            .node_constructor(self.unit, ast::MemberId(mi as u32))?;
+        let ty = self
+            .p
+            .query
+            .outline
+            .functions
+            .get(element.0 as usize)?
+            .parameters
+            .get(index)?
+            .ty;
         let mut import = std::collections::BTreeSet::new();
         let replacement = if matches!(self.p.query.table.get(ty), dartforge_types::Type::Dynamic) {
             name.clone()
@@ -199,7 +294,15 @@ impl Context<'_> {
             .children(constructor)
             .iter()
             .copied()
-            .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+            .filter(|&k| {
+                matches!(
+                    self.kind(k),
+                    "ConstructorFieldInitializer"
+                        | "SuperConstructorInvocation"
+                        | "RedirectingConstructorInvocation"
+                        | "AssertInitializer"
+                )
+            })
             .collect();
         let (at, text) = match initializers.last() {
             None => (self.tree.nodes[list].end, format!(" : {name} = {name}")),
@@ -215,9 +318,14 @@ impl Context<'_> {
         Some(CodeAction {
             title: "Convert to normal parameter".into(),
             kind: "refactor.convert.toConstructorNormalParameter".into(),
-            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            edits: m
+                .files
+                .into_iter()
+                .flat_map(|(_, l)| l.into_iter().rev())
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 
@@ -229,8 +337,14 @@ impl Context<'_> {
         let mut output = Vec::new();
         let owner = |r: Option<&Resolved>| -> Option<dartforge_elements::model::ClassId> {
             let f = match r? {
-                Resolved::Member { member: MemberRef::Function(f), .. } => *f,
-                Resolved::Member { member: MemberRef::Variable(v), .. } => prog.variable(*v).getter?,
+                Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                } => *f,
+                Resolved::Member {
+                    member: MemberRef::Variable(v),
+                    ..
+                } => prog.variable(*v).getter?,
                 _ => return None,
             };
             let c = prog.function(f).class?;
@@ -257,22 +371,38 @@ impl Context<'_> {
     }
 
     /// `ConvertClassToMixin` (convert_class_to_mixin.dart).
-    pub(crate) fn convert_class_to_mixin(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_class_to_mixin(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
-        let declaration = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
-        let Mark::Decl(d) = self.tree.nodes[declaration].mark else { return None };
-        let ast::DeclKind::Class(k) = &self.ast.decl(d).kind else { return None };
+        let declaration = self
+            .with_parents(node)
+            .find(|&k| self.kind(k) == "ClassDeclaration")?;
+        let Mark::Decl(d) = self.tree.nodes[declaration].mark else {
+            return None;
+        };
+        let ast::DeclKind::Class(k) = &self.ast.decl(d).kind else {
+            return None;
+        };
         // `class` (the keyword) and the name.
         let class_word = self
             .tokens
             .iter()
-            .filter(|t| t.span.end <= k.name.span.start && &self.source[t.span.start..t.span.end] == "class")
+            .filter(|t| {
+                t.span.end <= k.name.span.start && &self.source[t.span.start..t.span.end] == "class"
+            })
             .map(|t| t.span)
             .next_back()?;
         if start > k.name.span.end || end < class_word.start {
             return None;
         }
-        if k.members.iter().any(|&m| matches!(self.ast.member(m).kind, ast::MemberKind::Constructor(_))) {
+        if k.members
+            .iter()
+            .any(|&m| matches!(self.ast.member(m).kind, ast::MemberKind::Constructor(_)))
+        {
             return None;
         }
         if k.modifiers.final_ || k.modifiers.interface || k.modifiers.sealed {
@@ -327,11 +457,17 @@ impl Context<'_> {
             text.push_str(&parts.join(", "));
             text.push('>');
         }
-        let write_list = |writer: &mut crate::write_type::Writer<'_, '_>, types: &[TypeId], prefix: &str, text: &mut String| {
+        let write_list = |writer: &mut crate::write_type::Writer<'_, '_>,
+                          types: &[TypeId],
+                          prefix: &str,
+                          text: &mut String| {
             if types.is_empty() {
                 return;
             }
-            let parts: Vec<String> = types.iter().map(|&t| writer.write(t, false).unwrap_or_default()).collect();
+            let parts: Vec<String> = types
+                .iter()
+                .map(|&t| writer.write(t, false).unwrap_or_default())
+                .collect();
             text.push_str(prefix);
             text.push_str(&parts.join(", "));
         };
@@ -341,16 +477,33 @@ impl Context<'_> {
         let start_swap = if k.modifiers.abstract_ {
             self.tokens
                 .iter()
-                .filter(|t| t.span.end <= class_word.start && &self.source[t.span.start..t.span.end] == "abstract")
+                .filter(|t| {
+                    t.span.end <= class_word.start
+                        && &self.source[t.span.start..t.span.end] == "abstract"
+                })
                 .map(|t| t.span.start)
                 .next_back()
                 .unwrap_or(class_word.start)
         } else {
             class_word.start
         };
-        let opens = self.tokens.iter().find(|t| t.span.start >= k.name.span.end && &self.source[t.span.start..t.span.end] == "{")?.span.start;
+        let opens = self
+            .tokens
+            .iter()
+            .find(|t| {
+                t.span.start >= k.name.span.end && &self.source[t.span.start..t.span.end] == "{"
+            })?
+            .span
+            .start;
         let mut m = crate::refactorings_exec::Change::default();
-        m.add(uri, Span { start: start_swap, end: opens }, text);
+        m.add(
+            uri,
+            Span {
+                start: start_swap,
+                end: opens,
+            },
+            text,
+        );
         crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
         if m.conflict.is_some() {
             return None;
@@ -358,9 +511,14 @@ impl Context<'_> {
         Some(CodeAction {
             title: "Convert class to a mixin".into(),
             kind: "refactor.convert.classToMixin".into(),
-            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            edits: m
+                .files
+                .into_iter()
+                .flat_map(|(_, l)| l.into_iter().rev())
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 
@@ -368,13 +526,28 @@ impl Context<'_> {
     /// (superclass, mixins, interfaces, `on` constraints, transitively) declares
     /// an instance member with that name — the getter or the method (`setter`
     /// false), or the setter (`name=`).
-    fn overridden_member(&self, class: dartforge_elements::model::ClassId, name: &str, setter: bool) -> bool {
+    fn overridden_member(
+        &self,
+        class: dartforge_elements::model::ClassId,
+        name: &str,
+        setter: bool,
+    ) -> bool {
         let prog = self.p.program();
-        let key = if setter { format!("{name}_=") } else { name.to_string() };
+        let key = if setter {
+            format!("{name}_=")
+        } else {
+            name.to_string()
+        };
         let mut seen = std::collections::HashSet::new();
         let ce = prog.class(class);
-        let mut stack: Vec<dartforge_elements::model::ClassId> =
-            ce.supertype_class.iter().chain(&ce.mixin_classes).chain(&ce.interface_classes).chain(&ce.on_classes).copied().collect();
+        let mut stack: Vec<dartforge_elements::model::ClassId> = ce
+            .supertype_class
+            .iter()
+            .chain(&ce.mixin_classes)
+            .chain(&ce.interface_classes)
+            .chain(&ce.on_classes)
+            .copied()
+            .collect();
         while let Some(c) = stack.pop() {
             if !seen.insert(c) {
                 continue;
@@ -383,7 +556,14 @@ impl Context<'_> {
             if e.instance_members.keys().any(|k| self.p.name(*k) == key) {
                 return true;
             }
-            stack.extend(e.supertype_class.iter().chain(&e.mixin_classes).chain(&e.interface_classes).chain(&e.on_classes).copied());
+            stack.extend(
+                e.supertype_class
+                    .iter()
+                    .chain(&e.mixin_classes)
+                    .chain(&e.interface_classes)
+                    .chain(&e.on_classes)
+                    .copied(),
+            );
         }
         false
     }
@@ -391,25 +571,63 @@ impl Context<'_> {
     /// `EncapsulateField` (encapsulate_field.dart): on the name of a public,
     /// non-final instance field, alone in its declaration, of a class or mixin,
     /// the field becomes private and gets a getter and a setter with its name.
-    pub(crate) fn encapsulate_field(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn encapsulate_field(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
-        let declaration = self.with_parents(node).find(|&k| self.kind(k) == "FieldDeclaration")?;
-        let list = self.children(declaration).iter().copied().find(|&k| self.kind(k) == "VariableDeclarationList")?;
+        let declaration = self
+            .with_parents(node)
+            .find(|&k| self.kind(k) == "FieldDeclaration")?;
+        let list = self
+            .children(declaration)
+            .iter()
+            .copied()
+            .find(|&k| self.kind(k) == "VariableDeclarationList")?;
         // The keywords before the list (`static`, `covariant`…) and those of the list.
         let words = |from: usize, until: usize| -> Vec<&str> {
-            self.tokens.iter().filter(|t| t.span.start >= from && t.span.end <= until).map(|t| &self.source[t.span.start..t.span.end]).collect()
+            self.tokens
+                .iter()
+                .filter(|t| t.span.start >= from && t.span.end <= until)
+                .map(|t| &self.source[t.span.start..t.span.end])
+                .collect()
         };
-        let annotations: Vec<usize> = self.children(declaration).iter().copied().filter(|&k| self.kind(k) == "Annotation").collect();
-        let after_metadata = annotations.last().map_or(self.tree.nodes[declaration].start, |&a| self.tree.nodes[a].end);
+        let annotations: Vec<usize> = self
+            .children(declaration)
+            .iter()
+            .copied()
+            .filter(|&k| self.kind(k) == "Annotation")
+            .collect();
+        let after_metadata = annotations
+            .last()
+            .map_or(self.tree.nodes[declaration].start, |&a| {
+                self.tree.nodes[a].end
+            });
         let before = words(after_metadata, self.tree.nodes[list].start);
         if before.contains(&"static") {
             return None;
         }
-        let ty = self.children(list).iter().copied().find(|&k| TYPES.contains(&self.kind(k)));
-        let variables: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) == "VariableDeclaration").collect();
-        let up_to_name = variables.first().map_or(self.tree.nodes[list].end, |&v| self.tree.nodes[v].start);
+        let ty = self
+            .children(list)
+            .iter()
+            .copied()
+            .find(|&k| TYPES.contains(&self.kind(k)));
+        let variables: Vec<usize> = self
+            .children(list)
+            .iter()
+            .copied()
+            .filter(|&k| self.kind(k) == "VariableDeclaration")
+            .collect();
+        let up_to_name = variables
+            .first()
+            .map_or(self.tree.nodes[list].end, |&v| self.tree.nodes[v].start);
         let from_list = words(self.tree.nodes[list].start, up_to_name);
-        let word = from_list.iter().find(|w| matches!(**w, "var" | "final" | "const")).copied();
+        let word = from_list
+            .iter()
+            .find(|w| matches!(**w, "var" | "final" | "const"))
+            .copied();
         if word.is_none() && ty.is_none() {
             return None;
         }
@@ -426,17 +644,26 @@ impl Context<'_> {
             return None;
         }
         let class_body = self.parent(declaration)?;
-        if !matches!(self.kind(class_body), "ClassDeclaration" | "MixinDeclaration") {
+        if !matches!(
+            self.kind(class_body),
+            "ClassDeclaration" | "MixinDeclaration"
+        ) {
             return None;
         }
-        let Mark::Decl(d) = self.tree.nodes[class_body].mark else { return None };
+        let Mark::Decl(d) = self.tree.nodes[class_body].mark else {
+            return None;
+        };
         let class = self.declaration_class(self.unit, d)?;
         let tx = crate::refactorings_exec::Text::new(self.source);
         let eol = tx.eol();
         let mut m = crate::refactorings_exec::Change::default();
         // Without annotations on the field.
         if let (Some(&first), Some(&last)) = (annotations.first(), annotations.last()) {
-            m.add(uri, tx.line_range(self.tree.nodes[first].start, self.tree.nodes[last].end), String::new());
+            m.add(
+                uri,
+                tx.line_range(self.tree.nodes[first].start, self.tree.nodes[last].end),
+                String::new(),
+            );
         }
         m.add(uri, name_tk, format!("_{name}"));
         let type_code = ty.map_or(String::new(), |t| self.node_text(t).to_string());
@@ -445,18 +672,35 @@ impl Context<'_> {
             if self.kind(member) != "ConstructorDeclaration" {
                 continue;
             }
-            let Some(&parameters) = self.children(member).iter().find(|&&k| self.kind(k) == "FormalParameterList") else { continue };
+            let Some(&parameters) = self
+                .children(member)
+                .iter()
+                .find(|&&k| self.kind(k) == "FormalParameterList")
+            else {
+                continue;
+            };
             let initializers: Vec<usize> = self
                 .children(member)
                 .iter()
                 .copied()
-                .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+                .filter(|&k| {
+                    matches!(
+                        self.kind(k),
+                        "ConstructorFieldInitializer"
+                            | "SuperConstructorInvocation"
+                            | "RedirectingConstructorInvocation"
+                            | "AssertInitializer"
+                    )
+                })
                 .collect();
             for &parameter in self.children(parameters) {
                 let (internal, named) = if self.kind(parameter) == "DefaultFormalParameter" {
-                    let Some(&i) = self.children(parameter).first() else { continue };
+                    let Some(&i) = self.children(parameter).first() else {
+                        continue;
+                    };
                     // `isNamed`: between `{ }`.
-                    let before_parameter = &self.source[self.tree.nodes[parameters].start..self.tree.nodes[parameter].start];
+                    let before_parameter = &self.source
+                        [self.tree.nodes[parameters].start..self.tree.nodes[parameter].start];
                     (i, before_parameter.contains('{'))
                 } else {
                     (parameter, false)
@@ -464,23 +708,58 @@ impl Context<'_> {
                 if self.kind(internal) != "FieldFormalParameter" {
                     continue;
                 }
-                let Some(identifier) = self.previous_token(self.tree.nodes[internal].end) else { continue };
+                let Some(identifier) = self.previous_token(self.tree.nodes[internal].end) else {
+                    continue;
+                };
                 if &self.source[identifier.start..identifier.end] != name {
                     continue;
                 }
                 if named {
                     // `this.` goes away (with the field's type in its place) and the field is
                     // initialized in the list.
-                    let this_ = self.tokens.iter().find(|t| t.span.start >= self.tree.nodes[internal].start && &self.source[t.span.start..t.span.end] == "this")?.span;
+                    let this_ = self
+                        .tokens
+                        .iter()
+                        .find(|t| {
+                            t.span.start >= self.tree.nodes[internal].start
+                                && &self.source[t.span.start..t.span.end] == "this"
+                        })?
+                        .span;
                     let dot = self.next_token(this_.end)?;
-                    let text = if type_code.is_empty() { String::new() } else { format!("{type_code} ") };
-                    m.add(uri, Span { start: this_.start, end: dot.end }, text);
+                    let text = if type_code.is_empty() {
+                        String::new()
+                    } else {
+                        format!("{type_code} ")
+                    };
+                    m.add(
+                        uri,
+                        Span {
+                            start: this_.start,
+                            end: dot.end,
+                        },
+                        text,
+                    );
                     if initializers.is_empty() {
                         let parameter_end = self.tree.nodes[parameters].end;
-                        m.add(uri, Span { start: parameter_end, end: parameter_end }, format!(" : _{name} = {name}"));
+                        m.add(
+                            uri,
+                            Span {
+                                start: parameter_end,
+                                end: parameter_end,
+                            },
+                            format!(" : _{name} = {name}"),
+                        );
                     } else {
-                        let separator = self.previous_token(self.tree.nodes[initializers[0]].start)?;
-                        m.add(uri, Span { start: separator.end, end: separator.end }, format!(" _{name} = {name},"));
+                        let separator =
+                            self.previous_token(self.tree.nodes[initializers[0]].start)?;
+                        m.add(
+                            uri,
+                            Span {
+                                start: separator.end,
+                                end: separator.end,
+                            },
+                            format!(" _{name} = {name},"),
+                        );
                     }
                     break;
                 }
@@ -490,15 +769,26 @@ impl Context<'_> {
                 if self.kind(i) != "ConstructorFieldInitializer" {
                     continue;
                 }
-                let Some(&field) = self.children(i).first() else { continue };
+                let Some(&field) = self.children(i).first() else {
+                    continue;
+                };
                 if self.node_text(field) == name {
                     m.add(uri, self.tree.span(field), format!("_{name}"));
                 }
             }
         }
         // The getter and the setter, after the declaration.
-        let documentation = self.children(declaration).iter().copied().find(|&k| self.kind(k) == "Comment").map(|c| self.node_text(c).to_string());
-        let code = if type_code.is_empty() { String::new() } else { format!("{type_code} ") };
+        let documentation = self
+            .children(declaration)
+            .iter()
+            .copied()
+            .find(|&k| self.kind(k) == "Comment")
+            .map(|c| self.node_text(c).to_string());
+        let code = if type_code.is_empty() {
+            String::new()
+        } else {
+            format!("{type_code} ")
+        };
         let header = |preserve_override: bool| -> String {
             let mut s = format!("{eol}{eol}");
             if let Some(doc) = &documentation {
@@ -515,18 +805,32 @@ impl Context<'_> {
         let mut s = header(self.overridden_member(class, name, false));
         s.push_str(&format!("  {code}get {name} => _{name};"));
         s.push_str(&header(self.overridden_member(class, name, true)));
-        s.push_str(&format!("  set {name}({code}value) {{{eol}    _{name} = value;{eol}  }}"));
+        s.push_str(&format!(
+            "  set {name}({code}value) {{{eol}    _{name} = value;{eol}  }}"
+        ));
         let declaration_end = self.tree.nodes[declaration].end;
-        m.add(uri, Span { start: declaration_end, end: declaration_end }, s);
+        m.add(
+            uri,
+            Span {
+                start: declaration_end,
+                end: declaration_end,
+            },
+            s,
+        );
         if m.conflict.is_some() {
             return None;
         }
         Some(CodeAction {
             title: "Encapsulate field".into(),
             kind: "refactor.encapsulateField".into(),
-            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            edits: m
+                .files
+                .into_iter()
+                .flat_map(|(_, l)| l.into_iter().rev())
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 
@@ -541,14 +845,26 @@ impl Context<'_> {
                 return None;
             }
             let constructor = self.parent(parent)?;
-            return (self.kind(constructor) == "ConstructorDeclaration").then_some((node, name, constructor));
+            return (self.kind(constructor) == "ConstructorDeclaration").then_some((
+                node,
+                name,
+                constructor,
+            ));
         }
-        if self.kind(node) == "SimpleIdentifier" && self.kind(parent) == "ConstructorFieldInitializer" {
+        if self.kind(node) == "SimpleIdentifier"
+            && self.kind(parent) == "ConstructorFieldInitializer"
+        {
             let constructor = self.parent(parent)?;
-            if self.kind(constructor) != "ConstructorDeclaration" || self.children(parent).get(1) != Some(&node) {
+            if self.kind(constructor) != "ConstructorDeclaration"
+                || self.children(parent).get(1) != Some(&node)
+            {
                 return None;
             }
-            let list = self.children(constructor).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
+            let list = self
+                .children(constructor)
+                .iter()
+                .copied()
+                .find(|&k| self.kind(k) == "FormalParameterList")?;
             let text = self.node_text(node);
             for &f in self.children(list) {
                 if self.kind(f) == "SimpleFormalParameter"
@@ -565,7 +881,12 @@ impl Context<'_> {
     /// `ConvertToFieldParameter` (convert_to_field_parameter.dart): a parameter
     /// cited only once in the initializers, in a `field = p`, becomes
     /// `this.field` and the initializer goes away.
-    pub(crate) fn convert_to_field_parameter(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn convert_to_field_parameter(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let node = self.tree.locate(start, end)?;
         let (parameter, name_, constructor) = self.parameter_to_field(node)?;
         let parameter_name = &self.source[name_.start..name_.end];
@@ -573,7 +894,15 @@ impl Context<'_> {
             .children(constructor)
             .iter()
             .copied()
-            .filter(|&k| matches!(self.kind(k), "ConstructorFieldInitializer" | "SuperConstructorInvocation" | "RedirectingConstructorInvocation" | "AssertInitializer"))
+            .filter(|&k| {
+                matches!(
+                    self.kind(k),
+                    "ConstructorFieldInitializer"
+                        | "SuperConstructorInvocation"
+                        | "RedirectingConstructorInvocation"
+                        | "AssertInitializer"
+                )
+            })
             .collect();
         // `_ReferenceCounter`: the identifiers of the initializers whose element is
         // the parameter.
@@ -583,9 +912,13 @@ impl Context<'_> {
             if self.kind(k) == "SimpleIdentifier"
                 && let Mark::Expr(x) = self.tree.nodes[k].mark
                 && match self.bodies.get_resolved(x) {
-                    Some(dartforge_types::Resolved::Parameter { name, .. }) => self.p.name(*name) == parameter_name,
+                    Some(dartforge_types::Resolved::Parameter { name, .. }) => {
+                        self.p.name(*name) == parameter_name
+                    }
                     // In the initializers the parameter is a local declared at its name.
-                    Some(dartforge_types::Resolved::Local(_)) => self.bodies.local_declaration(x) == Some(name_.start),
+                    Some(dartforge_types::Resolved::Local(_)) => {
+                        self.bodies.local_declaration(x) == Some(name_.start)
+                    }
                     _ => false,
                 }
             {
@@ -598,25 +931,60 @@ impl Context<'_> {
         }
         let initializer = initializers.iter().copied().rev().find(|&i| {
             self.kind(i) == "ConstructorFieldInitializer"
-                && self.children(i).get(1).is_some_and(|&e| self.kind(e) == "SimpleIdentifier" && self.node_text(e) == parameter_name)
+                && self.children(i).get(1).is_some_and(|&e| {
+                    self.kind(e) == "SimpleIdentifier" && self.node_text(e) == parameter_name
+                })
         })?;
-        let field = self.node_text(*self.children(initializer).first()?).to_string();
+        let field = self
+            .node_text(*self.children(initializer).first()?)
+            .to_string();
         let mut edits = vec![(self.tree.span(parameter), format!("this.{field}"))];
         let index = initializers.iter().position(|&i| i == initializer)?;
-        let list = self.children(constructor).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
+        let list = self
+            .children(constructor)
+            .iter()
+            .copied()
+            .find(|&k| self.kind(k) == "FormalParameterList")?;
         if initializers.len() == 1 {
-            edits.push((Span { start: self.tree.nodes[list].end, end: self.tree.nodes[initializer].end }, String::new()));
+            edits.push((
+                Span {
+                    start: self.tree.nodes[list].end,
+                    end: self.tree.nodes[initializer].end,
+                },
+                String::new(),
+            ));
         } else if index == 0 {
-            edits.push((Span { start: self.tree.nodes[initializer].start, end: self.tree.nodes[initializers[1]].start }, String::new()));
+            edits.push((
+                Span {
+                    start: self.tree.nodes[initializer].start,
+                    end: self.tree.nodes[initializers[1]].start,
+                },
+                String::new(),
+            ));
         } else {
-            edits.push((Span { start: self.tree.nodes[initializers[index - 1]].end, end: self.tree.nodes[initializer].end }, String::new()));
+            edits.push((
+                Span {
+                    start: self.tree.nodes[initializers[index - 1]].end,
+                    end: self.tree.nodes[initializer].end,
+                },
+                String::new(),
+            ));
         }
         Some(CodeAction {
             title: "Convert to field formal parameter".into(),
             kind: "refactor.convert.toConstructorFieldParameter".into(),
-            edits: edits.into_iter().rev().map(|(span, text)| Edit { uri: uri.to_string(), span, text }).collect(),
+            edits: edits
+                .into_iter()
+                .rev()
+                .map(|(span, text)| Edit {
+                    uri: uri.to_string(),
+                    span,
+                    text,
+                })
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 
@@ -629,12 +997,20 @@ impl Context<'_> {
         if self.kind(node) != "SimpleIdentifier" {
             return None;
         }
-        let Mark::Expr(x) = self.tree.nodes[node].mark else { return None };
+        let Mark::Expr(x) = self.tree.nodes[node].mark else {
+            return None;
+        };
         let prog = self.p.program();
         // The getter of a class (the field's accessor or the declared one).
         let (variable, getter, class) = match self.bodies.get_resolved(x)? {
-            Resolved::Member { member: MemberRef::Variable(v), .. } => (Some(*v), None, prog.variable(*v).class?),
-            Resolved::Member { member: MemberRef::Function(f), .. } => {
+            Resolved::Member {
+                member: MemberRef::Variable(v),
+                ..
+            } => (Some(*v), None, prog.variable(*v).class?),
+            Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            } => {
                 let fe = prog.function(*f);
                 match fe.kind {
                     dartforge_elements::model::FunctionKind::Getter => (None, Some(*f), fe.class?),
@@ -658,7 +1034,9 @@ impl Context<'_> {
         let parent = self.parent(node)?;
         let condition = match self.kind(parent) {
             "IsExpression" if self.children(parent).first() == Some(&node) => parent,
-            "BinaryExpression" if matches!(self.binary_operator(parent), Some("==" | "!=")) => parent,
+            "BinaryExpression" if matches!(self.binary_operator(parent), Some("==" | "!=")) => {
+                parent
+            }
             _ => return None,
         };
         let mut above = self.parent(condition)?;
@@ -675,9 +1053,15 @@ impl Context<'_> {
         }
         // `correspondingSetter2`.
         let name = self.node_text(node).to_string();
-        let setter: Option<dartforge_elements::model::FunctionElementId> = match (variable, getter) {
+        let setter: Option<dartforge_elements::model::FunctionElementId> = match (variable, getter)
+        {
             (Some(v), _) => prog.variable(v).setter,
-            (None, Some(_)) => prog.class(class).instance_members.iter().find(|(k, _)| self.p.name(**k) == format!("{name}_=")).map(|(_, f)| *f),
+            (None, Some(_)) => prog
+                .class(class)
+                .instance_members
+                .iter()
+                .find(|(k, _)| self.p.name(**k) == format!("{name}_="))
+                .map(|(_, f)| *f),
             _ => None,
         };
         let setter = setter?;
@@ -688,8 +1072,14 @@ impl Context<'_> {
             s.start >= block_span.start
                 && s.end <= block_span.end
                 && match self.bodies.get_resolved(e) {
-                    Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => prog.variable(*v).setter == Some(setter),
-                    Some(Resolved::Member { member: MemberRef::Function(f), .. }) => *f == setter,
+                    Some(Resolved::Member {
+                        member: MemberRef::Variable(v),
+                        ..
+                    }) => prog.variable(*v).setter == Some(setter),
+                    Some(Resolved::Member {
+                        member: MemberRef::Function(f),
+                        ..
+                    }) => *f == setter,
                     _ => false,
                 }
         });
@@ -703,9 +1093,17 @@ impl Context<'_> {
         Some(CodeAction {
             title: "Create a local variable that shadows the field".into(),
             kind: "refactor.shadowField".into(),
-            edits: vec![Edit { uri: uri.to_string(), span: Span { start: offset, end: offset }, text: format!("var {name} = this.{name};{eol}{prefix}") }],
+            edits: vec![Edit {
+                uri: uri.to_string(),
+                span: Span {
+                    start: offset,
+                    end: offset,
+                },
+                text: format!("var {name} = this.{name};{eol}{prefix}"),
+            }],
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 }

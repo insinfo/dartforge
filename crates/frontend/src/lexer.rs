@@ -286,7 +286,12 @@ impl<'s> Lexer<'s> {
         let quote = self.bytes[self.pos];
         let triple = self.at(1) == quote && self.at(2) == quote;
         self.pos += if triple { 3 } else { 1 };
-        let flags = StrFlags { raw, triple, quote, unterminated: false };
+        let flags = StrFlags {
+            raw,
+            triple,
+            quote,
+            unterminated: false,
+        };
         self.string_body(start, flags, true)
     }
 
@@ -336,7 +341,9 @@ impl<'s> Lexer<'s> {
                 // still ends a simple string (`tokenizeSingleLineString` checks the next
                 // character).
                 self.pos += 1;
-                if self.pos < self.bytes.len() && (flags.triple || !matches!(self.bytes[self.pos], b'\n' | b'\r')) {
+                if self.pos < self.bytes.len()
+                    && (flags.triple || !matches!(self.bytes[self.pos], b'\n' | b'\r'))
+                {
                     self.pos += 1;
                 }
                 continue;
@@ -415,7 +422,10 @@ impl<'s> Lexer<'s> {
             }
             self.pos += 1;
         }
-        let flags = StrFlags { unterminated, ..flags };
+        let flags = StrFlags {
+            unterminated,
+            ..flags
+        };
         self.tokens.push(Token {
             kind: if first {
                 Kind::Str(flags)
@@ -540,16 +550,8 @@ pub(crate) fn skipped_char(ch: char) -> bool {
     (ch as u32) < 0x1f
         || matches!(
             ch as u32,
-            0x00A0
-                | 0x1680
-                | 0x180E
-                | 0x2000..=0x200B
-                | 0x2028
-                | 0x2029
-                | 0x202F
-                | 0x205F
-                | 0x3000
-                | 0xFEFF
+            0x00A0 | 0x1680 | 0x180E | 0x2000
+                ..=0x200B | 0x2028 | 0x2029 | 0x202F | 0x205F | 0x3000 | 0xFEFF
         )
 }
 
@@ -618,7 +620,9 @@ pub fn decode_string(
         if !content.contains('\r') {
             return Ok(DartStr::from(content));
         }
-        return Ok(DartStr::from(content.replace("\r\n", "\n").replace('\r', "\n").as_str()));
+        return Ok(DartStr::from(
+            content.replace("\r\n", "\n").replace('\r', "\n").as_str(),
+        ));
     }
     let mut out = DartStrBuilder::with_capacity(content.len());
     let mut chars = content.chars().peekable();
@@ -825,13 +829,31 @@ d''' "e" "##)
     fn lexical_errors_do_not_stop() {
         // An unterminated string ends at the line break or at end of file.
         let t = lex("'abc").unwrap();
-        assert!(matches!(t[0].kind, Kind::Str(StrFlags { unterminated: true, .. })));
+        assert!(matches!(
+            t[0].kind,
+            Kind::Str(StrFlags {
+                unterminated: true,
+                ..
+            })
+        ));
         assert_eq!(t[0].span, Span { start: 0, end: 4 });
         let t = lex("'a\r\nb'").unwrap();
-        assert!(matches!(t[0].kind, Kind::Str(StrFlags { unterminated: true, .. })));
+        assert!(matches!(
+            t[0].kind,
+            Kind::Str(StrFlags {
+                unterminated: true,
+                ..
+            })
+        ));
         assert_eq!(t[0].span, Span { start: 0, end: 2 });
         assert_eq!(t[1].kind, Kind::Ident);
-        assert!(matches!(t[2].kind, Kind::Str(StrFlags { unterminated: true, .. })));
+        assert!(matches!(
+            t[2].kind,
+            Kind::Str(StrFlags {
+                unterminated: true,
+                ..
+            })
+        ));
         // An open block comment runs to the end.
         assert_eq!(lex("a /* abc").unwrap().len(), 2);
         // The unexpected character joins the identifier; the control one vanishes.

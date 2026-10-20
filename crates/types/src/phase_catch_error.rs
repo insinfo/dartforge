@@ -58,15 +58,28 @@ fn inside(a: Span, b: Span) -> bool {
 /// `flatten`: `Future<Y>` and `FutureOr<Y>` give `Y` (nullable with them).
 fn flatten(table: &mut TypeTable, core: &CoreTypes, t: TypeId) -> TypeId {
     let (y, is_nullable) = match table.get(t) {
-        Type::Interface { class, args, nullable } if Some(*class) == core.future_class && args.len() == 1 => (args[0], *nullable),
+        Type::Interface {
+            class,
+            args,
+            nullable,
+        } if Some(*class) == core.future_class && args.len() == 1 => (args[0], *nullable),
         Type::FutureOr { arg, nullable } => (*arg, *nullable),
         _ => return t,
     };
-    if is_nullable { crate::ops::nullable(y, table) } else { y }
+    if is_nullable {
+        crate::ops::nullable(y, table)
+    } else {
+        y
+    }
 }
 
 /// The class `the_name` declared in library `lib`.
-fn class_of(program: &Program, interner: &Interner, lib: Option<LibraryId>, the_name: &str) -> Option<ClassId> {
+fn class_of(
+    program: &Program,
+    interner: &Interner,
+    lib: Option<LibraryId>,
+    the_name: &str,
+) -> Option<ClassId> {
     let sym = interner.lookup(the_name)?;
     match program.library(lib?).declared.get(&sym)?.getter? {
         Element::Class(c) => Some(c),
@@ -79,7 +92,12 @@ fn class_of(program: &Program, interner: &Interner, lib: Option<LibraryId>, the_
 pub(crate) fn cascade_targets(a: &ast::Ast) -> HashMap<ExprId, ExprId> {
     let mut m = HashMap::new();
     for e in a.exprs.iter() {
-        let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
+        let ExprKind::Cascade {
+            target, sections, ..
+        } = &e.kind
+        else {
+            continue;
+        };
         for &s in sections.iter() {
             let mut x = s;
             loop {
@@ -130,18 +148,33 @@ impl Verifier<'_> {
 
     /// `_checkErrorHandlerFunctionType`.
     fn handler(&mut self, where_: Span, ty: TypeId, expected_return: TypeId, check_first: bool) {
-        let Type::Function { positional, optional, named, .. } = self.table.get(ty).clone() else { return };
+        let Type::Function {
+            positional,
+            optional,
+            named,
+            ..
+        } = self.table.get(ty).clone()
+        else {
+            return;
+        };
         let report = |v: &mut Self| {
             let args = [v.format(ty), v.format(expected_return)];
-            v.output.push(Diagnostic::with_code(warning::ARGUMENT_TYPE_NOT_ASSIGNABLE_TO_ERROR_HANDLER, where_, args));
+            v.output.push(Diagnostic::with_code(
+                warning::ARGUMENT_TYPE_NOT_ASSIGNABLE_TO_ERROR_HANDLER,
+                where_,
+                args,
+            ));
         };
         // The parameters in order: positional, optional, named.
-        let positional_args: Vec<TypeId> = positional.iter().chain(optional.iter()).copied().collect();
+        let positional_args: Vec<TypeId> =
+            positional.iter().chain(optional.iter()).copied().collect();
         let total = positional_args.len() + named.len();
         if total == 0 {
             return report(self);
         }
-        let Some(&first) = positional_args.first() else { return report(self) };
+        let Some(&first) = positional_args.first() else {
+            return report(self);
+        };
         if check_first {
             let object = self.core.object;
             if !self.sub(object, first) {
@@ -149,7 +182,9 @@ impl Verifier<'_> {
             }
         }
         if total == 2 {
-            let Some(&second) = positional_args.get(1) else { return report(self) };
+            let Some(&second) = positional_args.get(1) else {
+                return report(self);
+            };
             if let Some(st) = self.stack_trace
                 && !self.sub(st, second)
             {
@@ -173,19 +208,44 @@ pub fn catch_error_returns(
 ) -> Vec<Diagnostic> {
     let a = &program.unit(u).ast;
     let source = program.unit(u).source.as_str();
-    let stack_trace = class_of(program, interner, core.core_library, "StackTrace").map(|c| table.intern(Type::Interface { class: c, args: Box::new([]), nullable: false }));
+    let stack_trace = class_of(program, interner, core.core_library, "StackTrace").map(|c| {
+        table.intern(Type::Interface {
+            class: c,
+            args: Box::new([]),
+            nullable: false,
+        })
+    });
     let stream = class_of(program, interner, core.async_library, "Stream");
     let subscription = class_of(program, interner, core.async_library, "StreamSubscription");
-    let mut v = Verifier { program, interner, table, core, outline, stack_trace, output: Vec::new() };
+    let mut v = Verifier {
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        stack_trace,
+        output: Vec::new(),
+    };
     let cascades = cascade_targets(a);
-    let ty = |e: ExprId, v: &Verifier<'_>| body.get_type(e).filter(|t| !core.is_unknown(&*v.table, *t));
+    let ty =
+        |e: ExprId, v: &Verifier<'_>| body.get_type(e).filter(|t| !core.is_unknown(&*v.table, *t));
     for (k, e) in a.exprs.iter().enumerate() {
-        let ExprKind::Call { target, arguments } = &e.kind else { continue };
+        let ExprKind::Call { target, arguments } = &e.kind else {
+            continue;
+        };
         // The method invocation (not the instance creation without `new`).
-        if matches!(body.get_resolved(ExprId(k as u32)), Some(Resolved::Constructor(_))) {
+        if matches!(
+            body.get_resolved(ExprId(k as u32)),
+            Some(Resolved::Constructor(_))
+        ) {
             continue;
         }
-        let ExprKind::Property { target: tgt, name, .. } = &a.expr(*target).kind else { continue };
+        let ExprKind::Property {
+            target: tgt, name, ..
+        } = &a.expr(*target).kind
+        else {
+            continue;
+        };
         let tgt = if matches!(a.expr(*tgt).kind, ExprKind::CascadeTarget) {
             match cascades.get(tgt) {
                 Some(x) => *x,
@@ -197,24 +257,39 @@ pub fn catch_error_returns(
         if arguments.args.is_empty() {
             continue;
         }
-        let Some(t_target) = ty(tgt, &v) else { continue };
+        let Some(t_target) = ty(tgt, &v) else {
+            continue;
+        };
         let target_class = match v.table.get(t_target) {
             Type::Interface { class, .. } => Some(*class),
             _ => None,
         };
         let method = interner.resolve(name.sym);
         let first_positional = arguments.args.first().filter(|x| x.name.is_none());
-        let named_one = |n: &str| arguments.args.iter().find(|x| x.name.is_some_and(|m| interner.resolve(m.sym) == n));
+        let named_one = |n: &str| {
+            arguments
+                .args
+                .iter()
+                .find(|x| x.name.is_some_and(|m| interner.resolve(m.sym) == n))
+        };
         // The function type of the argument.
-        let function_type = |x: ExprId, v: &Verifier<'_>| ty(x, v).filter(|t| matches!(v.table.get(*t), Type::Function { .. }));
-        let is_function_literal = |x: ExprId| matches!(a.expr(x).kind, ExprKind::FunctionExpression(_));
+        let function_type = |x: ExprId, v: &Verifier<'_>| {
+            ty(x, v).filter(|t| matches!(v.table.get(*t), Type::Function { .. }))
+        };
+        let is_function_literal =
+            |x: ExprId| matches!(a.expr(x).kind, ExprKind::FunctionExpression(_));
         if method == "catchError" && target_class.is_some() && target_class == core.future_class {
-            let Some(callback) = first_positional.map(|x| x.value) else { continue };
+            let Some(callback) = first_positional.map(|x| x.value) else {
+                continue;
+            };
             let x = match v.table.get(t_target) {
                 Type::Interface { args, .. } if args.len() == 1 => args[0],
                 _ => continue,
             };
-            let expected = v.table.intern(Type::FutureOr { arg: x, nullable: false });
+            let expected = v.table.intern(Type::FutureOr {
+                arg: x,
+                nullable: false,
+            });
             if let ExprKind::FunctionExpression(fid) = &a.expr(callback).kind {
                 if let Some(t) = function_type(callback, &v) {
                     v.handler(a.expr(callback).span, t, expected, true);
@@ -222,10 +297,16 @@ pub fn catch_error_returns(
                 closure_returns(&mut v, a, source, body, *fid, x, expected);
             } else if let Some(t) = function_type(callback, &v) {
                 // `_checkReturnType`.
-                let Type::Function { ret, .. } = *v.table.get(t) else { continue };
+                let Type::Function { ret, .. } = *v.table.get(t) else {
+                    continue;
+                };
                 if !v.assignable(ret, expected) {
                     let args = [v.format(ret), v.format(expected)];
-                    v.output.push(Diagnostic::with_code(warning::RETURN_TYPE_INVALID_FOR_CATCH_ERROR, a.expr(callback).span, args));
+                    v.output.push(Diagnostic::with_code(
+                        warning::RETURN_TYPE_INVALID_FOR_CATCH_ERROR,
+                        a.expr(callback).span,
+                        args,
+                    ));
                 }
                 v.handler(a.expr(callback).span, t, expected, true);
             }
@@ -234,26 +315,36 @@ pub fn catch_error_returns(
         let empty = core.void_;
         // `then(onError:)` of `Future` and `listen(onError:)` of `Stream`: the
         // report on the whole named argument.
-        let of_named = (method == "then" && target_class.is_some() && target_class == core.future_class)
-            || (method == "listen" && target_class.is_some() && target_class == stream);
+        let of_named =
+            (method == "then" && target_class.is_some() && target_class == core.future_class)
+                || (method == "listen" && target_class.is_some() && target_class == stream);
         if of_named {
             if let Some(arg) = named_one("onError")
                 && let Some(t) = function_type(arg.value, &v)
                 && let Some(n) = arg.name
             {
-                let where_ = Span { start: n.span.start, end: a.expr(arg.value).span.end };
+                let where_ = Span {
+                    start: n.span.start,
+                    end: a.expr(arg.value).span.end,
+                };
                 v.handler(where_, t, empty, is_function_literal(arg.value));
             }
             continue;
         }
         // `handleError` of `Stream` and `onError` of `StreamSubscription`.
-        let of_positional = (method == "handleError" && target_class.is_some() && target_class == stream)
-            || (method == "onError" && target_class.is_some() && target_class == subscription);
+        let of_positional =
+            (method == "handleError" && target_class.is_some() && target_class == stream)
+                || (method == "onError" && target_class.is_some() && target_class == subscription);
         if of_positional
             && let Some(arg) = first_positional
             && let Some(t) = function_type(arg.value, &v)
         {
-            v.handler(a.expr(arg.value).span, t, empty, is_function_literal(arg.value));
+            v.handler(
+                a.expr(arg.value).span,
+                t,
+                empty,
+                is_function_literal(arg.value),
+            );
         }
     }
     v.output
@@ -262,10 +353,21 @@ pub fn catch_error_returns(
 /// The `return`s of the closure of the `onError` of `catchError` (not those
 /// of the inner functions), in the asynchronous context with return type
 /// `expected = FutureOr<X>`.
-fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &UnitBodyTypes, fid: ast::FunctionId, x: TypeId, expected: TypeId) {
+fn closure_returns(
+    v: &mut Verifier<'_>,
+    a: &ast::Ast,
+    source: &str,
+    body: &UnitBodyTypes,
+    fid: ast::FunctionId,
+    x: TypeId,
+    expected: TypeId,
+) {
     let f = a.function(fid);
     // A generator does not have its `return`s checked.
-    if matches!(f.modifier, AsyncModifier::AsyncStar | AsyncModifier::SyncStar) {
+    if matches!(
+        f.modifier,
+        AsyncModifier::AsyncStar | AsyncModifier::SyncStar
+    ) {
         return;
     }
     let x_empty_dynamic_or_null = matches!(v.table.get(x), Type::Void | Type::Dynamic | Type::Null);
@@ -278,7 +380,12 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
         }
         FunctionBody::Block(b) => {
             let region = a.stmt(*b).span;
-            let from_inside: Vec<Span> = a.functions.iter().map(|g| g.span).filter(|&s| inside(s, region) && s != f.span).collect();
+            let from_inside: Vec<Span> = a
+                .functions
+                .iter()
+                .map(|g| g.span)
+                .filter(|&s| inside(s, region) && s != f.span)
+                .collect();
             for s in a.stmts.iter() {
                 if !inside(s.span, region) || from_inside.iter().any(|&d| inside(s.span, d)) {
                     continue;
@@ -287,8 +394,22 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
                     StmtKind::Return(Some(r)) => returned.push(*r),
                     // `_checkReturnWithoutValue` with `T_v = X`.
                     StmtKind::Return(None) if !x_empty_dynamic_or_null => {
-                        let end = if source.get(s.span.start..).is_some_and(|t| t.starts_with("return")) { s.span.start + 6 } else { s.span.end };
-                        v.output.push(Diagnostic::with_code(compile_time_error::RETURN_WITHOUT_VALUE, Span { start: s.span.start, end }, std::iter::empty::<&str>()));
+                        let end = if source
+                            .get(s.span.start..)
+                            .is_some_and(|t| t.starts_with("return"))
+                        {
+                            s.span.start + 6
+                        } else {
+                            s.span.end
+                        };
+                        v.output.push(Diagnostic::with_code(
+                            compile_time_error::RETURN_WITHOUT_VALUE,
+                            Span {
+                                start: s.span.start,
+                                end,
+                            },
+                            std::iter::empty::<&str>(),
+                        ));
                     }
                     _ => {}
                 }
@@ -302,7 +423,9 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
             continue;
         }
         let flattened = flatten(v.table, v.core, s);
-        let empty_dynamic_or_null = |tb: &TypeTable, k: TypeId| matches!(tb.get(k), Type::Void | Type::Dynamic | Type::Null);
+        let empty_dynamic_or_null = |tb: &TypeTable, k: TypeId| {
+            matches!(tb.get(k), Type::Void | Type::Dynamic | Type::Null)
+        };
         let error = if matches!(v.table.get(x), Type::Void) {
             !empty_dynamic_or_null(&*v.table, flattened)
         } else if matches!(v.table.get(flattened), Type::Void) {
@@ -314,7 +437,11 @@ fn closure_returns(v: &mut Verifier<'_>, a: &ast::Ast, source: &str, body: &Unit
         };
         if error {
             let args = [v.format(s), v.format(expected)];
-            v.output.push(Diagnostic::with_code(warning::RETURN_OF_INVALID_TYPE_FROM_CATCH_ERROR, a.expr(r).span, args));
+            v.output.push(Diagnostic::with_code(
+                warning::RETURN_OF_INVALID_TYPE_FROM_CATCH_ERROR,
+                a.expr(r).span,
+                args,
+            ));
         }
     }
 }

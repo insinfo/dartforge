@@ -14,15 +14,31 @@ const BASIC: &str = "package:flutter/src/widgets/basic.dart";
 const FOUNDATION: &str = "package:flutter/src/foundation/constants.dart";
 
 /// `isExactly(element, name, uri)`.
-pub fn is_exactly(program: &Program, interner: &Interner, c: ClassId, name: &str, uri: &str) -> bool {
+pub fn is_exactly(
+    program: &Program,
+    interner: &Interner,
+    c: ClassId,
+    name: &str,
+    uri: &str,
+) -> bool {
     let k = program.class(c);
     interner.resolve(k.name) == name && k.decl.is_some_and(|r| program.unit(r.unit).uri == uri)
 }
 
 /// The element or some supertype is exactly `name` from `uri`.
-fn is_or_subtype_of(s: &super::Semantics<'_>, interner: &Interner, c: ClassId, name: &str, uri: &str) -> bool {
+fn is_or_subtype_of(
+    s: &super::Semantics<'_>,
+    interner: &Interner,
+    c: ClassId,
+    name: &str,
+    uri: &str,
+) -> bool {
     is_exactly(s.program, interner, c, name, uri)
-        || s.outline.hierarchy.get(c).is_some_and(|d| d.supertypes.keys().any(|k| is_exactly(s.program, interner, *k, name, uri)))
+        || s.outline.hierarchy.get(c).is_some_and(|d| {
+            d.supertypes
+                .keys()
+                .any(|k| is_exactly(s.program, interner, *k, name, uri))
+        })
 }
 
 fn class_of(table: &TypeTable, t: TypeId) -> Option<ClassId> {
@@ -68,9 +84,19 @@ pub fn is_exactly_widget(s: &super::Semantics<'_>, interner: &Interner, c: Class
 }
 
 /// `isBuildContext(type, skipNullable)`.
-pub fn is_build_context(s: &super::Semantics<'_>, interner: &Interner, t: TypeId, skip_nullable: bool) -> bool {
+pub fn is_build_context(
+    s: &super::Semantics<'_>,
+    interner: &Interner,
+    t: TypeId,
+    skip_nullable: bool,
+) -> bool {
     match s.table.get(t) {
-        Type::Interface { class, nullable, .. } => !(skip_nullable && *nullable) && is_exactly(s.program, interner, *class, "BuildContext", FRAMEWORK),
+        Type::Interface {
+            class, nullable, ..
+        } => {
+            !(skip_nullable && *nullable)
+                && is_exactly(s.program, interner, *class, "BuildContext", FRAMEWORK)
+        }
         _ => false,
     }
 }
@@ -92,13 +118,19 @@ pub fn has_widget_as_ascendant(s: &super::Semantics<'_>, interner: &Interner, c:
 }
 
 /// `isKDebugMode`: the `kDebugMode` constant of `foundation/constants.dart`.
-pub fn is_k_debug_mode(program: &Program, interner: &Interner, v: dartforge_elements::model::VariableId) -> bool {
+pub fn is_k_debug_mode(
+    program: &Program,
+    interner: &Interner,
+    v: dartforge_elements::model::VariableId,
+) -> bool {
     let x = program.variable(v);
     if interner.resolve(x.name) != "kDebugMode" {
         return false;
     }
     match x.node {
-        dartforge_elements::model::VariableRef::TopLevel { unit, .. } => program.unit(unit).uri == FOUNDATION,
+        dartforge_elements::model::VariableRef::TopLevel { unit, .. } => {
+            program.unit(unit).uri == FOUNDATION
+        }
         _ => false,
     }
 }

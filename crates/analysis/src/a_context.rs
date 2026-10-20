@@ -19,8 +19,8 @@ use crate::Unit;
 use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::{Code, Diagnostic, Span};
 use dartforge_frontend::ast::{
-    self, AsyncModifier, CollectionElement, DeclKind, ExprId, ExprKind, FunctionBody, MemberId, MemberKind, PatternId,
-    PatternKind, StmtId, StmtKind,
+    self, AsyncModifier, CollectionElement, DeclKind, ExprId, ExprKind, FunctionBody, MemberId,
+    MemberKind, PatternId, PatternKind, StmtId, StmtKind,
 };
 
 /// The context of a `super` (`SuperContext`).
@@ -67,7 +67,14 @@ struct Visitor<'a> {
 
 /// The context diagnostics of a unit.
 pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
-    let mut v = Visitor { a: u.ast, source: u.source, out: Vec::new(), sup: Sup::Static, modifier: AsyncModifier::None, in_late_local: false };
+    let mut v = Visitor {
+        a: u.ast,
+        source: u.source,
+        out: Vec::new(),
+        sup: Sup::Static,
+        modifier: AsyncModifier::None,
+        in_late_local: false,
+    };
     for &d in u.unit.declarations.iter() {
         v.decl(d);
     }
@@ -76,7 +83,8 @@ pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
 
 impl<'a> Visitor<'a> {
     fn report(&mut self, code: Code, span: Span, args: &[&str]) {
-        self.out.push(Diagnostic::with_code(code, span, args.iter().copied()));
+        self.out
+            .push(Diagnostic::with_code(code, span, args.iter().copied()));
     }
 
     // -- Declarations -------------------------------------------------------------
@@ -125,7 +133,11 @@ impl<'a> Visitor<'a> {
                 MemberKind::Field(l) => {
                     // A static field, or an instance one that is not `late`:
                     // the initializer runs without `this`.
-                    self.sup = if l.static_ || !l.late { Sup::Static } else { owner.sup() };
+                    self.sup = if l.static_ || !l.late {
+                        Sup::Static
+                    } else {
+                        owner.sup()
+                    };
                     for var in l.variables.iter() {
                         if let Some(init) = var.initializer {
                             self.expr(init);
@@ -133,7 +145,11 @@ impl<'a> Visitor<'a> {
                     }
                 }
                 MemberKind::Method(f) => {
-                    self.sup = if a.function(*f).static_ { Sup::Static } else { owner.sup() };
+                    self.sup = if a.function(*f).static_ {
+                        Sup::Static
+                    } else {
+                        owner.sup()
+                    };
                     self.function(*f);
                 }
                 MemberKind::Constructor(k) => {
@@ -142,14 +158,23 @@ impl<'a> Visitor<'a> {
                     // type, the `super.x` it cannot declare.
                     self.sup = body_sup;
                     for p in k.parameters.iter() {
-                        if owner == Owner::ExtensionType && p.super_
-                            && let Some(n) = p.name {
-                                // `super.x`: the word sits six bytes before the name.
-                                let start = n.span.start.saturating_sub(6);
-                                if self.source.get(start..start + 5) == Some("super") {
-                                    self.report(c::EXTENSION_TYPE_CONSTRUCTOR_WITH_SUPER_FORMAL_PARAMETER, Span { start, end: start + 5 }, &[]);
-                                }
+                        if owner == Owner::ExtensionType
+                            && p.super_
+                            && let Some(n) = p.name
+                        {
+                            // `super.x`: the word sits six bytes before the name.
+                            let start = n.span.start.saturating_sub(6);
+                            if self.source.get(start..start + 5) == Some("super") {
+                                self.report(
+                                    c::EXTENSION_TYPE_CONSTRUCTOR_WITH_SUPER_FORMAL_PARAMETER,
+                                    Span {
+                                        start,
+                                        end: start + 5,
+                                    },
+                                    &[],
+                                );
                             }
+                        }
                     }
                     self.params(&k.parameters);
                     // Every constructor initializer is a static context.
@@ -157,16 +182,24 @@ impl<'a> Visitor<'a> {
                     for init in k.initializers.iter() {
                         match init {
                             ast::Initializer::Field { value, .. } => self.expr(*value),
-                            ast::Initializer::Assert { condition, message, .. } => {
+                            ast::Initializer::Assert {
+                                condition, message, ..
+                            } => {
                                 self.expr(*condition);
                                 if let Some(m) = message {
                                     self.expr(*m);
                                 }
                             }
-                            ast::Initializer::Super { span, arguments, .. } => {
+                            ast::Initializer::Super {
+                                span, arguments, ..
+                            } => {
                                 if owner == Owner::ExtensionType {
                                     let word = self.word(*span, "super");
-                                    self.report(c::EXTENSION_TYPE_CONSTRUCTOR_WITH_SUPER_INVOCATION, word, &[]);
+                                    self.report(
+                                        c::EXTENSION_TYPE_CONSTRUCTOR_WITH_SUPER_INVOCATION,
+                                        word,
+                                        &[],
+                                    );
                                 }
                                 for x in arguments.args.iter() {
                                     self.expr(x.value);
@@ -196,7 +229,10 @@ impl<'a> Visitor<'a> {
             .get(span.start..span.end.min(self.source.len()))
             .and_then(|t| t.find(text))
             .map_or(span.start, |i| span.start + i);
-        Span { start, end: start + text.len() }
+        Span {
+            start,
+            end: start + text.len(),
+        }
     }
 
     fn params(&mut self, ps: &'a [ast::Parameter]) {
@@ -237,10 +273,19 @@ impl<'a> Visitor<'a> {
 
     /// `await for` outside an `async`/`async*` function: on the `await` token.
     fn await_for(&mut self, start: usize) {
-        if matches!(self.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar) {
+        if matches!(
+            self.modifier,
+            AsyncModifier::Async | AsyncModifier::AsyncStar
+        ) {
             return;
         }
-        let word = self.word(Span { start, end: start + 16 }, "await");
+        let word = self.word(
+            Span {
+                start,
+                end: start + 16,
+            },
+            "await",
+        );
         self.report(c::ASYNC_FOR_IN_WRONG_CONTEXT, word, &[]);
     }
 
@@ -293,7 +338,13 @@ impl<'a> Visitor<'a> {
             }
             StmtKind::Function(f) => self.function(*f),
             StmtKind::Expression(e) => self.expr(*e),
-            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+            StmtKind::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
                     self.pattern(*p);
@@ -306,7 +357,13 @@ impl<'a> Visitor<'a> {
                     self.stmt(*e);
                 }
             }
-            StmtKind::For { init, condition, updates, body, .. } => {
+            StmtKind::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 self.for_init(init);
                 if let Some(x) = condition {
                     self.expr(*x);
@@ -316,7 +373,12 @@ impl<'a> Visitor<'a> {
                 }
                 self.stmt(*body);
             }
-            StmtKind::ForIn { await_, target, iterable, body } => {
+            StmtKind::ForIn {
+                await_,
+                target,
+                iterable,
+                body,
+            } => {
                 if *await_ {
                     self.await_for(node.span.start);
                 }
@@ -348,7 +410,11 @@ impl<'a> Visitor<'a> {
             }
             StmtKind::Return(Some(e)) => self.expr(*e),
             StmtKind::Yield { value, .. } => self.expr(*value),
-            StmtKind::Try { body, catches, finally_ } => {
+            StmtKind::Try {
+                body,
+                catches,
+                finally_,
+            } => {
                 self.stmt(*body);
                 for k in catches.iter() {
                     self.stmt(k.body);
@@ -379,12 +445,15 @@ impl<'a> Visitor<'a> {
                 self.pattern(*x);
                 self.pattern(*y);
             }
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) => self.pattern(*x),
+            PatternKind::NullCheck(x)
+            | PatternKind::NullAssert(x)
+            | PatternKind::Parenthesized(x) => self.pattern(*x),
             PatternKind::Cast { pattern, .. } => self.pattern(*pattern),
             PatternKind::List { elements, .. } => {
                 for el in elements.iter() {
                     match el {
-                        ast::ListPatternElement::Pattern(x) | ast::ListPatternElement::Rest(Some(x)) => self.pattern(*x),
+                        ast::ListPatternElement::Pattern(x)
+                        | ast::ListPatternElement::Rest(Some(x)) => self.pattern(*x),
                         _ => {}
                     }
                 }
@@ -408,13 +477,21 @@ impl<'a> Visitor<'a> {
 
     fn element(&mut self, el: &'a CollectionElement, collection_start: usize) {
         match el {
-            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => self.expr(*x),
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
+                self.expr(*x)
+            }
             CollectionElement::MapEntry { key, value, .. } => {
                 self.expr(*key);
                 self.expr(*value);
             }
             CollectionElement::Spread { value, .. } => self.expr(*value),
-            CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+            CollectionElement::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
                     self.pattern(*p);
@@ -427,7 +504,13 @@ impl<'a> Visitor<'a> {
                     self.element(x, collection_start);
                 }
             }
-            CollectionElement::For { init, condition, updates, body, .. } => {
+            CollectionElement::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 self.for_init(init);
                 if let Some(x) = condition {
                     self.expr(*x);
@@ -437,17 +520,32 @@ impl<'a> Visitor<'a> {
                 }
                 self.element(body, collection_start);
             }
-            CollectionElement::ForIn { await_, target, iterable, body } => {
+            CollectionElement::ForIn {
+                await_,
+                target,
+                iterable,
+                body,
+            } => {
                 if *await_ {
                     // The element does not keep its own range: the `await` is
                     // the last one before the iterable.
                     let end = self.a.expr(*iterable).span.start;
                     let fragment = self.source.get(collection_start..end).unwrap_or("");
-                    if !matches!(self.modifier, AsyncModifier::Async | AsyncModifier::AsyncStar)
-                        && let Some(i) = fragment.rfind("await") {
-                            let start = collection_start + i;
-                            self.report(c::ASYNC_FOR_IN_WRONG_CONTEXT, Span { start, end: start + 5 }, &[]);
-                        }
+                    if !matches!(
+                        self.modifier,
+                        AsyncModifier::Async | AsyncModifier::AsyncStar
+                    ) && let Some(i) = fragment.rfind("await")
+                    {
+                        let start = collection_start + i;
+                        self.report(
+                            c::ASYNC_FOR_IN_WRONG_CONTEXT,
+                            Span {
+                                start,
+                                end: start + 5,
+                            },
+                            &[],
+                        );
+                    }
                 }
                 self.for_in_target(target);
                 self.expr(*iterable);
@@ -463,7 +561,11 @@ impl<'a> Visitor<'a> {
         let last = self.a.ty(*types.last()?).span;
         let bytes = self.source.as_bytes();
         let mut start = first.start;
-        while start > 0 && bytes.get(start - 1).is_some_and(|b| b.is_ascii_whitespace()) {
+        while start > 0
+            && bytes
+                .get(start - 1)
+                .is_some_and(|b| b.is_ascii_whitespace())
+        {
             start -= 1;
         }
         if start == 0 || bytes.get(start - 1) != Some(&b'<') {
@@ -476,7 +578,10 @@ impl<'a> Visitor<'a> {
         if bytes.get(end) != Some(&b'>') {
             return None;
         }
-        Some(Span { start: start - 1, end: end + 1 })
+        Some(Span {
+            start: start - 1,
+            end: end + 1,
+        })
     }
 
     fn expr(&mut self, e: ExprId) {
@@ -496,37 +601,56 @@ impl<'a> Visitor<'a> {
             }
             ExprKind::Await(x) => {
                 if self.in_late_local {
-                    let word = Span { start: node.span.start, end: node.span.start + 5 };
+                    let word = Span {
+                        start: node.span.start,
+                        end: node.span.start + 5,
+                    };
                     self.report(c::AWAIT_IN_LATE_LOCAL_VARIABLE_INITIALIZER, word, &[]);
                 }
                 self.expr(*x);
             }
-            ExprKind::List { type_args, elements, .. } => {
+            ExprKind::List {
+                type_args,
+                elements,
+                ..
+            } => {
                 if type_args.len() > 1
-                    && let Some(sp) = self.type_list(type_args) {
-                        let n = type_args.len().to_string();
-                        self.report(c::EXPECTED_ONE_LIST_TYPE_ARGUMENTS, sp, &[n.as_str()]);
-                    }
+                    && let Some(sp) = self.type_list(type_args)
+                {
+                    let n = type_args.len().to_string();
+                    self.report(c::EXPECTED_ONE_LIST_TYPE_ARGUMENTS, sp, &[n.as_str()]);
+                }
                 for el in elements.iter() {
                     self.element(el, node.span.start);
                 }
             }
-            ExprKind::SetOrMap { type_args, elements, .. } => {
+            ExprKind::SetOrMap {
+                type_args,
+                elements,
+                ..
+            } => {
                 // With one argument it is a set and with two a map; with three
                 // or more, the shape comes from the elements (an empty `{}` is a map).
                 if type_args.len() > 2
-                    && let Some(sp) = self.type_list(type_args) {
-                        let n = type_args.len().to_string();
-                        let has_entry = has_map_entry(elements);
-                        let is_set = !has_entry && !elements.is_empty();
-                        let code = if is_set { c::EXPECTED_ONE_SET_TYPE_ARGUMENTS } else { c::EXPECTED_TWO_MAP_TYPE_ARGUMENTS };
-                        self.report(code, sp, &[n.as_str()]);
-                    }
+                    && let Some(sp) = self.type_list(type_args)
+                {
+                    let n = type_args.len().to_string();
+                    let has_entry = has_map_entry(elements);
+                    let is_set = !has_entry && !elements.is_empty();
+                    let code = if is_set {
+                        c::EXPECTED_ONE_SET_TYPE_ARGUMENTS
+                    } else {
+                        c::EXPECTED_TWO_MAP_TYPE_ARGUMENTS
+                    };
+                    self.report(code, sp, &[n.as_str()]);
+                }
                 for el in elements.iter() {
                     self.element(el, node.span.start);
                 }
             }
-            ExprKind::Record { positional, named, .. } => {
+            ExprKind::Record {
+                positional, named, ..
+            } => {
                 for x in positional.iter().chain(named.iter().map(|(_, x)| x)) {
                     self.expr(*x);
                 }
@@ -562,7 +686,11 @@ impl<'a> Visitor<'a> {
                 self.expr(*left);
                 self.expr(*right);
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 self.expr(*then);
                 self.expr(*else_);
@@ -576,7 +704,9 @@ impl<'a> Visitor<'a> {
                 self.pattern(*pattern);
                 self.expr(*value);
             }
-            ExprKind::Cascade { target, sections, .. } => {
+            ExprKind::Cascade {
+                target, sections, ..
+            } => {
                 self.expr(*target);
                 for s in sections.iter() {
                     self.expr(*s);
@@ -603,8 +733,12 @@ fn has_map_entry(elements: &[CollectionElement]) -> bool {
     fn has(el: &CollectionElement) -> bool {
         match el {
             CollectionElement::MapEntry { .. } => true,
-            CollectionElement::If { then, else_, .. } => has(then) || else_.as_deref().is_some_and(has),
-            CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => has(body),
+            CollectionElement::If { then, else_, .. } => {
+                has(then) || else_.as_deref().is_some_and(has)
+            }
+            CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+                has(body)
+            }
             _ => false,
         }
     }
@@ -618,8 +752,21 @@ mod tests {
     fn codes(source: &str) -> Vec<(&'static str, usize, usize)> {
         let mut names = dartforge_intern::Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
-        check(u).into_iter().map(|d| (d.code.map_or("", |c| c.info().name), d.span.start, d.span.end)).collect()
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
+        check(u)
+            .into_iter()
+            .map(|d| {
+                (
+                    d.code.map_or("", |c| c.info().name),
+                    d.span.start,
+                    d.span.end,
+                )
+            })
+            .collect()
     }
 
     #[test]
@@ -638,9 +785,14 @@ mod tests {
 
     #[test]
     fn super_in_non_late_field_and_in_initializer() {
-        let r = codes("class A { var a = super.hashCode; late var b = super.hashCode; A() : a = super.hashCode; }");
+        let r = codes(
+            "class A { var a = super.hashCode; late var b = super.hashCode; A() : a = super.hashCode; }",
+        );
         let names: Vec<&str> = r.iter().map(|x| x.0).collect();
-        assert_eq!(names, vec!["super_in_invalid_context", "super_in_invalid_context"]);
+        assert_eq!(
+            names,
+            vec!["super_in_invalid_context", "super_in_invalid_context"]
+        );
     }
 
     #[test]
@@ -663,7 +815,10 @@ mod tests {
     fn await_in_late_local() {
         // void f(g) async { late var x = await g; }
         let r = codes("void f(g) async { late var x = await g; }");
-        assert_eq!(r, vec![("await_in_late_local_variable_initializer", 31, 36)]);
+        assert_eq!(
+            r,
+            vec![("await_in_late_local_variable_initializer", 31, 36)]
+        );
         // The function literal in between does not count.
         assert!(codes("void f(g) async { late var x = () async => await g; }").is_empty());
     }

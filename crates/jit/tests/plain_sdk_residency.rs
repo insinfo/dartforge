@@ -1,4 +1,4 @@
-use dartforge_emit_native::{contracts::ContractMode, CompileOptions};
+use dartforge_emit_native::{CompileOptions, contracts::ContractMode};
 use dartforge_jit::JitSession;
 use std::path::PathBuf;
 

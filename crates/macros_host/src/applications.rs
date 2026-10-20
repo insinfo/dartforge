@@ -68,7 +68,12 @@ pub struct Application {
 }
 
 /// The `macro` class that an annotation invokes, and the constructor name.
-fn annotation_macro(v: &View<'_>, lib: LibraryId, a: &ast::Annotation, macros: &HashSet<ClassId>) -> Option<(ClassId, String)> {
+fn annotation_macro(
+    v: &View<'_>,
+    lib: LibraryId,
+    a: &ast::Annotation,
+    macros: &HashSet<ClassId>,
+) -> Option<(ClassId, String)> {
     a.arguments.as_ref()?;
     let class = |el: Option<Element>| match el {
         Some(Element::Class(c)) if macros.contains(&c) => Some(c),
@@ -76,14 +81,26 @@ fn annotation_macro(v: &View<'_>, lib: LibraryId, a: &ast::Annotation, macros: &
     };
     let name = |s: dartforge_intern::SymbolId| v.interner.resolve(s).to_string();
     match a.name.as_slice() {
-        [c] => class(v.program.lookup(lib, c.sym).and_then(|b| b.getter)).map(|c| (c, String::new())),
+        [c] => {
+            class(v.program.lookup(lib, c.sym).and_then(|b| b.getter)).map(|c| (c, String::new()))
+        }
         [x, y] => {
             if let Some(c) = class(v.program.lookup(lib, x.sym).and_then(|b| b.getter)) {
                 return Some((c, name(y.sym)));
             }
-            class(v.program.lookup_prefixed(lib, x.sym, y.sym).and_then(|b| b.getter)).map(|c| (c, String::new()))
+            class(
+                v.program
+                    .lookup_prefixed(lib, x.sym, y.sym)
+                    .and_then(|b| b.getter),
+            )
+            .map(|c| (c, String::new()))
         }
-        [p, c, k] => class(v.program.lookup_prefixed(lib, p.sym, c.sym).and_then(|b| b.getter)).map(|c| (c, name(k.sym))),
+        [p, c, k] => class(
+            v.program
+                .lookup_prefixed(lib, p.sym, c.sym)
+                .and_then(|b| b.getter),
+        )
+        .map(|c| (c, name(k.sym))),
         _ => None,
     }
 }
@@ -109,7 +126,11 @@ fn argument(u: &Unit, e: ast::ExprId) -> Value {
         ExprKind::Double(s) => {
             json!({"t": "double", "v": text(*s).replace('_', "").parse::<f64>().unwrap_or(0.0)})
         }
-        ExprKind::String(l) if l.parts.iter().all(|p| matches!(p, ast::StringPart::Text(_))) => {
+        ExprKind::String(l)
+            if l.parts
+                .iter()
+                .all(|p| matches!(p, ast::StringPart::Text(_))) =>
+        {
             let s: String = l
                 .parts
                 .iter()
@@ -129,9 +150,12 @@ fn argument(u: &Unit, e: ast::ExprId) -> Value {
             let pairs: Option<Vec<Value>> = els
                 .iter()
                 .map(|el| match el {
-                    ast::CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false } => {
-                        Some(json!([argument(u, *key), argument(u, *value)]))
-                    }
+                    ast::CollectionElement::MapEntry {
+                        key,
+                        value,
+                        null_aware_key: false,
+                        null_aware_value: false,
+                    } => Some(json!([argument(u, *key), argument(u, *value)])),
                     _ => None,
                 })
                 .collect();
@@ -157,7 +181,11 @@ fn arguments(u: &Unit, a: &ast::Annotation) -> Value {
     for arg in a.arguments.iter().flat_map(|x| x.args.iter()) {
         match arg.name {
             Some(n) => {
-                let name = u.source.get(n.span.start..n.span.end).unwrap_or("").to_string();
+                let name = u
+                    .source
+                    .get(n.span.start..n.span.end)
+                    .unwrap_or("")
+                    .to_string();
                 named.insert(name, argument(u, arg.value));
             }
             None => positional.push(argument(u, arg.value)),
@@ -179,17 +207,27 @@ pub fn detect(v: &View<'_>) -> Vec<Application> {
             continue;
         }
         let lib_id = LibraryId(li as u32);
-        let mut collect = |out: &mut Vec<Application>, uid: UnitId, meta: &[ast::Annotation], target: Target, group: Group| {
+        let mut collect = |out: &mut Vec<Application>,
+                           uid: UnitId,
+                           meta: &[ast::Annotation],
+                           target: Target,
+                           group: Group| {
             let u = v.program.unit(uid);
             // Right to left: the last annotation runs first.
             for a in meta.iter().rev() {
-                let Some((c, constructor)) = annotation_macro(v, lib_id, a, &macros) else { continue };
+                let Some((c, constructor)) = annotation_macro(v, lib_id, a, &macros) else {
+                    continue;
+                };
                 let mc = v.program.class(c);
                 out.push(Application {
                     library: lib.uri.clone(),
                     target: target.clone(),
                     group: group.clone(),
-                    macro_: format!("{}#{}", v.program.library(mc.library).uri, v.interner.resolve(mc.name)),
+                    macro_: format!(
+                        "{}#{}",
+                        v.program.library(mc.library).uri,
+                        v.interner.resolve(mc.name)
+                    ),
                     constructor,
                     arguments: arguments(u, a),
                     unit: u.uri.clone(),
@@ -201,7 +239,13 @@ pub fn detect(v: &View<'_>) -> Vec<Application> {
             let u = v.program.unit(uid);
             for d in &u.unit.directives {
                 if matches!(d.kind, DirectiveKind::Library { .. }) {
-                    collect(&mut out, uid, &d.metadata, Target::Library(lib.uri.clone()), Group::Library);
+                    collect(
+                        &mut out,
+                        uid,
+                        &d.metadata,
+                        Target::Library(lib.uri.clone()),
+                        Group::Library,
+                    );
                 }
             }
             for &did in &u.unit.declarations {
@@ -212,18 +256,45 @@ pub fn detect(v: &View<'_>) -> Vec<Application> {
                 let n = |s: dartforge_intern::SymbolId| v.interner.resolve(s).to_string();
                 match &d.kind {
                     DeclKind::Class(c) => {
-                        let key = Key::Type { lib: lib.uri.clone(), name: n(c.name.sym) };
+                        let key = Key::Type {
+                            lib: lib.uri.clone(),
+                            name: n(c.name.sym),
+                        };
                         members(v, &mut out, &mut collect, uid, &c.members, &key);
-                        collect(&mut out, uid, &d.metadata, Target::Declaration(key.clone()), Group::Class(key));
+                        collect(
+                            &mut out,
+                            uid,
+                            &d.metadata,
+                            Target::Declaration(key.clone()),
+                            Group::Class(key),
+                        );
                     }
                     DeclKind::Mixin(m) => {
-                        let key = Key::Type { lib: lib.uri.clone(), name: n(m.name.sym) };
+                        let key = Key::Type {
+                            lib: lib.uri.clone(),
+                            name: n(m.name.sym),
+                        };
                         members(v, &mut out, &mut collect, uid, &m.members, &key);
-                        collect(&mut out, uid, &d.metadata, Target::Declaration(key.clone()), Group::Class(key));
+                        collect(
+                            &mut out,
+                            uid,
+                            &d.metadata,
+                            Target::Declaration(key.clone()),
+                            Group::Class(key),
+                        );
                     }
                     DeclKind::Enum(e) => {
-                        let key = Key::Type { lib: lib.uri.clone(), name: n(e.name.sym) };
-                        collect(&mut out, uid, &d.metadata, Target::Declaration(key.clone()), Group::Class(key));
+                        let key = Key::Type {
+                            lib: lib.uri.clone(),
+                            name: n(e.name.sym),
+                        };
+                        collect(
+                            &mut out,
+                            uid,
+                            &d.metadata,
+                            Target::Declaration(key.clone()),
+                            Group::Class(key),
+                        );
                     }
                     DeclKind::Function(fid) => {
                         let f = u.ast.function(*fid);
@@ -233,12 +304,27 @@ pub fn detect(v: &View<'_>) -> Vec<Application> {
                             name: n(name.sym),
                             setter: f.kind == ast::FunctionKind::Setter,
                         };
-                        collect(&mut out, uid, &d.metadata, Target::Declaration(key), Group::TopLevel);
+                        collect(
+                            &mut out,
+                            uid,
+                            &d.metadata,
+                            Target::Declaration(key),
+                            Group::TopLevel,
+                        );
                     }
                     DeclKind::Variables(l) => {
                         for var in l.variables.iter() {
-                            let key = Key::TopLevelVariable { lib: lib.uri.clone(), name: n(var.name.sym) };
-                            collect(&mut out, uid, &d.metadata, Target::Declaration(key), Group::TopLevel);
+                            let key = Key::TopLevelVariable {
+                                lib: lib.uri.clone(),
+                                name: n(var.name.sym),
+                            };
+                            collect(
+                                &mut out,
+                                uid,
+                                &d.metadata,
+                                Target::Declaration(key),
+                                Group::TopLevel,
+                            );
                         }
                     }
                     _ => {}
@@ -249,13 +335,23 @@ pub fn detect(v: &View<'_>) -> Vec<Application> {
     out
 }
 
-type Collector<'c> = dyn FnMut(&mut Vec<Application>, UnitId, &[ast::Annotation], Target, Group) + 'c;
+type Collector<'c> =
+    dyn FnMut(&mut Vec<Application>, UnitId, &[ast::Annotation], Target, Group) + 'c;
 
 /// Members of a class: fields and methods in order, then constructors
 /// (CFE's `localMemberIterator` and `localConstructorIterator`).
-fn members(v: &View<'_>, out: &mut Vec<Application>, collect: &mut Collector<'_>, uid: UnitId, ids: &[ast::MemberId], class: &Key) {
+fn members(
+    v: &View<'_>,
+    out: &mut Vec<Application>,
+    collect: &mut Collector<'_>,
+    uid: UnitId,
+    ids: &[ast::MemberId],
+    class: &Key,
+) {
     let u = v.program.unit(uid);
-    let Key::Type { lib, name: owner } = class else { return };
+    let Key::Type { lib, name: owner } = class else {
+        return;
+    };
     let n = |s: dartforge_intern::SymbolId| v.interner.resolve(s).to_string();
     for constructors in [false, true] {
         for &mid in ids {
@@ -264,24 +360,53 @@ fn members(v: &View<'_>, out: &mut Vec<Application>, collect: &mut Collector<'_>
                 continue;
             }
             let key = match (&m.kind, constructors) {
-                (MemberKind::Constructor(k), true) => {
-                    Key::Constructor { lib: lib.clone(), owner: owner.clone(), name: k.name.map(|x| n(x.sym)).unwrap_or_default() }
-                }
+                (MemberKind::Constructor(k), true) => Key::Constructor {
+                    lib: lib.clone(),
+                    owner: owner.clone(),
+                    name: k.name.map(|x| n(x.sym)).unwrap_or_default(),
+                },
                 (MemberKind::Method(fid), false) => {
                     let f = u.ast.function(*fid);
                     let Some(name) = f.name else { continue };
-                    Key::Method { lib: lib.clone(), owner: owner.clone(), name: n(name.sym), setter: f.kind == ast::FunctionKind::Setter }
+                    Key::Method {
+                        lib: lib.clone(),
+                        owner: owner.clone(),
+                        name: n(name.sym),
+                        setter: f.kind == ast::FunctionKind::Setter,
+                    }
                 }
                 (MemberKind::Field(l), false) => {
                     for var in l.variables.iter() {
-                        let key = Key::Field { lib: lib.clone(), owner: owner.clone(), name: n(var.name.sym) };
-                        collect(out, uid, &m.metadata, Target::Declaration(key), Group::Member { owner: class.clone(), constructor: false });
+                        let key = Key::Field {
+                            lib: lib.clone(),
+                            owner: owner.clone(),
+                            name: n(var.name.sym),
+                        };
+                        collect(
+                            out,
+                            uid,
+                            &m.metadata,
+                            Target::Declaration(key),
+                            Group::Member {
+                                owner: class.clone(),
+                                constructor: false,
+                            },
+                        );
                     }
                     continue;
                 }
                 _ => continue,
             };
-            collect(out, uid, &m.metadata, Target::Declaration(key), Group::Member { owner: class.clone(), constructor: constructors });
+            collect(
+                out,
+                uid,
+                &m.metadata,
+                Target::Declaration(key),
+                Group::Member {
+                    owner: class.clone(),
+                    constructor: constructors,
+                },
+            );
         }
     }
 }
@@ -299,9 +424,10 @@ pub fn order(phase: Phase, apps: &[Application], v: &View<'_>) -> Vec<usize> {
         let mut cs: Vec<Key> = Vec::new();
         for a in apps.iter().filter(|a| a.library == lib) {
             if let Group::Member { owner: class, .. } | Group::Class(class) = &a.group
-                && !cs.contains(class) {
-                    cs.push(class.clone());
-                }
+                && !cs.contains(class)
+            {
+                cs.push(class.clone());
+            }
         }
         cs
     };
@@ -309,11 +435,26 @@ pub fn order(phase: Phase, apps: &[Application], v: &View<'_>) -> Vec<usize> {
         for constructor in [false, true] {
             out.extend(apps.iter().enumerate().filter(|(_, a)| matches!(&a.group, Group::Member { owner, constructor: k } if owner == c && *k == constructor)).map(|(i, _)| i));
         }
-        out.extend(apps.iter().enumerate().filter(|(_, a)| matches!(&a.group, Group::Class(k) if k == c)).map(|(i, _)| i));
+        out.extend(
+            apps.iter()
+                .enumerate()
+                .filter(|(_, a)| matches!(&a.group, Group::Class(k) if k == c))
+                .map(|(i, _)| i),
+        );
     };
     let top_level = |lib: &str, out: &mut Vec<usize>| {
-        out.extend(apps.iter().enumerate().filter(|(_, a)| a.library == lib && a.group == Group::Library).map(|(i, _)| i));
-        out.extend(apps.iter().enumerate().filter(|(_, a)| a.library == lib && a.group == Group::TopLevel).map(|(i, _)| i));
+        out.extend(
+            apps.iter()
+                .enumerate()
+                .filter(|(_, a)| a.library == lib && a.group == Group::Library)
+                .map(|(i, _)| i),
+        );
+        out.extend(
+            apps.iter()
+                .enumerate()
+                .filter(|(_, a)| a.library == lib && a.group == Group::TopLevel)
+                .map(|(i, _)| i),
+        );
     };
     let mut out = Vec::new();
     match phase {
@@ -330,13 +471,25 @@ pub fn order(phase: Phase, apps: &[Application], v: &View<'_>) -> Vec<usize> {
             let all: Vec<Key> = libraries.iter().flat_map(|l| library_classes(l)).collect();
             let ids: Vec<Option<ClassId>> = all.iter().map(|c| v.class_of(c)).collect();
             let mut done: HashSet<usize> = HashSet::new();
-            fn visit(i: usize, ids: &[Option<ClassId>], v: &View<'_>, done: &mut HashSet<usize>, seq: &mut Vec<usize>, stack: &mut HashSet<usize>) {
+            fn visit(
+                i: usize,
+                ids: &[Option<ClassId>],
+                v: &View<'_>,
+                done: &mut HashSet<usize>,
+                seq: &mut Vec<usize>,
+                stack: &mut HashSet<usize>,
+            ) {
                 if done.contains(&i) || !stack.insert(i) {
                     return;
                 }
                 if let Some(c) = ids[i] {
                     let cl = v.program.class(c);
-                    let supers = cl.supertype_class.into_iter().chain(cl.mixin_classes.iter().copied()).chain(cl.interface_classes.iter().copied()).chain(cl.on_classes.iter().copied());
+                    let supers = cl
+                        .supertype_class
+                        .into_iter()
+                        .chain(cl.mixin_classes.iter().copied())
+                        .chain(cl.interface_classes.iter().copied())
+                        .chain(cl.on_classes.iter().copied());
                     for s in supers {
                         if let Some(j) = ids.iter().position(|x| *x == Some(s)) {
                             visit(j, ids, v, done, seq, stack);

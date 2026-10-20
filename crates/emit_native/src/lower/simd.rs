@@ -16,9 +16,9 @@
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
 use dartforge_frontend::ast::{self, BinaryOp, ExprId, ExprKind, UnaryOp};
+use dartforge_types::TypeId;
 use dartforge_types::resolved::Resolved;
 use dartforge_types::table::Type as T;
-use dartforge_types::TypeId;
 
 /// How an argument enters the operation.
 #[derive(Clone, Copy)]
@@ -57,7 +57,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.async_state.is_some() {
             return None;
         }
-        let T::Interface { class, nullable: false, .. } = self.ctx.table.get(ty?) else {
+        let T::Interface {
+            class,
+            nullable: false,
+            ..
+        } = self.ctx.table.get(ty?)
+        else {
             return None;
         };
         let c = &self.ctx.program.classes[class.0 as usize];
@@ -91,7 +96,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 u8::try_from(v).ok()
             }
             ExprKind::Property { target, name, .. } => {
-                let ExprKind::Identifier(c) = &ast.expr(*target).kind else { return None };
+                let ExprKind::Identifier(c) = &ast.expr(*target).kind else {
+                    return None;
+                };
                 if !matches!(self.ctx.symbol_name(c.sym), "Float32x4" | "Int32x4") {
                     return None;
                 }
@@ -127,14 +134,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     _ => return None,
                 };
                 (self.expr_simd(*right)? == k).then_some(())?;
-                Some(Recipe { op, receiver: Some((*left, k)), args: vec![(*right, Arg::Vector(k))], result: k })
+                Some(Recipe {
+                    op,
+                    receiver: Some((*left, k)),
+                    args: vec![(*right, Arg::Vector(k))],
+                    result: k,
+                })
             }
-            ExprKind::Unary { op: UnaryOp::Neg, operand } => {
+            ExprKind::Unary {
+                op: UnaryOp::Neg,
+                operand,
+            } => {
                 let k = self.expr_simd(*operand)?;
                 (k != V4I32).then_some(())?;
-                Some(Recipe { op: OpSimd::Neg, receiver: Some((*operand, k)), args: Vec::new(), result: k })
+                Some(Recipe {
+                    op: OpSimd::Neg,
+                    receiver: Some((*operand, k)),
+                    args: Vec::new(),
+                    result: k,
+                })
             }
-            ExprKind::Property { target, name, null_aware: false } => {
+            ExprKind::Property {
+                target,
+                name,
+                null_aware: false,
+            } => {
                 let k = self.expr_simd(*target)?;
                 let name_str = self.ctx.symbol_name(name.sym);
                 let scalar = if k == V4I32 { Type::I64 } else { Type::F64 };
@@ -145,31 +169,56 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         (k != V2F64 || i < 2).then_some(())?;
                         (OpSimd::Hint(i), scalar)
                     }
-                    "flagX" | "flagY" | "flagZ" | "flagW" if k == V4I32 => {
-                        (OpSimd::Flag(lane(name_str.chars().nth(4)?.to_ascii_lowercase())?), Type::I1)
-                    }
+                    "flagX" | "flagY" | "flagZ" | "flagW" if k == V4I32 => (
+                        OpSimd::Flag(lane(name_str.chars().nth(4)?.to_ascii_lowercase())?),
+                        Type::I1,
+                    ),
                     _ => return None,
                 };
-                Some(Recipe { op, receiver: Some((*target, k)), args: Vec::new(), result })
+                Some(Recipe {
+                    op,
+                    receiver: Some((*target, k)),
+                    args: Vec::new(),
+                    result,
+                })
             }
             ExprKind::Call { target, arguments } => {
-                if !arguments.type_args.is_empty() || arguments.args.iter().any(|a| a.name.is_some()) {
+                if !arguments.type_args.is_empty()
+                    || arguments.args.iter().any(|a| a.name.is_some())
+                {
                     return None;
                 }
                 let args: Vec<ExprId> = arguments.args.iter().map(|a| a.value).collect();
                 if let Some(Resolved::Constructor(fid)) = self.ctx.get_resolved(self.unit_id, e) {
                     return self.constructor_recipe(fid.0 as usize, args);
                 }
-                let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+                let ExprKind::Property {
+                    target: recv,
+                    name,
+                    null_aware: false,
+                } = &ast.expr(*target).kind
+                else {
                     return None;
                 };
                 let k = self.expr_simd(*recv)?;
                 let name_str = self.ctx.symbol_name(name.sym);
                 let receiver = Some((*recv, k));
                 let one = |op: OpSimd, a: Arg, result: Type| {
-                    (args.len() == 1).then(|| Recipe { op, receiver, args: vec![(args[0], a)], result })
+                    (args.len() == 1).then(|| Recipe {
+                        op,
+                        receiver,
+                        args: vec![(args[0], a)],
+                        result,
+                    })
                 };
-                let none = |op: OpSimd| args.is_empty().then(|| Recipe { op, receiver, args: Vec::new(), result: k });
+                let none = |op: OpSimd| {
+                    args.is_empty().then(|| Recipe {
+                        op,
+                        receiver,
+                        args: Vec::new(),
+                        result: k,
+                    })
+                };
                 match (name_str, k) {
                     ("scale", V4F32 | V2F64) => one(OpSimd::Scale, Arg::Scalar(Type::F64), k),
                     ("abs", V4F32 | V2F64) => none(OpSimd::Abs),
@@ -187,16 +236,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     ("equal", V4F32) => one(OpSimd::Cmp(FCmpOp::Eq), Arg::Vector(k), V4I32),
                     ("notEqual", V4F32) => one(OpSimd::Cmp(FCmpOp::Ne), Arg::Vector(k), V4I32),
                     ("lessThan", V4F32) => one(OpSimd::Cmp(FCmpOp::Lt), Arg::Vector(k), V4I32),
-                    ("lessThanOrEqual", V4F32) => one(OpSimd::Cmp(FCmpOp::Le), Arg::Vector(k), V4I32),
+                    ("lessThanOrEqual", V4F32) => {
+                        one(OpSimd::Cmp(FCmpOp::Le), Arg::Vector(k), V4I32)
+                    }
                     ("greaterThan", V4F32) => one(OpSimd::Cmp(FCmpOp::Gt), Arg::Vector(k), V4I32),
-                    ("greaterThanOrEqual", V4F32) => one(OpSimd::Cmp(FCmpOp::Ge), Arg::Vector(k), V4I32),
+                    ("greaterThanOrEqual", V4F32) => {
+                        one(OpSimd::Cmp(FCmpOp::Ge), Arg::Vector(k), V4I32)
+                    }
                     ("shuffle", V4F32 | V4I32) if args.len() == 1 => {
                         let m = self.constant_mask(ast, args[0])?;
-                        Some(Recipe { op: OpSimd::Shuffle(m), receiver, args: Vec::new(), result: k })
+                        Some(Recipe {
+                            op: OpSimd::Shuffle(m),
+                            receiver,
+                            args: Vec::new(),
+                            result: k,
+                        })
                     }
                     ("shuffleMix", V4F32 | V4I32) if args.len() == 2 => {
                         let m = self.constant_mask(ast, args[1])?;
-                        Some(Recipe { op: OpSimd::ShuffleMix(m), receiver, args: vec![(args[0], Arg::Vector(k))], result: k })
+                        Some(Recipe {
+                            op: OpSimd::ShuffleMix(m),
+                            receiver,
+                            args: vec![(args[0], Arg::Vector(k))],
+                            result: k,
+                        })
                     }
                     ("withX" | "withY" | "withZ" | "withW", _) => {
                         let i = lane(name_str.chars().nth(4)?.to_ascii_lowercase())?;
@@ -227,12 +290,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// members is that of the VM's `typed_data_patch.dart` (it runs on VM 3.6.2, which is
     /// the oracle); here the call becomes the vector instruction.
     fn api_314(&self, e: ExprId) -> bool {
-        let Some(Resolved::ExtensionMember { extension, .. }) = self.ctx.get_resolved(self.unit_id, e) else {
+        let Some(Resolved::ExtensionMember { extension, .. }) =
+            self.ctx.get_resolved(self.unit_id, e)
+        else {
             return false;
         };
         let decl = self.ctx.program.extension(*extension).decl;
         let unit = self.ctx.program.unit(decl.unit);
-        let Some(d) = unit.ast.decls.get(decl.decl.0 as usize) else { return false };
+        let Some(d) = unit.ast.decls.get(decl.decl.0 as usize) else {
+            return false;
+        };
         d.metadata.iter().any(|an| {
             if an.name.len() != 1 || self.ctx.symbol_name(an.name[0].sym) != "pragma" {
                 return false;
@@ -269,9 +336,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Binary { op, left, right } if self.api_314(e) && int4(*left) => {
                 let receiver = Some((*left, V4I32));
                 match op {
-                    BinaryOp::Mul if int4(*right) => {
-                        Some(Recipe { op: OpSimd::Mul, receiver, args: vec![(*right, Arg::Vector(V4I32))], result: V4I32 })
-                    }
+                    BinaryOp::Mul if int4(*right) => Some(Recipe {
+                        op: OpSimd::Mul,
+                        receiver,
+                        args: vec![(*right, Arg::Vector(V4I32))],
+                        result: V4I32,
+                    }),
                     BinaryOp::Shl | BinaryOp::Shr if self.is_int(*right) => Some(Recipe {
                         op: OpSimd::Shifts(*op == BinaryOp::Shr),
                         receiver,
@@ -281,23 +351,51 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     _ => None,
                 }
             }
-            ExprKind::Unary { op: op @ (UnaryOp::Neg | UnaryOp::BitNot), operand } if self.api_314(e) && int4(*operand) => {
-                let op = if *op == UnaryOp::Neg { OpSimd::Neg } else { OpSimd::Not };
-                Some(Recipe { op, receiver: Some((*operand, V4I32)), args: Vec::new(), result: V4I32 })
+            ExprKind::Unary {
+                op: op @ (UnaryOp::Neg | UnaryOp::BitNot),
+                operand,
+            } if self.api_314(e) && int4(*operand) => {
+                let op = if *op == UnaryOp::Neg {
+                    OpSimd::Neg
+                } else {
+                    OpSimd::Not
+                };
+                Some(Recipe {
+                    op,
+                    receiver: Some((*operand, V4I32)),
+                    args: Vec::new(),
+                    result: V4I32,
+                })
             }
-            ExprKind::Property { target, name, null_aware: false } if self.api_314(e) && int4(*target) => {
+            ExprKind::Property {
+                target,
+                name,
+                null_aware: false,
+            } if self.api_314(e) && int4(*target) => {
                 let op = match self.ctx.symbol_name(name.sym) {
                     "anyTrue" => OpSimd::Any,
                     "allTrue" => OpSimd::All,
                     _ => return None,
                 };
-                Some(Recipe { op, receiver: Some((*target, V4I32)), args: Vec::new(), result: Type::I1 })
+                Some(Recipe {
+                    op,
+                    receiver: Some((*target, V4I32)),
+                    args: Vec::new(),
+                    result: Type::I1,
+                })
             }
             ExprKind::Call { target, arguments } => {
-                if !arguments.type_args.is_empty() || arguments.args.iter().any(|a| a.name.is_some()) {
+                if !arguments.type_args.is_empty()
+                    || arguments.args.iter().any(|a| a.name.is_some())
+                {
                     return None;
                 }
-                let ExprKind::Property { target: recv, name, null_aware: false } = &ast.expr(*target).kind else {
+                let ExprKind::Property {
+                    target: recv,
+                    name,
+                    null_aware: false,
+                } = &ast.expr(*target).kind
+                else {
                     return None;
                 };
                 if !(self.api_314(e) || self.api_314(*target)) || !int4(*recv) {
@@ -307,7 +405,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let receiver = Some((*recv, V4I32));
                 let op = match (self.ctx.symbol_name(name.sym), args.as_slice()) {
                     ("abs", []) => {
-                        return Some(Recipe { op: OpSimd::Abs, receiver, args: Vec::new(), result: V4I32 });
+                        return Some(Recipe {
+                            op: OpSimd::Abs,
+                            receiver,
+                            args: Vec::new(),
+                            result: V4I32,
+                        });
                     }
                     (_, [a]) if !int4(*a) => return None,
                     ("andNot", [_]) => OpSimd::AndNot,
@@ -321,7 +424,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     ("max", [_]) => OpSimd::Max,
                     _ => return None,
                 };
-                Some(Recipe { op, receiver, args: vec![(args[0], Arg::Vector(V4I32))], result: V4I32 })
+                Some(Recipe {
+                    op,
+                    receiver,
+                    args: vec![(args[0], Arg::Vector(V4I32))],
+                    result: V4I32,
+                })
             }
             _ => None,
         }
@@ -332,7 +440,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         use Type::{V2F64, V4F32, V4I32};
         let f = &self.ctx.program.functions[fid];
         let c = &self.ctx.program.classes[f.class?.0 as usize];
-        if self.ctx.program.library(c.library).uri != "dart:typed_data" || self.async_state.is_some() {
+        if self.ctx.program.library(c.library).uri != "dart:typed_data"
+            || self.async_state.is_some()
+        {
             return None;
         }
         let k = match self.ctx.symbol_name(c.name) {
@@ -383,7 +493,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             };
             ops.push(op);
         }
-        self.emit(Instruction::Simd { op: r.op, args: ops }, r.result)
+        self.emit(
+            Instruction::Simd {
+                op: r.op,
+                args: ops,
+            },
+            r.result,
+        )
     }
 
     /// A recognized SIMD expression, in the general `lower_expr`: the direct scalar
@@ -413,14 +529,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let v = self.lower_expr_raw(ast, e);
                 return self.coerce(v, k);
             }
-            ExprKind::Index { target, index, null_aware: false } => {
+            ExprKind::Index {
+                target,
+                index,
+                null_aware: false,
+            } => {
                 if let Some(ix) = self.indexable(self.ctx.get_type(self.unit_id, *target))
                     && let super::typed_items::Indexable::Simd { .. } = ix
                 {
                     let list = self.lower_expr(ast, *target);
                     let i = self.lower_expr(ast, *index);
                     // Coerced once: the slow path reuses the same value.
-                    let i = if self.operand_type(&i) == Type::Ref { self.coerce(i, Type::I64) } else { i };
+                    let i = if self.operand_type(&i) == Type::Ref {
+                        self.coerce(i, Type::I64)
+                    } else {
+                        i
+                    };
                     self.access_proven = self.proven_of(ast, *target, Some(*index));
                     let read_done = self.read_indexed(list, i, ix, k);
                     self.access_proven = None;
@@ -465,14 +589,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if k != V4F32 && k != V4I32 {
             return None;
         }
-        let ExprKind::Call { arguments, .. } = &ast.expr(e).kind else { return None };
-        if !arguments.type_args.is_empty() || arguments.args.len() != 4 || arguments.args.iter().any(|a| a.name.is_some()) {
+        let ExprKind::Call { arguments, .. } = &ast.expr(e).kind else {
+            return None;
+        };
+        if !arguments.type_args.is_empty()
+            || arguments.args.len() != 4
+            || arguments.args.iter().any(|a| a.name.is_some())
+        {
             return None;
         }
-        let Some(Resolved::Constructor(fid)) = self.ctx.get_resolved(self.unit_id, e) else { return None };
+        let Some(Resolved::Constructor(fid)) = self.ctx.get_resolved(self.unit_id, e) else {
+            return None;
+        };
         let f = &self.ctx.program.functions[fid.0 as usize];
         let c = &self.ctx.program.classes[f.class?.0 as usize];
-        if self.ctx.program.library(c.library).uri != "dart:typed_data" || !self.ctx.symbol_name(f.name).is_empty() {
+        if self.ctx.program.library(c.library).uri != "dart:typed_data"
+            || !self.ctx.symbol_name(f.name).is_empty()
+        {
             return None;
         }
         let expected = match self.ctx.symbol_name(c.name) {
@@ -490,22 +623,45 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             x
         };
         // `origin.<lane i>.<method>()`: the symbol of local `origin`.
-        let converted_lane = |x: ExprId, i: u8, method: &str, origin: Type| -> Option<dartforge_intern::SymbolId> {
-            let ExprKind::Call { target, arguments } = &ast.expr(without_parentheses(x)).kind else { return None };
-            if !arguments.args.is_empty() || !arguments.type_args.is_empty() {
-                return None;
-            }
-            let ExprKind::Property { target: p, name, null_aware: false } = &ast.expr(*target).kind else { return None };
-            if self.ctx.symbol_name(name.sym) != method {
-                return None;
-            }
-            let ExprKind::Property { target: v, name: l, null_aware: false } = &ast.expr(*p).kind else { return None };
-            if lane(self.ctx.symbol_name(l.sym).chars().next()?)? != i || self.ctx.symbol_name(l.sym).len() != 1 {
-                return None;
-            }
-            let ExprKind::Identifier(n) = &ast.expr(*v).kind else { return None };
-            (self.expr_simd(*v) == Some(origin) && self.lookup_local(n.sym).is_some()).then_some(n.sym)
-        };
+        let converted_lane =
+            |x: ExprId, i: u8, method: &str, origin: Type| -> Option<dartforge_intern::SymbolId> {
+                let ExprKind::Call { target, arguments } = &ast.expr(without_parentheses(x)).kind
+                else {
+                    return None;
+                };
+                if !arguments.args.is_empty() || !arguments.type_args.is_empty() {
+                    return None;
+                }
+                let ExprKind::Property {
+                    target: p,
+                    name,
+                    null_aware: false,
+                } = &ast.expr(*target).kind
+                else {
+                    return None;
+                };
+                if self.ctx.symbol_name(name.sym) != method {
+                    return None;
+                }
+                let ExprKind::Property {
+                    target: v,
+                    name: l,
+                    null_aware: false,
+                } = &ast.expr(*p).kind
+                else {
+                    return None;
+                };
+                if lane(self.ctx.symbol_name(l.sym).chars().next()?)? != i
+                    || self.ctx.symbol_name(l.sym).len() != 1
+                {
+                    return None;
+                }
+                let ExprKind::Identifier(n) = &ast.expr(*v).kind else {
+                    return None;
+                };
+                (self.expr_simd(*v) == Some(origin) && self.lookup_local(n.sym).is_some())
+                    .then_some(n.sym)
+            };
         let args: Vec<ExprId> = arguments.args.iter().map(|a| a.value).collect();
         if k == V4F32 {
             let mut origin = None;
@@ -517,16 +673,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 origin = Some(s);
             }
             let v = without_parentheses(args[0]);
-            let ExprKind::Call { target, .. } = &ast.expr(v).kind else { return None };
-            let ExprKind::Property { target: p, .. } = &ast.expr(*target).kind else { return None };
-            let ExprKind::Property { target: local, .. } = &ast.expr(*p).kind else { return None };
+            let ExprKind::Call { target, .. } = &ast.expr(v).kind else {
+                return None;
+            };
+            let ExprKind::Property { target: p, .. } = &ast.expr(*target).kind else {
+                return None;
+            };
+            let ExprKind::Property { target: local, .. } = &ast.expr(*p).kind else {
+                return None;
+            };
             let x = self.lower_simd(ast, *local, V4I32);
-            return Some(self.emit(Instruction::Simd { op: OpSimd::IntToFloat, args: vec![x] }, V4F32));
+            return Some(self.emit(
+                Instruction::Simd {
+                    op: OpSimd::IntToFloat,
+                    args: vec![x],
+                },
+                V4F32,
+            ));
         }
         // `Int32x4(r.x.toInt() [>> c], …)`.
         let source = self.source();
         let literal = |x: ExprId| match &ast.expr(without_parentheses(x)).kind {
-            ExprKind::Int(span) => source.get(span.start..span.end)?.replace('_', "").parse::<i64>().ok(),
+            ExprKind::Int(span) => source
+                .get(span.start..span.end)?
+                .replace('_', "")
+                .parse::<i64>()
+                .ok(),
             _ => None,
         };
         let mut origin = None;
@@ -534,7 +706,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut local = None;
         for (i, &a) in args.iter().enumerate() {
             let (conv, c) = match &ast.expr(without_parentheses(a)).kind {
-                ExprKind::Binary { op: BinaryOp::Shr, left, right } => (*left, Some(literal(*right).filter(|c| (0..=31).contains(c))?)),
+                ExprKind::Binary {
+                    op: BinaryOp::Shr,
+                    left,
+                    right,
+                } => (
+                    *left,
+                    Some(literal(*right).filter(|c| (0..=31).contains(c))?),
+                ),
                 _ => (a, None),
             };
             let s = converted_lane(conv, i as u8, "toInt", V4F32)?;
@@ -544,23 +723,52 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             origin = Some(s);
             offset = Some(c);
             if local.is_none() {
-                let ExprKind::Call { target, .. } = &ast.expr(without_parentheses(conv)).kind else { return None };
-                let ExprKind::Property { target: p, .. } = &ast.expr(*target).kind else { return None };
-                let ExprKind::Property { target: l, .. } = &ast.expr(*p).kind else { return None };
+                let ExprKind::Call { target, .. } = &ast.expr(without_parentheses(conv)).kind
+                else {
+                    return None;
+                };
+                let ExprKind::Property { target: p, .. } = &ast.expr(*target).kind else {
+                    return None;
+                };
+                let ExprKind::Property { target: l, .. } = &ast.expr(*p).kind else {
+                    return None;
+                };
                 local = Some(*l);
             }
         }
         let r = self.simd_recipe(ast, e)?;
         let f = self.lower_simd(ast, local?, V4F32);
-        let ok = self.emit(Instruction::Simd { op: OpSimd::InInt32Range, args: vec![f.clone()] }, Type::I1);
+        let ok = self.emit(
+            Instruction::Simd {
+                op: OpSimd::InInt32Range,
+                args: vec![f.clone()],
+            },
+            Type::I1,
+        );
         let fast = self.new_block();
         let slow = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ok, then_block: fast, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: ok,
+            then_block: fast,
+            else_block: slow,
+        });
         self.set_block(fast);
-        let mut t = self.emit(Instruction::Simd { op: OpSimd::FloatToInt, args: vec![f] }, V4I32);
+        let mut t = self.emit(
+            Instruction::Simd {
+                op: OpSimd::FloatToInt,
+                args: vec![f],
+            },
+            V4I32,
+        );
         if let Some(Some(c)) = offset {
-            t = self.emit(Instruction::Simd { op: OpSimd::Shifts(true), args: vec![t, Operand::Constant(Constant::Int(c))] }, V4I32);
+            t = self.emit(
+                Instruction::Simd {
+                    op: OpSimd::Shifts(true),
+                    args: vec![t, Operand::Constant(Constant::Int(c))],
+                },
+                V4I32,
+            );
         }
         let fast_end = self.current_block;
         self.terminate(Terminator::Branch(join));
@@ -573,7 +781,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         self.set_block(join);
         Some(if slow_arrives {
-            self.emit(Instruction::Phi { incoming: vec![(fast_end, t), (slow_end, s)], ty: V4I32 }, V4I32)
+            self.emit(
+                Instruction::Phi {
+                    incoming: vec![(fast_end, t), (slow_end, s)],
+                    ty: V4I32,
+                },
+                V4I32,
+            )
         } else {
             t
         })

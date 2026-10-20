@@ -6,9 +6,9 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::analyzer_tree::Mark;
-use crate::write_type::Writer;
 use crate::refactorings::Context;
-use crate::refactorings_exec::{Text, ONE_INDENT, add_letter, add_all, camel_combinations};
+use crate::refactorings_exec::{ONE_INDENT, Text, add_all, add_letter, camel_combinations};
+use crate::write_type::Writer;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassKind, LibraryId, UnitId};
 use dartforge_frontend::ast;
@@ -34,7 +34,16 @@ const KNOWN_PREFIXES: [&str; 3] = ["get", "is", "to"];
 impl Context<'_> {
     /// The members (`ClassMember`) of a declaration.
     pub(crate) fn container_members(&self, c: usize) -> Vec<usize> {
-        self.children(c).iter().copied().filter(|&f| matches!(self.kind(f), "ConstructorDeclaration" | "MethodDeclaration" | "FieldDeclaration")).collect()
+        self.children(c)
+            .iter()
+            .copied()
+            .filter(|&f| {
+                matches!(
+                    self.kind(f),
+                    "ConstructorDeclaration" | "MethodDeclaration" | "FieldDeclaration"
+                )
+            })
+            .collect()
     }
 
     fn is_getter(&self, m: usize) -> bool {
@@ -46,16 +55,31 @@ impl Context<'_> {
 
     /// `insertIntoUnitMember(container, filter)`: the offset and the full text
     /// (prefix, member, suffix) of the insertion of `member`.
-    pub(crate) fn insert_in_member(&self, container: usize, filter: Filter, member: &str) -> Option<(usize, String)> {
+    pub(crate) fn insert_in_member(
+        &self,
+        container: usize,
+        filter: Filter,
+        member: &str,
+    ) -> Option<(usize, String)> {
         let tx = Text::new(self.source);
         let eol = tx.eol();
         let members = self.container_members(container);
         let passes = |m: usize| match filter {
             Filter::Field => self.kind(m) == "FieldDeclaration",
-            Filter::Constructor { first_constructors: true } => self.kind(m) == "ConstructorDeclaration",
-            Filter::Constructor { first_constructors: false } => matches!(self.kind(m), "ConstructorDeclaration" | "FieldDeclaration"),
-            Filter::Getter => matches!(self.kind(m), "FieldDeclaration" | "ConstructorDeclaration") || (self.kind(m) == "MethodDeclaration" && self.is_getter(m)),
-            Filter::Method => matches!(self.kind(m), "FieldDeclaration" | "ConstructorDeclaration" | "MethodDeclaration"),
+            Filter::Constructor {
+                first_constructors: true,
+            } => self.kind(m) == "ConstructorDeclaration",
+            Filter::Constructor {
+                first_constructors: false,
+            } => matches!(self.kind(m), "ConstructorDeclaration" | "FieldDeclaration"),
+            Filter::Getter => {
+                matches!(self.kind(m), "FieldDeclaration" | "ConstructorDeclaration")
+                    || (self.kind(m) == "MethodDeclaration" && self.is_getter(m))
+            }
+            Filter::Method => matches!(
+                self.kind(m),
+                "FieldDeclaration" | "ConstructorDeclaration" | "MethodDeclaration"
+            ),
         };
         let target = members.iter().rev().copied().find(|&m| passes(m));
         let enum_ = self.kind(container) == "EnumDeclaration";
@@ -75,7 +99,16 @@ impl Context<'_> {
         // The declaration's `{` (the first one after the header).
         let key = {
             let mut pos = self.tree.nodes[container].start;
-            let limit = members.first().map_or(self.tree.nodes[container].end, |&m| self.tree.nodes[m].start).min(constants.first().map_or(usize::MAX, |&c| self.tree.nodes[c].start));
+            let limit = members
+                .first()
+                .map_or(self.tree.nodes[container].end, |&m| {
+                    self.tree.nodes[m].start
+                })
+                .min(
+                    constants
+                        .first()
+                        .map_or(usize::MAX, |&c| self.tree.nodes[c].start),
+                );
             let mut found = None;
             while let Some(t) = self.next_token(pos) {
                 if t.start >= limit {
@@ -113,9 +146,13 @@ impl Context<'_> {
             if !members.is_empty() {
                 s.push_str(eol);
             } else {
-                let start = self.first_token_after_comment_and_metadata(container).map_or(self.tree.nodes[container].start, |t| t.start);
+                let start = self
+                    .first_token_after_comment_and_metadata(container)
+                    .map_or(self.tree.nodes[container].start, |t| t.start);
                 let line_begin = self.source[..start].matches('\n').count();
-                let line_end = self.source[..self.tree.nodes[container].end].matches('\n').count();
+                let line_end = self.source[..self.tree.nodes[container].end]
+                    .matches('\n')
+                    .count();
                 if line_begin == line_end {
                     s.push_str(eol);
                 }
@@ -127,7 +164,9 @@ impl Context<'_> {
     /// `_getBaseNameFromExpression`.
     fn ins_expression_base_name(&self, e: usize) -> Option<String> {
         match self.kind(e) {
-            "AsExpression" | "ParenthesizedExpression" => self.ins_expression_base_name(*self.children(e).first()?),
+            "AsExpression" | "ParenthesizedExpression" => {
+                self.ins_expression_base_name(*self.children(e).first()?)
+            }
             _ => self.unwrapped_base_name(e),
         }
     }
@@ -137,14 +176,19 @@ impl Context<'_> {
         let mut name: Option<String> = None;
         match self.kind(e) {
             "SimpleIdentifier" => return Some(self.node_text(e).to_string()),
-            "PrefixedIdentifier" => return Some(self.node_text(*self.children(e).get(1)?).to_string()),
+            "PrefixedIdentifier" => {
+                return Some(self.node_text(*self.children(e).get(1)?).to_string());
+            }
             "PropertyAccess" => return Some(self.node_text(*self.children(e).last()?).to_string()),
             "MethodInvocation" => name = self.method_name(e).map(|m| self.node_text(m).to_string()),
             "InstanceCreationExpression" => {
                 let cn = self.kind_children(e, "ConstructorName").first().copied()?;
                 let ty = self.kind_children(cn, "NamedType").first().copied()?;
                 // The type's `name2`: the identifier after the prefix.
-                let prefix_end = self.kind_children(ty, "ImportPrefixReference").first().map_or(self.tree.nodes[ty].start, |&p| self.tree.nodes[p].end);
+                let prefix_end = self
+                    .kind_children(ty, "ImportPrefixReference")
+                    .first()
+                    .map_or(self.tree.nodes[ty].start, |&p| self.tree.nodes[p].end);
                 let s = crate::project::word(self.source, self.next_token(prefix_end)?.start)?;
                 return Some(self.source[s.start..s.end].to_string());
             }
@@ -165,7 +209,11 @@ impl Context<'_> {
                 if let Some(rest) = n.strip_prefix(p) {
                     if rest.is_empty() {
                         return None;
-                    } else if rest.as_bytes().first().is_some_and(|c| c.is_ascii_uppercase()) {
+                    } else if rest
+                        .as_bytes()
+                        .first()
+                        .is_some_and(|c| c.is_ascii_uppercase())
+                    {
                         return Some(rest.to_string());
                     }
                 }
@@ -175,7 +223,13 @@ impl Context<'_> {
     }
 
     /// `_getParameterNameSuggestions(usedNames, type, expression, index)`.
-    fn parameter_suggestions(&self, used: &HashSet<String>, ty: Option<&Type>, arg: usize, index: usize) -> Vec<String> {
+    fn parameter_suggestions(
+        &self,
+        used: &HashSet<String>,
+        ty: Option<&Type>,
+        arg: usize,
+        index: usize,
+    ) -> Vec<String> {
         let mut res: Vec<String> = Vec::new();
         if let Some(n) = self.ins_expression_base_name(arg) {
             let n = n.strip_prefix('_').unwrap_or(&n).to_string();
@@ -193,9 +247,15 @@ impl Context<'_> {
         }
         let core = &self.p.query.core;
         match ty {
-            Some(Type::Interface { class, .. }) if Some(*class) == core.int_class => add_letter(used, &mut res, b'i'),
-            Some(Type::Interface { class, .. }) if Some(*class) == core.double_class => add_letter(used, &mut res, b'd'),
-            Some(Type::Interface { class, .. }) if Some(*class) == core.string_class => add_letter(used, &mut res, b's'),
+            Some(Type::Interface { class, .. }) if Some(*class) == core.int_class => {
+                add_letter(used, &mut res, b'i')
+            }
+            Some(Type::Interface { class, .. }) if Some(*class) == core.double_class => {
+                add_letter(used, &mut res, b'd')
+            }
+            Some(Type::Interface { class, .. }) if Some(*class) == core.string_class => {
+                add_letter(used, &mut res, b's')
+            }
             Some(Type::Interface { class, .. }) => {
                 let name = self.p.name(self.p.program().class(*class).name).to_string();
                 add_all(used, &mut res, camel_combinations(&name), None);
@@ -214,7 +274,12 @@ impl Context<'_> {
     /// `writeParameterMatchingArgument`: `TYPE<i>` on the type (with
     /// the supertype suggestions) and `PARAM<i>` on the name of a positional
     /// argument (with all the name suggestions).
-    pub(crate) fn parameters_to_arguments_in(&self, list: usize, writer: &mut Writer<'_, '_>, e: &mut crate::snippets::Write) {
+    pub(crate) fn parameters_to_arguments_in(
+        &self,
+        list: usize,
+        writer: &mut Writer<'_, '_>,
+        e: &mut crate::snippets::Write,
+    ) {
         let mut copy: Option<dartforge_types::TypeTable> = None;
         let mut used: HashSet<String> = HashSet::new();
         let mut s = String::new();
@@ -230,9 +295,19 @@ impl Context<'_> {
                 s.push('{');
             }
             // `writeParameterMatchingArgument`.
-            let value = if named { self.children(arg).get(1).copied().unwrap_or(arg) } else { arg };
+            let value = if named {
+                self.children(arg).get(1).copied().unwrap_or(arg)
+            } else {
+                arg
+            };
             let table = &self.p.query.table;
-            let ty = self.node_type(value).filter(|t| !matches!(table.get(*t), Type::Never | Type::Null) && !matches!(table.decoration(*t), Some(dartforge_types::table::DisplayDecoration::NeverNullable)));
+            let ty = self.node_type(value).filter(|t| {
+                !matches!(table.get(*t), Type::Never | Type::Null)
+                    && !matches!(
+                        table.decoration(*t),
+                        Some(dartforge_types::table::DisplayDecoration::NeverNullable)
+                    )
+            });
             let without_suffix = ty.is_none_or(|t| !table.get(t).is_declared_nullable());
             if named && without_suffix {
                 s.push_str("required ");
@@ -240,15 +315,21 @@ impl Context<'_> {
             if let Some(t) = writer.write_type(ty, false) {
                 e.write(&s);
                 s.clear();
-                let suggestions = ty.map(|x| crate::create::supertype_suggestions_at(self.p, &mut copy, x)).unwrap_or_default();
+                let suggestions = ty
+                    .map(|x| crate::create::supertype_suggestions_at(self.p, &mut copy, x))
+                    .unwrap_or_default();
                 e.linked(&format!("TYPE{i}"), &t, &suggestions);
                 s.push(' ');
             }
             if named {
-                let label = self.children(arg).first().and_then(|&r| self.children(r).first().copied());
+                let label = self
+                    .children(arg)
+                    .first()
+                    .and_then(|&r| self.children(r).first().copied());
                 s.push_str(label.map_or("", |id| self.node_text(id)));
             } else {
-                let suggestions = self.parameter_suggestions(&used, ty.map(|t| table.get(t)), value, i);
+                let suggestions =
+                    self.parameter_suggestions(&used, ty.map(|t| table.get(t)), value, i);
                 let favorite = suggestions[0].clone();
                 used.insert(favorite.clone());
                 e.write(&s);
@@ -283,14 +364,24 @@ pub(crate) fn create_constructor(cx: &Context<'_>, error: Span) -> Option<Constr
     if cx.kind(node) != "SimpleIdentifier" {
         return None;
     }
-    let cn = cx.parent(node).filter(|&c| cx.kind(c) == "ConstructorName")?;
+    let cn = cx
+        .parent(node)
+        .filter(|&c| cx.kind(c) == "ConstructorName")?;
     if cx.children(cn).get(1) != Some(&node) {
         return None;
     }
-    let creation = cx.parent(cn).filter(|&c| cx.kind(c) == "InstanceCreationExpression")?;
+    let creation = cx
+        .parent(cn)
+        .filter(|&c| cx.kind(c) == "InstanceCreationExpression")?;
     let name = cx.node_text(cn).split_whitespace().collect::<String>();
     // The type's class.
-    let ty = cx.ast.types.iter().enumerate().find(|(_, t)| t.span.start == cx.tree.nodes[cn].start).map(|(i, _)| ast::TypeId(i as u32))?;
+    let ty = cx
+        .ast
+        .types
+        .iter()
+        .enumerate()
+        .find(|(_, t)| t.span.start == cx.tree.nodes[cn].start)
+        .map(|(i, _)| ast::TypeId(i as u32))?;
     let class = cx.p.type_class(cx.unit, ty)?;
     let prog = cx.p.program();
     let c = prog.class(class);
@@ -299,21 +390,46 @@ pub(crate) fn create_constructor(cx: &Context<'_>, error: Span) -> Option<Constr
     }
     let decl = c.decl?;
     let target = crate::refactorings::Context::new(cx.p, decl.unit);
-    let container = target.tree.nodes.iter().position(|n| n.kind == "ClassDeclaration" && matches!(n.mark, Mark::Decl(d) if d == decl.decl))?;
-    let first_constructors = crate::refactorings_exec::enabled_rule(cx.p, decl.unit, "sort_constructors_first");
-    let list = cx.kind_children(creation, "ArgumentList").first().copied()?;
+    let container = target.tree.nodes.iter().position(|n| {
+        n.kind == "ClassDeclaration" && matches!(n.mark, Mark::Decl(d) if d == decl.decl)
+    })?;
+    let first_constructors =
+        crate::refactorings_exec::enabled_rule(cx.p, decl.unit, "sort_constructors_first");
+    let list = cx
+        .kind_children(creation, "ArgumentList")
+        .first()
+        .copied()?;
     // The insertion point (for the type writer) before writing.
-    let (offset, _) = target.insert_in_member(container, Filter::Constructor { first_constructors }, "")?;
+    let (offset, _) =
+        target.insert_in_member(container, Filter::Constructor { first_constructors }, "")?;
     let mut writer = Writer::new(&target, offset);
     // The `NAME` group on the constructor name (`_write`,
     // `constructorNameGroupName`) and those of the parameters
     // (`writeParametersMatchingArguments`).
     let class_name = cx.p.name(c.name).to_string();
     let mut e = crate::snippets::Write::default();
-    e.write(&format!("{class_name}.")).linked("NAME", cx.node_text(node), &[]).write("(");
+    e.write(&format!("{class_name}."))
+        .linked("NAME", cx.node_text(node), &[])
+        .write("(");
     cx.parameters_to_arguments_in(list, &mut writer, &mut e);
     e.write(");");
-    let (offset, text) = target.insert_in_member(container, Filter::Constructor { first_constructors }, &e.text)?;
+    let (offset, text) = target.insert_in_member(
+        container,
+        Filter::Constructor { first_constructors },
+        &e.text,
+    )?;
     let marks = text.find(&e.text).map(|k| (k, e));
-    Some(Constructor { name, unit: decl.unit, edit: (Span { start: offset, end: offset }, text), import: writer.import, marks })
+    Some(Constructor {
+        name,
+        unit: decl.unit,
+        edit: (
+            Span {
+                start: offset,
+                end: offset,
+            },
+            text,
+        ),
+        import: writer.import,
+        marks,
+    })
 }

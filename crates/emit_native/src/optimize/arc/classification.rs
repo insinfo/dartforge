@@ -98,9 +98,20 @@ pub fn classified_liveness(
     ids.sort_by_key(|v| v.0);
     for id in ids {
         if !classes.contains_key(&id) {
-            let def = f.blocks.iter().flat_map(|b| &b.instructions).find(|(v, _, _)| *v == id)
-                .map_or_else(|| format!("parameter {:?}", f.params.iter().find(|(v, _, _)| *v == id).map(|p| p.2)),
-                    |(_, i, t)| format!("{i:?}: {t:?}"));
+            let def = f
+                .blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
+                .find(|(v, _, _)| *v == id)
+                .map_or_else(
+                    || {
+                        format!(
+                            "parameter {:?}",
+                            f.params.iter().find(|(v, _, _)| *v == id).map(|p| p.2)
+                        )
+                    },
+                    |(_, i, t)| format!("{i:?}: {t:?}"),
+                );
             return Err(format!(
                 "ownership in {}: v{} without classification ({def})",
                 f.symbol, id.0
@@ -111,8 +122,13 @@ pub fn classified_liveness(
     ids.sort_by_key(|v| v.0);
     // The local definitions of type Ref (a trivial one of these is null, a constant
     // or a Phi of them); parameters do not count.
-    let ref_types: HashSet<ValueId> = f.blocks.iter().flat_map(|b| &b.instructions)
-        .filter(|(_, _, t)| *t == Type::Ref).map(|(v, _, _)| *v).collect();
+    let ref_types: HashSet<ValueId> = f
+        .blocks
+        .iter()
+        .flat_map(|b| &b.instructions)
+        .filter(|(_, _, t)| *t == Type::Ref)
+        .map(|(v, _, _)| *v)
+        .collect();
     let mut references = HashSet::new();
     let mut borrows = HashMap::new();
     for id in ids {
@@ -140,8 +156,9 @@ pub fn classified_liveness(
                     // Borrowed from a trivial value (null or a permanent
                     // constant, including through a Phi of only nulls): nothing to
                     // keep alive.
-                    OwnerOrigin::Value(owner) if classes.get(&owner) == Some(&Ownership::Trivial)
-                        && ref_types.contains(&owner) => {}
+                    OwnerOrigin::Value(owner)
+                        if classes.get(&owner) == Some(&Ownership::Trivial)
+                            && ref_types.contains(&owner) => {}
                     OwnerOrigin::Value(owner) => {
                         borrows.insert(id, owner);
                     }
@@ -155,10 +172,7 @@ pub fn classified_liveness(
 
 /// `(block, position, phi)`: parameters stay outside the blocks and dominate
 /// their instructions; phis are produced simultaneously at the entry.
-fn check_dominance(
-    f: &Function,
-    borrows: &HashMap<ValueId, ValueId>,
-) -> Result<(), String> {
+fn check_dominance(f: &Function, borrows: &HashMap<ValueId, ValueId>) -> Result<(), String> {
     let cfg = Cfg::new(f);
     let mut definitions: HashMap<ValueId, (Option<usize>, usize, bool)> = f
         .params
@@ -267,10 +281,7 @@ pub(super) fn liveness_with_exits(
         .enumerate()
         .flat_map(|(i, b)| b.instructions.iter().map(move |(v, _, _)| (*v, i)))
         .collect();
-    if pendings
-        .keys()
-        .any(|v| tables.invocations.contains_key(v))
-    {
+    if pendings.keys().any(|v| tables.invocations.contains_key(v)) {
         return Err(format!(
             "ownership in {}: pending exit duplicated as invoke",
             f.symbol
@@ -278,7 +289,9 @@ pub(super) fn liveness_with_exits(
     }
     let mut calls: Vec<_> = tables.invocations.iter().chain(pendings).collect();
     calls.sort_by_key(|(v, _)| v.0);
-    if calls.is_empty() { return Ok(v); }
+    if calls.is_empty() {
+        return Ok(v);
+    }
     let uses = ResultUses::new(f, classes, &pos, &calls);
     for (&call, &landing_pad) in calls {
         let Some(&origin) = defs.get(&call) else {
@@ -327,7 +340,9 @@ pub(super) fn liveness_with_exits(
         // any transitive borrow dependency necessarily includes a direct link.
         let aliases = uses.aliases.get(&call).map_or(&[][..], Vec::as_slice);
         let direct = uses.direct.get(&call).map_or(&[][..], Vec::as_slice);
-        if aliases.is_empty() && direct.is_empty() { continue; }
+        if aliases.is_empty() && direct.is_empty() {
+            continue;
+        }
         let without_success = reachable_without_edge_dense(&cfg, (origin, success));
         for &alias in aliases {
             if let Some(&block) = defs.get(&alias)
@@ -341,9 +356,15 @@ pub(super) fn liveness_with_exits(
             }
         }
         for site in direct {
-            if !cfg.reachable(site.block) { continue; }
+            if !cfg.reachable(site.block) {
+                continue;
+            }
             let invalid = match site.predecessor {
-                Some(pred) => cfg.reachable(pred) && without_success[pred] && (pred, site.block) != (origin, success),
+                Some(pred) => {
+                    cfg.reachable(pred)
+                        && without_success[pred]
+                        && (pred, site.block) != (origin, success)
+                }
                 None => without_success[site.block],
             };
             if invalid {
@@ -369,9 +390,16 @@ pub(super) fn check_pending(b: &BasicBlock, call: ValueId, error: BlockId) -> Op
     if *v != call
         || !matches!(
             call_inst,
-            Instruction::CallRuntime { .. } | Instruction::CallStatic { .. }
-                | Instruction::CallSelectorForward { arc_owned: true, .. }
-                | Instruction::CallClosureForward { arc_owned: true, .. }
+            Instruction::CallRuntime { .. }
+                | Instruction::CallStatic { .. }
+                | Instruction::CallSelectorForward {
+                    arc_owned: true,
+                    ..
+                }
+                | Instruction::CallClosureForward {
+                    arc_owned: true,
+                    ..
+                }
                 | Instruction::TypedCall { .. }
                 | Instruction::CallClosure { .. }
                 | Instruction::CallSelector { .. }
@@ -417,29 +445,48 @@ impl ResultUses {
         let calls: HashSet<_> = calls.iter().map(|(call, _)| **call).collect();
         let mut index = Self::default();
         for (&alias, class) in classes {
-            if let Ownership::Borrowed { owner: OwnerOrigin::Value(owner), .. } = class
+            if let Ownership::Borrowed {
+                owner: OwnerOrigin::Value(owner),
+                ..
+            } = class
                 && calls.contains(owner)
-            { index.aliases.entry(*owner).or_default().push(alias); }
+            {
+                index.aliases.entry(*owner).or_default().push(alias);
+            }
         }
-        for aliases in index.aliases.values_mut() { aliases.sort_unstable_by_key(|v| v.0); }
+        for aliases in index.aliases.values_mut() {
+            aliases.sort_unstable_by_key(|v| v.0);
+        }
         // Preserve block order: the first invalid use must produce the same
         // diagnostic, including Phi operands used on predecessor edges.
         for (block, b) in f.blocks.iter().enumerate() {
             let mut record = |operand: &Operand, predecessor| {
-                if let Operand::Val(value) = operand && calls.contains(value) {
-                    index.direct.entry(*value).or_default().push(UseSite { block, predecessor });
+                if let Operand::Val(value) = operand
+                    && calls.contains(value)
+                {
+                    index
+                        .direct
+                        .entry(*value)
+                        .or_default()
+                        .push(UseSite { block, predecessor });
                 }
             };
             for (_, instruction, _) in &b.instructions {
                 if let Instruction::Phi { incoming, .. } = instruction {
                     for (pred, operand) in incoming {
-                        if let Some(&pred) = positions.get(pred) { record(operand, Some(pred)); }
+                        if let Some(&pred) = positions.get(pred) {
+                            record(operand, Some(pred));
+                        }
                     }
                 } else {
-                    super::super::operands::operands(instruction, &mut |operand| record(operand, None));
+                    super::super::operands::operands(instruction, &mut |operand| {
+                        record(operand, None)
+                    });
                 }
             }
-            super::super::operands::terminator_operands(&b.terminator, &mut |operand| record(operand, None));
+            super::super::operands::terminator_operands(&b.terminator, &mut |operand| {
+                record(operand, None)
+            });
         }
         index
     }
@@ -451,15 +498,23 @@ fn reachable_without_edge_dense(cfg: &Cfg, removed: (usize, usize)) -> Vec<bool>
     while let Some(block) = queue.pop() {
         if !seen[block] {
             seen[block] = true;
-            queue.extend(cfg.successors[block].iter().copied().filter(|&successor| (block, successor) != removed));
+            queue.extend(
+                cfg.successors[block]
+                    .iter()
+                    .copied()
+                    .filter(|&successor| (block, successor) != removed),
+            );
         }
     }
     seen
 }
 
 pub(super) fn reachable_without_edge(cfg: &Cfg, removed: (usize, usize)) -> HashSet<usize> {
-    reachable_without_edge_dense(cfg, removed).into_iter().enumerate()
-        .filter_map(|(block, seen)| seen.then_some(block)).collect()
+    reachable_without_edge_dense(cfg, removed)
+        .into_iter()
+        .enumerate()
+        .filter_map(|(block, seen)| seen.then_some(block))
+        .collect()
 }
 
 #[cfg(test)]

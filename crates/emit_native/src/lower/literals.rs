@@ -11,8 +11,8 @@
 use super::fn_builder::FnBuilder;
 use crate::hir::*;
 use dartforge_diagnostics::Span;
-use dartforge_types::table::TypeId;
 use dartforge_frontend::ast::{self, CollectionElement, ExprId, ForInit};
+use dartforge_types::table::TypeId;
 
 /// From how many elements a constant literal goes in chunks
 /// (`FnBuilder::fill_in_chunks`).
@@ -35,7 +35,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(t) = self.ctx.get_type(self.unit_id, expr_id)
             && let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(t)
         {
-            match self.ctx.symbol_name(self.ctx.program.classes[class.0 as usize].name) {
+            match self
+                .ctx
+                .symbol_name(self.ctx.program.classes[class.0 as usize].name)
+            {
                 "Set" | "LinkedHashSet" => return true,
                 "Map" | "LinkedHashMap" => return false,
                 _ => {}
@@ -43,10 +46,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         fn leaf(el: &CollectionElement) -> Option<bool> {
             match el {
-                CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_) => Some(true),
+                CollectionElement::Expression(_) | CollectionElement::NullAwareExpression(_) => {
+                    Some(true)
+                }
                 CollectionElement::MapEntry { .. } => Some(false),
                 CollectionElement::If { then, .. } => leaf(then),
-                CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => leaf(body),
+                CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+                    leaf(body)
+                }
                 CollectionElement::Spread { .. } => None,
             }
         }
@@ -55,7 +62,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Type arguments inferred for a collection literal, including contextual types.
     pub fn literal_element_types(&self, expr: ExprId) -> Vec<TypeId> {
-        match self.ctx.get_type(self.unit_id, expr).map(|t| self.ctx.table.get(t)) {
+        match self
+            .ctx
+            .get_type(self.unit_id, expr)
+            .map(|t| self.ctx.table.get(t))
+        {
             Some(dartforge_types::table::Type::Interface { args, .. }) => args.to_vec(),
             _ => Vec::new(),
         }
@@ -64,7 +75,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Checks a dynamic element before evaluating the next element. Batch fills and
     /// direct list appends bypass the SDK's covariant entry, so the implicit cast
     /// belongs here, while the literal's destination type is still available.
-    pub fn lower_literal_element(&mut self, ast: &ast::Ast, expr: ExprId, expected: Option<TypeId>) -> Operand {
+    pub fn lower_literal_element(
+        &mut self,
+        ast: &ast::Ast,
+        expr: ExprId,
+        expected: Option<TypeId>,
+    ) -> Operand {
         let value = self.lower_expr(ast, expr);
         if !self.is_terminated()
             && self.ctx.get_type(self.unit_id, expr) == Some(self.ctx.core.dynamic_)
@@ -80,7 +96,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// without elements) or the source `_Map`/`_Set`.
     fn empty_collection(&mut self, typ: Collection) -> Operand {
         match typ {
-            Collection::List => self.emit(Instruction::AllocList { elements: Vec::new() }, Type::Ref),
+            Collection::List => self.emit(
+                Instruction::AllocList {
+                    elements: Vec::new(),
+                },
+                Type::Ref,
+            ),
             _ => self.source_empty_collection(typ == Collection::Map),
         }
     }
@@ -93,7 +114,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// element already guarantees. The set uses the `add` of `_Set`.
     fn append(&mut self, target: Operand, typ: Collection, v: Operand) {
         if typ == Collection::Set {
-            self.call_by_name(target, super::sdk_source::AccessKind::Call, "add", &[(None, v)]);
+            self.call_by_name(
+                target,
+                super::sdk_source::AccessKind::Call,
+                "add",
+                &[(None, v)],
+            );
             return;
         }
         let v = self.coerce(v, Type::Ref);
@@ -109,7 +135,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Appends an entry to the map (the `[]=` of `_Map`).
     fn append_entry(&mut self, target: Operand, k: Operand, v: Operand) {
-        self.call_by_name(target, super::sdk_source::AccessKind::Call, "[]=", &[(None, k), (None, v)]);
+        self.call_by_name(
+            target,
+            super::sdk_source::AccessKind::Call,
+            "[]=",
+            &[(None, k), (None, v)],
+        );
     }
 
     /// A collection literal with control elements (or a set literal).
@@ -156,7 +187,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// constant values (`{'a': C(1), …}`) did one `[]=` by selector per
     /// entry — 30 MB of IR in 234 getters in new_sali/backend
     /// (docs/NATIVO-PRODUCAO-GRANDE.md §6.5).
-    fn fill_from_table(&mut self, ast: &ast::Ast, target: Operand, typ: Collection, elements: &[CollectionElement]) -> bool {
+    fn fill_from_table(
+        &mut self,
+        ast: &ast::Ast,
+        target: Operand,
+        typ: Collection,
+        elements: &[CollectionElement],
+    ) -> bool {
         const MINIMUM: usize = 8;
         if elements.len() < MINIMUM {
             return false;
@@ -164,35 +201,52 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let mut table: Vec<u8> = Vec::new();
         let mut by_getter: Vec<ast::ExprId> = Vec::new();
         let in_const = self.in_const_context;
-        let scalar = |e: ast::ExprId, table: &mut Vec<u8>, by_getter: &mut Vec<ast::ExprId>| -> bool {
+        let scalar = |e: ast::ExprId,
+                      table: &mut Vec<u8>,
+                      by_getter: &mut Vec<ast::ExprId>|
+         -> bool {
             // Number literal (or `-literal`): by the STATIC TYPE of the expression,
             // which already says whether the context made an integer literal a `double`
             // (the `Map<int, int>` tables of `enough_convert`, 30 thousand
             // entries).
-            let number = matches!(ast.expr(e).kind, ast::ExprKind::Int(_) | ast::ExprKind::Double(_))
-                || matches!(&ast.expr(e).kind, ast::ExprKind::Unary { op: ast::UnaryOp::Neg, operand }
+            let number = matches!(
+                ast.expr(e).kind,
+                ast::ExprKind::Int(_) | ast::ExprKind::Double(_)
+            ) || matches!(&ast.expr(e).kind, ast::ExprKind::Unary { op: ast::UnaryOp::Neg, operand }
                     if matches!(ast.expr(*operand).kind, ast::ExprKind::Int(_) | ast::ExprKind::Double(_)));
             if number {
-                let Some(map_key) = self.constant_key(ast, e, true) else { return false };
+                let Some(map_key) = self.constant_key(ast, e, true) else {
+                    return false;
+                };
                 let typ = self.ctx.get_type(self.unit_id, e);
                 let (int, double) = (Some(self.ctx.core.int), Some(self.ctx.core.double));
                 let val_ref = match map_key.as_str() {
                     k if k.starts_with("i:") => k[2..].parse::<i64>().ok().map(|v| (v, false)),
-                    k if k.starts_with("d:") => k[2..].parse::<u64>().ok().map(|b| (b as i64, true)),
-                    k if k.starts_with("neg(i:") && k.ends_with(')') => {
-                        k[6..k.len() - 1].parse::<i64>().ok().map(|v| (v.wrapping_neg(), false))
+                    k if k.starts_with("d:") => {
+                        k[2..].parse::<u64>().ok().map(|b| (b as i64, true))
                     }
-                    k if k.starts_with("neg(d:") && k.ends_with(')') => {
-                        k[6..k.len() - 1].parse::<u64>().ok().map(|b| ((-f64::from_bits(b)).to_bits() as i64, true))
-                    }
+                    k if k.starts_with("neg(i:") && k.ends_with(')') => k[6..k.len() - 1]
+                        .parse::<i64>()
+                        .ok()
+                        .map(|v| (v.wrapping_neg(), false)),
+                    k if k.starts_with("neg(d:") && k.ends_with(')') => k[6..k.len() - 1]
+                        .parse::<u64>()
+                        .ok()
+                        .map(|b| ((-f64::from_bits(b)).to_bits() as i64, true)),
                     _ => None,
                 };
-                let Some((v, is_double)) = val_ref else { return false };
+                let Some((v, is_double)) = val_ref else {
+                    return false;
+                };
                 if typ == int && !is_double {
                     table.push(b'i');
                     table.extend_from_slice(&v.to_le_bytes());
                 } else if typ == double {
-                    let bits = if is_double { v as u64 } else { (v as f64).to_bits() };
+                    let bits = if is_double {
+                        v as u64
+                    } else {
+                        (v as f64).to_bits()
+                    };
                     table.push(b'd');
                     table.extend_from_slice(&bits.to_le_bytes());
                 } else {
@@ -213,7 +267,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ast::ExprKind::Null => table.push(b'n'),
                 ast::ExprKind::Bool(b) => table.push(if *b { b't' } else { b'f' }),
                 ast::ExprKind::String(s) => {
-                    let Some(text) = s.constant_value() else { return false };
+                    let Some(text) = s.constant_value() else {
+                        return false;
+                    };
                     let bytes = text.as_bytes();
                     table.push(b's');
                     table.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
@@ -225,11 +281,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         for el in elements {
             let ok = match (el, typ) {
-                (CollectionElement::Expression(e), Collection::List | Collection::Set) => scalar(*e, &mut table, &mut by_getter),
+                (CollectionElement::Expression(e), Collection::List | Collection::Set) => {
+                    scalar(*e, &mut table, &mut by_getter)
+                }
                 (
-                    CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false },
+                    CollectionElement::MapEntry {
+                        key,
+                        value,
+                        null_aware_key: false,
+                        null_aware_value: false,
+                    },
                     Collection::Map,
-                ) => scalar(*key, &mut table, &mut by_getter) && scalar(*value, &mut table, &mut by_getter),
+                ) => {
+                    scalar(*key, &mut table, &mut by_getter)
+                        && scalar(*value, &mut table, &mut by_getter)
+                }
                 _ => false,
             };
             if !ok {
@@ -238,7 +304,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let mut getters: Vec<String> = Vec::with_capacity(by_getter.len());
         for e in by_getter {
-            let Some(g) = self.constant_getter(ast, e) else { return false };
+            let Some(g) = self.constant_getter(ast, e) else {
+                return false;
+            };
             getters.push(g);
         }
         let support = match typ {
@@ -246,7 +314,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Collection::Set => "_dartforgeFillSet",
             Collection::Map => "_dartforgeFillMap",
         };
-        let Some(fid) = self.top_level_function("dart:_compact_hash", support) else { return false };
+        let Some(fid) = self.top_level_function("dart:_compact_hash", support) else {
+            return false;
+        };
         let words: Vec<i64> = table
             .chunks(8)
             .map(|c| {
@@ -256,7 +326,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             })
             .collect();
         let data = self.emit(Instruction::ConstArray(words), Type::Ptr);
-        let size = (Operand::Constant(Constant::Int(table.len() as i64)), Type::I64);
+        let size = (
+            Operand::Constant(Constant::Int(table.len() as i64)),
+            Type::I64,
+        );
         let values = if getters.is_empty() {
             self.emit(
                 Instruction::CallRuntime {
@@ -305,14 +378,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// the same per entry in the code: the `toMap`/`toJson` of a real backend
     /// are made of that. Outside ARC, which builds the list through the Owned
     /// factory (`ir_lists.rs`).
-    fn fill_map_at_once(&mut self, ast: &ast::Ast, target: Operand, typ: Collection, elements: &[CollectionElement], expected: &[TypeId]) -> bool {
+    fn fill_map_at_once(
+        &mut self,
+        ast: &ast::Ast,
+        target: Operand,
+        typ: Collection,
+        elements: &[CollectionElement],
+        expected: &[TypeId],
+    ) -> bool {
         // Up to `LITERAL_CHUNK` entries: the values stay alive (and
         // rooted) until the list, in the frame.
-        if typ != Collection::Map || elements.len() < 2 || elements.len() > LITERAL_CHUNK || self.ctx.arc_memory {
+        if typ != Collection::Map
+            || elements.len() < 2
+            || elements.len() > LITERAL_CHUNK
+            || self.ctx.arc_memory
+        {
             return false;
         }
         let only_entries = elements.iter().all(|el| {
-            matches!(el, CollectionElement::MapEntry { null_aware_key: false, null_aware_value: false, .. })
+            matches!(
+                el,
+                CollectionElement::MapEntry {
+                    null_aware_key: false,
+                    null_aware_value: false,
+                    ..
+                }
+            )
         });
         if !only_entries {
             return false;
@@ -321,7 +412,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // its batch, or the generic support function if the overlay lacks it.
         let batch = self.ctx.sdk_class("_compact_hash", "_Map").and_then(|c| {
             let sym = self.ctx.interner.lookup("_dfFillFromRange")?;
-            let f = self.ctx.program.classes[c.0 as usize].instance_members.get(&sym)?;
+            let f = self.ctx.program.classes[c.0 as usize]
+                .instance_members
+                .get(&sym)?;
             super::members::has_body(self.ctx, f.0 as usize).then_some(f.0 as usize)
         });
         let generic = if batch.is_none() {
@@ -334,7 +427,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         let mut values: Vec<(Operand, u8)> = Vec::with_capacity(elements.len() * 2);
         for el in elements {
-            let CollectionElement::MapEntry { key, value, .. } = el else { unreachable!("checked above") };
+            let CollectionElement::MapEntry { key, value, .. } = el else {
+                unreachable!("checked above")
+            };
             for (index, e) in [*key, *value].into_iter().enumerate() {
                 let x = self.lower_literal_element(ast, e, expected.get(index).copied());
                 if self.is_terminated() {
@@ -405,9 +500,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.constant_key(ast, *e, true).is_some()
             }
             (
-                CollectionElement::MapEntry { key, value, null_aware_key: false, null_aware_value: false },
+                CollectionElement::MapEntry {
+                    key,
+                    value,
+                    null_aware_key: false,
+                    null_aware_value: false,
+                },
                 Collection::Map,
-            ) => self.constant_key(ast, *key, true).is_some() && self.constant_key(ast, *value, true).is_some(),
+            ) => {
+                self.constant_key(ast, *key, true).is_some()
+                    && self.constant_key(ast, *value, true).is_some()
+            }
             _ => false,
         });
         if !constants {
@@ -416,7 +519,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let target = self.coerce(target, Type::Ref);
         for (i, chunk) in elements.chunks(LITERAL_CHUNK).enumerate() {
             let symbol = format!("{}$lit{}_{i}", self.func.symbol, span.start);
-            let mut g = FnBuilder::new(self.ctx, self.unit_id, symbol.clone(), "literal".to_string(), Type::Ref);
+            let mut g = FnBuilder::new(
+                self.ctx,
+                self.unit_id,
+                symbol.clone(),
+                "literal".to_string(),
+                Type::Ref,
+            );
             g.in_const_context = self.in_const_context;
             g.local_const_keys = self.local_const_keys.clone();
             let p = Operand::Val(g.add_param("alvo".to_string(), Type::Ref));
@@ -435,7 +544,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             self.absorb(g);
             self.emit_call_with_check(
-                Instruction::CallStatic { symbol, args: vec![target.clone()], ret_ty: Type::Ref },
+                Instruction::CallStatic {
+                    symbol,
+                    args: vec![target.clone()],
+                    ret_ty: Type::Ref,
+                },
                 Type::Ref,
             );
         }
@@ -444,7 +557,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Does the list literal with only expressions go through the chunked path?
     /// (large, and every element constant: `fill_in_chunks`).
-    pub fn large_literal_is_constant(&self, ast: &ast::Ast, elements: &[CollectionElement]) -> bool {
+    pub fn large_literal_is_constant(
+        &self,
+        ast: &ast::Ast,
+        elements: &[CollectionElement],
+    ) -> bool {
         elements.len() >= CHUNK_THRESHOLD
             && elements.iter().all(|el| match el {
                 CollectionElement::Expression(e) => self.constant_key(ast, *e, true).is_some(),
@@ -455,17 +572,32 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `e` names a `const` (top-level or static, of this or of another
     /// unit) whose initializer is a list, set or map literal:
     /// the unit and the literal.
-    fn constant_literal(&self, ast: &ast::Ast, e: ExprId) -> Option<(dartforge_elements::model::UnitId, ExprId)> {
+    fn constant_literal(
+        &self,
+        ast: &ast::Ast,
+        e: ExprId,
+    ) -> Option<(dartforge_elements::model::UnitId, ExprId)> {
         use dartforge_elements::model::{Element, VariableRef};
         use dartforge_types::resolved::{MemberRef, Resolved};
-        if !matches!(ast.expr(e).kind, ast::ExprKind::Identifier(_) | ast::ExprKind::Property { .. }) {
+        if !matches!(
+            ast.expr(e).kind,
+            ast::ExprKind::Identifier(_) | ast::ExprKind::Property { .. }
+        ) {
             return None;
         }
         let vid = match self.ctx.get_resolved(self.unit_id, e)? {
             Resolved::Element(Element::Variable(v)) => *v,
-            Resolved::Element(Element::Function(f)) => self.ctx.program.functions[f.0 as usize].variable?,
-            Resolved::Member { member: MemberRef::Variable(v), .. } => *v,
-            Resolved::Member { member: MemberRef::Function(f), .. } => self.ctx.program.functions[f.0 as usize].variable?,
+            Resolved::Element(Element::Function(f)) => {
+                self.ctx.program.functions[f.0 as usize].variable?
+            }
+            Resolved::Member {
+                member: MemberRef::Variable(v),
+                ..
+            } => *v,
+            Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            } => self.ctx.program.functions[f.0 as usize].variable?,
             _ => return None,
         };
         let var = &self.ctx.program.variables[vid.0 as usize];
@@ -481,14 +613,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         while let ast::ExprKind::Parenthesized(x) = &ast_c.expr(init).kind {
             init = *x;
         }
-        matches!(ast_c.expr(init).kind, ast::ExprKind::List { .. } | ast::ExprKind::SetOrMap { .. }).then_some((unit_ref, init))
+        matches!(
+            ast_c.expr(init).kind,
+            ast::ExprKind::List { .. } | ast::ExprKind::SetOrMap { .. }
+        )
+        .then_some((unit_ref, init))
     }
 
     /// The top-level function `name` of library `uri`.
     pub fn top_level_function(&self, uri: &str, name: &str) -> Option<usize> {
-        let lib = self.ctx.program.libraries.iter().position(|l| l.uri == uri)?;
+        let lib = self
+            .ctx
+            .program
+            .libraries
+            .iter()
+            .position(|l| l.uri == uri)?;
         let sym = self.ctx.interner.lookup(name)?;
-        let b = self.ctx.program.lookup(dartforge_elements::model::LibraryId(lib as u32), sym)?;
+        let b = self
+            .ctx
+            .program
+            .lookup(dartforge_elements::model::LibraryId(lib as u32), sym)?;
         match b.getter? {
             dartforge_elements::model::Element::Function(f) => Some(f.0 as usize),
             _ => None,
@@ -547,7 +691,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     let ctx = self.ctx;
                     let ast_c = &ctx.program.unit(unit_ref).ast;
                     let element_list = match &ast_c.expr(init).kind {
-                        ast::ExprKind::List { elements, .. } | ast::ExprKind::SetOrMap { elements, .. } => elements,
+                        ast::ExprKind::List { elements, .. }
+                        | ast::ExprKind::SetOrMap { elements, .. } => elements,
                         _ => unreachable!("constant_literal returns a literal"),
                     };
                     let saved = std::mem::replace(&mut self.unit_id, unit_ref);
@@ -561,7 +706,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let source = self.coerce(source, Type::Ref);
                 // `...e` is the `addAll` of the collection (§17.9.1).
                 let spread = |s: &mut Self, f: Operand| {
-                    s.call_by_name(target.clone(), super::sdk_source::AccessKind::Call, "addAll", &[(None, f)]);
+                    s.call_by_name(
+                        target.clone(),
+                        super::sdk_source::AccessKind::Call,
+                        "addAll",
+                        &[(None, f)],
+                    );
                 };
                 if *null_aware {
                     self.if_non_null(source, spread);
@@ -583,7 +733,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 if let Some(p) = case_pattern {
                     let mut linked = std::collections::HashSet::new();
                     let saved = std::mem::replace(&mut self.refutable_pattern, true);
-                    self.match_pattern(ast, *p, (c, *condition), b_else, super::patterns::Linkage::Declare, &mut linked);
+                    self.match_pattern(
+                        ast,
+                        *p,
+                        (c, *condition),
+                        b_else,
+                        super::patterns::Linkage::Declare,
+                        &mut linked,
+                    );
                     self.refutable_pattern = saved;
                     if let Some(g) = guard {
                         let ok = self.lower_expr(ast, *g);
@@ -640,7 +797,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                     Some(ForInit::Pattern { pattern, value, .. }) => {
                         let v = self.lower_expr(ast, *value);
-                        self.match_irrefutable(ast, *pattern, v, super::patterns::Linkage::Declare, *value);
+                        self.match_irrefutable(
+                            ast,
+                            *pattern,
+                            v,
+                            super::patterns::Linkage::Declare,
+                            *value,
+                        );
                     }
                     None => {}
                 }
@@ -748,7 +911,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         });
         self.set_block(fn_body);
         f(self, i.clone());
-        let next = self.emit(Instruction::Add(i, Operand::Constant(Constant::Int(1))), Type::I64);
+        let next = self.emit(
+            Instruction::Add(i, Operand::Constant(Constant::Int(1))),
+            Type::I64,
+        );
         self.emit(Instruction::Store { ptr: p, val: next }, Type::Void);
         self.terminate(Terminator::Branch(head));
         self.set_block(end);

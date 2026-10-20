@@ -19,7 +19,7 @@
 //! before the next allocation.
 
 use crate::heap::{Field, Heap, Value};
-use crate::layout::{HANDLE_OFFSET, Ref, cid, is_object, flags, smi};
+use crate::layout::{HANDLE_OFFSET, Ref, cid, flags, is_object, smi};
 
 /// The view of a `_Closure`: the code, the context (or the captured value in the
 /// "direct environment"), the typed body and the ABI.
@@ -38,7 +38,11 @@ impl Heap {
     /// Runs `f` with owning copies of `refs` in a temporary runtime frame (those
     /// that are not handles are ignored). The occurrences are released after the
     /// construction, when the result already holds its edges.
-    fn with_rooted_refs<R>(&mut self, refs: impl IntoIterator<Item = Ref>, f: impl FnOnce(&mut Self) -> R) -> R {
+    fn with_rooted_refs<R>(
+        &mut self,
+        refs: impl IntoIterator<Item = Ref>,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
         let frame = self.push_owning_frame(0);
         for r in refs {
             self.root(frame, r);
@@ -113,7 +117,8 @@ impl Heap {
     }
     /// The `double` of a `_Double`.
     pub fn double_of(&self, r: Ref) -> Option<f64> {
-        (is_object(r) && self.cid_of(r) == cid::DOUBLE).then(|| f64::from_bits(self.words(r)[0] as u64))
+        (is_object(r) && self.cid_of(r) == cid::DOUBLE)
+            .then(|| f64::from_bits(self.words(r)[0] as u64))
     }
     /// The `bool` of one of the static boxes.
     pub fn bool_of(&self, r: Ref) -> Option<bool> {
@@ -171,7 +176,11 @@ impl Heap {
     }
     /// A new `_Contexto` with the captures.
     pub fn new_context(&mut self, captures: &[Field]) -> Ref {
-        let roots = captures.iter().filter(|c| c.1).map(|c| c.0).collect::<Vec<_>>();
+        let roots = captures
+            .iter()
+            .filter(|c| c.1)
+            .map(|c| c.0)
+            .collect::<Vec<_>>();
         self.with_rooted_refs(roots, |heap| {
             let h = heap.allocate_instance(cid::CONTEXT, captures.len());
             for (i, &(bits, is_ref_kind)) in captures.iter().enumerate() {
@@ -204,7 +213,12 @@ impl Heap {
             return None;
         }
         let o = self.object(h)?;
-        Some(ClosureRef { code: o.field(0).0, context: o.field(1), typed_one: o.field(2).0, abi: o.field(3).0 })
+        Some(ClosureRef {
+            code: o.field(0).0,
+            context: o.field(1),
+            typed_one: o.field(2).0,
+            abi: o.field(3).0,
+        })
     }
     /// The canonical tear-off of the top-level function `code` (`tearoffs`
     /// table): a closure without context and without typed body, the same one

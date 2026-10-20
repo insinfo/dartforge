@@ -19,7 +19,7 @@
 //! `DW_TAG_subprogram` of each function (with `LineTablesOnly`, the stack shows
 //! the link symbol).
 
-use crate::hir::{FunctionDebugInfo, Function};
+use crate::hir::{Function, FunctionDebugInfo};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 
@@ -65,9 +65,18 @@ impl DebugInfo {
             return n;
         }
         let p = std::path::Path::new(path);
-        let name = p.file_name().map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned());
-        let dir = p.parent().map(|d| d.display().to_string()).unwrap_or_default();
-        let n = self.add_metadata(format!("!DIFile(filename: \"{}\", directory: \"{}\")", ir_text(&name), ir_text(&dir)));
+        let name = p
+            .file_name()
+            .map_or_else(|| path.to_string(), |n| n.to_string_lossy().into_owned());
+        let dir = p
+            .parent()
+            .map(|d| d.display().to_string())
+            .unwrap_or_default();
+        let n = self.add_metadata(format!(
+            "!DIFile(filename: \"{}\", directory: \"{}\")",
+            ir_text(&name),
+            ir_text(&dir)
+        ));
         self.files.insert(path.to_string(), n);
         self.unit_file.get_or_insert(n);
         n
@@ -77,14 +86,21 @@ impl DebugInfo {
         if let Some(&n) = self.locals.get(&(line, column, scope)) {
             return n;
         }
-        let n = self.add_metadata(format!("!DILocation(line: {line}, column: {column}, scope: !{scope})"));
+        let n = self.add_metadata(format!(
+            "!DILocation(line: {line}, column: {column}, scope: !{scope})"
+        ));
         self.locals.insert((line, column, scope), n);
         n
     }
 
     /// Annotates the text of `func` (from `define` to `}`): the `DISubprogram` on the
     /// definition and the `!dbg` on each instruction; the markers go away.
-    pub(super) fn annotate(&mut self, text: &str, func: &Function, d: &FunctionDebugInfo) -> String {
+    pub(super) fn annotate(
+        &mut self,
+        text: &str,
+        func: &Function,
+        d: &FunctionDebugInfo,
+    ) -> String {
         let file = self.file(&d.file);
         let sp = self.add_metadata(format!(
             "distinct !DISubprogram(name: \"{}\", scope: !{file}, file: !{file}, line: {}, \
@@ -106,7 +122,8 @@ impl DebugInfo {
                 if let (Some(l), Some(c)) = (parts.next(), parts.next()) {
                     current = self.local((l, c), sp);
                 }
-            } else if line.starts_with("  ") && !line.starts_with("  ;") && !line.trim().is_empty() {
+            } else if line.starts_with("  ") && !line.starts_with("  ;") && !line.trim().is_empty()
+            {
                 writeln!(exit, "{line}, !dbg !{current}").unwrap();
             } else {
                 writeln!(exit, "{line}").unwrap();

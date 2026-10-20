@@ -44,7 +44,11 @@ impl<'a> Cx<'a> {
     /// The `methodName` of a `MethodInvocation`: the last `SimpleIdentifier`
     /// child.
     fn method_name(&self, n: usize) -> Option<usize> {
-        self.children(n).iter().rev().copied().find(|&f| self.kind(f) == "SimpleIdentifier")
+        self.children(n)
+            .iter()
+            .rev()
+            .copied()
+            .find(|&f| self.kind(f) == "SimpleIdentifier")
     }
 }
 
@@ -64,8 +68,18 @@ pub struct ExitDetector<'a> {
 impl<'a> ExitDetector<'a> {
     /// `element(n)`: the `_elementExits` of the element of identifier `n` (the
     /// executable with `@alwaysThrows` or with a `Never` return).
-    pub fn new(tree: &'a AnalyzerTree, source: &'a str, element: &'a dyn Fn(usize) -> bool) -> ExitDetector<'a> {
-        ExitDetector { cx: Cx { tree, source }, element, breaks: false, continues: false, broken_labels: HashSet::new() }
+    pub fn new(
+        tree: &'a AnalyzerTree,
+        source: &'a str,
+        element: &'a dyn Fn(usize) -> bool,
+    ) -> ExitDetector<'a> {
+        ExitDetector {
+            cx: Cx { tree, source },
+            element,
+            breaks: false,
+            continues: false,
+            broken_labels: HashSet::new(),
+        }
     }
 
     fn text(&self, n: usize) -> &str {
@@ -113,16 +127,42 @@ impl<'a> ExitDetector<'a> {
         let f = self.children(n);
         match cx.kind(n) {
             "ArgumentList" => self.exprs(&f),
-            "AsExpression" | "AwaitExpression" | "ParenthesizedExpression" | "IsExpression" | "SpreadElement" | "ExpressionStatement" => {
-                self.maybe(f.first().copied())
-            }
-            "AssertInitializer" | "AssertStatement" | "ConstructorReference" | "EmptyStatement" | "ExtensionOverride"
-            | "FunctionDeclarationStatement" | "FunctionExpression" | "GenericFunctionType" | "SimpleIdentifier" | "PrefixedIdentifier"
-            | "LibraryIdentifier" | "Label" | "NamedType" | "PostfixExpression" | "PrefixExpression" | "SuperExpression" | "ThisExpression"
-            | "IntegerLiteral" | "DoubleLiteral" | "BooleanLiteral" | "NullLiteral" | "SimpleStringLiteral" | "StringInterpolation"
-            | "AdjacentStrings" | "SymbolLiteral" | "RecordLiteral" => Ok(false),
+            "AsExpression"
+            | "AwaitExpression"
+            | "ParenthesizedExpression"
+            | "IsExpression"
+            | "SpreadElement"
+            | "ExpressionStatement" => self.maybe(f.first().copied()),
+            "AssertInitializer"
+            | "AssertStatement"
+            | "ConstructorReference"
+            | "EmptyStatement"
+            | "ExtensionOverride"
+            | "FunctionDeclarationStatement"
+            | "FunctionExpression"
+            | "GenericFunctionType"
+            | "SimpleIdentifier"
+            | "PrefixedIdentifier"
+            | "LibraryIdentifier"
+            | "Label"
+            | "NamedType"
+            | "PostfixExpression"
+            | "PrefixExpression"
+            | "SuperExpression"
+            | "ThisExpression"
+            | "IntegerLiteral"
+            | "DoubleLiteral"
+            | "BooleanLiteral"
+            | "NullLiteral"
+            | "SimpleStringLiteral"
+            | "StringInterpolation"
+            | "AdjacentStrings"
+            | "SymbolLiteral"
+            | "RecordLiteral" => Ok(false),
             "AssignmentExpression" => {
-                let (Some(&l), Some(&r)) = (f.first(), f.get(1)) else { return Ok(false) };
+                let (Some(&l), Some(&r)) = (f.first(), f.get(1)) else {
+                    return Ok(false);
+                };
                 if self.exits(l)? {
                     return Ok(true);
                 }
@@ -143,8 +183,12 @@ impl<'a> ExitDetector<'a> {
                 self.exits(r)
             }
             "BinaryExpression" => {
-                let (Some(&l), Some(&r)) = (f.first(), f.get(1)) else { return Ok(false) };
-                let op = cx.source[cx.tree.nodes[l].end..cx.tree.nodes[r].start].trim().to_string();
+                let (Some(&l), Some(&r)) = (f.first(), f.get(1)) else {
+                    return Ok(false);
+                };
+                let op = cx.source[cx.tree.nodes[l].end..cx.tree.nodes[r].start]
+                    .trim()
+                    .to_string();
                 if op == "||" {
                     if self.bool_literal(l) == Some(false) {
                         return self.exits(r);
@@ -175,11 +219,15 @@ impl<'a> ExitDetector<'a> {
                 Ok(false)
             }
             "CascadeExpression" => {
-                let Some((&target, sections)) = f.split_first() else { return Ok(false) };
+                let Some((&target, sections)) = f.split_first() else {
+                    return Ok(false);
+                };
                 Ok(self.exits(target)? || self.exprs(sections)?)
             }
             "ConditionalExpression" => {
-                let (Some(&c), Some(&t), Some(&e)) = (f.first(), f.get(1), f.get(2)) else { return Ok(false) };
+                let (Some(&c), Some(&t), Some(&e)) = (f.first(), f.get(1), f.get(2)) else {
+                    return Ok(false);
+                };
                 if self.exits(c)? {
                     return Ok(true);
                 }
@@ -228,7 +276,9 @@ impl<'a> ExitDetector<'a> {
             }
             "FunctionReference" => self.maybe(f.first().copied()),
             "IfElement" | "IfStatement" => {
-                let Some(&c) = f.first() else { return Ok(false) };
+                let Some(&c) = f.first() else {
+                    return Ok(false);
+                };
                 let then = f.get(1).copied();
                 let else_ = f.get(2).copied();
                 if self.exits(c)? {
@@ -247,13 +297,19 @@ impl<'a> ExitDetector<'a> {
                 Ok(a && b)
             }
             "IndexExpression" => {
-                let target = if f.len() >= 2 { Some(f[0]) } else { self.cascade_target(n) };
+                let target = if f.len() >= 2 {
+                    Some(f[0])
+                } else {
+                    self.cascade_target(n)
+                };
                 if self.maybe(target)? {
                     return Ok(true);
                 }
                 self.maybe(f.last().copied())
             }
-            "InstanceCreationExpression" => self.maybe(f.iter().copied().find(|&k| cx.kind(k) == "ArgumentList")),
+            "InstanceCreationExpression" => {
+                self.maybe(f.iter().copied().find(|&k| cx.kind(k) == "ArgumentList"))
+            }
             "LabeledStatement" => {
                 let body = f.last().copied();
                 let r = self.maybe(body);
@@ -264,14 +320,20 @@ impl<'a> ExitDetector<'a> {
                 Ok(r? && !broken)
             }
             "ListLiteral" | "SetOrMapLiteral" => {
-                for k in f.iter().copied().filter(|&k| cx.kind(k) != "TypeArgumentList") {
+                for k in f
+                    .iter()
+                    .copied()
+                    .filter(|&k| cx.kind(k) != "TypeArgumentList")
+                {
                     if self.exits(k)? {
                         return Ok(true);
                     }
                 }
                 Ok(false)
             }
-            "MapLiteralEntry" => Ok(self.maybe(f.first().copied())? || self.maybe(f.get(1).copied())?),
+            "MapLiteralEntry" => {
+                Ok(self.maybe(f.first().copied())? || self.maybe(f.get(1).copied())?)
+            }
             "MethodInvocation" => {
                 let name = cx.method_name(n);
                 let explicit = f.first().copied().filter(|&a| Some(a) != name);
@@ -281,8 +343,14 @@ impl<'a> ExitDetector<'a> {
                         return Ok(true);
                     }
                     let null = match (explicit, name) {
-                        (Some(x), Some(m)) => cx.source[cx.tree.nodes[x].end..cx.tree.nodes[m].start].trim().starts_with('?'),
-                        (None, Some(m)) => cx.source[cx.tree.nodes[n].start..cx.tree.nodes[m].start].trim().starts_with('?'),
+                        (Some(x), Some(m)) => cx.source
+                            [cx.tree.nodes[x].end..cx.tree.nodes[m].start]
+                            .trim()
+                            .starts_with('?'),
+                        (None, Some(m)) => cx.source
+                            [cx.tree.nodes[n].start..cx.tree.nodes[m].start]
+                            .trim()
+                            .starts_with('?'),
                         _ => false,
                     };
                     if null {
@@ -298,16 +366,28 @@ impl<'a> ExitDetector<'a> {
             }
             "NamedExpression" => self.maybe(f.get(1).copied()),
             "PropertyAccess" => {
-                let target = if f.len() >= 2 { Some(f[0]) } else { self.cascade_target(n) };
+                let target = if f.len() >= 2 {
+                    Some(f[0])
+                } else {
+                    self.cascade_target(n)
+                };
                 self.maybe(target)
             }
             "RethrowExpression" | "ReturnStatement" | "ThrowExpression" => Ok(true),
             "SwitchCase" | "SwitchDefault" | "SwitchPatternCase" => {
-                let cmds: Vec<usize> = f.iter().copied().filter(|&k| is_stmt_kind(cx.kind(k))).collect();
+                let cmds: Vec<usize> = f
+                    .iter()
+                    .copied()
+                    .filter(|&k| is_stmt_kind(cx.kind(k)))
+                    .collect();
                 self.stmts(&cmds)
             }
             "SwitchExpression" => {
-                for k in f.iter().copied().filter(|&k| cx.kind(k) == "SwitchExpressionCase") {
+                for k in f
+                    .iter()
+                    .copied()
+                    .filter(|&k| cx.kind(k) == "SwitchExpressionCase")
+                {
                     if !self.exits(k)? {
                         return Ok(false);
                     }
@@ -316,7 +396,12 @@ impl<'a> ExitDetector<'a> {
             }
             "SwitchExpressionCase" => {
                 // The guard (`when`) and the expression.
-                let guard = f.first().and_then(|&g| cx.children(g).iter().copied().find(|&w| cx.kind(w) == "WhenClause"));
+                let guard = f.first().and_then(|&g| {
+                    cx.children(g)
+                        .iter()
+                        .copied()
+                        .find(|&w| cx.kind(w) == "WhenClause")
+                });
                 let condition = guard.and_then(|w| cx.children(w).first().copied());
                 Ok(self.maybe(condition)? || self.maybe(f.last().copied())?)
             }
@@ -324,7 +409,16 @@ impl<'a> ExitDetector<'a> {
                 let outside = self.breaks;
                 self.breaks = false;
                 let r = (|| -> Result<bool, String> {
-                    let members: Vec<usize> = f.iter().copied().filter(|&k| matches!(cx.kind(k), "SwitchCase" | "SwitchDefault" | "SwitchPatternCase")).collect();
+                    let members: Vec<usize> = f
+                        .iter()
+                        .copied()
+                        .filter(|&k| {
+                            matches!(
+                                cx.kind(k),
+                                "SwitchCase" | "SwitchDefault" | "SwitchPatternCase"
+                            )
+                        })
+                        .collect();
                     let mut has_default = false;
                     let mut case_that_does_not_exit = false;
                     for (i, &m) in members.iter().enumerate() {
@@ -350,7 +444,10 @@ impl<'a> ExitDetector<'a> {
             }
             "TryStatement" => {
                 let body = f.first().copied();
-                let finally_ = f.last().copied().filter(|&k| f.len() > 1 && cx.kind(k) == "Block");
+                let finally_ = f
+                    .last()
+                    .copied()
+                    .filter(|&k| f.len() > 1 && cx.kind(k) == "Block");
                 if self.maybe(finally_)? {
                     return Ok(true);
                 }
@@ -367,7 +464,11 @@ impl<'a> ExitDetector<'a> {
             }
             "VariableDeclaration" => self.maybe(f.first().copied()),
             "VariableDeclarationList" => {
-                let vs: Vec<usize> = f.iter().copied().filter(|&k| cx.kind(k) == "VariableDeclaration").collect();
+                let vs: Vec<usize> = f
+                    .iter()
+                    .copied()
+                    .filter(|&k| cx.kind(k) == "VariableDeclaration")
+                    .collect();
                 for &v in vs.iter().rev() {
                     if self.exits(v)? {
                         return Ok(true);
@@ -376,8 +477,19 @@ impl<'a> ExitDetector<'a> {
                 Ok(false)
             }
             "VariableDeclarationStatement" => {
-                let Some(list) = f.iter().copied().find(|&k| cx.kind(k) == "VariableDeclarationList") else { return Ok(false) };
-                for v in cx.children(list).iter().copied().filter(|&k| cx.kind(k) == "VariableDeclaration") {
+                let Some(list) = f
+                    .iter()
+                    .copied()
+                    .find(|&k| cx.kind(k) == "VariableDeclarationList")
+                else {
+                    return Ok(false);
+                };
+                for v in cx
+                    .children(list)
+                    .iter()
+                    .copied()
+                    .filter(|&k| cx.kind(k) == "VariableDeclaration")
+                {
                     if self.exits(v)? {
                         return Ok(true);
                     }
@@ -388,7 +500,9 @@ impl<'a> ExitDetector<'a> {
                 let outside = self.breaks;
                 self.breaks = false;
                 let r = (|| -> Result<bool, String> {
-                    let Some(&c) = f.first() else { return Ok(false) };
+                    let Some(&c) = f.first() else {
+                        return Ok(false);
+                    };
                     if self.exits(c)? {
                         return Ok(true);
                     }
@@ -402,17 +516,23 @@ impl<'a> ExitDetector<'a> {
                 r
             }
             "YieldStatement" => self.maybe(f.first().copied()),
-            other => Err(format!("Bad state: Missing a visit method for a node of type {other}Impl")),
+            other => Err(format!(
+                "Bad state: Missing a visit method for a node of type {other}Impl"
+            )),
         }
     }
 
     /// The parts of a `for` (`visitForStatement`/`visitForElement`).
     fn for_exits(&mut self, n: usize, f: &[usize]) -> Result<bool, String> {
         let cx = self.cx;
-        let Some(&parts) = f.first() else { return Ok(false) };
+        let Some(&parts) = f.first() else {
+            return Ok(false);
+        };
         let body = f.get(1).copied();
         match cx.kind(parts) {
-            "ForEachPartsWithDeclaration" | "ForEachPartsWithIdentifier" | "ForEachPartsWithPattern" => {
+            "ForEachPartsWithDeclaration"
+            | "ForEachPartsWithIdentifier"
+            | "ForEachPartsWithPattern" => {
                 let iterable = cx.children(parts).last().copied();
                 let r = self.maybe(iterable)?;
                 let _ = self.maybe(body)?;
@@ -422,7 +542,9 @@ impl<'a> ExitDetector<'a> {
                 if cx.kind(n) == "ForStatement" && cx.kind(parts) == "ForPartsWithPattern" {
                     return Err("UnimplementedError".to_string());
                 }
-                let Some(p) = cx.tree.for_parts.get(&parts).cloned() else { return Ok(false) };
+                let Some(p) = cx.tree.for_parts.get(&parts).cloned() else {
+                    return Ok(false);
+                };
                 if let Some(i) = p.initialization {
                     match cx.kind(parts) {
                         "ForPartsWithDeclarations" => {
@@ -430,10 +552,9 @@ impl<'a> ExitDetector<'a> {
                                 return Ok(true);
                             }
                         }
-                        "ForPartsWithExpression"
-                            if self.exits(i)? => {
-                                return Ok(true);
-                            }
+                        "ForPartsWithExpression" if self.exits(i)? => {
+                            return Ok(true);
+                        }
                         _ => {}
                     }
                 }
@@ -466,7 +587,10 @@ impl<'a> ExitDetector<'a> {
             if cx.kind(p) == "CascadeExpression" {
                 return cx.children(p).first().copied().filter(|&a| a != k);
             }
-            if !matches!(cx.kind(p), "MethodInvocation" | "PropertyAccess" | "IndexExpression" | "AssignmentExpression") {
+            if !matches!(
+                cx.kind(p),
+                "MethodInvocation" | "PropertyAccess" | "IndexExpression" | "AssignmentExpression"
+            ) {
                 return None;
             }
             k = p;
@@ -496,7 +620,11 @@ impl<'a> ExitDetector<'a> {
                         .children(m)
                         .iter()
                         .filter(|&&l| cx.kind(l) == "Label")
-                        .any(|&l| cx.children(l).first().is_some_and(|&i| cx.node_text(i) == name));
+                        .any(|&l| {
+                            cx.children(l)
+                                .first()
+                                .is_some_and(|&i| cx.node_text(i) == name)
+                        });
                     if has {
                         return Some(m);
                     }

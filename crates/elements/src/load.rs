@@ -99,7 +99,15 @@ pub fn load_lenient_incremental(
     cache: Option<crate::sdk_cache::SdkCache>,
     units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
 ) -> (Program, Vec<Diagnostic>) {
-    load_lenient_generated(entry, sdk, package_config_path, interner, cache, units, None)
+    load_lenient_generated(
+        entry,
+        sdk,
+        package_config_path,
+        interner,
+        cache,
+        units,
+        None,
+    )
 }
 
 /// Like `load_lenient_incremental`, with an in-memory source generation
@@ -115,7 +123,15 @@ pub fn load_lenient_generated(
     units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
     generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
 ) -> (Program, Vec<Diagnostic>) {
-    load_lenient_entries(&[entry], sdk, package_config_path, interner, cache, units, generated_sources)
+    load_lenient_entries(
+        &[entry],
+        sdk,
+        package_config_path,
+        interner,
+        cache,
+        units,
+        generated_sources,
+    )
 }
 
 /// Like [`load_lenient_generated`], with several entry libraries in the same
@@ -138,7 +154,16 @@ pub fn load_lenient_entries(
     units: Option<&mut crate::unit_cache::AnalyzedUnitCache>,
     generated_sources: Option<std::sync::Arc<crate::generated::Generation>>,
 ) -> (Program, Vec<Diagnostic>) {
-    load_lenient_(entries, sdk, package_config_path, interner, cache, units, generated_sources, None)
+    load_lenient_(
+        entries,
+        sdk,
+        package_config_path,
+        interner,
+        cache,
+        units,
+        generated_sources,
+        None,
+    )
 }
 
 /// Like [`load_lenient`], without seeing `hidden` (keys from
@@ -151,7 +176,16 @@ pub fn load_lenient_hiding(
     interner: &mut Interner,
     hidden: std::sync::Arc<std::collections::HashSet<PathBuf>>,
 ) -> (Program, Vec<Diagnostic>) {
-    load_lenient_(&[entry], sdk, package_config_path, interner, None, None, None, Some(hidden))
+    load_lenient_(
+        &[entry],
+        sdk,
+        package_config_path,
+        interner,
+        None,
+        None,
+        None,
+        Some(hidden),
+    )
 }
 
 /// Like [`load_lenient_hiding`], with several roots: the first one is the
@@ -171,7 +205,16 @@ pub fn load_lenient_entries_hiding(
             roots.push(e);
         }
     }
-    load_lenient_(&roots, sdk, package_config_path, interner, None, None, None, Some(hidden))
+    load_lenient_(
+        &roots,
+        sdk,
+        package_config_path,
+        interner,
+        None,
+        None,
+        None,
+        Some(hidden),
+    )
 }
 
 /// Does the file have the `part of` directive? Unreadable counts as no.
@@ -288,7 +331,11 @@ fn load_lenient_(
                 group_owner: Default::default(),
                 unit_scopes: HashMap::new(),
                 is_sdk,
-                features: if is_sdk { LibraryFeatures::floor() } else { LibraryFeatures::current() },
+                features: if is_sdk {
+                    LibraryFeatures::floor()
+                } else {
+                    LibraryFeatures::current()
+                },
             });
             uri_to_library.insert(entry_uri.clone(), lib_id);
             queue.push_back(lib_id);
@@ -429,7 +476,11 @@ fn load_lenient_(
                     &lib_uri,
                     lib_id,
                     UnitRole::Library,
-                    Version::Library { config: &package_config, current_version: sdk.current_version, experiments: &sdk.experiments },
+                    Version::Library {
+                        config: &package_config,
+                        current_version: sdk.current_version,
+                        experiments: &sdk.experiments,
+                    },
                     interner,
                     &mut program,
                     &mut diagnostics,
@@ -462,7 +513,15 @@ fn load_lenient_(
                     break;
                 }
                 attached_macro = true;
-                match attach_macro_augmentation(&mut program, lib_id, &package_config, sdk.current_version, interner, &mut diagnostics, &mut prefetch) {
+                match attach_macro_augmentation(
+                    &mut program,
+                    lib_id,
+                    &package_config,
+                    sdk.current_version,
+                    interner,
+                    &mut diagnostics,
+                    &mut prefetch,
+                ) {
                     Some(uid) => {
                         program.libraries[lib_id.0 as usize].units.push(uid);
                         continue;
@@ -500,11 +559,23 @@ fn load_lenient_(
                     }
                     DirectiveKind::Part { uri } => {
                         let s = string_lit_value(uri)?;
-                        Some((dir_idx, DirectiveAction::Part { uri: s, augmentation: false }))
+                        Some((
+                            dir_idx,
+                            DirectiveAction::Part {
+                                uri: s,
+                                augmentation: false,
+                            },
+                        ))
                     }
                     DirectiveKind::ImportAugment { uri } => {
                         let s = string_lit_value(uri)?;
-                        Some((dir_idx, DirectiveAction::Part { uri: s, augmentation: true }))
+                        Some((
+                            dir_idx,
+                            DirectiveAction::Part {
+                                uri: s,
+                                augmentation: true,
+                            },
+                        ))
                     }
                     DirectiveKind::Import {
                         uri,
@@ -564,11 +635,15 @@ fn load_lenient_(
                         let absolute = uri.starts_with("package:").then(|| uri.clone());
                         let by_uri = absolute
                             .or_else(|| resolve_relative_to_package(&unit_uri, &uri))
-                            .and_then(|u| package_config.resolve_package_uri(&u).ok().map(|p| (p, u)));
+                            .and_then(|u| {
+                                package_config.resolve_package_uri(&u).ok().map(|p| (p, u))
+                            });
                         let (canonical_part, part_uri) = match by_uri {
                             Some(x) => x,
                             None => {
-                                let p = normalize(&base_path.parent().unwrap_or(Path::new(".")).join(&uri));
+                                let p = normalize(
+                                    &base_path.parent().unwrap_or(Path::new(".")).join(&uri),
+                                );
                                 let u = canonical_file_uri(&p, &package_config);
                                 (p, u)
                             }
@@ -580,7 +655,10 @@ fn load_lenient_(
                             .units
                             .iter()
                             .copied()
-                            .find(|u| program.units[u.0 as usize].path.as_deref() == Some(canonical_part.as_path()));
+                            .find(|u| {
+                                program.units[u.0 as usize].path.as_deref()
+                                    == Some(canonical_part.as_path())
+                            });
                         if already_in_library.is_some() {
                             continue;
                         }
@@ -588,10 +666,18 @@ fn load_lenient_(
                         let part_version = if program.libraries[lib_id.0 as usize].is_sdk {
                             Version::Sdk
                         } else {
-                            Version::Part { of_library, config: &package_config, current_version: sdk.current_version }
+                            Version::Part {
+                                of_library,
+                                config: &package_config,
+                                current_version: sdk.current_version,
+                            }
                         };
 
-                        let role_ = if augmentation { UnitRole::Augmentation } else { part_roles };
+                        let role_ = if augmentation {
+                            UnitRole::Augmentation
+                        } else {
+                            part_roles
+                        };
                         let part_unit = load_unit(
                             &canonical_part,
                             &part_uri,
@@ -601,13 +687,19 @@ fn load_lenient_(
                             interner,
                             &mut program,
                             &mut diagnostics,
-                            read_substitute(sdk, &canonical_part).or_else(|| prefetch.take(&canonical_part)),
+                            read_substitute(sdk, &canonical_part)
+                                .or_else(|| prefetch.take(&canonical_part)),
                             units.as_deref_mut(),
                         );
 
                         if let Some(p_uid) = part_unit {
                             if augmentation {
-                                verify_augment_library(&program, p_uid, unit_path.as_deref(), &mut diagnostics);
+                                verify_augment_library(
+                                    &program,
+                                    p_uid,
+                                    unit_path.as_deref(),
+                                    &mut diagnostics,
+                                );
                             } else {
                                 verify_part_of(&program, p_uid, lib_id, &mut diagnostics);
                             }
@@ -636,7 +728,7 @@ fn load_lenient_(
                             unit_path.as_deref(),
                             sdk,
                             &package_config,
-                            );
+                        );
 
                         match resolved {
                             Ok((target_canonical_uri, _)) => {
@@ -671,7 +763,7 @@ fn load_lenient_(
                             unit_path.as_deref(),
                             sdk,
                             &package_config,
-                            );
+                        );
 
                         match resolved {
                             Ok((target_canonical_uri, _)) => {
@@ -733,7 +825,10 @@ pub fn load(
 // ---------------------------------------------------------------------------
 
 /// Source and tokens of a file read and lexed off the main thread.
-type ReadFile = std::io::Result<(String, Result<Vec<dartforge_frontend::token::Token>, Diagnostic>)>;
+type ReadFile = std::io::Result<(
+    String,
+    Result<Vec<dartforge_frontend::token::Token>, Diagnostic>,
+)>;
 
 /// Files of one queue wave, read and lexed in parallel.
 #[derive(Default)]
@@ -770,17 +865,23 @@ impl Prefetch {
             None => paths,
         };
         let (hidden, paths): (Vec<PathBuf>, Vec<PathBuf>) = paths.into_iter().partition(|p| {
-            self.hidden.as_ref().is_some_and(|o| o.contains(&crate::generated::key(p)))
+            self.hidden
+                .as_ref()
+                .is_some_and(|o| o.contains(&crate::generated::key(p)))
         });
         for p in hidden {
-            self.ready.insert(p, Err(std::io::ErrorKind::NotFound.into()));
+            self.ready
+                .insert(p, Err(std::io::ErrorKind::NotFound.into()));
         }
         let read = |p: &Path| -> ReadFile {
             let s = std::fs::read_to_string(p)?;
             let t = dartforge_frontend::lexer::lex(&s);
             Ok((s, t))
         };
-        let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(8);
         if paths.len() < 4 || threads < 2 {
             for p in paths {
                 let l = read(&p);
@@ -804,7 +905,10 @@ impl Prefetch {
                     })
                 })
                 .collect();
-            handles.into_iter().map(|h| h.join().unwrap_or_default()).collect()
+            handles
+                .into_iter()
+                .map(|h| h.join().unwrap_or_default())
+                .collect()
         });
         for batch in results {
             for (p, l) in batch {
@@ -837,7 +941,10 @@ fn library_path(lib_uri: &str, package_config: &PackageConfig) -> Option<PathBuf
         // any.
         if package_config.generated_root.is_some()
             && !p.is_file()
-            && !package_config.generated_sources.as_ref().is_some_and(|g| g.contains(&p))
+            && !package_config
+                .generated_sources
+                .as_ref()
+                .is_some_and(|g| g.contains(&p))
         {
             if let Some(generated) = package_config.generated_in_place_of(&p) {
                 return Some(generated);
@@ -876,11 +983,19 @@ enum Version<'c> {
     /// SDK library, patch or part: always the floor (D1).
     Sdk,
     /// Main unit of a user or package library.
-    Library { config: &'c PackageConfig, current_version: LanguageVersion, experiments: &'c [Feature] },
+    Library {
+        config: &'c PackageConfig,
+        current_version: LanguageVersion,
+        experiments: &'c [Feature],
+    },
     /// Part: parsed with the library's features; the part's own version (marker
     /// or package) must be the same, otherwise it is an error
     /// (`LanguageVersionMismatchInPart`).
-    Part { of_library: LibraryFeatures, config: &'c PackageConfig, current_version: LanguageVersion },
+    Part {
+        of_library: LibraryFeatures,
+        config: &'c PackageConfig,
+        current_version: LanguageVersion,
+    },
 }
 
 /// The features of a unit and the diagnostics of the version choice.
@@ -893,12 +1008,27 @@ fn unit_features(
 ) -> LibraryFeatures {
     match version {
         Version::Sdk => LibraryFeatures::floor(),
-        Version::Library { config, current_version, experiments } => {
-            let (default_version, marker) = own_version(source, uri, path, config, current_version, diagnostics);
-            LibraryFeatures::for_library(marker.map(|m| m.0), default_version, current_version, experiments)
+        Version::Library {
+            config,
+            current_version,
+            experiments,
+        } => {
+            let (default_version, marker) =
+                own_version(source, uri, path, config, current_version, diagnostics);
+            LibraryFeatures::for_library(
+                marker.map(|m| m.0),
+                default_version,
+                current_version,
+                experiments,
+            )
         }
-        Version::Part { of_library, config, current_version } => {
-            let (default_version, marker) = own_version(source, uri, path, config, current_version, diagnostics);
+        Version::Part {
+            of_library,
+            config,
+            current_version,
+        } => {
+            let (default_version, marker) =
+                own_version(source, uri, path, config, current_version, diagnostics);
             let own = marker.map_or(default_version, |m| m.0);
             if own != of_library.version() {
                 let span = marker.map_or(Span { start: 0, end: 0 }, |m| m.1);
@@ -941,11 +1071,23 @@ fn own_version(
     let default_version = match config.library_package(uri, Some(path)) {
         Some(p) => {
             if let Some(t) = &p.invalid_language_version {
-                error_code(Diagnostic::new(format!("The languageVersion '{t}' of package '{}' in package_config.json isn't a valid x.y version.", p.name), zero));
+                error_code(Diagnostic::new(
+                    format!(
+                        "The languageVersion '{t}' of package '{}' in package_config.json isn't a valid x.y version.",
+                        p.name
+                    ),
+                    zero,
+                ));
             }
             match p.language_version {
                 Some(v) if v > current_version => {
-                    error_code(Diagnostic::new(format!("The package '{}' has language version {v}, greater than the latest known language version: {current_version}.", p.name), zero));
+                    error_code(Diagnostic::new(
+                        format!(
+                            "The package '{}' has language version {v}, greater than the latest known language version: {current_version}.",
+                            p.name
+                        ),
+                        zero,
+                    ));
                     current_version
                 }
                 Some(v) => v,
@@ -957,7 +1099,10 @@ fn own_version(
     let marker = dartforge_frontend::features::version_marker(source).and_then(|(v, span)| {
         if v > current_version {
             // WarningCode.INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER.
-            let (greater, lesser) = (current_version.major.to_string(), current_version.minor.to_string());
+            let (greater, lesser) = (
+                current_version.major.to_string(),
+                current_version.minor.to_string(),
+            );
             error_code(Diagnostic::with_code(
                 codes::warning::INVALID_LANGUAGE_VERSION_OVERRIDE_GREATER,
                 span,
@@ -967,7 +1112,11 @@ fn own_version(
         } else if v < LanguageVersion::MINIMUM {
             // CompileTimeErrorCode.ILLEGAL_LANGUAGE_VERSION_OVERRIDE.
             let minimum = format!(">={}.0", LanguageVersion::MINIMUM);
-            error_code(Diagnostic::with_code(codes::compile_time_error::ILLEGAL_LANGUAGE_VERSION_OVERRIDE, span, [minimum.as_str()]));
+            error_code(Diagnostic::with_code(
+                codes::compile_time_error::ILLEGAL_LANGUAGE_VERSION_OVERRIDE,
+                span,
+                [minimum.as_str()],
+            ));
             None
         } else {
             Some((v, span))
@@ -1095,7 +1244,11 @@ fn get_or_create_library(
             group_owner: Default::default(),
             unit_scopes: HashMap::new(),
             is_sdk,
-            features: if is_sdk { LibraryFeatures::floor() } else { LibraryFeatures::current() },
+            features: if is_sdk {
+                LibraryFeatures::floor()
+            } else {
+                LibraryFeatures::current()
+            },
         });
         uri_to_library.insert(canonical_uri.to_string(), lib_id);
         queue.push_back(lib_id);
@@ -1119,7 +1272,10 @@ fn canonical_file_uri(canonical: &Path, package_config: &PackageConfig) -> Strin
     let canonical = crate::config::without_verbatim(canonical.to_path_buf());
     if let Some(gen_root) = &package_config.generated_root {
         if let Ok(rel) = canonical.strip_prefix(gen_root) {
-            let parts: Vec<String> = rel.iter().map(|c| c.to_string_lossy().into_owned()).collect();
+            let parts: Vec<String> = rel
+                .iter()
+                .map(|c| c.to_string_lossy().into_owned())
+                .collect();
             if parts.len() >= 3 && parts[1] == "lib" {
                 return format!("package:{}/{}", parts[0], parts[2..].join("/"));
             }
@@ -1192,7 +1348,9 @@ fn resolve_directive_target(
         } else {
             // Like the CFE: a library of another platform (`dart:js_interop` on native,
             // `dart:io` without the VM layout) is a compile error.
-            Err(format!("the Dart library 'dart:{sdk_name}' is not available on this platform"))
+            Err(format!(
+                "the Dart library 'dart:{sdk_name}' is not available on this platform"
+            ))
         }
     } else if let Some(package_path) = uri_str.strip_prefix("package:") {
         // Only validates the package; the path is computed once, when the library
@@ -1238,14 +1396,23 @@ fn resolve_directive_target(
         // A `build_runner` generated file resolves relative imports from its
         // original place (`test/x.template.dart` imports `x.dart` from `test/`).
         let origin = base_path.and_then(|p| package_config.generated_origin(p));
-        let base = origin.as_deref().or(base_path).and_then(|p| p.parent()).unwrap_or(Path::new("."));
+        let base = origin
+            .as_deref()
+            .or(base_path)
+            .and_then(|p| p.parent())
+            .unwrap_or(Path::new("."));
         let target_path = base.join(uri_str);
         // Lexical, like `Uri.resolve`; a nonexistent file fails when read.
         let canonical = normalize(&target_path);
         let canonical_uri = canonical_file_uri(&canonical, package_config);
         // Outside `lib/` (`test/`, `web/`), the `build_runner` generated file takes
         // the place of the missing file, with the place's URI.
-        if !canonical.is_file() && !package_config.generated_sources.as_ref().is_some_and(|g| g.contains(&canonical)) {
+        if !canonical.is_file()
+            && !package_config
+                .generated_sources
+                .as_ref()
+                .is_some_and(|g| g.contains(&canonical))
+        {
             if let Some(generated) = package_config.generated_in_place_of(&canonical) {
                 return Ok((canonical_uri, Some(generated)));
             }
@@ -1274,10 +1441,22 @@ fn evaluate_configuration(
     interner: &Interner,
 ) -> bool {
     if let Some(variables) = &sdk.conditional_import_variables {
-        let name = config.test.iter().map(|part| interner.resolve(part.sym)).collect::<Vec<_>>().join(".");
-        let Some(value) = variables.get(&name) else { return false };
+        let name = config
+            .test
+            .iter()
+            .map(|part| interner.resolve(part.sym))
+            .collect::<Vec<_>>()
+            .join(".");
+        let Some(value) = variables.get(&name) else {
+            return false;
+        };
         let expected = match &config.value {
-            Some(literal) => { let Some(value) = string_lit_value(literal) else { return false }; value },
+            Some(literal) => {
+                let Some(value) = string_lit_value(literal) else {
+                    return false;
+                };
+                value
+            }
             None => "true".to_string(),
         };
         return *value == expected;
@@ -1303,7 +1482,10 @@ fn evaluate_configuration(
 /// `x.dart` (the same name as the materialization,
 /// docs/MACROS-COMPATIBILIDADE.md).
 pub fn macro_augmentation_path(library: &Path) -> PathBuf {
-    let stem = library.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let stem = library
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
     library.with_file_name(format!("{stem}.macro.dart"))
 }
 
@@ -1319,7 +1501,10 @@ fn attach_macro_augmentation(
     diagnostics: &mut Vec<Diagnostic>,
     prefetch: &mut Prefetch,
 ) -> Option<UnitId> {
-    let generated_sources = package_config.generated_sources.as_ref().filter(|g| !g.is_empty())?;
+    let generated_sources = package_config
+        .generated_sources
+        .as_ref()
+        .filter(|g| !g.is_empty())?;
     let lib = &program.libraries[lib_id.0 as usize];
     if lib.is_sdk {
         return None;
@@ -1330,13 +1515,35 @@ fn attach_macro_augmentation(
         return None;
     }
     let key = crate::generated::key(&path);
-    if lib.units.iter().any(|u| program.units[u.0 as usize].path.as_deref().map(crate::generated::key).as_ref() == Some(&key)) {
+    if lib.units.iter().any(|u| {
+        program.units[u.0 as usize]
+            .path
+            .as_deref()
+            .map(crate::generated::key)
+            .as_ref()
+            == Some(&key)
+    }) {
         return None;
     }
     let uri = canonical_file_uri(&path, package_config);
-    let version = Version::Part { of_library: lib.features, config: package_config, current_version };
+    let version = Version::Part {
+        of_library: lib.features,
+        config: package_config,
+        current_version,
+    };
     let read_file = prefetch.take(&path);
-    let uid = load_unit(&path, &uri, lib_id, UnitRole::Augmentation, version, interner, program, diagnostics, read_file, None)?;
+    let uid = load_unit(
+        &path,
+        &uri,
+        lib_id,
+        UnitRole::Augmentation,
+        version,
+        interner,
+        program,
+        diagnostics,
+        read_file,
+        None,
+    )?;
     Some(uid)
 }
 
@@ -1356,12 +1563,16 @@ fn verify_augment_library(
     });
     let Some((span, uri)) = header else {
         diagnostics.push(Diagnostic::new(
-            format!("augmentation library '{}' does not start with 'augment library'", unit.uri),
+            format!(
+                "augmentation library '{}' does not start with 'augment library'",
+                unit.uri
+            ),
             Span { start: 0, end: 0 },
         ));
         return;
     };
-    let (Some(target), Some(path), Some(importer)) = (string_lit_value(uri), &unit.path, importers) else {
+    let (Some(target), Some(path), Some(importer)) = (string_lit_value(uri), &unit.path, importers)
+    else {
         return;
     };
     let expected = normalize(&path.parent().unwrap_or(Path::new(".")).join(&target));
@@ -1448,29 +1659,76 @@ mod conditional_import_context_tests {
         let mut names = Interner::new();
         let source = format!("import 'primary.dart' if ({condition}) 'alternative.dart';");
         let parsed = dartforge_frontend::parser::parse(&source, &mut names);
-        let ast::DirectiveKind::Import { uri, configurations, .. } = &parsed.unit.directives[0].kind else { panic!("import") };
+        let ast::DirectiveKind::Import {
+            uri,
+            configurations,
+            ..
+        } = &parsed.unit.directives[0].kind
+        else {
+            panic!("import")
+        };
         select_conditional_uri(uri, configurations, sdk, &names).unwrap()
     }
 
     #[test]
     fn compiler_profile_support_remains_unchanged() {
         let mut sdk = SdkLayout::default();
-        sdk.libraries.insert("io".into(), crate::sdk::SdkLibrary { name: "io".into(), path: PathBuf::new(), patches: Vec::new(), supported: true });
-        sdk.libraries.insert("html".into(), crate::sdk::SdkLibrary { name: "html".into(), path: PathBuf::new(), patches: Vec::new(), supported: false });
+        sdk.libraries.insert(
+            "io".into(),
+            crate::sdk::SdkLibrary {
+                name: "io".into(),
+                path: PathBuf::new(),
+                patches: Vec::new(),
+                supported: true,
+            },
+        );
+        sdk.libraries.insert(
+            "html".into(),
+            crate::sdk::SdkLibrary {
+                name: "html".into(),
+                path: PathBuf::new(),
+                patches: Vec::new(),
+                supported: false,
+            },
+        );
         assert_eq!(selected("dart.library.io", &sdk), "alternative.dart");
-        assert_eq!(selected("dart.library.io == 'true'", &sdk), "alternative.dart");
+        assert_eq!(
+            selected("dart.library.io == 'true'", &sdk),
+            "alternative.dart"
+        );
         assert_eq!(selected("dart.library.html", &sdk), "primary.dart");
-        assert_eq!(selected("dart.library.html == 'false'", &sdk), "alternative.dart");
+        assert_eq!(
+            selected("dart.library.html == 'false'", &sdk),
+            "alternative.dart"
+        );
     }
 
     #[test]
     fn absent_analyzer_variables_never_equal_false() {
-        let sdk = SdkLayout { conditional_import_variables: Some(HashMap::new()), ..Default::default() };
-        for condition in ["dart.library.io", "dart.library.io == 'true'", "dart.library.io == 'false'", "dart.library.missing == 'false'", "missing.flag == 'false'"] {
+        let sdk = SdkLayout {
+            conditional_import_variables: Some(HashMap::new()),
+            ..Default::default()
+        };
+        for condition in [
+            "dart.library.io",
+            "dart.library.io == 'true'",
+            "dart.library.io == 'false'",
+            "dart.library.missing == 'false'",
+            "missing.flag == 'false'",
+        ] {
             assert_eq!(selected(condition, &sdk), "primary.dart", "{condition}");
         }
-        let declared = SdkLayout { conditional_import_variables: Some(HashMap::from([("dart.library.io".into(), "false".into())])), ..Default::default() };
-        assert_eq!(selected("dart.library.io == 'false'", &declared), "alternative.dart");
+        let declared = SdkLayout {
+            conditional_import_variables: Some(HashMap::from([(
+                "dart.library.io".into(),
+                "false".into(),
+            )])),
+            ..Default::default()
+        };
+        assert_eq!(
+            selected("dart.library.io == 'false'", &declared),
+            "alternative.dart"
+        );
         assert_eq!(selected("dart.library.io", &declared), "primary.dart");
     }
 
@@ -1478,13 +1736,28 @@ mod conditional_import_context_tests {
     fn sdk_cache_keys_separate_context_and_ignore_map_insertion_order() {
         let sdk = SdkLayout::default();
         let compiler = crate::SdkCache::hash(&sdk, "dartdevc");
-        let empty = SdkLayout { conditional_import_variables: Some(HashMap::new()), ..sdk.clone() };
+        let empty = SdkLayout {
+            conditional_import_variables: Some(HashMap::new()),
+            ..sdk.clone()
+        };
         assert_ne!(compiler, crate::SdkCache::hash(&empty, "dartdevc"));
         let mut first = empty.clone();
-        first.conditional_import_variables = Some(HashMap::from([("a".into(), "false".into()), ("b".into(), "true".into())]));
+        first.conditional_import_variables = Some(HashMap::from([
+            ("a".into(), "false".into()),
+            ("b".into(), "true".into()),
+        ]));
         let mut second = empty.clone();
-        second.conditional_import_variables = Some(HashMap::from([("b".into(), "true".into()), ("a".into(), "false".into())]));
-        assert_eq!(crate::SdkCache::hash(&first, "dartdevc"), crate::SdkCache::hash(&second, "dartdevc"));
-        assert_ne!(crate::SdkCache::hash(&empty, "dartdevc"), crate::SdkCache::hash(&first, "dartdevc"));
+        second.conditional_import_variables = Some(HashMap::from([
+            ("b".into(), "true".into()),
+            ("a".into(), "false".into()),
+        ]));
+        assert_eq!(
+            crate::SdkCache::hash(&first, "dartdevc"),
+            crate::SdkCache::hash(&second, "dartdevc")
+        );
+        assert_ne!(
+            crate::SdkCache::hash(&empty, "dartdevc"),
+            crate::SdkCache::hash(&first, "dartdevc")
+        );
     }
 }

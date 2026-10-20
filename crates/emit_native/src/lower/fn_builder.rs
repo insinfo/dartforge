@@ -199,11 +199,17 @@ pub struct FnBuilder<'a, 'c> {
     pub armed_tuple: Option<Operand>,
     /// The static type of `this` in an extension member (the `on`): the
     /// implicit receiver of another extension call.
-    pub this_extension: Option<(dartforge_elements::model::ExtensionId, dartforge_types::table::TypeId)>,
+    pub this_extension: Option<(
+        dartforge_elements::model::ExtensionId,
+        dartforge_types::table::TypeId,
+    )>,
     /// In an instance member of an extension type: the type and the static type
     /// of `this` (`E<T…>`, not erased) — the implicit receiver of its
     /// members (`extension_types.rs`).
-    pub this_ext_type: Option<(dartforge_elements::model::ClassId, dartforge_types::table::TypeId)>,
+    pub this_ext_type: Option<(
+        dartforge_elements::model::ClassId,
+        dartforge_types::table::TypeId,
+    )>,
     /// The value of a `return;` (and of the end of the body): the representation, in the
     /// generative constructor of an extension type.
     pub constructor_return: Option<Operand>,
@@ -411,14 +417,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         }
         let r = std::mem::take(&mut self.stack_trace);
-        let needs = r.marks != 0 || r.async_body.is_some() || r.closure_entry.is_some() || r.chain_link.is_some() || r.stack.is_some();
+        let needs = r.marks != 0
+            || r.async_body.is_some()
+            || r.closure_entry.is_some()
+            || r.chain_link.is_some()
+            || r.stack.is_some();
         if self.func.debug_info.is_none() {
             if !needs {
                 return;
             }
             let unit = self.ctx.program.unit(self.unit_id);
             self.func.debug_info = Some(Box::new(crate::hir::FunctionDebugInfo {
-                file: unit.path.as_ref().map_or_else(|| unit.uri.clone(), |p| p.display().to_string()),
+                file: unit
+                    .path
+                    .as_ref()
+                    .map_or_else(|| unit.uri.clone(), |p| p.display().to_string()),
                 url: self.ctx.stack_trace_url(self.unit_id),
                 line: r.token.map_or(0, |t| t.0),
                 ..Default::default()
@@ -453,13 +466,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let prof = new(&mut self.next_value);
         let call = Instruction::CallRuntime {
             name: "dartforge_stack_trace_enter".to_string(),
-            args: vec![(Operand::Constant(Constant::Int(ty)), Type::I64), (value.clone(), Type::Ref)],
+            args: vec![
+                (Operand::Constant(Constant::Int(ty)), Type::I64),
+                (value.clone(), Type::Ref),
+            ],
             ret_ty: Type::I64,
         };
         self.value_types.insert(prof, Type::I64);
         let block = &mut self.func.blocks[0];
         let after = match &value {
-            Operand::Val(v) => block.instructions.iter().position(|(x, _, _)| x == v).map_or(0, |i| i + 1),
+            Operand::Val(v) => block
+                .instructions
+                .iter()
+                .position(|(x, _, _)| x == v)
+                .map_or(0, |i| i + 1),
             _ => 0,
         };
         // There is no `phi` in the entry block; the `alloca`s may come before.
@@ -489,7 +509,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// the tree of the unit of this function (the position is its own) and debugging
     /// is on.
     pub fn mark_position(&mut self, ast: &ast::Ast, offset: usize) {
-        if self.ctx.debug_info.is_none() || !std::ptr::eq(ast, &self.ctx.program.unit(self.unit_id).ast) {
+        if self.ctx.debug_info.is_none()
+            || !std::ptr::eq(ast, &self.ctx.program.unit(self.unit_id).ast)
+        {
             return;
         }
         self.position = self.ctx.line_and_column(self.unit_id, offset);
@@ -531,13 +553,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let p_ty = self.repr(p.ty);
             let vid = self.add_param(p_name, p_ty);
             if self.ctx.arc_memory && matches!(p_ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
-                self.dart_scalar_parameters.entry(self.func.symbol.clone()).or_default().insert(vid);
+                self.dart_scalar_parameters
+                    .entry(self.func.symbol.clone())
+                    .or_default()
+                    .insert(vid);
             }
             if let Some(sym) = p.name {
                 match ast_params.get(i).and_then(|a| a.name) {
-                    Some(n) => {
-                        self.declare_variable(sym, n.span.start, p_ty, Operand::Val(vid))
-                    }
+                    Some(n) => self.declare_variable(sym, n.span.start, p_ty, Operand::Val(vid)),
                     None => self.declare_local_with_value(sym, p_ty, Operand::Val(vid)),
                 }
                 // The outline keeps the Dart type even without an offset in the body.
@@ -550,31 +573,51 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn finish(mut self, module: &mut Module) {
         self.close_stack_trace();
         if let (Some(class), Some(Operand::Val(value))) = (self.enclosing_class, &self.this_param)
-            && self.ctx.program.library(self.ctx.program.class(class).library).is_sdk
-            && self.func.params.iter().any(|(id, _, ty)| id == value && *ty == Type::Ref)
+            && self
+                .ctx
+                .program
+                .library(self.ctx.program.class(class).library)
+                .is_sdk
+            && self
+                .func
+                .params
+                .iter()
+                .any(|(id, _, ty)| id == value && *ty == Type::Ref)
             && let Some(cid) = self.ctx.class_id_of(class)
         {
-            module.pruning_this_receivers.insert(self.func.symbol.clone(), (*value, cid));
+            module
+                .pruning_this_receivers
+                .insert(self.func.symbol.clone(), (*value, cid));
         }
         // P6: the diagnostic of a source function only holds if pruning
         // keeps it (`source::prune`).
         let lib = self.ctx.program.unit(self.unit_id).library;
         if self.ctx.from_source.contains(&lib) && crate::source::sdk_symbol(&self.func.symbol) {
             if !self.errors.is_empty() {
-                module.source_errors.push((self.func.symbol.clone(), self.errors));
+                module
+                    .source_errors
+                    .push((self.func.symbol.clone(), self.errors));
             }
         } else {
             module.errors.extend(self.errors);
         }
         module.globals.extend(self.extra_globals);
-        module.dart_scalar_parameters.extend(self.dart_scalar_parameters);
+        module
+            .dart_scalar_parameters
+            .extend(self.dart_scalar_parameters);
         module.dart_rti_parameters.extend(self.dart_rti_parameters);
-        module.dart_vector_parameters.extend(self.dart_vector_parameters);
+        module
+            .dart_vector_parameters
+            .extend(self.dart_vector_parameters);
         module.arc_uniform_returns.extend(self.arc_uniform_returns);
         module.dart_ref_returns.extend(self.dart_ref_returns);
         module.arc_rti_caches.extend(self.arc_rti_caches);
-        module.arc_shared_functions.extend(self.arc_shared_functions);
-        module.arc_direct_local_functions.extend(self.arc_direct_local_functions);
+        module
+            .arc_shared_functions
+            .extend(self.arc_shared_functions);
+        module
+            .arc_direct_local_functions
+            .extend(self.arc_direct_local_functions);
         module.inline_policies.extend(self.inline_policies);
         module.async_frame_layouts.extend(self.async_frame_layouts);
         module.functions.push(self.func);
@@ -589,7 +632,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `UnsupportedError` with the symbol. It only runs if the analysis was wrong — the error
     /// is loud and says what was missing.
     pub fn pruned_body(&mut self) {
-        let msg = format!("dartforge: code pruned as unreachable was called: {}", self.func.symbol);
+        let msg = format!(
+            "dartforge: code pruned as unreachable was called: {}",
+            self.func.symbol
+        );
         let m = self.emit(Instruction::Const(Constant::String(msg)), Type::Ref);
         let e = self.new_runtime_error("dartforge_unsupported_error_new", vec![(m, Type::Ref)]);
         self.emit_throw_op(e);
@@ -611,13 +657,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if !self.is_terminated() {
                 let msg = format!("{}{what}", crate::UNSUPPORTED_PREFIX);
                 let m = self.emit(Instruction::Const(Constant::String(msg)), Type::Ref);
-                let e = self.new_runtime_error("dartforge_unsupported_error_new", vec![(m, Type::Ref)]);
+                let e =
+                    self.new_runtime_error("dartforge_unsupported_error_new", vec![(m, Type::Ref)]);
                 self.emit_throw_op(e);
             }
             return Operand::Constant(Constant::Null);
         }
         let position = self.position(span);
-        self.errors.push(format!("{}{what} ({position})", crate::UNSUPPORTED_PREFIX));
+        self.errors
+            .push(format!("{}{what} ({position})", crate::UNSUPPORTED_PREFIX));
         Operand::Constant(Constant::Null)
     }
 
@@ -656,16 +704,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// heap use an explicit `Bitcast`, never this function.
     pub fn coerce(&mut self, op: Operand, to: Type) -> Operand {
         let of = self.operand_type(&op);
-        if of == to
-            || matches!(to, Type::Void | Type::Ptr)
-            || matches!(of, Type::Void | Type::Ptr)
+        if of == to || matches!(to, Type::Void | Type::Ptr) || matches!(of, Type::Void | Type::Ptr)
         {
             return op;
         }
         match (of, to) {
             // The SIMD vector and the box of the static type (`lower/simd.rs`): the
             // non-nullable static type guarantees the right box.
-            (k, Type::Ref) if k.is_vector() => self.emit(Instruction::Box { op, from: k }, Type::Ref),
+            (k, Type::Ref) if k.is_vector() => {
+                self.emit(Instruction::Box { op, from: k }, Type::Ref)
+            }
             (Type::Ref, k) if k.is_vector() => self.emit(Instruction::Unbox { op, to: k }, k),
             (Type::I64 | Type::F64 | Type::I1, Type::Ref) => {
                 self.emit(Instruction::Box { op, from: of }, Type::Ref)
@@ -783,10 +831,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Declares a vector of the uniform entry, without inferring a role from the Ptr type.
     pub(super) fn add_param_vector(&mut self, role: DartEntryVector) -> ValueId {
-        let name_str = match role { DartEntryVector::Arguments => "args", DartEntryVector::Descriptor => "desc" };
+        let name_str = match role {
+            DartEntryVector::Arguments => "args",
+            DartEntryVector::Descriptor => "desc",
+        };
         let id = self.add_param(name_str.to_string(), Type::Ptr);
         if self.ctx.arc_memory {
-            self.dart_vector_parameters.entry(self.func.symbol.clone()).or_default().insert(id, role);
+            self.dart_vector_parameters
+                .entry(self.func.symbol.clone())
+                .or_default()
+                .insert(id, role);
         }
         id
     }
@@ -795,12 +849,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Only the complete preparation/verification can publish its Owned body;
     /// callbacks and indirect dispatch still require contracts from the callers.
     pub(super) fn declare_arc_uniform_return(&mut self) {
-        if !self.ctx.arc_memory || self.func.return_ty != Type::Ref { return; }
-        assert_eq!(self.func.params.iter().map(|p| p.2).collect::<Vec<_>>(),
-            [Type::Ref, Type::Ptr, Type::Ptr], "incompatible uniform entry declaration");
+        if !self.ctx.arc_memory || self.func.return_ty != Type::Ref {
+            return;
+        }
+        assert_eq!(
+            self.func.params.iter().map(|p| p.2).collect::<Vec<_>>(),
+            [Type::Ref, Type::Ptr, Type::Ptr],
+            "incompatible uniform entry declaration"
+        );
         let roles = &self.dart_vector_parameters[&self.func.symbol];
-        assert_eq!(roles.get(&self.func.params[1].0), Some(&DartEntryVector::Arguments));
-        assert_eq!(roles.get(&self.func.params[2].0), Some(&DartEntryVector::Descriptor));
+        assert_eq!(
+            roles.get(&self.func.params[1].0),
+            Some(&DartEntryVector::Arguments)
+        );
+        assert_eq!(
+            roles.get(&self.func.params[2].0),
+            Some(&DartEntryVector::Descriptor)
+        );
         self.arc_uniform_returns.insert(self.func.symbol.clone());
     }
 
@@ -810,7 +875,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub(super) fn add_param_dart(&mut self, name: String, ty: Type) -> ValueId {
         let v = self.add_param(name, ty);
         if self.ctx.arc_memory && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8) {
-            self.dart_scalar_parameters.entry(self.func.symbol.clone()).or_default().insert(v);
+            self.dart_scalar_parameters
+                .entry(self.func.symbol.clone())
+                .or_default()
+                .insert(v);
         }
         v
     }
@@ -820,7 +888,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn add_param_rti(&mut self, name: String) -> ValueId {
         let v = self.add_param(name, Type::I64);
         if self.ctx.arc_memory {
-            self.dart_rti_parameters.entry(self.func.symbol.clone()).or_default().insert(v);
+            self.dart_rti_parameters
+                .entry(self.func.symbol.clone())
+                .or_default()
+                .insert(v);
         }
         v
     }
@@ -898,7 +969,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let unit = self.ctx.program.unit(self.unit_id);
         let d = self.func.debug_info.get_or_insert_with(|| {
             Box::new(crate::hir::FunctionDebugInfo {
-                file: unit.path.as_ref().map_or_else(|| unit.uri.clone(), |p| p.display().to_string()),
+                file: unit
+                    .path
+                    .as_ref()
+                    .map_or_else(|| unit.uri.clone(), |p| p.display().to_string()),
                 url: self.ctx.stack_trace_url(self.unit_id),
                 line: pos.0,
                 ..Default::default()
@@ -978,7 +1052,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // The value in the representation of the return of the function (the body of a
         // typed closure returns an unboxed `int`, for example).
         let ret_val = match ret_val {
-            Some(r) if !matches!(self.func.return_ty, Type::Void) && self.finally_scopes.is_empty() => {
+            Some(r)
+                if !matches!(self.func.return_ty, Type::Void) && self.finally_scopes.is_empty() =>
+            {
                 Some(self.coerce(r, self.func.return_ty))
             }
             other => other,
@@ -1055,7 +1131,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
                 None => {
-                    let prof = if is_continue { fin.prof_continue } else { fin.prof_break };
+                    let prof = if is_continue {
+                        fin.prof_continue
+                    } else {
+                        fin.prof_break
+                    };
                     index.is_some_and(|i| i < prof)
                 }
             });
@@ -1100,16 +1180,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         }
         let request = self.emit(
-            Instruction::CallRuntime { name: "dartforge_pending_interrupt".to_string(), args: Vec::new(), ret_ty: Type::I8 },
+            Instruction::CallRuntime {
+                name: "dartforge_pending_interrupt".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::I8,
+            },
             Type::I8,
         );
-        let ha = self.emit(Instruction::ICmp(ICmpOp::Ne, request, Operand::Constant(Constant::Int(0))), Type::I1);
+        let ha = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, request, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
         let slow = self.new_block();
         let follows = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ha, then_block: slow, else_block: follows });
+        self.terminate(Terminator::CondBranch {
+            cond: ha,
+            then_block: slow,
+            else_block: follows,
+        });
         self.set_block(slow);
         self.emit_call_with_check(
-            Instruction::CallRuntime { name: "dartforge_safepoint".to_string(), args: Vec::new(), ret_ty: Type::Void },
+            Instruction::CallRuntime {
+                name: "dartforge_safepoint".to_string(),
+                args: Vec::new(),
+                ret_ty: Type::Void,
+            },
             Type::Void,
         );
         self.terminate(Terminator::Branch(follows));
@@ -1123,7 +1218,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // read of the pending flag itself is the standalone check (the end of a
         // statement inside `try`) and stays.
         // `DARTFORGE_NO_EFFECTS_IN_CHECK=1` goes back to checking everything (measurement).
-        if let Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } = &inst
+        if let Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } =
+            &inst
             && name != "dartforge_exception_pending"
             && !Self::check_every_extern()
         {
@@ -1190,7 +1286,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     fn check_every_extern() -> bool {
         static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         *ENABLED.get_or_init(|| {
-            std::env::var_os("DARTFORGE_NO_EFFECTS_IN_CHECK").is_some_and(|v| !v.is_empty() && v != "0")
+            std::env::var_os("DARTFORGE_NO_EFFECTS_IN_CHECK")
+                .is_some_and(|v| !v.is_empty() && v != "0")
         })
     }
 
@@ -1319,11 +1416,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     [p, t] => self.ctx.program.lookup_prefixed(lib, p.sym, t.sym),
                     _ => self.ctx.program.lookup(lib, last_one.sym),
                 };
-                let cid = binding
-                    .and_then(|b| match b.getter {
-                        Some(dartforge_elements::model::Element::Class(c)) => Some(c),
-                        _ => None,
-                    });
+                let cid = binding.and_then(|b| match b.getter {
+                    Some(dartforge_elements::model::Element::Class(c)) => Some(c),
+                    _ => None,
+                });
                 let Some(id) = cid.and_then(|c| self.class_id_of(c)) else {
                     return self.unsupported(&format!("type test `{name_str}`"), ast_ty.span);
                 };
@@ -1358,7 +1454,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Implicit or explicit `as T`: `TypeError` if the value is not a `T`,
     /// with the VM's message for the `context` ("… in type cast" for `as`, without a
     /// suffix in the implicit assignment of a `dynamic`).
-    pub fn check_type_or_throw(&mut self, ast_ty: &ast::TypeAnnotation, op: Operand, context: super::rti::CastContext) {
+    pub fn check_type_or_throw(
+        &mut self,
+        ast_ty: &ast::TypeAnnotation,
+        op: Operand,
+        context: super::rti::CastContext,
+    ) {
         // `as List<int>`, `as T`…: the whole cast through the RTI.
         if self.annotation_needs_rti(ast_ty) {
             match self.annotation_recipe(ast_ty) {
@@ -1401,18 +1502,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn emit_trunc_div(&mut self, lop: Operand, rop: Operand) -> Operand {
         match rop {
             // Constant divisor: neither a zero to check, nor the -1.
-            Operand::Constant(Constant::Int(-1)) => return self.emit(Instruction::Neg(lop), Type::I64),
-            Operand::Constant(Constant::Int(c)) if c != 0 => return self.emit(Instruction::SDiv(lop, rop), Type::I64),
+            Operand::Constant(Constant::Int(-1)) => {
+                return self.emit(Instruction::Neg(lop), Type::I64);
+            }
+            Operand::Constant(Constant::Int(c)) if c != 0 => {
+                return self.emit(Instruction::SDiv(lop, rop), Type::I64);
+            }
             _ => {}
         }
         self.require_divisor(&rop);
         // `x ~/ -1` is `-x` with 64-bit overflow (`-2^63 ~/ -1 == -2^63`);
         // LLVM's `sdiv` does not define that case (x86's `idiv` gives SIGFPE).
-        let minus_one = self.emit(Instruction::ICmp(ICmpOp::Eq, rop.clone(), Operand::Constant(Constant::Int(-1))), Type::I1);
+        let minus_one = self.emit(
+            Instruction::ICmp(
+                ICmpOp::Eq,
+                rop.clone(),
+                Operand::Constant(Constant::Int(-1)),
+            ),
+            Type::I1,
+        );
         let negate = self.new_block();
         let split = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: minus_one, then_block: negate, else_block: split });
+        self.terminate(Terminator::CondBranch {
+            cond: minus_one,
+            then_block: negate,
+            else_block: split,
+        });
         self.set_block(negate);
         let n = self.emit(Instruction::Neg(lop.clone()), Type::I64);
         self.terminate(Terminator::Branch(join));
@@ -1420,7 +1536,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let q = self.emit(Instruction::SDiv(lop, rop), Type::I64);
         self.terminate(Terminator::Branch(join));
         self.set_block(join);
-        self.emit(Instruction::Phi { incoming: vec![(negate, n), (split, q)], ty: Type::I64 }, Type::I64)
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(negate, n), (split, q)],
+                ty: Type::I64,
+            },
+            Type::I64,
+        )
     }
 
     /// `a % b` of `int` with a variable divisor, inline after the zero
@@ -1431,11 +1553,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn emit_module(&mut self, lop: Operand, rop: Operand) -> Operand {
         self.require_divisor(&rop);
         let int = |c| Operand::Constant(Constant::Int(c));
-        let minus_one = self.emit(Instruction::ICmp(ICmpOp::Eq, rop.clone(), int(-1)), Type::I1);
+        let minus_one = self.emit(
+            Instruction::ICmp(ICmpOp::Eq, rop.clone(), int(-1)),
+            Type::I1,
+        );
         let zero = self.new_block();
         let rest = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: minus_one, then_block: zero, else_block: rest });
+        self.terminate(Terminator::CondBranch {
+            cond: minus_one,
+            then_block: zero,
+            else_block: rest,
+        });
         self.set_block(zero);
         self.terminate(Terminator::Branch(join));
         self.set_block(rest);
@@ -1448,7 +1577,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let value = self.emit(Instruction::Add(r, adjustment), Type::I64);
         self.terminate(Terminator::Branch(join));
         self.set_block(join);
-        self.emit(Instruction::Phi { incoming: vec![(zero, int(0)), (rest, value)], ty: Type::I64 }, Type::I64)
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(zero, int(0)), (rest, value)],
+                ty: Type::I64,
+            },
+            Type::I64,
+        )
     }
 
     /// A zero integer divisor (`~/` and `%` of `int`) throws
@@ -1472,9 +1607,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // the VM throws (and what `on IntegerDivisionByZeroException` catches).
         if let Some(class) = self.ctx.sdk_class("core", "IntegerDivisionByZeroException")
             && let Some(empty) = self.ctx.interner.lookup("")
-            && let Some(&ctor) = self.ctx.program.classes[class.0 as usize].constructors.get(&empty)
+            && let Some(&ctor) = self.ctx.program.classes[class.0 as usize]
+                .constructors
+                .get(&empty)
         {
-            let error = self.instantiate_evaluated(ctor, &[], dartforge_diagnostics::Span { start: 0, end: 0 });
+            let error = self.instantiate_evaluated(
+                ctor,
+                &[],
+                dartforge_diagnostics::Span { start: 0, end: 0 },
+            );
             if !self.is_terminated() {
                 self.emit_throw_op(error);
             }
@@ -1512,7 +1653,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Operator of a compound assignment (`a op= b`).
-    pub fn lower_binary_op_helper(&mut self, op: BinaryOp, lop: Operand, rop: Operand, admits_smi: bool) -> Operand {
+    pub fn lower_binary_op_helper(
+        &mut self,
+        op: BinaryOp,
+        lop: Operand,
+        rop: Operand,
+        admits_smi: bool,
+    ) -> Operand {
         // The current value in `Ref` may be a `String`, a nullable number or
         // another object. The type of the right operand does not prove that it is
         // numeric (`s *= 2`); dynamic dispatch handles those cases.
@@ -1522,7 +1669,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // (the `other.toDouble()` of the `_Double` operators). The path
             // that unboxes may leave a pending `TypeError`.
             self.emit_call_with_check(
-                Instruction::CallRuntime { name: "df.num_to_double".to_string(), args: vec![(rop, Type::Ref)], ret_ty: Type::F64 },
+                Instruction::CallRuntime {
+                    name: "df.num_to_double".to_string(),
+                    args: vec![(rop, Type::Ref)],
+                    ret_ty: Type::F64,
+                },
                 Type::F64,
             )
         } else if tr == Type::Ref && tl == Type::I64 {

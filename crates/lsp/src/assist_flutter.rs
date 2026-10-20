@@ -17,7 +17,7 @@
 
 use crate::actions::CodeAction;
 use crate::refactorings::Context;
-use crate::refactorings_exec::{Change, Text, ONE_INDENT};
+use crate::refactorings_exec::{Change, ONE_INDENT, Text};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, ClassKind, Element};
 use dartforge_types::{Resolved, Type, TypeId};
@@ -33,16 +33,26 @@ impl Context<'_> {
     pub(crate) fn flutter_exactly(&self, c: ClassId, name: &str, uri: &str) -> bool {
         let p = self.p.program();
         let k = p.class(c);
-        matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication) && self.p.name(k.name) == name && k.decl.is_some_and(|d| p.unit(d.unit).uri == uri)
+        matches!(k.kind, ClassKind::Class | ClassKind::MixinApplication)
+            && self.p.name(k.name) == name
+            && k.decl.is_some_and(|d| p.unit(d.unit).uri == uri)
     }
 
     /// `isWidget`: the `Widget` class or a subclass of it.
     pub(crate) fn class_and_widget(&self, c: ClassId) -> bool {
         let p = self.p.program();
-        if !matches!(p.class(c).kind, ClassKind::Class | ClassKind::MixinApplication) {
+        if !matches!(
+            p.class(c).kind,
+            ClassKind::Class | ClassKind::MixinApplication
+        ) {
             return false;
         }
-        self.flutter_exactly(c, "Widget", URI_FRAMEWORK) || self.p.supertypes(c).into_iter().any(|s| self.flutter_exactly(s, "Widget", URI_FRAMEWORK))
+        self.flutter_exactly(c, "Widget", URI_FRAMEWORK)
+            || self
+                .p
+                .supertypes(c)
+                .into_iter()
+                .any(|s| self.flutter_exactly(s, "Widget", URI_FRAMEWORK))
     }
 
     /// The class of an interface type.
@@ -55,7 +65,8 @@ impl Context<'_> {
 
     /// `isWidgetType`.
     fn type_widget(&self, t: TypeId) -> bool {
-        self.flutter_type_class(t).is_some_and(|c| self.class_and_widget(c))
+        self.flutter_type_class(t)
+            .is_some_and(|c| self.class_and_widget(c))
     }
 
     /// The `staticType` of the expression node.
@@ -66,7 +77,11 @@ impl Context<'_> {
     /// `isWidgetExpression`.
     pub(crate) fn is_expression_widget(&self, n: usize) -> bool {
         if let Some(parent) = self.parent(n) {
-            if self.kind(parent) == "NamedType" || self.parent(parent).is_some_and(|a| self.kind(a) == "NamedType") {
+            if self.kind(parent) == "NamedType"
+                || self
+                    .parent(parent)
+                    .is_some_and(|a| self.kind(a) == "NamedType")
+            {
                 return false;
             }
             if self.kind(parent) == "ConstructorName" {
@@ -76,7 +91,8 @@ impl Context<'_> {
         if self.kind(n) == "NamedExpression" || !self.is_expression(n) {
             return false;
         }
-        self.flutter_node_type(n).is_some_and(|t| self.type_widget(t))
+        self.flutter_node_type(n)
+            .is_some_and(|t| self.type_widget(t))
     }
 
     /// `findWidgetExpression`.
@@ -101,7 +117,9 @@ impl Context<'_> {
                 "AssignmentExpression" => return if last { Some(k) } else { None },
                 "ArgumentList" | "ListLiteral" | "VariableDeclaration" => return Some(k),
                 "ConditionalExpression" if children.first() != Some(&k) => return Some(k),
-                "ExpressionFunctionBody" | "NamedExpression" | "SwitchExpressionCase" if last => return Some(k),
+                "ExpressionFunctionBody" | "NamedExpression" | "SwitchExpressionCase" if last => {
+                    return Some(k);
+                }
                 "ForElement" if last => return Some(k),
                 "IfElement" => {
                     // `thenElement`/`elseElement`: not the condition (nor the `case` pattern).
@@ -121,7 +139,13 @@ impl Context<'_> {
     /// `findInstanceCreationExpression`.
     pub(crate) fn find_creation(&self, n: usize) -> Option<usize> {
         let mut node = n;
-        for kind in ["ImportPrefixReference", "SimpleIdentifier", "PrefixedIdentifier", "NamedType", "ConstructorName"] {
+        for kind in [
+            "ImportPrefixReference",
+            "SimpleIdentifier",
+            "PrefixedIdentifier",
+            "NamedType",
+            "ConstructorName",
+        ] {
             if self.kind(node) == kind {
                 node = self.parent(node)?;
             }
@@ -135,14 +159,22 @@ impl Context<'_> {
             return false;
         }
         match self.node_expr(n).and_then(|x| self.bodies.get_resolved(x)) {
-            Some(Resolved::Constructor(f)) => self.p.program().function(*f).class.is_some_and(|c| self.class_and_widget(c)),
+            Some(Resolved::Constructor(f)) => self
+                .p
+                .program()
+                .function(*f)
+                .class
+                .is_some_and(|c| self.class_and_widget(c)),
             _ => false,
         }
     }
 
     /// The `ArgumentList` of an invocation.
     fn flutter_argument_list(&self, invocation: usize) -> Option<usize> {
-        self.children(invocation).iter().copied().find(|&k| self.kind(k) == "ArgumentList")
+        self.children(invocation)
+            .iter()
+            .copied()
+            .find(|&k| self.kind(k) == "ArgumentList")
     }
 
     /// The label name of a `NamedExpression`.
@@ -158,12 +190,18 @@ impl Context<'_> {
     /// argument `name` of the creation.
     pub(crate) fn flutter_named_argument(&self, creation: usize, name: &str) -> Option<usize> {
         let list = self.flutter_argument_list(creation)?;
-        self.children(list).iter().copied().find(|&a| self.kind(a) == "NamedExpression" && self.named_label(a) == Some(name))
+        self.children(list)
+            .iter()
+            .copied()
+            .find(|&a| self.kind(a) == "NamedExpression" && self.named_label(a) == Some(name))
     }
 
     /// The expression of a `NamedExpression`.
     pub(crate) fn named_expression(&self, named: usize) -> Option<usize> {
-        self.children(named).last().copied().filter(|&e| self.kind(e) != "Label")
+        self.children(named)
+            .last()
+            .copied()
+            .filter(|&e| self.kind(e) != "Label")
     }
 
     /// `findArgumentNamed`: the identifier is the `name:` label of an argument
@@ -173,9 +211,12 @@ impl Context<'_> {
             return None;
         }
         let label = self.parent(n).filter(|&p| self.kind(p) == "Label")?;
-        let named = self.parent(label).filter(|&p| self.kind(p) == "NamedExpression")?;
+        let named = self
+            .parent(label)
+            .filter(|&p| self.kind(p) == "NamedExpression")?;
         let invocation = self.parent(named).and_then(|l| self.parent(l))?;
-        (self.kind(invocation) == "InstanceCreationExpression" && self.widget_creation(invocation)).then_some(named)
+        (self.kind(invocation) == "InstanceCreationExpression" && self.widget_creation(invocation))
+            .then_some(named)
     }
 
     /// `sessionHelper.getClass(uri, name)`: the class exported by library `uri`.
@@ -183,7 +224,12 @@ impl Context<'_> {
         let p = self.p.program();
         let lib = p.libraries.iter().position(|l| l.uri == uri)?;
         let s = self.p.query.names.lookup(name)?;
-        match p.library(dartforge_elements::model::LibraryId(lib as u32)).exported.get(&s)?.getter? {
+        match p
+            .library(dartforge_elements::model::LibraryId(lib as u32))
+            .exported
+            .get(&s)?
+            .getter?
+        {
             Element::Class(c) => Some(c),
             _ => None,
         }
@@ -192,7 +238,14 @@ impl Context<'_> {
     /// [`Self::action_with_change`] with the selection and the linked groups of
     /// `e`, which is the text of the edit in `snippet` (the other edits, for
     /// imports, take the action off the snippet path).
-    fn linked_action(&self, title: &str, kind: &str, m: Change, snippet: Span, e: &crate::snippets::Write) -> Option<CodeAction> {
+    fn linked_action(
+        &self,
+        title: &str,
+        kind: &str,
+        m: Change,
+        snippet: Span,
+        e: &crate::snippets::Write,
+    ) -> Option<CodeAction> {
         let a = self.action_with_change(title, kind, m)?;
         Some(match a.edits.iter().position(|x| x.span == snippet) {
             Some(i) => a.with_write(i, e),
@@ -207,15 +260,22 @@ impl Context<'_> {
         Some(CodeAction {
             title: title.into(),
             kind: kind.into(),
-            edits: m.files.into_iter().flat_map(|(_, l)| l.into_iter().rev()).collect(),
+            edits: m
+                .files
+                .into_iter()
+                .flat_map(|(_, l)| l.into_iter().rev())
+                .collect(),
             diagnostic: None,
-            create_file: None, linked: Default::default(),
+            create_file: None,
+            linked: Default::default(),
         })
     }
 
     /// The Flutter assists at the cursor.
     pub(crate) fn flutter_assists(&self, uri: &str, start: usize, end: usize) -> Vec<CodeAction> {
-        let Some(node) = self.tree.locate(start, end) else { return Vec::new() };
+        let Some(node) = self.tree.locate(start, end) else {
+            return Vec::new();
+        };
         let mut v = Vec::new();
         v.extend(self.flutter_to_children(uri, node));
         v.extend(self.flutter_move(uri, node, false));
@@ -234,25 +294,43 @@ impl Context<'_> {
     /// The declared name (`library a.b;`) of the class's library.
     fn class_library_name(&self, c: ClassId) -> String {
         let p = self.p.program();
-        p.library(p.class(c).library).name.as_ref().map(|ns| ns.iter().map(|&s| self.p.name(s)).collect::<Vec<_>>().join(".")).unwrap_or_default()
+        p.library(p.class(c).library)
+            .name
+            .as_ref()
+            .map(|ns| {
+                ns.iter()
+                    .map(|&s| self.p.name(s))
+                    .collect::<Vec<_>>()
+                    .join(".")
+            })
+            .unwrap_or_default()
     }
 
     /// The type and the supertypes (`[self, ...allSupertypes]`) have the class
     /// `name` (by the `accepts` criterion).
     fn type_or_supertype(&self, t: TypeId, accepts: &dyn Fn(ClassId) -> bool) -> bool {
-        let Some(c) = self.flutter_type_class(t) else { return false };
+        let Some(c) = self.flutter_type_class(t) else {
+            return false;
+        };
         accepts(c) || self.p.supertypes(c).into_iter().any(accepts)
     }
 
     /// `AddDiagnosticPropertyReference` (the assist, without the bulk mode).
-    pub(crate) fn add_diagnostic_reference(&self, uri: &str, start: usize, end: usize) -> Option<CodeAction> {
+    pub(crate) fn add_diagnostic_reference(
+        &self,
+        uri: &str,
+        start: usize,
+        end: usize,
+    ) -> Option<CodeAction> {
         let p = self.p.program();
         let query = &self.p.query;
         let node = self.tree.locate(start, end)?;
         // The name and the type (`_getReturnType`: the declared getter or the field).
         let (name, ty, written_type): (String, TypeId, Option<usize>) = match self.kind(node) {
             "MethodDeclaration" => {
-                let crate::analyzer_tree::Mark::Function(fid) = self.tree.nodes[node].mark else { return None };
+                let crate::analyzer_tree::Mark::Function(fid) = self.tree.nodes[node].mark else {
+                    return None;
+                };
                 let func = self.ast.function(fid);
                 let n = func.name?;
                 if func.kind != dartforge_frontend::ast::FunctionKind::Getter {
@@ -260,27 +338,59 @@ impl Context<'_> {
                 }
                 let f = self.p.node_function(self.unit, fid)?;
                 let ret = query.outline.functions.get(f.0 as usize)?.return_type;
-                let annotation = self.children(node).iter().copied().find(|&k| matches!(self.kind(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
+                let annotation = self.children(node).iter().copied().find(|&k| {
+                    matches!(
+                        self.kind(k),
+                        "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"
+                    )
+                });
                 (self.p.name(n.sym).to_string(), ret, annotation)
             }
             "VariableDeclaration" => {
-                let list = self.parent(node).filter(|&l| self.kind(l) == "VariableDeclarationList")?;
-                self.parent(list).filter(|&d| self.kind(d) == "FieldDeclaration")?;
-                let name = crate::refactorings_exec::name_at_start_pub(self.node_text(node)).to_string();
-                let class_node = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
-                let crate::analyzer_tree::Mark::Decl(d) = self.tree.nodes[class_node].mark else { return None };
+                let list = self
+                    .parent(node)
+                    .filter(|&l| self.kind(l) == "VariableDeclarationList")?;
+                self.parent(list)
+                    .filter(|&d| self.kind(d) == "FieldDeclaration")?;
+                let name =
+                    crate::refactorings_exec::name_at_start_pub(self.node_text(node)).to_string();
+                let class_node = self
+                    .with_parents(node)
+                    .find(|&k| self.kind(k) == "ClassDeclaration")?;
+                let crate::analyzer_tree::Mark::Decl(d) = self.tree.nodes[class_node].mark else {
+                    return None;
+                };
                 let class = self.declaration_class(self.unit, d)?;
-                let v = p.class(class).fields.iter().copied().find(|&v| self.p.name(p.variable(v).name) == name)?;
+                let v = p
+                    .class(class)
+                    .fields
+                    .iter()
+                    .copied()
+                    .find(|&v| self.p.name(p.variable(v).name) == name)?;
                 let ty = query.variable_type(v)?;
-                let annotation = self.children(list).iter().copied().find(|&k| matches!(self.kind(k), "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"));
+                let annotation = self.children(list).iter().copied().find(|&k| {
+                    matches!(
+                        self.kind(k),
+                        "NamedType" | "GenericFunctionType" | "RecordTypeAnnotation"
+                    )
+                });
                 (name, ty, annotation)
             }
             _ => return None,
         };
-        let class_node = self.with_parents(node).find(|&k| self.kind(k) == "ClassDeclaration")?;
-        let crate::analyzer_tree::Mark::Decl(d) = self.tree.nodes[class_node].mark else { return None };
+        let class_node = self
+            .with_parents(node)
+            .find(|&k| self.kind(k) == "ClassDeclaration")?;
+        let crate::analyzer_tree::Mark::Decl(d) = self.tree.nodes[class_node].mark else {
+            return None;
+        };
         let class = self.declaration_class(self.unit, d)?;
-        let diagnosable = |c: ClassId| self.p.name(p.class(c).name) == "Diagnosticable" && p.class(c).decl.is_some_and(|x| p.unit(x.unit).uri == "package:flutter/src/foundation/diagnostics.dart");
+        let diagnosable = |c: ClassId| {
+            self.p.name(p.class(c).name) == "Diagnosticable"
+                && p.class(c).decl.is_some_and(|x| {
+                    p.unit(x.unit).uri == "package:flutter/src/foundation/diagnostics.dart"
+                })
+        };
         if !(diagnosable(class) || self.p.supertypes(class).into_iter().any(diagnosable)) {
             return None;
         }
@@ -292,13 +402,22 @@ impl Context<'_> {
             arguments = Some(vec![ty]);
             constructor_name = ".has";
             "ObjectFlagProperty"
-        } else if self.flutter_type_class(ty) == query.core.int_class && query.core.int_class.is_some() {
+        } else if self.flutter_type_class(ty) == query.core.int_class
+            && query.core.int_class.is_some()
+        {
             "IntProperty"
-        } else if self.flutter_type_class(ty) == query.core.double_class && query.core.double_class.is_some() {
+        } else if self.flutter_type_class(ty) == query.core.double_class
+            && query.core.double_class.is_some()
+        {
             "DoubleProperty"
-        } else if self.flutter_type_class(ty) == query.core.string_class && query.core.string_class.is_some() {
+        } else if self.flutter_type_class(ty) == query.core.string_class
+            && query.core.string_class.is_some()
+        {
             "StringProperty"
-        } else if self.flutter_type_class(ty).is_some_and(|c| p.class(c).kind == ClassKind::Enum) {
+        } else if self
+            .flutter_type_class(ty)
+            .is_some_and(|c| p.class(c).kind == ClassKind::Enum)
+        {
             arguments = Some(vec![ty]);
             "EnumProperty"
         } else if let Some(iterable) = query.core.iterable_class
@@ -309,9 +428,14 @@ impl Context<'_> {
                 _ => Vec::new(),
             });
             "IterableProperty"
-        } else if self.type_or_supertype(ty, &|c| self.p.name(p.class(c).name) == "Color" && self.class_library_name(c) == "dart.ui") {
+        } else if self.type_or_supertype(ty, &|c| {
+            self.p.name(p.class(c).name) == "Color" && self.class_library_name(c) == "dart.ui"
+        }) {
             "ColorProperty"
-        } else if self.type_or_supertype(ty, &|c| self.p.name(p.class(c).name) == "Matrix4" && self.class_library_name(c) == "vector_math_64") {
+        } else if self.type_or_supertype(ty, &|c| {
+            self.p.name(p.class(c).name) == "Matrix4"
+                && self.class_library_name(c) == "vector_math_64"
+        }) {
             "TransformProperty"
         } else {
             if !dynamic {
@@ -326,7 +450,10 @@ impl Context<'_> {
             let mut s = format!("{prefix}{constructor}.add({id}");
             match &arguments {
                 Some(args) => {
-                    let texts: Vec<String> = args.iter().map(|&a| writer.write(a, false).unwrap_or_default()).collect();
+                    let texts: Vec<String> = args
+                        .iter()
+                        .map(|&a| writer.write(a, false).unwrap_or_default())
+                        .collect();
                     s.push_str(&format!("<{}>", texts.join(", ")));
                 }
                 None if dynamic => {
@@ -354,9 +481,19 @@ impl Context<'_> {
                 let indent1 = ONE_INDENT;
                 let indent2 = format!("{ONE_INDENT}{ONE_INDENT}");
                 let body = reference(&indent2, "properties")?;
-                let text = format!("@override{eol}{indent1}void debugFillProperties(DiagnosticPropertiesBuilder properties) {{{eol}{indent2}super.debugFillProperties(properties);{eol}{body}{indent1}}}");
-                let (offset, inserted) = self.insert_in_member(class_node, crate::insert::Filter::Method, &text)?;
-                m.add(uri, Span { start: offset, end: offset }, inserted);
+                let text = format!(
+                    "@override{eol}{indent1}void debugFillProperties(DiagnosticPropertiesBuilder properties) {{{eol}{indent2}super.debugFillProperties(properties);{eol}{body}{indent1}}}"
+                );
+                let (offset, inserted) =
+                    self.insert_in_member(class_node, crate::insert::Filter::Method, &text)?;
+                m.add(
+                    uri,
+                    Span {
+                        start: offset,
+                        end: offset,
+                    },
+                    inserted,
+                );
             }
             [method] => {
                 let body = *self.children(method).last()?;
@@ -376,13 +513,23 @@ impl Context<'_> {
                     }
                 };
                 // The `DiagnosticPropertiesBuilder x` parameter.
-                let list = self.children(method).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
+                let list = self
+                    .children(method)
+                    .iter()
+                    .copied()
+                    .find(|&k| self.kind(k) == "FormalParameterList")?;
                 let constructor = self.children(list).iter().copied().find_map(|q| {
                     if self.kind(q) != "SimpleFormalParameter" {
                         return None;
                     }
-                    let ty = self.children(q).iter().copied().find(|&k| self.kind(k) == "NamedType")?;
-                    let type_name_ = crate::refactorings_exec::name_at_start_pub(self.node_text(ty).rsplit('.').next().unwrap_or(""));
+                    let ty = self
+                        .children(q)
+                        .iter()
+                        .copied()
+                        .find(|&k| self.kind(k) == "NamedType")?;
+                    let type_name_ = crate::refactorings_exec::name_at_start_pub(
+                        self.node_text(ty).rsplit('.').next().unwrap_or(""),
+                    );
                     if type_name_ != "DiagnosticPropertiesBuilder" {
                         return None;
                     }
@@ -391,12 +538,23 @@ impl Context<'_> {
                 })?;
                 let text = reference(&prefix, &constructor)?;
                 let next = tx.next_line(offset);
-                m.add(uri, Span { start: next, end: next }, text);
+                m.add(
+                    uri,
+                    Span {
+                        start: next,
+                        end: next,
+                    },
+                    text,
+                );
             }
             _ => return None,
         }
         crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
-        self.action_with_change("Add a debug reference to this property", "refactor.add.diagnosticPropertyReference", m)
+        self.action_with_change(
+            "Add a debug reference to this property",
+            "refactor.add.diagnosticPropertyReference",
+            m,
+        )
     }
 
     /// `FlutterConvertToChildren`.
@@ -405,16 +563,35 @@ impl Context<'_> {
             return None;
         }
         let label = self.parent(n).filter(|&p| self.kind(p) == "Label")?;
-        let named = self.parent(label).filter(|&p| self.kind(p) == "NamedExpression")?;
+        let named = self
+            .parent(label)
+            .filter(|&p| self.kind(p) == "NamedExpression")?;
         // `node.element != null`: the label resolves to the parameter.
         let invocation = self.parent(named).and_then(|l| self.parent(l))?;
-        let f = match self.node_expr(invocation).and_then(|x| self.bodies.get_resolved(x)) {
+        let f = match self
+            .node_expr(invocation)
+            .and_then(|x| self.bodies.get_resolved(x))
+        {
             Some(Resolved::Constructor(f)) | Some(Resolved::Element(Element::Function(f))) => *f,
-            Some(Resolved::Member { member: dartforge_types::MemberRef::Function(f), .. }) => *f,
+            Some(Resolved::Member {
+                member: dartforge_types::MemberRef::Function(f),
+                ..
+            }) => *f,
             _ => return None,
         };
         let child = self.p.query.names.lookup("child")?;
-        if !self.p.query.outline.functions.get(f.0 as usize)?.parameters.iter().any(|q| q.kind == dartforge_frontend::ast::ParameterKind::Named && q.name == Some(child)) {
+        if !self
+            .p
+            .query
+            .outline
+            .functions
+            .get(f.0 as usize)?
+            .parameters
+            .iter()
+            .any(|q| {
+                q.kind == dartforge_frontend::ast::ParameterKind::Named && q.name == Some(child)
+            })
+        {
             return None;
         }
         let arg = self.named_expression(named)?;
@@ -440,24 +617,53 @@ impl Context<'_> {
             let old_indent = tx.line_prefix(start_arg + eol.len() + new_line).to_string();
             let new_indent = format!("{old_indent}{ONE_INDENT}");
             let separator = &self.source[named_start..start_arg];
-            let prefix = if separator.contains(eol) { String::new() } else { format!("{eol}{new_indent}") };
+            let prefix = if separator.contains(eol) {
+                String::new()
+            } else {
+                format!("{eol}{new_indent}")
+            };
             if prefix.is_empty() {
                 m.add(uri, empty(named_start + "child:".len()), " [");
-                m.add(uri, Span { start: start_arg - 2, end: start_arg }, "");
+                m.add(
+                    uri,
+                    Span {
+                        start: start_arg - 2,
+                        end: start_arg,
+                    },
+                    "",
+                );
             } else {
                 m.add(uri, empty(start_arg), "[");
             }
             let new = tx.swap_indent(source_arg, &old_indent, &new_indent, false, false);
-            m.add(uri, Span { start: start_arg, end: end_arg }, format!("{prefix}{new},{eol}{old_indent}]"));
+            m.add(
+                uri,
+                Span {
+                    start: start_arg,
+                    end: end_arg,
+                },
+                format!("{prefix}{new},{eol}{old_indent}]"),
+            );
         }
-        self.action_with_change("Convert to children:", "refactor.flutter.convert.childToChildren", m)
+        self.action_with_change(
+            "Convert to children:",
+            "refactor.flutter.convert.childToChildren",
+            m,
+        )
     }
 
     /// `FlutterMoveUp`/`FlutterMoveDown`.
     fn flutter_move(&self, uri: &str, n: usize, downward: bool) -> Option<CodeAction> {
         let widget = self.find_expression_widget(n)?;
-        let list = self.parent(widget).filter(|&p| self.kind(p) == "ListLiteral")?;
-        let elements: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) != "TypeArgumentList").collect();
+        let list = self
+            .parent(widget)
+            .filter(|&p| self.kind(p) == "ListLiteral")?;
+        let elements: Vec<usize> = self
+            .children(list)
+            .iter()
+            .copied()
+            .filter(|&k| self.kind(k) != "TypeArgumentList")
+            .collect();
         let i = elements.iter().position(|&k| k == widget)?;
         let other = if downward {
             if i + 1 == elements.len() {
@@ -473,7 +679,11 @@ impl Context<'_> {
         let mut m = Change::default();
         m.add(uri, self.tree.span(other), self.node_text(widget));
         m.add(uri, self.tree.span(widget), self.node_text(other));
-        let (title, kind) = if downward { ("Move widget down", "refactor.flutter.move.down") } else { ("Move widget up", "refactor.flutter.move.up") };
+        let (title, kind) = if downward {
+            ("Move widget down", "refactor.flutter.move.down")
+        } else {
+            ("Move widget up", "refactor.flutter.move.up")
+        };
         self.action_with_change(title, kind, m)
     }
 
@@ -483,7 +693,13 @@ impl Context<'_> {
         if !self.widget_creation(creation) {
             return None;
         }
-        let list_elements = |list: usize| -> Vec<usize> { self.children(list).iter().copied().filter(|&k| self.kind(k) != "TypeArgumentList").collect() };
+        let list_elements = |list: usize| -> Vec<usize> {
+            self.children(list)
+                .iter()
+                .copied()
+                .filter(|&k| self.kind(k) != "TypeArgumentList")
+                .collect()
+        };
         let m = if let Some(a) = self.flutter_named_argument(creation, "children") {
             let e = self.named_expression(a)?;
             if self.kind(e) != "ListLiteral" || list_elements(e).is_empty() {
@@ -498,7 +714,11 @@ impl Context<'_> {
                 return None;
             }
             // The builder's first parameter not used in the body.
-            let list = self.children(e).iter().copied().find(|&k| self.kind(k) == "FormalParameterList")?;
+            let list = self
+                .children(e)
+                .iter()
+                .copied()
+                .find(|&k| self.kind(k) == "FormalParameterList")?;
             let parameter = *self.children(list).first()?;
             let name = self.previous_token(self.tree.nodes[parameter].end)?;
             let body = *self.children(e).last()?;
@@ -515,7 +735,9 @@ impl Context<'_> {
             let expression = match self.kind(body) {
                 "BlockFunctionBody" => {
                     let block = *self.children(body).first()?;
-                    let [r] = self.children(block)[..] else { return None };
+                    let [r] = self.children(block)[..] else {
+                        return None;
+                    };
                     if self.kind(r) != "ReturnStatement" {
                         return None;
                     }
@@ -535,7 +757,9 @@ impl Context<'_> {
             self.flutter_remove_one(uri, creation, self.named_expression(a)?)
         } else {
             // `_removeSingleWhenInList`.
-            let list = self.parent(creation).filter(|&p| self.kind(p) == "ListLiteral")?;
+            let list = self
+                .parent(creation)
+                .filter(|&p| self.kind(p) == "ListLiteral")?;
             let mut m = Change::default();
             m.add(uri, self.node_in_list(&list_elements(list), creation), "");
             m
@@ -543,8 +767,17 @@ impl Context<'_> {
         self.action_with_change("Remove this widget", "refactor.flutter.removeWidget", m)
     }
 
-    fn flutter_remove_children(&self, uri: &str, creation: usize, children: &[usize]) -> Option<Change> {
-        if children.len() > 1 && self.parent(creation).is_none_or(|p| self.kind(p) != "ListLiteral") {
+    fn flutter_remove_children(
+        &self,
+        uri: &str,
+        creation: usize,
+        children: &[usize],
+    ) -> Option<Change> {
+        if children.len() > 1
+            && self
+                .parent(creation)
+                .is_none_or(|p| self.kind(p) != "ListLiteral")
+        {
             return None;
         }
         let tx = Text::new(self.source);
@@ -553,7 +786,11 @@ impl Context<'_> {
         let old = tx.line_prefix(self.tree.nodes[first].start);
         let new = tx.line_prefix(self.tree.nodes[creation].start);
         let mut m = Change::default();
-        m.add(uri, self.tree.span(creation), tx.swap_indent(text, old, new, false, false));
+        m.add(
+            uri,
+            self.tree.span(creation),
+            tx.swap_indent(text, old, new, false, false),
+        );
         Some(m)
     }
 
@@ -562,15 +799,26 @@ impl Context<'_> {
         let old = tx.line_prefix(self.tree.nodes[expression].start);
         let new = tx.line_prefix(self.tree.nodes[creation].start);
         let mut m = Change::default();
-        m.add(uri, self.tree.span(creation), tx.swap_indent(self.node_text(expression), old, new, false, false));
+        m.add(
+            uri,
+            self.tree.span(creation),
+            tx.swap_indent(self.node_text(expression), old, new, false, false),
+        );
         m
     }
 
     /// `_singleChildInChildren`.
     fn single_child_in_children(&self, creation: usize) -> Option<usize> {
         let a = self.flutter_named_argument(creation, "children")?;
-        let list = self.named_expression(a).filter(|&e| self.kind(e) == "ListLiteral")?;
-        let elements: Vec<usize> = self.children(list).iter().copied().filter(|&k| self.kind(k) != "TypeArgumentList").collect();
+        let list = self
+            .named_expression(a)
+            .filter(|&e| self.kind(e) == "ListLiteral")?;
+        let elements: Vec<usize> = self
+            .children(list)
+            .iter()
+            .copied()
+            .filter(|&k| self.kind(k) != "TypeArgumentList")
+            .collect();
         let [single] = elements[..] else { return None };
         (self.kind(single) == "InstanceCreationExpression").then_some(single)
     }
@@ -587,11 +835,21 @@ impl Context<'_> {
             child = Some(first);
             parent_with_one_child = false;
         }
-        let child = child.or_else(|| self.flutter_named_argument(parent, "child").and_then(|a| self.named_expression(a)))?;
+        let child = child.or_else(|| {
+            self.flutter_named_argument(parent, "child")
+                .and_then(|a| self.named_expression(a))
+        })?;
         if self.kind(child) != "InstanceCreationExpression" || !self.widget_creation(child) {
             return None;
         }
-        self.swap_parent_and_child(uri, parent, child, parent_with_one_child, "Swap with child", "refactor.flutter.swap.withChild")
+        self.swap_parent_and_child(
+            uri,
+            parent,
+            child,
+            parent_with_one_child,
+            "Swap with child",
+            "refactor.flutter.swap.withChild",
+        )
     }
 
     /// `FlutterSwapWithParent`.
@@ -602,12 +860,22 @@ impl Context<'_> {
         }
         let mut parent_with_one_child = true;
         let mut named = None;
-        if let Some(list) = self.parent(child).filter(|&p| self.kind(p) == "ListLiteral") {
-            let elements = self.children(list).iter().filter(|&&k| self.kind(k) != "TypeArgumentList").count();
+        if let Some(list) = self
+            .parent(child)
+            .filter(|&p| self.kind(p) == "ListLiteral")
+        {
+            let elements = self
+                .children(list)
+                .iter()
+                .filter(|&&k| self.kind(k) != "TypeArgumentList")
+                .count();
             if elements != 1 {
                 return None;
             }
-            if let Some(p) = self.parent(list).filter(|&p| self.kind(p) == "NamedExpression") {
+            if let Some(p) = self
+                .parent(list)
+                .filter(|&p| self.kind(p) == "NamedExpression")
+            {
                 named = Some(p);
                 parent_with_one_child = false;
             }
@@ -617,11 +885,26 @@ impl Context<'_> {
         if self.kind(expr) != "InstanceCreationExpression" {
             return None;
         }
-        self.swap_parent_and_child(uri, expr, child, parent_with_one_child, "Swap with parent", "refactor.flutter.swap.withParent")
+        self.swap_parent_and_child(
+            uri,
+            expr,
+            child,
+            parent_with_one_child,
+            "Swap with parent",
+            "refactor.flutter.swap.withParent",
+        )
     }
 
     /// `swapParentAndChild`.
-    fn swap_parent_and_child(&self, uri: &str, parent: usize, child: usize, parent_with_one_child: bool, title: &str, kind: &str) -> Option<CodeAction> {
+    fn swap_parent_and_child(
+        &self,
+        uri: &str,
+        parent: usize,
+        child: usize,
+        parent_with_one_child: bool,
+        title: &str,
+        kind: &str,
+    ) -> Option<CodeAction> {
         let stable = match self.single_child_in_children(child) {
             Some(first) => first,
             None => self.flutter_named_argument(child, "child")?,
@@ -630,8 +913,10 @@ impl Context<'_> {
         let eol = tx.eol();
         let child_args = self.flutter_argument_list(child)?;
         let parent_args = self.flutter_argument_list(parent)?;
-        let text_child = &self.source[self.tree.nodes[child].start..self.tree.nodes[child_args].start];
-        let text_parent = &self.source[self.tree.nodes[parent].start..self.tree.nodes[parent_args].start];
+        let text_child =
+            &self.source[self.tree.nodes[child].start..self.tree.nodes[child_args].start];
+        let text_parent =
+            &self.source[self.tree.nodes[parent].start..self.tree.nodes[parent_args].start];
         let parent_indent = tx.line_prefix(self.tree.nodes[parent].start).to_string();
         let child_indent = format!("{parent_indent}  ");
         let mut s = String::new();
@@ -640,15 +925,31 @@ impl Context<'_> {
         s.push_str(eol);
         for &a in self.children(child_args) {
             if a != stable {
-                let text = tx.swap_indent(self.node_text(a), &child_indent, &parent_indent, false, false);
+                let text = tx.swap_indent(
+                    self.node_text(a),
+                    &child_indent,
+                    &parent_indent,
+                    false,
+                    false,
+                );
                 s.push_str(&format!("{parent_indent}  {text},{eol}"));
             }
         }
         s.push_str(&format!("{parent_indent}  child: {text_parent}({eol}"));
         for &a in self.children(parent_args) {
-            let label = if self.kind(a) == "NamedExpression" { self.named_label(a) } else { None };
+            let label = if self.kind(a) == "NamedExpression" {
+                self.named_label(a)
+            } else {
+                None
+            };
             if !matches!(label, Some("child") | Some("children")) {
-                let text = tx.swap_indent(self.node_text(a), &parent_indent, &child_indent, false, false);
+                let text = tx.swap_indent(
+                    self.node_text(a),
+                    &parent_indent,
+                    &child_indent,
+                    false,
+                    false,
+                );
                 s.push_str(&format!("{child_indent}  {text},{eol}"));
             }
         }
@@ -693,8 +994,15 @@ impl Context<'_> {
     fn flutter_wrap_builder(&self, uri: &str, n: usize, stream: bool) -> Option<CodeAction> {
         let widget = self.find_expression_widget(n)?;
         let t = self.flutter_node_type(widget)?;
-        let (name, uri_class) = if stream { ("StreamBuilder", URI_ASYNC) } else { ("Builder", URI_BASIC) };
-        if self.flutter_type_class(t).is_some_and(|c| self.flutter_exactly(c, name, uri_class)) {
+        let (name, uri_class) = if stream {
+            ("StreamBuilder", URI_ASYNC)
+        } else {
+            ("Builder", URI_BASIC)
+        };
+        if self
+            .flutter_type_class(t)
+            .is_some_and(|c| self.flutter_exactly(c, name, uri_class))
+        {
             return None;
         }
         let class = self.flutter_class(URI_WIDGETS, name)?;
@@ -705,7 +1013,8 @@ impl Context<'_> {
         let indent = tx.line_prefix(self.tree.nodes[widget].start).to_string();
         let indent1 = format!("{indent}{ONE_INDENT}");
         let indent2 = format!("{indent}{ONE_INDENT}{ONE_INDENT}");
-        let commas = crate::refactorings_exec::enabled_rule(self.p, self.unit, "require_trailing_commas");
+        let commas =
+            crate::refactorings_exec::enabled_rule(self.p, self.unit, "require_trailing_commas");
         let source_widget = tx.swap_indent(self.node_text(widget), &indent, &indent2, false, false);
         let mut s = reference;
         let mut marks = crate::snippets::Write::default();
@@ -727,13 +1036,23 @@ impl Context<'_> {
             s.push_str(&format!("{indent1}builder: (context) {{{eol}"));
         }
         s.push_str(&format!("{indent2}return {source_widget};{eol}"));
-        s.push_str(&format!("{indent1}}}{}{eol}", if commas { "," } else { "" }));
+        s.push_str(&format!(
+            "{indent1}}}{}{eol}",
+            if commas { "," } else { "" }
+        ));
         s.push_str(&indent);
         s.push(')');
         let mut m = Change::default();
         m.add(uri, self.tree.span(widget), s);
         crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
-        let (title, kind) = if stream { ("Wrap with StreamBuilder", "refactor.flutter.wrap.streamBuilder") } else { ("Wrap with Builder", "refactor.flutter.wrap.builder") };
+        let (title, kind) = if stream {
+            (
+                "Wrap with StreamBuilder",
+                "refactor.flutter.wrap.streamBuilder",
+            )
+        } else {
+            ("Wrap with Builder", "refactor.flutter.wrap.builder")
+        };
         self.linked_action(title, kind, m, self.tree.span(widget), &marks)
     }
 
@@ -742,8 +1061,16 @@ impl Context<'_> {
         if self.kind(n) != "ListLiteral" {
             return None;
         }
-        let elements: Vec<usize> = self.children(n).iter().copied().filter(|&k| self.kind(k) != "TypeArgumentList").collect();
-        if elements.iter().any(|&e| !(self.kind(e) == "InstanceCreationExpression" && self.widget_creation(e))) {
+        let elements: Vec<usize> = self
+            .children(n)
+            .iter()
+            .copied()
+            .filter(|&k| self.kind(k) != "TypeArgumentList")
+            .collect();
+        if elements
+            .iter()
+            .any(|&e| !(self.kind(e) == "InstanceCreationExpression" && self.widget_creation(e)))
+        {
             return None;
         }
         let tx = Text::new(self.source);
@@ -753,7 +1080,9 @@ impl Context<'_> {
         if new_line == source.len() - 1 {
             return None;
         }
-        let indent = tx.line_prefix(self.tree.nodes[n].start + eol.len() + new_line).to_string();
+        let indent = tx
+            .line_prefix(self.tree.nodes[n].start + eol.len() + new_line)
+            .to_string();
         let indent_arg = format!("{indent}{ONE_INDENT}");
         let list_indent = format!("{indent}{ONE_INDENT}{ONE_INDENT}");
         let list = tx.swap_indent(source, &indent, &list_indent, false, false);
@@ -762,18 +1091,29 @@ impl Context<'_> {
         marks
             .write(&format!("[{eol}{indent_arg}"))
             .linked("WIDGET", "widget", &[])
-            .write(&format!("({eol}{list_indent}children: {list},{eol}{indent_arg}),{eol}{indent}]"));
+            .write(&format!(
+                "({eol}{list_indent}children: {list},{eol}{indent_arg}),{eol}{indent}]"
+            ));
         let mut m = Change::default();
         m.add(uri, self.tree.span(n), marks.text.clone());
-        self.linked_action("Wrap with widget...", "refactor.flutter.wrap.generic", m, self.tree.span(n), &marks)
+        self.linked_action(
+            "Wrap with widget...",
+            "refactor.flutter.wrap.generic",
+            m,
+            self.tree.span(n),
+            &marks,
+        )
     }
 
     /// `SortChildPropertyLast`.
     fn flutter_child_last(&self, uri: &str, n: usize) -> Option<CodeAction> {
-        let child = if self.kind(n) == "NamedExpression" && matches!(self.named_label(n), Some("child") | Some("children")) {
+        let child = if self.kind(n) == "NamedExpression"
+            && matches!(self.named_label(n), Some("child") | Some("children"))
+        {
             n
         } else {
-            self.named_argument_in_label(n, "child").or_else(|| self.named_argument_in_label(n, "children"))?
+            self.named_argument_in_label(n, "child")
+                .or_else(|| self.named_argument_in_label(n, "children"))?
         };
         let list = self.parent(child)?;
         let creation = self.parent(list)?;
@@ -789,9 +1129,15 @@ impl Context<'_> {
         let trailing_comma = after(last).is_some_and(|t| &self.source[t.start..t.end] == ",");
         let child_start = self.previous_token(self.tree.nodes[child].start)?.end;
         let mut child_end = after(child)?.end;
-        let mut exclusion = Span { start: child_start, end: child_end };
+        let mut exclusion = Span {
+            start: child_start,
+            end: child_end,
+        };
         if arguments.first() == Some(&child) {
-            exclusion = Span { start: self.tree.nodes[child].start, end: self.tree.nodes[*arguments.get(1)?].start };
+            exclusion = Span {
+                start: self.tree.nodes[child].start,
+                end: self.tree.nodes[*arguments.get(1)?].start,
+            };
         }
         if !trailing_comma {
             child_end = self.tree.nodes[child].end;
@@ -807,8 +1153,19 @@ impl Context<'_> {
         }
         let mut m = Change::default();
         m.add(uri, exclusion, "");
-        m.add(uri, Span { start: insertion, end: insertion }, text);
-        self.action_with_change("Move child property to end of arguments", "refactor.sort.child.properties.last", m)
+        m.add(
+            uri,
+            Span {
+                start: insertion,
+                end: insertion,
+            },
+            text,
+        );
+        self.action_with_change(
+            "Move child property to end of arguments",
+            "refactor.sort.child.properties.last",
+            m,
+        )
     }
 
     /// `FlutterWrap`: the generic wrapper and those of `Center`, `Container`,
@@ -820,7 +1177,9 @@ impl Context<'_> {
             && let Some(t) = self.flutter_node_type(widget)
         {
             let class = self.flutter_type_class(t);
-            let exact = |name: &str, uri_c: &str| class.is_some_and(|c| self.flutter_exactly(c, name, uri_c));
+            let exact = |name: &str, uri_c: &str| {
+                class.is_some_and(|c| self.flutter_exactly(c, name, uri_c))
+            };
             v.extend(self.wrap_one(uri, widget, None));
             if !exact("Center", URI_BASIC) {
                 v.extend(self.wrap_one(uri, widget, Some("Center")));
@@ -842,7 +1201,9 @@ impl Context<'_> {
             for &s in &analysis.selected {
                 let mut s = s;
                 if self.kind(s) == "ConstructorName"
-                    && let Some(p) = self.parent(s).filter(|&p| self.kind(p) == "InstanceCreationExpression")
+                    && let Some(p) = self
+                        .parent(s)
+                        .filter(|&p| self.kind(p) == "InstanceCreationExpression")
                 {
                     s = p;
                 }
@@ -862,7 +1223,9 @@ impl Context<'_> {
                 widgets.push(w);
             }
         }
-        let (Some(&first), Some(&last)) = (widgets.first(), widgets.last()) else { return v };
+        let (Some(&first), Some(&last)) = (widgets.first(), widgets.last()) else {
+            return v;
+        };
         for name in ["Column", "Row"] {
             v.extend(self.wrap_several(uri, first, last, name));
         }
@@ -893,8 +1256,18 @@ impl Context<'_> {
         }
         let mut s = marks.text.clone();
         let lines: Vec<String> = if name == Some("Padding") {
-            let word = if crate::create::in_constant_context(self, widget) { "" } else { " const" };
-            let value = if crate::refactorings_exec::enabled_rule(self.p, self.unit, "prefer_int_literals") { "8" } else { "8.0" };
+            let word = if crate::create::in_constant_context(self, widget) {
+                ""
+            } else {
+                " const"
+            };
+            let value =
+                if crate::refactorings_exec::enabled_rule(self.p, self.unit, "prefer_int_literals")
+                {
+                    "8"
+                } else {
+                    "8.0"
+                };
             vec![format!("padding:{word} EdgeInsets.all({value}),")]
         } else {
             Vec::new()
@@ -923,9 +1296,18 @@ impl Context<'_> {
         m.add(uri, self.tree.span(widget), marks.text.clone());
         crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
         let (title, kind) = match name {
-            None => ("Wrap with widget...".to_string(), "refactor.flutter.wrap.generic".to_string()),
-            Some("SizedBox") => ("Wrap with SizedBox".to_string(), "refactor.flutter.wrap.sizedBox".to_string()),
-            Some(x) => (format!("Wrap with {x}"), format!("refactor.flutter.wrap.{}", x.to_lowercase())),
+            None => (
+                "Wrap with widget...".to_string(),
+                "refactor.flutter.wrap.generic".to_string(),
+            ),
+            Some("SizedBox") => (
+                "Wrap with SizedBox".to_string(),
+                "refactor.flutter.wrap.sizedBox".to_string(),
+            ),
+            Some(x) => (
+                format!("Wrap with {x}"),
+                format!("refactor.flutter.wrap.{}", x.to_lowercase()),
+            ),
         };
         self.linked_action(&title, &kind, m, self.tree.span(widget), &marks)
     }
@@ -934,7 +1316,10 @@ impl Context<'_> {
     fn wrap_several(&self, uri: &str, first: usize, last: usize, name: &str) -> Option<CodeAction> {
         let tx = Text::new(self.source);
         let eol = tx.eol();
-        let range = Span { start: self.tree.nodes[first].start, end: self.tree.nodes[last].end };
+        let range = Span {
+            start: self.tree.nodes[first].start,
+            end: self.tree.nodes[last].end,
+        };
         let source = &self.source[range.start..range.end];
         let class = self.flutter_class(URI_WIDGETS, name)?;
         self.flutter_class(URI_WIDGETS, "Widget")?;
@@ -960,6 +1345,10 @@ impl Context<'_> {
         let mut m = Change::default();
         m.add(uri, range, s);
         crate::refactorings_move::builder_imports(self, &mut m, &writer.import);
-        self.action_with_change(&format!("Wrap with {name}"), &format!("refactor.flutter.wrap.{}", name.to_lowercase()), m)
+        self.action_with_change(
+            &format!("Wrap with {name}"),
+            &format!("refactor.flutter.wrap.{}", name.to_lowercase()),
+            m,
+        )
     }
 }

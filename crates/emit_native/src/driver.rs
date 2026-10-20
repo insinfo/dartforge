@@ -1,9 +1,9 @@
 //! Compilation driver LLVM IR -> Clang -> link with the cached runtime.
 
-use crate::target::Os;
 use crate::cache::{RuntimeCache, native_cache_dir};
-use crate::object_cache::{self, ObjectCache};
 use crate::generator::{Generation, Generator};
+use crate::object_cache::{self, ObjectCache};
+use crate::target::Os;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -48,7 +48,9 @@ fn default_clang() -> PathBuf {
     }
     for var in ["DARTFORGE_LLVM_DIR", "LLVM_SYS_221_PREFIX"] {
         if let Some(d) = std::env::var_os(var) {
-            let c = PathBuf::from(d).join("bin").join(crate::target::clang_name());
+            let c = PathBuf::from(d)
+                .join("bin")
+                .join(crate::target::clang_name());
             if c.is_file() {
                 return c;
             }
@@ -96,7 +98,8 @@ pub fn compile_and_link(
         } else {
             crate::sdk_module::SdkProfile::Development
         };
-        let sdk = crate::sdk_module::compiled_sdk_for(&dir, &options.clang, profile, options.flags)?;
+        let sdk =
+            crate::sdk_module::compiled_sdk_for(&dir, &options.clang, profile, options.flags)?;
         if let Some(t) = sdk.cold
             && options.timings
         {
@@ -121,13 +124,17 @@ pub fn compile_and_link(
     let assembled;
     let llvm_ir = match &sdk {
         Some(s) if production => {
-            assembled = crate::pruning::assemble_production(llvm_ir, &s.summaries, options.timings)?;
+            assembled =
+                crate::pruning::assemble_production(llvm_ir, &s.summaries, options.timings)?;
             assembled.as_str()
         }
         _ => llvm_ir,
     };
     let (link_with, sdk_objects): (Linkage, Vec<PathBuf>) = match &sdk {
-        Some(s) if production => (Linkage::Production(crate::cache::RuntimeCache::for_production()?.lib_path), s.objects.clone()),
+        Some(s) if production => (
+            Linkage::Production(crate::cache::RuntimeCache::for_production()?.lib_path),
+            s.objects.clone(),
+        ),
         Some(s) => (Linkage::SharedSdk(s.import.clone()), Vec::new()),
         None => (Linkage::Runtime(runtime.lib_path.clone()), Vec::new()),
     };
@@ -137,8 +144,12 @@ pub fn compile_and_link(
     // and it is only created in those cases.
     let staging = output.parent().unwrap_or(Path::new(".")).join(".df_tmp");
     let create_staging = || {
-        std::fs::create_dir_all(&staging)
-            .map_err(|e| format!("could not create temporary directory {}: {e}", staging.display()))
+        std::fs::create_dir_all(&staging).map_err(|e| {
+            format!(
+                "could not create temporary directory {}: {e}",
+                staging.display()
+            )
+        })
     };
 
     let stem = output.file_stem().unwrap_or_default().to_string_lossy();
@@ -150,8 +161,12 @@ pub fn compile_and_link(
     // `DARTFORGE_PRODUCTION_NO_LTO=1` (measurement, docs/NATIVO-PRODUCAO-GRANDE.md
     // §3.2): the parts of the program go as `-O2` objects, and only the SDK
     // bitcode goes through the linker's LTO.
-    let without_lto = production && std::env::var("DARTFORGE_PRODUCTION_NO_LTO").is_ok_and(|v| v == "1");
-    let generation = Generation { cpu: options.cpu, ..Generation::of_program(options.optimize, production && !without_lto) };
+    let without_lto =
+        production && std::env::var("DARTFORGE_PRODUCTION_NO_LTO").is_ok_and(|v| v == "1");
+    let generation = Generation {
+        cpu: options.cpu,
+        ..Generation::of_program(options.optimize, production && !without_lto)
+    };
     if keep_ir {
         // The copy in `.df_tmp` only exists for those who asked for DARTFORGE_KEEP_IR
         // (the harness's `determinism --run` reads those copies).
@@ -175,11 +190,12 @@ pub fn compile_and_link(
         // the full LTO in a single module, on one thread — 1 600 s on
         // new_sali/backend, docs/NATIVO-PRODUCAO-GRANDE.md §1.2).
         // `DARTFORGE_GENERATOR` chooses by hand.
-        let parts_generator = if production && !without_lto && std::env::var_os("DARTFORGE_GENERATOR").is_none() {
-            Generator::clang_if_any(&options.clang)
-        } else {
-            generator.clone()
-        };
+        let parts_generator =
+            if production && !without_lto && std::env::var_os("DARTFORGE_GENERATOR").is_none() {
+                Generator::clang_if_any(&options.clang)
+            } else {
+                generator.clone()
+            };
         let objects = generate_parts(&plan, &parts_generator, generation, cache, &staging, &stem)?;
         drop(plan);
         let clang_duration = t_clang.elapsed();
@@ -197,16 +213,38 @@ pub fn compile_and_link(
             && matches!(crate::target::target_os(), Os::Windows | Os::Linux)
             && crate::target::roots_by_maps()?;
         let linked_done = if distributed {
-            link_distributed(&options.clang, &objects, &sdk_objects, &link_with, output, options.debug_info, options.cpu, &staging, cache)
+            link_distributed(
+                &options.clang,
+                &objects,
+                &sdk_objects,
+                &link_with,
+                output,
+                options.debug_info,
+                options.cpu,
+                &staging,
+                cache,
+            )
         } else {
-            link(&options.clang, &objects[0], &extras, &link_with, output, options.debug_info, options.cpu)
+            link(
+                &options.clang,
+                &objects[0],
+                &extras,
+                &link_with,
+                output,
+                options.debug_info,
+                options.cpu,
+            )
         };
         LINK_IN_PARTS.set(false);
         linked_done?;
         if let Some(s) = sdk.as_ref().filter(|_| !production) {
-            let dest = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
+            let dest = output
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join(s.dll.file_name().unwrap_or_default());
             if !dest.is_file() && std::fs::hard_link(&s.dll, &dest).is_err() {
-                std::fs::copy(&s.dll, &dest).map_err(|e| format!("could not put the SDK DLL in {}: {e}", dest.display()))?;
+                std::fs::copy(&s.dll, &dest)
+                    .map_err(|e| format!("could not put the SDK DLL in {}: {e}", dest.display()))?;
             }
         }
         if options.timings {
@@ -217,7 +255,11 @@ pub fn compile_and_link(
                 let _ = std::fs::remove_file(o);
             }
         }
-        return Ok(LinkTimes { clang: clang_duration, link: t_link.elapsed(), cache_object: false });
+        return Ok(LinkTimes {
+            clang: clang_duration,
+            link: t_link.elapsed(),
+            cache_object: false,
+        });
     }
 
     // Roots by maps in single-module production, through the distributed ThinLTO,
@@ -232,7 +274,8 @@ pub fn compile_and_link(
         && production
         && !without_lto
         && matches!(crate::target::target_os(), Os::Windows | Os::Linux)
-        && (crate::target::roots_by_maps()? || std::env::var("DARTFORGE_LTO_DISTRIBUTED").is_ok_and(|v| v == "1"));
+        && (crate::target::roots_by_maps()?
+            || std::env::var("DARTFORGE_LTO_DISTRIBUTED").is_ok_and(|v| v == "1"));
     // The bitcode that goes to the distributed ThinLTO has to carry the ThinLTO
     // summary, which only Clang writes: without it, the backend with the index of the
     // link returns an empty module. `DARTFORGE_GENERATOR` chooses by hand.
@@ -252,7 +295,8 @@ pub fn compile_and_link(
         Some(c) => {
             let description = generation.description();
             let key = object_cache::key(llvm_ir, &generator.identity()?, &[description.as_str()]);
-            let (obj, hit) = c.get_or_create(key, |tmp| generator.generate(llvm_ir, generation, tmp))?;
+            let (obj, hit) =
+                c.get_or_create(key, |tmp| generator.generate(llvm_ir, generation, tmp))?;
             (obj, Some((c, key, hit)))
         }
         None => {
@@ -267,9 +311,27 @@ pub fn compile_and_link(
     let t_link = Instant::now();
     let link_object = |obj: &Path| {
         if single_distributed {
-            link_distributed(&options.clang, std::slice::from_ref(&obj.to_path_buf()), &sdk_objects, &link_with, output, options.debug_info, options.cpu, &staging, cache)
+            link_distributed(
+                &options.clang,
+                std::slice::from_ref(&obj.to_path_buf()),
+                &sdk_objects,
+                &link_with,
+                output,
+                options.debug_info,
+                options.cpu,
+                &staging,
+                cache,
+            )
         } else {
-            link(&options.clang, obj, &sdk_objects, &link_with, output, options.debug_info, options.cpu)
+            link(
+                &options.clang,
+                obj,
+                &sdk_objects,
+                &link_with,
+                output,
+                options.debug_info,
+                options.cpu,
+            )
         }
     };
     let mut linked_done = link_object(&obj_file);
@@ -290,9 +352,13 @@ pub fn compile_and_link(
         // first; on Linux and macOS the executable carries the `rpath` of its own
         // directory): a physical link, without copying; a copy only if the volume
         // is another.
-        let dest = output.parent().unwrap_or(Path::new(".")).join(s.dll.file_name().unwrap_or_default());
+        let dest = output
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join(s.dll.file_name().unwrap_or_default());
         if !dest.is_file() && std::fs::hard_link(&s.dll, &dest).is_err() {
-            std::fs::copy(&s.dll, &dest).map_err(|e| format!("could not put the SDK DLL in {}: {e}", dest.display()))?;
+            std::fs::copy(&s.dll, &dest)
+                .map_err(|e| format!("could not put the SDK DLL in {}: {e}", dest.display()))?;
         }
     }
     let link_duration = t_link.elapsed();
@@ -331,7 +397,13 @@ fn link_distributed(
     let mut entries: Vec<PathBuf> = parts.to_vec();
     entries.extend(sdk.iter().cloned());
     entries.push(linkage.library().to_path_buf());
-    let mut natives = crate::distributed_lto::objects(&crate::distributed_lto::Request { clang, entries: &entries, cpu, staging, cache })?;
+    let mut natives = crate::distributed_lto::objects(&crate::distributed_lto::Request {
+        clang,
+        entries: &entries,
+        cpu,
+        staging,
+        cache,
+    })?;
     natives.pop();
     let Some((first_one, rest)) = natives.split_first() else {
         return Err("the distributed LTO returned no object".to_string());
@@ -372,7 +444,11 @@ thread_local! {
 /// `bench/performance` does not change), `-O2` for the rest.
 pub fn lto_level() -> u8 {
     let pattern = if LINK_IN_PARTS.get() { 1 } else { 2 };
-    std::env::var("DARTFORGE_LTO_LEVEL").ok().and_then(|v| v.trim().parse::<u8>().ok()).filter(|n| *n <= 3).unwrap_or(pattern)
+    std::env::var("DARTFORGE_LTO_LEVEL")
+        .ok()
+        .and_then(|v| v.trim().parse::<u8>().ok())
+        .filter(|n| *n <= 3)
+        .unwrap_or(pattern)
 }
 
 /// Whether the LTO of this link runs LLVM's *machine outliner* on every
@@ -399,7 +475,9 @@ pub fn outliner_at_link() -> bool {
         && !crate::target::roots_by_maps().unwrap_or(true)
         && !crate::target::symbolic_stack_trace().unwrap_or(true)
         && !crate::target::arc_memory().unwrap_or(true);
-    crate::target::is_aarch64() && default_mode && (LINK_IN_PARTS.get() || request.as_deref() == Some("1"))
+    crate::target::is_aarch64()
+        && default_mode
+        && (LINK_IN_PARTS.get() || request.as_deref() == Some("1"))
 }
 
 /// Whether the production LTO runs LLVM's `MergeFunctions` pass
@@ -441,7 +519,9 @@ pub fn generation_tasks() -> usize {
     std::env::var("DARTFORGE_PARALLEL_PARTS")
         .ok()
         .and_then(|v| v.trim().parse::<usize>().ok())
-        .unwrap_or_else(|| std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).clamp(1, 3)))
+        .unwrap_or_else(|| {
+            std::thread::available_parallelism().map_or(1, |n| (n.get() / 2).clamp(1, 3))
+        })
         .max(1)
 }
 
@@ -470,24 +550,28 @@ fn generate_parts(
         std::sync::Mutex::new((0..n).map(|_| None).collect());
     std::thread::scope(|s| {
         for _ in 0..parallel.min(n) {
-            s.spawn(|| loop {
-                let i = next_one.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if i >= n {
-                    break;
+            s.spawn(|| {
+                loop {
+                    let i = next_one.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    if i >= n {
+                        break;
+                    }
+                    let text = plan.part(i);
+                    let ir = text.as_str();
+                    let r = match cache {
+                        Some(c) => {
+                            let key = object_cache::key(ir, &identity, &[description.as_str()]);
+                            c.get_or_create(key, |tmp| generator.generate(ir, generation, tmp))
+                                .map(|(o, _)| o)
+                        }
+                        None => {
+                            let o = staging
+                                .join(format!("{stem}.parte{i}.{}", crate::target::ext_object()));
+                            generator.generate(ir, generation, &o).map(|()| o)
+                        }
+                    };
+                    results.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
                 }
-                let text = plan.part(i);
-                let ir = text.as_str();
-                let r = match cache {
-                    Some(c) => {
-                        let key = object_cache::key(ir, &identity, &[description.as_str()]);
-                        c.get_or_create(key, |tmp| generator.generate(ir, generation, tmp)).map(|(o, _)| o)
-                    }
-                    None => {
-                        let o = staging.join(format!("{stem}.parte{i}.{}", crate::target::ext_object()));
-                        generator.generate(ir, generation, &o).map(|()| o)
-                    }
-                };
-                results.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(r);
             });
         }
     });
@@ -523,7 +607,15 @@ impl Linkage {
 
 /// Linking on Linux: `ld.lld` directly, with the link sysroot
 /// (`linker.rs`) — without the Clang driver nor GCC on the machine.
-fn link_on_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
+fn link_on_linux(
+    clang: &Path,
+    obj: &Path,
+    sdk: &[PathBuf],
+    linkage: &Linkage,
+    output: &Path,
+    debug_info: bool,
+    cpu: Option<crate::generator::Cpu>,
+) -> Result<(), String> {
     use crate::linker;
     let sysroot = linker::SysrootLinux::locate(clang)?;
     let mut entries = vec![obj.to_path_buf()];
@@ -549,7 +641,15 @@ fn link_on_linux(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, o
 /// Linking on Windows: `lld-link` directly, with the import libraries
 /// and the minimal CRT generated by dartforge (`linker_windows.rs`) —
 /// without Visual Studio nor the Windows SDK on the machine (N15).
-fn link_on_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
+fn link_on_windows(
+    clang: &Path,
+    obj: &Path,
+    sdk: &[PathBuf],
+    linkage: &Linkage,
+    output: &Path,
+    debug_info: bool,
+    cpu: Option<crate::generator::Cpu>,
+) -> Result<(), String> {
     use crate::linker_windows as lw;
     let sysroot = lw::SysrootWindows::locate(clang)?;
     let mut entries = vec![obj.to_path_buf()];
@@ -560,7 +660,9 @@ fn link_on_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage,
         &lw::lld_link(clang),
         sysroot,
         &lw::Linkage {
-            product: lw::Product::Executable { subsystem: lw::Subsystem::from_environment()? },
+            product: lw::Product::Executable {
+                subsystem: lw::Subsystem::from_environment()?,
+            },
             entries,
             lto: production && !NO_LTO_AT_LINK.get(),
             cpu: cpu.map(crate::generator::Cpu::name),
@@ -574,7 +676,15 @@ fn link_on_windows(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage,
 /// Linking on macOS: `ld64.lld` directly, with the `.tbd` files of the link
 /// sysroot (`linker_macos.rs`) — without `xcrun`, Apple's `ld` nor the
 /// Command Line Tools on the machine (N16).
-fn link_on_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
+fn link_on_macos(
+    clang: &Path,
+    obj: &Path,
+    sdk: &[PathBuf],
+    linkage: &Linkage,
+    output: &Path,
+    debug_info: bool,
+    cpu: Option<crate::generator::Cpu>,
+) -> Result<(), String> {
     use crate::linker_macos as lm;
     let sysroot = lm::SysrootMacos::locate()?;
     let mut entries = vec![obj.to_path_buf()];
@@ -601,13 +711,23 @@ fn link_on_macos(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, o
 /// what the system requires coming from dartforge (no C driver, no
 /// system toolchain). The `lld` is the one from the same LLVM as the generator — the
 /// production bitcode (LTO) is only read by the same version.
-fn link(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
+fn link(
+    clang: &Path,
+    obj: &Path,
+    sdk: &[PathBuf],
+    linkage: &Linkage,
+    output: &Path,
+    debug_info: bool,
+    cpu: Option<crate::generator::Cpu>,
+) -> Result<(), String> {
     match crate::target::target_os() {
         Os::Linux => link_on_linux(clang, obj, sdk, linkage, output, debug_info, cpu),
         // The link from before N15 (the Clang driver with `link.exe` and the
         // Visual C++ CRT), only for comparison: it is the reference of
         // `no-toolchain.yml`, in the same build.
-        Os::Windows if link_with_clang() => link_old_with_clang(clang, obj, sdk, linkage, output, debug_info, cpu),
+        Os::Windows if link_with_clang() => {
+            link_old_with_clang(clang, obj, sdk, linkage, output, debug_info, cpu)
+        }
         Os::Windows => link_on_windows(clang, obj, sdk, linkage, output, debug_info, cpu),
         Os::MacOs => link_on_macos(clang, obj, sdk, linkage, output, debug_info, cpu),
     }
@@ -622,7 +742,15 @@ pub fn link_with_clang() -> bool {
 /// The link through the Clang driver, as it was before N15 (the Visual Studio
 /// toolchain on the machine): `DARTFORGE_LINK_WITH_CLANG=1` on Windows. Only
 /// to compare with the link without the system toolchain.
-fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Linkage, output: &Path, debug_info: bool, cpu: Option<crate::generator::Cpu>) -> Result<(), String> {
+fn link_old_with_clang(
+    clang: &Path,
+    obj: &Path,
+    sdk: &[PathBuf],
+    linkage: &Linkage,
+    output: &Path,
+    debug_info: bool,
+    cpu: Option<crate::generator::Cpu>,
+) -> Result<(), String> {
     if crate::target::target_os() == Os::Linux {
         return link_on_linux(clang, obj, sdk, linkage, output, debug_info, cpu);
     }
@@ -639,7 +767,11 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
         Linkage::SharedSdk(_) => {
             // The shared library goes next to the executable; the `rpath`
             // points the loader to the directory of the executable itself.
-            cmd.arg(if target_os == Os::MacOs { "-Wl,-rpath,@executable_path" } else { "-Wl,-rpath,$ORIGIN" });
+            cmd.arg(if target_os == Os::MacOs {
+                "-Wl,-rpath,@executable_path"
+            } else {
+                "-Wl,-rpath,$ORIGIN"
+            });
             // Clang adds `-lSystem` on macOS: without the SDK root
             // (`-isysroot`), the linker does not find it.
             cmd.args(crate::target::link_arguments());
@@ -663,7 +795,10 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
             };
             let lld = clang.with_file_name(lld_name);
             if !lld.is_file() {
-                return Err(format!("ThinLTO requires {lld_name} next to {}", clang.display()));
+                return Err(format!(
+                    "ThinLTO requires {lld_name} next to {}",
+                    clang.display()
+                ));
             }
             if let Some(bin) = clang.parent()
                 && !bin.as_os_str().is_empty()
@@ -703,7 +838,9 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
             // The bitcode of the embedded generator has no ThinLTO summary:
             // `lld` does the full LTO, and its code generation is split
             // into parallel partitions (Mach-O does not have the option).
-            let partitions = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
+            let partitions = std::thread::available_parallelism()
+                .map_or(4, |n| n.get())
+                .clamp(2, 16);
             match target_os {
                 Os::Windows => {
                     // `/OPT:REF` also turns on `lld-link`'s `/OPT:ICF`, which
@@ -755,8 +892,16 @@ fn link_old_with_clang(clang: &Path, obj: &Path, sdk: &[PathBuf], linkage: &Link
         // What the linker said goes into the error (without it a CI failure has
         // no diagnostic).
         let text = String::from_utf8_lossy(&exit.stderr);
-        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-        return Err(format!("Clang failed to link the executable ({}):\n{}", exit.status, lines.join("\n")));
+        let lines: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .take(40)
+            .collect();
+        return Err(format!(
+            "Clang failed to link the executable ({}):\n{}",
+            exit.status,
+            lines.join("\n")
+        ));
     }
     Ok(())
 }
@@ -767,7 +912,11 @@ fn files_to_remove(ll: &Path, obj: &Path, dir_cache: &Path, keep_ir: bool) -> Ve
     if keep_ir {
         return Vec::new();
     }
-    [ll, obj].into_iter().filter(|p| !p.starts_with(dir_cache)).map(Path::to_path_buf).collect()
+    [ll, obj]
+        .into_iter()
+        .filter(|p| !p.starts_with(dir_cache))
+        .map(Path::to_path_buf)
+        .collect()
 }
 
 #[cfg(test)]
@@ -780,8 +929,14 @@ mod tests {
         let ll = Path::new("D:/x/target/differential/native/p/.df_tmp/p.ll");
         let obj_cache = cache.join("obj/ab/ab00.obj");
         let obj_local = Path::new("D:/x/target/differential/native/p/.df_tmp/p.obj");
-        assert_eq!(files_to_remove(ll, &obj_cache, cache, false), vec![ll.to_path_buf()]);
-        assert_eq!(files_to_remove(ll, obj_local, cache, false), vec![ll.to_path_buf(), obj_local.to_path_buf()]);
+        assert_eq!(
+            files_to_remove(ll, &obj_cache, cache, false),
+            vec![ll.to_path_buf()]
+        );
+        assert_eq!(
+            files_to_remove(ll, obj_local, cache, false),
+            vec![ll.to_path_buf(), obj_local.to_path_buf()]
+        );
         assert!(files_to_remove(ll, obj_local, cache, true).is_empty());
     }
 }

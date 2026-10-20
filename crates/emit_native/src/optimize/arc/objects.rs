@@ -8,11 +8,27 @@ use crate::hir::*;
 use std::{borrow::Cow, collections::HashMap};
 
 pub(super) fn typed_abi(params: &[Type], ret: Type) -> Option<i64> {
-    let (Type::Ref, args) = params.split_first()? else { return None };
-    if args.len() > 12 { return None; }
-    args.iter().copied().chain(std::iter::once(ret)).try_fold(1_i64, |abi, ty|
-        Some(abi * 5 + match ty { Type::Ref => 1, Type::I64 => 2,
-            Type::F64 => 3, Type::I1 => 4, _ => return None }))
+    let (Type::Ref, args) = params.split_first()? else {
+        return None;
+    };
+    if args.len() > 12 {
+        return None;
+    }
+    args.iter()
+        .copied()
+        .chain(std::iter::once(ret))
+        .try_fold(1_i64, |abi, ty| {
+            Some(
+                abi * 5
+                    + match ty {
+                        Type::Ref => 1,
+                        Type::I64 => 2,
+                        Type::F64 => 3,
+                        Type::I1 => 4,
+                        _ => return None,
+                    },
+            )
+        })
 }
 
 pub(super) fn prepare(
@@ -33,8 +49,12 @@ pub(super) fn prepare(
         .collect();
     let mut next_item = next_val(f, plan);
     let mut id = || -> Result<ValueId, String> {
-        let v = u32::try_from(next_item)
-            .map_err(|_| format!("SSA IDs exhausted while initializing objects in {}", f.symbol))?;
+        let v = u32::try_from(next_item).map_err(|_| {
+            format!(
+                "SSA IDs exhausted while initializing objects in {}",
+                f.symbol
+            )
+        })?;
         next_item += 1;
         Ok(ValueId(v))
     };
@@ -95,17 +115,29 @@ pub(super) fn prepare(
                 ));
                 continue;
             }
-            if let Instruction::CellGet { cell } = inst && *ty == Type::Ref {
+            if let Instruction::CellGet { cell } = inst
+                && *ty == Type::Ref
+            {
                 if typ(cell) != Some(Type::Ref) {
-                    return Err(format!("ARC cell in {} v{} requires a Ref receiver", f.symbol, v.0));
+                    return Err(format!(
+                        "ARC cell in {} v{} requires a Ref receiver",
+                        f.symbol, v.0
+                    ));
                 }
                 // The physical map must mark the slot as Ref before borrowing;
                 // do not convert the word of a scalar cell into a reference.
-                instructions.push((*v, Instruction::CallRuntime {
-                    name: "dartforge_arc_read_field_ref_v1".into(),
-                    args: vec![(cell.clone(), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
-                    ret_ty: Type::Ref,
-                }, Type::Ref));
+                instructions.push((
+                    *v,
+                    Instruction::CallRuntime {
+                        name: "dartforge_arc_read_field_ref_v1".into(),
+                        args: vec![
+                            (cell.clone(), Type::Ref),
+                            (Operand::Constant(Constant::Int(0)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ));
                 continue;
             }
             // The scalar read of the cell: the bits of field 0 through the audited
@@ -115,17 +147,42 @@ pub(super) fn prepare(
                 && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8)
             {
                 if typ(cell) != Some(Type::Ref) {
-                    return Err(format!("ARC cell in {} v{} requires a Ref receiver", f.symbol, v.0));
+                    return Err(format!(
+                        "ARC cell in {} v{} requires a Ref receiver",
+                        f.symbol, v.0
+                    ));
                 }
                 let bits = if *ty == Type::I64 { *v } else { id()? };
-                instructions.push((bits, Instruction::CallRuntime {
-                    name: "dartforge_arc_read_field_scalar_v1".into(),
-                    args: vec![(cell.clone(), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64)],
-                    ret_ty: Type::I64,
-                }, Type::I64));
+                instructions.push((
+                    bits,
+                    Instruction::CallRuntime {
+                        name: "dartforge_arc_read_field_scalar_v1".into(),
+                        args: vec![
+                            (cell.clone(), Type::Ref),
+                            (Operand::Constant(Constant::Int(0)), Type::I64),
+                        ],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                ));
                 match ty {
-                    Type::F64 => instructions.push((*v, Instruction::Bitcast { op: Operand::Val(bits), to: Type::F64 }, Type::F64)),
-                    Type::I1 | Type::I8 => instructions.push((*v, Instruction::Trunc { op: Operand::Val(bits), from: Type::I64, to: *ty }, *ty)),
+                    Type::F64 => instructions.push((
+                        *v,
+                        Instruction::Bitcast {
+                            op: Operand::Val(bits),
+                            to: Type::F64,
+                        },
+                        Type::F64,
+                    )),
+                    Type::I1 | Type::I8 => instructions.push((
+                        *v,
+                        Instruction::Trunc {
+                            op: Operand::Val(bits),
+                            from: Type::I64,
+                            to: *ty,
+                        },
+                        *ty,
+                    )),
                     _ => {}
                 }
                 continue;
@@ -134,44 +191,90 @@ pub(super) fn prepare(
             // in the representation of the value; the runtime checks the map mark.
             if let Instruction::CellSet { cell, value } = inst {
                 if typ(cell) != Some(Type::Ref) || *ty != Type::Void {
-                    return Err(format!("ARC cell in {} v{} requires a Ref receiver", f.symbol, v.0));
+                    return Err(format!(
+                        "ARC cell in {} v{} requires a Ref receiver",
+                        f.symbol, v.0
+                    ));
                 }
                 let (name_str, val_ref, repr) = match typ(value) {
-                    Some(Type::Ref) => ("dartforge_arc_write_field_ref_v1", value.clone(), Type::Ref),
-                    Some(Type::I64) => ("dartforge_arc_write_field_scalar_v1", value.clone(), Type::I64),
+                    Some(Type::Ref) => {
+                        ("dartforge_arc_write_field_ref_v1", value.clone(), Type::Ref)
+                    }
+                    Some(Type::I64) => (
+                        "dartforge_arc_write_field_scalar_v1",
+                        value.clone(),
+                        Type::I64,
+                    ),
                     Some(t @ (Type::F64 | Type::I1 | Type::I8)) => {
                         let bits = id()?;
                         let conversion = if t == Type::F64 {
-                            Instruction::Bitcast { op: value.clone(), to: Type::I64 }
+                            Instruction::Bitcast {
+                                op: value.clone(),
+                                to: Type::I64,
+                            }
                         } else {
-                            Instruction::ZExt { op: value.clone(), from: t, to: Type::I64 }
+                            Instruction::ZExt {
+                                op: value.clone(),
+                                from: t,
+                                to: Type::I64,
+                            }
                         };
                         instructions.push((bits, conversion, Type::I64));
-                        ("dartforge_arc_write_field_scalar_v1", Operand::Val(bits), Type::I64)
+                        (
+                            "dartforge_arc_write_field_scalar_v1",
+                            Operand::Val(bits),
+                            Type::I64,
+                        )
                     }
-                    _ => return Err(format!("ARC cell in {} v{}: value without a representation", f.symbol, v.0)),
+                    _ => {
+                        return Err(format!(
+                            "ARC cell in {} v{}: value without a representation",
+                            f.symbol, v.0
+                        ));
+                    }
                 };
-                instructions.push((*v, Instruction::CallRuntime {
-                    name: name_str.into(),
-                    args: vec![(cell.clone(), Type::Ref), (Operand::Constant(Constant::Int(0)), Type::I64), (val_ref, repr)],
-                    ret_ty: Type::Void,
-                }, Type::Void));
+                instructions.push((
+                    *v,
+                    Instruction::CallRuntime {
+                        name: name_str.into(),
+                        args: vec![
+                            (cell.clone(), Type::Ref),
+                            (Operand::Constant(Constant::Int(0)), Type::I64),
+                            (val_ref, repr),
+                        ],
+                        ret_ty: Type::Void,
+                    },
+                    Type::Void,
+                ));
                 continue;
             }
             if let Instruction::EnvGet { env, index } = inst
                 && *ty == Type::Ref
             {
                 if typ(env) != Some(Type::Ref) {
-                    return Err(format!("ARC capture in {} v{} requires a Ref environment", f.symbol, v.0));
+                    return Err(format!(
+                        "ARC capture in {} v{} requires a Ref environment",
+                        f.symbol, v.0
+                    ));
                 }
-                let idx_value = i64::try_from(*index).map_err(|_|
-                    format!("ARC capture in {} v{}: index outside the ABI", f.symbol, v.0))?;
-                instructions.push((*v, Instruction::CallRuntime {
-                    name: "dartforge_arc_env_ref_v1".into(),
-                    args: vec![(env.clone(), Type::Ref),
-                        (Operand::Constant(Constant::Int(idx_value)), Type::I64)],
-                    ret_ty: Type::Ref,
-                }, Type::Ref));
+                let idx_value = i64::try_from(*index).map_err(|_| {
+                    format!(
+                        "ARC capture in {} v{}: index outside the ABI",
+                        f.symbol, v.0
+                    )
+                })?;
+                instructions.push((
+                    *v,
+                    Instruction::CallRuntime {
+                        name: "dartforge_arc_env_ref_v1".into(),
+                        args: vec![
+                            (env.clone(), Type::Ref),
+                            (Operand::Constant(Constant::Int(idx_value)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ));
                 continue;
             }
             // The scalar capture: the bits through the audited entry (which rejects
@@ -180,87 +283,180 @@ pub(super) fn prepare(
                 && matches!(ty, Type::I64 | Type::F64 | Type::I1 | Type::I8)
             {
                 if typ(env) != Some(Type::Ref) {
-                    return Err(format!("ARC capture in {} v{} requires a Ref environment", f.symbol, v.0));
+                    return Err(format!(
+                        "ARC capture in {} v{} requires a Ref environment",
+                        f.symbol, v.0
+                    ));
                 }
-                let idx_value = i64::try_from(*index).map_err(|_|
-                    format!("ARC capture in {} v{}: index outside the ABI", f.symbol, v.0))?;
+                let idx_value = i64::try_from(*index).map_err(|_| {
+                    format!(
+                        "ARC capture in {} v{}: index outside the ABI",
+                        f.symbol, v.0
+                    )
+                })?;
                 let bits = if *ty == Type::I64 { *v } else { id()? };
-                instructions.push((bits, Instruction::CallRuntime {
-                    name: "dartforge_arc_scalar_env_v1".into(),
-                    args: vec![(env.clone(), Type::Ref), (Operand::Constant(Constant::Int(idx_value)), Type::I64)],
-                    ret_ty: Type::I64,
-                }, Type::I64));
+                instructions.push((
+                    bits,
+                    Instruction::CallRuntime {
+                        name: "dartforge_arc_scalar_env_v1".into(),
+                        args: vec![
+                            (env.clone(), Type::Ref),
+                            (Operand::Constant(Constant::Int(idx_value)), Type::I64),
+                        ],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                ));
                 match ty {
-                    Type::F64 => instructions.push((*v, Instruction::Bitcast { op: Operand::Val(bits), to: Type::F64 }, Type::F64)),
-                    Type::I1 | Type::I8 => instructions.push((*v, Instruction::Trunc { op: Operand::Val(bits), from: Type::I64, to: *ty }, *ty)),
+                    Type::F64 => instructions.push((
+                        *v,
+                        Instruction::Bitcast {
+                            op: Operand::Val(bits),
+                            to: Type::F64,
+                        },
+                        Type::F64,
+                    )),
+                    Type::I1 | Type::I8 => instructions.push((
+                        *v,
+                        Instruction::Trunc {
+                            op: Operand::Val(bits),
+                            from: Type::I64,
+                            to: *ty,
+                        },
+                        *ty,
+                    )),
                     _ => {}
                 }
                 continue;
             }
             let closure = match inst {
-                Instruction::AllocClosure { code_symbol, env } =>
-                    Some((code_symbol, env, None, 0)),
-                Instruction::AllocClosureTyped { code_symbol, env, typed, abi, .. } =>
-                    Some((code_symbol, env, Some(typed), *abi)),
+                Instruction::AllocClosure { code_symbol, env } => Some((code_symbol, env, None, 0)),
+                Instruction::AllocClosureTyped {
+                    code_symbol,
+                    env,
+                    typed,
+                    abi,
+                    ..
+                } => Some((code_symbol, env, Some(typed), *abi)),
                 _ => None,
             };
             if let Some((code, env, typed, abi)) = closure {
-                let uniform = signatures.get(code).is_some_and(|(ps, ret)|
-                    ps == &[Type::Ref, Type::Ptr, Type::Ptr] && *ret == Type::Ref);
-                let body = typed.is_none_or(|t| signatures.get(t).is_some_and(|(ps, ret)|
-                    abi == 0 || typed_abi(ps, *ret) == Some(abi)));
-                if *ty != Type::Ref || typ(env) != Some(Type::Ref)
-                    || !uniform || !body {
-                    return Err(format!("ARC closure in {} v{}: ABI, context or body not covered", f.symbol, v.0));
+                let uniform = signatures.get(code).is_some_and(|(ps, ret)| {
+                    ps == &[Type::Ref, Type::Ptr, Type::Ptr] && *ret == Type::Ref
+                });
+                let body = typed.is_none_or(|t| {
+                    signatures
+                        .get(t)
+                        .is_some_and(|(ps, ret)| abi == 0 || typed_abi(ps, *ret) == Some(abi))
+                });
+                if *ty != Type::Ref || typ(env) != Some(Type::Ref) || !uniform || !body {
+                    return Err(format!(
+                        "ARC closure in {} v{}: ABI, context or body not covered",
+                        f.symbol, v.0
+                    ));
                 }
-                instructions.push((*v, Instruction::CallRuntime {
-                    name: "dartforge_arc_closure_owned_v1".into(),
-                    args: vec![
-                        (Operand::Constant(Constant::Function(code.clone())), Type::I64),
-                        (env.clone(), Type::Ref),
-                        (typed.map_or(Operand::Constant(Constant::Int(0)), |t|
-                            Operand::Constant(Constant::Function(t.clone()))), Type::I64),
-                        (Operand::Constant(Constant::Int(abi)), Type::I64),
-                    ], ret_ty: Type::Ref,
-                }, Type::Ref));
+                instructions.push((
+                    *v,
+                    Instruction::CallRuntime {
+                        name: "dartforge_arc_closure_owned_v1".into(),
+                        args: vec![
+                            (
+                                Operand::Constant(Constant::Function(code.clone())),
+                                Type::I64,
+                            ),
+                            (env.clone(), Type::Ref),
+                            (
+                                typed.map_or(Operand::Constant(Constant::Int(0)), |t| {
+                                    Operand::Constant(Constant::Function(t.clone()))
+                                }),
+                                Type::I64,
+                            ),
+                            (Operand::Constant(Constant::Int(abi)), Type::I64),
+                        ],
+                        ret_ty: Type::Ref,
+                    },
+                    Type::Ref,
+                ));
                 continue;
             }
             // Captures and suspended frames have per-instance maps, not a
             // single nominal layout per cid. Only the initial construction is
             // checked here; reads, writes and suspension have their own contracts.
             let (class_id, fields, synthetic): (u32, &[Operand], bool) = match inst {
-                Instruction::AllocObject { class_id, fields } => (*class_id, fields,
-                    *class_id == crate::lower::async_sm::ASYNC_FRAME_ID && !layouts.contains_key(class_id)),
-                Instruction::AllocCell { value } => (dartforge_runtime::layout::cid::CELL as u32,
-                    std::slice::from_ref(value), true),
-                Instruction::AllocEnv { values } => (dartforge_runtime::layout::cid::CONTEXT as u32,
-                    values, true),
-                _ => { instructions.push((*v, inst.clone(), *ty)); continue; }
+                Instruction::AllocObject { class_id, fields } => (
+                    *class_id,
+                    fields,
+                    *class_id == crate::lower::async_sm::ASYNC_FRAME_ID
+                        && !layouts.contains_key(class_id),
+                ),
+                Instruction::AllocCell { value } => (
+                    dartforge_runtime::layout::cid::CELL as u32,
+                    std::slice::from_ref(value),
+                    true,
+                ),
+                Instruction::AllocEnv { values } => {
+                    (dartforge_runtime::layout::cid::CONTEXT as u32, values, true)
+                }
+                _ => {
+                    instructions.push((*v, inst.clone(), *ty));
+                    continue;
+                }
             };
-            if synthetic && fields.is_empty() && class_id != crate::lower::async_sm::ASYNC_FRAME_ID {
+            if synthetic && fields.is_empty() && class_id != crate::lower::async_sm::ASYNC_FRAME_ID
+            {
                 if *ty != Type::Ref {
-                    return Err(format!("ARC environment in {} v{} requires Ref", f.symbol, v.0));
+                    return Err(format!(
+                        "ARC environment in {} v{} requires Ref",
+                        f.symbol, v.0
+                    ));
                 }
                 instructions.push((*v, Instruction::Const(Constant::Null), Type::Ref));
                 continue;
             }
             let layout = if synthetic {
-                let types = fields.iter().map(&typ).collect::<Option<Vec<_>>>().ok_or_else(||
-                    format!("ARC capture in {} v{}: implicit materialization not covered", f.symbol, v.0))?;
-                if types.iter().any(|t| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8)) {
-                    return Err(format!("ARC capture in {} v{}: representation not covered", f.symbol, v.0));
+                let types = fields
+                    .iter()
+                    .map(&typ)
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| {
+                        format!(
+                            "ARC capture in {} v{}: implicit materialization not covered",
+                            f.symbol, v.0
+                        )
+                    })?;
+                if types
+                    .iter()
+                    .any(|t| !matches!(t, Type::Ref | Type::I64 | Type::F64 | Type::I1 | Type::I8))
+                {
+                    return Err(format!(
+                        "ARC capture in {} v{}: representation not covered",
+                        f.symbol, v.0
+                    ));
                 }
                 if class_id == crate::lower::async_sm::ASYNC_FRAME_ID
-                    && !types.starts_with(&[Type::I64, Type::Ref, Type::Ref, Type::Ref, Type::Ref, Type::I64]) {
-                    return Err(format!("ARC suspended frame in {} v{}: incompatible header", f.symbol, v.0));
+                    && !types.starts_with(&[
+                        Type::I64,
+                        Type::Ref,
+                        Type::Ref,
+                        Type::Ref,
+                        Type::Ref,
+                        Type::I64,
+                    ])
+                {
+                    return Err(format!(
+                        "ARC suspended frame in {} v{}: incompatible header",
+                        f.symbol, v.0
+                    ));
                 }
                 Cow::Owned(types)
-            } else { Cow::Borrowed(layouts.get(&class_id).ok_or_else(|| {
-                format!(
-                    "ARC allocation in {} v{}: class {class_id} without a layout",
-                    f.symbol, v.0
-                )
-            })?) };
+            } else {
+                Cow::Borrowed(layouts.get(&class_id).ok_or_else(|| {
+                    format!(
+                        "ARC allocation in {} v{}: class {class_id} without a layout",
+                        f.symbol, v.0
+                    )
+                })?)
+            };
             if *ty != Type::Ref
                 || i32::try_from(class_id).is_err()
                 || u16::try_from(fields.len()).is_err()
@@ -350,12 +546,19 @@ mod tests {
     fn suspended_frames_initialize_map_per_instance_without_nominal_layout() {
         for case in 0..9 {
             let (mut m, mut plans) = module();
-            m.classes.clear(); m.arc_field_layouts.clear();
-            let mut field_list = vec![Operand::Constant(Constant::Int(0)),
-                Operand::Constant(Constant::Null), Operand::Constant(Constant::Null),
-                Operand::Val(ValueId(0)), Operand::Constant(Constant::Null),
-                Operand::Constant(Constant::Int(0)), Operand::Constant(Constant::Double(-0.0)),
-                Operand::Constant(Constant::Bool(true)), Operand::Val(ValueId(1))];
+            m.classes.clear();
+            m.arc_field_layouts.clear();
+            let mut field_list = vec![
+                Operand::Constant(Constant::Int(0)),
+                Operand::Constant(Constant::Null),
+                Operand::Constant(Constant::Null),
+                Operand::Val(ValueId(0)),
+                Operand::Constant(Constant::Null),
+                Operand::Constant(Constant::Int(0)),
+                Operand::Constant(Constant::Double(-0.0)),
+                Operand::Constant(Constant::Bool(true)),
+                Operand::Val(ValueId(1)),
+            ];
             match case {
                 1 => field_list[0] = Operand::Constant(Constant::Null),
                 2 => field_list[1] = Operand::Constant(Constant::Int(0)),
@@ -365,13 +568,24 @@ mod tests {
                 8 => field_list.clear(),
                 _ => {}
             }
-            let cid = if case == 6 { 124 } else { crate::lower::async_sm::ASYNC_FRAME_ID };
-            m.functions[0].blocks[0].instructions[0].1 = Instruction::AllocObject { class_id: cid, fields: field_list };
-            if case == 7 { m.arc_memory = false; }
+            let cid = if case == 6 {
+                124
+            } else {
+                crate::lower::async_sm::ASYNC_FRAME_ID
+            };
+            m.functions[0].blocks[0].instructions[0].1 = Instruction::AllocObject {
+                class_id: cid,
+                fields: field_list,
+            };
+            if case == 7 {
+                m.arc_memory = false;
+            }
             if case == 0 {
                 let mut other = m.functions[0].clone();
                 other.symbol = "outro_quadro".into();
-                if let Instruction::AllocObject { fields, .. } = &mut other.blocks[0].instructions[0].1 {
+                if let Instruction::AllocObject { fields, .. } =
+                    &mut other.blocks[0].instructions[0].1
+                {
                     fields.resize(40, Operand::Val(ValueId(0)));
                 }
                 m.functions.push(other);
@@ -406,60 +620,134 @@ mod tests {
             m.arc_memory = case != 7;
             m.sdk_mode = true;
             m.sdk_library = true;
-            let mut values = vec![Operand::Val(ValueId(5)), Operand::Val(ValueId(1)),
-                Operand::Val(ValueId(2)), Operand::Val(ValueId(3)), Operand::Val(ValueId(4))];
-            values.resize(40, Operand::Val(ValueId(0)));
-            if case == 2 { values.clear(); }
-            if case == 5 { values[0] = Operand::Constant(Constant::String("implícita".into())); }
-            if case == 10 { values[0] = Operand::Val(ValueId(8)); }
-            let closure = if case == 1 {
-                Instruction::AllocClosure { code_symbol: "entrada".into(), env: Operand::Val(ValueId(6)) }
-            } else { Instruction::AllocClosureTyped {
-                code_symbol: if case == 4 { "externo" } else { "entrada" }.into(),
-                env: Operand::Val(ValueId(if case == 3 { 1 } else { 6 })),
-                typed: "corpo".into(), abi: 7, direct: false,
-            } };
-            m.functions = vec![
-                Function { symbol: "capturar".into(), name: "capturar".into(), debug_info: None,
-                    params: vec![(ValueId(0), "ref".into(), Type::Ref),
-                        (ValueId(1), "int".into(), Type::I64), (ValueId(2), "double".into(), Type::F64),
-                        (ValueId(3), "bool".into(), Type::I1), (ValueId(4), "byte".into(), Type::I8),
-                        (ValueId(8), "ptr".into(), Type::Ptr)], return_ty: Type::Ref,
-                    blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                        (ValueId(5), Instruction::AllocCell { value: Operand::Val(ValueId(0)) },
-                            if case == 8 { Type::I64 } else { Type::Ref }),
-                        (ValueId(6), Instruction::AllocEnv { values }, Type::Ref),
-                        (ValueId(7), closure, Type::Ref),
-                    ], terminator: Terminator::Return(Some(Operand::Val(ValueId(7)))) }] },
-                Function { symbol: "entrada".into(), name: "entrada".into(), debug_info: None,
-                    params: vec![(ValueId(0), "closure".into(), Type::Ref),
-                        (ValueId(1), "args".into(), Type::Ptr), (ValueId(2), "desc".into(), Type::Ptr)],
-                    return_ty: Type::Ref, blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
-                        terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }] },
-                Function { symbol: "corpo".into(), name: "corpo".into(), debug_info: None,
-                    params: vec![(ValueId(0), "env".into(), Type::Ref)], return_ty: Type::I64,
-                    blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
-                        terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(7)))) }] },
+            let mut values = vec![
+                Operand::Val(ValueId(5)),
+                Operand::Val(ValueId(1)),
+                Operand::Val(ValueId(2)),
+                Operand::Val(ValueId(3)),
+                Operand::Val(ValueId(4)),
             ];
-            if case == 11 { m.functions[1].params[1].2 = Type::I64; }
+            values.resize(40, Operand::Val(ValueId(0)));
+            if case == 2 {
+                values.clear();
+            }
+            if case == 5 {
+                values[0] = Operand::Constant(Constant::String("implícita".into()));
+            }
+            if case == 10 {
+                values[0] = Operand::Val(ValueId(8));
+            }
+            let closure = if case == 1 {
+                Instruction::AllocClosure {
+                    code_symbol: "entrada".into(),
+                    env: Operand::Val(ValueId(6)),
+                }
+            } else {
+                Instruction::AllocClosureTyped {
+                    code_symbol: if case == 4 { "externo" } else { "entrada" }.into(),
+                    env: Operand::Val(ValueId(if case == 3 { 1 } else { 6 })),
+                    typed: "corpo".into(),
+                    abi: 7,
+                    direct: false,
+                }
+            };
+            m.functions = vec![
+                Function {
+                    symbol: "capturar".into(),
+                    name: "capturar".into(),
+                    debug_info: None,
+                    params: vec![
+                        (ValueId(0), "ref".into(), Type::Ref),
+                        (ValueId(1), "int".into(), Type::I64),
+                        (ValueId(2), "double".into(), Type::F64),
+                        (ValueId(3), "bool".into(), Type::I1),
+                        (ValueId(4), "byte".into(), Type::I8),
+                        (ValueId(8), "ptr".into(), Type::Ptr),
+                    ],
+                    return_ty: Type::Ref,
+                    blocks: vec![BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![
+                            (
+                                ValueId(5),
+                                Instruction::AllocCell {
+                                    value: Operand::Val(ValueId(0)),
+                                },
+                                if case == 8 { Type::I64 } else { Type::Ref },
+                            ),
+                            (ValueId(6), Instruction::AllocEnv { values }, Type::Ref),
+                            (ValueId(7), closure, Type::Ref),
+                        ],
+                        terminator: Terminator::Return(Some(Operand::Val(ValueId(7)))),
+                    }],
+                },
+                Function {
+                    symbol: "entrada".into(),
+                    name: "entrada".into(),
+                    debug_info: None,
+                    params: vec![
+                        (ValueId(0), "closure".into(), Type::Ref),
+                        (ValueId(1), "args".into(), Type::Ptr),
+                        (ValueId(2), "desc".into(), Type::Ptr),
+                    ],
+                    return_ty: Type::Ref,
+                    blocks: vec![BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+                    }],
+                },
+                Function {
+                    symbol: "corpo".into(),
+                    name: "corpo".into(),
+                    debug_info: None,
+                    params: vec![(ValueId(0), "env".into(), Type::Ref)],
+                    return_ty: Type::I64,
+                    blocks: vec![BasicBlock {
+                        id: BlockId(0),
+                        instructions: vec![],
+                        terminator: Terminator::Return(Some(Operand::Constant(Constant::Int(7)))),
+                    }],
+                },
+            ];
+            if case == 11 {
+                m.functions[1].params[1].2 = Type::I64;
+            }
             if case == 12 {
                 m.functions[2].return_ty = Type::F64;
-                m.functions[2].blocks[0].terminator = Terminator::Return(Some(
-                    Operand::Constant(Constant::Double(7.0))));
+                m.functions[2].blocks[0].terminator =
+                    Terminator::Return(Some(Operand::Constant(Constant::Double(7.0))));
             }
             if case == 13
-                && let Instruction::AllocClosureTyped { abi, .. } = &mut m.functions[0].blocks[0].instructions[2].1 {
-                    *abi = 8;
-                }
-            if case == 9 { m.functions.reverse(); }
-            m.dart_ref_returns.extend(["capturar".into(), "entrada".into()]);
-            if case != 6 { m.dart_scalar_parameters.insert("capturar".into(), HashSet::from([ValueId(1)])); }
-            let mut plans: HashMap<_, _> = m.functions.iter()
-                .map(|f| (f.symbol.clone(), DartFunctionPlan::default())).collect();
+                && let Instruction::AllocClosureTyped { abi, .. } =
+                    &mut m.functions[0].blocks[0].instructions[2].1
+            {
+                *abi = 8;
+            }
+            if case == 9 {
+                m.functions.reverse();
+            }
+            m.dart_ref_returns
+                .extend(["capturar".into(), "entrada".into()]);
+            if case != 6 {
+                m.dart_scalar_parameters
+                    .insert("capturar".into(), HashSet::from([ValueId(1)]));
+            }
+            let mut plans: HashMap<_, _> = m
+                .functions
+                .iter()
+                .map(|f| (f.symbol.clone(), DartFunctionPlan::default()))
+                .collect();
             // Explicit provenance of the uniform ABI vectors, not from the width.
             plans.get_mut("entrada").unwrap().classes.extend([
-                (ValueId(1), Ownership::Trivial), (ValueId(2), Ownership::Trivial)]);
-            plans.get_mut("capturar").unwrap().classes.insert(ValueId(8), Ownership::Trivial);
+                (ValueId(1), Ownership::Trivial),
+                (ValueId(2), Ownership::Trivial),
+            ]);
+            plans
+                .get_mut("capturar")
+                .unwrap()
+                .classes
+                .insert(ValueId(8), Ownership::Trivial);
             let before = format!("{m:?}/{plans:?}");
             let r = prepare_arc_dart_module(&mut m, &mut plans);
             if [3, 4, 5, 6, 8, 10, 11, 12, 13].contains(&case) {
@@ -477,17 +765,31 @@ mod tests {
             let p = &plans["capturar"];
             assert_eq!(p.classes[&ValueId(5)], Ownership::Owned);
             assert_eq!(p.classes[&ValueId(7)], Ownership::Owned);
-            assert_eq!(p.classes[&ValueId(6)], if case == 2 { Ownership::Trivial } else { Ownership::Owned });
+            assert_eq!(
+                p.classes[&ValueId(6)],
+                if case == 2 {
+                    Ownership::Trivial
+                } else {
+                    Ownership::Owned
+                }
+            );
             assert!(f.blocks.iter().flat_map(|b| &b.instructions).any(|(v, i, _)| *v == ValueId(7)
                 && matches!(i, Instruction::CallRuntime { name, .. } if name == "dartforge_arc_closure_owned_v1")));
             if case != 2 {
-                assert!(f.blocks.iter().flat_map(|b| &b.instructions).any(|(_, i, _)| matches!(i,
+                assert!(
+                    f.blocks
+                        .iter()
+                        .flat_map(|b| &b.instructions)
+                        .any(|(_, i, _)| matches!(i,
                     Instruction::CallRuntime { name, args, .. }
                     if name == "dartforge_arc_write_field_ref_v1"
-                        && args[1].0 == Operand::Constant(Constant::Int(39)))));
+                        && args[1].0 == Operand::Constant(Constant::Int(39))))
+                );
             }
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-            assert!(ir.contains("@dartforge_arc_closure_owned_v1(i64 ptrtoint (ptr @entrada to i64)"));
+            assert!(
+                ir.contains("@dartforge_arc_closure_owned_v1(i64 ptrtoint (ptr @entrada to i64)")
+            );
             assert!(!ir.contains("call void @dartforge_arc_release(i64 %v7)"));
             let body_before = format!("{m:?}");
             let classes_before = p.classes.clone();
@@ -621,10 +923,7 @@ mod tests {
                     if symbol == "construtor" && args == &vec![Operand::Val(ValueId(2))])));
                 assert!(!ops.iter().any(|(_, i, _)| matches!(i,
                     Instruction::CallRuntime { name, .. } if name.starts_with("dartforge_arc_write_field"))));
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             }
         }
     }
@@ -679,10 +978,7 @@ mod tests {
     #[test]
     fn allocation_initializes_ref_and_bits_without_numeric_double_conversion() {
         let (mut m, mut plans) = module();
-        assert_eq!(
-            prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-            (0, 0)
-        );
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         let ops = &m.functions[0].blocks[0].instructions;
         assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, .. }
             if name == "dartforge_arc_object_owned_v1"));
@@ -694,18 +990,20 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(ops.iter().filter(|(_, i, _)| matches!(i,
-            Instruction::CallRuntime { name, .. } if name == "dartforge_arc_write_field_scalar_v1")).count(), 4);
+        assert_eq!(
+            ops.iter()
+                .filter(|(_, i, _)| matches!(i,
+            Instruction::CallRuntime { name, .. } if name == "dartforge_arc_write_field_scalar_v1"))
+                .count(),
+            4
+        );
         assert!(ops.iter().any(|(_, i, _)| matches!(i, Instruction::Bitcast {
             op: Operand::Constant(Constant::Double(n)), to: Type::I64 } if n.to_bits() == (-0.0f64).to_bits())));
         let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
         assert!(ir.contains("bitcast double"));
         assert!(!ir.contains("call i64 @dartforge_object_new("));
         let before = format!("{m:?}/{plans:?}");
-        assert_eq!(
-            prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-            (0, 0)
-        );
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
         assert_eq!(format!("{m:?}/{plans:?}"), before);
     }
 
@@ -765,10 +1063,7 @@ mod tests {
             assert_eq!(format!("{m:?}/{plans:?}"), before, "caso {case}");
             m.arc_memory = false;
             let before = format!("{m:?}/{plans:?}");
-            assert_eq!(
-                prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                (0, 0)
-            );
+            assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
             assert_eq!(format!("{m:?}/{plans:?}"), before);
         }
     }
@@ -808,10 +1103,7 @@ mod tests {
             ];
             f.blocks[0].terminator = Terminator::Return(None);
             plans.get_mut("objeto").unwrap().tokens.ret = TokenReturn::Trivial;
-            assert_eq!(
-                prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                (0, 2)
-            );
+            assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 2));
             let ops = &m.functions[0].blocks[0].instructions;
             assert_eq!(
                 ops.iter()
@@ -843,17 +1135,44 @@ mod tests {
             m.arc_memory = case != 1;
             let f = &mut m.functions[0];
             f.params.truncate(1);
-            if case == 2 { f.params[0].2 = Type::I64; }
-            f.blocks[0].instructions = vec![(ValueId(1), Instruction::CellGet { cell: Operand::Val(ValueId(0)) }, Type::Ref)];
+            if case == 2 {
+                f.params[0].2 = Type::I64;
+            }
+            f.blocks[0].instructions = vec![(
+                ValueId(1),
+                Instruction::CellGet {
+                    cell: Operand::Val(ValueId(0)),
+                },
+                Type::Ref,
+            )];
             f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
-            let before = format!("{m:?}"); let plans_before = plans.clone();
+            let before = format!("{m:?}");
+            let plans_before = plans.clone();
             let result = prepare_arc_dart_module(&mut m, &mut plans);
-            if case == 2 { assert!(result.unwrap_err().contains("Ref receiver")); assert_eq!(format!("{m:?}"), before); assert_eq!(plans, plans_before); continue; }
-            if case == 1 { assert_eq!(result.unwrap(), (0, 0)); assert_eq!(format!("{m:?}"), before); continue; }
+            if case == 2 {
+                assert!(result.unwrap_err().contains("Ref receiver"));
+                assert_eq!(format!("{m:?}"), before);
+                assert_eq!(plans, plans_before);
+                continue;
+            }
+            if case == 1 {
+                assert_eq!(result.unwrap(), (0, 0));
+                assert_eq!(format!("{m:?}"), before);
+                continue;
+            }
             assert_eq!(result.unwrap(), (1, 0));
-            let Terminator::Return(Some(Operand::Val(ret))) = m.functions[0].blocks[0].terminator else { panic!("return without an SSA token"); };
+            let Terminator::Return(Some(Operand::Val(ret))) = m.functions[0].blocks[0].terminator
+            else {
+                panic!("return without an SSA token");
+            };
             assert_eq!(plans["objeto"].classes[&ret], Ownership::Owned);
-            assert!(matches!(plans["objeto"].classes[&ValueId(1)], Ownership::Borrowed { owner: OwnerOrigin::Value(ValueId(0)), .. }));
+            assert!(matches!(
+                plans["objeto"].classes[&ValueId(1)],
+                Ownership::Borrowed {
+                    owner: OwnerOrigin::Value(ValueId(0)),
+                    ..
+                }
+            ));
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
             assert!(ir.contains("@dartforge_arc_read_field_ref_v1(i64 %v0, i64 0)"));
             assert!(ir.contains("call void @dartforge_arc_retain("));
@@ -867,18 +1186,29 @@ mod tests {
             let f = &mut m.functions[0];
             f.params.truncate(1);
             f.return_ty = ty;
-            f.blocks[0].instructions = vec![(ValueId(1), Instruction::CellGet { cell: Operand::Val(ValueId(0)) }, ty)];
+            f.blocks[0].instructions = vec![(
+                ValueId(1),
+                Instruction::CellGet {
+                    cell: Operand::Val(ValueId(0)),
+                },
+                ty,
+            )];
             f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
             plans.get_mut("objeto").unwrap().tokens.ret = TokenReturn::Trivial;
             prepare_arc_dart_module(&mut m, &mut plans).unwrap();
             let ops = &m.functions[0].blocks[0].instructions;
-            assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
-                if name == "dartforge_arc_read_field_scalar_v1"));
+            assert!(
+                matches!(&ops[0].1, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
+                if name == "dartforge_arc_read_field_scalar_v1")
+            );
             assert_eq!(ops.last().unwrap().0, ValueId(1));
             assert_eq!(ops.last().unwrap().2, ty);
             assert_eq!(plans["objeto"].classes[&ValueId(1)], Ownership::Trivial);
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-            assert!(ir.contains("@dartforge_arc_read_field_scalar_v1(i64 %v0, i64 0)"), "{ir}");
+            assert!(
+                ir.contains("@dartforge_arc_read_field_scalar_v1(i64 %v0, i64 0)"),
+                "{ir}"
+            );
         }
     }
 
@@ -889,17 +1219,32 @@ mod tests {
             let f = &mut m.functions[0];
             f.params.truncate(1);
             f.return_ty = ty;
-            f.blocks[0].instructions = vec![(ValueId(1), Instruction::EnvGet { env: Operand::Val(ValueId(0)), index: 2 }, ty)];
+            f.blocks[0].instructions = vec![(
+                ValueId(1),
+                Instruction::EnvGet {
+                    env: Operand::Val(ValueId(0)),
+                    index: 2,
+                },
+                ty,
+            )];
             f.blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
             plans.get_mut("objeto").unwrap().tokens.ret = TokenReturn::Trivial;
             prepare_arc_dart_module(&mut m, &mut plans).unwrap();
             let ops = &m.functions[0].blocks[0].instructions;
-            assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
-                if name == "dartforge_arc_scalar_env_v1"));
-            assert_eq!((ops.last().unwrap().0, ops.last().unwrap().2), (ValueId(1), ty));
+            assert!(
+                matches!(&ops[0].1, Instruction::CallRuntime { name, ret_ty: Type::I64, .. }
+                if name == "dartforge_arc_scalar_env_v1")
+            );
+            assert_eq!(
+                (ops.last().unwrap().0, ops.last().unwrap().2),
+                (ValueId(1), ty)
+            );
             assert_eq!(plans["objeto"].classes[&ValueId(1)], Ownership::Trivial);
             let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
-            assert!(ir.contains("@dartforge_arc_scalar_env_v1(i64 %v0, i64 2)"), "{ir}");
+            assert!(
+                ir.contains("@dartforge_arc_scalar_env_v1(i64 %v0, i64 2)"),
+                "{ir}"
+            );
         }
     }
 
@@ -911,12 +1256,21 @@ mod tests {
             let f = &mut m.functions[0];
             f.params.truncate(1);
             f.blocks[0].instructions = vec![
-                (ValueId(1), Instruction::EnvGet {
-                    env: Operand::Val(ValueId(0)), index: 39,
-                }, Type::Ref),
-                (ValueId(2), Instruction::AllocEnv {
-                    values: vec![Operand::Val(ValueId(1))],
-                }, Type::Ref),
+                (
+                    ValueId(1),
+                    Instruction::EnvGet {
+                        env: Operand::Val(ValueId(0)),
+                        index: 39,
+                    },
+                    Type::Ref,
+                ),
+                (
+                    ValueId(2),
+                    Instruction::AllocEnv {
+                        values: vec![Operand::Val(ValueId(1))],
+                    },
+                    Type::Ref,
+                ),
             ];
             let before = format!("{m:?}");
             let result = prepare_arc_dart_module(&mut m, &mut plans).unwrap();
@@ -927,8 +1281,10 @@ mod tests {
             }
             assert_eq!(result, (1, 1));
             let ops = &m.functions[0].blocks[0].instructions;
-            assert!(matches!(&ops[0].1, Instruction::CallRuntime { name, args, .. }
-                if name == "dartforge_arc_env_ref_v1" && args[1].0 == Operand::Constant(Constant::Int(39))));
+            assert!(
+                matches!(&ops[0].1, Instruction::CallRuntime { name, args, .. }
+                if name == "dartforge_arc_env_ref_v1" && args[1].0 == Operand::Constant(Constant::Int(39)))
+            );
             assert_eq!(ops[1].0, ValueId(1));
             assert!(matches!(ops[1].1, Instruction::ArcCopy { .. }));
             assert!(matches!(&ops[2].1, Instruction::CallRuntime { name, .. }
@@ -968,10 +1324,7 @@ mod tests {
                 Type::Ref,
             ),
         ];
-        assert_eq!(
-            prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-            (1, 1)
-        );
+        assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (1, 1));
         let ops = &m.functions[0].blocks[0].instructions;
         assert_eq!(ops[1].0, ValueId(1));
         assert!(matches!(ops[1].1, Instruction::ArcCopy { .. }));

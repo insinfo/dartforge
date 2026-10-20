@@ -19,7 +19,7 @@
 //! composite (never beyond the caller's memory), and the direct return
 //! is written into a temporary before going to the destination.
 
-use crate::hir::{LayoutC, CType};
+use crate::hir::{CType, LayoutC};
 
 /// The C convention of the target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,7 +81,10 @@ pub struct Registers {
 
 impl Registers {
     pub fn new_set() -> Registers {
-        Registers { integers: 6, sse: 8 }
+        Registers {
+            integers: 6,
+            sse: 8,
+        }
     }
 
     /// Consumes the register of a primitive argument.
@@ -101,7 +104,9 @@ fn integer_of(bytes: usize) -> String {
 /// The HFA of a composite on AArch64: the member type and how many.
 fn hfa(l: &LayoutC) -> Option<(CType, usize)> {
     let first_one = l.leaves.first()?.1;
-    if !matches!(first_one, CType::F32 | CType::F64) || l.leaves.iter().any(|(_, t)| *t != first_one) {
+    if !matches!(first_one, CType::F32 | CType::F64)
+        || l.leaves.iter().any(|(_, t)| *t != first_one)
+    {
         return None;
     }
     let n = l.size / first_one.c_size();
@@ -125,8 +130,15 @@ fn sysv_words(l: &LayoutC) -> Option<Vec<Piece>> {
     for p in 0..n {
         let ini = p * 8;
         let bytes = (l.size - ini).min(8);
-        let leaves: Vec<&(usize, CType)> = l.leaves.iter().filter(|(o, _)| *o >= ini && *o < ini + 8).collect();
-        let sse = !leaves.is_empty() && leaves.iter().all(|(_, t)| matches!(t, CType::F32 | CType::F64));
+        let leaves: Vec<&(usize, CType)> = l
+            .leaves
+            .iter()
+            .filter(|(o, _)| *o >= ini && *o < ini + 8)
+            .collect();
+        let sse = !leaves.is_empty()
+            && leaves
+                .iter()
+                .all(|(_, t)| matches!(t, CType::F32 | CType::F64));
         // A full word with a single leaf at the start and the rest
         // padding: Clang reads only the leaf (`{int32, double}` → `i32,
         // double`; `{int8, int8, double}` → `i64, double`).
@@ -142,7 +154,11 @@ fn sysv_words(l: &LayoutC) -> Option<Vec<Piece>> {
         } else {
             "float".to_string()
         };
-        pieces.push(Piece { offset: ini, ty, attributes: "" });
+        pieces.push(Piece {
+            offset: ini,
+            ty,
+            attributes: "",
+        });
     }
     Some(pieces)
 }
@@ -152,32 +168,56 @@ pub fn argument(conv: Convention, l: &LayoutC, regs: &mut Registers) -> ArgPassi
     match conv {
         Convention::SysV => {
             let Some(pieces) = sysv_words(l) else {
-                return ArgPassing::Byval { alignment: l.alignment.max(8) };
+                return ArgPassing::Byval {
+                    alignment: l.alignment.max(8),
+                };
             };
             let sse = pieces.iter().filter(|p| !p.ty.starts_with('i')).count();
             let integers = pieces.len() - sse;
             // All the words in registers, or the whole composite goes
             // to the stack (never split).
             if integers > regs.integers || sse > regs.sse {
-                return ArgPassing::Byval { alignment: l.alignment.max(8) };
+                return ArgPassing::Byval {
+                    alignment: l.alignment.max(8),
+                };
             }
             regs.integers -= integers;
             regs.sse -= sse;
             ArgPassing::Direct(pieces)
         }
         Convention::Win64 => match l.size {
-            1 | 2 | 4 | 8 => ArgPassing::Direct(vec![Piece { offset: 0, ty: integer_of(l.size), attributes: "" }]),
+            1 | 2 | 4 | 8 => ArgPassing::Direct(vec![Piece {
+                offset: 0,
+                ty: integer_of(l.size),
+                attributes: "",
+            }]),
             _ => ArgPassing::Indirect,
         },
         Convention::AArch64 { apple } => {
             if let Some((t, n)) = hfa(l) {
                 let attributes = if apple { "" } else { "alignstack(8) " };
-                return ArgPassing::Direct(vec![Piece { offset: 0, ty: format!("[{n} x {}]", float_name(t)), attributes }]);
+                return ArgPassing::Direct(vec![Piece {
+                    offset: 0,
+                    ty: format!("[{n} x {}]", float_name(t)),
+                    attributes,
+                }]);
             }
             match l.size {
-                0..=8 => ArgPassing::Direct(vec![Piece { offset: 0, ty: "i64".to_string(), attributes: "" }]),
-                9..=16 if l.alignment >= 16 => ArgPassing::Direct(vec![Piece { offset: 0, ty: "i128".to_string(), attributes: "" }]),
-                9..=16 => ArgPassing::Direct(vec![Piece { offset: 0, ty: "[2 x i64]".to_string(), attributes: "" }]),
+                0..=8 => ArgPassing::Direct(vec![Piece {
+                    offset: 0,
+                    ty: "i64".to_string(),
+                    attributes: "",
+                }]),
+                9..=16 if l.alignment >= 16 => ArgPassing::Direct(vec![Piece {
+                    offset: 0,
+                    ty: "i128".to_string(),
+                    attributes: "",
+                }]),
+                9..=16 => ArgPassing::Direct(vec![Piece {
+                    offset: 0,
+                    ty: "[2 x i64]".to_string(),
+                    attributes: "",
+                }]),
                 _ => ArgPassing::Indirect,
             }
         }
@@ -191,9 +231,21 @@ pub fn argument(conv: Convention, l: &LayoutC, regs: &mut Registers) -> ArgPassi
 pub fn variadic_argument(conv: Convention, l: &LayoutC, regs: &mut Registers) -> ArgPassing {
     match conv {
         Convention::AArch64 { apple: true } => match l.size {
-            0..=8 => ArgPassing::Direct(vec![Piece { offset: 0, ty: "i64".to_string(), attributes: "" }]),
-            9..=16 if l.alignment >= 16 => ArgPassing::Direct(vec![Piece { offset: 0, ty: "i128".to_string(), attributes: "" }]),
-            9..=16 => ArgPassing::Direct(vec![Piece { offset: 0, ty: "[2 x i64]".to_string(), attributes: "" }]),
+            0..=8 => ArgPassing::Direct(vec![Piece {
+                offset: 0,
+                ty: "i64".to_string(),
+                attributes: "",
+            }]),
+            9..=16 if l.alignment >= 16 => ArgPassing::Direct(vec![Piece {
+                offset: 0,
+                ty: "i128".to_string(),
+                attributes: "",
+            }]),
+            9..=16 => ArgPassing::Direct(vec![Piece {
+                offset: 0,
+                ty: "[2 x i64]".to_string(),
+                attributes: "",
+            }]),
             _ => ArgPassing::Indirect,
         },
         _ => argument(conv, l, regs),
@@ -205,7 +257,9 @@ pub fn variadic_argument(conv: Convention, l: &LayoutC, regs: &mut Registers) ->
 pub fn ret(conv: Convention, l: &LayoutC, regs: &mut Registers) -> RetPassing {
     let sret = |regs: &mut Registers| {
         regs.integers = regs.integers.saturating_sub(1);
-        RetPassing::Sret { alignment: l.alignment }
+        RetPassing::Sret {
+            alignment: l.alignment,
+        }
     };
     match conv {
         Convention::SysV => match sysv_words(l) {
@@ -213,17 +267,37 @@ pub fn ret(conv: Convention, l: &LayoutC, regs: &mut Registers) -> RetPassing {
             None => sret(regs),
         },
         Convention::Win64 => match l.size {
-            1 | 2 | 4 | 8 => RetPassing::Direct(vec![Piece { offset: 0, ty: integer_of(l.size), attributes: "" }]),
+            1 | 2 | 4 | 8 => RetPassing::Direct(vec![Piece {
+                offset: 0,
+                ty: integer_of(l.size),
+                attributes: "",
+            }]),
             _ => sret(regs),
         },
         Convention::AArch64 { .. } => {
             if let Some((t, n)) = hfa(l) {
-                return RetPassing::Direct(vec![Piece { offset: 0, ty: format!("[{n} x {}]", float_name(t)), attributes: "" }]);
+                return RetPassing::Direct(vec![Piece {
+                    offset: 0,
+                    ty: format!("[{n} x {}]", float_name(t)),
+                    attributes: "",
+                }]);
             }
             match l.size {
-                0..=8 => RetPassing::Direct(vec![Piece { offset: 0, ty: integer_of(l.size), attributes: "" }]),
-                9..=16 if l.alignment >= 16 => RetPassing::Direct(vec![Piece { offset: 0, ty: "i128".to_string(), attributes: "" }]),
-                9..=16 => RetPassing::Direct(vec![Piece { offset: 0, ty: "[2 x i64]".to_string(), attributes: "" }]),
+                0..=8 => RetPassing::Direct(vec![Piece {
+                    offset: 0,
+                    ty: integer_of(l.size),
+                    attributes: "",
+                }]),
+                9..=16 if l.alignment >= 16 => RetPassing::Direct(vec![Piece {
+                    offset: 0,
+                    ty: "i128".to_string(),
+                    attributes: "",
+                }]),
+                9..=16 => RetPassing::Direct(vec![Piece {
+                    offset: 0,
+                    ty: "[2 x i64]".to_string(),
+                    attributes: "",
+                }]),
                 _ => sret(regs),
             }
         }
@@ -234,7 +308,14 @@ pub fn ret(conv: Convention, l: &LayoutC, regs: &mut Registers) -> RetPassing {
 pub fn return_ty(pieces: &[Piece]) -> String {
     match pieces {
         [p] => p.ty.clone(),
-        _ => format!("{{ {} }}", pieces.iter().map(|p| p.ty.as_str()).collect::<Vec<_>>().join(", ")),
+        _ => format!(
+            "{{ {} }}",
+            pieces
+                .iter()
+                .map(|p| p.ty.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
@@ -243,7 +324,11 @@ mod tests {
     use super::*;
 
     fn l(size: usize, alignment: usize, leaves: &[(usize, CType)]) -> LayoutC {
-        LayoutC { size, alignment, leaves: leaves.to_vec() }
+        LayoutC {
+            size,
+            alignment,
+            leaves: leaves.to_vec(),
+        }
     }
 
     fn types(p: &ArgPassing) -> Vec<String> {
@@ -299,8 +384,16 @@ mod tests {
         for ((name, layout), (n2, a, r)) in cases().iter().zip(expected) {
             assert_eq!(*name, n2);
             let mut regs = Registers::new_set();
-            assert_eq!(types(&argument(Convention::SysV, layout, &mut regs)).join(","), a, "{name}");
-            assert_eq!(ret_text(&ret(Convention::SysV, layout, &mut regs)), r, "{name}");
+            assert_eq!(
+                types(&argument(Convention::SysV, layout, &mut regs)).join(","),
+                a,
+                "{name}"
+            );
+            assert_eq!(
+                ret_text(&ret(Convention::SysV, layout, &mut regs)),
+                r,
+                "{name}"
+            );
         }
     }
 
@@ -325,7 +418,11 @@ mod tests {
                 assert_eq!(*name, n2);
                 let mut regs = Registers::new_set();
                 let conv = Convention::AArch64 { apple };
-                assert_eq!(types(&argument(conv, layout, &mut regs)).join(","), a, "{name}");
+                assert_eq!(
+                    types(&argument(conv, layout, &mut regs)).join(","),
+                    a,
+                    "{name}"
+                );
                 assert_eq!(ret_text(&ret(conv, layout, &mut regs)), r, "{name}");
             }
         }
@@ -350,8 +447,16 @@ mod tests {
         for ((name, layout), (n2, a, r)) in cases().iter().zip(expected) {
             assert_eq!(*name, n2);
             let mut regs = Registers::new_set();
-            assert_eq!(types(&argument(Convention::Win64, layout, &mut regs)).join(","), a, "{name}");
-            assert_eq!(ret_text(&ret(Convention::Win64, layout, &mut regs)), r, "{name}");
+            assert_eq!(
+                types(&argument(Convention::Win64, layout, &mut regs)).join(","),
+                a,
+                "{name}"
+            );
+            assert_eq!(
+                ret_text(&ret(Convention::Win64, layout, &mut regs)),
+                r,
+                "{name}"
+            );
         }
     }
 
@@ -366,15 +471,27 @@ mod tests {
         ];
         for (layout, expected) in cases {
             let mut regs = Registers::new_set();
-            assert_eq!(types(&argument(Convention::SysV, &layout, &mut regs)).join(","), expected);
+            assert_eq!(
+                types(&argument(Convention::SysV, &layout, &mut regs)).join(","),
+                expected
+            );
         }
     }
 
     #[test]
     fn sysv_without_registers_goes_to_stack() {
         let d2 = l(16, 8, &[(0, CType::F64), (8, CType::F64)]);
-        let mut regs = Registers { integers: 6, sse: 1 };
-        assert_eq!(argument(Convention::SysV, &d2, &mut regs), ArgPassing::Byval { alignment: 8 });
-        assert_eq!(regs.sse, 1, "the whole compound goes to the stack, without consuming registers");
+        let mut regs = Registers {
+            integers: 6,
+            sse: 1,
+        };
+        assert_eq!(
+            argument(Convention::SysV, &d2, &mut regs),
+            ArgPassing::Byval { alignment: 8 }
+        );
+        assert_eq!(
+            regs.sse, 1,
+            "the whole compound goes to the stack, without consuming registers"
+        );
     }
 }

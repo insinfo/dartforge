@@ -1,8 +1,8 @@
 //! Reading `.dart_tool/package_config.json` v2 and resolving `package:`
 //! URIs.
-use std::collections::HashMap;
 use crate::generated::Generation;
 use dartforge_frontend::LanguageVersion;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use url::Url;
@@ -93,7 +93,12 @@ impl PackageConfig {
     pub fn generated_path(&self, pkg_name: &str, rel_path: &str) -> Option<PathBuf> {
         let origin = self.origin.as_ref()?;
         let dart_tool = origin.parent()?;
-        let candidate = dart_tool.join("build").join("generated").join(pkg_name).join("lib").join(rel_path);
+        let candidate = dart_tool
+            .join("build")
+            .join("generated")
+            .join(pkg_name)
+            .join("lib")
+            .join(rel_path);
         candidate.is_file().then_some(candidate)
     }
 
@@ -113,7 +118,10 @@ impl PackageConfig {
             return None;
         }
         let generated_root_dir = self.generated_root.as_ref()?;
-        let (name_, root) = self.root_dirs.iter().find(|(_, dir)| path.starts_with(dir))?;
+        let (name_, root) = self
+            .root_dirs
+            .iter()
+            .find(|(_, dir)| path.starts_with(dir))?;
         let rel = path.strip_prefix(root).ok()?;
         let candidate = generated_root_dir.join(name_).join(rel);
         candidate.is_file().then_some(candidate)
@@ -214,8 +222,9 @@ impl PackageConfig {
 
             let version_text = entry.get("languageVersion").and_then(|v| v.as_str());
             let language_version = version_text.and_then(LanguageVersion::parse);
-            let invalid_language_version =
-                version_text.filter(|_| language_version.is_none()).map(str::to_string);
+            let invalid_language_version = version_text
+                .filter(|_| language_version.is_none())
+                .map(str::to_string);
 
             packages.insert(
                 name.to_string(),
@@ -237,7 +246,12 @@ impl PackageConfig {
                 Some((pkg.name.clone(), dir))
             })
             .collect();
-        root_dirs.sort_by(|a, b| b.1.as_os_str().len().cmp(&a.1.as_os_str().len()).then(a.0.cmp(&b.0)));
+        root_dirs.sort_by(|a, b| {
+            b.1.as_os_str()
+                .len()
+                .cmp(&a.1.as_os_str().len())
+                .then(a.0.cmp(&b.0))
+        });
 
         let mut package_dirs: Vec<(String, PathBuf)> = packages
             .values()
@@ -249,9 +263,18 @@ impl PackageConfig {
             .collect();
         // Longest directory first: a package inside another matches the most
         // specific one.
-        package_dirs.sort_by(|a, b| b.1.as_os_str().len().cmp(&a.1.as_os_str().len()).then(a.0.cmp(&b.0)));
+        package_dirs.sort_by(|a, b| {
+            b.1.as_os_str()
+                .len()
+                .cmp(&a.1.as_os_str().len())
+                .then(a.0.cmp(&b.0))
+        });
 
-        let generated_root = path.parent().map(|dart_tool| dart_tool.join("build").join("generated")).filter(|g| g.is_dir()).map(|g| without_verbatim(std::fs::canonicalize(&g).unwrap_or(g)));
+        let generated_root = path
+            .parent()
+            .map(|dart_tool| dart_tool.join("build").join("generated"))
+            .filter(|g| g.is_dir())
+            .map(|g| without_verbatim(std::fs::canonicalize(&g).unwrap_or(g)));
 
         Ok(Self {
             origin: Some(path.to_path_buf()),
@@ -284,7 +307,11 @@ impl PackageConfig {
             let path = file_url
                 .to_file_path()
                 .map_err(|_| format!("URL does not represent a local file: {file_url}"))?;
-            if self.generated_sources.as_ref().is_some_and(|g| g.contains(&path)) {
+            if self
+                .generated_sources
+                .as_ref()
+                .is_some_and(|g| g.contains(&path))
+            {
                 return Ok(path);
             }
             if path.is_file() {

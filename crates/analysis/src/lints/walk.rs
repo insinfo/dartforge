@@ -14,8 +14,9 @@
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
-    self, Ast, CollectionElement, DeclId, DeclKind, ExprId, ExprKind, ForInTarget, ForInit, FunctionBody, FunctionId, Initializer,
-    ListPatternElement, MemberId, MemberKind, PatternId, PatternKind, StmtId, StmtKind, StringPart,
+    self, Ast, CollectionElement, DeclId, DeclKind, ExprId, ExprKind, ForInTarget, ForInit,
+    FunctionBody, FunctionId, Initializer, ListPatternElement, MemberId, MemberKind, PatternId,
+    PatternKind, StmtId, StmtKind, StringPart,
 };
 
 /// A node of the walk.
@@ -44,7 +45,11 @@ struct Walker<'a, 'f> {
 /// Calls `f(node, ancestors)` for each node of the unit; `ancestors` goes from
 /// the top-level declaration to the node's parent.
 pub fn walk(u: Unit<'_>, f: &mut dyn FnMut(Node, &[Node])) {
-    let mut x = Walker { a: u.ast, stack: Vec::new(), f };
+    let mut x = Walker {
+        a: u.ast,
+        stack: Vec::new(),
+        f,
+    };
     for &d in u.unit.declarations.iter() {
         x.decl(d);
     }
@@ -159,8 +164,11 @@ impl<'a> Walker<'a, '_> {
                 for i in k.initializers.iter() {
                     match i {
                         Initializer::Field { value, .. } => self.expr(*value),
-                        Initializer::Super { arguments, .. } | Initializer::Redirect { arguments, .. } => self.arguments(arguments),
-                        Initializer::Assert { condition, message, .. } => {
+                        Initializer::Super { arguments, .. }
+                        | Initializer::Redirect { arguments, .. } => self.arguments(arguments),
+                        Initializer::Assert {
+                            condition, message, ..
+                        } => {
                             self.expr(*condition);
                             if let Some(m) = message {
                                 self.expr(*m);
@@ -221,7 +229,13 @@ impl<'a> Walker<'a, '_> {
             }
             StmtKind::Function(f) => self.function(*f),
             StmtKind::Expression(e) => self.expr(*e),
-            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+            StmtKind::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
                     self.pattern(*p);
@@ -234,7 +248,13 @@ impl<'a> Walker<'a, '_> {
                     self.stmt(*e);
                 }
             }
-            StmtKind::For { init, condition, updates, body, .. } => {
+            StmtKind::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 if let Some(i) = init {
                     self.for_init(i);
                 }
@@ -246,7 +266,12 @@ impl<'a> Walker<'a, '_> {
                 }
                 self.stmt(*body);
             }
-            StmtKind::ForIn { target, iterable, body, .. } => {
+            StmtKind::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 self.for_target(target);
                 self.expr(*iterable);
                 self.stmt(*body);
@@ -280,7 +305,11 @@ impl<'a> Walker<'a, '_> {
                 }
             }
             StmtKind::Yield { value, .. } => self.expr(*value),
-            StmtKind::Try { body, catches, finally_ } => {
+            StmtKind::Try {
+                body,
+                catches,
+                finally_,
+            } => {
                 self.stmt(*body);
                 for k in catches.iter() {
                     self.stmt(k.body);
@@ -302,13 +331,21 @@ impl<'a> Walker<'a, '_> {
 
     fn element(&mut self, e: &CollectionElement) {
         match e {
-            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => self.expr(*x),
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
+                self.expr(*x)
+            }
             CollectionElement::MapEntry { key, value, .. } => {
                 self.expr(*key);
                 self.expr(*value);
             }
             CollectionElement::Spread { value, .. } => self.expr(*value),
-            CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+            CollectionElement::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 if let Some(p) = case_pattern {
                     self.pattern(*p);
@@ -321,7 +358,13 @@ impl<'a> Walker<'a, '_> {
                     self.element(x);
                 }
             }
-            CollectionElement::For { init, condition, updates, body, .. } => {
+            CollectionElement::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 if let Some(i) = init {
                     self.for_init(i);
                 }
@@ -333,7 +376,12 @@ impl<'a> Walker<'a, '_> {
                 }
                 self.element(body);
             }
-            CollectionElement::ForIn { target, iterable, body, .. } => {
+            CollectionElement::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 self.for_target(target);
                 self.expr(*iterable);
                 self.element(body);
@@ -370,7 +418,9 @@ impl<'a> Walker<'a, '_> {
                     self.element(el);
                 }
             }
-            ExprKind::Record { positional, named, .. } => {
+            ExprKind::Record {
+                positional, named, ..
+            } => {
                 for &x in positional.iter() {
                     self.expr(x);
                 }
@@ -380,7 +430,9 @@ impl<'a> Walker<'a, '_> {
             }
             ExprKind::InstanceCreation { arguments, .. } => self.arguments(arguments),
             ExprKind::FunctionExpression(f) => self.function(*f),
-            ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => self.expr(*target),
+            ExprKind::Property { target, .. } | ExprKind::TypeArguments { target, .. } => {
+                self.expr(*target)
+            }
             ExprKind::Index { target, index, .. } => {
                 self.expr(*target);
                 self.expr(*index);
@@ -394,7 +446,11 @@ impl<'a> Walker<'a, '_> {
                 self.expr(*left);
                 self.expr(*right);
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 self.expr(*then);
                 self.expr(*else_);
@@ -408,7 +464,9 @@ impl<'a> Walker<'a, '_> {
                 self.pattern(*pattern);
                 self.expr(*value);
             }
-            ExprKind::Cascade { target, sections, .. } => {
+            ExprKind::Cascade {
+                target, sections, ..
+            } => {
                 self.expr(*target);
                 for &x in sections.iter() {
                     self.expr(x);
@@ -439,13 +497,16 @@ impl<'a> Walker<'a, '_> {
                 self.pattern(*x);
                 self.pattern(*y);
             }
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => {
-                self.pattern(*x)
-            }
+            PatternKind::NullCheck(x)
+            | PatternKind::NullAssert(x)
+            | PatternKind::Parenthesized(x)
+            | PatternKind::Cast { pattern: x, .. } => self.pattern(*x),
             PatternKind::List { elements, .. } => {
                 for el in elements.iter() {
                     match el {
-                        ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) => self.pattern(*x),
+                        ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) => {
+                            self.pattern(*x)
+                        }
                         ListPatternElement::Rest(None) => {}
                     }
                 }
@@ -476,13 +537,22 @@ mod tests {
         let source = "void f() {\n  try {\n  } finally {\n    g(() => 1);\n  }\n}\n";
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
         let mut ints = Vec::new();
         walk(u, &mut |node, stack| {
             if let Node::Expr(e) = node
                 && matches!(p.ast.expr(e).kind, ExprKind::Int(_))
             {
-                ints.push(stack.iter().filter(|n| matches!(n, Node::Function(_))).count());
+                ints.push(
+                    stack
+                        .iter()
+                        .filter(|n| matches!(n, Node::Function(_)))
+                        .count(),
+                );
                 assert!(matches!(stack[0], Node::Decl(_)));
             }
         });

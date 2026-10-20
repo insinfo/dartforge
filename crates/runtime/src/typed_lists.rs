@@ -13,7 +13,7 @@
 //! (`llvm/tipados_ir.rs`). Neither changes while the list lives.
 
 use crate::heap::Heap;
-use crate::layout::{self, cid, flags, Ref};
+use crate::layout::{self, Ref, cid, flags};
 
 /// The element types (`TIPO_*`, the order of the classes of §2.4: the cid of the internal
 /// list is `cid::typed(ty)`).
@@ -64,7 +64,11 @@ pub const fn type_of_cid(c: i32) -> Option<u8> {
 /// The cid of the view of type `t` (including `ByteData`), modifiable or not.
 pub const fn view_cid(t: u8, unmodifiable: bool) -> i32 {
     if t == ty::BYTE_DATA {
-        if unmodifiable { cid::UNMODIFIABLE_BYTE_DATA_VIEW } else { cid::BYTE_DATA_VIEW }
+        if unmodifiable {
+            cid::UNMODIFIABLE_BYTE_DATA_VIEW
+        } else {
+            cid::BYTE_DATA_VIEW
+        }
     } else {
         cid::view(t, unmodifiable)
     }
@@ -142,7 +146,10 @@ impl TypedRef {
 impl Heap {
     /// An internal typed list of type `ty` with `len` zeroed elements.
     pub fn new_typed(&mut self, ty: u8, len: usize) -> Ref {
-        debug_assert!(i32::from(ty) < cid::ELEMENT_TYPES, "internal typed list of ByteData");
+        debug_assert!(
+            i32::from(ty) < cid::ELEMENT_TYPES,
+            "internal typed list of ByteData"
+        );
         // A length that does not fit the address space saturates: the heap ceiling
         // ends with the memory message, like the VM with `OutOfMemoryError`.
         let bytes = len.checked_mul(element_size(ty)).unwrap_or(usize::MAX / 2);
@@ -154,7 +161,8 @@ impl Heap {
         #[allow(unsafe_code)]
         unsafe {
             p.add(WORD_LENGTH).write(len as i64);
-            p.add(WORD_DATA).write(block(h) + layout::offsets::INTERNAL_BYTES as i64);
+            p.add(WORD_DATA)
+                .write(block(h) + layout::offsets::INTERNAL_BYTES as i64);
         }
         h
     }
@@ -268,7 +276,10 @@ impl Heap {
 
     /// The lanes of the SIMD value `h`.
     pub fn simd(&self, h: Ref) -> Option<[u8; 16]> {
-        if !layout::is_object(h) || !self.is_live_object(h) || !cid::is_simd(self.header(h).class_id) {
+        if !layout::is_object(h)
+            || !self.is_live_object(h)
+            || !cid::is_simd(self.header(h).class_id)
+        {
             return None;
         }
         let mut b = [0u8; 16];
@@ -290,7 +301,10 @@ mod tests_typed {
             assert_eq!(view_cid(t, true), cid::view(t, true));
         }
         assert_eq!(type_of_cid(cid::BYTE_DATA_VIEW), Some(ty::BYTE_DATA));
-        assert_eq!(type_of_cid(cid::UNMODIFIABLE_BYTE_DATA_VIEW), Some(ty::BYTE_DATA));
+        assert_eq!(
+            type_of_cid(cid::UNMODIFIABLE_BYTE_DATA_VIEW),
+            Some(ty::BYTE_DATA)
+        );
         assert_eq!(view_cid(ty::BYTE_DATA, false), cid::BYTE_DATA_VIEW);
         assert_eq!(type_of_cid(cid::FLOAT32X4), None);
         assert_eq!(type_of_cid(66), None);

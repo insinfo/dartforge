@@ -85,7 +85,11 @@ pub fn library_hashes(program: &Program, lib: LibraryId) -> LibraryHashes {
         let u = program.unit(uid);
         content.bytes(u.source.as_bytes());
         content.sep();
-        let mut h = Hasher { source: &u.source, ast: &u.ast, f: &mut api };
+        let mut h = Hasher {
+            source: &u.source,
+            ast: &u.ast,
+            f: &mut api,
+        };
         // Directives are part of the API: changing an import changes what the
         // library sees and what it reexports. They are short lines without a
         // body, so the text of the directive itself serves as canonical form.
@@ -98,7 +102,10 @@ pub fn library_hashes(program: &Program, lib: LibraryId) -> LibraryHashes {
             h.decl(decl);
         }
     }
-    LibraryHashes { content: content.value(), api: api.value() }
+    LibraryHashes {
+        content: content.value(),
+        api: api.value(),
+    }
 }
 
 /// Walks the tree mixing in only what is visible from outside.
@@ -154,7 +161,11 @@ impl<'a> Hasher<'a> {
                 }
             }
             TypeKind::Void => self.tag("t:void"),
-            TypeKind::Function { return_type, type_params, parameters } => {
+            TypeKind::Function {
+                return_type,
+                type_params,
+                parameters,
+            } => {
                 self.tag("t:fn");
                 self.opt_ty(*return_type);
                 self.type_params(type_params);
@@ -273,12 +284,13 @@ impl<'a> Hasher<'a> {
             self.name(&v.name);
             self.f.bool(v.initializer.is_some());
             if list.const_
-                && let Some(e) = v.initializer {
-                    let s = self.ast.expr(e).span;
-                    let t = self.slice(s.start, s.end).to_string();
-                    self.f.bytes(t.as_bytes());
-                    self.f.sep();
-                }
+                && let Some(e) = v.initializer
+            {
+                let s = self.ast.expr(e).span;
+                let t = self.slice(s.start, s.end).to_string();
+                self.f.bytes(t.as_bytes());
+                self.f.sep();
+            }
         }
     }
 
@@ -304,7 +316,15 @@ impl<'a> Hasher<'a> {
                 self.tag("d:classe");
                 self.name(&c.name);
                 let m = c.modifiers;
-                for b in [m.abstract_, m.base, m.interface, m.final_, m.sealed, m.mixin, c.mixin_application] {
+                for b in [
+                    m.abstract_,
+                    m.base,
+                    m.interface,
+                    m.final_,
+                    m.sealed,
+                    m.mixin,
+                    c.mixin_application,
+                ] {
                     self.f.bool(b);
                 }
                 self.type_params(&c.type_params);
@@ -378,7 +398,10 @@ impl<'a> Hasher<'a> {
                 self.type_params(&t.type_params);
                 match &t.kind {
                     ast::TypedefKind::Alias(ty) => self.ty(*ty),
-                    ast::TypedefKind::Legacy { return_type, parameters } => {
+                    ast::TypedefKind::Legacy {
+                        return_type,
+                        parameters,
+                    } => {
                         self.opt_ty(*return_type);
                         self.params(parameters);
                     }

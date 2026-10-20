@@ -13,21 +13,21 @@
 //! semantic flags are the same in both (opt-level 2, no overflow-checks, no
 //! debug-assertions): the root `Cargo.toml` pins this crate's profile to what the
 //! AOT's `rustc -O` gives. The `tests/single_source.rs` test checks it.
-pub mod hash;
-/// The compressed form of the RTI table (compiler and runtime).
-pub mod rti_table;
 /// The ARC core with cycle collection (docs/ARC-CICLOS-ESPECIFICACAO.md §19, §22).
 pub mod arc;
+pub mod boxes;
+pub mod hash;
 pub mod heap;
 /// The block layout contract (docs/NATIVO-ESPACO-UNIFICADO.md §3.1).
 pub mod layout;
+pub mod lists;
+/// The compressed form of the RTI table (compiler and runtime).
+pub mod rti_table;
 /// The object space (pages, size classes, large regions, sweeping).
 pub mod space;
 /// The per-kind views of the unified space (§3.3): strings, boxes, lists and
 /// typed lists, each one an `impl Heap` over the `heap` API.
 pub mod text;
-pub mod boxes;
-pub mod lists;
 pub mod typed_lists;
 
 /// The runtime harness, compiled as a module: everything the AOT executable

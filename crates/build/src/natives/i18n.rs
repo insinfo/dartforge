@@ -15,8 +15,8 @@
 //! refused, like what the official builder rejects (a key repeated across
 //! languages out of order, an invalid language code, a value that is not a
 //! string, number or boolean).
+use crate::executor::{GeneratorCtx, NativeGenerator, NativeOutput, NativeRequest};
 use crate::query::Query;
-use crate::executor::{GeneratorCtx, NativeGenerator, NativeRequest, NativeOutput};
 use std::path::Path;
 use yaml_rust2::{Yaml, YamlLoader};
 
@@ -236,9 +236,7 @@ fn getter(head: &str, body: &str, out: &mut String) -> Result<(), String> {
         );
     }
     if width(&format!("  {head} =>")) > WIDTH {
-        return Err(
-            "i18n: getter signature too long (formatter shape not handled)".into(),
-        );
+        return Err("i18n: getter signature too long (formatter shape not handled)".into());
     }
     out.push_str(&format!("  {head} =>\n      {body};\n"));
     Ok(())
@@ -278,10 +276,7 @@ fn render_class(
     match &parent {
         None => {
             short_line(&format!("  const {name}();"), out)?;
-            short_line(
-                &format!("  String get locale => \"{}\";", meta.locale),
-                out,
-            )?;
+            short_line(&format!("  String get locale => \"{}\";", meta.locale), out)?;
             short_line(
                 &format!("  String get languageCode => \"{}\";", meta.language),
                 out,
@@ -331,7 +326,11 @@ fn render_class(
 /// `prepareTranslationList` and the `renderTranslation` of each class, in
 /// pre-order. The nested class's name comes from the unfiltered key
 /// (`k.firstUpper()`), as in the official builder.
-fn render_classes(meta: &Metadata, m: &yaml_rust2::yaml::Hash, out: &mut String) -> Result<(), String> {
+fn render_classes(
+    meta: &Metadata,
+    m: &yaml_rust2::yaml::Hash,
+    out: &mut String,
+) -> Result<(), String> {
     render_class(meta, m, out)?;
     out.push('\n');
     for (k, v) in entries(m)? {
@@ -360,11 +359,7 @@ fn has_reference(s: &str) -> Result<bool, String> {
 }
 
 /// `renderMapEntries`: only the string values without references.
-fn map_entries(
-    m: &yaml_rust2::yaml::Hash,
-    prefix: &str,
-    out: &mut String,
-) -> Result<(), String> {
+fn map_entries(m: &yaml_rust2::yaml::Hash, prefix: &str, out: &mut String) -> Result<(), String> {
     for (k, v) in entries(m)? {
         match v {
             Yaml::Hash(h) => map_entries(h, &format!("{prefix}{k}."), out)?,
@@ -407,7 +402,8 @@ fn functions(out: &mut String) {
 /// `generateDartContentFromYaml`, formatted.
 fn generate(file_name: &str, yaml: &str) -> Result<String, String> {
     let meta = file_metadata(file_name)?;
-    let docs = YamlLoader::load_from_str(yaml).map_err(|e| format!("i18n: unreadable YAML: {e}"))?;
+    let docs =
+        YamlLoader::load_from_str(yaml).map_err(|e| format!("i18n: unreadable YAML: {e}"))?;
     let Some(Yaml::Hash(m)) = docs.first() else {
         return Err("i18n: the YAML is not a map (the official builder throws)".into());
     };
@@ -419,7 +415,10 @@ fn generate(file_name: &str, yaml: &str) -> Result<String, String> {
         s.push_str(&format!("import '{a}';\n"));
     }
     s.push('\n');
-    s.push_str(&format!("String get _languageCode => '{}';\n", meta.language));
+    s.push_str(&format!(
+        "String get _languageCode => '{}';\n",
+        meta.language
+    ));
     functions(&mut s);
     s.push('\n');
     render_classes(&meta, m, &mut s)?;

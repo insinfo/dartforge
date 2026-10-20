@@ -43,7 +43,9 @@ pub(super) fn candidate(
         .ok_or_else(|| format!("package {package} is not declared by the selected Dart SDK"))?
         .canonicalize()
         .map_err(|error| format!("SDK package {package}: {error}"))?;
-    let canonical_root = root.canonicalize().map_err(|error| format!("{}: {error}", root.display()))?;
+    let canonical_root = root
+        .canonicalize()
+        .map_err(|error| format!("{}: {error}", root.display()))?;
     if !directory.starts_with(&canonical_root) {
         return Err(format!("SDK package {package} escapes the selected SDK"));
     }
@@ -97,10 +99,14 @@ pub(super) fn declared_package_paths(root: &Path) -> Result<BTreeMap<String, Pat
             .ok_or("SDK package path is missing")?;
         let path = Path::new(path);
         if path.as_os_str().to_string_lossy().contains(['\\', ':'])
-            || path.components().any(|part| !matches!(part, std::path::Component::Normal(_)))
+            || path
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
             || path.components().next().is_none()
         {
-            return Err(format!("SDK package {name} must use a relative path without traversal"));
+            return Err(format!(
+                "SDK package {name} must use a relative path without traversal"
+            ));
         }
         let relative: PathBuf = path.components().collect();
         if packages.insert(name.into(), relative).is_some() {

@@ -6,71 +6,511 @@
 #![allow(missing_docs)]
 
 use super::NonDartCode;
-use dartforge_diagnostics::{Severity, ErrorType};
+use dartforge_diagnostics::{ErrorType, Severity};
 
 pub mod options {
     use super::*;
-    pub static INCLUDED_FILE_PARSE_ERROR: NonDartCode = NonDartCode { name: "included_file_parse_error", unique: "AnalysisOptionsErrorCode.INCLUDED_FILE_PARSE_ERROR", message: "{3} in {0}({1}..{2})", correction: None, error_type: ErrorType::CompileTimeError, severity: Severity::Error, documented: false };
-    pub static PARSE_ERROR: NonDartCode = NonDartCode { name: "parse_error", unique: "AnalysisOptionsErrorCode.PARSE_ERROR", message: "{0}", correction: None, error_type: ErrorType::CompileTimeError, severity: Severity::Error, documented: false };
-    pub static DEPRECATED_LINT: NonDartCode = NonDartCode { name: "deprecated_lint", unique: "AnalysisOptionsHintCode.DEPRECATED_LINT", message: "'{0}' is a deprecated lint rule and should not be used.", correction: Some("Try removing '{0}'."), error_type: ErrorType::Hint, severity: Severity::Info, documented: false };
-    pub static DEPRECATED_LINT_WITH_REPLACEMENT: NonDartCode = NonDartCode { name: "deprecated_lint_with_replacement", unique: "AnalysisOptionsHintCode.DEPRECATED_LINT_WITH_REPLACEMENT", message: "'{0}' is deprecated and should be replaced by '{1}'.", correction: Some("Try replacing '{0}' with '{1}'."), error_type: ErrorType::Hint, severity: Severity::Info, documented: false };
-    pub static DUPLICATE_RULE: NonDartCode = NonDartCode { name: "duplicate_rule", unique: "AnalysisOptionsHintCode.DUPLICATE_RULE", message: "The rule {0} is already specified and doesn't need to be specified again.", correction: Some("Try removing all but one specification of the rule."), error_type: ErrorType::Hint, severity: Severity::Info, documented: false };
-    pub static ANALYSIS_OPTION_DEPRECATED: NonDartCode = NonDartCode { name: "analysis_option_deprecated", unique: "AnalysisOptionsWarningCode.ANALYSIS_OPTION_DEPRECATED", message: "The option '{0}' is no longer supported.", correction: None, error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static ANALYSIS_OPTION_DEPRECATED_WITH_REPLACEMENT: NonDartCode = NonDartCode { name: "analysis_option_deprecated", unique: "AnalysisOptionsWarningCode.ANALYSIS_OPTION_DEPRECATED_WITH_REPLACEMENT", message: "The option '{0}' is no longer supported.", correction: Some("Try using the new '{1}' option."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static INCLUDED_FILE_WARNING: NonDartCode = NonDartCode { name: "included_file_warning", unique: "AnalysisOptionsWarningCode.INCLUDED_FILE_WARNING", message: "Warning in the included options file {0}({1}..{2}): {3}", correction: None, error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static INCLUDE_FILE_NOT_FOUND: NonDartCode = NonDartCode { name: "include_file_not_found", unique: "AnalysisOptionsWarningCode.INCLUDE_FILE_NOT_FOUND", message: "The include file '{0}' in '{1}' can't be found when analyzing '{2}'.", correction: None, error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static INCOMPATIBLE_LINT: NonDartCode = NonDartCode { name: "incompatible_lint", unique: "AnalysisOptionsWarningCode.INCOMPATIBLE_LINT", message: "The rule '{0}' is incompatible with the rule '{1}'.", correction: Some("Try removing one of the incompatible rules."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static INVALID_OPTION: NonDartCode = NonDartCode { name: "invalid_option", unique: "AnalysisOptionsWarningCode.INVALID_OPTION", message: "Invalid option specified for '{0}': {1}", correction: None, error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static INVALID_SECTION_FORMAT: NonDartCode = NonDartCode { name: "invalid_section_format", unique: "AnalysisOptionsWarningCode.INVALID_SECTION_FORMAT", message: "Invalid format for the '{0}' section.", correction: None, error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static MULTIPLE_PLUGINS: NonDartCode = NonDartCode { name: "multiple_plugins", unique: "AnalysisOptionsWarningCode.MULTIPLE_PLUGINS", message: "Multiple plugins can't be enabled.", correction: Some("Remove all plugins following the first, '{0}'."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static RECURSIVE_INCLUDE_FILE: NonDartCode = NonDartCode { name: "recursive_include_file", unique: "AnalysisOptionsWarningCode.RECURSIVE_INCLUDE_FILE", message: "The include file '{0}' in '{1}' includes itself recursively.", correction: Some("Try changing the chain of 'include's to not re-include this file."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static REMOVED_LINT: NonDartCode = NonDartCode { name: "removed_lint", unique: "AnalysisOptionsWarningCode.REMOVED_LINT", message: "'{0}' was removed in Dart '{1}'", correction: Some("Remove the reference to '{0}'."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static REPLACED_LINT: NonDartCode = NonDartCode { name: "replaced_lint", unique: "AnalysisOptionsWarningCode.REPLACED_LINT", message: "'{0}' was replaced by '{2}' in Dart '{1}'.", correction: Some("Replace '{0}' with '{1}'."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static UNDEFINED_LINT: NonDartCode = NonDartCode { name: "undefined_lint", unique: "AnalysisOptionsWarningCode.UNDEFINED_LINT", message: "'{0}' is not a recognized lint rule.", correction: Some("Try using the name of a recognized lint rule."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static UNRECOGNIZED_ERROR_CODE: NonDartCode = NonDartCode { name: "unrecognized_error_code", unique: "AnalysisOptionsWarningCode.UNRECOGNIZED_ERROR_CODE", message: "'{0}' isn't a recognized error code.", correction: None, error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static UNSUPPORTED_OPTION_WITHOUT_VALUES: NonDartCode = NonDartCode { name: "unsupported_option_without_values", unique: "AnalysisOptionsWarningCode.UNSUPPORTED_OPTION_WITHOUT_VALUES", message: "The option '{1}' isn't supported by '{0}'.", correction: None, error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static UNSUPPORTED_OPTION_WITH_LEGAL_VALUE: NonDartCode = NonDartCode { name: "unsupported_option_with_legal_value", unique: "AnalysisOptionsWarningCode.UNSUPPORTED_OPTION_WITH_LEGAL_VALUE", message: "The option '{1}' isn't supported by '{0}'. Try using the only supported option: '{2}'.", correction: None, error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static UNSUPPORTED_OPTION_WITH_LEGAL_VALUES: NonDartCode = NonDartCode { name: "unsupported_option_with_legal_values", unique: "AnalysisOptionsWarningCode.UNSUPPORTED_OPTION_WITH_LEGAL_VALUES", message: "The option '{1}' isn't supported by '{0}'.", correction: Some("Try using one of the supported options: {2}."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static UNSUPPORTED_VALUE: NonDartCode = NonDartCode { name: "unsupported_value", unique: "AnalysisOptionsWarningCode.UNSUPPORTED_VALUE", message: "The value '{1}' isn't supported by '{0}'.", correction: Some("Try using one of the supported options: {2}."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
+    pub static INCLUDED_FILE_PARSE_ERROR: NonDartCode = NonDartCode {
+        name: "included_file_parse_error",
+        unique: "AnalysisOptionsErrorCode.INCLUDED_FILE_PARSE_ERROR",
+        message: "{3} in {0}({1}..{2})",
+        correction: None,
+        error_type: ErrorType::CompileTimeError,
+        severity: Severity::Error,
+        documented: false,
+    };
+    pub static PARSE_ERROR: NonDartCode = NonDartCode {
+        name: "parse_error",
+        unique: "AnalysisOptionsErrorCode.PARSE_ERROR",
+        message: "{0}",
+        correction: None,
+        error_type: ErrorType::CompileTimeError,
+        severity: Severity::Error,
+        documented: false,
+    };
+    pub static DEPRECATED_LINT: NonDartCode = NonDartCode {
+        name: "deprecated_lint",
+        unique: "AnalysisOptionsHintCode.DEPRECATED_LINT",
+        message: "'{0}' is a deprecated lint rule and should not be used.",
+        correction: Some("Try removing '{0}'."),
+        error_type: ErrorType::Hint,
+        severity: Severity::Info,
+        documented: false,
+    };
+    pub static DEPRECATED_LINT_WITH_REPLACEMENT: NonDartCode = NonDartCode {
+        name: "deprecated_lint_with_replacement",
+        unique: "AnalysisOptionsHintCode.DEPRECATED_LINT_WITH_REPLACEMENT",
+        message: "'{0}' is deprecated and should be replaced by '{1}'.",
+        correction: Some("Try replacing '{0}' with '{1}'."),
+        error_type: ErrorType::Hint,
+        severity: Severity::Info,
+        documented: false,
+    };
+    pub static DUPLICATE_RULE: NonDartCode = NonDartCode {
+        name: "duplicate_rule",
+        unique: "AnalysisOptionsHintCode.DUPLICATE_RULE",
+        message: "The rule {0} is already specified and doesn't need to be specified again.",
+        correction: Some("Try removing all but one specification of the rule."),
+        error_type: ErrorType::Hint,
+        severity: Severity::Info,
+        documented: false,
+    };
+    pub static ANALYSIS_OPTION_DEPRECATED: NonDartCode = NonDartCode {
+        name: "analysis_option_deprecated",
+        unique: "AnalysisOptionsWarningCode.ANALYSIS_OPTION_DEPRECATED",
+        message: "The option '{0}' is no longer supported.",
+        correction: None,
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static ANALYSIS_OPTION_DEPRECATED_WITH_REPLACEMENT: NonDartCode = NonDartCode {
+        name: "analysis_option_deprecated",
+        unique: "AnalysisOptionsWarningCode.ANALYSIS_OPTION_DEPRECATED_WITH_REPLACEMENT",
+        message: "The option '{0}' is no longer supported.",
+        correction: Some("Try using the new '{1}' option."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static INCLUDED_FILE_WARNING: NonDartCode = NonDartCode {
+        name: "included_file_warning",
+        unique: "AnalysisOptionsWarningCode.INCLUDED_FILE_WARNING",
+        message: "Warning in the included options file {0}({1}..{2}): {3}",
+        correction: None,
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static INCLUDE_FILE_NOT_FOUND: NonDartCode = NonDartCode {
+        name: "include_file_not_found",
+        unique: "AnalysisOptionsWarningCode.INCLUDE_FILE_NOT_FOUND",
+        message: "The include file '{0}' in '{1}' can't be found when analyzing '{2}'.",
+        correction: None,
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static INCOMPATIBLE_LINT: NonDartCode = NonDartCode {
+        name: "incompatible_lint",
+        unique: "AnalysisOptionsWarningCode.INCOMPATIBLE_LINT",
+        message: "The rule '{0}' is incompatible with the rule '{1}'.",
+        correction: Some("Try removing one of the incompatible rules."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static INVALID_OPTION: NonDartCode = NonDartCode {
+        name: "invalid_option",
+        unique: "AnalysisOptionsWarningCode.INVALID_OPTION",
+        message: "Invalid option specified for '{0}': {1}",
+        correction: None,
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static INVALID_SECTION_FORMAT: NonDartCode = NonDartCode {
+        name: "invalid_section_format",
+        unique: "AnalysisOptionsWarningCode.INVALID_SECTION_FORMAT",
+        message: "Invalid format for the '{0}' section.",
+        correction: None,
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static MULTIPLE_PLUGINS: NonDartCode = NonDartCode {
+        name: "multiple_plugins",
+        unique: "AnalysisOptionsWarningCode.MULTIPLE_PLUGINS",
+        message: "Multiple plugins can't be enabled.",
+        correction: Some("Remove all plugins following the first, '{0}'."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static RECURSIVE_INCLUDE_FILE: NonDartCode = NonDartCode {
+        name: "recursive_include_file",
+        unique: "AnalysisOptionsWarningCode.RECURSIVE_INCLUDE_FILE",
+        message: "The include file '{0}' in '{1}' includes itself recursively.",
+        correction: Some("Try changing the chain of 'include's to not re-include this file."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static REMOVED_LINT: NonDartCode = NonDartCode {
+        name: "removed_lint",
+        unique: "AnalysisOptionsWarningCode.REMOVED_LINT",
+        message: "'{0}' was removed in Dart '{1}'",
+        correction: Some("Remove the reference to '{0}'."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static REPLACED_LINT: NonDartCode = NonDartCode {
+        name: "replaced_lint",
+        unique: "AnalysisOptionsWarningCode.REPLACED_LINT",
+        message: "'{0}' was replaced by '{2}' in Dart '{1}'.",
+        correction: Some("Replace '{0}' with '{1}'."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static UNDEFINED_LINT: NonDartCode = NonDartCode {
+        name: "undefined_lint",
+        unique: "AnalysisOptionsWarningCode.UNDEFINED_LINT",
+        message: "'{0}' is not a recognized lint rule.",
+        correction: Some("Try using the name of a recognized lint rule."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static UNRECOGNIZED_ERROR_CODE: NonDartCode = NonDartCode {
+        name: "unrecognized_error_code",
+        unique: "AnalysisOptionsWarningCode.UNRECOGNIZED_ERROR_CODE",
+        message: "'{0}' isn't a recognized error code.",
+        correction: None,
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static UNSUPPORTED_OPTION_WITHOUT_VALUES: NonDartCode = NonDartCode {
+        name: "unsupported_option_without_values",
+        unique: "AnalysisOptionsWarningCode.UNSUPPORTED_OPTION_WITHOUT_VALUES",
+        message: "The option '{1}' isn't supported by '{0}'.",
+        correction: None,
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static UNSUPPORTED_OPTION_WITH_LEGAL_VALUE: NonDartCode = NonDartCode {
+        name: "unsupported_option_with_legal_value",
+        unique: "AnalysisOptionsWarningCode.UNSUPPORTED_OPTION_WITH_LEGAL_VALUE",
+        message: "The option '{1}' isn't supported by '{0}'. Try using the only supported option: '{2}'.",
+        correction: None,
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static UNSUPPORTED_OPTION_WITH_LEGAL_VALUES: NonDartCode = NonDartCode {
+        name: "unsupported_option_with_legal_values",
+        unique: "AnalysisOptionsWarningCode.UNSUPPORTED_OPTION_WITH_LEGAL_VALUES",
+        message: "The option '{1}' isn't supported by '{0}'.",
+        correction: Some("Try using one of the supported options: {2}."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static UNSUPPORTED_VALUE: NonDartCode = NonDartCode {
+        name: "unsupported_value",
+        unique: "AnalysisOptionsWarningCode.UNSUPPORTED_VALUE",
+        message: "The value '{1}' isn't supported by '{0}'.",
+        correction: Some("Try using one of the supported options: {2}."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
 }
 
 pub mod pubspec {
     use super::*;
-    pub static ASSET_DIRECTORY_DOES_NOT_EXIST: NonDartCode = NonDartCode { name: "asset_directory_does_not_exist", unique: "PubspecWarningCode.ASSET_DIRECTORY_DOES_NOT_EXIST", message: "The asset directory '{0}' doesn't exist.", correction: Some("Try creating the directory or fixing the path to the directory."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static ASSET_DOES_NOT_EXIST: NonDartCode = NonDartCode { name: "asset_does_not_exist", unique: "PubspecWarningCode.ASSET_DOES_NOT_EXIST", message: "The asset file '{0}' doesn't exist.", correction: Some("Try creating the file or fixing the path to the file."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static ASSET_FIELD_NOT_LIST: NonDartCode = NonDartCode { name: "asset_field_not_list", unique: "PubspecWarningCode.ASSET_FIELD_NOT_LIST", message: "The value of the 'assets' field is expected to be a list of relative file paths.", correction: Some("Try converting the value to be a list of relative file paths."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static ASSET_MISSING_PATH: NonDartCode = NonDartCode { name: "asset_missing_path", unique: "PubspecWarningCode.ASSET_MISSING_PATH", message: "Asset map entry must contain a 'path' field.", correction: Some("Try adding a 'path' field."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static ASSET_NOT_STRING: NonDartCode = NonDartCode { name: "asset_not_string", unique: "PubspecWarningCode.ASSET_NOT_STRING", message: "Assets are required to be file paths (strings).", correction: Some("Try converting the value to be a string."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static ASSET_NOT_STRING_OR_MAP: NonDartCode = NonDartCode { name: "asset_not_string_or_map", unique: "PubspecWarningCode.ASSET_NOT_STRING_OR_MAP", message: "An asset value is required to be a file path (string) or map.", correction: Some("Try converting the value to be a string or map."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static ASSET_PATH_NOT_STRING: NonDartCode = NonDartCode { name: "asset_path_not_string", unique: "PubspecWarningCode.ASSET_PATH_NOT_STRING", message: "Asset paths are required to be file paths (strings).", correction: Some("Try converting the value to be a string."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static DEPENDENCIES_FIELD_NOT_MAP: NonDartCode = NonDartCode { name: "dependencies_field_not_map", unique: "PubspecWarningCode.DEPENDENCIES_FIELD_NOT_MAP", message: "The value of the '{0}' field is expected to be a map.", correction: Some("Try converting the value to be a map."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static DEPRECATED_FIELD: NonDartCode = NonDartCode { name: "deprecated_field", unique: "PubspecWarningCode.DEPRECATED_FIELD", message: "The '{0}' field is no longer used and can be removed.", correction: Some("Try removing the field."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static FLUTTER_FIELD_NOT_MAP: NonDartCode = NonDartCode { name: "flutter_field_not_map", unique: "PubspecWarningCode.FLUTTER_FIELD_NOT_MAP", message: "The value of the 'flutter' field is expected to be a map.", correction: Some("Try converting the value to be a map."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static INVALID_DEPENDENCY: NonDartCode = NonDartCode { name: "invalid_dependency", unique: "PubspecWarningCode.INVALID_DEPENDENCY", message: "Publishable packages can't have '{0}' dependencies.", correction: Some("Try adding a 'publish_to: none' entry to mark the package as not for publishing or remove the {0} dependency."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static INVALID_PLATFORMS_FIELD: NonDartCode = NonDartCode { name: "invalid_platforms_field", unique: "PubspecWarningCode.INVALID_PLATFORMS_FIELD", message: "The 'platforms' field must be a map with platforms as keys.", correction: Some("Try changing the 'platforms' field to a map with platforms as keys."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static MISSING_DEPENDENCY: NonDartCode = NonDartCode { name: "missing_dependency", unique: "PubspecWarningCode.MISSING_DEPENDENCY", message: "Missing a dependency on imported package '{0}'.", correction: Some("Try adding {0}."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static MISSING_NAME: NonDartCode = NonDartCode { name: "missing_name", unique: "PubspecWarningCode.MISSING_NAME", message: "The 'name' field is required but missing.", correction: Some("Try adding a field named 'name'."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static NAME_NOT_STRING: NonDartCode = NonDartCode { name: "name_not_string", unique: "PubspecWarningCode.NAME_NOT_STRING", message: "The value of the 'name' field is required to be a string.", correction: Some("Try converting the value to be a string."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static PATH_DOES_NOT_EXIST: NonDartCode = NonDartCode { name: "path_does_not_exist", unique: "PubspecWarningCode.PATH_DOES_NOT_EXIST", message: "The path '{0}' doesn't exist.", correction: Some("Try creating the referenced path or using a path that exists."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static PATH_NOT_POSIX: NonDartCode = NonDartCode { name: "path_not_posix", unique: "PubspecWarningCode.PATH_NOT_POSIX", message: "The path '{0}' isn't a POSIX-style path.", correction: Some("Try converting the value to a POSIX-style path."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static PATH_PUBSPEC_DOES_NOT_EXIST: NonDartCode = NonDartCode { name: "path_pubspec_does_not_exist", unique: "PubspecWarningCode.PATH_PUBSPEC_DOES_NOT_EXIST", message: "The directory '{0}' doesn't contain a pubspec.", correction: Some("Try creating a pubspec in the referenced directory or using a path that has a pubspec."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static PLATFORM_VALUE_DISALLOWED: NonDartCode = NonDartCode { name: "platform_value_disallowed", unique: "PubspecWarningCode.PLATFORM_VALUE_DISALLOWED", message: "Keys in the `platforms` field can't have values.", correction: Some("Try removing the value, while keeping the key."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static UNKNOWN_PLATFORM: NonDartCode = NonDartCode { name: "unknown_platform", unique: "PubspecWarningCode.UNKNOWN_PLATFORM", message: "The platform '{0}' is not a recognized platform.", correction: Some("Try correcting the platform name or removing it."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static UNNECESSARY_DEV_DEPENDENCY: NonDartCode = NonDartCode { name: "unnecessary_dev_dependency", unique: "PubspecWarningCode.UNNECESSARY_DEV_DEPENDENCY", message: "The dev dependency on {0} is unnecessary because there is also a normal dependency on that package.", correction: Some("Try removing the dev dependency."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: true };
-    pub static WORKSPACE_FIELD_NOT_LIST: NonDartCode = NonDartCode { name: "workspace_field_not_list", unique: "PubspecWarningCode.WORKSPACE_FIELD_NOT_LIST", message: "The value of the 'workspace' field is required to be a list of relative file paths.", correction: Some("Try converting the value to be a list of relative file paths."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static WORKSPACE_VALUE_NOT_STRING: NonDartCode = NonDartCode { name: "workspace_value_not_string", unique: "PubspecWarningCode.WORKSPACE_VALUE_NOT_STRING", message: "Workspace entries are required to be directory paths (strings).", correction: Some("Try converting the value to be a string."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static WORKSPACE_VALUE_NOT_SUBDIRECTORY: NonDartCode = NonDartCode { name: "workspace_value_not_subdirectory", unique: "PubspecWarningCode.WORKSPACE_VALUE_NOT_SUBDIRECTORY", message: "Workspace values must be a relative path of a subdirectory of '{0}'.", correction: Some("Try using a subdirectory of the directory containing the 'pubspec.yaml' file."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
+    pub static ASSET_DIRECTORY_DOES_NOT_EXIST: NonDartCode = NonDartCode {
+        name: "asset_directory_does_not_exist",
+        unique: "PubspecWarningCode.ASSET_DIRECTORY_DOES_NOT_EXIST",
+        message: "The asset directory '{0}' doesn't exist.",
+        correction: Some("Try creating the directory or fixing the path to the directory."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static ASSET_DOES_NOT_EXIST: NonDartCode = NonDartCode {
+        name: "asset_does_not_exist",
+        unique: "PubspecWarningCode.ASSET_DOES_NOT_EXIST",
+        message: "The asset file '{0}' doesn't exist.",
+        correction: Some("Try creating the file or fixing the path to the file."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static ASSET_FIELD_NOT_LIST: NonDartCode = NonDartCode {
+        name: "asset_field_not_list",
+        unique: "PubspecWarningCode.ASSET_FIELD_NOT_LIST",
+        message: "The value of the 'assets' field is expected to be a list of relative file paths.",
+        correction: Some("Try converting the value to be a list of relative file paths."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static ASSET_MISSING_PATH: NonDartCode = NonDartCode {
+        name: "asset_missing_path",
+        unique: "PubspecWarningCode.ASSET_MISSING_PATH",
+        message: "Asset map entry must contain a 'path' field.",
+        correction: Some("Try adding a 'path' field."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static ASSET_NOT_STRING: NonDartCode = NonDartCode {
+        name: "asset_not_string",
+        unique: "PubspecWarningCode.ASSET_NOT_STRING",
+        message: "Assets are required to be file paths (strings).",
+        correction: Some("Try converting the value to be a string."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static ASSET_NOT_STRING_OR_MAP: NonDartCode = NonDartCode {
+        name: "asset_not_string_or_map",
+        unique: "PubspecWarningCode.ASSET_NOT_STRING_OR_MAP",
+        message: "An asset value is required to be a file path (string) or map.",
+        correction: Some("Try converting the value to be a string or map."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static ASSET_PATH_NOT_STRING: NonDartCode = NonDartCode {
+        name: "asset_path_not_string",
+        unique: "PubspecWarningCode.ASSET_PATH_NOT_STRING",
+        message: "Asset paths are required to be file paths (strings).",
+        correction: Some("Try converting the value to be a string."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static DEPENDENCIES_FIELD_NOT_MAP: NonDartCode = NonDartCode {
+        name: "dependencies_field_not_map",
+        unique: "PubspecWarningCode.DEPENDENCIES_FIELD_NOT_MAP",
+        message: "The value of the '{0}' field is expected to be a map.",
+        correction: Some("Try converting the value to be a map."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static DEPRECATED_FIELD: NonDartCode = NonDartCode {
+        name: "deprecated_field",
+        unique: "PubspecWarningCode.DEPRECATED_FIELD",
+        message: "The '{0}' field is no longer used and can be removed.",
+        correction: Some("Try removing the field."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static FLUTTER_FIELD_NOT_MAP: NonDartCode = NonDartCode {
+        name: "flutter_field_not_map",
+        unique: "PubspecWarningCode.FLUTTER_FIELD_NOT_MAP",
+        message: "The value of the 'flutter' field is expected to be a map.",
+        correction: Some("Try converting the value to be a map."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static INVALID_DEPENDENCY: NonDartCode = NonDartCode {
+        name: "invalid_dependency",
+        unique: "PubspecWarningCode.INVALID_DEPENDENCY",
+        message: "Publishable packages can't have '{0}' dependencies.",
+        correction: Some(
+            "Try adding a 'publish_to: none' entry to mark the package as not for publishing or remove the {0} dependency.",
+        ),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static INVALID_PLATFORMS_FIELD: NonDartCode = NonDartCode {
+        name: "invalid_platforms_field",
+        unique: "PubspecWarningCode.INVALID_PLATFORMS_FIELD",
+        message: "The 'platforms' field must be a map with platforms as keys.",
+        correction: Some("Try changing the 'platforms' field to a map with platforms as keys."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static MISSING_DEPENDENCY: NonDartCode = NonDartCode {
+        name: "missing_dependency",
+        unique: "PubspecWarningCode.MISSING_DEPENDENCY",
+        message: "Missing a dependency on imported package '{0}'.",
+        correction: Some("Try adding {0}."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static MISSING_NAME: NonDartCode = NonDartCode {
+        name: "missing_name",
+        unique: "PubspecWarningCode.MISSING_NAME",
+        message: "The 'name' field is required but missing.",
+        correction: Some("Try adding a field named 'name'."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static NAME_NOT_STRING: NonDartCode = NonDartCode {
+        name: "name_not_string",
+        unique: "PubspecWarningCode.NAME_NOT_STRING",
+        message: "The value of the 'name' field is required to be a string.",
+        correction: Some("Try converting the value to be a string."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static PATH_DOES_NOT_EXIST: NonDartCode = NonDartCode {
+        name: "path_does_not_exist",
+        unique: "PubspecWarningCode.PATH_DOES_NOT_EXIST",
+        message: "The path '{0}' doesn't exist.",
+        correction: Some("Try creating the referenced path or using a path that exists."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static PATH_NOT_POSIX: NonDartCode = NonDartCode {
+        name: "path_not_posix",
+        unique: "PubspecWarningCode.PATH_NOT_POSIX",
+        message: "The path '{0}' isn't a POSIX-style path.",
+        correction: Some("Try converting the value to a POSIX-style path."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static PATH_PUBSPEC_DOES_NOT_EXIST: NonDartCode = NonDartCode {
+        name: "path_pubspec_does_not_exist",
+        unique: "PubspecWarningCode.PATH_PUBSPEC_DOES_NOT_EXIST",
+        message: "The directory '{0}' doesn't contain a pubspec.",
+        correction: Some(
+            "Try creating a pubspec in the referenced directory or using a path that has a pubspec.",
+        ),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static PLATFORM_VALUE_DISALLOWED: NonDartCode = NonDartCode {
+        name: "platform_value_disallowed",
+        unique: "PubspecWarningCode.PLATFORM_VALUE_DISALLOWED",
+        message: "Keys in the `platforms` field can't have values.",
+        correction: Some("Try removing the value, while keeping the key."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static UNKNOWN_PLATFORM: NonDartCode = NonDartCode {
+        name: "unknown_platform",
+        unique: "PubspecWarningCode.UNKNOWN_PLATFORM",
+        message: "The platform '{0}' is not a recognized platform.",
+        correction: Some("Try correcting the platform name or removing it."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static UNNECESSARY_DEV_DEPENDENCY: NonDartCode = NonDartCode {
+        name: "unnecessary_dev_dependency",
+        unique: "PubspecWarningCode.UNNECESSARY_DEV_DEPENDENCY",
+        message: "The dev dependency on {0} is unnecessary because there is also a normal dependency on that package.",
+        correction: Some("Try removing the dev dependency."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: true,
+    };
+    pub static WORKSPACE_FIELD_NOT_LIST: NonDartCode = NonDartCode {
+        name: "workspace_field_not_list",
+        unique: "PubspecWarningCode.WORKSPACE_FIELD_NOT_LIST",
+        message: "The value of the 'workspace' field is required to be a list of relative file paths.",
+        correction: Some("Try converting the value to be a list of relative file paths."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static WORKSPACE_VALUE_NOT_STRING: NonDartCode = NonDartCode {
+        name: "workspace_value_not_string",
+        unique: "PubspecWarningCode.WORKSPACE_VALUE_NOT_STRING",
+        message: "Workspace entries are required to be directory paths (strings).",
+        correction: Some("Try converting the value to be a string."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static WORKSPACE_VALUE_NOT_SUBDIRECTORY: NonDartCode = NonDartCode {
+        name: "workspace_value_not_subdirectory",
+        unique: "PubspecWarningCode.WORKSPACE_VALUE_NOT_SUBDIRECTORY",
+        message: "Workspace values must be a relative path of a subdirectory of '{0}'.",
+        correction: Some(
+            "Try using a subdirectory of the directory containing the 'pubspec.yaml' file.",
+        ),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
 }
 
 pub mod manifest {
     use super::*;
-    pub static CAMERA_PERMISSIONS_INCOMPATIBLE: NonDartCode = NonDartCode { name: "camera_permissions_incompatible", unique: "ManifestWarningCode.CAMERA_PERMISSIONS_INCOMPATIBLE", message: "Camera permissions make app incompatible for Chrome OS, consider adding optional features \"android.hardware.camera\" and \"android.hardware.camera.autofocus\".", correction: Some("Try adding `<uses-feature android:name=\"android.hardware.camera\"  android:required=\"false\">` `<uses-feature android:name=\"android.hardware.camera.autofocus\"  android:required=\"false\">`."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static NON_RESIZABLE_ACTIVITY: NonDartCode = NonDartCode { name: "non_resizable_activity", unique: "ManifestWarningCode.NON_RESIZABLE_ACTIVITY", message: "The `<activity>` element should be allowed to be resized to allow users to take advantage of the multi-window environment on Chrome OS", correction: Some("Consider declaring the corresponding activity element with `resizableActivity=\"true\"` attribute."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static NO_TOUCHSCREEN_FEATURE: NonDartCode = NonDartCode { name: "no_touchscreen_feature", unique: "ManifestWarningCode.NO_TOUCHSCREEN_FEATURE", message: "The default \"android.hardware.touchscreen\" needs to be optional for Chrome OS. ", correction: Some("Consider adding <uses-feature android:name=\"android.hardware.touchscreen\" android:required=\"false\" /> to the manifest."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static PERMISSION_IMPLIES_UNSUPPORTED_HARDWARE: NonDartCode = NonDartCode { name: "permission_implies_unsupported_hardware", unique: "ManifestWarningCode.PERMISSION_IMPLIES_UNSUPPORTED_HARDWARE", message: "Permission makes app incompatible for Chrome OS, consider adding optional {0} feature tag, ", correction: Some(" Try adding `<uses-feature android:name=\"{0}\"  android:required=\"false\">`."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static SETTING_ORIENTATION_ON_ACTIVITY: NonDartCode = NonDartCode { name: "setting_orientation_on_activity", unique: "ManifestWarningCode.SETTING_ORIENTATION_ON_ACTIVITY", message: "The `<activity>` element should not be locked to any orientation so that users can take advantage of the multi-window environments and larger screens on Chrome OS", correction: Some("Consider declaring the corresponding activity element with `screenOrientation=\"unspecified\"` or `\"fullSensor\"` attribute."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static UNSUPPORTED_CHROME_OS_FEATURE: NonDartCode = NonDartCode { name: "unsupported_chrome_os_feature", unique: "ManifestWarningCode.UNSUPPORTED_CHROME_OS_FEATURE", message: "The feature {0} isn't supported on Chrome OS, consider making it optional.", correction: Some("Try changing to `android:required=\"false\"` for this feature."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
-    pub static UNSUPPORTED_CHROME_OS_HARDWARE: NonDartCode = NonDartCode { name: "unsupported_chrome_os_hardware", unique: "ManifestWarningCode.UNSUPPORTED_CHROME_OS_HARDWARE", message: "The feature {0} isn't supported on Chrome OS, consider making it optional.", correction: Some("Try adding `android:required=\"false\"` for this feature."), error_type: ErrorType::StaticWarning, severity: Severity::Warning, documented: false };
+    pub static CAMERA_PERMISSIONS_INCOMPATIBLE: NonDartCode = NonDartCode {
+        name: "camera_permissions_incompatible",
+        unique: "ManifestWarningCode.CAMERA_PERMISSIONS_INCOMPATIBLE",
+        message: "Camera permissions make app incompatible for Chrome OS, consider adding optional features \"android.hardware.camera\" and \"android.hardware.camera.autofocus\".",
+        correction: Some(
+            "Try adding `<uses-feature android:name=\"android.hardware.camera\"  android:required=\"false\">` `<uses-feature android:name=\"android.hardware.camera.autofocus\"  android:required=\"false\">`.",
+        ),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static NON_RESIZABLE_ACTIVITY: NonDartCode = NonDartCode {
+        name: "non_resizable_activity",
+        unique: "ManifestWarningCode.NON_RESIZABLE_ACTIVITY",
+        message: "The `<activity>` element should be allowed to be resized to allow users to take advantage of the multi-window environment on Chrome OS",
+        correction: Some(
+            "Consider declaring the corresponding activity element with `resizableActivity=\"true\"` attribute.",
+        ),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static NO_TOUCHSCREEN_FEATURE: NonDartCode = NonDartCode {
+        name: "no_touchscreen_feature",
+        unique: "ManifestWarningCode.NO_TOUCHSCREEN_FEATURE",
+        message: "The default \"android.hardware.touchscreen\" needs to be optional for Chrome OS. ",
+        correction: Some(
+            "Consider adding <uses-feature android:name=\"android.hardware.touchscreen\" android:required=\"false\" /> to the manifest.",
+        ),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static PERMISSION_IMPLIES_UNSUPPORTED_HARDWARE: NonDartCode = NonDartCode {
+        name: "permission_implies_unsupported_hardware",
+        unique: "ManifestWarningCode.PERMISSION_IMPLIES_UNSUPPORTED_HARDWARE",
+        message: "Permission makes app incompatible for Chrome OS, consider adding optional {0} feature tag, ",
+        correction: Some(
+            " Try adding `<uses-feature android:name=\"{0}\"  android:required=\"false\">`.",
+        ),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static SETTING_ORIENTATION_ON_ACTIVITY: NonDartCode = NonDartCode {
+        name: "setting_orientation_on_activity",
+        unique: "ManifestWarningCode.SETTING_ORIENTATION_ON_ACTIVITY",
+        message: "The `<activity>` element should not be locked to any orientation so that users can take advantage of the multi-window environments and larger screens on Chrome OS",
+        correction: Some(
+            "Consider declaring the corresponding activity element with `screenOrientation=\"unspecified\"` or `\"fullSensor\"` attribute.",
+        ),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static UNSUPPORTED_CHROME_OS_FEATURE: NonDartCode = NonDartCode {
+        name: "unsupported_chrome_os_feature",
+        unique: "ManifestWarningCode.UNSUPPORTED_CHROME_OS_FEATURE",
+        message: "The feature {0} isn't supported on Chrome OS, consider making it optional.",
+        correction: Some("Try changing to `android:required=\"false\"` for this feature."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
+    pub static UNSUPPORTED_CHROME_OS_HARDWARE: NonDartCode = NonDartCode {
+        name: "unsupported_chrome_os_hardware",
+        unique: "ManifestWarningCode.UNSUPPORTED_CHROME_OS_HARDWARE",
+        message: "The feature {0} isn't supported on Chrome OS, consider making it optional.",
+        correction: Some("Try adding `android:required=\"false\"` for this feature."),
+        error_type: ErrorType::StaticWarning,
+        severity: Severity::Warning,
+        documented: false,
+    };
 }
 
 /// All the codes of non-Dart files, in source order.

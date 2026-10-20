@@ -63,13 +63,21 @@ impl LanguageOptions {
     /// # Errors
     /// A version not in the `x.y` format, above the current one or below 2.12,
     /// and an unknown experiment.
-    pub fn read_option<'a>(&mut self, arg: &str, rest: &mut impl Iterator<Item = &'a str>) -> Result<bool, String> {
+    pub fn read_option<'a>(
+        &mut self,
+        arg: &str,
+        rest: &mut impl Iterator<Item = &'a str>,
+    ) -> Result<bool, String> {
         if arg == "--language-version" || arg.starts_with("--language-version=") {
             let value = match arg.split_once('=') {
                 Some((_, v)) => v.to_string(),
-                None => rest.next().ok_or("--language-version requires x.y")?.to_string(),
+                None => rest
+                    .next()
+                    .ok_or("--language-version requires x.y")?
+                    .to_string(),
             };
-            let v = LanguageVersion::parse(&value).ok_or_else(|| format!("--language-version: '{value}' is not x.y"))?;
+            let v = LanguageVersion::parse(&value)
+                .ok_or_else(|| format!("--language-version: '{value}' is not x.y"))?;
             if v > LanguageVersion::CURRENT || v < LanguageVersion::MINIMUM {
                 return Err(format!(
                     "--language-version {v}: outside the supported range ({} to {})",
@@ -83,10 +91,14 @@ impl LanguageOptions {
         if arg == "--enable-experiment" || arg.starts_with("--enable-experiment=") {
             let value = match arg.split_once('=') {
                 Some((_, v)) => v.to_string(),
-                None => rest.next().ok_or("--enable-experiment requires names")?.to_string(),
+                None => rest
+                    .next()
+                    .ok_or("--enable-experiment requires names")?
+                    .to_string(),
             };
             for name_ in value.split(',').map(str::trim).filter(|n| !n.is_empty()) {
-                let f = Feature::from_name(name_).ok_or_else(|| format!("--enable-experiment: unknown experiment '{name_}'"))?;
+                let f = Feature::from_name(name_)
+                    .ok_or_else(|| format!("--enable-experiment: unknown experiment '{name_}'"))?;
                 if !self.experiments.contains(&f) {
                     self.experiments.push(f);
                 }
@@ -124,8 +136,8 @@ impl SdkLayout {
         let path = lib_dir.join("libraries.json");
         let text = std::fs::read_to_string(&path)
             .map_err(|e| format!("could not read {}: {e}", path.display()))?;
-        let json: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| format!("{} is invalid: {e}", path.display()))?;
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| format!("{} is invalid: {e}", path.display()))?;
         let mut libraries = HashMap::new();
         Self::read_section(&json, lib_dir, target, &path, &mut libraries, 0)?;
         Ok(SdkLayout {
@@ -161,11 +173,17 @@ impl SdkLayout {
             i = pos + "const LibraryInfo(".len();
             // The name: the last string before the `:` that precedes the `const`.
             let before = text[..pos].trim_end();
-            let Some(before) = before.strip_suffix(':') else { continue };
+            let Some(before) = before.strip_suffix(':') else {
+                continue;
+            };
             let before = before.trim_end();
-            let Some(quote) = before.chars().last().filter(|c| *c == '\'' || *c == '"') else { continue };
+            let Some(quote) = before.chars().last().filter(|c| *c == '\'' || *c == '"') else {
+                continue;
+            };
             let body_node = &before[..before.len() - 1];
-            let Some(ini) = body_node.rfind(quote) else { continue };
+            let Some(ini) = body_node.rfind(quote) else {
+                continue;
+            };
             let name_ = body_node[ini + 1..].to_string();
             // The path: the first string after the `(`.
             let mut j = i;
@@ -176,7 +194,9 @@ impl SdkLayout {
             if q != b'\'' && q != b'"' {
                 continue;
             }
-            let Some(end) = text[j + 1..].find(q as char) else { break };
+            let Some(end) = text[j + 1..].find(q as char) else {
+                break;
+            };
             let mut path = &text[j + 1..j + 1 + end];
             // `dart2jsPath:` replaces the path (the `SdkLibrariesReader`'s
             // `_LibraryBuilder` writes the named argument over the positional one):
@@ -194,7 +214,12 @@ impl SdkLayout {
             }
             libraries.insert(
                 name_.clone(),
-                SdkLibrary { name: name_, path: lib_dir.join(path), patches: Vec::new(), supported: true },
+                SdkLibrary {
+                    name: name_,
+                    path: lib_dir.join(path),
+                    patches: Vec::new(),
+                    supported: true,
+                },
             );
         }
         if libraries.is_empty() {
@@ -226,12 +251,16 @@ impl SdkLayout {
     /// Those of [`SdkLayout::load`], a missing section, and a file (original
     /// or substitute) that does not exist — a swap that silently does not
     /// happen is an SDK different from the declared one.
-    pub fn load_with_overlay(lib_dir: &Path, overlay_dir: &Path, target: &str) -> Result<Self, String> {
+    pub fn load_with_overlay(
+        lib_dir: &Path,
+        overlay_dir: &Path,
+        target: &str,
+    ) -> Result<Self, String> {
         let path = overlay_dir.join("libraries.json");
         let text = std::fs::read_to_string(&path)
             .map_err(|e| format!("could not read {}: {e}", path.display()))?;
-        let json: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| format!("{} is invalid: {e}", path.display()))?;
+        let json: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| format!("{} is invalid: {e}", path.display()))?;
         let section_ = json
             .get(target)
             .ok_or_else(|| format!("section {target} missing in {}", path.display()))?;
@@ -242,16 +271,25 @@ impl SdkLayout {
         let mut sdk = Self::load(lib_dir, base)?;
         if let Some(swaps) = section_.get("replaces").and_then(|s| s.as_object()) {
             for (original, new_) in swaps {
-                let new_ = new_
-                    .as_str()
-                    .ok_or_else(|| format!("{target}.replaces[{original}] is not a string in {}", path.display()))?;
+                let new_ = new_.as_str().ok_or_else(|| {
+                    format!(
+                        "{target}.replaces[{original}] is not a string in {}",
+                        path.display()
+                    )
+                })?;
                 let original = crate::load::normalize(&lib_dir.join(original));
                 let new_ = crate::load::normalize(&overlay_dir.join(new_));
                 if !original.is_file() {
-                    return Err(format!("the overlay replaces {}, which does not exist in the SDK", original.display()));
+                    return Err(format!(
+                        "the overlay replaces {}, which does not exist in the SDK",
+                        original.display()
+                    ));
                 }
                 if !new_.is_file() {
-                    return Err(format!("the overlay points to {}, which does not exist", new_.display()));
+                    return Err(format!(
+                        "the overlay points to {}, which does not exist",
+                        new_.display()
+                    ));
                 }
                 sdk.replacements.insert(original, new_);
             }
@@ -264,7 +302,9 @@ impl SdkLayout {
         if self.replacements.is_empty() {
             return None;
         }
-        self.replacements.get(&crate::load::normalize(path)).map(PathBuf::as_path)
+        self.replacements
+            .get(&crate::load::normalize(path))
+            .map(PathBuf::as_path)
     }
 
     /// Reads a section and, before it, the ones it includes (`"include":
@@ -283,7 +323,10 @@ impl SdkLayout {
         depth: usize,
     ) -> Result<(), String> {
         if depth > 8 {
-            return Err(format!("cyclic include in section {target} of {}", path.display()));
+            return Err(format!(
+                "cyclic include in section {target} of {}",
+                path.display()
+            ));
         }
         let section_ = json
             .get(target)
@@ -366,9 +409,15 @@ impl SdkLayout {
                     let candidates = [
                         dir.parent().map(|p| p.join("lib")),
                         Some(dir.join("..").join("lib")),
-                        std::fs::canonicalize(dir.join(exe)).ok().and_then(|e| Some(e.parent()?.parent()?.join("lib"))),
+                        std::fs::canonicalize(dir.join(exe))
+                            .ok()
+                            .and_then(|e| Some(e.parent()?.parent()?.join("lib"))),
                     ];
-                    if let Some(lib) = candidates.into_iter().flatten().find(|l| l.join("libraries.json").exists()) {
+                    if let Some(lib) = candidates
+                        .into_iter()
+                        .flatten()
+                        .find(|l| l.join("libraries.json").exists())
+                    {
                         return Some(lib);
                     }
                 }
@@ -410,18 +459,31 @@ mod tests {
         let sdk = SdkLayout::load_with_overlay(&lib, &dir, "dartforge_native").unwrap();
         // One substitution per entry of `replaces` in libraries.json.
         let json: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(dir.join("libraries.json")).unwrap()).unwrap();
-        let expected_ones = json["dartforge_native"]["replaces"].as_object().unwrap().len();
+            serde_json::from_str(&std::fs::read_to_string(dir.join("libraries.json")).unwrap())
+                .unwrap();
+        let expected_ones = json["dartforge_native"]["replaces"]
+            .as_object()
+            .unwrap()
+            .len();
         assert_eq!(sdk.replacements.len(), expected_ones);
         assert!(expected_ones >= 20);
         let async_patch = &sdk.library("async").unwrap().patches[0];
         let new_ = sdk.replacement(async_patch).expect("async_patch swapped");
-        assert!(new_.ends_with("async_patch.dart") && new_.starts_with(crate::load::normalize(&dir)));
-        assert!(sdk.replacement(&sdk.library("core").unwrap().path).is_none());
+        assert!(
+            new_.ends_with("async_patch.dart") && new_.starts_with(crate::load::normalize(&dir))
+        );
+        assert!(
+            sdk.replacement(&sdk.library("core").unwrap().path)
+                .is_none()
+        );
 
         let tmp = tempfile::tempdir().unwrap();
         let entry_path = tmp.path().join("main.dart");
-        std::fs::write(&entry_path, "import 'dart:async';\nvoid main() { Timer(Duration.zero, () {}); }\n").unwrap();
+        std::fs::write(
+            &entry_path,
+            "import 'dart:async';\nvoid main() { Timer(Duration.zero, () {}); }\n",
+        )
+        .unwrap();
         let mut interner = dartforge_intern::Interner::new();
         let (program, diags) = crate::load::load_lenient(&entry_path, &sdk, None, &mut interner);
         assert!(diags.is_empty(), "{diags:?}");
@@ -434,10 +496,22 @@ mod tests {
             .iter()
             .map(|u| program.units[u.0 as usize].source.as_str())
             .collect();
-        for mark in ["DartForge_scheduleImmediate", "DartForge_Timer_new", "_wrapBody"] {
-            assert!(async_sources.iter().any(|s| s.contains(mark)), "{mark} missing from the loaded dart:async");
+        for mark in [
+            "DartForge_scheduleImmediate",
+            "DartForge_Timer_new",
+            "_wrapBody",
+        ] {
+            assert!(
+                async_sources.iter().any(|s| s.contains(mark)),
+                "{mark} missing from the loaded dart:async"
+            );
         }
-        assert!(!async_sources.iter().any(|s| s.contains("class _SuspendState")), "the VM's _SuspendState is still loaded");
+        assert!(
+            !async_sources
+                .iter()
+                .any(|s| s.contains("class _SuspendState")),
+            "the VM's _SuspendState is still loaded"
+        );
     }
 
     /// The `vm` section only has `cli`; `core` comes from `vm_common`'s

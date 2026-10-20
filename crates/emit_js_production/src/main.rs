@@ -33,7 +33,9 @@ fn run() -> Result<(), String> {
     while i < args.len() {
         let next = |i: &mut usize| -> Result<PathBuf, String> {
             *i += 1;
-            args.get(*i).map(PathBuf::from).ok_or_else(|| USAGE.to_string())
+            args.get(*i)
+                .map(PathBuf::from)
+                .ok_or_else(|| USAGE.to_string())
         };
         match args[i].as_str() {
             "-o" => output = Some(next(&mut i)?),
@@ -57,27 +59,45 @@ fn run() -> Result<(), String> {
                 println!("{USAGE}");
                 return Ok(());
             }
-            other if other.starts_with("--language-version") || other.starts_with("--enable-experiment") => {
+            other
+                if other.starts_with("--language-version")
+                    || other.starts_with("--enable-experiment") =>
+            {
                 let mut rest = args[i + 1..].iter().map(String::as_str);
                 let before = rest.len();
                 language.read_option(other, &mut rest)?;
                 i += before - rest.len();
             }
-            other if input.is_none() && !other.starts_with('-') => input = Some(PathBuf::from(other)),
+            other if input.is_none() && !other.starts_with('-') => {
+                input = Some(PathBuf::from(other))
+            }
             other => return Err(format!("unknown argument: {other}\n{USAGE}")),
         }
         i += 1;
     }
-    let (Some(input), Some(output)) = (input, output) else { return Err(USAGE.to_string()) };
+    let (Some(input), Some(output)) = (input, output) else {
+        return Err(USAGE.to_string());
+    };
     let runtime = dart_sdk_js.unwrap_or_else(dartforge_emit_js::default_dart_sdk_js);
 
     // Deep bodies recurse deeply, as in `compile-js`: a dedicated stack.
-    let (e2, s2, p2, r2) = (input.clone(), sdk.clone(), packages.clone(), runtime.clone());
+    let (e2, s2, p2, r2) = (
+        input.clone(),
+        sdk.clone(),
+        packages.clone(),
+        runtime.clone(),
+    );
     let prod = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
             if op.own_sdk {
-                dartforge_emit_js_production::compile_own_sdk(&e2, s2.as_deref(), p2.as_deref(), op, &language)
+                dartforge_emit_js_production::compile_own_sdk(
+                    &e2,
+                    s2.as_deref(),
+                    p2.as_deref(),
+                    op,
+                    &language,
+                )
             } else {
                 compile(&e2, s2.as_deref(), p2.as_deref(), &r2, op, &language)
             }
@@ -87,9 +107,10 @@ fn run() -> Result<(), String> {
         .map_err(|_| "the compilation aborted")??;
 
     if let Some(parent) = output.parent()
-        && !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-        }
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+    }
     std::fs::write(&output, &prod.js).map_err(|e| format!("{}: {e}", output.display()))?;
     for c in &prod.cycles {
         eprintln!("warning: import cycle between modules: {c}");
@@ -108,7 +129,11 @@ fn run() -> Result<(), String> {
         prod.sdk_units,
     );
     if prod.before_compaction != prod.js.len() {
-        println!("compaction: {:.0} -> {:.0} KB", kb(prod.before_compaction), kb(prod.js.len()));
+        println!(
+            "compaction: {:.0} -> {:.0} KB",
+            kb(prod.before_compaction),
+            kb(prod.js.len())
+        );
     }
     if let Some((origin, t)) = prod.index {
         let from = match origin {
@@ -126,12 +151,26 @@ fn run() -> Result<(), String> {
         let e = &m.stats;
         println!(
             "world: classes {}/{} instantiated + {} type only; functions {}/{}; {} selectors; {} round(s); world {:.0} ms, emission {:.0} ms, verifier {:.0} ms",
-            e.instantiated_classes, e.user_classes, e.type_classes, e.live_functions, e.user_functions, e.selectors, m.rounds,
-            ms(m.world_time), ms(m.emit_time), ms(m.verify_time),
+            e.instantiated_classes,
+            e.user_classes,
+            e.type_classes,
+            e.live_functions,
+            e.user_functions,
+            e.selectors,
+            m.rounds,
+            ms(m.world_time),
+            ms(m.emit_time),
+            ms(m.verify_time),
         );
-        let limit = std::env::var("DARTFORGE_JSPROD_FIXES").ok().and_then(|v| v.parse().ok()).unwrap_or(20usize);
+        let limit = std::env::var("DARTFORGE_JSPROD_FIXES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(20usize);
         if m.fixes.len() > limit {
-            eprintln!("warning: verifier: {} gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more", m.fixes.len());
+            eprintln!(
+                "warning: verifier: {} gap(s) fixed; DARTFORGE_JSPROD_FIXES=N shows more",
+                m.fixes.len()
+            );
         }
         for c in m.fixes.iter().take(limit) {
             eprintln!("warning: verifier: {c}");
@@ -150,7 +189,9 @@ fn run() -> Result<(), String> {
             // `DARTFORGE_JSPROD_STRICT=1`: not converging is an error (the
             // production CI).
             if std::env::var("DARTFORGE_JSPROD_STRICT").is_ok_and(|v| v == "1") {
-                return Err("the reachability analysis did not converge (DARTFORGE_JSPROD_STRICT=1)".into());
+                return Err(
+                    "the reachability analysis did not converge (DARTFORGE_JSPROD_STRICT=1)".into(),
+                );
             }
         }
     }

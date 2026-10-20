@@ -9,14 +9,14 @@
 //! * **determinism**: 1, 4 and 8 workers give the same state;
 //! * **incremental = from scratch**: with the `edicoes/` applied in sequence,
 //!   the live engine and a new engine give the same state.
-use dartforge_build::query::NoDb;
+use dartforge_build::engine::Origin;
 use dartforge_build::executor::{
-    Availability, ExecutorError, DartExecutor, ActionRequest, ActionResult, BuilderScript,
-    BuildStepService,
+    ActionRequest, ActionResult, Availability, BuildStepService, BuilderScript, DartExecutor,
+    ExecutorError,
 };
 use dartforge_build::graph::AssetId;
-use dartforge_build::engine::Origin;
-use dartforge_build::{UpdateContext, Demand, Engine, EngineOptions};
+use dartforge_build::query::NoDb;
+use dartforge_build::{Demand, Engine, EngineOptions, UpdateContext};
 use dartforge_elements::config::PackageConfig;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -159,11 +159,7 @@ fn injected_dart_executor_runs_and_reuses_actions() {
             .any(|(i, _)| m.record(i).is_some_and(|r| r.origin == Origin::Dart))
     );
     m.update(&ctx, &[], Demand::Everything).unwrap();
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        done,
-        "clean action was rerun"
-    );
+    assert_eq!(calls.load(Ordering::SeqCst), done, "clean action was rerun");
     assert_eq!(
         preparations.load(Ordering::SeqCst),
         1,
@@ -403,18 +399,8 @@ fn corpus_builders_determinism() {
             .iter()
             .map(|&n| engine(&dir, n).expect("engine").canonical_state())
             .collect();
-        assert_eq!(
-            states[0],
-            states[1],
-            "{}: 1 ≠ 4 workers",
-            dir.display()
-        );
-        assert_eq!(
-            states[0],
-            states[2],
-            "{}: 1 ≠ 8 workers",
-            dir.display()
-        );
+        assert_eq!(states[0], states[1], "{}: 1 ≠ 4 workers", dir.display());
+        assert_eq!(states[0], states[2], "{}: 1 ≠ 8 workers", dir.display());
     }
 }
 

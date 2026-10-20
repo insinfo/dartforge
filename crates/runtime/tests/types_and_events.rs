@@ -19,7 +19,12 @@ fn sub(s: &str, t: &str) -> bool {
 }
 
 fn in_a_thread(f: impl FnOnce() + Send + 'static) {
-    std::thread::Builder::new().stack_size(16 << 20).spawn(f).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(f)
+        .unwrap()
+        .join()
+        .unwrap();
 }
 
 #[test]
@@ -27,14 +32,21 @@ fn in_a_thread(f: impl FnOnce() + Send + 'static) {
 fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending() {
     in_a_thread(|| {
         dartforge_memory_arc_v1();
-        for recipe in ["C350<C201>", "F<0;C201;1;C201;nome:C350!>", "R<C201;nome:C350>", "L<C201,C350>"] {
+        for recipe in [
+            "C350<C201>",
+            "F<0;C201;1;C201;nome:C350!>",
+            "R<C201;nome:C350>",
+            "L<C201,C350>",
+        ] {
             let mut previous = None;
             for pending in [false, true] {
                 let mid = recipe.len() / 2;
                 // SAFETY: ASCII recipes; both parts are valid regions.
                 let (a, b) = unsafe {
-                    (dartforge_string_new(recipe.as_ptr(), mid as i64),
-                     dartforge_string_new(recipe.as_ptr().add(mid), (recipe.len() - mid) as i64))
+                    (
+                        dartforge_string_new(recipe.as_ptr(), mid as i64),
+                        dartforge_string_new(recipe.as_ptr().add(mid), (recipe.len() - mid) as i64),
+                    )
                 };
                 // The literals are canonical roots; the concatenation is dynamic.
                 let text = dartforge_string_concat(a, b);
@@ -43,10 +55,14 @@ fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending()
                     let r = dartforge_stack_trace_get();
                     dartforge_throw_with_stack_trace(0, 3, r);
                     Some(r)
-                } else { None };
+                } else {
+                    None
+                };
                 let name = b"dartforge_rti_recipe";
                 // SAFETY: constant name. Bit 0 forbids collection, bit 1 a new pending exception.
-                unsafe { dartforge_effects_before(name.as_ptr(), name.len() as i64, 3); }
+                unsafe {
+                    dartforge_effects_before(name.as_ptr(), name.len() as i64, 3);
+                }
                 let ty = dartforge_rti_recipe(text);
                 dartforge_effects_after();
                 assert_eq!(dartforge_effects_level(), 0);
@@ -56,12 +72,18 @@ fn internal_recipe_ids_without_collecting_retaining_string_or_changing_pending()
                     assert_eq!(dartforge_stack_trace_get(), trace);
                     dartforge_exception_clear();
                 }
-                if let Some(id) = previous { assert_eq!(ty, id); }
+                if let Some(id) = previous {
+                    assert_eq!(ty, id);
+                }
                 previous = Some(ty);
                 assert_eq!(dartforge_arc_observe_heap_v1(text), 3);
                 dartforge_arc_release(text);
                 dartforge_arc_collect();
-                assert_eq!(dartforge_arc_observe_heap_v1(text), 0, "recipe {recipe}; pending {pending}");
+                assert_eq!(
+                    dartforge_arc_observe_heap_v1(text),
+                    0,
+                    "recipe {recipe}; pending {pending}"
+                );
                 // The canonical ID stays valid without retaining the recipe string.
                 assert_eq!(dartforge_rti_subtype(ty, ty), 1);
             }
@@ -86,7 +108,9 @@ fn set_rti_preserves_owner_pending_and_elements_on_decompact() {
         let define = |ty| {
             let name = b"dartforge_rti_set";
             // SAFETY: live constant name, with its exact length.
-            unsafe { dartforge_effects_before(name.as_ptr(), name.len() as i64, 2); }
+            unsafe {
+                dartforge_effects_before(name.as_ptr(), name.len() as i64, 2);
+            }
             dartforge_rti_set(list, ty);
             dartforge_effects_after();
             assert_eq!(dartforge_effects_level(), 0);
@@ -150,7 +174,10 @@ fn subtyping_and_evaluation() {
         dartforge_rti_rule(210, recipe("C211<P0>"));
         dartforge_rti_rule(201, recipe("C202"));
         assert!(sub("C210<C201>", "C211<C201>"));
-        assert!(sub("C210<C201>", "C211<C202>"), "covariant through rule 201 <: 202");
+        assert!(
+            sub("C210<C201>", "C211<C202>"),
+            "covariant through rule 201 <: 202"
+        );
         assert!(!sub("C210<C202>", "C211<C201>"));
         assert!(!sub("C211<C201>", "C210<C201>"));
         assert!(sub("C201", "C0"), "everything is Object");

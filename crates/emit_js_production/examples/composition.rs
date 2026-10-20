@@ -40,14 +40,21 @@ impl<'a> Visit<'a> for Count {
         } else {
             self.strings_other += n;
         }
-        *self.by_string.entry(v.chars().take(60).collect()).or_default() += n;
+        *self
+            .by_string
+            .entry(v.chars().take(60).collect())
+            .or_default() += n;
     }
     fn visit_template_literal(&mut self, it: &TemplateLiteral<'a>) {
         if it.expressions.is_empty() {
             // No interpolation: `oxc` prints *strings* as `...`.
             let n = it.span.size() as usize;
             self.n_strings += 1;
-            let v = it.quasis.first().map(|q| q.value.raw.as_str()).unwrap_or("");
+            let v = it
+                .quasis
+                .first()
+                .map(|q| q.value.raw.as_str())
+                .unwrap_or("");
             if v.starts_with('{') && v.contains("\":") {
                 self.strings_json += n;
             } else if v.contains('|') && !v.contains(' ') {
@@ -55,7 +62,10 @@ impl<'a> Visit<'a> for Count {
             } else {
                 self.strings_other += n;
             }
-            *self.by_string.entry(v.chars().take(60).collect()).or_default() += n;
+            *self
+                .by_string
+                .entry(v.chars().take(60).collect())
+                .or_default() += n;
             return;
         }
         for q in &it.quasis {
@@ -66,7 +76,10 @@ impl<'a> Visit<'a> for Count {
     fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
         let n = it.property.span.size() as usize + 1;
         self.properties += n;
-        *self.by_property.entry(it.property.name.to_string()).or_default() += n;
+        *self
+            .by_property
+            .entry(it.property.name.to_string())
+            .or_default() += n;
         walk::walk_static_member_expression(self, it);
     }
     fn visit_property_key(&mut self, it: &PropertyKey<'a>) {
@@ -94,7 +107,11 @@ fn main() {
     let alloc = Allocator::default();
     let parsed = Parser::new(&alloc, &source, SourceType::cjs()).parse();
     if !parsed.diagnostics.is_empty() {
-        eprintln!("{} parse error(s); the first: {:?}", parsed.diagnostics.len(), parsed.diagnostics[0]);
+        eprintln!(
+            "{} parse error(s); the first: {:?}",
+            parsed.diagnostics.len(),
+            parsed.diagnostics[0]
+        );
     }
     let mut c = Count::default();
     c.visit_program(&parsed.program);
@@ -110,7 +127,15 @@ fn main() {
     line("object/class keys (x: / x(){})", c.keys);
     line("identifiers (references)", c.refs);
     line("identifiers (declarations)", c.bindings);
-    let rest = total - c.strings_rti - c.strings_json - c.strings_other - c.templates - c.properties - c.keys - c.refs - c.bindings;
+    let rest = total
+        - c.strings_rti
+        - c.strings_json
+        - c.strings_other
+        - c.templates
+        - c.properties
+        - c.keys
+        - c.refs
+        - c.bindings;
     line("rest (punctuation, keywords...)", rest);
     println!("strings: {}", c.n_strings);
     let mut p: Vec<_> = c.by_property.into_iter().collect();

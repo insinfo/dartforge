@@ -2,8 +2,8 @@
 //! `crates/dfexec` (docs/BUILD-PROTOCOLO.md §1–§2). It is the same channel as
 //! the builders' (governing rule, item 2); macros are its `macro.*` service
 //! (§5 there, and docs/MACROS-PROTOCOLO.md §5 here).
+pub use dartforge_dfexec::{Channel, PROTOCOL, ProcessChannel, read_frame, write_frame};
 use serde_json::{Value, json};
-pub use dartforge_dfexec::{Channel, ProcessChannel, PROTOCOL, write_frame, read_frame};
 
 /// The host version announced in the handshake.
 pub const HOST_VERSION: &str = concat!("dartforge-macros-host/", env!("CARGO_PKG_VERSION"));
@@ -29,12 +29,19 @@ pub fn check_hello(v: &Value) -> Result<Handshake, String> {
     }
     let p = v.get("protocol").and_then(Value::as_str).unwrap_or("");
     if p != PROTOCOL {
-        return Err(format!("the executor speaks {p}, the host speaks {PROTOCOL}"));
+        return Err(format!(
+            "the executor speaks {p}, the host speaks {PROTOCOL}"
+        ));
     }
-    let services: Vec<&str> =
-        v.get("services").and_then(Value::as_array).map(|l| l.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+    let services: Vec<&str> = v
+        .get("services")
+        .and_then(Value::as_array)
+        .map(|l| l.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
     if !services.contains(&"macro") {
-        return Err(format!("the executor does not offer the macro service (it offers {services:?})"));
+        return Err(format!(
+            "the executor does not offer the macro service (it offers {services:?})"
+        ));
     }
     let macros = v
         .get("macros")
@@ -42,11 +49,20 @@ pub fn check_hello(v: &Value) -> Result<Handshake, String> {
         .map(|l| {
             l.iter()
                 .map(|m| {
-                    let name = m.get("macro").and_then(Value::as_str).unwrap_or("").to_string();
+                    let name = m
+                        .get("macro")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string();
                     let constructors = m
                         .get("constructors")
                         .and_then(Value::as_array)
-                        .map(|c| c.iter().filter_map(Value::as_str).map(str::to_string).collect())
+                        .map(|c| {
+                            c.iter()
+                                .filter_map(Value::as_str)
+                                .map(str::to_string)
+                                .collect()
+                        })
                         .unwrap_or_default();
                     (name, constructors)
                 })
@@ -54,8 +70,16 @@ pub fn check_hello(v: &Value) -> Result<Handshake, String> {
         })
         .unwrap_or_default();
     Ok(Handshake {
-        executor: v.get("executor").and_then(Value::as_str).unwrap_or("").to_string(),
-        abi: v.get("abi").and_then(Value::as_str).unwrap_or("").to_string(),
+        executor: v
+            .get("executor")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
+        abi: v
+            .get("abi")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string(),
         macros,
     })
 }
@@ -77,11 +101,25 @@ mod tests {
 
     #[test]
     fn handshake_rejects_other_protocol() {
-        assert!(check_hello(&json!({"t": "hello", "protocol": "dfexec/2", "services": ["macro"]})).is_err());
-        assert!(check_hello(&json!({"t": "hello", "protocol": "dfexec/1", "services": ["build"]})).is_err());
-        let a = check_hello(&json!({"t": "hello", "protocol": "dfexec/1", "services": ["macro"], "executor": "x",
-            "macros": [{"macro": "package:json/json.dart#JsonCodable", "constructors": [""]}]}))
+        assert!(
+            check_hello(&json!({"t": "hello", "protocol": "dfexec/2", "services": ["macro"]}))
+                .is_err()
+        );
+        assert!(
+            check_hello(&json!({"t": "hello", "protocol": "dfexec/1", "services": ["build"]}))
+                .is_err()
+        );
+        let a = check_hello(
+            &json!({"t": "hello", "protocol": "dfexec/1", "services": ["macro"], "executor": "x",
+            "macros": [{"macro": "package:json/json.dart#JsonCodable", "constructors": [""]}]}),
+        )
         .unwrap();
-        assert_eq!(a.macros, vec![("package:json/json.dart#JsonCodable".to_string(), vec![String::new()])]);
+        assert_eq!(
+            a.macros,
+            vec![(
+                "package:json/json.dart#JsonCodable".to_string(),
+                vec![String::new()]
+            )]
+        );
     }
 }

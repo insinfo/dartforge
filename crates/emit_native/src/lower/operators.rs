@@ -171,12 +171,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     // contains a Smi. Without a type or without the closure proof, keep the guard.
     // Includes the interfaces of the subtypes of int, not only those of int.
     pub(super) fn type_admits_smi(&self, ty: Option<dartforge_types::table::TypeId>) -> bool {
-        let Some(ty) = ty else { return true; };
-        let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(ty)
-            else { return true; };
-        let Some(int) = self.ctx.core.int_class else { return true; };
-        if !super::sdk_source::class_closed_by_modifier(self.ctx, int) { return true; }
-        self.ctx.subtypes(int).iter().any(|&c| super::members::subclass_of(self.ctx, c, *class))
+        let Some(ty) = ty else {
+            return true;
+        };
+        let dartforge_types::table::Type::Interface { class, .. } = self.ctx.table.get(ty) else {
+            return true;
+        };
+        let Some(int) = self.ctx.core.int_class else {
+            return true;
+        };
+        if !super::sdk_source::class_closed_by_modifier(self.ctx, int) {
+            return true;
+        }
+        self.ctx
+            .subtypes(int)
+            .iter()
+            .any(|&c| super::members::subclass_of(self.ctx, c, *class))
     }
 
     /// `a op b` with some `Ref` side (`num`, `dynamic`, `Object`…): if both
@@ -184,7 +194,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// operator is the `int` one, whatever the static type —, the computation
     /// inline, with Dart's 64-bit overflow; otherwise the usual
     /// dispatch. It is the `this < other` of the SDK's `int.compareTo(num other)`.
-    fn operate_smi(&mut self, op: BinaryOp, lop: Operand, rop: Operand, span: dartforge_diagnostics::Span) -> Operand {
+    fn operate_smi(
+        &mut self,
+        op: BinaryOp,
+        lop: Operand,
+        rop: Operand,
+        span: dartforge_diagnostics::Span,
+    ) -> Operand {
         let one = Operand::Constant(Constant::Int(1));
         let mut conds = Vec::new();
         for x in [&lop, &rop] {
@@ -192,7 +208,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // Under ARC, the tag bit through the helper with the borrowed `Ref`:
                 // a Dart word does not become a scalar operand.
                 let b = if self.ctx.arc_memory {
-                    self.emit(Instruction::CallRuntime { name: "df.bit_smi".into(), args: vec![(x.clone(), Type::Ref)], ret_ty: Type::I64 }, Type::I64)
+                    self.emit(
+                        Instruction::CallRuntime {
+                            name: "df.bit_smi".into(),
+                            args: vec![(x.clone(), Type::Ref)],
+                            ret_ty: Type::I64,
+                        },
+                        Type::I64,
+                    )
                 } else {
                     self.emit(Instruction::And(x.clone(), one.clone()), Type::I64)
                 };
@@ -206,16 +229,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.emit(Instruction::And(a, b), Type::I64)
             }
         };
-        let smi = self.emit(Instruction::ICmp(ICmpOp::Ne, bits, Operand::Constant(Constant::Int(0))), Type::I1);
+        let smi = self.emit(
+            Instruction::ICmp(ICmpOp::Ne, bits, Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        );
         let fast = self.new_block();
         let slow = self.new_block();
         let join = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: smi, then_block: fast, else_block: slow });
+        self.terminate(Terminator::CondBranch {
+            cond: smi,
+            then_block: fast,
+            else_block: slow,
+        });
 
         self.set_block(fast);
         let value = |s: &mut Self, x: &Operand| {
             if s.operand_type(x) == Type::Ref && s.ctx.arc_memory {
-                s.emit(Instruction::CallRuntime { name: "df.smi_value".into(), args: vec![(x.clone(), Type::Ref)], ret_ty: Type::I64 }, Type::I64)
+                s.emit(
+                    Instruction::CallRuntime {
+                        name: "df.smi_value".into(),
+                        args: vec![(x.clone(), Type::Ref)],
+                        ret_ty: Type::I64,
+                    },
+                    Type::I64,
+                )
             } else if s.operand_type(x) == Type::Ref {
                 s.emit(Instruction::AShr(x.clone(), one.clone()), Type::I64)
             } else {
@@ -223,7 +260,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
         };
         let (a, b) = (value(self, &lop), value(self, &rop));
-        let comparison = matches!(op, BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq);
+        let comparison = matches!(
+            op,
+            BinaryOp::Lt | BinaryOp::LtEq | BinaryOp::Gt | BinaryOp::GtEq
+        );
         let r = match op {
             BinaryOp::Add => self.emit(Instruction::Add(a, b), Type::I64),
             BinaryOp::Sub => self.emit(Instruction::Sub(a, b), Type::I64),
@@ -244,7 +284,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.terminate(Terminator::Branch(join));
 
         self.set_block(slow);
-        let s = self.certified_primitive_multiply(op, lop.clone(), rop.clone(), span)
+        let s = self
+            .certified_primitive_multiply(op, lop.clone(), rop.clone(), span)
             .unwrap_or_else(|| self.operate_dynamic(op, lop, rop, span));
         let s = self.coerce(s, ty);
         let slow_end = self.current_block;
@@ -254,7 +295,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         self.terminate(Terminator::Branch(join));
         self.set_block(join);
-        self.emit(Instruction::Phi { incoming: vec![(fast_end, r), (slow_end, s)], ty }, ty)
+        self.emit(
+            Instruction::Phi {
+                incoming: vec![(fast_end, r), (slow_end, s)],
+                ty,
+            },
+            ty,
+        )
     }
 
     /// Binary operator (not short-circuit). `text`: some side is a
@@ -273,8 +320,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     // The source type may exclude the whole path. Callers without
     // that fact keep using operate, which preserves the dynamic guard.
     pub(super) fn operate_with_smi(
-        &mut self, op: BinaryOp, lop: Operand, rop: Operand, text: bool,
-        admits_smi: bool, span: dartforge_diagnostics::Span,
+        &mut self,
+        op: BinaryOp,
+        lop: Operand,
+        rop: Operand,
+        text: bool,
+        admits_smi: bool,
+        span: dartforge_diagnostics::Span,
     ) -> Operand {
         if text && matches!(op, BinaryOp::Add) {
             let a = self.coerce(lop, Type::Ref);
@@ -306,10 +358,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let (ta, tb) = (self.operand_type(&lop), self.operand_type(&rop));
         if !Self::is_numeric_scalar(ta) || !Self::is_numeric_scalar(tb) {
-            if admits_smi && Self::smi_op(op) && matches!(ta, Type::I64 | Type::Ref) && matches!(tb, Type::I64 | Type::Ref) {
+            if admits_smi
+                && Self::smi_op(op)
+                && matches!(ta, Type::I64 | Type::Ref)
+                && matches!(tb, Type::I64 | Type::Ref)
+            {
                 return self.operate_smi(op, lop, rop, span);
             }
-            return self.certified_primitive_multiply(op, lop.clone(), rop.clone(), span)
+            return self
+                .certified_primitive_multiply(op, lop.clone(), rop.clone(), span)
                 .unwrap_or_else(|| self.operate_dynamic(op, lop, rop, span));
         }
         let in_double = ta == Type::F64 || tb == Type::F64 || matches!(op, BinaryOp::Div);
@@ -356,16 +413,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // negative (`(r >> 63) & |c|`, without a branch). `c = ±1` always gives 0
             // (and avoids the `srem` of `i64::MIN` by `-1`, undefined in LLVM);
             // `c = 0` throws and `c = i64::MIN` has no `|c|`: they stay with the runtime.
-            BinaryOp::Rem
-                if matches!(rop, Operand::Constant(Constant::Int(c)) if c != 0 && c != i64::MIN) =>
+            BinaryOp::Rem if matches!(rop, Operand::Constant(Constant::Int(c)) if c != 0 && c != i64::MIN) =>
             {
-                let Operand::Constant(Constant::Int(c)) = rop else { unreachable!() };
+                let Operand::Constant(Constant::Int(c)) = rop else {
+                    unreachable!()
+                };
                 if c == 1 || c == -1 {
                     return Operand::Constant(Constant::Int(0));
                 }
-                let r = self.emit(Instruction::SRem(lop, Operand::Constant(Constant::Int(c))), Type::I64);
-                let sign = self.emit(Instruction::AShr(r.clone(), Operand::Constant(Constant::Int(63))), Type::I64);
-                let adjustment = self.emit(Instruction::And(sign, Operand::Constant(Constant::Int(c.abs()))), Type::I64);
+                let r = self.emit(
+                    Instruction::SRem(lop, Operand::Constant(Constant::Int(c))),
+                    Type::I64,
+                );
+                let sign = self.emit(
+                    Instruction::AShr(r.clone(), Operand::Constant(Constant::Int(63))),
+                    Type::I64,
+                );
+                let adjustment = self.emit(
+                    Instruction::And(sign, Operand::Constant(Constant::Int(c.abs()))),
+                    Type::I64,
+                );
                 self.emit(Instruction::Add(r, adjustment), Type::I64)
             }
             BinaryOp::Rem => self.emit_module(lop, rop),

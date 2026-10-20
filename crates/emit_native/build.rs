@@ -15,7 +15,9 @@
 use std::path::{Path, PathBuf};
 
 fn join(dir: &Path, exit: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
@@ -32,7 +34,14 @@ fn main() {
     let manifest = std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
     let root = Path::new(&manifest);
     let mut files = Vec::new();
-    for d in ["src", "../abi/src", "../types/src", "../elements/src", "../frontend/src", "../runtime/src"] {
+    for d in [
+        "src",
+        "../abi/src",
+        "../types/src",
+        "../elements/src",
+        "../frontend/src",
+        "../runtime/src",
+    ] {
         let dir = root.join(d);
         println!("cargo::rerun-if-changed={}", dir.display());
         join(&dir, &mut files);
@@ -49,7 +58,11 @@ fn main() {
     files.sort();
     let mut h = blake3::Hasher::new();
     for a in &files {
-        let rel = a.strip_prefix(root).unwrap_or(a).to_string_lossy().replace('\\', "/");
+        let rel = a
+            .strip_prefix(root)
+            .unwrap_or(a)
+            .to_string_lossy()
+            .replace('\\', "/");
         h.update(rel.as_bytes());
         h.update(&[0]);
         // Normalized line endings: the same compiler in checkouts with
@@ -59,7 +72,10 @@ fn main() {
         h.update(&text);
         h.update(&[0]);
     }
-    println!("cargo::rustc-env=DARTFORGE_EMITTER_HASH={}", h.finalize().to_hex());
+    println!(
+        "cargo::rustc-env=DARTFORGE_EMITTER_HASH={}",
+        h.finalize().to_hex()
+    );
     precompile_runtime();
 }
 
@@ -107,34 +123,65 @@ fn precompile_runtime() {
         std::env::var("MACOSX_DEPLOYMENT_TARGET")
             .ok()
             .filter(|v| !v.is_empty())
-            .unwrap_or_else(|| if target.starts_with("aarch64") { "11.0" } else { "10.12" }.to_string())
+            .unwrap_or_else(|| {
+                if target.starts_with("aarch64") {
+                    "11.0"
+                } else {
+                    "10.12"
+                }
+                .to_string()
+            })
     });
 
     let mut sources = Vec::new();
     for d in ["../runtime/src", "../runtime_static/src"] {
         join(&root.join(d), &mut sources);
     }
-    for f in ["../runtime/build.rs", "../runtime/Cargo.toml", "../runtime/effects.tsv",
-        "../runtime/ownership.tsv", "../runtime_static/Cargo.toml", "../../Cargo.lock"] {
+    for f in [
+        "../runtime/build.rs",
+        "../runtime/Cargo.toml",
+        "../runtime/effects.tsv",
+        "../runtime/ownership.tsv",
+        "../runtime_static/Cargo.toml",
+        "../../Cargo.lock",
+    ] {
         let p = root.join(f);
         println!("cargo::rerun-if-changed={}", p.display());
         sources.push(p);
     }
-    println!("cargo::rerun-if-changed={}", root.join("../runtime_static/src").display());
+    println!(
+        "cargo::rerun-if-changed={}",
+        root.join("../runtime_static/src").display()
+    );
     sources.sort();
 
     let mut source_hash = blake3::Hasher::new();
     for file in &sources {
-        let relative = file.strip_prefix(root).unwrap_or(file).to_string_lossy().replace('\\', "/");
+        let relative = file
+            .strip_prefix(root)
+            .unwrap_or(file)
+            .to_string_lossy()
+            .replace('\\', "/");
         source_hash.update(relative.as_bytes());
         source_hash.update(&[0]);
-        let bytes: Vec<u8> = std::fs::read(file).unwrap_or_default().into_iter().filter(|&b| b != b'\r').collect();
+        let bytes: Vec<u8> = std::fs::read(file)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|&b| b != b'\r')
+            .collect();
         source_hash.update(&bytes);
         source_hash.update(&[0]);
     }
-    println!("cargo::rustc-env=DARTFORGE_RUNTIME_SOURCE_HASH={}", source_hash.finalize().to_hex());
+    println!(
+        "cargo::rustc-env=DARTFORGE_RUNTIME_SOURCE_HASH={}",
+        source_hash.finalize().to_hex()
+    );
 
-    let cargo_file = if windows { "dartforge_runtime_static.lib" } else { "libdartforge_runtime_static.a" };
+    let cargo_file = if windows {
+        "dartforge_runtime_static.lib"
+    } else {
+        "libdartforge_runtime_static.a"
+    };
     let ext = if windows { "lib" } else { "a" };
     for (variant, feature, prefix, profile) in [
         ("MAIN", "aot", "dartforge_runtime_", ABORT),
@@ -156,10 +203,18 @@ fn precompile_runtime() {
             h.update(b"\0");
         }
         for f in &sources {
-            let rel = f.strip_prefix(root).unwrap_or(f).to_string_lossy().replace('\\', "/");
+            let rel = f
+                .strip_prefix(root)
+                .unwrap_or(f)
+                .to_string_lossy()
+                .replace('\\', "/");
             h.update(rel.as_bytes());
             h.update(&[0]);
-            let text: Vec<u8> = std::fs::read(f).unwrap_or_default().into_iter().filter(|&b| b != b'\r').collect();
+            let text: Vec<u8> = std::fs::read(f)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|&b| b != b'\r')
+                .collect();
             h.update(&text);
             h.update(&[0]);
         }
@@ -171,7 +226,11 @@ fn precompile_runtime() {
         }
         // One target directory per profile: the dependencies of one do not
         // invalidate those of the other.
-        let target_dir = exit.join(if profile.is_empty() { "cargo-runtime" } else { "cargo-runtime-abort" });
+        let target_dir = exit.join(if profile.is_empty() {
+            "cargo-runtime"
+        } else {
+            "cargo-runtime-abort"
+        });
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let mut cmd = std::process::Command::new(cargo);
         cmd.arg("build")
@@ -179,7 +238,14 @@ fn precompile_runtime() {
             .arg("--locked")
             .arg("--manifest-path")
             .arg(workspace.join("Cargo.toml"))
-            .args(["-p", "dartforge-runtime-static", "--features", feature, "--target", &target])
+            .args([
+                "-p",
+                "dartforge-runtime-static",
+                "--features",
+                feature,
+                "--target",
+                &target,
+            ])
             .args(profile)
             .arg("--target-dir")
             .arg(&target_dir);
@@ -188,7 +254,12 @@ fn precompile_runtime() {
         }
         // `clippy-driver` (and any workspace wrapper) belongs to the outer
         // build; the target directory is the one here.
-        for v in ["RUSTC_WORKSPACE_WRAPPER", "CARGO_TARGET_DIR", "CARGO_BUILD_TARGET_DIR", "CARGO_BUILD_TARGET"] {
+        for v in [
+            "RUSTC_WORKSPACE_WRAPPER",
+            "CARGO_TARGET_DIR",
+            "CARGO_BUILD_TARGET_DIR",
+            "CARGO_BUILD_TARGET",
+        ] {
             cmd.env_remove(v);
         }
         // Without the path of the compiling machine in panic messages (and the
@@ -197,7 +268,9 @@ fn precompile_runtime() {
         if !flags.is_empty() {
             flags.push('\x1f');
         }
-        let ws = workspace.canonicalize().unwrap_or_else(|_| workspace.clone());
+        let ws = workspace
+            .canonicalize()
+            .unwrap_or_else(|_| workspace.clone());
         flags.push_str(&format!("--remap-path-prefix={}=dartforge", ws.display()));
         // Unwind tables in every runtime frame on the Itanium
         // unwinder targets, also with `panic=abort`: the walk of
@@ -208,16 +281,24 @@ fn precompile_runtime() {
         if target.contains("linux") || target.contains("apple") {
             flags.push_str("\x1f-Cforce-unwind-tables=yes");
         }
-        cmd.env("CARGO_ENCODED_RUSTFLAGS", flags).env_remove("RUSTFLAGS");
+        cmd.env("CARGO_ENCODED_RUSTFLAGS", flags)
+            .env_remove("RUSTFLAGS");
         if let Some(m) = &macos_minimum {
             cmd.env("MACOSX_DEPLOYMENT_TARGET", m);
         }
         let status = cmd.status().expect("run the build's cargo");
-        assert!(status.success(), "the runtime compilation ({feature}) for {target} failed");
+        assert!(
+            status.success(),
+            "the runtime compilation ({feature}) for {target} failed"
+        );
         let produced = target_dir.join(&target).join("release").join(cargo_file);
         let tmp = exit.join(format!("{name}.tmp"));
-        std::fs::copy(&produced, &tmp).unwrap_or_else(|e| panic!("copiar {}: {e}", produced.display()));
+        std::fs::copy(&produced, &tmp)
+            .unwrap_or_else(|e| panic!("copiar {}: {e}", produced.display()));
         std::fs::rename(&tmp, &lib).expect("publish the precompiled runtime");
     }
-    println!("cargo::rustc-env=DARTFORGE_RUNTIME_BUILD_DIR={}", exit.display());
+    println!(
+        "cargo::rustc-env=DARTFORGE_RUNTIME_BUILD_DIR={}",
+        exit.display()
+    );
 }

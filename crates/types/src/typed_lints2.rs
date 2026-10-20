@@ -29,13 +29,16 @@
 //! Written without compiling or running (2026-10-05).
 
 use crate::const_eval::evaluation::{Constant, Ctx, Engine};
-use crate::typed_lints::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
 use crate::table::{CoreTypes, Type, TypeId, TypeTable};
+use crate::typed_lints::Finding;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{ClassId, LibraryId, Program, UnitId};
-use dartforge_frontend::ast::{self, AssignOp, BinaryOp, CollectionElement, ExprId, ExprKind, Initializer, MemberKind, StringPart, UnaryOp};
+use dartforge_frontend::ast::{
+    self, AssignOp, BinaryOp, CollectionElement, ExprId, ExprKind, Initializer, MemberKind,
+    StringPart, UnaryOp,
+};
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
 
@@ -50,8 +53,14 @@ fn without_parentheses(a: &ast::Ast, mut e: ExprId) -> ExprId {
 /// bits in hexadecimal). A literal that the parser merged with the `-` is
 /// negative.
 fn integer_literal(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
-    let ExprKind::Int(s) = &a.expr(e).kind else { return None };
-    let text: String = source.get(s.start..s.end)?.chars().filter(|c| *c != '_' && !c.is_whitespace()).collect();
+    let ExprKind::Int(s) = &a.expr(e).kind else {
+        return None;
+    };
+    let text: String = source
+        .get(s.start..s.end)?
+        .chars()
+        .filter(|c| *c != '_' && !c.is_whitespace())
+        .collect();
     let (negative, text) = match text.strip_prefix('-') {
         Some(r) => (true, r.to_string()),
         None => (false, text),
@@ -65,8 +74,13 @@ fn integer_literal(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
 
 /// The literal written without a sign (`right is IntegerLiteral`).
 fn unsigned_literal(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
-    let ExprKind::Int(s) = &a.expr(e).kind else { return None };
-    if source.get(s.start..s.end).is_some_and(|t| t.starts_with('-')) {
+    let ExprKind::Int(s) = &a.expr(e).kind else {
+        return None;
+    };
+    if source
+        .get(s.start..s.end)
+        .is_some_and(|t| t.starts_with('-'))
+    {
         return None;
     }
     integer_literal(a, source, e)
@@ -74,14 +88,22 @@ fn unsigned_literal(a: &ast::Ast, source: &str, e: ExprId) -> Option<i64> {
 
 /// `getIntValue(e, context)`: the literal or the constant identifier, with a
 /// leading `-` (only `-`).
-fn integer_value(a: &ast::Ast, source: &str, evaluated: &HashMap<ExprId, i64>, e: ExprId) -> Option<i64> {
+fn integer_value(
+    a: &ast::Ast,
+    source: &str,
+    evaluated: &HashMap<ExprId, i64>,
+    e: ExprId,
+) -> Option<i64> {
     let base = |x: ExprId| match &a.expr(x).kind {
         ExprKind::Int(_) => integer_literal(a, source, x),
         ExprKind::Identifier(_) => evaluated.get(&x).copied(),
         _ => None,
     };
     match &a.expr(e).kind {
-        ExprKind::Unary { op: UnaryOp::Neg, operand } => base(*operand).map(i64::wrapping_neg),
+        ExprKind::Unary {
+            op: UnaryOp::Neg,
+            operand,
+        } => base(*operand).map(i64::wrapping_neg),
         _ => base(e),
     }
 }
@@ -96,7 +118,9 @@ fn spread(el: &CollectionElement, output: &mut Vec<ExprId>) {
                 spread(x, output);
             }
         }
-        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => spread(body, output),
+        CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+            spread(body, output)
+        }
         _ => {}
     }
 }
@@ -108,7 +132,10 @@ fn queried_identifiers(interner: &Interner, a: &ast::Ast) -> Vec<ExprId> {
     let mut v = Vec::new();
     let mut consider = |e: ExprId| {
         let x = match &a.expr(e).kind {
-            ExprKind::Unary { op: UnaryOp::Neg, operand } => *operand,
+            ExprKind::Unary {
+                op: UnaryOp::Neg,
+                operand,
+            } => *operand,
             _ => e,
         };
         if matches!(a.expr(x).kind, ExprKind::Identifier(_)) {
@@ -117,7 +144,17 @@ fn queried_identifiers(interner: &Interner, a: &ast::Ast) -> Vec<ExprId> {
     };
     for e in a.exprs.iter() {
         match &e.kind {
-            ExprKind::Binary { op: BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::Gt | BinaryOp::GtEq | BinaryOp::Lt | BinaryOp::LtEq, left, right } => {
+            ExprKind::Binary {
+                op:
+                    BinaryOp::Eq
+                    | BinaryOp::NotEq
+                    | BinaryOp::Gt
+                    | BinaryOp::GtEq
+                    | BinaryOp::Lt
+                    | BinaryOp::LtEq,
+                left,
+                right,
+            } => {
                 consider(*left);
                 consider(*right);
             }
@@ -137,18 +174,33 @@ fn queried_identifiers(interner: &Interner, a: &ast::Ast) -> Vec<ExprId> {
 /// The children of the element `getChildren(element, the_name)` (by
 /// `displayName`: the setter `the_name=` also counts).
 fn has_child(program: &Program, interner: &Interner, owner: Owner, the_name: &str) -> bool {
-    let symbols: Vec<SymbolId> = [interner.lookup(the_name), interner.lookup(&format!("{the_name}_="))].into_iter().flatten().collect();
-    let has = |m: &HashMap<SymbolId, dartforge_elements::model::FunctionElementId>| symbols.iter().any(|s| m.contains_key(s));
+    let symbols: Vec<SymbolId> = [
+        interner.lookup(the_name),
+        interner.lookup(&format!("{the_name}_=")),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let has = |m: &HashMap<SymbolId, dartforge_elements::model::FunctionElementId>| {
+        symbols.iter().any(|s| m.contains_key(s))
+    };
     match owner {
         Owner::Class(c) => {
             let e = program.class(c);
             has(&e.instance_members)
                 || has(&e.static_members)
-                || e.fields.iter().chain(e.enum_constants.iter()).any(|v| interner.resolve(program.variable(*v).name) == the_name)
+                || e.fields
+                    .iter()
+                    .chain(e.enum_constants.iter())
+                    .any(|v| interner.resolve(program.variable(*v).name) == the_name)
         }
         Owner::Extension(x) => {
             let e = program.extension(x);
-            has(&e.instance_members) || has(&e.static_members) || e.fields.iter().any(|v| interner.resolve(program.variable(*v).name) == the_name)
+            has(&e.instance_members)
+                || has(&e.static_members)
+                || e.fields
+                    .iter()
+                    .any(|v| interner.resolve(program.variable(*v).name) == the_name)
         }
     }
 }
@@ -162,11 +214,18 @@ enum Owner {
 /// The element that declares the resolved member (`enclosingElement3`).
 fn member_owner(program: &Program, r: &Resolved) -> Option<Owner> {
     let (cls, extension) = match r {
-        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::ExtensionMember { member: f, .. } => {
+        Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }
+        | Resolved::ExtensionMember { member: f, .. } => {
             let g = program.function(*f);
             (g.class, g.extension)
         }
-        Resolved::Member { member: MemberRef::Variable(v), .. } => {
+        Resolved::Member {
+            member: MemberRef::Variable(v),
+            ..
+        } => {
             let x = program.variable(*v);
             (x.class, x.extension)
         }
@@ -191,14 +250,24 @@ pub fn findings(
     let unit = program.unit(u);
     let a = &unit.ast;
     let source = unit.source.as_str();
-    let Some(the_body) = bodies.units.get(u.0 as usize) else { return out };
+    let Some(the_body) = bodies.units.get(u.0 as usize) else {
+        return out;
+    };
 
     // `computeConstantValue` of the queried identifiers, with the constants
     // engine (only if there is any).
     let mut evaluated: HashMap<ExprId, i64> = HashMap::new();
     let queried = queried_identifiers(interner, a);
     if !queried.is_empty() {
-        let mut engine = Engine::new(program, interner, table, core, outline, bodies, the_inferred);
+        let mut engine = Engine::new(
+            program,
+            interner,
+            table,
+            core,
+            outline,
+            bodies,
+            the_inferred,
+        );
         let cx = Ctx::simple(u, unit.library);
         for e in queried {
             if let Constant::Value(v) = engine.evaluate(&cx, e, false)
@@ -214,9 +283,16 @@ pub fn findings(
     // `implementsInterface`: the interface is `tgt` or has it among its
     // supertypes.
     let implements = |t: TypeId, tgt: Option<ClassId>| match table.get(t) {
-        Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => tgt.is_some_and(|k| {
-            *class == k || (program.class(*class).decl.is_some() && outline.hierarchy.get(*class).is_some_and(|d| d.supertypes.contains_key(&k)))
-        }),
+        Type::Interface { class, .. } | Type::ExtensionType { decl: class, .. } => {
+            tgt.is_some_and(|k| {
+                *class == k
+                    || (program.class(*class).decl.is_some()
+                        && outline
+                            .hierarchy
+                            .get(*class)
+                            .is_some_and(|d| d.supertypes.contains_key(&k)))
+            })
+        }
         _ => false,
     };
     // `implementsAnyInterface`: through `typeForInterfaceCheck`.
@@ -248,11 +324,20 @@ pub fn findings(
             e = *value;
         }
         let e = without_parentheses(a, e);
-        let ExprKind::Call { target, arguments } = &a.expr(e).kind else { return false };
+        let ExprKind::Call { target, arguments } = &a.expr(e).kind else {
+            return false;
+        };
         if matches!(the_body.get_resolved(e), Some(Resolved::Constructor(_))) {
             return false;
         }
-        let ExprKind::Property { target: receiver, name, .. } = &a.expr(*target).kind else { return false };
+        let ExprKind::Property {
+            target: receiver,
+            name,
+            ..
+        } = &a.expr(*target).kind
+        else {
+            return false;
+        };
         if interner.resolve(name.sym) != "indexOf" {
             return false;
         }
@@ -271,10 +356,21 @@ pub fn findings(
         match &e.kind {
             // `avoid_bool_literals_in_conditional_expressions`.
             ExprKind::Conditional { then, else_, .. } => {
-                let (x, y) = (without_parentheses(a, *then), without_parentheses(a, *else_));
+                let (x, y) = (
+                    without_parentheses(a, *then),
+                    without_parentheses(a, *else_),
+                );
                 let boolean = |z: ExprId| ty(z).is_some_and(|t| non_null(t, core.bool_class));
-                if boolean(x) && boolean(y) && (matches!(a.expr(x).kind, ExprKind::Bool(_)) || matches!(a.expr(y).kind, ExprKind::Bool(_))) {
-                    out.push((e.span, "avoid_bool_literals_in_conditional_expressions", Vec::new()));
+                if boolean(x)
+                    && boolean(y)
+                    && (matches!(a.expr(x).kind, ExprKind::Bool(_))
+                        || matches!(a.expr(y).kind, ExprKind::Bool(_)))
+                {
+                    out.push((
+                        e.span,
+                        "avoid_bool_literals_in_conditional_expressions",
+                        Vec::new(),
+                    ));
                 }
             }
             ExprKind::Binary { op, left, right } => {
@@ -283,38 +379,63 @@ pub fn findings(
                     let literal = |z: ExprId| matches!(a.expr(z).kind, ExprKind::Bool(_));
                     let boolean = |z: ExprId| ty(z).is_some_and(|t| non_null(t, core.bool_class));
                     if literal(*right) && boolean(*left) {
-                        out.push((a.expr(*right).span, "no_literal_bool_comparisons", Vec::new()));
+                        out.push((
+                            a.expr(*right).span,
+                            "no_literal_bool_comparisons",
+                            Vec::new(),
+                        ));
                     } else if literal(*left) && boolean(*right) {
-                        out.push((a.expr(*left).span, "no_literal_bool_comparisons", Vec::new()));
+                        out.push((
+                            a.expr(*left).span,
+                            "no_literal_bool_comparisons",
+                            Vec::new(),
+                        ));
                     }
                 }
                 // `prefer_contains`.
-                if matches!(op, BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::Gt | BinaryOp::GtEq | BinaryOp::Lt | BinaryOp::LtEq) {
+                if matches!(
+                    op,
+                    BinaryOp::Eq
+                        | BinaryOp::NotEq
+                        | BinaryOp::Gt
+                        | BinaryOp::GtEq
+                        | BinaryOp::Lt
+                        | BinaryOp::LtEq
+                ) {
                     let comparison = match integer_value(a, source, &evaluated, *right) {
                         Some(v) => (v <= 0 && of_index(*left)).then_some((v, *op)),
-                        None => integer_value(a, source, &evaluated, *left).filter(|v| *v <= 0 && of_index(*right)).map(|v| {
-                            // `TokenType.inverted`.
-                            let inverted = match op {
-                                BinaryOp::Gt => BinaryOp::Lt,
-                                BinaryOp::GtEq => BinaryOp::LtEq,
-                                BinaryOp::Lt => BinaryOp::Gt,
-                                BinaryOp::LtEq => BinaryOp::GtEq,
-                                other => *other,
-                            };
-                            (v, inverted)
-                        }),
+                        None => integer_value(a, source, &evaluated, *left)
+                            .filter(|v| *v <= 0 && of_index(*right))
+                            .map(|v| {
+                                // `TokenType.inverted`.
+                                let inverted = match op {
+                                    BinaryOp::Gt => BinaryOp::Lt,
+                                    BinaryOp::GtEq => BinaryOp::LtEq,
+                                    BinaryOp::Lt => BinaryOp::Gt,
+                                    BinaryOp::LtEq => BinaryOp::GtEq,
+                                    other => *other,
+                                };
+                                (v, inverted)
+                            }),
                     };
                     let code = comparison.and_then(|(v, o)| match v {
                         -1 => match o {
-                            BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::LtEq | BinaryOp::Gt => Some("prefer_contains_use_contains"),
+                            BinaryOp::Eq | BinaryOp::NotEq | BinaryOp::LtEq | BinaryOp::Gt => {
+                                Some("prefer_contains_use_contains")
+                            }
                             BinaryOp::Lt => Some("prefer_contains_always_false"),
                             BinaryOp::GtEq => Some("prefer_contains_always_true"),
                             _ => None,
                         },
-                        0 => matches!(o, BinaryOp::GtEq | BinaryOp::Lt).then_some("prefer_contains_use_contains"),
+                        0 => matches!(o, BinaryOp::GtEq | BinaryOp::Lt)
+                            .then_some("prefer_contains_use_contains"),
                         _ => match o {
-                            BinaryOp::Eq | BinaryOp::LtEq | BinaryOp::Lt => Some("prefer_contains_always_false"),
-                            BinaryOp::NotEq | BinaryOp::GtEq | BinaryOp::Gt => Some("prefer_contains_always_true"),
+                            BinaryOp::Eq | BinaryOp::LtEq | BinaryOp::Lt => {
+                                Some("prefer_contains_always_false")
+                            }
+                            BinaryOp::NotEq | BinaryOp::GtEq | BinaryOp::Gt => {
+                                Some("prefer_contains_always_true")
+                            }
                             _ => None,
                         },
                     });
@@ -327,14 +448,24 @@ pub fn findings(
                 if *op == BinaryOp::Eq
                     && !parents.in_constant_context(a, id)
                     && let Some(the_value) = unsigned_literal(a, source, *right)
-                    && let ExprKind::Binary { op: BinaryOp::Rem, right: divisor, .. } = &a.expr(*left).kind
+                    && let ExprKind::Binary {
+                        op: BinaryOp::Rem,
+                        right: divisor,
+                        ..
+                    } = &a.expr(*left).kind
                     && unsigned_literal(a, source, *divisor) == Some(2)
                     && ty(*left).is_some_and(|t| non_null(t, core.int_class))
                     && ty(*right).is_some_and(|t| non_null(t, core.int_class))
                     && ty(*divisor).is_some_and(|t| non_null(t, core.int_class))
-                    && !asserts_const.iter().any(|k| k.start <= e.span.start && e.span.end <= k.end)
+                    && !asserts_const
+                        .iter()
+                        .any(|k| k.start <= e.span.start && e.span.end <= k.end)
                 {
-                    out.push((e.span, "use_is_even_rather_than_modulo", vec![(if the_value == 0 { "isEven" } else { "isOdd" }).to_string()]));
+                    out.push((
+                        e.span,
+                        "use_is_even_rather_than_modulo",
+                        vec![(if the_value == 0 { "isEven" } else { "isOdd" }).to_string()],
+                    ));
                 }
             }
             // `unnecessary_string_interpolations`: the single literal with only
@@ -348,12 +479,24 @@ pub fn findings(
                         StringPart::Text(_) => None,
                     })
                     .collect();
-                let [x] = interpolations.as_slice() else { continue };
+                let [x] = interpolations.as_slice() else {
+                    continue;
+                };
                 let x = *x;
-                let Some(text) = source.get(e.span.start..e.span.end) else { continue };
-                let Some(quotes) = ["'''", "\"\"\"", "'", "\""].into_iter().find(|q| text.starts_with(q)) else { continue };
+                let Some(text) = source.get(e.span.start..e.span.end) else {
+                    continue;
+                };
+                let Some(quotes) = ["'''", "\"\"\"", "'", "\""]
+                    .into_iter()
+                    .find(|q| text.starts_with(q))
+                else {
+                    continue;
+                };
                 let inside = a.expr(x).span;
-                let (Some(before), Some(after)) = (source.get(e.span.start + quotes.len()..inside.start), source.get(inside.end..e.span.end)) else {
+                let (Some(before), Some(after)) = (
+                    source.get(e.span.start + quotes.len()..inside.start),
+                    source.get(inside.end..e.span.end),
+                ) else {
                     continue;
                 };
                 let unique = if before == "$" {
@@ -364,7 +507,9 @@ pub fn findings(
                     let b = rest.as_bytes();
                     let d = after.as_bytes();
                     let k = dartforge_frontend::source::skip_whitespace(d, 0);
-                    dartforge_frontend::source::skip_whitespace(b, 0) == b.len() && d.get(k) == Some(&b'}') && &after[k + 1..] == quotes
+                    dartforge_frontend::source::skip_whitespace(b, 0) == b.len()
+                        && d.get(k) == Some(&b'}')
+                        && &after[k + 1..] == quotes
                 } else {
                     false
                 };
@@ -374,7 +519,10 @@ pub fn findings(
             }
             // `prefer_is_not_empty`: `!x.isEmpty`, with the element that declares
             // `isEmpty` having a child `isNotEmpty`.
-            ExprKind::Unary { op: UnaryOp::Not, operand } => {
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                operand,
+            } => {
                 let tgt = without_parentheses(a, *operand);
                 if let ExprKind::Property { target, name, .. } = &a.expr(tgt).kind
                     && !matches!(a.expr(*target).kind, ExprKind::CascadeTarget)
@@ -394,7 +542,11 @@ pub fn findings(
                 }
                 for v in values {
                     if let ExprKind::Call { target, .. } = &a.expr(v).kind
-                        && let ExprKind::Property { target: receiver, name, .. } = &a.expr(*target).kind
+                        && let ExprKind::Property {
+                            target: receiver,
+                            name,
+                            ..
+                        } = &a.expr(*target).kind
                         && interner.resolve(name.sym) == "toList"
                         && ty(*receiver).is_some_and(|t| implements(t, core.iterable_class))
                     {
@@ -405,20 +557,34 @@ pub fn findings(
             // `unnecessary_null_aware_assignments`: `x ??= null`, except
             // when the write goes to a setter (field, top-level variable,
             // extension setter; `[]=` is not a setter).
-            ExprKind::Assign { op: AssignOp::Compound(BinaryOp::IfNull), target, value } => {
+            ExprKind::Assign {
+                op: AssignOp::Compound(BinaryOp::IfNull),
+                target,
+                value,
+            } => {
                 let tgt = a.expr(*target);
-                let to_setter = matches!(tgt.kind, ExprKind::Identifier(_) | ExprKind::Property { .. })
-                    && matches!(
-                        the_body.get_resolved(*target),
-                        Some(Resolved::Member { .. } | Resolved::Element(_) | Resolved::ExtensionMember { .. })
-                    );
-                if matches!(a.expr(without_parentheses(a, *value)).kind, ExprKind::Null) && !to_setter {
+                let to_setter = matches!(
+                    tgt.kind,
+                    ExprKind::Identifier(_) | ExprKind::Property { .. }
+                ) && matches!(
+                    the_body.get_resolved(*target),
+                    Some(
+                        Resolved::Member { .. }
+                            | Resolved::Element(_)
+                            | Resolved::ExtensionMember { .. }
+                    )
+                );
+                if matches!(a.expr(without_parentheses(a, *value)).kind, ExprKind::Null)
+                    && !to_setter
+                {
                     out.push((e.span, "unnecessary_null_aware_assignments", Vec::new()));
                 }
             }
             // `await_only_futures`.
             ExprKind::Await(the_operand) => {
-                if matches!(a.expr(*the_operand).kind, ExprKind::Null) || the_body.invalid_types.contains(the_operand) {
+                if matches!(a.expr(*the_operand).kind, ExprKind::Null)
+                    || the_body.invalid_types.contains(the_operand)
+                {
                     continue;
                 }
                 let Some(t) = ty(*the_operand) else { continue };
@@ -427,8 +593,19 @@ pub fn findings(
                     Type::Interface { .. } => implements(t, core.future_class),
                     _ => false,
                 };
-                if !accepted && source.get(e.span.start..).is_some_and(|x| x.starts_with("await")) {
-                    out.push((Span { start: e.span.start, end: e.span.start + 5 }, "await_only_futures", vec![table.format(t, interner, program)]));
+                if !accepted
+                    && source
+                        .get(e.span.start..)
+                        .is_some_and(|x| x.starts_with("await"))
+                {
+                    out.push((
+                        Span {
+                            start: e.span.start,
+                            end: e.span.start + 5,
+                        },
+                        "await_only_futures",
+                        vec![table.format(t, interner, program)],
+                    ));
                 }
             }
             _ => {}

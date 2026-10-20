@@ -32,7 +32,10 @@ pub(super) fn copy_borrows(
         .iter()
         .flat_map(|b| b.instructions.iter().map(move |i| (b.id, i)))
         .filter_map(|(b, (v, i, ty))| match i {
-            Instruction::Phi { incoming, ty: Type::Ref } if *ty == Type::Ref => Some((*v, (b, incoming))),
+            Instruction::Phi {
+                incoming,
+                ty: Type::Ref,
+            } if *ty == Type::Ref => Some((*v, (b, incoming))),
             _ => None,
         })
         .collect();
@@ -71,7 +74,10 @@ fn copy(
         .iter()
         .flat_map(|b| b.instructions.iter().map(move |i| (b.id, i)))
         .filter_map(|(b, (v, i, ty))| match i {
-            Instruction::Phi { incoming, ty: Type::Ref } if *ty == Type::Ref => Some((*v, (b, incoming))),
+            Instruction::Phi {
+                incoming,
+                ty: Type::Ref,
+            } if *ty == Type::Ref => Some((*v, (b, incoming))),
             _ => None,
         })
         .collect();
@@ -80,10 +86,14 @@ fn copy(
     }
     let owned = |of: &ValueId| !phis.contains_key(of) && classes.get(of) == Some(&Ownership::Owned);
     // Also the returned Phi: the Owned convention of the return goes through it.
-    let returned_set: HashSet<ValueId> = f.blocks.iter().filter_map(|b| match &b.terminator {
-        Terminator::Return(Some(Operand::Val(v))) if phis.contains_key(v) => Some(*v),
-        _ => None,
-    }).collect();
+    let returned_set: HashSet<ValueId> = f
+        .blocks
+        .iter()
+        .filter_map(|b| match &b.terminator {
+            Terminator::Return(Some(Operand::Val(v))) if phis.contains_key(v) => Some(*v),
+            _ => None,
+        })
+        .collect();
     // The borrow contracts that reach each Phi, with the entry that
     // first brought each one: the producer only leaves a Phi borrowed when
     // all the direct entries have the same raw class (owner and scope); an
@@ -96,7 +106,11 @@ fn copy(
         for (v, (_, entries)) in &phis {
             let mut current = roots.get(v).cloned().unwrap_or_default();
             let before = current.len();
-            let mut join = |c: Ownership, of: ValueId| if !current.iter().any(|(x, _)| *x == c) { current.push((c, of)) };
+            let mut join = |c: Ownership, of: ValueId| {
+                if !current.iter().any(|(x, _)| *x == c) {
+                    current.push((c, of))
+                }
+            };
             for (_, op) in entries.iter() {
                 let Operand::Val(of) = op else { continue };
                 if phis.contains_key(of) {
@@ -105,8 +119,16 @@ fn copy(
                     let internals = roots.get(of).cloned().unwrap_or_default();
                     for (c, origin) in internals {
                         let c = match (c, roots[of].len()) {
-                            (Ownership::Borrowed { owner: OwnerOrigin::Caller, scope }, 1) =>
-                                Ownership::Borrowed { owner: OwnerOrigin::Value(origin), scope },
+                            (
+                                Ownership::Borrowed {
+                                    owner: OwnerOrigin::Caller,
+                                    scope,
+                                },
+                                1,
+                            ) => Ownership::Borrowed {
+                                owner: OwnerOrigin::Value(origin),
+                                scope,
+                            },
                             (c, _) => c,
                         };
                         join(c, *of);
@@ -128,35 +150,71 @@ fn copy(
     // borrow root) follows the keepalive design (a borrow until the
     // copy of the return); only one with trivial entries (literals, including through
     // Phis of only those) or owners needs the copies here.
-    let borrowed = |op: &Operand| matches!(op, Operand::Val(of)
+    let borrowed = |op: &Operand| {
+        matches!(op, Operand::Val(of)
         if matches!(classes.get(of), Some(Ownership::Borrowed { .. }))
-            || roots.get(of).is_some_and(|r| !r.is_empty()));
+            || roots.get(of).is_some_and(|r| !r.is_empty()))
+    };
     // The owner of a borrow must dominate the Phi (ARC003): the loop that
     // carries an alias of a value defined after the header needs its
     // own owner. Phis of the same block are simultaneous.
     let cfg = super::super::cfg::Cfg::new(f);
-    let index: HashMap<BlockId, usize> = f.blocks.iter().enumerate().map(|(i, b)| (b.id, i)).collect();
-    let definitions: HashMap<ValueId, (usize, bool)> = f.blocks.iter().enumerate()
-        .flat_map(|(i, b)| b.instructions.iter().map(move |(v, inst, _)| (*v, (i, matches!(inst, Instruction::Phi { .. })))))
+    let index: HashMap<BlockId, usize> = f
+        .blocks
+        .iter()
+        .enumerate()
+        .map(|(i, b)| (b.id, i))
+        .collect();
+    let definitions: HashMap<ValueId, (usize, bool)> = f
+        .blocks
+        .iter()
+        .enumerate()
+        .flat_map(|(i, b)| {
+            b.instructions
+                .iter()
+                .map(move |(v, inst, _)| (*v, (i, matches!(inst, Instruction::Phi { .. }))))
+        })
         .collect();
     // Block dominance is insufficient for a throwing result: the successful
     // edge publishes it. A borrowed/null join needs its own token if the error
     // path reaches the join, while the successful input alone can be copied.
-    let borrowed_owners: HashSet<_> = roots.values().flatten().filter_map(|(contract, _)| match contract {
-        Ownership::Borrowed { owner: OwnerOrigin::Value(owner), .. } => Some(*owner),
-        _ => None,
-    }).collect();
+    let borrowed_owners: HashSet<_> = roots
+        .values()
+        .flatten()
+        .filter_map(|(contract, _)| match contract {
+            Ownership::Borrowed {
+                owner: OwnerOrigin::Value(owner),
+                ..
+            } => Some(*owner),
+            _ => None,
+        })
+        .collect();
     let mut unavailable = HashMap::new();
     for (&call, &error) in p.tokens.pendings.iter().chain(extra_pending) {
-        if !borrowed_owners.contains(&call) { continue; }
-        let Some(&(origin, _)) = definitions.get(&call) else { continue };
+        if !borrowed_owners.contains(&call) {
+            continue;
+        }
+        let Some(&(origin, _)) = definitions.get(&call) else {
+            continue;
+        };
         let Some(success) = super::classification::check_pending(&f.blocks[origin], call, error)
-            .and_then(|block| index.get(&block).copied()) else { continue };
+            .and_then(|block| index.get(&block).copied())
+        else {
+            continue;
+        };
         let edge = (origin, success);
-        unavailable.insert(call, (edge, super::classification::reachable_without_edge(&cfg, edge)));
+        unavailable.insert(
+            call,
+            (
+                edge,
+                super::classification::reachable_without_edge(&cfg, edge),
+            ),
+        );
     }
     let dominates = |owner: ValueId, block: BlockId| {
-        let Some(&(o, owner_phi)) = definitions.get(&owner) else { return true };
+        let Some(&(o, owner_phi)) = definitions.get(&owner) else {
+            return true;
+        };
         let mut b = index[&block];
         if !cfg.reachable(b) {
             return true;
@@ -189,7 +247,9 @@ fn copy(
             .iter()
             .filter(|(v, (_, entries))| {
                 !need.contains(v)
-                    && entries.iter().any(|(_, op)| matches!(op, Operand::Val(of) if need.contains(of)))
+                    && entries
+                        .iter()
+                        .any(|(_, op)| matches!(op, Operand::Val(of) if need.contains(of)))
             })
             .map(|(v, _)| *v)
             .collect();
@@ -206,17 +266,34 @@ fn copy(
             // The entry of a Phi is used at the end of its predecessor.
             if let Instruction::Phi { incoming, .. } = i {
                 for (pred, o) in incoming {
-                    if let Operand::Val(x) = o { uses.entry(*x).or_default().push(*pred); }
+                    if let Operand::Val(x) = o {
+                        uses.entry(*x).or_default().push(*pred);
+                    }
                 }
             } else {
-                super::super::operands::operands(i, &mut |o| if let Operand::Val(x) = o { uses.entry(*x).or_default().push(b.id); });
+                super::super::operands::operands(i, &mut |o| {
+                    if let Operand::Val(x) = o {
+                        uses.entry(*x).or_default().push(b.id);
+                    }
+                });
             }
         }
-        super::super::operands::terminator_operands(&b.terminator, &mut |o| if let Operand::Val(x) = o { uses.entry(*x).or_default().push(b.id); });
+        super::super::operands::terminator_operands(&b.terminator, &mut |o| {
+            if let Operand::Val(x) = o {
+                uses.entry(*x).or_default().push(b.id);
+            }
+        });
     }
-    let successors: HashMap<BlockId, Vec<BlockId>> = f.blocks.iter().map(|b| (b.id, super::super::cfg::successors(&b.terminator))).collect();
-    let definition: HashMap<ValueId, BlockId> = f.blocks.iter()
-        .flat_map(|b| b.instructions.iter().map(move |(v, _, _)| (*v, b.id))).collect();
+    let successors: HashMap<BlockId, Vec<BlockId>> = f
+        .blocks
+        .iter()
+        .map(|b| (b.id, super::super::cfg::successors(&b.terminator)))
+        .collect();
+    let definition: HashMap<ValueId, BlockId> = f
+        .blocks
+        .iter()
+        .flat_map(|b| b.instructions.iter().map(move |(v, _, _)| (*v, b.id)))
+        .collect();
     // `of` live at the entry of the Phi's block: a use reachable from there without
     // going through its (re)definition — in a loop, what comes after the
     // definition is already the value of the next iteration.
@@ -240,7 +317,11 @@ fn copy(
         }
         false
     };
-    let pending_set: HashSet<BlockId> = extra_pending.values().chain(p.tokens.pendings.values()).copied().collect();
+    let pending_set: HashSet<BlockId> = extra_pending
+        .values()
+        .chain(p.tokens.pendings.values())
+        .copied()
+        .collect();
     let dests = |b: &BasicBlock| super::super::cfg::successors(&b.terminator);
     let blocks: HashMap<BlockId, &BasicBlock> = f.blocks.iter().map(|b| (b.id, b)).collect();
     // (predecessor, block of the Phi) → [(Phi, entry)].
@@ -258,32 +339,48 @@ fn copy(
                 // iteration (parallel copy): it gets a copy before the join.
                 // An owned Phi still read after the join does not give up
                 // its token either.
-                Operand::Val(of) if phis.contains_key(of) => !need.contains(of) || (phis[of].0 == block && *of != v)
-                    || used_after(of, block),
-                Operand::Val(of) => classes.get(of) != Some(&Ownership::Owned) || used_after(of, block),
+                Operand::Val(of) if phis.contains_key(of) => {
+                    !need.contains(of) || (phis[of].0 == block && *of != v) || used_after(of, block)
+                }
+                Operand::Val(of) => {
+                    classes.get(of) != Some(&Ownership::Owned) || used_after(of, block)
+                }
                 _ => false,
             };
             let copy = copy || matches!(op, Operand::Val(of) if !taken.insert((*pred, *of)));
             let available_borrow = |contract: &Ownership| match contract {
-                Ownership::Borrowed { owner: OwnerOrigin::Value(owner), .. } => unavailable.get(owner)
-                    .is_none_or(|(success, blocks)| !blocks.contains(&index[pred]) || (index[pred], index[&block]) == *success),
+                Ownership::Borrowed {
+                    owner: OwnerOrigin::Value(owner),
+                    ..
+                } => unavailable.get(owner).is_none_or(|(success, blocks)| {
+                    !blocks.contains(&index[pred]) || (index[pred], index[&block]) == *success
+                }),
                 _ => true,
             };
             let input_available = match op {
-                Operand::Val(of) if phis.contains_key(of) && !need.contains(of) =>
-                    roots.get(of).into_iter().flatten().all(|(contract, _)| available_borrow(contract)),
+                Operand::Val(of) if phis.contains_key(of) && !need.contains(of) => roots
+                    .get(of)
+                    .into_iter()
+                    .flatten()
+                    .all(|(contract, _)| available_borrow(contract)),
                 Operand::Val(of) => classes.get(of).is_none_or(available_borrow),
                 _ => true,
             };
-            let admissible = input_available && !p.tables.landing_pads.contains(&block)
+            let admissible = input_available
+                && !p.tables.landing_pads.contains(&block)
                 && !pending_set.contains(&block)
                 && !p.scopes.edges.contains_key(&(*pred, block))
                 && blocks.get(pred).is_some_and(|b| {
-                    matches!(b.terminator, Terminator::Branch(_) | Terminator::CondBranch { .. })
-                        && dests(b).contains(&block)
+                    matches!(
+                        b.terminator,
+                        Terminator::Branch(_) | Terminator::CondBranch { .. }
+                    ) && dests(b).contains(&block)
                 });
             if copy && admissible {
-                edges.entry((pred.0, block.0)).or_default().push((v, op.clone()));
+                edges
+                    .entry((pred.0, block.0))
+                    .or_default()
+                    .push((v, op.clone()));
             }
         }
     }
@@ -311,7 +408,10 @@ fn copy(
     let mut copies = 0;
     for (((pred, block), entries), next_block) in edges.into_iter().zip(first_block..) {
         let (pred, block) = (BlockId(pred), BlockId(block));
-        let edge = BlockId(u32::try_from(next_block).map_err(|_| "block IDs exhausted while copying Phi entries")?);
+        let edge = BlockId(
+            u32::try_from(next_block)
+                .map_err(|_| "block IDs exhausted while copying Phi entries")?,
+        );
         let mut instructions = Vec::new();
         let mut swaps = HashMap::new();
         for (phi, op) in entries {
@@ -320,10 +420,18 @@ fn copy(
             swaps.insert(phi, v);
             copies += 1;
         }
-        let b = f.blocks.iter_mut().find(|b| b.id == pred).expect("checked predecessor");
+        let b = f
+            .blocks
+            .iter_mut()
+            .find(|b| b.id == pred)
+            .expect("checked predecessor");
         match &mut b.terminator {
             Terminator::Branch(dest) => *dest = edge,
-            Terminator::CondBranch { then_block, else_block, .. } => {
+            Terminator::CondBranch {
+                then_block,
+                else_block,
+                ..
+            } => {
                 for dest in [then_block, else_block] {
                     if *dest == block {
                         *dest = edge;
@@ -333,7 +441,11 @@ fn copy(
             _ => unreachable!("checked terminator"),
         }
         // All the Phis of the block now arrive through the new edge.
-        let target = f.blocks.iter_mut().find(|b| b.id == block).expect("block of the Phi");
+        let target = f
+            .blocks
+            .iter_mut()
+            .find(|b| b.id == block)
+            .expect("block of the Phi");
         for (v, i, _) in &mut target.instructions {
             if let Instruction::Phi { incoming, .. } = i {
                 for (of, op) in incoming.iter_mut() {
@@ -346,7 +458,11 @@ fn copy(
                 }
             }
         }
-        f.blocks.push(BasicBlock { id: edge, instructions, terminator: Terminator::Branch(block) });
+        f.blocks.push(BasicBlock {
+            id: edge,
+            instructions,
+            terminator: Terminator::Branch(block),
+        });
     }
     Ok(copies)
 }
@@ -359,26 +475,74 @@ mod tests {
     fn mixed() -> (Function, Function) {
         let val = |n| Operand::Val(ValueId(n));
         let f = Function {
-            symbol: "misto".into(), name: "misto".into(), debug_info: None,
-            params: vec![(ValueId(0), "this".into(), Type::Ref), (ValueId(1), "c".into(), Type::I1)],
+            symbol: "misto".into(),
+            name: "misto".into(),
+            debug_info: None,
+            params: vec![
+                (ValueId(0), "this".into(), Type::Ref),
+                (ValueId(1), "c".into(), Type::I1),
+            ],
             return_ty: Type::Ref,
             blocks: vec![
-                BasicBlock { id: BlockId(0), instructions: vec![],
-                    terminator: Terminator::CondBranch { cond: val(1), then_block: BlockId(1), else_block: BlockId(2) } },
-                BasicBlock { id: BlockId(1), instructions: vec![
-                    (ValueId(3), Instruction::GetField { object: val(0), index: 0 }, Type::Ref)],
-                    terminator: Terminator::Branch(BlockId(3)) },
-                BasicBlock { id: BlockId(2), instructions: vec![
-                    (ValueId(4), Instruction::CallStatic { symbol: "fonte".into(), args: vec![], ret_ty: Type::Ref }, Type::Ref)],
-                    terminator: Terminator::Branch(BlockId(3)) },
-                BasicBlock { id: BlockId(3), instructions: vec![
-                    (ValueId(5), Instruction::Phi { incoming: vec![(BlockId(1), val(3)), (BlockId(2), val(4))], ty: Type::Ref }, Type::Ref)],
-                    terminator: Terminator::Return(Some(val(5))) },
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::CondBranch {
+                        cond: val(1),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(3),
+                        Instruction::GetField {
+                            object: val(0),
+                            index: 0,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![(
+                        ValueId(4),
+                        Instruction::CallStatic {
+                            symbol: "fonte".into(),
+                            args: vec![],
+                            ret_ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
+                BasicBlock {
+                    id: BlockId(3),
+                    instructions: vec![(
+                        ValueId(5),
+                        Instruction::Phi {
+                            incoming: vec![(BlockId(1), val(3)), (BlockId(2), val(4))],
+                            ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(val(5))),
+                },
             ],
         };
         let source = Function {
-            symbol: "fonte".into(), name: "fonte".into(), debug_info: None, params: vec![], return_ty: Type::Ref,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }],
+            symbol: "fonte".into(),
+            name: "fonte".into(),
+            debug_info: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+            }],
         };
         (f, source)
     }
@@ -393,20 +557,45 @@ mod tests {
             ];
             let index = super::super::calls::DartFunctionIndex::new(&summaries).unwrap();
             let mut p = DartFunctionPlan::default();
-            p.classes.insert(ValueId(3), Ownership::Borrowed { owner: OwnerOrigin::Value(ValueId(0)), scope: 0 });
+            p.classes.insert(
+                ValueId(3),
+                Ownership::Borrowed {
+                    owner: OwnerOrigin::Value(ValueId(0)),
+                    scope: 0,
+                },
+            );
             let mut without_copy = p.clone();
-            let error = super::super::calls::produce_dart_calls_and_instructions(&f, &index, &mut without_copy.classes, &mut without_copy.tokens)
-                .unwrap_err();
+            let error = super::super::calls::produce_dart_calls_and_instructions(
+                &f,
+                &index,
+                &mut without_copy.classes,
+                &mut without_copy.tokens,
+            )
+            .unwrap_err();
             assert!(error.contains("copy the borrow on the edge"), "{error}");
             assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 1);
             let edge = f.blocks.last().unwrap();
-            assert!(matches!(edge.instructions.last(), Some((_, Instruction::ArcCopy { .. }, Type::Ref))));
+            assert!(matches!(
+                edge.instructions.last(),
+                Some((_, Instruction::ArcCopy { .. }, Type::Ref))
+            ));
             assert!(matches!(edge.terminator, Terminator::Branch(BlockId(3))));
             assert!(matches!(f.blocks[1].terminator, Terminator::Branch(b) if b == edge.id));
-            let Instruction::Phi { incoming, .. } = &f.blocks[3].instructions[0].1 else { unreachable!() };
-            assert_eq!(incoming[0], (edge.id, Operand::Val(edge.instructions.last().unwrap().0)));
+            let Instruction::Phi { incoming, .. } = &f.blocks[3].instructions[0].1 else {
+                unreachable!()
+            };
+            assert_eq!(
+                incoming[0],
+                (edge.id, Operand::Val(edge.instructions.last().unwrap().0))
+            );
             assert_eq!(incoming[1], (BlockId(2), Operand::Val(ValueId(4))));
-            super::super::calls::produce_dart_calls_and_instructions(&f, &index, &mut p.classes, &mut p.tokens).unwrap();
+            super::super::calls::produce_dart_calls_and_instructions(
+                &f,
+                &index,
+                &mut p.classes,
+                &mut p.tokens,
+            )
+            .unwrap();
             assert_eq!(p.classes[&ValueId(5)], Ownership::Owned);
             // Idempotent: nothing more to copy.
             assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 0);
@@ -422,7 +611,13 @@ mod tests {
         ];
         let index = super::super::calls::DartFunctionIndex::new(&summaries).unwrap();
         let mut p = DartFunctionPlan::default();
-        p.classes.insert(ValueId(3), Ownership::Borrowed { owner: OwnerOrigin::Value(ValueId(0)), scope: 0 });
+        p.classes.insert(
+            ValueId(3),
+            Ownership::Borrowed {
+                owner: OwnerOrigin::Value(ValueId(0)),
+                scope: 0,
+            },
+        );
         // The block of the Phi is a landing pad: the edge is not split.
         let mut f = f0.clone();
         p.tables.landing_pads.insert(BlockId(3));
@@ -432,7 +627,9 @@ mod tests {
         // With no owner among the entries and not returned, the Phi stays
         // borrowed.
         let mut f = f0.clone();
-        let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 else { unreachable!() };
+        let Instruction::Phi { incoming, .. } = &mut f.blocks[3].instructions[0].1 else {
+            unreachable!()
+        };
         incoming[1].1 = Operand::Constant(Constant::Null);
         f.blocks[3].terminator = Terminator::Return(Some(Operand::Constant(Constant::Null)));
         let before = format!("{f:?}");
@@ -448,28 +645,80 @@ mod tests {
         // `x = c ? a : b; ...; y = c ? a : b`: a and b stay live until the
         // second Phi, so the first one cannot take their tokens.
         let val = |n| Operand::Val(ValueId(n));
-        let call = || Instruction::CallStatic { symbol: "fonte".into(), args: vec![], ret_ty: Type::Ref };
-        let branch = |id, dest| BasicBlock { id: BlockId(id), instructions: vec![], terminator: Terminator::Branch(BlockId(dest)) };
+        let call = || Instruction::CallStatic {
+            symbol: "fonte".into(),
+            args: vec![],
+            ret_ty: Type::Ref,
+        };
+        let branch = |id, dest| BasicBlock {
+            id: BlockId(id),
+            instructions: vec![],
+            terminator: Terminator::Branch(BlockId(dest)),
+        };
         let mut f = Function {
-            symbol: "dois".into(), name: "dois".into(), debug_info: None,
-            params: vec![(ValueId(0), "c".into(), Type::I1)], return_ty: Type::Ref,
+            symbol: "dois".into(),
+            name: "dois".into(),
+            debug_info: None,
+            params: vec![(ValueId(0), "c".into(), Type::I1)],
+            return_ty: Type::Ref,
             blocks: vec![
-                BasicBlock { id: BlockId(0), instructions: vec![
-                    (ValueId(1), call(), Type::Ref), (ValueId(2), call(), Type::Ref)],
-                    terminator: Terminator::CondBranch { cond: val(0), then_block: BlockId(1), else_block: BlockId(2) } },
-                branch(1, 3), branch(2, 3),
-                BasicBlock { id: BlockId(3), instructions: vec![
-                    (ValueId(3), Instruction::Phi { incoming: vec![(BlockId(1), val(1)), (BlockId(2), val(2))], ty: Type::Ref }, Type::Ref)],
-                    terminator: Terminator::CondBranch { cond: val(0), then_block: BlockId(4), else_block: BlockId(5) } },
-                branch(4, 6), branch(5, 6),
-                BasicBlock { id: BlockId(6), instructions: vec![
-                    (ValueId(4), Instruction::Phi { incoming: vec![(BlockId(4), val(1)), (BlockId(5), val(2))], ty: Type::Ref }, Type::Ref)],
-                    terminator: Terminator::Return(Some(val(4))) },
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![
+                        (ValueId(1), call(), Type::Ref),
+                        (ValueId(2), call(), Type::Ref),
+                    ],
+                    terminator: Terminator::CondBranch {
+                        cond: val(0),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                branch(1, 3),
+                branch(2, 3),
+                BasicBlock {
+                    id: BlockId(3),
+                    instructions: vec![(
+                        ValueId(3),
+                        Instruction::Phi {
+                            incoming: vec![(BlockId(1), val(1)), (BlockId(2), val(2))],
+                            ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::CondBranch {
+                        cond: val(0),
+                        then_block: BlockId(4),
+                        else_block: BlockId(5),
+                    },
+                },
+                branch(4, 6),
+                branch(5, 6),
+                BasicBlock {
+                    id: BlockId(6),
+                    instructions: vec![(
+                        ValueId(4),
+                        Instruction::Phi {
+                            incoming: vec![(BlockId(4), val(1)), (BlockId(5), val(2))],
+                            ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(val(4))),
+                },
             ],
         };
         let source = Function {
-            symbol: "fonte".into(), name: "fonte".into(), debug_info: None, params: vec![], return_ty: Type::Ref,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }],
+            symbol: "fonte".into(),
+            name: "fonte".into(),
+            debug_info: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+            }],
         };
         let summaries = vec![
             super::super::calls::provisional_summary(&f, false),
@@ -479,9 +728,17 @@ mod tests {
         let p = DartFunctionPlan::default();
         // Only the first Phi copies: after the second, a and b are no longer read.
         assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 2);
-        let Instruction::Phi { incoming, .. } = &f.blocks[3].instructions[0].1 else { unreachable!() };
-        assert!(incoming.iter().all(|(_, op)| !matches!(op, Operand::Val(ValueId(1 | 2)))));
-        let Instruction::Phi { incoming, .. } = &f.blocks[6].instructions[0].1 else { unreachable!() };
+        let Instruction::Phi { incoming, .. } = &f.blocks[3].instructions[0].1 else {
+            unreachable!()
+        };
+        assert!(
+            incoming
+                .iter()
+                .all(|(_, op)| !matches!(op, Operand::Val(ValueId(1 | 2))))
+        );
+        let Instruction::Phi { incoming, .. } = &f.blocks[6].instructions[0].1 else {
+            unreachable!()
+        };
         assert_eq!(incoming[0].1, val(1));
     }
 
@@ -490,27 +747,76 @@ mod tests {
         // `x = c ? a : b; y = c ? a : another`: on the edge of b1 the token of a
         // goes to x; y gets the copy.
         let val = |n| Operand::Val(ValueId(n));
-        let call = || Instruction::CallStatic { symbol: "fonte".into(), args: vec![], ret_ty: Type::Ref };
-        let branch = |id| BasicBlock { id: BlockId(id), instructions: vec![], terminator: Terminator::Branch(BlockId(3)) };
+        let call = || Instruction::CallStatic {
+            symbol: "fonte".into(),
+            args: vec![],
+            ret_ty: Type::Ref,
+        };
+        let branch = |id| BasicBlock {
+            id: BlockId(id),
+            instructions: vec![],
+            terminator: Terminator::Branch(BlockId(3)),
+        };
         let mut f = Function {
-            symbol: "par".into(), name: "par".into(), debug_info: None,
-            params: vec![(ValueId(0), "c".into(), Type::I1)], return_ty: Type::Ref,
+            symbol: "par".into(),
+            name: "par".into(),
+            debug_info: None,
+            params: vec![(ValueId(0), "c".into(), Type::I1)],
+            return_ty: Type::Ref,
             blocks: vec![
-                BasicBlock { id: BlockId(0), instructions: vec![(ValueId(1), call(), Type::Ref)],
-                    terminator: Terminator::CondBranch { cond: val(0), then_block: BlockId(1), else_block: BlockId(2) } },
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(ValueId(1), call(), Type::Ref)],
+                    terminator: Terminator::CondBranch {
+                        cond: val(0),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
                 branch(1),
-                BasicBlock { id: BlockId(2), instructions: vec![
-                    (ValueId(2), call(), Type::Ref), (ValueId(5), call(), Type::Ref)],
-                    terminator: Terminator::Branch(BlockId(3)) },
-                BasicBlock { id: BlockId(3), instructions: vec![
-                    (ValueId(3), Instruction::Phi { incoming: vec![(BlockId(1), val(1)), (BlockId(2), val(2))], ty: Type::Ref }, Type::Ref),
-                    (ValueId(4), Instruction::Phi { incoming: vec![(BlockId(1), val(1)), (BlockId(2), val(5))], ty: Type::Ref }, Type::Ref)],
-                    terminator: Terminator::Return(Some(val(4))) },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![
+                        (ValueId(2), call(), Type::Ref),
+                        (ValueId(5), call(), Type::Ref),
+                    ],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
+                BasicBlock {
+                    id: BlockId(3),
+                    instructions: vec![
+                        (
+                            ValueId(3),
+                            Instruction::Phi {
+                                incoming: vec![(BlockId(1), val(1)), (BlockId(2), val(2))],
+                                ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        ),
+                        (
+                            ValueId(4),
+                            Instruction::Phi {
+                                incoming: vec![(BlockId(1), val(1)), (BlockId(2), val(5))],
+                                ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        ),
+                    ],
+                    terminator: Terminator::Return(Some(val(4))),
+                },
             ],
         };
         let source = Function {
-            symbol: "fonte".into(), name: "fonte".into(), debug_info: None, params: vec![], return_ty: Type::Ref,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }],
+            symbol: "fonte".into(),
+            name: "fonte".into(),
+            debug_info: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+            }],
         };
         let summaries = vec![
             super::super::calls::provisional_summary(&f, false),
@@ -519,9 +825,13 @@ mod tests {
         let index = super::super::calls::DartFunctionIndex::new(&summaries).unwrap();
         let p = DartFunctionPlan::default();
         assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 1);
-        let Instruction::Phi { incoming, .. } = &f.blocks[3].instructions[0].1 else { unreachable!() };
+        let Instruction::Phi { incoming, .. } = &f.blocks[3].instructions[0].1 else {
+            unreachable!()
+        };
         assert_eq!(incoming[0].1, val(1));
-        let Instruction::Phi { incoming, .. } = &f.blocks[3].instructions[1].1 else { unreachable!() };
+        let Instruction::Phi { incoming, .. } = &f.blocks[3].instructions[1].1 else {
+            unreachable!()
+        };
         assert!(!matches!(incoming[0].1, Operand::Val(ValueId(1))));
         assert_eq!(incoming[1].1, val(5));
     }
@@ -531,34 +841,93 @@ mod tests {
         // `c ? true : (d ? false : null)` returned: the inner Phi only joins
         // trivials, it is not a borrow; the outer one needs an owner.
         let val = |n| Operand::Val(ValueId(n));
-        let boxed = |b| Instruction::Box { op: Operand::Constant(Constant::Bool(b)), from: Type::I1 };
+        let boxed = |b| Instruction::Box {
+            op: Operand::Constant(Constant::Bool(b)),
+            from: Type::I1,
+        };
         let mut f = Function {
-            symbol: "bools".into(), name: "bools".into(), debug_info: None,
-            params: vec![(ValueId(0), "c".into(), Type::I1), (ValueId(1), "d".into(), Type::I1)],
+            symbol: "bools".into(),
+            name: "bools".into(),
+            debug_info: None,
+            params: vec![
+                (ValueId(0), "c".into(), Type::I1),
+                (ValueId(1), "d".into(), Type::I1),
+            ],
             return_ty: Type::Ref,
             blocks: vec![
-                BasicBlock { id: BlockId(0), instructions: vec![],
-                    terminator: Terminator::CondBranch { cond: val(0), then_block: BlockId(1), else_block: BlockId(2) } },
-                BasicBlock { id: BlockId(1), instructions: vec![(ValueId(2), boxed(true), Type::Ref)],
-                    terminator: Terminator::Branch(BlockId(6)) },
-                BasicBlock { id: BlockId(2), instructions: vec![],
-                    terminator: Terminator::CondBranch { cond: val(1), then_block: BlockId(3), else_block: BlockId(4) } },
-                BasicBlock { id: BlockId(3), instructions: vec![(ValueId(3), boxed(false), Type::Ref)],
-                    terminator: Terminator::Branch(BlockId(5)) },
-                BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Branch(BlockId(5)) },
-                BasicBlock { id: BlockId(5), instructions: vec![
-                    (ValueId(4), Instruction::Phi { incoming: vec![(BlockId(3), val(3)), (BlockId(4), Operand::Constant(Constant::Null))], ty: Type::Ref }, Type::Ref)],
-                    terminator: Terminator::Branch(BlockId(6)) },
-                BasicBlock { id: BlockId(6), instructions: vec![
-                    (ValueId(5), Instruction::Phi { incoming: vec![(BlockId(1), val(2)), (BlockId(5), val(4))], ty: Type::Ref }, Type::Ref)],
-                    terminator: Terminator::Return(Some(val(5))) },
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::CondBranch {
+                        cond: val(0),
+                        then_block: BlockId(1),
+                        else_block: BlockId(2),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(ValueId(2), boxed(true), Type::Ref)],
+                    terminator: Terminator::Branch(BlockId(6)),
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![],
+                    terminator: Terminator::CondBranch {
+                        cond: val(1),
+                        then_block: BlockId(3),
+                        else_block: BlockId(4),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(3),
+                    instructions: vec![(ValueId(3), boxed(false), Type::Ref)],
+                    terminator: Terminator::Branch(BlockId(5)),
+                },
+                BasicBlock {
+                    id: BlockId(4),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(5)),
+                },
+                BasicBlock {
+                    id: BlockId(5),
+                    instructions: vec![(
+                        ValueId(4),
+                        Instruction::Phi {
+                            incoming: vec![
+                                (BlockId(3), val(3)),
+                                (BlockId(4), Operand::Constant(Constant::Null)),
+                            ],
+                            ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Branch(BlockId(6)),
+                },
+                BasicBlock {
+                    id: BlockId(6),
+                    instructions: vec![(
+                        ValueId(5),
+                        Instruction::Phi {
+                            incoming: vec![(BlockId(1), val(2)), (BlockId(5), val(4))],
+                            ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(val(5))),
+                },
             ],
         };
         let summaries = vec![super::super::calls::provisional_summary(&f, false)];
         let index = super::super::calls::DartFunctionIndex::new(&summaries).unwrap();
         let mut p = DartFunctionPlan::default();
         assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 2);
-        super::super::calls::produce_dart_calls_and_instructions(&f, &index, &mut p.classes, &mut p.tokens).unwrap();
+        super::super::calls::produce_dart_calls_and_instructions(
+            &f,
+            &index,
+            &mut p.classes,
+            &mut p.tokens,
+        )
+        .unwrap();
         assert_eq!(p.classes[&ValueId(5)], Ownership::Owned);
         assert_eq!(p.classes[&ValueId(4)], Ownership::Trivial);
     }
@@ -569,24 +938,82 @@ mod tests {
         // borrow is born after the header, which cannot borrow it.
         let val = |n| Operand::Val(ValueId(n));
         let mut f = Function {
-            symbol: "laco".into(), name: "laco".into(), debug_info: None,
-            params: vec![(ValueId(0), "c".into(), Type::I1)], return_ty: Type::Void,
+            symbol: "laco".into(),
+            name: "laco".into(),
+            debug_info: None,
+            params: vec![(ValueId(0), "c".into(), Type::I1)],
+            return_ty: Type::Void,
             blocks: vec![
-                BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Branch(BlockId(1)) },
-                BasicBlock { id: BlockId(1), instructions: vec![
-                    (ValueId(2), Instruction::Phi { incoming: vec![(BlockId(0), Operand::Constant(Constant::Null)), (BlockId(3), val(5))], ty: Type::Ref }, Type::Ref)],
-                    terminator: Terminator::CondBranch { cond: val(0), then_block: BlockId(2), else_block: BlockId(4) } },
-                BasicBlock { id: BlockId(2), instructions: vec![
-                    (ValueId(4), Instruction::CallStatic { symbol: "fonte".into(), args: vec![], ret_ty: Type::Ref }, Type::Ref),
-                    (ValueId(5), Instruction::GetField { object: val(4), index: 0 }, Type::Ref)],
-                    terminator: Terminator::Branch(BlockId(3)) },
-                BasicBlock { id: BlockId(3), instructions: vec![], terminator: Terminator::Branch(BlockId(1)) },
-                BasicBlock { id: BlockId(4), instructions: vec![], terminator: Terminator::Return(None) },
+                BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                BasicBlock {
+                    id: BlockId(1),
+                    instructions: vec![(
+                        ValueId(2),
+                        Instruction::Phi {
+                            incoming: vec![
+                                (BlockId(0), Operand::Constant(Constant::Null)),
+                                (BlockId(3), val(5)),
+                            ],
+                            ty: Type::Ref,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::CondBranch {
+                        cond: val(0),
+                        then_block: BlockId(2),
+                        else_block: BlockId(4),
+                    },
+                },
+                BasicBlock {
+                    id: BlockId(2),
+                    instructions: vec![
+                        (
+                            ValueId(4),
+                            Instruction::CallStatic {
+                                symbol: "fonte".into(),
+                                args: vec![],
+                                ret_ty: Type::Ref,
+                            },
+                            Type::Ref,
+                        ),
+                        (
+                            ValueId(5),
+                            Instruction::GetField {
+                                object: val(4),
+                                index: 0,
+                            },
+                            Type::Ref,
+                        ),
+                    ],
+                    terminator: Terminator::Branch(BlockId(3)),
+                },
+                BasicBlock {
+                    id: BlockId(3),
+                    instructions: vec![],
+                    terminator: Terminator::Branch(BlockId(1)),
+                },
+                BasicBlock {
+                    id: BlockId(4),
+                    instructions: vec![],
+                    terminator: Terminator::Return(None),
+                },
             ],
         };
         let source = Function {
-            symbol: "fonte".into(), name: "fonte".into(), debug_info: None, params: vec![], return_ty: Type::Ref,
-            blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![], terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))) }],
+            symbol: "fonte".into(),
+            name: "fonte".into(),
+            debug_info: None,
+            params: vec![],
+            return_ty: Type::Ref,
+            blocks: vec![BasicBlock {
+                id: BlockId(0),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+            }],
         };
         let summaries = vec![
             super::super::calls::provisional_summary(&f, false),
@@ -594,14 +1021,24 @@ mod tests {
         ];
         let index = super::super::calls::DartFunctionIndex::new(&summaries).unwrap();
         let mut p = DartFunctionPlan::default();
-        p.classes.insert(ValueId(5), Ownership::Borrowed { owner: OwnerOrigin::Value(ValueId(4)), scope: 0 });
+        p.classes.insert(
+            ValueId(5),
+            Ownership::Borrowed {
+                owner: OwnerOrigin::Value(ValueId(4)),
+                scope: 0,
+            },
+        );
         assert_eq!(copy_borrows(&mut f, &index, &p).unwrap(), 1);
-        let Instruction::Phi { incoming, .. } = &f.blocks[1].instructions[0].1 else { unreachable!() };
+        let Instruction::Phi { incoming, .. } = &f.blocks[1].instructions[0].1 else {
+            unreachable!()
+        };
         let (edge, copy_inst) = incoming[1].clone();
         assert_ne!(edge, BlockId(3));
         let block = f.blocks.iter().find(|b| b.id == edge).unwrap();
-        assert!(matches!(&block.instructions[..], [(v, Instruction::ArcCopy { value }, Type::Ref)]
-            if Operand::Val(*v) == copy_inst && *value == val(5)));
+        assert!(
+            matches!(&block.instructions[..], [(v, Instruction::ArcCopy { value }, Type::Ref)]
+            if Operand::Val(*v) == copy_inst && *value == val(5))
+        );
     }
 }
 

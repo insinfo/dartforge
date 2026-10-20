@@ -160,14 +160,20 @@ impl Session {
     /// The retained entry is valid with the current open documents if only
     /// `uri` joined or left the list and its unit has `text`.
     fn keep(&mut self, documents: &DocumentStore, uri: &str, text: Option<String>) -> bool {
-        let Some((key, project)) = self.entry.as_mut() else { return true };
+        let Some((key, project)) = self.entry.as_mut() else {
+            return true;
+        };
         let Some(text) = text else { return false };
         let new = open(documents);
-        let without = |l: &[(String, i32, usize)]| l.iter().filter(|a| a.0 != uri).cloned().collect::<Vec<_>>();
+        let without = |l: &[(String, i32, usize)]| {
+            l.iter().filter(|a| a.0 != uri).cloned().collect::<Vec<_>>()
+        };
         if without(&new) != without(&key.open) {
             return false;
         }
-        let Some(u) = project.uri_unit(uri) else { return false };
+        let Some(u) = project.uri_unit(uri) else {
+            return false;
+        };
         if project.program().unit(u).source != text {
             return false;
         }
@@ -176,19 +182,35 @@ impl Session {
     }
 
     fn swap(&mut self, documents: &DocumentStore, uri: &str) -> bool {
-        let Some((key, project)) = self.entry.as_mut() else { return false };
-        let Some(text) = documents.get(uri) else { return false };
+        let Some((key, project)) = self.entry.as_mut() else {
+            return false;
+        };
+        let Some(text) = documents.get(uri) else {
+            return false;
+        };
         let new = open(documents);
         // Only the edited document may have changed.
-        if new.len() != key.open.len() || new.iter().zip(key.open.iter()).any(|(a, b)| a.0 != b.0 || (a.0 != uri && a != b)) {
+        if new.len() != key.open.len()
+            || new
+                .iter()
+                .zip(key.open.iter())
+                .any(|(a, b)| a.0 != b.0 || (a.0 != uri && a != b))
+        {
             return false;
         }
         // A document outside the load may become the owner of a part (`part`):
         // reloads.
-        let Some(u) = project.uri_unit(uri) else { return false };
+        let Some(u) = project.uri_unit(uri) else {
+            return false;
+        };
         if project.program().unit(u).source != text {
-            let inferred_bodies = project.libraries.contains(&project.program().unit(u).library);
-            let mode = crate::query::SwapMode::Final { inferred_bodies, register_locals: true };
+            let inferred_bodies = project
+                .libraries
+                .contains(&project.program().unit(u).library);
+            let mode = crate::query::SwapMode::Final {
+                inferred_bodies,
+                register_locals: true,
+            };
             if project.query.swap_unit(u, text, mode).is_none() {
                 return false;
             }
@@ -230,12 +252,7 @@ impl Session {
         self.invalidate();
         let project = load()?;
         self.stats.loaded += 1;
-        let source: usize = project
-            .program()
-            .units
-            .iter()
-            .map(|u| u.source.len())
-            .sum();
+        let source: usize = project.program().units.iter().map(|u| u.source.len()).sum();
         if self.budget == 0 || source > self.budget {
             // It does not fit: valid only for this query and dropped with the response.
             self.stats.above_budget += 1;
@@ -335,6 +352,5 @@ fn disk_equal(key: &Key) -> bool {
         Scope::Project(r) => r.clone(),
         Scope::Library(a) => crate::project::project_root(a),
     };
-    key.disk.iter().all(|(p, m)| metadata(p) == *m)
-        && project_files(&root) == key.files
+    key.disk.iter().all(|(p, m)| metadata(p) == *m) && project_files(&root) == key.files
 }

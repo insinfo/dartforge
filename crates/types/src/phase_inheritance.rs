@@ -14,11 +14,13 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-use crate::inheritance::{combine, Conflict, Kind, InheritanceManager, InterfaceMember, MemberName, OutlineProvider};
+use crate::inheritance::{
+    Conflict, InheritanceManager, InterfaceMember, Kind, MemberName, OutlineProvider, combine,
+};
 use crate::resolve::OutlineTypes;
 use crate::table::{CoreTypes, TypeTable};
-use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_diagnostics::Diagnostic;
+use dartforge_diagnostics::codes::compile_time_error as c;
 use dartforge_elements::model::{ClassId, FunctionElementId, FunctionRef, Program, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, MemberKind};
 use dartforge_intern::Interner;
@@ -27,11 +29,18 @@ use std::collections::{HashMap, HashSet};
 /// The analyzer's `Name.name`: a setter is `x=` (the model's key is `x_=`).
 fn member_name(interner: &Interner, n: &MemberName) -> String {
     let text = interner.resolve(n.key);
-    text.strip_suffix("_=").map_or_else(|| text.to_string(), |s| format!("{s}="))
+    text.strip_suffix("_=")
+        .map_or_else(|| text.to_string(), |s| format!("{s}="))
 }
 
 /// `'Class.name (ty)'` of each candidate, joined with `, `.
-fn displayed_candidates(program: &Program, interner: &Interner, table: &TypeTable, name: &str, candidates: &[InterfaceMember]) -> String {
+fn displayed_candidates(
+    program: &Program,
+    interner: &Interner,
+    table: &TypeTable,
+    name: &str,
+    candidates: &[InterfaceMember],
+) -> String {
     candidates
         .iter()
         .map(|m| {
@@ -75,7 +84,12 @@ pub fn methods_without_combined_signature(
     let mut by_function: HashMap<(UnitId, u32), FunctionElementId> = HashMap::new();
     for &cid in classes {
         let k = program.class(cid);
-        for f in k.instance_members.values().copied().chain(k.shadowed_instance_members.iter().map(|&(_, f)| f)) {
+        for f in k
+            .instance_members
+            .values()
+            .copied()
+            .chain(k.shadowed_instance_members.iter().map(|&(_, f)| f))
+        {
             let fe = program.function(f);
             if fe.class.is_some()
                 && !fe.static_
@@ -88,24 +102,46 @@ pub fn methods_without_combined_signature(
     let mut inheritance = InheritanceManager::default();
     let mut output = Vec::new();
     for &cid in classes {
-        let Some((u, _, members)) = declaration(program, cid) else { continue };
+        let Some((u, _, members)) = declaration(program, cid) else {
+            continue;
+        };
         let a = &program.unit(u).ast;
         let lib = program.class(cid).library;
         for &m in members {
-            let MemberKind::Method(fid) = &a.member(m).kind else { continue };
+            let MemberKind::Method(fid) = &a.member(m).kind else {
+                continue;
+            };
             let af = a.function(*fid);
-            if af.static_ || !matches!(af.kind, ast::FunctionKind::Function | ast::FunctionKind::Operator) {
+            if af.static_
+                || !matches!(
+                    af.kind,
+                    ast::FunctionKind::Function | ast::FunctionKind::Operator
+                )
+            {
                 continue;
             }
-            let (Some(&f), Some(n)) = (by_function.get(&(u, fid.0)), af.name) else { continue };
+            let (Some(&f), Some(n)) = (by_function.get(&(u, fid.0)), af.name) else {
+                continue;
+            };
             let implicit = af.return_type.is_none()
-                || af.parameters.as_deref().is_some_and(|ps| ps.iter().any(|p| p.ty.is_none() && p.function_parameters.is_none()));
+                || af.parameters.as_deref().is_some_and(|ps| {
+                    ps.iter()
+                        .any(|p| p.ty.is_none() && p.function_parameters.is_none())
+                });
             if !implicit {
                 continue;
             }
             let name = MemberName::new(interner, lib, program.function(f).name);
-            let mut p = OutlineProvider { program, interner, core, outline, table: &mut *table };
-            let Some(overridden) = inheritance.overridden(&mut p, cid, name) else { continue };
+            let mut p = OutlineProvider {
+                program,
+                interner,
+                core,
+                outline,
+                table: &mut *table,
+            };
+            let Some(overridden) = inheritance.overridden(&mut p, cid, name) else {
+                continue;
+            };
             if overridden.is_empty() || overridden.iter().any(|s| s.kind != Kind::Method) {
                 continue;
             }
@@ -115,7 +151,9 @@ pub fn methods_without_combined_signature(
             }
             let name_text = member_name(interner, &name);
             let explanation = match conflicts.as_slice() {
-                [Conflict::Candidates { candidates, .. }] => displayed_candidates(program, interner, table, &name_text, candidates),
+                [Conflict::Candidates { candidates, .. }] => {
+                    displayed_candidates(program, interner, table, &name_text, candidates)
+                }
                 _ => "<unknown>".to_string(),
             };
             output.push((cid, f, n, explanation));
@@ -135,9 +173,17 @@ pub fn inconsistencies(
     let mut inheritance = InheritanceManager::default();
     let mut output = Vec::new();
     for &cid in classes {
-        let Some((u, class_name, _)) = declaration(program, cid) else { continue };
+        let Some((u, class_name, _)) = declaration(program, cid) else {
+            continue;
+        };
         let interface = {
-            let mut p = OutlineProvider { program, interner, core, outline, table: &mut *table };
+            let mut p = OutlineProvider {
+                program,
+                interner,
+                core,
+                outline,
+                table: &mut *table,
+            };
             inheritance.interface(&mut p, cid)
         };
         // The same conflict may come from the `on` constraints and from the
@@ -145,31 +191,65 @@ pub fn inconsistencies(
         let mut seen: HashSet<(bool, String, String)> = HashSet::new();
         for conflict in interface.conflicts.iter() {
             match conflict {
-                Conflict::GetterMethod { name, getter, method } => {
+                Conflict::GetterMethod {
+                    name,
+                    getter,
+                    method,
+                } => {
                     let n = member_name(interner, name);
-                    let g = interner.resolve(program.class(getter.class).name).to_string();
-                    let m = interner.resolve(program.class(method.class).name).to_string();
+                    let g = interner
+                        .resolve(program.class(getter.class).name)
+                        .to_string();
+                    let m = interner
+                        .resolve(program.class(method.class).name)
+                        .to_string();
                     if seen.insert((true, n.clone(), format!("{g}\u{0}{m}"))) {
-                        output.push((u, Diagnostic::with_code(c::INCONSISTENT_INHERITANCE_GETTER_AND_METHOD, class_name.span, [n.as_str(), g.as_str(), m.as_str()])));
+                        output.push((
+                            u,
+                            Diagnostic::with_code(
+                                c::INCONSISTENT_INHERITANCE_GETTER_AND_METHOD,
+                                class_name.span,
+                                [n.as_str(), g.as_str(), m.as_str()],
+                            ),
+                        ));
                     }
                 }
                 Conflict::Candidates { name, candidates } => {
                     let n = member_name(interner, name);
                     let list = displayed_candidates(program, interner, table, &n, candidates);
                     if seen.insert((false, n.clone(), list.clone())) {
-                        output.push((u, Diagnostic::with_code(c::INCONSISTENT_INHERITANCE, class_name.span, [n.as_str(), list.as_str()])));
+                        output.push((
+                            u,
+                            Diagnostic::with_code(
+                                c::INCONSISTENT_INHERITANCE,
+                                class_name.span,
+                                [n.as_str(), list.as_str()],
+                            ),
+                        ));
                     }
                 }
-                Conflict::ExtensionAndNonExtension { .. } | Conflict::NonUniqueExtension { .. } => {}
+                Conflict::ExtensionAndNonExtension { .. } | Conflict::NonUniqueExtension { .. } => {
+                }
             }
         }
     }
     // `_reportNoCombinedSuperSignature`, in the member loop (after the
     // conflicts of all classes: different offsets).
-    for (cid, _, n, explanation) in methods_without_combined_signature(program, interner, table, core, outline, classes) {
-        let Some((u, _, _)) = declaration(program, cid) else { continue };
+    for (cid, _, n, explanation) in
+        methods_without_combined_signature(program, interner, table, core, outline, classes)
+    {
+        let Some((u, _, _)) = declaration(program, cid) else {
+            continue;
+        };
         let class = interner.resolve(program.class(cid).name).to_string();
-        output.push((u, Diagnostic::with_code(c::NO_COMBINED_SUPER_SIGNATURE, n.span, [class.as_str(), explanation.as_str()])));
+        output.push((
+            u,
+            Diagnostic::with_code(
+                c::NO_COMBINED_SUPER_SIGNATURE,
+                n.span,
+                [class.as_str(), explanation.as_str()],
+            ),
+        ));
     }
     output
 }

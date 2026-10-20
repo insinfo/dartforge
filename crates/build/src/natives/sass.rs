@@ -9,10 +9,12 @@
 //! The stylesheets of `@use`/`@forward`/`@import` resolve as in
 //! `BuildImporter` (relative to the file, and `package:` through the package
 //! roots); every file read or probed is a dependency of the action.
+use crate::executor::{GeneratorCtx, NativeGenerator, NativeOutput, NativeRequest};
 use crate::query::Query;
-use crate::executor::{GeneratorCtx, NativeGenerator, NativeRequest, NativeOutput};
 use crate::value::Value;
-use dartforge_ng_generator::sass::{AssetOptions, Style, AssetReader, DartSassVersion, compile_asset};
+use dartforge_ng_generator::sass::{
+    AssetOptions, AssetReader, DartSassVersion, Style, compile_asset,
+};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -99,16 +101,18 @@ impl NativeGenerator for SassNative {
             };
             let text = String::from_utf8_lossy(&source);
             let source_map = a.options.get("sourceMaps") == Some(&Value::Bool(true));
-            let reader = StepReader {
-                memory: ctx.memory,
-            };
+            let reader = StepReader { memory: ctx.memory };
             let sheet = match compile_asset(
                 &text,
                 &a.input.package,
                 &a.input.path,
                 &request.roots,
                 &reader,
-                AssetOptions { style, source_map, version },
+                AssetOptions {
+                    style,
+                    source_map,
+                    version,
+                },
             ) {
                 Ok(f) => f,
                 Err(m) => {
@@ -121,9 +125,7 @@ impl NativeGenerator for SassNative {
                 }
             };
             for file in sheet.read_files.iter().chain(&sheet.probed_files) {
-                ctx.register(Query::File(dartforge_elements::generated::key(
-                    file,
-                )));
+                ctx.register(Query::File(dartforge_elements::generated::key(file)));
             }
             if let Some((_, n)) = a.outputs.iter().find(|(id, _)| id.path.ends_with(".css")) {
                 s.outputs.insert(n.clone(), sheet.css.into_bytes());

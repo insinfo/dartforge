@@ -225,9 +225,10 @@ impl<'a> Inventory<'a> {
                         match args.first() {
                             Some((Operand::Constant(Constant::Int(cid)), Type::I64)) => {
                                 if let Ok(cid) = u32::try_from(*cid)
-                                    && !accepted_sites.contains(&(f.symbol.clone(), *v)) {
-                                        bad.insert(cid);
-                                    }
+                                    && !accepted_sites.contains(&(f.symbol.clone(), *v))
+                                {
+                                    bad.insert(cid);
+                                }
                             }
                             _ => bad.extend(result.layouts.keys().copied()),
                         }
@@ -373,18 +374,21 @@ fn initialization(
     }
     let shape = Shape::new(f).ok()?;
     let entry = &f.blocks[0];
-    let [(
-        flag_v,
-        I::LoadGlobal {
-            symbol: flag,
-            ty: Type::I8,
-        },
-        Type::I8,
-    ), (
-        condition,
-        I::ICmp(ICmpOp::Ne, Operand::Val(read_flag), Operand::Constant(Constant::Int(0))),
-        Type::I1,
-    )] = entry.instructions.as_slice()
+    let [
+        (
+            flag_v,
+            I::LoadGlobal {
+                symbol: flag,
+                ty: Type::I8,
+            },
+            Type::I8,
+        ),
+        (
+            condition,
+            I::ICmp(ICmpOp::Ne, Operand::Val(read_flag), Operand::Constant(Constant::Int(0))),
+            Type::I1,
+        ),
+    ] = entry.instructions.as_slice()
     else {
         return None;
     };
@@ -403,14 +407,16 @@ fn initialization(
         return None;
     }
     let warm = &f.blocks[*shape.positions.get(&then_block)?];
-    let [(
-        warm_v,
-        I::LoadGlobal {
-            symbol: cache,
-            ty: Type::Ref,
-        },
-        Type::Ref,
-    )] = warm.instructions.as_slice()
+    let [
+        (
+            warm_v,
+            I::LoadGlobal {
+                symbol: cache,
+                ty: Type::Ref,
+            },
+            Type::Ref,
+        ),
+    ] = warm.instructions.as_slice()
     else {
         return None;
     };
@@ -552,8 +558,10 @@ fn initialization(
     if name != "dartforge_object_new" {
         return None;
     }
-    let [(Operand::Constant(Constant::Int(cid)), Type::I64), (Operand::Constant(Constant::Int(count)), Type::I64)] =
-        args.as_slice()
+    let [
+        (Operand::Constant(Constant::Int(cid)), Type::I64),
+        (Operand::Constant(Constant::Int(count)), Type::I64),
+    ] = args.as_slice()
     else {
         return None;
     };
@@ -683,8 +691,12 @@ fn initialization(
                 },
                 Type::Void,
             ) if name == "dartforge_object_set" => {
-                let [(Operand::Val(receiver), Type::Ref), (Operand::Constant(Constant::Int(slot)), Type::I64), (value, Type::I64), (Operand::Constant(Constant::Int(1)), Type::I8)] =
-                    args.as_slice()
+                let [
+                    (Operand::Val(receiver), Type::Ref),
+                    (Operand::Constant(Constant::Int(slot)), Type::I64),
+                    (value, Type::I64),
+                    (Operand::Constant(Constant::Int(1)), Type::I8),
+                ] = args.as_slice()
                 else {
                     return None;
                 };

@@ -40,7 +40,8 @@ pub fn linearization(ctx: &Context, cid: ClassId) -> Vec<ClassId> {
         }
         exit.push(c);
         for m in class_ref.mixin_classes.iter().rev() {
-            if ctx.compiled_library(ctx.program.classes[m.0 as usize].library) && !exit.contains(m) {
+            if ctx.compiled_library(ctx.program.classes[m.0 as usize].library) && !exit.contains(m)
+            {
                 exit.push(*m);
             }
         }
@@ -70,29 +71,48 @@ pub fn layout(ctx: &Context, cid: ClassId) -> Vec<VariableId> {
 }
 
 /// Declaration and layout premises of one resolved managed field, independent of its values.
-pub(super) fn declared_field_metadata(ctx: &Context, vid: VariableId, layout_index: usize) -> Option<FieldDeclaration> {
+pub(super) fn declared_field_metadata(
+    ctx: &Context,
+    vid: VariableId,
+    layout_index: usize,
+) -> Option<FieldDeclaration> {
     let variable = ctx.program.variable(vid);
     let owner = variable.class?;
     let class = ctx.program.class(owner);
-    if variable.static_ || variable.external || class.library != variable.library
-        || ctx.program.class_with_homonym(owner) || ctx.program.library_has_augmentations(variable.library)
+    if variable.static_
+        || variable.external
+        || class.library != variable.library
+        || ctx.program.class_with_homonym(owner)
+        || ctx.program.library_has_augmentations(variable.library)
         || !class.fields.contains(&vid)
-        || class.fields.iter().filter(|&&field| ctx.program.variable(field).name == variable.name).count() != 1
-    { return None; }
+        || class
+            .fields
+            .iter()
+            .filter(|&&field| ctx.program.variable(field).name == variable.name)
+            .count()
+            != 1
+    {
+        return None;
+    }
     let storage_type = super::layouts_arc::representation(ctx, vid);
-    if matches!(storage_type, Type::Void | Type::Ptr) || storage_type.is_vector() { return None; }
+    if matches!(storage_type, Type::Void | Type::Ptr) || storage_type.is_vector() {
+        return None;
+    }
     Some(FieldDeclaration {
-        library_uri: ctx.program.library(variable.library).uri.clone(), owner: ctx.symbol_name(class.name).to_owned(),
-        name: ctx.symbol_name(variable.name).to_owned(), is_final: variable.final_, is_late: variable.late,
-        layout_index, storage_type,
+        library_uri: ctx.program.library(variable.library).uri.clone(),
+        owner: ctx.symbol_name(class.name).to_owned(),
+        name: ctx.symbol_name(variable.name).to_owned(),
+        is_final: variable.final_,
+        is_late: variable.late,
+        layout_index,
+        storage_type,
     })
 }
 
 /// Declared (or inferred) type of a variable/field.
 pub fn variable_type(ctx: &Context, vid: VariableId) -> TypeId {
     let data = &ctx.outline.variables[vid.0 as usize];
-    data
-        .declared_type
+    data.declared_type
         .or(data.inferred)
         .unwrap_or(ctx.core.dynamic_)
 }
@@ -117,7 +137,10 @@ const DEVIRTUALIZATION_FAN_OUT: usize = 4;
 /// (ablation for measurement).
 fn devirtualization_cap_off() -> bool {
     static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_DEVIRTUALIZATION_CAP").is_some_and(|v| !v.is_empty() && v != "0"))
+    *OFF.get_or_init(|| {
+        std::env::var_os("DARTFORGE_NO_DEVIRTUALIZATION_CAP")
+            .is_some_and(|v| !v.is_empty() && v != "0")
+    })
 }
 
 /// Does the function have a body that the lowering compiles?
@@ -158,10 +181,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// Uses the resolved declaration, including inherited fields, rather than the receiver type.
-    fn tracing_field_declaration(&self, vid: VariableId, object: &Operand) -> Option<FieldDeclaration> {
-        if self.ctx.arc_memory || self.operand_type(object) != Type::Ref { return None; }
+    fn tracing_field_declaration(
+        &self,
+        vid: VariableId,
+        object: &Operand,
+    ) -> Option<FieldDeclaration> {
+        if self.ctx.arc_memory || self.operand_type(object) != Type::Ref {
+            return None;
+        }
         let owner = self.ctx.program.variable(vid).class?;
-        if is_mixin(self.ctx, owner) { return None; }
+        if is_mixin(self.ctx, owner) {
+            return None;
+        }
         declared_field_metadata(self.ctx, vid, self.field_index(vid)?)
     }
 
@@ -176,7 +207,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         }
         let base = super::enums::layout_base(self.ctx, owner);
-        layout(self.ctx, owner).iter().position(|&v| v == vid).map(|i| i + base)
+        layout(self.ctx, owner)
+            .iter()
+            .position(|&v| v == vid)
+            .map(|i| i + base)
     }
 
     /// Representation of a field in the object: that of the type (R1), except the scalar
@@ -286,7 +320,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             Type::I64,
         );
         let join = self.new_block();
-        let blocks: Vec<(i64, usize, BlockId)> = cases.iter().map(|&(c, i)| (c, i, self.new_block())).collect();
+        let blocks: Vec<(i64, usize, BlockId)> = cases
+            .iter()
+            .map(|&(c, i)| (c, i, self.new_block()))
+            .collect();
         self.terminate(Terminator::Switch {
             val: cls,
             default: blocks[0].2,
@@ -311,37 +348,78 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     // Under ARC, chooses the physical access in the branch of each application of the mixin.
     // The join carries the typed result, never a raw index whose read
     // would lose the Ref map. The guards/owners are produced later by the HIR.
-    fn access_arc_mixin_field(&mut self, obj: Operand, vid: VariableId, val_ref: Option<Operand>) -> Option<Operand> {
+    fn access_arc_mixin_field(
+        &mut self,
+        obj: Operand,
+        vid: VariableId,
+        val_ref: Option<Operand>,
+    ) -> Option<Operand> {
         let owner = self.ctx.program.variables[vid.0 as usize].class?;
-        if !is_mixin(self.ctx, owner) { return None; }
+        if !is_mixin(self.ctx, owner) {
+            return None;
+        }
         let cases = self.mixin_field_indices(vid);
         if cases.is_empty() {
             self.terminate(Terminator::Unreachable);
-            let dead = self.new_block(); self.set_block(dead);
+            let dead = self.new_block();
+            self.set_block(dead);
             return Some(Operand::Constant(Constant::Null));
         }
         let repr = self.field_repr(vid);
-        let cls = self.emit(Instruction::CallRuntime {
-            name: "dartforge_value_class".into(), args: vec![(obj.clone(), Type::Ref)], ret_ty: Type::I64,
-        }, Type::I64);
+        let cls = self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_value_class".into(),
+                args: vec![(obj.clone(), Type::Ref)],
+                ret_ty: Type::I64,
+            },
+            Type::I64,
+        );
         let join = self.new_block();
-        let blocks: Vec<_> = cases.iter().map(|&(c, i)| (c, i, self.new_block())).collect();
-        self.terminate(Terminator::Switch { val: cls, default: blocks[0].2,
-            cases: blocks.iter().map(|&(c, _, b)| (c, b)).collect() });
+        let blocks: Vec<_> = cases
+            .iter()
+            .map(|&(c, i)| (c, i, self.new_block()))
+            .collect();
+        self.terminate(Terminator::Switch {
+            val: cls,
+            default: blocks[0].2,
+            cases: blocks.iter().map(|&(c, _, b)| (c, b)).collect(),
+        });
         let mut entries = Vec::new();
         for &(_, index, b) in &blocks {
             self.set_block(b);
             if let Some(value) = &val_ref {
-                self.emit(Instruction::SetField { object: obj.clone(), index, value: value.clone() }, Type::Void);
+                self.emit(
+                    Instruction::SetField {
+                        object: obj.clone(),
+                        index,
+                        value: value.clone(),
+                    },
+                    Type::Void,
+                );
             } else {
-                let v = self.emit(Instruction::GetField { object: obj.clone(), index }, repr);
+                let v = self.emit(
+                    Instruction::GetField {
+                        object: obj.clone(),
+                        index,
+                    },
+                    repr,
+                );
                 entries.push((b, v));
             }
             self.terminate(Terminator::Branch(join));
         }
         self.set_block(join);
-        Some(if val_ref.is_some() { Operand::Constant(Constant::Null) }
-            else { self.emit(Instruction::Phi { incoming: entries, ty: repr }, repr) })
+        Some(if val_ref.is_some() {
+            Operand::Constant(Constant::Null)
+        } else {
+            self.emit(
+                Instruction::Phi {
+                    incoming: entries,
+                    ty: repr,
+                },
+                repr,
+            )
+        })
     }
 
     /// Reads an instance field in the representation of its declared type.
@@ -349,10 +427,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(r) = self.read_ffi_field(obj.clone(), vid) {
             return r;
         }
-        if self.ctx.arc_memory && !self.ctx.program.variables[vid.0 as usize].late
+        if self.ctx.arc_memory
+            && !self.ctx.program.variables[vid.0 as usize].late
             && self.field_index(vid).is_none()
             && let Some(v) = self.access_arc_mixin_field(obj.clone(), vid, None)
-        { return v; }
+        {
+            return v;
+        }
         let idx = match self.field_index(vid) {
             Some(i) => Operand::Constant(Constant::Int(i as i64)),
             None => match self.dynamic_index(obj.clone(), vid, span) {
@@ -361,18 +442,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
         };
         let repr = self.field_repr(vid);
-        if self.ctx.arc_memory && self.ctx.program.variables[vid.0 as usize].late
+        if self.ctx.arc_memory
+            && self.ctx.program.variables[vid.0 as usize].late
             && repr == Type::Ref
         {
             // The probe before the late guard may find zero without a Ref
             // mark. The ABI accepts only that empty state or a real edge.
-            return self.emit(Instruction::CallRuntime {
-                name: "dartforge_arc_read_field_late_ref_v1".into(),
-                args: vec![(obj, Type::Ref), (idx, Type::I64)],
-                ret_ty: Type::Ref,
-            }, Type::Ref);
+            return self.emit(
+                Instruction::CallRuntime {
+                    name: "dartforge_arc_read_field_late_ref_v1".into(),
+                    args: vec![(obj, Type::Ref), (idx, Type::I64)],
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
         }
-        if self.ctx.arc_memory && !self.ctx.program.variables[vid.0 as usize].late
+        if self.ctx.arc_memory
+            && !self.ctx.program.variables[vid.0 as usize].late
             && let Operand::Constant(Constant::Int(i)) = &idx
             && let Ok(index) = usize::try_from(*i)
         {
@@ -391,7 +477,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name: "dartforge_object_get".to_string(),
                 args: vec![(obj, Type::Ref), (idx, Type::I64)],
                 ret_ty: ret,
-            }.with_field_declaration(declaration),
+            }
+            .with_field_declaration(declaration),
             ret,
         );
         self.bits_to(bits, repr)
@@ -403,12 +490,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return;
         }
         let var = &self.ctx.program.variables[vid.0 as usize];
-        if self.ctx.arc_memory && !var.late && self.field_index(vid).is_none()
+        if self.ctx.arc_memory
+            && !var.late
+            && self.field_index(vid).is_none()
             && var.class.is_some_and(|owner| is_mixin(self.ctx, owner))
         {
             let repr = self.field_repr(vid);
             let value = self.coerce(val.clone(), repr);
-            if self.access_arc_mixin_field(obj.clone(), vid, Some(value)).is_some() { return; }
+            if self
+                .access_arc_mixin_field(obj.clone(), vid, Some(value))
+                .is_some()
+            {
+                return;
+            }
         }
         let idx = match self.field_index(vid) {
             Some(i) => Operand::Constant(Constant::Int(i as i64)),
@@ -434,7 +528,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 Type::I8,
             );
             let already_initialized = self.emit(
-                Instruction::ICmp(ICmpOp::Ne, already_initialized, Operand::Constant(Constant::Int(0))),
+                Instruction::ICmp(
+                    ICmpOp::Ne,
+                    already_initialized,
+                    Operand::Constant(Constant::Int(0)),
+                ),
                 Type::I1,
             );
             let b_error = self.new_block();
@@ -456,11 +554,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         {
             // The typed write also holds for late; the side state only
             // changes after storing, including for null/false/zero.
-            self.emit(Instruction::SetField { object: obj.clone(), index, value: val }, Type::Void);
+            self.emit(
+                Instruction::SetField {
+                    object: obj.clone(),
+                    index,
+                    value: val,
+                },
+                Type::Void,
+            );
         } else {
             let (bits, is_ref) = self.to_bits(val);
             let declaration = self.tracing_field_declaration(vid, &obj).filter(|field| {
-                self.operand_type(&bits) == if field.storage_type == Type::Ref { Type::Ref } else { Type::I64 }
+                self.operand_type(&bits)
+                    == if field.storage_type == Type::Ref {
+                        Type::Ref
+                    } else {
+                        Type::I64
+                    }
             });
             self.emit(
                 Instruction::CallRuntime {
@@ -475,7 +585,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         ),
                     ],
                     ret_ty: Type::Void,
-                }.with_field_declaration(declaration),
+                }
+                .with_field_declaration(declaration),
                 Type::Void,
             );
         }
@@ -585,7 +696,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `E` of a `List<E>`/`Iterable<E>` (the first type argument).
     pub fn element_type(&self, ty: TypeId) -> Option<TypeId> {
-        let dartforge_types::table::Type::Interface { class, args, .. } = self.ctx.table.get(ty) else {
+        let dartforge_types::table::Type::Interface { class, args, .. } = self.ctx.table.get(ty)
+        else {
             return None;
         };
         let iter = self.ctx.core.iterable_class?;
@@ -612,12 +724,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// program's implementations), not through the dynamic selector.
     pub fn program_operator(&self, e: ExprId, name_str: &str) -> Option<usize> {
         let cid = self.user_class_of(e)?;
-        if self.ctx.program.library(self.ctx.program.classes[cid.0 as usize].library).is_sdk {
+        if self
+            .ctx
+            .program
+            .library(self.ctx.program.classes[cid.0 as usize].library)
+            .is_sdk
+        {
             return None;
         }
         let fid = self.member_in_class(cid, name_str)?;
         let f = &self.ctx.program.functions[fid];
-        (crate::lower::user_function(self.ctx, fid) && !self.ctx.program.library(f.library).is_sdk).then_some(fid)
+        (crate::lower::user_function(self.ctx, fid) && !self.ctx.program.library(f.library).is_sdk)
+            .then_some(fid)
     }
 
     pub fn member_in_class(&self, cid: ClassId, name_str: &str) -> Option<usize> {
@@ -685,7 +803,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let fid = f.0 as usize;
             let (is_static, name_str, cid) = {
                 let func = &self.ctx.program.functions[fid];
-                (func.static_, self.ctx.symbol_name(func.name).to_string(), func.class)
+                (
+                    func.static_,
+                    self.ctx.symbol_name(func.name).to_string(),
+                    func.class,
+                )
             };
             if is_static
                 && name_str == "values"
@@ -786,8 +908,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // Type literal (`Fish`, `List`): the canonical `Type` object of the
             // raw type of the class (RTI).
             Element::Class(cid) => {
-                let n = self.ctx.outline.classes.get(cid.0 as usize).map_or(0, |d| d.type_params.len());
-                let mut r = super::rti::Recipe { text: format!("C{}", self.ctx.id_rti(cid)), variables: false };
+                let n = self
+                    .ctx
+                    .outline
+                    .classes
+                    .get(cid.0 as usize)
+                    .map_or(0, |d| d.type_params.len());
+                let mut r = super::rti::Recipe {
+                    text: format!("C{}", self.ctx.id_rti(cid)),
+                    variables: false,
+                };
                 if n > 0 {
                     r.text.push('<');
                     r.text.push_str(&vec!["D"; n].join(","));
@@ -817,7 +947,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// `super.field` has lexical resolution: it preserves `late`, but cannot
     /// go back to the overridden getter of the dynamic class through the SDK selector.
-    pub fn read_field_with_late_direct(&mut self, obj: Operand, vid: VariableId, span: Span) -> Operand {
+    pub fn read_field_with_late_direct(
+        &mut self,
+        obj: Operand,
+        vid: VariableId,
+        span: Span,
+    ) -> Operand {
         let var = &self.ctx.program.variables[vid.0 as usize];
         if !var.late {
             return self.read_field(obj, vid, span);
@@ -831,11 +966,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // called with the field still null.
             let fast = self.non_null_late_is_initialized(vid).then(|| {
                 let current = self.read_field(obj.clone(), vid, span);
-                let non_null = self.emit(Instruction::ICmp(ICmpOp::Ne, current.clone(), Operand::Constant(Constant::Null)), Type::I1);
+                let non_null = self.emit(
+                    Instruction::ICmp(
+                        ICmpOp::Ne,
+                        current.clone(),
+                        Operand::Constant(Constant::Null),
+                    ),
+                    Type::I1,
+                );
                 let b_join = self.new_block();
                 let b_getter = self.new_block();
                 let of = self.current_block;
-                self.terminate(Terminator::CondBranch { cond: non_null, then_block: b_join, else_block: b_getter });
+                self.terminate(Terminator::CondBranch {
+                    cond: non_null,
+                    then_block: b_join,
+                    else_block: b_getter,
+                });
                 self.set_block(b_getter);
                 (current, of, b_join)
             });
@@ -847,7 +993,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 },
                 self.field_repr(vid),
             );
-            let Some((current, of, b_join)) = fast else { return v };
+            let Some((current, of, b_join)) = fast else {
+                return v;
+            };
             let incoming = if self.is_terminated() {
                 vec![(of, current)]
             } else {
@@ -856,16 +1004,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 vec![(of, current), (b, v)]
             };
             self.set_block(b_join);
-            return self.emit(Instruction::Phi { incoming, ty: Type::Ref }, Type::Ref);
+            return self.emit(
+                Instruction::Phi {
+                    incoming,
+                    ty: Type::Ref,
+                },
+                Type::Ref,
+            );
         }
         let current = self.read_field(obj.clone(), vid, span);
         if self.non_null_late_is_initialized(vid) {
             // Fast path: a non-null value ⇒ initialized; only null consults
             // the runtime (which distinguishes "not initialized").
-            let non_null = self.emit(Instruction::ICmp(ICmpOp::Ne, current.clone(), Operand::Constant(Constant::Null)), Type::I1);
+            let non_null = self.emit(
+                Instruction::ICmp(
+                    ICmpOp::Ne,
+                    current.clone(),
+                    Operand::Constant(Constant::Null),
+                ),
+                Type::I1,
+            );
             let b_ready = self.new_block();
             let b_check = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: non_null, then_block: b_ready, else_block: b_check });
+            self.terminate(Terminator::CondBranch {
+                cond: non_null,
+                then_block: b_ready,
+                else_block: b_check,
+            });
             self.set_block(b_check);
             self.check_late_initialized(obj, vid, span);
             if !self.is_terminated() {
@@ -890,8 +1055,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.field_repr(vid) != Type::Ref || self.repr(ty) != Type::Ref {
             return false;
         }
-        matches!(self.ctx.table.get(ty), dartforge_types::table::Type::Interface { nullable: false, .. })
-            && ty != self.ctx.core.dynamic_
+        matches!(
+            self.ctx.table.get(ty),
+            dartforge_types::table::Type::Interface {
+                nullable: false,
+                ..
+            }
+        ) && ty != self.ctx.core.dynamic_
     }
 
     /// Checks in the runtime that the `late` field `vid` of `obj` was initialized
@@ -922,9 +1092,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         let b_error = self.new_block();
         let b_read = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: empty, then_block: b_error, else_block: b_read });
+        self.terminate(Terminator::CondBranch {
+            cond: empty,
+            then_block: b_error,
+            else_block: b_read,
+        });
         self.set_block(b_error);
-        let name_str = self.ctx.symbol_name(self.ctx.program.variables[vid.0 as usize].name).to_string();
+        let name_str = self
+            .ctx
+            .symbol_name(self.ctx.program.variables[vid.0 as usize].name)
+            .to_string();
         self.throw_late_error(&name_str, 0);
         self.set_block(b_read);
     }
@@ -936,8 +1113,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.ctx.arc_memory {
             self.dart_ref_returns.insert(self.func.symbol.clone());
         }
-        let Some(init) = self.variable_initializer_in(vid) else { unreachable!("late getter without an initializer") };
-        let dartforge_elements::model::VariableRef::Field { unit, .. } = self.ctx.program.variables[vid.0 as usize].node else {
+        let Some(init) = self.variable_initializer_in(vid) else {
+            unreachable!("late getter without an initializer")
+        };
+        let dartforge_elements::model::VariableRef::Field { unit, .. } =
+            self.ctx.program.variables[vid.0 as usize].node
+        else {
             unreachable!("late getter without a field")
         };
         let idx = match self.field_index(vid) {
@@ -955,10 +1136,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // Fast path (see `non_null_late_is_initialized`): a non-null value
             // is already the initialized value.
             let current = self.read_field(obj.clone(), vid, span);
-            let non_null = self.emit(Instruction::ICmp(ICmpOp::Ne, current.clone(), Operand::Constant(Constant::Null)), Type::I1);
+            let non_null = self.emit(
+                Instruction::ICmp(
+                    ICmpOp::Ne,
+                    current.clone(),
+                    Operand::Constant(Constant::Null),
+                ),
+                Type::I1,
+            );
             let b_fast = self.new_block();
             let b_slow = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: non_null, then_block: b_fast, else_block: b_slow });
+            self.terminate(Terminator::CondBranch {
+                cond: non_null,
+                then_block: b_fast,
+                else_block: b_slow,
+            });
             self.set_block(b_fast);
             self.terminate(Terminator::Return(Some(current)));
             self.set_block(b_slow);
@@ -977,7 +1169,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         let b_read = self.new_block();
         let b_verify = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ready, then_block: b_read, else_block: b_verify });
+        self.terminate(Terminator::CondBranch {
+            cond: ready,
+            then_block: b_read,
+            else_block: b_verify,
+        });
         self.set_block(b_read);
         let current = self.read_field(obj.clone(), vid, span);
         self.terminate(Terminator::Return(Some(current)));
@@ -997,7 +1193,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         let b_stack = self.new_block();
         let b_evaluate = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: starting, then_block: b_stack, else_block: b_evaluate });
+        self.terminate(Terminator::CondBranch {
+            cond: starting,
+            then_block: b_stack,
+            else_block: b_evaluate,
+        });
         self.set_block(b_stack);
         let error = self.new_runtime_error("dartforge_stack_overflow_error_new", Vec::new());
         self.emit_throw_op(error);
@@ -1006,7 +1206,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_late_field_set_initializing".to_string(),
-                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64), (Operand::Constant(Constant::Int(1)), Type::I8)],
+                args: vec![
+                    (obj.clone(), Type::Ref),
+                    (idx.clone(), Type::I64),
+                    (Operand::Constant(Constant::Int(1)), Type::I8),
+                ],
                 ret_ty: Type::Void,
             },
             Type::Void,
@@ -1020,7 +1224,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_late_field_set_initializing".to_string(),
-                args: vec![(obj.clone(), Type::Ref), (idx.clone(), Type::I64), (Operand::Constant(Constant::Int(0)), Type::I8)],
+                args: vec![
+                    (obj.clone(), Type::Ref),
+                    (idx.clone(), Type::I64),
+                    (Operand::Constant(Constant::Int(0)), Type::I8),
+                ],
                 ret_ty: Type::Void,
             },
             Type::Void,
@@ -1030,7 +1238,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.emit(
             Instruction::CallRuntime {
                 name: "dartforge_late_field_set_initializing".to_string(),
-                args: vec![(obj, Type::Ref), (idx, Type::I64), (Operand::Constant(Constant::Int(0)), Type::I8)],
+                args: vec![
+                    (obj, Type::Ref),
+                    (idx, Type::I64),
+                    (Operand::Constant(Constant::Int(0)), Type::I8),
+                ],
                 ret_ty: Type::Void,
             },
             Type::Void,
@@ -1121,7 +1333,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // the SDK module exports the value (`lower_sdk_patterns`).
             if exported_pattern(self.ctx, fid, unit, e) {
                 return Some(self.emit_call_with_check(
-                    Instruction::CallStatic { symbol: pattern_symbol(self.ctx, fid, i), args: Vec::new(), ret_ty: Type::Ref },
+                    Instruction::CallStatic {
+                        symbol: pattern_symbol(self.ctx, fid, i),
+                        args: Vec::new(),
+                        ret_ty: Type::Ref,
+                    },
                     Type::Ref,
                 ));
             }
@@ -1138,7 +1354,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(target) = self.redirected_target(fid) {
             let target_params = &self.ctx.outline.functions.get(target)?.parameters;
             let j = if p.kind == ParameterKind::Named {
-                target_params.iter().position(|sp| sp.kind == ParameterKind::Named && sp.external_name == p.name.map(|n| n.sym))?
+                target_params.iter().position(|sp| {
+                    sp.kind == ParameterKind::Named && sp.external_name == p.name.map(|n| n.sym)
+                })?
             } else {
                 // The positional ones come before the named ones, in the same order.
                 i
@@ -1175,11 +1393,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The constructor to which the factory `fid` redirects
     /// (`factory C(…) = D.name;`), resolved in the unit that declares it.
     fn redirected_target(&mut self, fid: usize) -> Option<usize> {
-        let FunctionRef::Constructor { unit, member } = self.ctx.program.functions.get(fid)?.node else {
+        let FunctionRef::Constructor { unit, member } = self.ctx.program.functions.get(fid)?.node
+        else {
             return None;
         };
         let ast = &self.ctx.program.unit(unit).ast;
-        let MemberKind::Constructor(c) = &ast.member(member).kind else { return None };
+        let MemberKind::Constructor(c) = &ast.member(member).kind else {
+            return None;
+        };
         let r = c.redirect.as_ref()?;
         let saved = self.unit_id;
         self.unit_id = unit;
@@ -1276,7 +1497,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if matches!(f.node, FunctionRef::Constructor { .. })
             && let Some(c) = f.class.filter(|&c| self.ctx.is_extension_type(c))
         {
-            return self.ctx.te.this.get(&c).map_or(Type::Ref, |&t| self.repr(t));
+            return self
+                .ctx
+                .te
+                .this
+                .get(&c)
+                .map_or(Type::Ref, |&t| self.repr(t));
         }
         self.ctx.hir_return(fid)
     }
@@ -1301,7 +1527,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // The site, stable across compilations (symbol of the function
                     // and order in the body).
                     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-                    for b in self.func.symbol.bytes().chain(self.callback_sites.to_le_bytes()) {
+                    for b in self
+                        .func
+                        .symbol
+                        .bytes()
+                        .chain(self.callback_sites.to_le_bytes())
+                    {
                         h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
                     }
                     self.callback_sites += 1;
@@ -1323,7 +1554,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // RTI: the generic function receives the tuple of the type arguments in the
         // last parameter (that of the current call, or 0 = `dynamic`).
         if self.generic_function(fid) {
-            all.push(self.armed_tuple.clone().unwrap_or(Operand::Constant(Constant::Int(0))));
+            all.push(
+                self.armed_tuple
+                    .clone()
+                    .unwrap_or(Operand::Constant(Constant::Int(0))),
+            );
         }
         let r = self.emit_call_with_check(
             Instruction::CallStatic {
@@ -1353,7 +1588,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // `x` would call the getter and discard the assigned value.
         let name_str = if decl.kind == FunctionKind::Setter {
             let key = format!("{}_=", ctx.symbol_name(decl.name));
-            let Some(sym) = ctx.interner.lookup(&key) else { return Vec::new() };
+            let Some(sym) = ctx.interner.lookup(&key) else {
+                return Vec::new();
+            };
             sym
         } else {
             decl.name
@@ -1386,7 +1623,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `recv.<member>(evaluated)` through the selector of the declared member
     /// `decl_fid` (the method table of the dynamic class, with the receiver's
     /// `noSuchMethod` on a miss, as in the VM), with the result in `ret`.
-    fn call_member_by_selector(&mut self, recv: Operand, decl_fid: usize, evaluated: &[Evaluated], ret: Type) -> Operand {
+    fn call_member_by_selector(
+        &mut self,
+        recv: Operand,
+        decl_fid: usize,
+        evaluated: &[Evaluated],
+        ret: Type,
+    ) -> Operand {
         use super::sdk_source::AccessKind;
         let f = &self.ctx.program.functions[decl_fid];
         let ty = match f.kind {
@@ -1400,13 +1643,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let s = super::sdk_source::selector_string(self.ctx, ty, &name_str, f.library);
         // Guaranteed arguments: the entry that only checks the covariant ones
         // (`typed_entry.rs`), as the SDK dispatch of `call_source_member` does.
-        let s = if matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated) {
+        let s = if matches!(ty, AccessKind::Call | AccessKind::Write) && self.all_checked(evaluated)
+        {
             super::typed_entry::typed_selector(&s)
         } else {
             s
         };
         let tuple = if self.generic_function(decl_fid) {
-            self.armed_tuple.clone().unwrap_or(Operand::Constant(Constant::Int(0)))
+            self.armed_tuple
+                .clone()
+                .unwrap_or(Operand::Constant(Constant::Int(0)))
         } else {
             Operand::Constant(Constant::Int(0))
         };
@@ -1418,13 +1664,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 .parameters
                 .iter()
                 .zip(values)
-                .map(|(p, v)| (if p.kind == ParameterKind::Named { p.external_name } else { None }, v))
+                .map(|(p, v)| {
+                    (
+                        if p.kind == ParameterKind::Named {
+                            p.external_name
+                        } else {
+                            None
+                        },
+                        v,
+                    )
+                })
                 .collect()
         } else {
             evaluated.to_vec()
         };
         let r = self.call_by_selector_with_tuple(recv, s, &complete_set, tuple);
-        if ret == Type::Void { Operand::Constant(Constant::Null) } else { self.coerce(r, ret) }
+        if ret == Type::Void {
+            Operand::Constant(Constant::Null)
+        } else {
+            self.coerce(r, ret)
+        }
     }
 
     /// Call of an instance method/getter/setter with dispatch by the dynamic class
@@ -1463,7 +1722,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 && let Some(cid) = self.ctx.program.functions[decl_fid].class
                 && super::enums::is_enum(self.ctx, cid)
             {
-                let name_str = self.ctx.symbol_name(self.ctx.program.functions[decl_fid].name).to_string();
+                let name_str = self
+                    .ctx
+                    .symbol_name(self.ctx.program.functions[decl_fid].name)
+                    .to_string();
                 if (name_str == "index" || name_str == "name")
                     && let Some(r) = self.enum_member(cid, &name_str, recv.clone())
                 {
@@ -1586,25 +1848,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // Environment factories are evaluated by the native compiler, while
         // their argument expressions retain normal evaluation order outside const.
         if let Some((kind, has)) = self.environment_factory(ctor_fid) {
-            if self.in_const_context && args.iter().find(|a| a.name.is_none())
-                .is_some_and(|a| self.environment_key(self.unit_id, a.value, 0).is_none()) {
+            if self.in_const_context
+                && args
+                    .iter()
+                    .find(|a| a.name.is_none())
+                    .is_some_and(|a| self.environment_key(self.unit_id, a.value, 0).is_none())
+            {
                 return self.unsupported("constant compilation environment name", span);
             }
-            let value = args.iter().find(|a| a.name.is_none())
+            let value = args
+                .iter()
+                .find(|a| a.name.is_none())
                 .and_then(|a| self.environment_value(self.unit_id, a.value, kind, has));
             let evaluated = self.evaluate_args(ast, args);
             if let Some(value) = value {
-                let ty = match value { Constant::Bool(_) => Type::I1, _ => Type::Ref };
+                let ty = match value {
+                    Constant::Bool(_) => Type::I1,
+                    _ => Type::Ref,
+                };
                 return self.emit(Instruction::Const(value), ty);
             }
-            if has { return self.emit(Instruction::Const(Constant::Bool(false)), Type::I1); }
-            if let Some(default) = evaluated.iter().find(|(name, _)| name.is_some_and(|name| self.ctx.symbol_name(name) == "defaultValue")) {
+            if has {
+                return self.emit(Instruction::Const(Constant::Bool(false)), Type::I1);
+            }
+            if let Some(default) = evaluated.iter().find(|(name, _)| {
+                name.is_some_and(|name| self.ctx.symbol_name(name) == "defaultValue")
+            }) {
                 return default.1.clone();
             }
             return match kind {
                 "bool" => self.emit(Instruction::Const(Constant::Bool(false)), Type::I1),
                 "int" => self.emit(Instruction::Const(Constant::Int(0)), Type::I64),
-                _ => self.emit(Instruction::Const(Constant::String(String::new())), Type::Ref),
+                _ => self.emit(
+                    Instruction::Const(Constant::String(String::new())),
+                    Type::Ref,
+                ),
             };
         }
         // RTI: the static type of the creation (`C<T…>`), stored by the caller.
@@ -1641,7 +1919,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// chained applications) and records `cid` as the concrete class of the next
     /// creation — the object is of `cid`, and the fields of the mixins are
     /// initialized before the superclass constructor.
-    pub fn constructor_of(&mut self, cid: ClassId, name_str: SymbolId) -> Option<FunctionElementId> {
+    pub fn constructor_of(
+        &mut self,
+        cid: ClassId,
+        name_str: SymbolId,
+    ) -> Option<FunctionElementId> {
         let mut c = cid;
         loop {
             let class_ref = &self.ctx.program.classes[c.0 as usize];
@@ -1654,7 +1936,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 }
                 return Some(f);
             }
-            if class_ref.kind != dartforge_elements::model::ClassKind::MixinApplication || !class_ref.constructors.is_empty() {
+            if class_ref.kind != dartforge_elements::model::ClassKind::MixinApplication
+                || !class_ref.constructors.is_empty()
+            {
                 return None;
             }
             c = class_ref.supertype_class?;
@@ -1662,7 +1946,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     /// `C(args)` with the arguments already evaluated.
-    pub fn instantiate_evaluated(&mut self, ctor_fid: FunctionElementId, evaluated: &[Evaluated], span: Span) -> Operand {
+    pub fn instantiate_evaluated(
+        &mut self,
+        ctor_fid: FunctionElementId,
+        evaluated: &[Evaluated],
+        span: Span,
+    ) -> Operand {
         self.instantiate_evaluated_with_rti(ctor_fid, evaluated, span, None, None)
     }
 
@@ -1692,11 +1981,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // of the factory from going back to the abstract declaration itself.
         if Some(cid) == self.ctx.sdk_class("core", "Symbol")
             && let Some(concrete) = self.ctx.sdk_class("_internal", "Symbol")
-                && let Some(empty) = self.ctx.interner.lookup("")
-                && let Some(&constructor) = self.ctx.program.classes[concrete.0 as usize].constructors.get(&empty)
-            {
-                return self.instantiate_evaluated_with_rti(constructor, evaluated, span, explicit_rti, explicit_tuple);
-            }
+            && let Some(empty) = self.ctx.interner.lookup("")
+            && let Some(&constructor) = self.ctx.program.classes[concrete.0 as usize]
+                .constructors
+                .get(&empty)
+        {
+            return self.instantiate_evaluated_with_rti(
+                constructor,
+                evaluated,
+                span,
+                explicit_rti,
+                explicit_tuple,
+            );
+        }
         if !super::user_function(self.ctx, fid) {
             if let Some(op) = self.runtime_error_constructor(fid, evaluated) {
                 return op;
@@ -1727,7 +2024,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 name: "dartforge_object_new".to_string(),
                 args: vec![
                     (
-                        Operand::Constant(Constant::Int(i64::from(self.ctx.class_id_of(cid).unwrap_or(0)))),
+                        Operand::Constant(Constant::Int(i64::from(
+                            self.ctx.class_id_of(cid).unwrap_or(0),
+                        ))),
                         Type::I64,
                     ),
                     (Operand::Constant(Constant::Int(fields as i64)), Type::I64),
@@ -1760,7 +2059,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let mixins = class_ref.mixin_classes.clone();
             let sup = class_ref.supertype_class;
             for m in mixins.into_iter().rev() {
-                if self.ctx.compiled_library(self.ctx.program.classes[m.0 as usize].library) {
+                if self
+                    .ctx
+                    .compiled_library(self.ctx.program.classes[m.0 as usize].library)
+                {
                     self.initialize_fields(m);
                 }
             }
@@ -1775,8 +2077,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// An instance member of a generic extension also receives it: the
     /// arguments of the extension come first (`type_params_of`).
     pub fn generic_function(&self, fid: usize) -> bool {
-        !matches!(self.ctx.program.functions[fid].node, FunctionRef::Constructor { .. })
-            && !self.type_params_of(fid).is_empty()
+        !matches!(
+            self.ctx.program.functions[fid].node,
+            FunctionRef::Constructor { .. }
+        ) && !self.type_params_of(fid).is_empty()
             && super::user_function(self.ctx, fid)
     }
 
@@ -1805,7 +2109,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// The class declares type parameters.
     pub fn generic_class(&self, cid: ClassId) -> bool {
-        self.ctx.outline.classes.get(cid.0 as usize).is_some_and(|d| !d.type_params.is_empty())
+        self.ctx
+            .outline
+            .classes
+            .get(cid.0 as usize)
+            .is_some_and(|d| !d.type_params.is_empty())
     }
 
     /// The type argument tuple (`L<…>`) of the type of a creation; without a
@@ -1816,8 +2124,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         // (That of an extension type too: its constructors receive the
         // tuple like the factories.)
-        let (dartforge_types::table::Type::Interface { args, .. } | dartforge_types::table::Type::ExtensionType { args, .. }) =
-            self.ctx.table.get(t)
+        let (dartforge_types::table::Type::Interface { args, .. }
+        | dartforge_types::table::Type::ExtensionType { args, .. }) = self.ctx.table.get(t)
         else {
             return Operand::Constant(Constant::Int(0));
         };
@@ -1827,7 +2135,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// The tuple `L<a…>` of the types `args`, as `I64`, in the current environment.
     pub fn rti_type_tuple(&mut self, args: &[TypeId]) -> Operand {
-        let mut r = super::rti::Recipe { text: "L<".to_string(), variables: false };
+        let mut r = super::rti::Recipe {
+            text: "L<".to_string(),
+            variables: false,
+        };
         for (i, a) in args.iter().enumerate() {
             if i > 0 {
                 r.text.push(',');
@@ -1885,9 +2196,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // the superclass constructor, from the last to the first (each
         // application `S with M` is a class whose constructor initializes `M`
         // and calls that of `S`).
-        let mixins: Vec<ClassId> = self.ctx.program.classes[cid.0 as usize].mixin_classes.clone();
+        let mixins: Vec<ClassId> = self.ctx.program.classes[cid.0 as usize]
+            .mixin_classes
+            .clone();
         for m in mixins.into_iter().rev() {
-            if self.ctx.compiled_library(self.ctx.program.classes[m.0 as usize].library) {
+            if self
+                .ctx
+                .compiled_library(self.ctx.program.classes[m.0 as usize].library)
+            {
                 self.initialize_fields(m);
             }
         }
@@ -1978,8 +2294,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.unsupported("this.x parameter without a field", p.span);
                 continue;
             };
-            let v = self.read_local_by_name(n.sym)
-                .expect("declared parameter");
+            let v = self.read_local_by_name(n.sym).expect("declared parameter");
             self.store_field(this.clone(), vid, v, p.span);
         }
 
@@ -2020,8 +2335,7 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             explicit_super.unwrap_or((None, Vec::new(), span_ctor));
         for p in ctor.parameters.iter().filter(|p| p.super_) {
             let Some(n) = p.name else { continue };
-            let v = self.read_local_by_name(n.sym)
-                .expect("declared parameter");
+            let v = self.read_local_by_name(n.sym).expect("declared parameter");
             let name_str = if p.kind == ParameterKind::Named {
                 Some(n.sym)
             } else {
@@ -2067,8 +2381,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Builds the SDK `LateError` and throws in the exception flow of the HIR.
     /// `code`: 0/1 field not initialized/already initialized; 2/3 local.
     pub fn throw_late_error(&mut self, name_str: &str, code: i64) {
-        let n = self.emit(Instruction::Const(Constant::String(name_str.to_string())), Type::Ref);
-        let error = self.new_runtime_error("dartforge_late_error_new", vec![(n, Type::Ref), (Operand::Constant(Constant::Int(code)), Type::I64)]);
+        let n = self.emit(
+            Instruction::Const(Constant::String(name_str.to_string())),
+            Type::Ref,
+        );
+        let error = self.new_runtime_error(
+            "dartforge_late_error_new",
+            vec![
+                (n, Type::Ref),
+                (Operand::Constant(Constant::Int(code)), Type::I64),
+            ],
+        );
         self.emit_throw_op(error);
     }
 
@@ -2082,16 +2405,29 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let flag = format!("{val_ref}$ok");
         let Some(init) = self.variable_initializer_in(vid) else {
             if self.ctx.program.variables[vid.0 as usize].late {
-                let ok = self.emit(Instruction::LoadGlobal { symbol: flag, ty: Type::I8 }, Type::I8);
+                let ok = self.emit(
+                    Instruction::LoadGlobal {
+                        symbol: flag,
+                        ty: Type::I8,
+                    },
+                    Type::I8,
+                );
                 let ready = self.emit(
                     Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
                     Type::I1,
                 );
                 let b_read = self.new_block();
                 let b_error = self.new_block();
-                self.terminate(Terminator::CondBranch { cond: ready, then_block: b_read, else_block: b_error });
+                self.terminate(Terminator::CondBranch {
+                    cond: ready,
+                    then_block: b_read,
+                    else_block: b_error,
+                });
                 self.set_block(b_error);
-                let name_str = self.ctx.symbol_name(self.ctx.program.variables[vid.0 as usize].name).to_string();
+                let name_str = self
+                    .ctx
+                    .symbol_name(self.ctx.program.variables[vid.0 as usize].name)
+                    .to_string();
                 self.throw_late_error(&name_str, 0);
                 self.set_block(b_read);
             }
@@ -2211,8 +2547,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if is_const && repr == Type::Ref {
             self.emit(
                 Instruction::CallRuntime {
-                name: "dartforge_mark_constant".to_string(),
-                args: vec![(v.clone(), Type::Ref), (Operand::Constant(Constant::Function(self.func.symbol.clone())), Type::I64)],
+                    name: "dartforge_mark_constant".to_string(),
+                    args: vec![
+                        (v.clone(), Type::Ref),
+                        (
+                            Operand::Constant(Constant::Function(self.func.symbol.clone())),
+                            Type::I64,
+                        ),
+                    ],
                     ret_ty: Type::Void,
                 },
                 Type::Void,
@@ -2242,7 +2584,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(v) = self.read_primitive_const(vid) {
             return v;
         }
-        if !self.ctx.compiled_library(self.ctx.program.variables[vid.0 as usize].library)
+        if !self
+            .ctx
+            .compiled_library(self.ctx.program.variables[vid.0 as usize].library)
         {
             let name_str = self
                 .ctx
@@ -2269,14 +2613,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             // prologue; `convertFormatValue` of the dart_ui color kernel
             // made 15 per iteration.
             let value = super::global_value_symbol(self.ctx, vid);
-            let ok = self.emit(Instruction::LoadGlobal { symbol: format!("{value}$ok"), ty: Type::I8 }, Type::I8);
-            let ready = self.emit(Instruction::ICmp(ICmpOp::Eq, ok, Operand::Constant(Constant::Int(1))), Type::I1);
+            let ok = self.emit(
+                Instruction::LoadGlobal {
+                    symbol: format!("{value}$ok"),
+                    ty: Type::I8,
+                },
+                Type::I8,
+            );
+            let ready = self.emit(
+                Instruction::ICmp(ICmpOp::Eq, ok, Operand::Constant(Constant::Int(1))),
+                Type::I1,
+            );
             let b_ready = self.new_block();
             let b_cold = self.new_block();
             let b_end = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: ready, then_block: b_ready, else_block: b_cold });
+            self.terminate(Terminator::CondBranch {
+                cond: ready,
+                then_block: b_ready,
+                else_block: b_cold,
+            });
             self.set_block(b_ready);
-            let cached = self.emit(Instruction::LoadGlobal { symbol: value, ty: repr }, repr);
+            let cached = self.emit(
+                Instruction::LoadGlobal {
+                    symbol: value,
+                    ty: repr,
+                },
+                repr,
+            );
             self.terminate(Terminator::Branch(b_end));
             self.set_block(b_cold);
             let first = self.emit_call_with_check(getter, repr);
@@ -2306,15 +2669,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// keeps the call (measurement).
     fn inline_global_read(&self, vid: VariableId) -> bool {
         static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        if *OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_INLINE_GLOBALS").is_some_and(|v| !v.is_empty() && v != "0")) {
+        if *OFF.get_or_init(|| {
+            std::env::var_os("DARTFORGE_NO_INLINE_GLOBALS")
+                .is_some_and(|v| !v.is_empty() && v != "0")
+        }) {
             return false;
         }
         let var = &self.ctx.program.variables[vid.0 as usize];
         if self.ctx.arc_memory || !self.ctx.library_in_module(var.library) {
             return false;
         }
-        matches!(var.node, dartforge_elements::model::VariableRef::EnumConstant { .. })
-            || var.late
+        matches!(
+            var.node,
+            dartforge_elements::model::VariableRef::EnumConstant { .. }
+        ) || var.late
             || self.variable_initializer_in(vid).is_some()
     }
 
@@ -2323,13 +2691,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if self.store_native_variable(vid, val.clone(), span) {
             return val;
         }
-        if !self.ctx.compiled_library(self.ctx.program.variables[vid.0 as usize].library)
+        if !self
+            .ctx
+            .compiled_library(self.ctx.program.variables[vid.0 as usize].library)
         {
             return self.unsupported("assignment to an SDK global", span);
         }
         let repr = self.repr(variable_type(self.ctx, vid));
         let val = self.coerce(val, repr);
-        if !self.ctx.library_in_module(self.ctx.program.variables[vid.0 as usize].library) {
+        if !self
+            .ctx
+            .library_in_module(self.ctx.program.variables[vid.0 as usize].library)
+        {
             // The global lives in another module (source SDK): through its setter.
             self.emit_call_with_check(
                 Instruction::CallStatic {
@@ -2344,14 +2717,24 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let var = &self.ctx.program.variables[vid.0 as usize];
         if var.late && var.final_ {
             let flag = format!("{}$ok", super::global_value_symbol(self.ctx, vid));
-            let ok = self.emit(Instruction::LoadGlobal { symbol: flag, ty: Type::I8 }, Type::I8);
+            let ok = self.emit(
+                Instruction::LoadGlobal {
+                    symbol: flag,
+                    ty: Type::I8,
+                },
+                Type::I8,
+            );
             let already_initialized = self.emit(
                 Instruction::ICmp(ICmpOp::Ne, ok, Operand::Constant(Constant::Int(0))),
                 Type::I1,
             );
             let b_error = self.new_block();
             let b_store = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: already_initialized, then_block: b_error, else_block: b_store });
+            self.terminate(Terminator::CondBranch {
+                cond: already_initialized,
+                then_block: b_error,
+                else_block: b_store,
+            });
             self.set_block(b_error);
             let name_str = self.ctx.symbol_name(var.name).to_string();
             self.throw_late_error(&name_str, 1);
@@ -2390,27 +2773,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         };
         let lib = self.ctx.program.unit(self.unit_id).library;
-        let local_class = |s: dartforge_intern::SymbolId| match self.ctx.program.lookup(lib, s).and_then(|b| b.getter) {
+        let local_class = |s: dartforge_intern::SymbolId| match self
+            .ctx
+            .program
+            .lookup(lib, s)
+            .and_then(|b| b.getter)
+        {
             Some(Element::Class(c)) => Some(c),
             _ => None,
         };
-        let prefixed_class = |p: dartforge_intern::SymbolId, s: dartforge_intern::SymbolId| {
-            match self.ctx.program.lookup_prefixed(lib, p, s).and_then(|b| b.getter) {
+        let prefixed_class =
+            |p: dartforge_intern::SymbolId, s: dartforge_intern::SymbolId| match self
+                .ctx
+                .program
+                .lookup_prefixed(lib, p, s)
+                .and_then(|b| b.getter)
+            {
                 Some(Element::Class(c)) => Some(c),
                 _ => None,
-            }
-        };
+            };
         // `= Target`, `= Target.name`, `= p.Target` and `= p.Target.name` (the parser reads
         // `Target.name` as a two-part type name, and `p.Target.name`
         // as three; the `= t.Template.fromSource` of `mustache_template`).
         let (c, name_str) = match (&name[..], name_str) {
             ([c, n], None) if local_class(c.sym).is_some() => (local_class(c.sym)?, Some(n.sym)),
-            ([p, c], n) if prefixed_class(p.sym, c.sym).is_some() => (prefixed_class(p.sym, c.sym)?, n),
+            ([p, c], n) if prefixed_class(p.sym, c.sym).is_some() => {
+                (prefixed_class(p.sym, c.sym)?, n)
+            }
             ([p, c, n], None) => (prefixed_class(p.sym, c.sym)?, Some(n.sym)),
             (parts, n) => (local_class(parts.last()?.sym)?, n),
         };
         let key = name_str.or_else(|| self.ctx.interner.lookup(""))?;
-        self.ctx.program.classes[c.0 as usize].constructors.get(&key).copied()
+        self.ctx.program.classes[c.0 as usize]
+            .constructors
+            .get(&key)
+            .copied()
     }
 }
 
@@ -2420,9 +2817,18 @@ pub fn literal_pattern(ast: &ast::Ast, e: ExprId) -> bool {
     use dartforge_frontend::ast::ExprKind;
     match &ast.expr(e).kind {
         ExprKind::Null | ExprKind::Bool(_) | ExprKind::Int(_) | ExprKind::Double(_) => true,
-        ExprKind::String(s) => s.parts.iter().all(|p| matches!(p, ast::StringPart::Text(_))),
-        ExprKind::Unary { op: ast::UnaryOp::Neg, operand } => {
-            matches!(ast.expr(*operand).kind, ExprKind::Int(_) | ExprKind::Double(_))
+        ExprKind::String(s) => s
+            .parts
+            .iter()
+            .all(|p| matches!(p, ast::StringPart::Text(_))),
+        ExprKind::Unary {
+            op: ast::UnaryOp::Neg,
+            operand,
+        } => {
+            matches!(
+                ast.expr(*operand).kind,
+                ExprKind::Int(_) | ExprKind::Double(_)
+            )
         }
         _ => false,
     }
@@ -2430,7 +2836,12 @@ pub fn literal_pattern(ast: &ast::Ast, e: ExprId) -> bool {
 
 /// The default of the parameter of a source SDK function that its module
 /// exports: not a literal, from an SDK library outside the current module.
-pub fn exported_pattern(ctx: &crate::context::Context, fid: usize, unit: UnitId, e: ExprId) -> bool {
+pub fn exported_pattern(
+    ctx: &crate::context::Context,
+    fid: usize,
+    unit: UnitId,
+    e: ExprId,
+) -> bool {
     let lib = ctx.program.functions[fid].library;
     ctx.program.library(lib).is_sdk
         && !ctx.library_in_module(lib)

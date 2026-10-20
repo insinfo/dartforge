@@ -25,7 +25,9 @@ use super::rules16::{declared_variable_type, is_non_nullable};
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Element, UnitId, VariableId, VariableRef};
-use dartforge_frontend::ast::{AssignOp, Ast, DeclId, DeclKind, ExprId, ExprKind, MemberId, MemberKind, UnaryOp};
+use dartforge_frontend::ast::{
+    AssignOp, Ast, DeclId, DeclKind, ExprId, ExprKind, MemberId, MemberKind, UnaryOp,
+};
 use dartforge_intern::Interner;
 use dartforge_types::resolved::{MemberRef, Resolved, UnitBodyTypes};
 use std::collections::HashSet;
@@ -34,8 +36,16 @@ use std::collections::HashSet;
 /// accessor becomes the variable).
 fn variable_of(s: &super::Semantics<'_>, body: &UnitBodyTypes, e: ExprId) -> Option<VariableId> {
     match body.get_resolved(e)? {
-        Resolved::Member { member: MemberRef::Variable(v), .. } | Resolved::Element(Element::Variable(v)) => Some(*v),
-        Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => s.program.function(*f).variable,
+        Resolved::Member {
+            member: MemberRef::Variable(v),
+            ..
+        }
+        | Resolved::Element(Element::Variable(v)) => Some(*v),
+        Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }
+        | Resolved::Element(Element::Function(f)) => s.program.function(*f).variable,
         Resolved::ExtensionMember { member, .. } => s.program.function(*member).variable,
         _ => None,
     }
@@ -47,7 +57,13 @@ fn excluded_regions(a: &Ast) -> Vec<Span> {
     let mut v = Vec::new();
     for d in a.decls.iter() {
         match &d.kind {
-            DeclKind::Class(x) if x.members.iter().any(|m| matches!(&a.member(*m).kind, MemberKind::Constructor(k) if k.const_)) => v.push(d.span),
+            DeclKind::Class(x)
+                if x.members.iter().any(
+                    |m| matches!(&a.member(*m).kind, MemberKind::Constructor(k) if k.const_),
+                ) =>
+            {
+                v.push(d.span)
+            }
             DeclKind::Enum(_) => v.push(d.span),
             _ => {}
         }
@@ -56,7 +72,12 @@ fn excluded_regions(a: &Ast) -> Vec<Span> {
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let Some(s) = sem else { return out };
     if !enabled("use_late_for_private_fields_and_variables") {
@@ -73,7 +94,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         let a = &program.unit(x).ast;
         let body = &s.bodies.units[x.0 as usize];
         let excluded = excluded_regions(a);
-        let visited = |sp: Span| !excluded.iter().any(|f| f.start <= sp.start && sp.end <= f.end);
+        let visited = |sp: Span| {
+            !excluded
+                .iter()
+                .any(|f| f.start <= sp.start && sp.end <= f.end)
+        };
         let mut written: HashSet<ExprId> = HashSet::new();
         // The immediate operand of a `!` (without parentheses).
         let mut checked: HashSet<ExprId> = HashSet::new();
@@ -82,10 +107,20 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 ExprKind::Assign { target, .. } => {
                     written.insert(*target);
                 }
-                ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } => {
+                ExprKind::Unary {
+                    op:
+                        UnaryOp::PrefixInc
+                        | UnaryOp::PrefixDec
+                        | UnaryOp::PostfixInc
+                        | UnaryOp::PostfixDec,
+                    operand,
+                } => {
                     written.insert(*operand);
                 }
-                ExprKind::Unary { op: UnaryOp::NullAssert, operand } => {
+                ExprKind::Unary {
+                    op: UnaryOp::NullAssert,
+                    operand,
+                } => {
                     checked.insert(*operand);
                 }
                 _ => {}
@@ -112,7 +147,10 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 }
                 ExprKind::Assign { op, target, value } => {
                     if let Some(v) = variable_of(s, body, *target) {
-                        let non_null = *op == AssignOp::Assign && s.bodies.units[x.0 as usize].get_type(*value).is_some_and(|t| is_non_nullable(table, t));
+                        let non_null = *op == AssignOp::Assign
+                            && s.bodies.units[x.0 as usize]
+                                .get_type(*value)
+                                .is_some_and(|t| is_non_nullable(table, t));
                         if !non_null {
                             nullable_accesses.insert(v);
                         }
@@ -125,21 +163,37 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // The unit's candidates.
     let a = u.ast;
     let excluded = excluded_regions(a);
-    let visited = |sp: Span| !excluded.iter().any(|f| f.start <= sp.start && sp.end <= f.end);
+    let visited = |sp: Span| {
+        !excluded
+            .iter()
+            .any(|f| f.start <= sp.start && sp.end <= f.end)
+    };
     let mut findings: Vec<Span> = Vec::new();
-    let candidate = |r: VariableRef, l: &dartforge_frontend::ast::VariableList, i: usize, findings: &mut Vec<Span>| {
+    let candidate = |r: VariableRef,
+                     l: &dartforge_frontend::ast::VariableList,
+                     i: usize,
+                     findings: &mut Vec<Span>| {
         if l.late {
             return;
         }
-        let Some(v) = program.variable_of_node(r) else { return };
-        let Some(t) = declared_variable_type(s, r) else { return };
+        let Some(v) = program.variable_of_node(r) else {
+            return;
+        };
+        let Some(t) = declared_variable_type(s, r) else {
+            return;
+        };
         if is_non_nullable(table, t) {
             return;
         }
         if !nullable_accesses.contains(&v) {
             let x = &l.variables[i];
-            let end = x.initializer.map_or(x.name.span.end, |e| a.expr(e).span.end);
-            findings.push(Span { start: x.name.span.start, end });
+            let end = x
+                .initializer
+                .map_or(x.name.span.end, |e| a.expr(e).span.end);
+            findings.push(Span {
+                start: x.name.span.start,
+                end,
+            });
         }
     };
     for (k, d) in a.decls.iter().enumerate() {
@@ -151,26 +205,49 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             DeclKind::Variables(l) => {
                 for (i, x) in l.variables.iter().enumerate() {
                     if is_private(x.name.sym) {
-                        candidate(VariableRef::TopLevel { unit: s.unit, decl: id, index: i }, l, i, &mut findings);
+                        candidate(
+                            VariableRef::TopLevel {
+                                unit: s.unit,
+                                decl: id,
+                                index: i,
+                            },
+                            l,
+                            i,
+                            &mut findings,
+                        );
                     }
                 }
             }
             _ => {
-                let (members, private_extension, is_extension_type): (&[MemberId], bool, bool) = match &d.kind {
-                    DeclKind::Class(x) => (&x.members, false, false),
-                    DeclKind::Mixin(x) => (&x.members, false, false),
-                    DeclKind::Extension(x) => (&x.members, x.name.is_none_or(|n| is_private(n.sym)), false),
-                    DeclKind::ExtensionType(x) => (&x.members, false, true),
-                    _ => continue,
-                };
+                let (members, private_extension, is_extension_type): (&[MemberId], bool, bool) =
+                    match &d.kind {
+                        DeclKind::Class(x) => (&x.members, false, false),
+                        DeclKind::Mixin(x) => (&x.members, false, false),
+                        DeclKind::Extension(x) => {
+                            (&x.members, x.name.is_none_or(|n| is_private(n.sym)), false)
+                        }
+                        DeclKind::ExtensionType(x) => (&x.members, false, true),
+                        _ => continue,
+                    };
                 for &m in members {
-                    let MemberKind::Field(l) = &a.member(m).kind else { continue };
+                    let MemberKind::Field(l) = &a.member(m).kind else {
+                        continue;
+                    };
                     if is_extension_type && !l.static_ {
                         continue;
                     }
                     for (i, x) in l.variables.iter().enumerate() {
                         if private_extension || is_private(x.name.sym) {
-                            candidate(VariableRef::Field { unit: s.unit, member: m, index: i }, l, i, &mut findings);
+                            candidate(
+                                VariableRef::Field {
+                                    unit: s.unit,
+                                    member: m,
+                                    index: i,
+                                },
+                                l,
+                                i,
+                                &mut findings,
+                            );
                         }
                     }
                 }
@@ -178,7 +255,11 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         }
     }
     for sp in findings {
-        out.push(LintReport { code: &c::USE_LATE_FOR_PRIVATE_FIELDS_AND_VARIABLES, span: sp, args: Vec::new() });
+        out.push(LintReport {
+            code: &c::USE_LATE_FOR_PRIVATE_FIELDS_AND_VARIABLES,
+            span: sp,
+            args: Vec::new(),
+        });
     }
     out
 }

@@ -19,23 +19,32 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
+use super::LintCode;
 use super::codes_g as c;
 use super::rules::LintReport;
-use super::LintCode;
 use crate::Unit;
 use dartforge_diagnostics::Span;
 use dartforge_frontend::ast::{
-    self, Ast, CollectionElement, DeclKind, ExprKind, ForInTarget, FunctionKind, Initializer, ListPatternElement, MemberId, MemberKind,
-    ParameterKind, PatternId, PatternKind, StmtKind,
+    self, Ast, CollectionElement, DeclKind, ExprKind, ForInTarget, FunctionKind, Initializer,
+    ListPatternElement, MemberId, MemberKind, ParameterKind, PatternId, PatternKind, StmtKind,
 };
 use dartforge_intern::Interner;
 
 /// The collection `for-in`s with a declared variable or a pattern: the target
 /// and the end of the iterable (where the region in which the variable lives
 /// starts).
-fn collection_for_ins<'x>(a: &Ast, el: &'x CollectionElement, out: &mut Vec<(&'x ForInTarget, usize)>) {
+fn collection_for_ins<'x>(
+    a: &Ast,
+    el: &'x CollectionElement,
+    out: &mut Vec<(&'x ForInTarget, usize)>,
+) {
     match el {
-        CollectionElement::ForIn { target, iterable, body, .. } => {
+        CollectionElement::ForIn {
+            target,
+            iterable,
+            body,
+            ..
+        } => {
             out.push((target, a.expr(*iterable).span.end));
             collection_for_ins(a, body, out);
         }
@@ -51,36 +60,79 @@ fn collection_for_ins<'x>(a: &Ast, el: &'x CollectionElement, out: &mut Vec<(&'x
 }
 
 /// Runs the rules of this batch that are enabled (`enabled(name)`).
-pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem: Option<&super::Semantics<'_>>) -> Vec<LintReport> {
+pub fn run(
+    u: Unit<'_>,
+    interner: &Interner,
+    enabled: &dyn Fn(&str) -> bool,
+    sem: Option<&super::Semantics<'_>>,
+) -> Vec<LintReport> {
     let mut out: Vec<LintReport> = Vec::new();
     let a = u.ast;
     let mut report = |code: &'static LintCode, span: Span, args: &[&str]| {
-        out.push(LintReport { code, span, args: args.iter().map(|x| x.to_string()).collect() });
+        out.push(LintReport {
+            code,
+            span,
+            args: args.iter().map(|x| x.to_string()).collect(),
+        });
     };
 
     // `prefer_inlined_adds` and `prefer_spread_collections`: the first
     // section of a cascade on a list literal.
-    let (inline_adds, spread) = (enabled("prefer_inlined_adds"), enabled("prefer_spread_collections"));
+    let (inline_adds, spread) = (
+        enabled("prefer_inlined_adds"),
+        enabled("prefer_spread_collections"),
+    );
     if inline_adds || spread {
         // `target.inConstantContext` (only for `prefer_spread_collections`).
-        let parents = dartforge_frontend::parents::Parents::new(a, u.unit, u.source, sem.is_some_and(|s| !super::version_at_least(s, 3, 0)));
+        let parents = dartforge_frontend::parents::Parents::new(
+            a,
+            u.unit,
+            u.source,
+            sem.is_some_and(|s| !super::version_at_least(s, 3, 0)),
+        );
         for e in a.exprs.iter() {
-            let ExprKind::Cascade { target, sections, .. } = &e.kind else { continue };
+            let ExprKind::Cascade {
+                target, sections, ..
+            } = &e.kind
+            else {
+                continue;
+            };
             if !matches!(a.expr(*target).kind, ExprKind::List { .. }) {
                 continue;
             }
-            let Some(&first) = sections.first() else { continue };
-            let ExprKind::Call { target: callee, arguments } = &a.expr(first).kind else { continue };
-            let ExprKind::Property { target: receiver, name, .. } = &a.expr(*callee).kind else { continue };
+            let Some(&first) = sections.first() else {
+                continue;
+            };
+            let ExprKind::Call {
+                target: callee,
+                arguments,
+            } = &a.expr(first).kind
+            else {
+                continue;
+            };
+            let ExprKind::Property {
+                target: receiver,
+                name,
+                ..
+            } = &a.expr(*callee).kind
+            else {
+                continue;
+            };
             if !matches!(a.expr(*receiver).kind, ExprKind::CascadeTarget) {
                 continue;
             }
-            let [argument] = &arguments.args[..] else { continue };
+            let [argument] = &arguments.args[..] else {
+                continue;
+            };
             let is_list = matches!(a.expr(argument.value).kind, ExprKind::List { .. });
             match interner.resolve(name.sym) {
                 "add" if inline_adds => report(&c::PREFER_INLINED_ADDS_SINGLE, name.span, &[]),
-                "addAll" if is_list && inline_adds => report(&c::PREFER_INLINED_ADDS_MULTIPLE, name.span, &[]),
-                "addAll" if !is_list && spread && !parents.in_constant_context(a, *target) => report(&c::PREFER_SPREAD_COLLECTIONS, name.span, &[]),
+                "addAll" if is_list && inline_adds => {
+                    report(&c::PREFER_INLINED_ADDS_MULTIPLE, name.span, &[])
+                }
+                "addAll" if !is_list && spread && !parents.in_constant_context(a, *target) => {
+                    report(&c::PREFER_SPREAD_COLLECTIONS, name.span, &[])
+                }
                 _ => {}
             }
         }
@@ -89,7 +141,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // `avoid_field_initializers_in_const_classes`.
     if enabled("avoid_field_initializers_in_const_classes") {
         for d in a.decls.iter() {
-            let DeclKind::Class(x) = &d.kind else { continue };
+            let DeclKind::Class(x) = &d.kind else {
+                continue;
+            };
             let constructors: Vec<(MemberId, &ast::Constructor)> = x
                 .members
                 .iter()
@@ -100,13 +154,21 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 .collect();
             // The constructors of the whole class (`allConstructors`, with the
             // augmentations): through the semantics; without it, this declaration's.
-            let class_id = sem.and_then(|s| x.members.first().and_then(|&m| super::member_class(s, m)).map(|c| (s, c)));
+            let class_id = sem.and_then(|s| {
+                x.members
+                    .first()
+                    .and_then(|&m| super::member_class(s, m))
+                    .map(|c| (s, c))
+            });
             let (count, any_const) = match class_id {
                 Some((s, c)) => {
                     let k = &s.program.class(c).constructors;
                     (k.len(), k.values().any(|f| s.program.function(*f).const_))
                 }
-                None => (constructors.len(), constructors.iter().any(|(_, k)| k.const_)),
+                None => (
+                    constructors.len(),
+                    constructors.iter().any(|(_, k)| k.const_),
+                ),
             };
             // The `final` instance field with an initializer, in a class with
             // some `const` constructor.
@@ -120,7 +182,14 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     {
                         for v in l.variables.iter() {
                             if let Some(i) = v.initializer {
-                                report(&c::AVOID_FIELD_INITIALIZERS_IN_CONST_CLASSES, Span { start: v.name.span.start, end: a.expr(i).span.end }, &[]);
+                                report(
+                                    &c::AVOID_FIELD_INITIALIZERS_IN_CONST_CLASSES,
+                                    Span {
+                                        start: v.name.span.start,
+                                        end: a.expr(i).span.end,
+                                    },
+                                    &[],
+                                );
                             }
                         }
                     }
@@ -133,7 +202,12 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                 && count == 1
             {
                 for (_, k) in constructors.iter().filter(|(_, k)| k.const_) {
-                    let param_starts: Vec<usize> = k.parameters.iter().filter_map(|p| p.name).map(|n| n.span.start).collect();
+                    let param_starts: Vec<usize> = k
+                        .parameters
+                        .iter()
+                        .filter_map(|p| p.name)
+                        .map(|n| n.span.start)
+                        .collect();
                     for i in k.initializers.iter() {
                         if let Initializer::Field { span, value, .. } = i {
                             let region = a.expr(*value).span;
@@ -141,7 +215,9 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                                 matches!(e.kind, ExprKind::Identifier(_))
                                     && region.start <= e.span.start
                                     && e.span.end <= region.end
-                                    && s.body.local_declaration(ast::ExprId(j as u32)).is_some_and(|dd| param_starts.contains(&dd))
+                                    && s.body
+                                        .local_declaration(ast::ExprId(j as u32))
+                                        .is_some_and(|dd| param_starts.contains(&dd))
                             });
                             if !uses {
                                 report(&c::AVOID_FIELD_INITIALIZERS_IN_CONST_CLASSES, *span, &[]);
@@ -162,11 +238,18 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
     // `implements`.
     if enabled("avoid_classes_with_only_static_members") {
         for d in a.decls.iter().filter(|d| !d.augment) {
-            let DeclKind::Class(x) = &d.kind else { continue };
+            let DeclKind::Class(x) = &d.kind else {
+                continue;
+            };
             if x.modifiers.sealed {
                 continue;
             }
-            let class_id = sem.and_then(|s| x.members.first().and_then(|&m| super::member_class(s, m)).map(|c| (s, c)));
+            let class_id = sem.and_then(|s| {
+                x.members
+                    .first()
+                    .and_then(|&m| super::member_class(s, m))
+                    .map(|c| (s, c))
+            });
             let reported = match class_id {
                 Some((s, c)) => {
                     use dartforge_elements::model::{ClassKind, FunctionKind as FnKind};
@@ -178,7 +261,10 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     }
                     let inherits_class_member = types.iter().any(|&k| {
                         Some(k) != s.core.object_class
-                            && matches!(p.class(k).kind, ClassKind::Class | ClassKind::MixinApplication)
+                            && matches!(
+                                p.class(k).kind,
+                                ClassKind::Class | ClassKind::MixinApplication
+                            )
                             && p.class(k).instance_members.values().any(|f| {
                                 let g = p.function(*f);
                                 // The member is declared in the class (it does not come from a mixin).
@@ -188,22 +274,40 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                     let e = p.class(c);
                     let own_ctor = e.constructors.iter().any(|(name, f)| {
                         let unnamed = interner.resolve(*name).is_empty();
-                        let required = s.outline.functions.get(f.0 as usize).is_some_and(|dd| dd.parameters.iter().any(|q| q.kind == ParameterKind::Required || q.required));
+                        let required = s.outline.functions.get(f.0 as usize).is_some_and(|dd| {
+                            dd.parameters
+                                .iter()
+                                .any(|q| q.kind == ParameterKind::Required || q.required)
+                        });
                         !(unnamed && !required)
                     });
                     let methods: Vec<_> = e
                         .instance_members
                         .values()
                         .chain(e.static_members.values())
-                        .filter(|f| matches!(p.function(**f).kind, FnKind::Function | FnKind::Operator))
+                        .filter(|f| {
+                            matches!(p.function(**f).kind, FnKind::Function | FnKind::Operator)
+                        })
                         .collect();
                     let all_static = methods.iter().all(|f| p.function(**f).static_);
-                    let accessor = e.instance_members.values().chain(e.static_members.values()).any(|f| matches!(p.function(*f).kind, FnKind::Getter | FnKind::Setter));
-                    let non_const_field = e.fields.iter().any(|v| !p.variable(*v).const_) || accessor;
-                    !inherits_class_member && !own_ctor && all_static && (!methods.is_empty() || non_const_field)
+                    let accessor = e
+                        .instance_members
+                        .values()
+                        .chain(e.static_members.values())
+                        .any(|f| matches!(p.function(*f).kind, FnKind::Getter | FnKind::Setter));
+                    let non_const_field =
+                        e.fields.iter().any(|v| !p.variable(*v).const_) || accessor;
+                    !inherits_class_member
+                        && !own_ctor
+                        && all_static
+                        && (!methods.is_empty() || non_const_field)
                 }
                 None => {
-                    if x.mixin_application || x.extends.is_some() || !x.with.is_empty() || !x.implements.is_empty() {
+                    if x.mixin_application
+                        || x.extends.is_some()
+                        || !x.with.is_empty()
+                        || !x.implements.is_empty()
+                    {
                         continue;
                     }
                     let mut has_instance = false;
@@ -220,12 +324,19 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
                                 let f = a.function(*f);
                                 has_instance |= !f.static_;
                                 match f.kind {
-                                    FunctionKind::Getter | FunctionKind::Setter => non_const_field = true,
-                                    FunctionKind::Function | FunctionKind::Operator => static_methods = true,
+                                    FunctionKind::Getter | FunctionKind::Setter => {
+                                        non_const_field = true
+                                    }
+                                    FunctionKind::Function | FunctionKind::Operator => {
+                                        static_methods = true
+                                    }
                                 }
                             }
                             MemberKind::Constructor(k) => {
-                                own_constructor |= k.name.is_some() || k.parameters.iter().any(|p| p.kind == ParameterKind::Required || p.required);
+                                own_constructor |= k.name.is_some()
+                                    || k.parameters
+                                        .iter()
+                                        .any(|p| p.kind == ParameterKind::Required || p.required);
                             }
                         }
                     }
@@ -246,17 +357,34 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
         // `potentiallyMutates`: only a declared, non-mutated variable passes.
         let unmutated = |p: PatternId| matches!(&a.pattern(p).kind, PatternKind::Variable { name, .. } if !super::is_mutated(s, a, name.span.start));
         let mut check_target = |target: &ForInTarget| match target {
-            ForInTarget::Declared { final_: false, name, .. } => {
+            ForInTarget::Declared {
+                final_: false,
+                name,
+                ..
+            } => {
                 if !super::is_mutated(s, a, name.span.start) {
-                    report(&c::PREFER_FINAL_IN_FOR_EACH_VARIABLE, name.span, &[interner.resolve(name.sym)]);
+                    report(
+                        &c::PREFER_FINAL_IN_FOR_EACH_VARIABLE,
+                        name.span,
+                        &[interner.resolve(name.sym)],
+                    );
                 }
             }
-            ForInTarget::Pattern { final_: false, pattern } => {
+            ForInTarget::Pattern {
+                final_: false,
+                pattern,
+            } => {
                 let n = a.pattern(*pattern);
                 let reported = match &n.kind {
-                    PatternKind::Record { fields } | PatternKind::Object { fields, .. } => fields.iter().all(|f| unmutated(f.pattern)),
-                    PatternKind::List { elements, .. } => elements.iter().all(|el| matches!(el, ListPatternElement::Pattern(x) if unmutated(*x))),
-                    PatternKind::Map { entries, rest, .. } => !*rest && entries.iter().all(|en| unmutated(en.value)),
+                    PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
+                        fields.iter().all(|f| unmutated(f.pattern))
+                    }
+                    PatternKind::List { elements, .. } => elements
+                        .iter()
+                        .all(|el| matches!(el, ListPatternElement::Pattern(x) if unmutated(*x))),
+                    PatternKind::Map { entries, rest, .. } => {
+                        !*rest && entries.iter().all(|en| unmutated(en.value))
+                    }
                     _ => false,
                 };
                 if reported {
@@ -290,7 +418,10 @@ pub fn run(u: Unit<'_>, interner: &Interner, enabled: &dyn Fn(&str) -> bool, sem
             .collect();
         for e in a.exprs.iter() {
             if let ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } = &e.kind {
-                if !bodies.iter().any(|c| c.start <= e.span.start && e.span.end <= c.end) {
+                if !bodies
+                    .iter()
+                    .any(|c| c.start <= e.span.start && e.span.end <= c.end)
+                {
                     continue;
                 }
                 let mut for_ins = Vec::new();
@@ -313,10 +444,17 @@ mod tests {
     fn with_code(rule: &str, source: &str) -> Vec<(&'static str, String)> {
         let mut names = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
         let mut reports = run(u, &names, &|r| r == rule, None);
         reports.sort_by_key(|r| (r.span.start, r.span.end));
-        reports.into_iter().map(|r| (r.code.unique, source[r.span.start..r.span.end].to_string())).collect()
+        reports
+            .into_iter()
+            .map(|r| (r.code.unique, source[r.span.start..r.span.end].to_string()))
+            .collect()
     }
 
     #[test]
@@ -324,15 +462,24 @@ mod tests {
         let source = "var a = [1]..add(2);\nvar b = [1]..addAll([2, 3]);\nvar c = [1]..addAll(a);\nvar d = [1]..length..add(2);\nvar e = a..add(2);\n";
         assert_eq!(
             with_code("prefer_inlined_adds", source),
-            vec![("prefer_inlined_adds_single", "add".to_string()), ("prefer_inlined_adds_multiple", "addAll".to_string())]
+            vec![
+                ("prefer_inlined_adds_single", "add".to_string()),
+                ("prefer_inlined_adds_multiple", "addAll".to_string())
+            ]
         );
-        assert_eq!(with_code("prefer_spread_collections", source), vec![("prefer_spread_collections", "addAll".to_string())]);
+        assert_eq!(
+            with_code("prefer_spread_collections", source),
+            vec![("prefer_spread_collections", "addAll".to_string())]
+        );
     }
 
     #[test]
     fn classes() {
         let source = "class A {\n  final int a = 1;\n  final int b;\n  static final int c = 2;\n  const A(int x) : b = 0;\n}\nclass B {\n  final int d;\n  const B(int x) : d = x;\n}\n";
-        let v: Vec<String> = with_code("avoid_field_initializers_in_const_classes", source).into_iter().map(|x| x.1).collect();
+        let v: Vec<String> = with_code("avoid_field_initializers_in_const_classes", source)
+            .into_iter()
+            .map(|x| x.1)
+            .collect();
         // The initializer that reads no parameter needs the unit's semantics;
         // the field with an initializer does not.
         assert_eq!(v, vec!["a = 1".to_string()]);

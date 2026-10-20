@@ -18,33 +18,56 @@
 
 use crate::const_eval::evaluation::{Constant, Ctx, Engine};
 use crate::const_eval::value::Value;
-use crate::typed_lints::Finding;
 use crate::resolve::OutlineTypes;
 use crate::resolved::{BodyTypes, MemberRef, Resolved};
-use crate::subtyping::{is_subtype, SubtypeEnv};
+use crate::subtyping::{SubtypeEnv, is_subtype};
 use crate::table::{CoreTypes, TypeTable};
-use dartforge_elements::model::{Element, FunctionElementId, FunctionRef, LibraryId, Program, UnitId};
-use dartforge_frontend::ast::{self, DeclKind, ExprId, ExprKind, Initializer, MemberKind, ParameterKind, StmtKind};
+use crate::typed_lints::Finding;
+use dartforge_elements::model::{
+    Element, FunctionElementId, FunctionRef, LibraryId, Program, UnitId,
+};
+use dartforge_frontend::ast::{
+    self, DeclKind, ExprId, ExprKind, Initializer, MemberKind, ParameterKind, StmtKind,
+};
 use dartforge_intern::Interner;
 use std::collections::HashSet;
 
 /// The written parameters of a model function, with the unit.
 fn parameters_of(program: &Program, f: FunctionElementId) -> Option<(UnitId, &[ast::Parameter])> {
     match program.function(f).node {
-        FunctionRef::Function { unit, function } => Some((unit, program.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[]))),
-        FunctionRef::Constructor { unit, member } => match &program.unit(unit).ast.member(member).kind {
-            MemberKind::Constructor(k) => Some((unit, &k.parameters[..])),
-            _ => None,
-        },
+        FunctionRef::Function { unit, function } => Some((
+            unit,
+            program
+                .unit(unit)
+                .ast
+                .function(function)
+                .parameters
+                .as_deref()
+                .unwrap_or(&[]),
+        )),
+        FunctionRef::Constructor { unit, member } => {
+            match &program.unit(unit).ast.member(member).kind {
+                MemberKind::Constructor(k) => Some((unit, &k.parameters[..])),
+                _ => None,
+            }
+        }
         FunctionRef::None => None,
     }
 }
 
 /// The constructor that factory `f` redirects to (`= C.name`).
-fn redirected(program: &Program, interner: &Interner, f: FunctionElementId) -> Option<FunctionElementId> {
-    let FunctionRef::Constructor { unit, member } = program.function(f).node else { return None };
+fn redirected(
+    program: &Program,
+    interner: &Interner,
+    f: FunctionElementId,
+) -> Option<FunctionElementId> {
+    let FunctionRef::Constructor { unit, member } = program.function(f).node else {
+        return None;
+    };
     let a = &program.unit(unit).ast;
-    let MemberKind::Constructor(k) = &a.member(member).kind else { return None };
+    let MemberKind::Constructor(k) = &a.member(member).kind else {
+        return None;
+    };
     if !k.factory {
         return None;
     }
@@ -99,7 +122,13 @@ impl<'p> Cx<'_, 'p> {
         let f = q.owner?;
         let sup = self.super_parameter(f, q)?;
         let v = self.pattern(sup, prof + 1)?;
-        let own = self.outline.functions.get(f.0 as usize)?.parameters.get(q.index)?.ty;
+        let own = self
+            .outline
+            .functions
+            .get(f.0 as usize)?
+            .parameters
+            .get(q.index)?
+            .ty;
         let mut env = SubtypeEnv::new(self.engine.table, &self.outline.hierarchy, self.core);
         is_subtype(v.ty, own, &mut env).then_some(v)
     }
@@ -108,8 +137,12 @@ impl<'p> Cx<'_, 'p> {
     /// at the same position among the positional `super.x`.
     fn super_parameter(&self, f: FunctionElementId, q: Param<'p>) -> Option<Param<'p>> {
         let program = self.program;
-        let FunctionRef::Constructor { unit, member } = program.function(f).node else { return None };
-        let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else { return None };
+        let FunctionRef::Constructor { unit, member } = program.function(f).node else {
+            return None;
+        };
+        let MemberKind::Constructor(k) = &program.unit(unit).ast.member(member).kind else {
+            return None;
+        };
         let class = program.function(f).class?;
         let sup = program.class(class).supertype_class?;
         let name = k.initializers.iter().find_map(|i| match i {
@@ -124,56 +157,117 @@ impl<'p> Cx<'_, 'p> {
         let (gu, gps) = parameters_of(program, g)?;
         let tgt = if q.p.kind == ParameterKind::Named {
             let n = q.p.external_name()?.sym;
-            gps.iter().position(|x| x.kind == ParameterKind::Named && x.external_name().is_some_and(|m| m.sym == n))?
+            gps.iter().position(|x| {
+                x.kind == ParameterKind::Named && x.external_name().is_some_and(|m| m.sym == n)
+            })?
         } else {
-            let i = k.parameters.iter().filter(|x| x.super_ && x.kind != ParameterKind::Named).position(|x| std::ptr::eq(x, q.p))?;
-            let positional: Vec<usize> = gps.iter().enumerate().filter(|(_, x)| x.kind != ParameterKind::Named).map(|(j, _)| j).collect();
+            let i = k
+                .parameters
+                .iter()
+                .filter(|x| x.super_ && x.kind != ParameterKind::Named)
+                .position(|x| std::ptr::eq(x, q.p))?;
+            let positional: Vec<usize> = gps
+                .iter()
+                .enumerate()
+                .filter(|(_, x)| x.kind != ParameterKind::Named)
+                .map(|(j, _)| j)
+                .collect();
             *positional.get(i)?
         };
-        Some(Param { owner: Some(g), unit: gu, p: &gps[tgt], index: tgt })
+        Some(Param {
+            owner: Some(g),
+            unit: gu,
+            p: &gps[tgt],
+            index: tgt,
+        })
     }
 
     /// `checkArgument`. `report`: the reported node, when it is not the value
     /// (the whole `NamedExpression` on the redirecting factory path, which does
     /// not unwrap it).
     #[allow(clippy::too_many_arguments)]
-    fn check(&mut self, u: UnitId, parents: &dartforge_frontend::parents::Parents, value: ExprId, param: Option<Param<'p>>, report: Option<dartforge_diagnostics::Span>, out: &mut Vec<Finding>) {
+    fn check(
+        &mut self,
+        u: UnitId,
+        parents: &dartforge_frontend::parents::Parents,
+        value: ExprId,
+        param: Option<Param<'p>>,
+        report: Option<dartforge_diagnostics::Span>,
+        out: &mut Vec<Finding>,
+    ) {
         let Some(q) = param else { return };
         if q.p.kind != ParameterKind::Optional && q.p.kind != ParameterKind::Named {
             return;
         }
-        if q.p.required || q.p.metadata.iter().any(|m| crate::phase_result::meta_annotation(self.program, self.interner, q.unit, m, "required")) {
+        if q.p.required
+            || q.p.metadata.iter().any(|m| {
+                crate::phase_result::meta_annotation(
+                    self.program,
+                    self.interner,
+                    q.unit,
+                    m,
+                    "required",
+                )
+            })
+        {
             return;
         }
-        let Some(pattern) = self.pattern(q, 0) else { return };
+        let Some(pattern) = self.pattern(q, 0) else {
+            return;
+        };
         if pattern.state.unknown() {
             return;
         }
         let a = &self.program.unit(u).ast;
         let cx = Ctx::simple(u, self.lib(u));
         let in_const = parents.in_constant_context(a, value);
-        let Constant::Value(v) = self.engine.evaluate(&cx, value, in_const) else { return };
+        let Constant::Value(v) = self.engine.evaluate(&cx, value, in_const) else {
+            return;
+        };
         if v.state.unknown() {
             return;
         }
         if self.engine.equal(&v, &pattern) {
-            out.push((report.unwrap_or(a.expr(value).span), "avoid_redundant_argument_values", Vec::new()));
+            out.push((
+                report.unwrap_or(a.expr(value).span),
+                "avoid_redundant_argument_values",
+                Vec::new(),
+            ));
         }
     }
 
     /// `check`: the `staticParameterElement` of each argument.
-    fn list(&mut self, u: UnitId, parents: &dartforge_frontend::parents::Parents, args: &ast::Arguments, tgt: Option<(Option<FunctionElementId>, UnitId, &'p [ast::Parameter])>, out: &mut Vec<Finding>) {
+    fn list(
+        &mut self,
+        u: UnitId,
+        parents: &dartforge_frontend::parents::Parents,
+        args: &ast::Arguments,
+        tgt: Option<(Option<FunctionElementId>, UnitId, &'p [ast::Parameter])>,
+        out: &mut Vec<Finding>,
+    ) {
         for i in (0..args.args.len()).rev() {
             let x = args.args[i];
             let param = tgt.and_then(|(owner, pu, ps)| {
                 let index = match x.name {
-                    Some(n) => ps.iter().position(|p| p.kind == ParameterKind::Named && p.external_name().is_some_and(|m| m.sym == n.sym)),
+                    Some(n) => ps.iter().position(|p| {
+                        p.kind == ParameterKind::Named
+                            && p.external_name().is_some_and(|m| m.sym == n.sym)
+                    }),
                     None => {
                         let k = args.args[..i].iter().filter(|y| y.name.is_none()).count();
-                        ps.iter().enumerate().filter(|(_, p)| p.kind != ParameterKind::Named).nth(k).map(|(j, _)| j)
+                        ps.iter()
+                            .enumerate()
+                            .filter(|(_, p)| p.kind != ParameterKind::Named)
+                            .nth(k)
+                            .map(|(j, _)| j)
                     }
                 };
-                index.map(|j| Param { owner, unit: pu, p: &ps[j], index: j })
+                index.map(|j| Param {
+                    owner,
+                    unit: pu,
+                    p: &ps[j],
+                    index: j,
+                })
             });
             self.check(u, parents, x.value, param, None, out);
             if param.is_some_and(|q| q.p.kind == ParameterKind::Optional) {
@@ -183,14 +277,26 @@ impl<'p> Cx<'_, 'p> {
     }
 
     /// `visitInstanceCreationExpression`.
-    fn creation(&mut self, u: UnitId, parents: &dartforge_frontend::parents::Parents, args: &ast::Arguments, ctor: Option<FunctionElementId>, out: &mut Vec<Finding>) {
+    fn creation(
+        &mut self,
+        u: UnitId,
+        parents: &dartforge_frontend::parents::Parents,
+        args: &ast::Arguments,
+        ctor: Option<FunctionElementId>,
+        out: &mut Vec<Finding>,
+    ) {
         let Some(k) = ctor else {
             self.list(u, parents, args, None, out);
             return;
         };
-        let target_of = |f: FunctionElementId| parameters_of(self.program, f).map(|(pu, ps)| (Some(f), pu, ps));
+        let target_of =
+            |f: FunctionElementId| parameters_of(self.program, f).map(|(pu, ps)| (Some(f), pu, ps));
         let factory = matches!(self.program.function(k).node, FunctionRef::Constructor { unit, member } if matches!(&self.program.unit(unit).ast.member(member).kind, MemberKind::Constructor(c) if c.factory));
-        let mut redirected_to = if factory { redirected(self.program, self.interner, k) } else { None };
+        let mut redirected_to = if factory {
+            redirected(self.program, self.interner, k)
+        } else {
+            None
+        };
         if !factory || redirected_to.is_none() {
             let tgt = target_of(k);
             self.list(u, parents, args, tgt, out);
@@ -206,22 +312,34 @@ impl<'p> Cx<'_, 'p> {
             current = r;
             redirected_to = redirected(self.program, self.interner, r);
         }
-        let Some((owner, pu, ps)) = target_of(current) else { return };
+        let Some((owner, pu, ps)) = target_of(current) else {
+            return;
+        };
         if args.args.is_empty() {
             return;
         }
         for i in (0..args.args.len()).rev() {
             let x = args.args[i];
             let index = match x.name {
-                Some(n) => ps.iter().position(|p| p.kind == ParameterKind::Named && p.name.is_some_and(|m| m.sym == n.sym)),
+                Some(n) => ps.iter().position(|p| {
+                    p.kind == ParameterKind::Named && p.name.is_some_and(|m| m.sym == n.sym)
+                }),
                 None => {
                     let count = args.args[..=i].iter().filter(|y| y.name.is_none()).count();
                     let j = count - 1;
                     (j < ps.len() && ps[j].kind != ParameterKind::Named).then_some(j)
                 }
             };
-            let param = index.map(|j| Param { owner, unit: pu, p: &ps[j], index: j });
-            let report = x.name.map(|n| dartforge_diagnostics::Span { start: n.span.start, end: self.program.unit(u).ast.expr(x.value).span.end });
+            let param = index.map(|j| Param {
+                owner,
+                unit: pu,
+                p: &ps[j],
+                index: j,
+            });
+            let report = x.name.map(|n| dartforge_diagnostics::Span {
+                start: n.span.start,
+                end: self.program.unit(u).ast.expr(x.value).span.end,
+            });
             self.check(u, parents, x.value, param, report, out);
             if param.is_some_and(|q| q.p.kind == ParameterKind::Optional) {
                 break;
@@ -247,30 +365,58 @@ pub fn findings(
     let a = &unit_id.ast;
     let body = &bodies.units[u.0 as usize];
     let before_3 = program.library(unit_id.library).features.version().major < 3;
-    let parents = dartforge_frontend::parents::Parents::new(a, &unit_id.unit, unit_id.source.as_str(), before_3);
-    let engine = Engine::new(program, interner, table, core, outline, bodies, the_inferred);
-    let mut cx = Cx { program, interner, core, outline, engine };
+    let parents = dartforge_frontend::parents::Parents::new(
+        a,
+        &unit_id.unit,
+        unit_id.source.as_str(),
+        before_3,
+    );
+    let engine = Engine::new(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        bodies,
+        the_inferred,
+    );
+    let mut cx = Cx {
+        program,
+        interner,
+        core,
+        outline,
+        engine,
+    };
     // The local function declared at `d` (the name's offset).
     let local = |d: usize| -> Option<&[ast::Parameter]> {
         a.stmts.iter().find_map(|s| match &s.kind {
-            StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == d) => Some(a.function(*g).parameters.as_deref().unwrap_or(&[])),
+            StmtKind::Function(g) if a.function(*g).name.is_some_and(|n| n.span.start == d) => {
+                Some(a.function(*g).parameters.as_deref().unwrap_or(&[]))
+            }
             _ => None,
         })
     };
     // The parameters of the function invoked by name (`MethodInvocation`) or
     // through the tear-off (`FunctionExpressionInvocation`).
-    let of_function = |e: ExprId| -> Option<(Option<FunctionElementId>, UnitId, &[ast::Parameter])> {
-        let f = match body.get_resolved(e)? {
-            Resolved::Member { member: MemberRef::Function(f), .. } | Resolved::Element(Element::Function(f)) => *f,
-            Resolved::ExtensionMember { member, .. } => *member,
-            Resolved::Local(_) => return local(body.local_declaration(e)?).map(|ps| (None, u, ps)),
-            _ => return None,
+    let of_function =
+        |e: ExprId| -> Option<(Option<FunctionElementId>, UnitId, &[ast::Parameter])> {
+            let f = match body.get_resolved(e)? {
+                Resolved::Member {
+                    member: MemberRef::Function(f),
+                    ..
+                }
+                | Resolved::Element(Element::Function(f)) => *f,
+                Resolved::ExtensionMember { member, .. } => *member,
+                Resolved::Local(_) => {
+                    return local(body.local_declaration(e)?).map(|ps| (None, u, ps));
+                }
+                _ => return None,
+            };
+            if program.function(f).kind == dartforge_elements::model::FunctionKind::Getter {
+                return None;
+            }
+            parameters_of(program, f).map(|(pu, ps)| (Some(f), pu, ps))
         };
-        if program.function(f).kind == dartforge_elements::model::FunctionKind::Getter {
-            return None;
-        }
-        parameters_of(program, f).map(|(pu, ps)| (Some(f), pu, ps))
-    };
     for (k, e) in a.exprs.iter().enumerate() {
         let id = ExprId(k as u32);
         match &e.kind {
@@ -300,7 +446,14 @@ pub fn findings(
                 while let ExprKind::Parenthesized(x) = &a.expr(f).kind {
                     f = *x;
                 }
-                let tgt = if matches!(a.expr(f).kind, ExprKind::Identifier(_) | ExprKind::Property { .. }) { of_function(f) } else { None };
+                let tgt = if matches!(
+                    a.expr(f).kind,
+                    ExprKind::Identifier(_) | ExprKind::Property { .. }
+                ) {
+                    of_function(f)
+                } else {
+                    None
+                };
                 cx.list(u, &parents, arguments, tgt, &mut out);
             }
             _ => {}
@@ -311,7 +464,12 @@ pub fn findings(
         let DeclKind::Enum(x) = &d.kind else { continue };
         let Some(class) = (0..program.classes.len())
             .map(|i| dartforge_elements::model::ClassId(i as u32))
-            .find(|c| program.class(*c).decl.is_some_and(|r| r.unit == u && r.decl == ast::DeclId(di as u32)))
+            .find(|c| {
+                program
+                    .class(*c)
+                    .decl
+                    .is_some_and(|r| r.unit == u && r.decl == ast::DeclId(di as u32))
+            })
         else {
             continue;
         };

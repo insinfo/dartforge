@@ -39,13 +39,20 @@ impl<'a, 'c> Isp<'a, 'c> {
     pub(super) fn entities(&self, n: usize) -> Vec<Entity> {
         let children: Vec<usize> = self.children(n).to_vec();
         let (start, end) = (self.start(n), self.end(n));
-        let mut v: Vec<(usize, Entity)> = children.iter().map(|&f| (self.start(f), Entity::No(f))).collect();
+        let mut v: Vec<(usize, Entity)> = children
+            .iter()
+            .map(|&f| (self.start(f), Entity::No(f)))
+            .collect();
         let mut i = self.tok_since(start);
         while let Some(t) = self.toks.get(i) {
             if t.span.start >= end || t.kind == Kind::Eof {
                 break;
             }
-            let inside_child = children.iter().any(|&f| self.start(f) <= t.span.start && t.span.end <= self.end(f) && self.start(f) < self.end(f));
+            let inside_child = children.iter().any(|&f| {
+                self.start(f) <= t.span.start
+                    && t.span.end <= self.end(f)
+                    && self.start(f) < self.end(f)
+            });
             if !inside_child {
                 v.push((t.span.start, Entity::Tok(i)));
             }
@@ -57,7 +64,8 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// The last token of a node (`endToken`); `None` for an empty node.
     pub(super) fn last_token(&self, n: usize) -> Option<usize> {
-        self.tok_before(self.end(n)).filter(|&i| self.span_tok(i).start >= self.start(n) && self.start(n) < self.end(n))
+        self.tok_before(self.end(n))
+            .filter(|&i| self.span_tok(i).start >= self.start(n) && self.start(n) < self.end(n))
     }
 
     /// `_isCandidateToken` for a real token.
@@ -87,7 +95,11 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_isCandidateNode`.
     fn candidate_node(&self, n: usize) -> bool {
         match self.initial(n) {
-            Initial::Tok(i) if self.span_tok(i).start < self.end(n).max(self.start(n) + 1) && self.word(i) => self.candidate_tok(i),
+            Initial::Tok(i)
+                if self.span_tok(i).start < self.end(n).max(self.start(n) + 1) && self.word(i) =>
+            {
+                self.candidate_tok(i)
+            }
             _ if self.start(n) >= self.end(n) => {
                 // Empty: the synthetic identifier (word) or another synthetic token, both
                 // at `offset <= position`.
@@ -125,7 +137,9 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// `_getContainingDocComment`: the node has the documentation comment that
     /// is `c`.
     fn documentation_comment(&self, n: usize, c: (usize, usize)) -> Option<usize> {
-        self.children_of(n, &["Comment"]).into_iter().find(|&k| self.start(k) <= c.0 && c.1 <= self.end(k))
+        self.children_of(n, &["Comment"])
+            .into_iter()
+            .find(|&k| self.start(k) <= c.0 && c.1 <= self.end(k))
     }
 
     /// `CompletionTarget.forOffset(unit, offset)`.
@@ -148,11 +162,23 @@ impl<'a, 'c> Isp<'a, 'c> {
                         }
                         if let Some(c) = self.containing_comment(self.span_tok(i).start, false) {
                             return match self.documentation_comment(node, c) {
-                                Some(d) => Target { node: d, entity: Some(Entity::Comment(c.0, c.1)), comment_text: false },
-                                None => Target { node: 0, entity: Some(Entity::Comment(c.0, c.1)), comment_text: true },
+                                Some(d) => Target {
+                                    node: d,
+                                    entity: Some(Entity::Comment(c.0, c.1)),
+                                    comment_text: false,
+                                },
+                                None => Target {
+                                    node: 0,
+                                    entity: Some(Entity::Comment(c.0, c.1)),
+                                    comment_text: true,
+                                },
                             };
                         }
-                        return Target { node, entity: Some(e), comment_text: false };
+                        return Target {
+                            node,
+                            entity: Some(e),
+                            comment_text: false,
+                        };
                     }
                     Entity::No(f) => {
                         if !self.candidate_end(f) {
@@ -165,11 +191,23 @@ impl<'a, 'c> Isp<'a, 'c> {
                             };
                             if let Some(c) = self.containing_comment(start, false) {
                                 return match self.documentation_comment(node, c) {
-                                    Some(d) => Target { node: d, entity: Some(Entity::Comment(c.0, c.1)), comment_text: false },
-                                    None => Target { node: 0, entity: Some(Entity::Comment(c.0, c.1)), comment_text: true },
+                                    Some(d) => Target {
+                                        node: d,
+                                        entity: Some(Entity::Comment(c.0, c.1)),
+                                        comment_text: false,
+                                    },
+                                    None => Target {
+                                        node: 0,
+                                        entity: Some(Entity::Comment(c.0, c.1)),
+                                        comment_text: true,
+                                    },
                                 };
                             }
-                            return Target { node, entity: Some(e), comment_text: false };
+                            return Target {
+                                node,
+                                entity: Some(e),
+                                comment_text: false,
+                            };
                         }
                         node = f;
                         continue 'external;
@@ -182,9 +220,17 @@ impl<'a, 'c> Isp<'a, 'c> {
         if node == 0
             && let Some(c) = self.containing_comment(self.source.len(), true)
         {
-            return Target { node: 0, entity: Some(Entity::Comment(c.0, c.1)), comment_text: true };
+            return Target {
+                node: 0,
+                entity: Some(Entity::Comment(c.0, c.1)),
+                comment_text: true,
+            };
         }
-        Target { node, entity: None, comment_text: false }
+        Target {
+            node,
+            entity: None,
+            comment_text: false,
+        }
     }
 
     /// The start token of an entity.
@@ -192,7 +238,9 @@ impl<'a, 'c> Isp<'a, 'c> {
         match e {
             Entity::Tok(i) => Some(i),
             Entity::No(n) => match self.initial(n) {
-                Initial::Tok(i) if self.span_tok(i).start < self.end(n).max(self.start(n) + 1) => Some(i),
+                Initial::Tok(i) if self.span_tok(i).start < self.end(n).max(self.start(n) + 1) => {
+                    Some(i)
+                }
                 _ => None,
             },
             Entity::Comment(..) => None,
@@ -215,14 +263,22 @@ impl<'a, 'c> Isp<'a, 'c> {
             Entity::Tok(i) => self.span_tok(i).start,
             Entity::Comment(a, _) => a,
         };
-        let previous: Vec<usize> = self.children(target.node).iter().copied().filter(|&f| self.end(f) <= start_and && self.kind(f) != "Comment").collect();
+        let previous: Vec<usize> = self
+            .children(target.node)
+            .iter()
+            .copied()
+            .filter(|&f| self.end(f) <= start_and && self.kind(f) != "Comment")
+            .collect();
         let last = *previous.last()?;
         let mut i = self.last_token(last)? + 1;
         while let Some(t) = self.toks.get(i) {
             if t.span.start >= start_and || t.kind == Kind::Eof {
                 break;
             }
-            let inside = self.children(target.node).iter().any(|&f| self.start(f) <= t.span.start && t.span.end <= self.end(f));
+            let inside = self
+                .children(target.node)
+                .iter()
+                .any(|&f| self.start(f) <= t.span.start && t.span.end <= self.end(f));
             if !inside && self.word(i) && t.span.start <= self.offset && self.offset <= t.span.end {
                 return Some(i);
             }
@@ -233,7 +289,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `computeReplacementRange`: `(start, length)`.
     pub(super) fn replacement_range(&self, target: &Target) -> (usize, usize) {
-        let mut token = self.dropped_token(target).or_else(|| target.entity.and_then(|e| self.entity_token(e)));
+        let mut token = self
+            .dropped_token(target)
+            .or_else(|| target.entity.and_then(|e| self.entity_token(e)));
         if let Some(t) = token
             && self.offset < self.span_tok(t).start
         {
@@ -259,16 +317,26 @@ impl<'a, 'c> Isp<'a, 'c> {
                             .children(target.node)
                             .iter()
                             .copied()
-                            .find(|&k| self.kind(k) == "SimpleStringLiteral" && self.start(k) <= self.offset && self.offset <= self.end(k))
+                            .find(|&k| {
+                                self.kind(k) == "SimpleStringLiteral"
+                                    && self.start(k) <= self.offset
+                                    && self.offset <= self.end(k)
+                            })
                             .or_else(|| {
                                 self.children_of(target.node, &["Configuration"])
                                     .into_iter()
                                     .flat_map(|c| self.children_of(c, &["SimpleStringLiteral"]))
-                                    .find(|&k| self.start(k) <= self.offset && self.offset <= self.end(k))
+                                    .find(|&k| {
+                                        self.start(k) <= self.offset && self.offset <= self.end(k)
+                                    })
                             }),
                         "SimpleStringLiteral" => {
                             let parent = self.parent(target.node);
-                            let directive = parent.filter(|&p| self.is_directive(p) || (self.kind(p) == "Configuration" && self.parent(p).is_some_and(|d| self.is_directive(d))));
+                            let directive = parent.filter(|&p| {
+                                self.is_directive(p)
+                                    || (self.kind(p) == "Configuration"
+                                        && self.parent(p).is_some_and(|d| self.is_directive(d)))
+                            });
                             directive.map(|_| target.node)
                         }
                         _ => None,
@@ -300,8 +368,15 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `TokenData.fromSelection`: the matcher's prefix.
     pub(super) fn matcher_prefix(&self) -> String {
-        let Some(c) = self.covered_node() else { return String::new() };
-        let Some(mut t) = self.tok_before(self.end(c)).or_else(|| self.tok_after(self.end(c))) else { return String::new() };
+        let Some(c) = self.covered_node() else {
+            return String::new();
+        };
+        let Some(mut t) = self
+            .tok_before(self.end(c))
+            .or_else(|| self.tok_after(self.end(c)))
+        else {
+            return String::new();
+        };
         loop {
             let s = self.span_tok(t);
             if s.start > self.offset || (s.start == self.offset && !self.word(t)) {
@@ -345,7 +420,9 @@ impl<'a, 'c> Isp<'a, 'c> {
 
     /// `targetPrefix`: the request's prefix (the handler's filter).
     pub(super) fn request_prefix(&self, target: &Target) -> String {
-        let Some(e) = target.entity else { return String::new() };
+        let Some(e) = target.entity else {
+            return String::new();
+        };
         let of_token = |i: usize| -> String {
             let s = self.span_tok(i);
             if s.start <= self.offset && self.offset < s.end {
@@ -365,7 +442,12 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             if let Kind::Str(_) = self.toks[i].kind {
                 let s = self.span_tok(i);
-                let uri = (target.node != 0 && self.kind(target.node) == "SimpleStringLiteral" && self.parent(target.node).is_some_and(|p| self.is_directive(p))).then_some(target.node);
+                let uri = (target.node != 0
+                    && self.kind(target.node) == "SimpleStringLiteral"
+                    && self
+                        .parent(target.node)
+                        .is_some_and(|p| self.is_directive(p)))
+                .then_some(target.node);
                 if s.start < self.offset
                     && self.offset < s.end
                     && let Some(u) = uri
@@ -381,7 +463,9 @@ impl<'a, 'c> Isp<'a, 'c> {
             }
             return String::new();
         }
-        let Entity::No(mut n) = e else { return String::new() };
+        let Entity::No(mut n) = e else {
+            return String::new();
+        };
         if self.kind(n) == "DeclaredVariablePattern"
             && let Some(name) = self.variable_pattern_name(n)
             && self.span_tok(name).start <= self.offset
@@ -408,9 +492,10 @@ impl<'a, 'c> Isp<'a, 'c> {
     /// constant context.
     pub(super) fn request_in_constant_context(&self, target: &Target) -> bool {
         match target.entity {
-            Some(Entity::No(n)) => super::isp::EXPRESSION_KINDS.contains(&self.kind(n)) && self.constant_context(n),
+            Some(Entity::No(n)) => {
+                super::isp::EXPRESSION_KINDS.contains(&self.kind(n)) && self.constant_context(n)
+            }
             _ => false,
         }
     }
-
 }

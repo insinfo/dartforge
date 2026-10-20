@@ -35,8 +35,11 @@ use dartforge_types::table::TypeId;
 pub fn instance_owner(ctx: &Context, fid: usize) -> Option<ClassId> {
     let f = &ctx.program.functions[fid];
     let c = f.class?;
-    (ctx.is_extension_type(c) && !f.static_ && f.variable.is_none() && matches!(f.node, FunctionRef::Function { .. }))
-        .then_some(c)
+    (ctx.is_extension_type(c)
+        && !f.static_
+        && f.variable.is_none()
+        && matches!(f.node, FunctionRef::Function { .. }))
+    .then_some(c)
 }
 
 /// The name of the primary constructor of `c` (the empty symbol for the unnamed one).
@@ -63,7 +66,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return Some((x.type_params.len(), x.on));
         }
         let c = instance_owner(self.ctx, fid)?;
-        let n = self.ctx.outline.classes.get(c.0 as usize).map_or(0, |d| d.type_params.len());
+        let n = self
+            .ctx
+            .outline
+            .classes
+            .get(c.0 as usize)
+            .map_or(0, |d| d.type_params.len());
         Some((n, *self.ctx.te.this.get(&c)?))
     }
 
@@ -76,7 +84,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The static type of the implicit receiver (`this`) in a member of an extension
     /// or of an extension type.
     pub fn implicit_receiver(&self) -> Option<TypeId> {
-        self.this_extension.map(|(_, on)| on).or(self.this_ext_type.map(|(_, t)| t))
+        self.this_extension
+            .map(|(_, on)| on)
+            .or(self.this_ext_type.map(|(_, t)| t))
     }
 
     /// The extension type instance member that inference resolved
@@ -88,7 +98,14 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// [`Self::member_te`] of an already read resolution.
     pub fn resolved_member_te(&self, r: Option<&Resolved>) -> Option<MemberRef> {
-        let Some(Resolved::Member { class, member, via_super: false }) = r else { return None };
+        let Some(Resolved::Member {
+            class,
+            member,
+            via_super: false,
+        }) = r
+        else {
+            return None;
+        };
         if !self.ctx.is_extension_type(*class) {
             return None;
         }
@@ -109,21 +126,30 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             },
         };
         let var = &self.ctx.program.variables[v.0 as usize];
-        var.class.is_some_and(|c| self.ctx.program.classes[c.0 as usize].representation == Some(v))
+        var.class
+            .is_some_and(|c| self.ctx.program.classes[c.0 as usize].representation == Some(v))
     }
 
     /// The function of the extension type member resolved for `e` (the
     /// representation is left out: it is not called).
     pub fn function_te(&self, e: ExprId) -> Option<usize> {
         match self.member_te(e)? {
-            MemberRef::Function(f) if !self.is_representation(MemberRef::Function(f)) => Some(f.0 as usize),
+            MemberRef::Function(f) if !self.is_representation(MemberRef::Function(f)) => {
+                Some(f.0 as usize)
+            }
             _ => None,
         }
     }
 
     /// `recv.m`: the representation is the receiver itself; the getter is called; the
     /// method becomes a tear-off.
-    pub fn read_member_te(&mut self, recv: Operand, m: MemberRef, receiver: Option<TypeId>, span: Span) -> Operand {
+    pub fn read_member_te(
+        &mut self,
+        recv: Operand,
+        m: MemberRef,
+        receiver: Option<TypeId>,
+        span: Span,
+    ) -> Operand {
         if self.is_representation(m) {
             return recv;
         }
@@ -144,7 +170,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 },
                 _ => return None,
             },
-            ExprKind::Property { target, name, null_aware: false } => match self.prefixed_element(ast, *target, name.sym)? {
+            ExprKind::Property {
+                target,
+                name,
+                null_aware: false,
+            } => match self.prefixed_element(ast, *target, name.sym)? {
                 Element::Class(c) => c,
                 _ => return None,
             },
@@ -159,10 +189,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         if let Some(c) = self.named_extension_type(ast, target) {
             return Some((c, self.ctx.interner.lookup("")?));
         }
-        let ExprKind::Property { target, name, null_aware: false } = &ast.expr(target).kind else { return None };
+        let ExprKind::Property {
+            target,
+            name,
+            null_aware: false,
+        } = &ast.expr(target).kind
+        else {
+            return None;
+        };
         let c = self.named_extension_type(ast, *target)?;
         let is_constructor = primary_name(self.ctx, c) == Some(name.sym)
-            || self.ctx.program.classes[c.0 as usize].constructors.contains_key(&name.sym);
+            || self.ctx.program.classes[c.0 as usize]
+                .constructors
+                .contains_key(&name.sym);
         is_constructor.then_some((c, name.sym))
     }
 
@@ -191,7 +230,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 None => v,
             };
         }
-        let Some(&f) = self.ctx.program.classes[c.0 as usize].constructors.get(&name_str) else {
+        let Some(&f) = self.ctx.program.classes[c.0 as usize]
+            .constructors
+            .get(&name_str)
+        else {
             return self.unsupported("extension type constructor not found", span);
         };
         self.creation_type = self.ctx.get_type_raw(self.unit_id, expr);
@@ -200,9 +242,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
     /// Tear-off of an extension type constructor (`E.new`, `E.name`): the
     /// primary one returns the argument; the others are those of an ordinary constructor.
-    pub fn constructor_tearoff_te(&mut self, expr: ExprId, c: ClassId, name_str: SymbolId, span: Span) -> Operand {
+    pub fn constructor_tearoff_te(
+        &mut self,
+        expr: ExprId,
+        c: ClassId,
+        name_str: SymbolId,
+        span: Span,
+    ) -> Operand {
         if primary_name(self.ctx, c) != Some(name_str) {
-            let Some(&f) = self.ctx.program.classes[c.0 as usize].constructors.get(&name_str) else {
+            let Some(&f) = self.ctx.program.classes[c.0 as usize]
+                .constructors
+                .get(&name_str)
+            else {
                 return self.unsupported("extension type constructor not found", span);
             };
             return self.constructor_tearoff(f.0 as usize, span);
@@ -215,22 +266,40 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         );
         if !self.done_entries.contains(&symbol_ent) {
             self.done_entries.insert(symbol_ent.clone());
-            let rep_name = class
-                .representation
-                .map(|v| self.ctx.symbol_name(self.ctx.program.variables[v.0 as usize].name).to_string());
-            let mut e = FnBuilder::new(self.ctx, self.unit_id, symbol_ent.clone(), "new".to_string(), Type::Ref);
+            let rep_name = class.representation.map(|v| {
+                self.ctx
+                    .symbol_name(self.ctx.program.variables[v.0 as usize].name)
+                    .to_string()
+            });
+            let mut e = FnBuilder::new(
+                self.ctx,
+                self.unit_id,
+                symbol_ent.clone(),
+                "new".to_string(),
+                Type::Ref,
+            );
             e.add_param("closure".to_string(), Type::Ref);
             let args = Operand::Val(e.add_param_vector(DartEntryVector::Arguments));
             let desc = Operand::Val(e.add_param_vector(DartEntryVector::Descriptor));
             e.declare_arc_uniform_return();
-            let infos = [EntryParam { name: rep_name, kind: ParameterKind::Required, required: true, pattern: DefaultValue::Absent }];
+            let infos = [EntryParam {
+                name: rep_name,
+                kind: ParameterKind::Required,
+                required: true,
+                pattern: DefaultValue::Absent,
+            }];
             if let Some(vals) = e.unpack(&infos, args, desc) {
                 let v = e.coerce(vals[0].clone(), Type::Ref);
                 e.terminate(Terminator::Return(Some(v)));
             }
             self.absorb(e);
         }
-        let t = self.emit(Instruction::TearOff { code_symbol: symbol_ent }, Type::Ref);
+        let t = self.emit(
+            Instruction::TearOff {
+                code_symbol: symbol_ent,
+            },
+            Type::Ref,
+        );
         // The signature is the static type of the tear-off (`E Function(R)`),
         // erased.
         if let Some(sig) = self.ctx.get_type_raw(self.unit_id, expr) {
@@ -247,7 +316,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// initializers give the representation (`this.v`, `v = e` or `this(…)`),
     /// which is `this` in the body and the returned value. The parameters are already
     /// declared; in a generic class, the tuple comes at the end, as in a factory.
-    pub fn lower_constructor_te(&mut self, ast: &ast::Ast, c: ClassId, ctor: &ast::Constructor, span: Span) {
+    pub fn lower_constructor_te(
+        &mut self,
+        ast: &ast::Ast,
+        c: ClassId,
+        ctor: &ast::Constructor,
+        span: Span,
+    ) {
         self.enclosing_class = Some(c);
         self.member_class = Some(c);
         if self.generic_class(c) {
@@ -275,18 +350,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 ast::Initializer::Field { span, .. } => {
                     self.unsupported("instance field of an extension type", *span);
                 }
-                ast::Initializer::Assert { condition, message, .. } => self.lower_assert(ast, *condition, *message),
-                ast::Initializer::Redirect { constructor, arguments, span } => {
+                ast::Initializer::Assert {
+                    condition, message, ..
+                } => self.lower_assert(ast, *condition, *message),
+                ast::Initializer::Redirect {
+                    constructor,
+                    arguments,
+                    span,
+                } => {
                     let name_str = match constructor {
                         Some(n) => Some(n.sym),
                         None => self.ctx.interner.lookup(""),
                     };
                     val_ref = Some(match name_str {
-                        Some(n) if primary_name(self.ctx, c) == Some(n) => match arguments.args.first() {
-                            Some(a) => self.lower_expr(ast, a.value),
-                            None => self.unsupported("primary constructor without an argument", *span),
-                        },
-                        Some(n) => match self.ctx.program.classes[c.0 as usize].constructors.get(&n).copied() {
+                        Some(n) if primary_name(self.ctx, c) == Some(n) => {
+                            match arguments.args.first() {
+                                Some(a) => self.lower_expr(ast, a.value),
+                                None => self
+                                    .unsupported("primary constructor without an argument", *span),
+                            }
+                        }
+                        Some(n) => match self.ctx.program.classes[c.0 as usize]
+                            .constructors
+                            .get(&n)
+                            .copied()
+                        {
                             Some(f) => {
                                 let evaluated = self.evaluate_args(ast, &arguments.args);
                                 self.creation_type = this_t;
@@ -308,7 +396,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let ret = self.func.return_ty;
         let v = match val_ref {
             Some(v) => self.coerce(v, ret),
-            None => self.unsupported("extension type constructor without the representation", span),
+            None => self.unsupported(
+                "extension type constructor without the representation",
+                span,
+            ),
         };
         self.this_param = Some(v.clone());
         self.finalizable_this = self.ctx.classify_finalizable_class(c);
@@ -344,7 +435,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> Operand {
         let getter = match m {
             MemberRef::Function(f) => {
-                self.ctx.program.functions[f.0 as usize].kind == dartforge_elements::model::FunctionKind::Getter
+                self.ctx.program.functions[f.0 as usize].kind
+                    == dartforge_elements::model::FunctionKind::Getter
             }
             MemberRef::Variable(_) => true,
         };
@@ -353,9 +445,18 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let evaluated = self.evaluate_args(ast, &arguments.args);
             return self.call_function_value(v, &evaluated);
         }
-        let MemberRef::Function(f) = m else { unreachable!("field handled above") };
+        let MemberRef::Function(f) = m else {
+            unreachable!("field handled above")
+        };
         let evaluated = self.evaluate_args(ast, &arguments.args);
-        self.call_extension(recv, f.0 as usize, &evaluated, receiver, Some((expr, arguments)), span)
+        self.call_extension(
+            recv,
+            f.0 as usize,
+            &evaluated,
+            receiver,
+            Some((expr, arguments)),
+            span,
+        )
     }
 
     /// Member `sym` seen without a receiver in the body of a member of the current
@@ -377,13 +478,35 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 continue;
             }
             let class = &self.ctx.program.classes[c.0 as usize];
-            if let Some(&f) = class.instance_members.get(&sym).or_else(|| class.static_members.get(&sym)) {
-                return Some(Resolved::Member { class: c, member: MemberRef::Function(f), via_super: false });
+            if let Some(&f) = class
+                .instance_members
+                .get(&sym)
+                .or_else(|| class.static_members.get(&sym))
+            {
+                return Some(Resolved::Member {
+                    class: c,
+                    member: MemberRef::Function(f),
+                    via_super: false,
+                });
             }
-            if let Some(&v) = class.fields.iter().find(|&&v| self.ctx.program.variables[v.0 as usize].name == sym) {
-                return Some(Resolved::Member { class: c, member: MemberRef::Variable(v), via_super: false });
+            if let Some(&v) = class
+                .fields
+                .iter()
+                .find(|&&v| self.ctx.program.variables[v.0 as usize].name == sym)
+            {
+                return Some(Resolved::Member {
+                    class: c,
+                    member: MemberRef::Variable(v),
+                    via_super: false,
+                });
             }
-            queue.extend(class.interface_classes.iter().copied().filter(|&i| self.ctx.is_extension_type(i)));
+            queue.extend(
+                class
+                    .interface_classes
+                    .iter()
+                    .copied()
+                    .filter(|&i| self.ctx.is_extension_type(i)),
+            );
         }
         None
     }
@@ -393,10 +516,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// The instance member `sym` of the owner of `fid` (the same extension; the
     /// same extension type or an extension type it implements):
     /// the getter/setter pair and the `[]=` of the `[]` in a compound write.
-    pub fn accessor_of_same_owner(&self, fid: usize, sym: SymbolId) -> Option<dartforge_elements::model::FunctionElementId> {
+    pub fn accessor_of_same_owner(
+        &self,
+        fid: usize,
+        sym: SymbolId,
+    ) -> Option<dartforge_elements::model::FunctionElementId> {
         let f = &self.ctx.program.functions[fid];
         if let Some(e) = f.extension {
-            return self.ctx.program.extensions[e.0 as usize].instance_members.get(&sym).copied();
+            return self.ctx.program.extensions[e.0 as usize]
+                .instance_members
+                .get(&sym)
+                .copied();
         }
         let c0 = f.class.filter(|&c| self.ctx.is_extension_type(c))?;
         let mut queue = std::collections::VecDeque::from([c0]);
@@ -409,7 +539,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if let Some(&g) = class.instance_members.get(&sym) {
                 return Some(g);
             }
-            queue.extend(class.interface_classes.iter().copied().filter(|&i| self.ctx.is_extension_type(i)));
+            queue.extend(
+                class
+                    .interface_classes
+                    .iter()
+                    .copied()
+                    .filter(|&i| self.ctx.is_extension_type(i)),
+            );
         }
         None
     }

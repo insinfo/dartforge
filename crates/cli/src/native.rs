@@ -14,39 +14,45 @@ fn disabled(command: &str) -> Outcome {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn abi_info(_args: &[std::ffi::OsString]) -> Outcome { disabled("abi-info") }
+pub fn abi_info(_args: &[std::ffi::OsString]) -> Outcome {
+    disabled("abi-info")
+}
 #[cfg(not(feature = "native"))]
-pub fn aot(_args: &[std::ffi::OsString]) -> Outcome { disabled("aot") }
+pub fn aot(_args: &[std::ffi::OsString]) -> Outcome {
+    disabled("aot")
+}
 #[cfg(not(feature = "native"))]
-pub fn run_compile_native(_args: &[std::ffi::OsString]) -> Outcome { disabled("compile-native") }
+pub fn run_compile_native(_args: &[std::ffi::OsString]) -> Outcome {
+    disabled("compile-native")
+}
 
 #[cfg(feature = "native")]
 pub fn abi_info(args: &[std::ffi::OsString]) -> Outcome {
-        use dartforge_abi::{NativeType, Target};
-        if args.len() != 2 {
-            return Err("usage: dartforge abi-info <windows-x64|linux-x64|wasm32>".into());
-        }
-        let target = match args[1].to_str() {
-            Some("windows-x64") => Target::WindowsX64,
-            Some("linux-x64") => Target::LinuxX64,
-            Some("wasm32") => Target::Wasm32,
-            _ => return Err("unknown ABI profile".into()),
-        };
-        let layouts: Vec<_> = [NativeType::Int32, NativeType::Int64, NativeType::Double, NativeType::Pointer]
+    use dartforge_abi::{NativeType, Target};
+    if args.len() != 2 {
+        return Err("usage: dartforge abi-info <windows-x64|linux-x64|wasm32>".into());
+    }
+    let target = match args[1].to_str() {
+        Some("windows-x64") => Target::WindowsX64,
+        Some("linux-x64") => Target::LinuxX64,
+        Some("wasm32") => Target::Wasm32,
+        _ => return Err("unknown ABI profile".into()),
+    };
+    let layouts: Vec<_> = [NativeType::Int32, NativeType::Int64, NativeType::Double, NativeType::Pointer]
             .iter().map(|ty| {
                 let (size, alignment) = ty.layout(target).expect("scalar type");
                 serde_json::json!({"native_type":format!("{ty:?}"),"llvm":ty.llvm(),"size":size,"alignment":alignment})
             }).collect();
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "schema_version":1,"triple":target.triple(),"pointer_bits":target.pointer_bits(),
-                "native_type_layouts":layouts,"profile_supports_dynamic_libraries":target.supports_dynamic_libraries(),
-                "ffi_execution_implemented":false,"native_static_scalar_bindings_implemented":true,"wasm_emission_implemented":false,
-                "note":"Full FFI still pending. Host AOT accepts @Native Int32/Int64/Void with explicitly linked objects; it does not load libraries dynamically. Cross AOT uses --target and --target-bundle; abi-info profiles only describe FFI layouts."
-            }))?
-        );
-        Ok(())
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "schema_version":1,"triple":target.triple(),"pointer_bits":target.pointer_bits(),
+            "native_type_layouts":layouts,"profile_supports_dynamic_libraries":target.supports_dynamic_libraries(),
+            "ffi_execution_implemented":false,"native_static_scalar_bindings_implemented":true,"wasm_emission_implemented":false,
+            "note":"Full FFI still pending. Host AOT accepts @Native Int32/Int64/Void with explicitly linked objects; it does not load libraries dynamically. Cross AOT uses --target and --target-bundle; abi-info profiles only describe FFI layouts."
+        }))?
+    );
+    Ok(())
 }
 
 #[cfg(feature = "native")]
@@ -58,7 +64,9 @@ pub fn abi_info(args: &[std::ffi::OsString]) -> Outcome {
 #[allow(unsafe_code)]
 fn set_exception_model(value: &str) -> Result<(), String> {
     if value != "check" && value != "tables" {
-        return Err(format!("--exceptions={value}: the exception models are `check` and `tables`"));
+        return Err(format!(
+            "--exceptions={value}: the exception models are `check` and `tables`"
+        ));
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
@@ -74,7 +82,9 @@ fn set_exception_model(value: &str) -> Result<(), String> {
 #[allow(unsafe_code)]
 pub(crate) fn set_memory_policy(value: &str) -> Result<(), String> {
     if value != "tracing" && value != "arc" {
-        return Err(format!("--memory={value}: the memory policies are `tracing` and `arc`"));
+        return Err(format!(
+            "--memory={value}: the memory policies are `tracing` and `arc`"
+        ));
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
@@ -105,7 +115,9 @@ fn set_subsystem(value: &str) -> Result<(), String> {
 #[allow(unsafe_code)]
 fn set_roots_mode(value: &str) -> Result<(), String> {
     if value != "shadow" && value != "maps" {
-        return Err(format!("--roots={value}: the root modes are `shadow` and `maps`"));
+        return Err(format!(
+            "--roots={value}: the root modes are `shadow` and `maps`"
+        ));
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
@@ -122,7 +134,9 @@ fn set_roots_mode(value: &str) -> Result<(), String> {
 #[allow(unsafe_code)]
 fn set_stack_trace(value: &str) -> Result<(), String> {
     if value != "symbolic" && value != "none" {
-        return Err(format!("--stack-trace={value}: the stack traces are `symbolic` and `none`"));
+        return Err(format!(
+            "--stack-trace={value}: the stack traces are `symbolic` and `none`"
+        ));
     }
     // SAFETY: the CLI is still reading the options, on the main thread, before
     // creating the compilation thread: no other thread reads the environment.
@@ -139,7 +153,14 @@ fn set_stack_trace(value: &str) -> Result<(), String> {
 /// `run`/JIT and the differential harness keep.
 fn dart_flags(optimize: bool, enable_asserts: bool) -> dartforge_emit_native::DartFlags {
     use dartforge_emit_native::DartFlags;
-    if optimize { DartFlags { enable_asserts, ..DartFlags::PRODUCTION } } else { DartFlags::DEVELOPMENT }
+    if optimize {
+        DartFlags {
+            enable_asserts,
+            ..DartFlags::PRODUCTION
+        }
+    } else {
+        DartFlags::DEVELOPMENT
+    }
 }
 
 #[cfg(feature = "native")]
@@ -187,67 +208,88 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
             Some("--debug") => debug = true,
             Some("--timings") => timings = true,
             Some("--cpu") => {
-                let name = flags.next().and_then(|v| v.to_str()).ok_or("--cpu requires the CPU name")?;
+                let name = flags
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--cpu requires the CPU name")?;
                 cpu = Some(dartforge_emit_native::generator::Cpu::from_name(name)?);
             }
-            Some("--sdk") => sdk = Some(PathBuf::from(flags.next().ok_or("--sdk requires a path")?)),
+            Some("--sdk") => {
+                sdk = Some(PathBuf::from(flags.next().ok_or("--sdk requires a path")?))
+            }
             Some("--packages") => {
-                packages = Some(PathBuf::from(flags.next().ok_or("--packages requires a path")?))
+                packages = Some(PathBuf::from(
+                    flags.next().ok_or("--packages requires a path")?,
+                ))
             }
             Some("--memory") => {
-                let value = flags.next().and_then(|v| v.to_str()).ok_or("--memory requires tracing or arc")?;
+                let value = flags
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--memory requires tracing or arc")?;
                 set_memory_policy(value)?;
             }
             Some(option) if option.starts_with("--memory=") => {
                 set_memory_policy(&option["--memory=".len()..])?;
             }
             Some("--dartforge-contracts") => {
-                let value = flags.next().and_then(|v| v.to_str()).ok_or("--dartforge-contracts requires verify or ignore")?;
+                let value = flags
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--dartforge-contracts requires verify or ignore")?;
                 contracts = dartforge_emit_native::contracts::ContractMode::from_name(value)?;
             }
             Some(option) if option.starts_with("--dartforge-contracts=") => {
-                contracts = dartforge_emit_native::contracts::ContractMode::from_name(&option["--dartforge-contracts=".len()..])?;
+                contracts = dartforge_emit_native::contracts::ContractMode::from_name(
+                    &option["--dartforge-contracts=".len()..],
+                )?;
             }
             Some("--subsystem") => {
-                let value = flags.next().and_then(|v| v.to_str()).ok_or("--subsystem requires console or gui")?;
+                let value = flags
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--subsystem requires console or gui")?;
                 set_subsystem(value)?;
             }
             Some(option) if option.starts_with("--subsystem=") => {
                 set_subsystem(&option["--subsystem=".len()..])?;
             }
             Some("--roots") => {
-                let value = flags.next().and_then(|v| v.to_str()).ok_or("--roots requires shadow or maps")?;
+                let value = flags
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--roots requires shadow or maps")?;
                 set_roots_mode(value)?;
             }
             Some(option) if option.starts_with("--roots=") => {
                 set_roots_mode(&option["--roots=".len()..])?;
             }
             Some("--exceptions") => {
-                let value = flags.next().and_then(|v| v.to_str()).ok_or("--exceptions requires check or tables")?;
+                let value = flags
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--exceptions requires check or tables")?;
                 set_exception_model(value)?;
             }
             Some(option) if option.starts_with("--exceptions=") => {
                 set_exception_model(&option["--exceptions=".len()..])?;
             }
             Some("--stack-trace") => {
-                let value = flags.next().and_then(|v| v.to_str()).ok_or("--stack-trace requires symbolic or none")?;
+                let value = flags
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--stack-trace requires symbolic or none")?;
                 set_stack_trace(value)?;
             }
             Some(option) if option.starts_with("--stack-trace=") => {
                 set_stack_trace(&option["--stack-trace=".len()..])?;
             }
-            Some("--merge-identical-functions") | Some("--link-object") => {
-                return Err(format!(
-                    "{} belonged to the old track and does not exist in the current native compiler",
-                    flag.to_string_lossy()
-                )
-                .into())
-            }
-            _ => {
-                return Err(
-                    format!("unknown AOT option: {}", flag.to_string_lossy()).into()
-                )
-            }
+            Some("--merge-identical-functions") | Some("--link-object") => return Err(format!(
+                "{} belonged to the old track and does not exist in the current native compiler",
+                flag.to_string_lossy()
+            )
+            .into()),
+            _ => return Err(format!("unknown AOT option: {}", flag.to_string_lossy()).into()),
         }
     }
 
@@ -258,7 +300,8 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
         .spawn(move || {
             // The project's build engine, if it uses builders (DF-BUILD-009).
             crate::engine::with_generator(&input, packages.as_deref(), |generator| {
-                let options = dartforge_emit_native::CompileOptions { contracts,
+                let options = dartforge_emit_native::CompileOptions {
+                    contracts,
                     sdk: sdk.as_deref(),
                     packages: packages.as_deref(),
                     timings,
@@ -270,7 +313,8 @@ pub fn aot(args: &[std::ffi::OsString]) -> Outcome {
                     cpu,
                 };
                 let flags = dart_flags(optimize, enable_asserts);
-                dartforge_emit_native::compile_with_flags(&input, &output, &options, flags).map_err(|e| e.to_string())
+                dartforge_emit_native::compile_with_flags(&input, &output, &options, flags)
+                    .map_err(|e| e.to_string())
             })
         })
         .map_err(|e| e.to_string())?
@@ -330,7 +374,10 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             Some("--packages") => packages = Some(PathBuf::from(it.next().ok_or(usage)?)),
             Some("--timings") => timings = true,
             Some("--cpu") => {
-                let name = it.next().and_then(|v| v.to_str()).ok_or("--cpu requires the CPU name")?;
+                let name = it
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--cpu requires the CPU name")?;
                 cpu = Some(dartforge_emit_native::generator::Cpu::from_name(name)?);
             }
             Some("--optimize") => optimize = true,
@@ -339,42 +386,62 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             Some("--emit-ir") => emit_ir = true,
             Some("--digest") => digest = true,
             Some("--memory") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--memory requires tracing or arc")?;
+                let value = it
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--memory requires tracing or arc")?;
                 set_memory_policy(value)?;
             }
             Some(option) if option.starts_with("--memory=") => {
                 set_memory_policy(&option["--memory=".len()..])?;
             }
             Some("--dartforge-contracts") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--dartforge-contracts requires verify or ignore")?;
+                let value = it
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--dartforge-contracts requires verify or ignore")?;
                 contracts = dartforge_emit_native::contracts::ContractMode::from_name(value)?;
             }
             Some(option) if option.starts_with("--dartforge-contracts=") => {
-                contracts = dartforge_emit_native::contracts::ContractMode::from_name(&option["--dartforge-contracts=".len()..])?;
+                contracts = dartforge_emit_native::contracts::ContractMode::from_name(
+                    &option["--dartforge-contracts=".len()..],
+                )?;
             }
             Some("--subsystem") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--subsystem requires console or gui")?;
+                let value = it
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--subsystem requires console or gui")?;
                 set_subsystem(value)?;
             }
             Some(option) if option.starts_with("--subsystem=") => {
                 set_subsystem(&option["--subsystem=".len()..])?;
             }
             Some("--roots") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--roots requires shadow or maps")?;
+                let value = it
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--roots requires shadow or maps")?;
                 set_roots_mode(value)?;
             }
             Some(option) if option.starts_with("--roots=") => {
                 set_roots_mode(&option["--roots=".len()..])?;
             }
             Some("--exceptions") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--exceptions requires check or tables")?;
+                let value = it
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--exceptions requires check or tables")?;
                 set_exception_model(value)?;
             }
             Some(option) if option.starts_with("--exceptions=") => {
                 set_exception_model(&option["--exceptions=".len()..])?;
             }
             Some("--stack-trace") => {
-                let value = it.next().and_then(|v| v.to_str()).ok_or("--stack-trace requires symbolic or none")?;
+                let value = it
+                    .next()
+                    .and_then(|v| v.to_str())
+                    .ok_or("--stack-trace requires symbolic or none")?;
                 set_stack_trace(value)?;
             }
             Some(option) if option.starts_with("--stack-trace=") => {
@@ -382,10 +449,13 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
             }
             Some("--language-version" | "--enable-experiment") => {
                 let value = it.next().and_then(|v| v.to_str()).ok_or(usage)?;
-                language.read_option(a.to_str().unwrap_or_default(), &mut std::iter::once(value))?;
+                language
+                    .read_option(a.to_str().unwrap_or_default(), &mut std::iter::once(value))?;
             }
-            Some(option) if option.starts_with("--language-version=")
-                || option.starts_with("--enable-experiment=") => {
+            Some(option)
+                if option.starts_with("--language-version=")
+                    || option.starts_with("--enable-experiment=") =>
+            {
                 language.read_option(option, &mut std::iter::empty::<&str>())?;
             }
             _ if input.is_none() => input = Some(PathBuf::from(a)),
@@ -425,7 +495,8 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
         .stack_size(1 << 30)
         .spawn(move || {
             crate::engine::with_generator(&i2, p2.as_deref(), |generator| {
-                let options = dartforge_emit_native::CompileOptions { contracts,
+                let options = dartforge_emit_native::CompileOptions {
+                    contracts,
                     sdk: s2.as_deref(),
                     packages: p2.as_deref(),
                     timings,
@@ -436,7 +507,8 @@ pub fn run_compile_native(args: &[std::ffi::OsString]) -> Result<(), Box<dyn std
                     generator,
                     cpu,
                 };
-                dartforge_emit_native::compile_with_flags(&i2, &o2, &options, flags).map_err(|e| e.to_string())
+                dartforge_emit_native::compile_with_flags(&i2, &o2, &options, flags)
+                    .map_err(|e| e.to_string())
             })
         })
         .map_err(|e| e.to_string())?
@@ -527,22 +599,44 @@ fn emit_native_ir(command: IrEmission) -> Outcome {
 /// Remove destination flags before the per-command option parser. Selection is
 /// process-wide and happens before compiler workers or target-dependent caches.
 #[cfg(feature = "native")]
-pub fn select_destination(args: &mut Vec<std::ffi::OsString>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn select_destination(
+    args: &mut Vec<std::ffi::OsString>,
+) -> Result<(), Box<dyn std::error::Error>> {
     use dartforge_emit_native::target::{self, NativeTarget};
-    let allowed = args.first().is_some_and(|a| a == "aot" || a == "compile-native");
-    if cfg!(windows) && !cfg!(target_arch = "x86_64") && args.first().is_some_and(|a|
-        a == "aot" || a == "compile-native" || a == "run" || a == "reload" || a == "pack" || a == "export-target") {
+    let allowed = args
+        .first()
+        .is_some_and(|a| a == "aot" || a == "compile-native");
+    if cfg!(windows)
+        && !cfg!(target_arch = "x86_64")
+        && args.first().is_some_and(|a| {
+            a == "aot"
+                || a == "compile-native"
+                || a == "run"
+                || a == "reload"
+                || a == "pack"
+                || a == "export-target"
+        })
+    {
         return Err("the native Windows compiler/runtime currently requires x64; build DartForge with --target x86_64-pc-windows-msvc (runs on Windows ARM64 through x64 compatibility)".into());
     }
     let mut target = None;
     let mut bundle = None;
     let mut index = 1;
     while index < args.len() {
-        if args[index] == "--" { break; }
+        if args[index] == "--" {
+            break;
+        }
         let text = args[index].to_str().unwrap_or("");
-        let (key, inline) = text.split_once('=').map_or((text, None), |(k,v)| (k,Some(v.to_string())));
-        if key != "--target" && key != "--target-bundle" { index += 1; continue; }
-        if !allowed { return Err("--target and --target-bundle are only valid for aot and compile-native; JIT runs on its host".into()); }
+        let (key, inline) = text
+            .split_once('=')
+            .map_or((text, None), |(k, v)| (k, Some(v.to_string())));
+        if key != "--target" && key != "--target-bundle" {
+            index += 1;
+            continue;
+        }
+        if !allowed {
+            return Err("--target and --target-bundle are only valid for aot and compile-native; JIT runs on its host".into());
+        }
         let key = key.to_string();
         args.remove(index);
         let value = match inline {
@@ -551,15 +645,23 @@ pub fn select_destination(args: &mut Vec<std::ffi::OsString>) -> Result<(), Box<
             None => return Err(format!("{key} requires a value").into()),
         };
         if key == "--target" {
-            if target.is_some() { return Err("--target specified twice".into()); }
-            target = Some(NativeTarget::parse(value.to_str().ok_or("target must be UTF-8")?)?);
+            if target.is_some() {
+                return Err("--target specified twice".into());
+            }
+            target = Some(NativeTarget::parse(
+                value.to_str().ok_or("target must be UTF-8")?,
+            )?);
         } else {
-            if bundle.is_some() { return Err("--target-bundle specified twice".into()); }
+            if bundle.is_some() {
+                return Err("--target-bundle specified twice".into());
+            }
             bundle = Some(std::path::PathBuf::from(value));
         }
     }
     let target = target.unwrap_or_else(NativeTarget::host);
-    if let Some(bundle) = bundle { dartforge_emit_native::cross::select_bundle(&bundle, target)?; }
+    if let Some(bundle) = bundle {
+        dartforge_emit_native::cross::select_bundle(&bundle, target)?;
+    }
     target::select(target)?;
     Ok(())
 }

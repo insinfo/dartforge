@@ -35,9 +35,9 @@ fn private_named_only_with_this_and_in_312() {
     let (p, _) = parse_at((3, 11), source);
     assert_eq!(p.diagnostics.len(), 1);
     assert!(
-        p.diagnostics[0]
-            .message
-            .contains("This requires the 'private-named-parameters' language feature to be enabled.")
+        p.diagnostics[0].message.contains(
+            "This requires the 'private-named-parameters' language feature to be enabled."
+        )
     );
 
     for (source, excerpt) in [
@@ -136,7 +136,9 @@ fn dot_shorthand_in_310() {
     );
     let (p, _) = parse_at((3, 10), "var x = const .zero;");
     assert!(
-        messages(&p).iter().any(|m| m.contains("Expected to find '('.")),
+        messages(&p)
+            .iter()
+            .any(|m| m.contains("Expected to find '('.")),
         "{:?}",
         messages(&p)
     );
@@ -221,9 +223,8 @@ fn primary_constructor_is_elaborated_in_tree() {
 
     let (p, _) = parse_at((3, 12), "class P(var int x);");
     assert!(
-        messages(&p)
-            .iter()
-            .any(|m| m.contains("This requires the 'primary-constructors' language feature to be enabled.")),
+        messages(&p).iter().any(|m| m
+            .contains("This requires the 'primary-constructors' language feature to be enabled.")),
         "{:?}",
         messages(&p)
     );
@@ -266,12 +267,18 @@ fn primary_constructor_errors() {
             "class C(int x) { this {} this {} }",
             "Only one primary constructor body declaration is allowed.",
         ),
-        ("class C(int x) { C.outro(); }", "can't have non-redirecting generative constructors"),
+        (
+            "class C(int x) { C.outro(); }",
+            "can't have non-redirecting generative constructors",
+        ),
         (
             "class const C(final int x) { this { } }",
             "The body part of a constant primary constructor can't have a block body.",
         ),
-        ("class C(int x) { this => 1; }", "A primary constructor body can't use '=>'."),
+        (
+            "class C(int x) { this => 1; }",
+            "A primary constructor body can't use '=>'.",
+        ),
         (
             "class C(covariant int x);",
             "Can't have modifier 'covariant' in a primary constructor.",

@@ -25,7 +25,7 @@
 //!   `splitOverlappingTokens`, and multi-line tokens broken per line when
 //!   the client does not accept `multilineTokenSupport`.
 
-use crate::project::{Project, type_parameter_declaration, is_prefix};
+use crate::project::{Project, is_prefix, type_parameter_declaration};
 use dartforge_diagnostics::Span;
 use dartforge_elements::model::{Element, FunctionKind, UnitId};
 use dartforge_frontend::ast::{self, DeclKind, ExprKind, MemberKind, StmtKind, TypeKind};
@@ -36,14 +36,41 @@ use std::collections::HashMap;
 /// Token types in the order of the Dart 3.6.2 legend (the index is the
 /// number sent to the client).
 pub(crate) const TYPES: &[&str] = &[
-    "annotation", "keyword", "class", "comment", "method", "variable", "parameter", "enum", "enumMember", "type",
-    "source", "property", "namespace", "boolean", "number", "string", "function", "typeParameter",
+    "annotation",
+    "keyword",
+    "class",
+    "comment",
+    "method",
+    "variable",
+    "parameter",
+    "enum",
+    "enumMember",
+    "type",
+    "source",
+    "property",
+    "namespace",
+    "boolean",
+    "number",
+    "string",
+    "function",
+    "typeParameter",
 ];
 
 /// Modifiers in the order of the Dart 3.6.2 legend (the index is the bit).
 pub(crate) const MODIFIERS: &[&str] = &[
-    "documentation", "constructor", "declaration", "importPrefix", "instance", "static", "escape", "annotation",
-    "control", "label", "interpolation", "void", "wildcard",
+    "documentation",
+    "constructor",
+    "declaration",
+    "importPrefix",
+    "instance",
+    "static",
+    "escape",
+    "annotation",
+    "control",
+    "label",
+    "interpolation",
+    "void",
+    "wildcard",
 ];
 
 /// A token before encoding: offset and end in bytes, type and modifiers.
@@ -58,16 +85,50 @@ pub(crate) struct Highlight {
 /// Built-in and contextual words that, outside a tree name, are keywords
 /// (the analyzer's `BUILT_IN`).
 const INLINE: &[&str] = &[
-    "abstract", "as", "augment", "async", "await", "base", "covariant", "deferred", "export", "extension", "external",
-    "factory", "Function", "get", "hide", "implements", "import", "interface", "late", "library", "macro", "mixin",
-    "native", "of", "on", "operator", "part", "required", "sealed", "set", "show", "static", "sync", "type", "typedef",
-    "when", "yield",
+    "abstract",
+    "as",
+    "augment",
+    "async",
+    "await",
+    "base",
+    "covariant",
+    "deferred",
+    "export",
+    "extension",
+    "external",
+    "factory",
+    "Function",
+    "get",
+    "hide",
+    "implements",
+    "import",
+    "interface",
+    "late",
+    "library",
+    "macro",
+    "mixin",
+    "native",
+    "of",
+    "on",
+    "operator",
+    "part",
+    "required",
+    "sealed",
+    "set",
+    "show",
+    "static",
+    "sync",
+    "type",
+    "typedef",
+    "when",
+    "yield",
 ];
 
 /// Control flow words (the `control` modifier).
 const CONTROL: &[&str] = &[
-    "assert", "await", "break", "case", "catch", "continue", "default", "do", "else", "finally", "for", "if", "in",
-    "rethrow", "return", "switch", "throw", "try", "when", "while", "yield", "async", "sync",
+    "assert", "await", "break", "case", "catch", "continue", "default", "do", "else", "finally",
+    "for", "if", "in", "rethrow", "return", "switch", "throw", "try", "when", "while", "yield",
+    "async", "sync",
 ];
 
 struct Collector<'a> {
@@ -81,13 +142,23 @@ struct Collector<'a> {
 impl Collector<'_> {
     fn name(&mut self, s: Span, ty: &'static str, modifiers: &[&'static str]) {
         if s.end > s.start {
-            self.names.entry(s.start).or_insert(Highlight { start: s.start, end: s.end, ty, modifiers: modifiers.to_vec() });
+            self.names.entry(s.start).or_insert(Highlight {
+                start: s.start,
+                end: s.end,
+                ty,
+                modifiers: modifiers.to_vec(),
+            });
         }
     }
 
     fn region(&mut self, start: usize, end: usize, ty: &'static str, modifiers: &[&'static str]) {
         if end > start {
-            self.others.push(Highlight { start, end, ty, modifiers: modifiers.to_vec() });
+            self.others.push(Highlight {
+                start,
+                end,
+                ty,
+                modifiers: modifiers.to_vec(),
+            });
         }
     }
 
@@ -96,7 +167,9 @@ impl Collector<'_> {
         let p = self.project.program();
         let u = p.unit(self.unit);
         let t = u.ast.ty(ty);
-        let TypeKind::Named { name, .. } = &t.kind else { return };
+        let TypeKind::Named { name, .. } = &t.kind else {
+            return;
+        };
         let lib = u.library;
         let text = |n: &ast::Name| &u.source[n.span.start..n.span.end];
         match &name[..] {
@@ -137,13 +210,17 @@ impl Collector<'_> {
         let p = self.project.program();
         let (ty, mods): (&'static str, Vec<&'static str>) = match el {
             Element::Class(c) => {
-                let enum_ = p.class(c).decl.is_some_and(|d| matches!(p.unit(d.unit).ast.decl(d.decl).kind, DeclKind::Enum(_)));
+                let enum_ = p.class(c).decl.is_some_and(|d| {
+                    matches!(p.unit(d.unit).ast.decl(d.decl).kind, DeclKind::Enum(_))
+                });
                 (if enum_ { "enum" } else { "class" }, Vec::new())
             }
             Element::Extension(_) => ("class", Vec::new()),
             Element::Typedef(_) => ("type", Vec::new()),
             Element::Function(f) => match p.function(f).kind {
-                FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => ("property", Vec::new()),
+                FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => {
+                    ("property", Vec::new())
+                }
                 _ => ("function", Vec::new()),
             },
             Element::Variable(_) => ("property", Vec::new()),
@@ -155,7 +232,14 @@ impl Collector<'_> {
     }
 
     /// Resolved reference in an expression.
-    fn resolved(&mut self, s: Span, r: Option<&Resolved>, constructor: bool, extra: &[&'static str], dynamic: bool) {
+    fn resolved(
+        &mut self,
+        s: Span,
+        r: Option<&Resolved>,
+        constructor: bool,
+        extra: &[&'static str],
+        dynamic: bool,
+    ) {
         let p = self.project.program();
         let combine = |base: &[&'static str]| {
             let mut m = base.to_vec();
@@ -181,25 +265,44 @@ impl Collector<'_> {
                     self.name(s, "method", &combine(&["constructor"]));
                 }
             }
-            Some(Resolved::Member { member: MemberRef::Function(f), .. }) | Some(Resolved::ExtensionMember { member: f, .. }) => {
+            Some(Resolved::Member {
+                member: MemberRef::Function(f),
+                ..
+            })
+            | Some(Resolved::ExtensionMember { member: f, .. }) => {
                 let fe = p.function(*f);
                 let scope = if fe.static_ { "static" } else { "instance" };
                 let is_constant = fe.variable.is_some_and(|v| {
                     let ve = p.variable(v);
-                    ve.class.is_some_and(|c| p.class(c).enum_constants.contains(&v))
+                    ve.class
+                        .is_some_and(|c| p.class(c).enum_constants.contains(&v))
                 });
                 match fe.kind {
                     _ if is_constant => self.name(s, "enumMember", &combine(&[])),
-                    FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => self.name(s, "property", &combine(&[scope])),
+                    FunctionKind::Getter
+                    | FunctionKind::Setter
+                    | FunctionKind::ImplicitAccessor => {
+                        self.name(s, "property", &combine(&[scope]))
+                    }
                     _ => self.name(s, "method", &combine(&[scope])),
                 }
             }
-            Some(Resolved::Member { member: MemberRef::Variable(v), .. }) => {
+            Some(Resolved::Member {
+                member: MemberRef::Variable(v),
+                ..
+            }) => {
                 let ve = p.variable(*v);
-                if ve.class.is_some_and(|c| p.class(c).enum_constants.contains(v)) {
+                if ve
+                    .class
+                    .is_some_and(|c| p.class(c).enum_constants.contains(v))
+                {
                     self.name(s, "enumMember", &combine(&[]));
                 } else {
-                    self.name(s, "property", &combine(&[if ve.static_ { "static" } else { "instance" }]));
+                    self.name(
+                        s,
+                        "property",
+                        &combine(&[if ve.static_ { "static" } else { "instance" }]),
+                    );
                 }
             }
             Some(Resolved::Dynamic) | None if dynamic => self.name(s, "source", &combine(&[])),
@@ -215,7 +318,9 @@ impl Collector<'_> {
                 None => self.region(a.span.start, a.span.end, "annotation", &[]),
                 Some(args) => {
                     self.region(a.span.start, args.span.start + 1, "annotation", &[]);
-                    if args.span.end > args.span.start && u.source.as_bytes().get(args.span.end - 1) == Some(&b')') {
+                    if args.span.end > args.span.start
+                        && u.source.as_bytes().get(args.span.end - 1) == Some(&b')')
+                    {
                         self.region(args.span.end - 1, args.span.end, "annotation", &[]);
                     }
                 }
@@ -276,7 +381,12 @@ impl Project {
         let ast = &u.ast;
         let source = u.source.as_str();
         let bodies = &self.query.bodies.units[unit.0 as usize];
-        let mut c = Collector { project: self, unit, names: HashMap::new(), others: Vec::new() };
+        let mut c = Collector {
+            project: self,
+            unit,
+            names: HashMap::new(),
+            others: Vec::new(),
+        };
 
         // Top-level declarations.
         for d in &ast.decls {
@@ -284,7 +394,12 @@ impl Project {
             match &d.kind {
                 DeclKind::Class(k) => {
                     c.name(k.name.span, "class", &["declaration"]);
-                    for t in k.extends.iter().chain(k.with.iter()).chain(k.implements.iter()) {
+                    for t in k
+                        .extends
+                        .iter()
+                        .chain(k.with.iter())
+                        .chain(k.implements.iter())
+                    {
                         c.written_type(*t, &[]);
                     }
                     for tp in k.type_params.iter() {
@@ -327,7 +442,11 @@ impl Project {
                     if let Some(n) = k.constructor {
                         c.name(n.span, "method", &["constructor", "declaration"]);
                     }
-                    c.name(k.representation_name.span, "variable", &["declaration", "instance"]);
+                    c.name(
+                        k.representation_name.span,
+                        "variable",
+                        &["declaration", "instance"],
+                    );
                     c.written_type(k.representation_type, &[]);
                     for t in k.implements.iter() {
                         c.written_type(*t, &[]);
@@ -343,7 +462,10 @@ impl Project {
                     }
                     match &k.kind {
                         ast::TypedefKind::Alias(t) => c.written_type(*t, &[]),
-                        ast::TypedefKind::Legacy { return_type, parameters } => {
+                        ast::TypedefKind::Legacy {
+                            return_type,
+                            parameters,
+                        } => {
                             if let Some(t) = return_type {
                                 c.written_type(*t, &[]);
                             }
@@ -355,7 +477,9 @@ impl Project {
                     let func = ast.function(*f);
                     if let Some(n) = func.name {
                         match func.kind {
-                            ast::FunctionKind::Getter | ast::FunctionKind::Setter => c.name(n.span, "property", &["declaration"]),
+                            ast::FunctionKind::Getter | ast::FunctionKind::Setter => {
+                                c.name(n.span, "property", &["declaration"])
+                            }
                             _ => c.name(n.span, "function", &["declaration", "static"]),
                         }
                     }
@@ -388,7 +512,9 @@ impl Project {
                     let scope = if func.static_ { "static" } else { "instance" };
                     if let Some(n) = func.name {
                         match func.kind {
-                            ast::FunctionKind::Getter | ast::FunctionKind::Setter => c.name(n.span, "property", &["declaration", scope]),
+                            ast::FunctionKind::Getter | ast::FunctionKind::Setter => {
+                                c.name(n.span, "property", &["declaration", scope])
+                            }
                             _ => c.name(n.span, "method", &["declaration", scope]),
                         }
                     }
@@ -401,10 +527,17 @@ impl Project {
                     c.parameters(&k.parameters, bodies);
                     for start in k.initializers.iter() {
                         match start {
-                            ast::Initializer::Field { name, .. } => c.name(name.span, "variable", &["instance"]),
-                            ast::Initializer::Super { constructor: Some(n), .. } | ast::Initializer::Redirect { constructor: Some(n), .. } => {
-                                c.name(n.span, "method", &["constructor"])
+                            ast::Initializer::Field { name, .. } => {
+                                c.name(name.span, "variable", &["instance"])
                             }
+                            ast::Initializer::Super {
+                                constructor: Some(n),
+                                ..
+                            }
+                            | ast::Initializer::Redirect {
+                                constructor: Some(n),
+                                ..
+                            } => c.name(n.span, "method", &["constructor"]),
                             _ => {}
                         }
                     }
@@ -436,7 +569,10 @@ impl Project {
                 }
                 // `for (var i = 0; …)`: the header variable is a declaration like any local
                 // (docs/LSP-ESPECIFICACAO.md §15.2).
-                StmtKind::For { init: Some(ast::ForInit::Variables(v)), .. } => {
+                StmtKind::For {
+                    init: Some(ast::ForInit::Variables(v)),
+                    ..
+                } => {
                     for var in v.variables.iter() {
                         c.name(var.name.span, "variable", &["declaration"]);
                     }
@@ -446,7 +582,10 @@ impl Project {
                         c.name(n.span, "function", &["declaration"]);
                     }
                 }
-                StmtKind::ForIn { target: ast::ForInTarget::Declared { name, metadata, .. }, .. } => {
+                StmtKind::ForIn {
+                    target: ast::ForInTarget::Declared { name, metadata, .. },
+                    ..
+                } => {
                     c.annotations(metadata);
                     c.name(name.span, "variable", &["declaration"]);
                 }
@@ -472,10 +611,14 @@ impl Project {
         // Directive prefixes.
         for d in &u.unit.directives {
             c.annotations(&d.metadata);
-            if let ast::DirectiveKind::Import { prefix: Some(n), .. } = &d.kind {
+            if let ast::DirectiveKind::Import {
+                prefix: Some(n), ..
+            } = &d.kind
+            {
                 c.name(n.span, "variable", &["importPrefix"]);
             }
-            if let ast::DirectiveKind::Library { name } | ast::DirectiveKind::PartOf { name, .. } = &d.kind
+            if let ast::DirectiveKind::Library { name } | ast::DirectiveKind::PartOf { name, .. } =
+                &d.kind
                 && let (Some(a), Some(b)) = (name.first(), name.last())
             {
                 c.region(a.span.start, b.span.end, "namespace", &[]);
@@ -487,7 +630,14 @@ impl Project {
             .iter()
             .enumerate()
             .filter_map(|(i, e)| match &e.kind {
-                ExprKind::Call { target, .. } if matches!(bodies.get_resolved(ast::ExprId(i as u32)), Some(Resolved::Constructor(_))) => Some(target.0),
+                ExprKind::Call { target, .. }
+                    if matches!(
+                        bodies.get_resolved(ast::ExprId(i as u32)),
+                        Some(Resolved::Constructor(_))
+                    ) =>
+                {
+                    Some(target.0)
+                }
                 _ => None,
             })
             .collect();
@@ -509,7 +659,11 @@ impl Project {
                 ExprKind::Identifier(n) => {
                     let constructor_ = constructor2.contains(&(i as u32));
                     let r = bodies.get_resolved(id);
-                    if matches!(r, Some(Resolved::Local(_))) && bodies.local_declaration(id).is_some_and(|d| parameters_.contains(&d)) {
+                    if matches!(r, Some(Resolved::Local(_)))
+                        && bodies
+                            .local_declaration(id)
+                            .is_some_and(|d| parameters_.contains(&d))
+                    {
                         c.name(n.span, "parameter", &[]);
                     } else {
                         c.resolved(n.span, r, constructor_, &[], true);
@@ -521,7 +675,9 @@ impl Project {
                     if constructor_ && let ExprKind::Identifier(cn) = &ast.expr(*target).kind {
                         c.name(cn.span, "class", &["constructor"]);
                     }
-                    let dynamic = bodies.get_type(*target).is_some_and(|t| matches!(self.query.table.get(t), Type::Dynamic));
+                    let dynamic = bodies
+                        .get_type(*target)
+                        .is_some_and(|t| matches!(self.query.table.get(t), Type::Dynamic));
                     let r = bodies.get_resolved(id);
                     if constructor_ && !matches!(r, Some(Resolved::Constructor(_))) {
                         c.name(name.span, "method", &["constructor"]);
@@ -534,7 +690,12 @@ impl Project {
                         c.resolved(name.span, r, false, &[], dynamic || r.is_none());
                     }
                 }
-                ExprKind::InstanceCreation { ty, constructor, arguments, .. } => {
+                ExprKind::InstanceCreation {
+                    ty,
+                    constructor,
+                    arguments,
+                    ..
+                } => {
                     c.written_type(*ty, &["constructor"]);
                     if let Some(n) = constructor {
                         c.name(n.span, "method", &["constructor"]);
@@ -543,7 +704,9 @@ impl Project {
                 }
                 _ => {}
             }
-            if let ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } = &e.kind {
+            if let ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } =
+                &e.kind
+            {
                 for a in arguments.args.iter() {
                     if let Some(n) = a.name {
                         c.name(n.span, "parameter", &["label"]);
@@ -559,12 +722,15 @@ impl Project {
 
         // `show`/`hide` names: the element the target library exports.
         for d in &u.unit.directives {
-            if let ast::DirectiveKind::Import { combinators, .. } | ast::DirectiveKind::Export { combinators, .. } = &d.kind {
+            if let ast::DirectiveKind::Import { combinators, .. }
+            | ast::DirectiveKind::Export { combinators, .. } = &d.kind
+            {
                 for comb in combinators.iter() {
                     let (ast::Combinator::Show(names) | ast::Combinator::Hide(names)) = comb;
                     for n in names.iter() {
                         if let Ok(Some(den)) = self.identify(unit, n.span.start)
-                            && let Some((ty_, mods)) = classify(self, &den.target, den.concrete, &parameters_)
+                            && let Some((ty_, mods)) =
+                                classify(self, &den.target, den.concrete, &parameters_)
                         {
                             c.name(n.span, ty_, &mods);
                         }
@@ -578,9 +744,18 @@ impl Project {
         for combine in crate::dartdoc::comments(source) {
             for r in &combine.references {
                 for pos in 0..r.len() {
-                    let Some((target_, concrete)) = self.resolve_doc_reference(unit, combine.span, &r[..=pos]) else { continue };
+                    let Some((target_, concrete)) =
+                        self.resolve_doc_reference(unit, combine.span, &r[..=pos])
+                    else {
+                        continue;
+                    };
                     if let Some((ty_, mods)) = classify(self, &target_, concrete, &parameters_) {
-                        references.push(Highlight { start: r[pos].0.start, end: r[pos].0.end, ty: ty_, modifiers: mods });
+                        references.push(Highlight {
+                            start: r[pos].0.start,
+                            end: r[pos].0.end,
+                            ty: ty_,
+                            modifiers: mods,
+                        });
                     }
                 }
             }
@@ -590,7 +765,9 @@ impl Project {
         let mut regions = std::mem::take(&mut c.others);
         regions.extend(references);
         let names = std::mem::take(&mut c.names);
-        let Ok(tokens) = dartforge_frontend::lexer::lex(source) else { return Vec::new() };
+        let Ok(tokens) = dartforge_frontend::lexer::lex(source) else {
+            return Vec::new();
+        };
         let mut previous = 0usize;
         // Interpolation opened by `${` (start of the `$`).
         let mut interpolations: Vec<usize> = Vec::new();
@@ -600,11 +777,25 @@ impl Project {
             for (start, end) in comments(source, previous, t.span.start) {
                 let text = &source[start..end];
                 let doc = text.starts_with("///") || text.starts_with("/**");
-                regions.push(Highlight { start, end, ty: "comment", modifiers: if doc { vec!["documentation"] } else { Vec::new() } });
+                regions.push(Highlight {
+                    start,
+                    end,
+                    ty: "comment",
+                    modifiers: if doc {
+                        vec!["documentation"]
+                    } else {
+                        Vec::new()
+                    },
+                });
             }
             previous = t.span.end;
             let text = &source[t.span.start..t.span.end];
-            let r = |ty_: &'static str, m: &[&'static str]| Highlight { start: t.span.start, end: t.span.end, ty: ty_, modifiers: m.to_vec() };
+            let r = |ty_: &'static str, m: &[&'static str]| Highlight {
+                start: t.span.start,
+                end: t.span.end,
+                ty: ty_,
+                modifiers: m.to_vec(),
+            };
             match t.kind {
                 Kind::Keyword(_) => {
                     let highlight = match text {
@@ -620,12 +811,22 @@ impl Project {
                     if let Some(n) = names.get(&t.span.start) {
                         regions.push(n.clone());
                         if last_interp_ident == Some(k) {
-                            regions.push(Highlight { start: t.span.start - 1, end: t.span.end, ty: "source", modifiers: vec!["interpolation"] });
+                            regions.push(Highlight {
+                                start: t.span.start - 1,
+                                end: t.span.end,
+                                ty: "source",
+                                modifiers: vec!["interpolation"],
+                            });
                         }
                         continue;
                     }
                     if last_interp_ident == Some(k) {
-                        regions.push(Highlight { start: t.span.start - 1, end: t.span.end, ty: "source", modifiers: vec!["interpolation"] });
+                        regions.push(Highlight {
+                            start: t.span.start - 1,
+                            end: t.span.end,
+                            ty: "source",
+                            modifiers: vec!["interpolation"],
+                        });
                         continue;
                     }
                     if text == "dynamic" {
@@ -646,12 +847,19 @@ impl Project {
                         {
                             end = next.span.end;
                         }
-                        let m: &[&'static str] = if CONTROL.contains(&text) || (text == "on" && is_catch_on(source, t.span.start)) {
+                        let m: &[&'static str] = if CONTROL.contains(&text)
+                            || (text == "on" && is_catch_on(source, t.span.start))
+                        {
                             &["control"]
                         } else {
                             &[]
                         };
-                        regions.push(Highlight { start: t.span.start, end, ty: "keyword", modifiers: m.to_vec() });
+                        regions.push(Highlight {
+                            start: t.span.start,
+                            end,
+                            ty: "keyword",
+                            modifiers: m.to_vec(),
+                        });
                     } else {
                         regions.push(r("source", &[]));
                     }
@@ -666,9 +874,16 @@ impl Project {
                 Kind::StrBegin(_, interp) | Kind::StrMid(_, interp) => {
                     // The text piece goes up to before the `$`/`${`.
                     let mut start = t.span.start;
-                    if matches!(t.kind, Kind::StrMid(..)) && source.as_bytes().get(start) == Some(&b'}') {
+                    if matches!(t.kind, Kind::StrMid(..))
+                        && source.as_bytes().get(start) == Some(&b'}')
+                    {
                         if let Some(opens) = interpolations.pop() {
-                            regions.push(Highlight { start: opens, end: start + 1, ty: "source", modifiers: vec!["interpolation"] });
+                            regions.push(Highlight {
+                                start: opens,
+                                end: start + 1,
+                                ty: "source",
+                                modifiers: vec!["interpolation"],
+                            });
                         }
                         start += 1;
                     }
@@ -676,7 +891,12 @@ impl Project {
                         dartforge_frontend::token::Interp::Brace => t.span.end - 2,
                         dartforge_frontend::token::Interp::Ident => t.span.end - 1,
                     };
-                    regions.push(Highlight { start, end: cut, ty: "string", modifiers: Vec::new() });
+                    regions.push(Highlight {
+                        start,
+                        end: cut,
+                        ty: "string",
+                        modifiers: Vec::new(),
+                    });
                     match interp {
                         dartforge_frontend::token::Interp::Brace => interpolations.push(cut),
                         dartforge_frontend::token::Interp::Ident => last_interp_ident = Some(k + 1),
@@ -686,11 +906,21 @@ impl Project {
                     let mut start = t.span.start;
                     if source.as_bytes().get(start) == Some(&b'}') {
                         if let Some(opens) = interpolations.pop() {
-                            regions.push(Highlight { start: opens, end: start + 1, ty: "source", modifiers: vec!["interpolation"] });
+                            regions.push(Highlight {
+                                start: opens,
+                                end: start + 1,
+                                ty: "source",
+                                modifiers: vec!["interpolation"],
+                            });
                         }
                         start += 1;
                     }
-                    regions.push(Highlight { start, end: t.span.end, ty: "string", modifiers: Vec::new() });
+                    regions.push(Highlight {
+                        start,
+                        end: t.span.end,
+                        ty: "string",
+                        modifiers: Vec::new(),
+                    });
                 }
                 _ => {}
             }
@@ -707,15 +937,25 @@ fn classify(
     concrete: Option<crate::project::Concrete>,
     parameters: &std::collections::HashSet<usize>,
 ) -> Option<(&'static str, Vec<&'static str>)> {
-    use crate::project::{Target, Concrete};
+    use crate::project::{Concrete, Target};
     let p = project.program();
     Some(match (target, concrete) {
-        (Target::Local { declaration, .. }, _) => (if parameters.contains(declaration) { "parameter" } else { "variable" }, Vec::new()),
+        (Target::Local { declaration, .. }, _) => (
+            if parameters.contains(declaration) {
+                "parameter"
+            } else {
+                "variable"
+            },
+            Vec::new(),
+        ),
         (Target::TypeParameter { .. }, _) => ("typeParameter", Vec::new()),
         (Target::Prefix { .. }, _) => ("variable", vec!["importPrefix"]),
         (Target::Constructor(_), _) => ("method", vec!["constructor"]),
         (Target::Top(Element::Class(c)), _) => {
-            let enum_ = p.class(*c).decl.is_some_and(|d| matches!(p.unit(d.unit).ast.decl(d.decl).kind, DeclKind::Enum(_)));
+            let enum_ = p
+                .class(*c)
+                .decl
+                .is_some_and(|d| matches!(p.unit(d.unit).ast.decl(d.decl).kind, DeclKind::Enum(_)));
             (if enum_ { "enum" } else { "class" }, Vec::new())
         }
         (Target::Top(Element::Typedef(_)), _) => ("type", Vec::new()),
@@ -731,7 +971,9 @@ fn classify(
                 vec!["instance"]
             };
             match fe.kind {
-                FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => ("property", scope),
+                FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => {
+                    ("property", scope)
+                }
                 _ if member => ("method", scope),
                 _ => ("function", Vec::new()),
             }
@@ -740,7 +982,10 @@ fn classify(
             let ve = p.variable(v);
             match ve.class {
                 Some(c) if p.class(c).enum_constants.contains(&v) => ("enumMember", Vec::new()),
-                Some(_) => ("property", vec![if ve.static_ { "static" } else { "instance" }]),
+                Some(_) => (
+                    "property",
+                    vec![if ve.static_ { "static" } else { "instance" }],
+                ),
                 None => ("property", Vec::new()),
             }
         }
@@ -751,8 +996,13 @@ fn classify(
 /// The `switch` at `offset` is a statement (the expression one gets no
 /// `control`).
 fn is_command_switch(ast: &ast::Ast, offset: usize) -> bool {
-    ast.stmts.iter().any(|s| s.span.start == offset && matches!(s.kind, StmtKind::Switch { .. }))
-        || !ast.exprs.iter().any(|e| e.span.start == offset && matches!(e.kind, ExprKind::Switch { .. }))
+    ast.stmts
+        .iter()
+        .any(|s| s.span.start == offset && matches!(s.kind, StmtKind::Switch { .. }))
+        || !ast
+            .exprs
+            .iter()
+            .any(|e| e.span.start == offset && matches!(e.kind, ExprKind::Switch { .. }))
 }
 
 /// The `on` at `offset` is that of a `catch` clause (`} on T catch`).
@@ -781,13 +1031,20 @@ fn escapes(source: &str, s: Span, output: &mut Vec<Highlight>) {
         let Some(&c) = b.get(i) else { break };
         let end = match c {
             b'x' => hex(i + 1, 2, 2).map(|n| i + 1 + n),
-            b'u' if b.get(i + 1) == Some(&b'{') => hex(i + 2, 1, 6).filter(|n| b.get(i + 2 + n) == Some(&b'}')).map(|n| i + 3 + n),
+            b'u' if b.get(i + 1) == Some(&b'{') => hex(i + 2, 1, 6)
+                .filter(|n| b.get(i + 2 + n) == Some(&b'}'))
+                .map(|n| i + 3 + n),
             b'u' => hex(i + 1, 4, 4).map(|n| i + 1 + n),
             _ => Some(i + source[i..].chars().next().map_or(1, char::len_utf8)),
         };
         match end {
             Some(f) if f <= s.end => {
-                output.push(Highlight { start, end: f, ty: "string", modifiers: vec!["escape"] });
+                output.push(Highlight {
+                    start,
+                    end: f,
+                    ty: "string",
+                    modifiers: vec!["escape"],
+                });
                 i = f;
             }
             _ => i += 1,
@@ -837,25 +1094,35 @@ fn comments(source: &str, from: usize, until: usize) -> Vec<(usize, usize)> {
 fn split_overlaps(mut regions: Vec<Highlight>) -> Vec<Highlight> {
     regions.sort_by(|a, b| {
         let priority = |r: &Highlight| u8::from(r.ty == "boolean");
-        (a.start, std::cmp::Reverse(a.end - a.start), priority(a)).cmp(&(b.start, std::cmp::Reverse(b.end - b.start), priority(b)))
+        (a.start, std::cmp::Reverse(a.end - a.start), priority(a)).cmp(&(
+            b.start,
+            std::cmp::Reverse(b.end - b.start),
+            priority(b),
+        ))
     });
     regions.dedup_by(|b, a| a.start == b.start && a.end == b.end && a.ty == b.ty);
     let mut output = Vec::new();
     let mut stack: Vec<Highlight> = Vec::new();
-    let process = |stack: &mut Vec<Highlight>, mut from: usize, until: usize, output: &mut Vec<Highlight>| {
-        while let Some(last) = stack.last() {
-            let end = last.end.min(until);
-            if end > from {
-                output.push(Highlight { start: from, end, ty: last.ty, modifiers: last.modifiers.clone() });
-                from = end;
+    let process =
+        |stack: &mut Vec<Highlight>, mut from: usize, until: usize, output: &mut Vec<Highlight>| {
+            while let Some(last) = stack.last() {
+                let end = last.end.min(until);
+                if end > from {
+                    output.push(Highlight {
+                        start: from,
+                        end,
+                        ty: last.ty,
+                        modifiers: last.modifiers.clone(),
+                    });
+                    from = end;
+                }
+                if last.end <= until {
+                    stack.pop();
+                } else {
+                    return;
+                }
             }
-            if last.end <= until {
-                stack.pop();
-            } else {
-                return;
-            }
-        }
-    };
+        };
     let mut pos = regions.first().map_or(0, |r| r.start);
     for r in regions {
         process(&mut stack, pos, r.start, &mut output);
@@ -919,9 +1186,21 @@ pub(crate) fn encode(
         }
         // One per line, with the line break and the indentation included.
         for l in l0..=l1 {
-            let start = if l == l0 { r.start } else { table.line_start(l) };
-            let end = if l == l1 { r.end } else { table.line_start(l + 1) };
-            let end_without_break = if l == l1 { end } else { table.line_end(text, l) };
+            let start = if l == l0 {
+                r.start
+            } else {
+                table.line_start(l)
+            };
+            let end = if l == l1 {
+                r.end
+            } else {
+                table.line_start(l + 1)
+            };
+            let end_without_break = if l == l1 {
+                end
+            } else {
+                table.line_end(text, l)
+            };
             emit(start, end_without_break.max(start), r, &mut data);
             let _ = end;
         }

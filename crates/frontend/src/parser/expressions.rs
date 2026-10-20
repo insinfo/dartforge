@@ -131,7 +131,11 @@ fn escape_error(b: &[u8]) -> Option<(dartforge_diagnostics::Code, usize, usize)>
             }
             b'u' => {
                 if n == i + 1 {
-                    return Some((c::INVALID_UNICODE_ESCAPE_U_STARTED, begin - 1, n + 1 - begin));
+                    return Some((
+                        c::INVALID_UNICODE_ESCAPE_U_STARTED,
+                        begin - 1,
+                        n + 1 - begin,
+                    ));
                 }
                 let mut code: u32 = 0;
                 if b[i + 1] == b'{' {
@@ -140,7 +144,11 @@ fn escape_error(b: &[u8]) -> Option<(dartforge_diagnostics::Code, usize, usize)>
                     for j in 0..7 {
                         i += 1;
                         if i == n {
-                            return Some((c::INVALID_UNICODE_ESCAPE_U_BRACKET, begin - 1, i + 1 - begin));
+                            return Some((
+                                c::INVALID_UNICODE_ESCAPE_U_BRACKET,
+                                begin - 1,
+                                i + 1 - begin,
+                            ));
                         }
                         let d = b[i];
                         if j != 0 && d == b'}' {
@@ -150,21 +158,37 @@ fn escape_error(b: &[u8]) -> Option<(dartforge_diagnostics::Code, usize, usize)>
                             break;
                         }
                         if !hex(d) {
-                            return Some((c::INVALID_UNICODE_ESCAPE_U_BRACKET, begin - 1, i + 2 - begin));
+                            return Some((
+                                c::INVALID_UNICODE_ESCAPE_U_BRACKET,
+                                begin - 1,
+                                i + 2 - begin,
+                            ));
                         }
                         code = (code << 4) + value(d);
                     }
                     if !closed {
-                        return Some((c::INVALID_UNICODE_ESCAPE_U_BRACKET, begin - 1, i + 1 - begin));
+                        return Some((
+                            c::INVALID_UNICODE_ESCAPE_U_BRACKET,
+                            begin - 1,
+                            i + 1 - begin,
+                        ));
                     }
                 } else {
                     if n <= i + 4 {
-                        return Some((c::INVALID_UNICODE_ESCAPE_U_NO_BRACKET, begin - 1, n + 1 - begin));
+                        return Some((
+                            c::INVALID_UNICODE_ESCAPE_U_NO_BRACKET,
+                            begin - 1,
+                            n + 1 - begin,
+                        ));
                     }
                     for _ in 0..4 {
                         i += 1;
                         if !hex(b[i]) {
-                            return Some((c::INVALID_UNICODE_ESCAPE_U_NO_BRACKET, begin - 1, i + 1 - begin));
+                            return Some((
+                                c::INVALID_UNICODE_ESCAPE_U_NO_BRACKET,
+                                begin - 1,
+                                i + 1 - begin,
+                            ));
                         }
                         code = (code << 4) + value(b[i]);
                     }
@@ -210,7 +234,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             return;
         }
         let hex = text.len() > 1 && matches!(text[1], b'x' | b'X');
-        let digit = |b: u8| if hex { b.is_ascii_hexdigit() } else { b.is_ascii_digit() };
+        let digit = |b: u8| {
+            if hex {
+                b.is_ascii_hexdigit()
+            } else {
+                b.is_ascii_digit()
+            }
+        };
         let start_offset = if hex { 2 } else { 0 };
         let mut outside = false;
         for (i, &b) in text.iter().enumerate().skip(start_offset) {
@@ -225,11 +255,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
         }
         if outside {
-            let one = Span { start: span.start, end: span.start + 1 };
+            let one = Span {
+                start: span.start,
+                end: span.start + 1,
+            };
             self.error_at(codes::scanner::UNEXPECTED_SEPARATOR_IN_NUMBER, one, &[]);
         }
         if self.features.version() < crate::features::LanguageVersion::new(3, 6) {
-            self.error_at(codes::parser::EXPERIMENT_NOT_ENABLED, span, &["digit-separators", "3.6.0", "3.6.0"]);
+            self.error_at(
+                codes::parser::EXPERIMENT_NOT_ENABLED,
+                span,
+                &["digit-separators", "3.6.0", "3.6.0"],
+            );
         }
     }
 
@@ -282,7 +319,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                     break;
                 }
             }
-            self.ensure_close_paren(opener).map(|()| self.tokens[self.pos - 1])
+            self.ensure_close_paren(opener)
+                .map(|()| self.tokens[self.pos - 1])
         })();
         let args: Box<[Argument]> = self.scratch_args[base..].into();
         self.scratch_args.truncate(base);
@@ -392,7 +430,11 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// built (a rewriter's synthetic tokens): its selectors, the binary
     /// operators, the conditional, the cascade and the assignment, as
     /// [`Parser::parse_expression`] reads them after a primary.
-    pub(crate) fn parse_expression_after_primary(&mut self, start: Span, primary: ExprId) -> PResult<ExprId> {
+    pub(crate) fn parse_expression_after_primary(
+        &mut self,
+        start: Span,
+        primary: ExprId,
+    ) -> PResult<ExprId> {
         let left = self.parse_selectors_at(start, primary, false, false)?;
         let left = self.parse_binary_rest(start, left, LEVEL_IF_NULL)?;
         let mut left = self.parse_conditional_rest(start, left)?;
@@ -405,7 +447,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             let value = self.parse_expression()?;
             self.check_assignment(left, value);
-            left = self.push(start, ExprKind::Assign { op, target: left, value });
+            left = self.push(
+                start,
+                ExprKind::Assign {
+                    op,
+                    target: left,
+                    value,
+                },
+            );
         }
         Ok(left)
     }
@@ -624,7 +673,12 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// Continuation of `Parser::parse_binary` with the left operand already
     /// read (the constant pattern reads the operand with its own rules).
-    pub(crate) fn parse_binary_rest(&mut self, start: Span, mut left: ExprId, min_level: u8) -> PResult<ExprId> {
+    pub(crate) fn parse_binary_rest(
+        &mut self,
+        start: Span,
+        mut left: ExprId,
+        min_level: u8,
+    ) -> PResult<ExprId> {
         // fasta's `lastBinaryExpressionLevel` (`parser_impl.dart:6094`): two
         // equality (`a == b == c`) or relational (`a < b < c`) operators in a row
         // at the same level are `EQUALITY_CANNOT_BE_EQUALITY_OPERAND` at the
@@ -652,8 +706,15 @@ impl<'s, 'i> Parser<'s, 'i> {
                     if level == LEVEL_EQUALITY || level == LEVEL_RELATIONAL {
                         if last_level == Some(level) {
                             let end_offset = self.peek_at(len - 1).span.end;
-                            let span = Span { start: self.span().start, end: end_offset };
-                            self.error_at(codes::parser::EQUALITY_CANNOT_BE_EQUALITY_OPERAND, span, &[]);
+                            let span = Span {
+                                start: self.span().start,
+                                end: end_offset,
+                            };
+                            self.error_at(
+                                codes::parser::EQUALITY_CANNOT_BE_EQUALITY_OPERAND,
+                                span,
+                                &[],
+                            );
                         }
                         last_level = Some(level);
                     } else {
@@ -700,10 +761,26 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn looks_like_pattern_start(&self, pos: usize) -> bool {
         match self.kind_of(pos) {
             Kind::Ident | Kind::Int | Kind::Double | Kind::Str(_) | Kind::StrBegin(..) => true,
-            Kind::Keyword(k) => matches!(k, Keyword::Null | Keyword::False | Keyword::True | Keyword::Var | Keyword::Final | Keyword::Const),
+            Kind::Keyword(k) => matches!(
+                k,
+                Keyword::Null
+                    | Keyword::False
+                    | Keyword::True
+                    | Keyword::Var
+                    | Keyword::Final
+                    | Keyword::Const
+            ),
             Kind::Op(op) => matches!(
                 op,
-                Op::Hash | Op::LBrace | Op::LParen | Op::LBracket | Op::Lt | Op::LtEq | Op::Gt | Op::BangEq | Op::EqEq
+                Op::Hash
+                    | Op::LBrace
+                    | Op::LParen
+                    | Op::LBracket
+                    | Op::Lt
+                    | Op::LtEq
+                    | Op::Gt
+                    | Op::BangEq
+                    | Op::EqEq
             ),
             _ => false,
         }
@@ -714,17 +791,26 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// it, with an empty synthetic type, and the expression goes on
     /// (`a is "A"`).
     pub(crate) fn type_after_is_or_as(&mut self) -> PResult<TypeId> {
-        if matches!(self.kind(), Kind::Ident | Kind::Keyword(Keyword::Void) | Kind::Op(Op::LParen)) {
+        if matches!(
+            self.kind(),
+            Kind::Ident | Kind::Keyword(Keyword::Void) | Kind::Op(Op::LParen)
+        ) {
             return self.parse_type_after_is_or_as();
         }
         let here = self.span();
         self.error_at(codes::parser::EXPECTED_TYPE_NAME, here, &[]);
-        let s = Span { start: here.start, end: here.start };
+        let s = Span {
+            start: here.start,
+            end: here.start,
+        };
         let name = self.name_from("", s);
         Ok(self.ast.push_type(crate::ast::TypeAnnotation {
             span: s,
             nullable: false,
-            kind: crate::ast::TypeKind::Named { name: vec![name].into_boxed_slice(), args: Box::default() },
+            kind: crate::ast::TypeKind::Named {
+                name: vec![name].into_boxed_slice(),
+                args: Box::default(),
+            },
         }))
     }
 
@@ -753,8 +839,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let swaps: &[(u8, BinaryOp, &'static str)] = match self.text() {
             "xor" => &[(LEVEL_BIT_XOR, BinaryOp::BitXor, "^")],
-            "and" => &[(LEVEL_BIT_AND, BinaryOp::BitAnd, "&"), (LEVEL_AND, BinaryOp::And, "&&")],
-            "or" => &[(LEVEL_BIT_OR, BinaryOp::BitOr, "|"), (LEVEL_OR, BinaryOp::Or, "||")],
+            "and" => &[
+                (LEVEL_BIT_AND, BinaryOp::BitAnd, "&"),
+                (LEVEL_AND, BinaryOp::And, "&&"),
+            ],
+            "or" => &[
+                (LEVEL_BIT_OR, BinaryOp::BitOr, "|"),
+                (LEVEL_OR, BinaryOp::Or, "||"),
+            ],
             "shl" => &[(LEVEL_SHIFT, BinaryOp::Shl, "<<")],
             "shr" => &[(LEVEL_SHIFT, BinaryOp::Shr, ">>")],
             _ => return None,
@@ -775,9 +867,19 @@ impl<'s, 'i> Parser<'s, 'i> {
                 && self.diagnostics.len() == cp.diagnostics
                 && (matches!(
                     self.kind(),
-                    Kind::Op(Op::Semicolon | Op::Comma | Op::RParen | Op::LBrace | Op::RBrace | Op::Pipe | Op::PipePipe | Op::Amp | Op::AmpAmp)
-                        | Kind::Eof
-                ) || (self.is_plain_identifier(self.pos) && matches!(self.text(), "xor" | "and" | "or" | "shl" | "shr")));
+                    Kind::Op(
+                        Op::Semicolon
+                            | Op::Comma
+                            | Op::RParen
+                            | Op::LBrace
+                            | Op::RBrace
+                            | Op::Pipe
+                            | Op::PipePipe
+                            | Op::Amp
+                            | Op::AmpAmp
+                    ) | Kind::Eof
+                ) || (self.is_plain_identifier(self.pos)
+                    && matches!(self.text(), "xor" | "and" | "or" | "shl" | "shr")));
             self.recovering_operator = false;
             self.restore(cp);
             if accepts {
@@ -824,7 +926,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             return None;
         }
         let end_offset = self.peek_at(len - 1).span.end;
-        Some((level, text, Span { start: start_offset.start, end: end_offset }))
+        Some((
+            level,
+            text,
+            Span {
+                start: start_offset.start,
+                end: end_offset,
+            },
+        ))
     }
 
     /// Binary operator at the cursor, if any, with its level and size in tokens.
@@ -893,12 +1002,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             // (`AWAIT_IN_WRONG_CONTEXT` at the `await`).
             Kind::Ident
                 if self.text() == "await"
-                    && (self.in_async || self.in_generator || self.looks_like_expression_after_await(self.pos, true)) =>
+                    && (self.in_async
+                        || self.in_generator
+                        || self.looks_like_expression_after_await(self.pos, true)) =>
             {
                 self.advance();
                 let operand = self.parse_unary(constant_pattern)?;
                 if !self.in_async {
-                    self.error_at(codes::compile_time_error::AWAIT_IN_WRONG_CONTEXT, start, &[]);
+                    self.error_at(
+                        codes::compile_time_error::AWAIT_IN_WRONG_CONTEXT,
+                        start,
+                        &[],
+                    );
                 }
                 return Ok(self.push(start, ExprKind::Await(operand)));
             }
@@ -953,9 +1068,23 @@ impl<'s, 'i> Parser<'s, 'i> {
             matches!(
                 k,
                 Kind::Op(
-                    Op::Amp | Op::AmpAmp | Op::Pipe | Op::PipePipe | Op::Caret | Op::EqEq | Op::Gt | Op::Lt
-                        | Op::LtEq | Op::LtLt | Op::Minus | Op::Percent | Op::Plus | Op::QuestionQuestion
-                        | Op::Slash | Op::Star | Op::TildeSlash
+                    Op::Amp
+                        | Op::AmpAmp
+                        | Op::Pipe
+                        | Op::PipePipe
+                        | Op::Caret
+                        | Op::EqEq
+                        | Op::Gt
+                        | Op::Lt
+                        | Op::LtEq
+                        | Op::LtLt
+                        | Op::Minus
+                        | Op::Percent
+                        | Op::Plus
+                        | Op::QuestionQuestion
+                        | Op::Slash
+                        | Op::Star
+                        | Op::TildeSlash
                 )
             )
         };
@@ -964,12 +1093,20 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let t = self.kind_of(pos + 2);
                 match t {
                     Kind::Op(Op::LParen) => {
-                        let Some(closes) = self.matching_close(pos + 2) else { return false };
+                        let Some(closes) = self.matching_close(pos + 2) else {
+                            return false;
+                        };
                         let d = self.kind_of(closes + 1);
                         matches!(
                             d,
                             Kind::Op(
-                                Op::Semicolon | Op::Dot | Op::Comma | Op::DotDot | Op::Question | Op::QuestionDot | Op::RParen
+                                Op::Semicolon
+                                    | Op::Dot
+                                    | Op::Comma
+                                    | Op::DotDot
+                                    | Op::Question
+                                    | Op::QuestionDot
+                                    | Op::RParen
                             )
                         ) || binary(d)
                     }
@@ -1007,7 +1144,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         if !self.is_assignable(expr) {
             // `handleUnaryPostfixAssignmentExpression` (`ast_builder.dart:5688`).
             let span = self.span();
-            self.error_at(codes::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE, span, &[]);
+            self.error_at(
+                codes::parser::ILLEGAL_ASSIGNMENT_TO_NON_ASSIGNABLE,
+                span,
+                &[],
+            );
         }
         self.advance();
         Ok(self.push(start, ExprKind::Unary { op, operand: expr }))
@@ -1029,7 +1170,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             return None;
         }
         let name = after + 1;
-        if !matches!(self.kind_of(name), Kind::Ident | Kind::Keyword(Keyword::New)) {
+        if !matches!(
+            self.kind_of(name),
+            Kind::Ident | Kind::Keyword(Keyword::New)
+        ) {
             return None;
         }
         (self.kind_of(name + 1) == Kind::Op(Op::LParen)).then_some(name + 1)
@@ -1172,7 +1316,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         if primary
             && (matches!(
                 self.kind(),
-                Kind::Int | Kind::Double | Kind::Str(_) | Kind::StrBegin(..) | Kind::Op(Op::Hash | Op::LParen | Op::LBracket | Op::LBrace | Op::Lt)
+                Kind::Int
+                    | Kind::Double
+                    | Kind::Str(_)
+                    | Kind::StrBegin(..)
+                    | Kind::Op(Op::Hash | Op::LParen | Op::LBracket | Op::LBrace | Op::Lt)
             ) || matches!(self.kind(), Kind::Keyword(Keyword::Const | Keyword::Switch)))
         {
             let token = self.peek();
@@ -1194,7 +1342,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         // name.
         if matches!(
             self.kind(),
-            Kind::Keyword(Keyword::This | Keyword::Super | Keyword::Null | Keyword::True | Keyword::False)
+            Kind::Keyword(
+                Keyword::This | Keyword::Super | Keyword::Null | Keyword::True | Keyword::False
+            )
         ) {
             let text = self.text().to_string();
             let token = self.advance();
@@ -1268,8 +1418,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         self.undo_splices(checkpoint.splices);
         self.pos = checkpoint.pos;
         self.ast.exprs.truncate(checkpoint.exprs);
-        self.ast.assert_invocations.retain(|e| (e.0 as usize) < checkpoint.exprs);
-        self.ast.implicit_creations.retain(|e| (e.0 as usize) < checkpoint.exprs);
+        self.ast
+            .assert_invocations
+            .retain(|e| (e.0 as usize) < checkpoint.exprs);
+        self.ast
+            .implicit_creations
+            .retain(|e| (e.0 as usize) < checkpoint.exprs);
         self.ast.stmts.truncate(checkpoint.stmts);
         self.ast.types.truncate(checkpoint.types);
         self.ast.patterns.truncate(checkpoint.patterns);
@@ -1337,7 +1491,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `parseSuperExpression` (`parser_impl.dart:6906`): `super?.`.
                 if self.at_op(Op::QuestionDot) {
                     let span = self.span();
-                    self.error_at(codes::parser::INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER, span, &[]);
+                    self.error_at(
+                        codes::parser::INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER,
+                        span,
+                        &[],
+                    );
                 }
                 Ok(self.push(start, ExprKind::Super))
             }
@@ -1385,16 +1543,23 @@ impl<'s, 'i> Parser<'s, 'i> {
                     if literal {
                         let name = self.advance().span;
                         let lowercase = class.to_lowercase();
-                        let span = Span { start: new_span.start, end: name.end };
-                        self.error_at(codes::parser::LITERAL_WITH_CLASS_AND_NEW, span, &[&lowercase, class]);
+                        let span = Span {
+                            start: new_span.start,
+                            end: name.end,
+                        };
+                        self.error_at(
+                            codes::parser::LITERAL_WITH_CLASS_AND_NEW,
+                            span,
+                            &[&lowercase, class],
+                        );
                         return self.parse_primary();
                     }
                 } else if !self.at_identifier() {
                     let literal = match self.kind() {
                         Kind::Op(Op::LBrace | Op::LBracket) => true,
-                        Kind::Op(Op::Lt) => self
-                            .skip_type_arguments(self.pos)
-                            .is_some_and(|d| matches!(self.kind_of(d), Kind::Op(Op::LBrace | Op::LBracket))),
+                        Kind::Op(Op::Lt) => self.skip_type_arguments(self.pos).is_some_and(|d| {
+                            matches!(self.kind_of(d), Kind::Op(Op::LBrace | Op::LBracket))
+                        }),
                         _ => false,
                     };
                     if literal {
@@ -1428,9 +1593,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             Kind::Keyword(Keyword::Assert) if self.at_op_at(1, Op::LParen) => {
                 let token = self.advance();
                 let name = self.name_from("assert", token.span);
-                let target_expr = self.ast.push_expr(Expr { span: token.span, kind: ExprKind::Identifier(name) });
+                let target_expr = self.ast.push_expr(Expr {
+                    span: token.span,
+                    kind: ExprKind::Identifier(name),
+                });
                 let arguments = self.parse_arguments()?;
-                let call = self.push(start, ExprKind::Call { target: target_expr, arguments: Box::new(arguments) });
+                let call = self.push(
+                    start,
+                    ExprKind::Call {
+                        target: target_expr,
+                        arguments: Box::new(arguments),
+                    },
+                );
                 self.ast.assert_invocations.push(call);
                 Ok(call)
             }
@@ -1454,7 +1628,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// a statement.
     fn recovery_identifier(&mut self) -> ExprId {
         let name = self.recovery_name(false);
-        self.ast.push_expr(Expr { span: name.span, kind: ExprKind::Identifier(name) })
+        self.ast.push_expr(Expr {
+            span: name.span,
+            kind: ExprKind::Identifier(name),
+        })
     }
 
     /// The name from `ExpressionIdentifierContext.ensureIdentifier` over a token
@@ -1468,7 +1645,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         {
             let text = self.text().to_string();
             let token = self.advance();
-            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&text]);
+            self.error_at(
+                codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD,
+                token.span,
+                &[&text],
+            );
             return self.name_from(&text, token.span);
         }
         // `!identifier.isOperator` and outside the list's punctuation: when in
@@ -1476,9 +1657,15 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `StrMid`/`StrEnd` start with the `}` that closes the interpolation (the
         // `}` in fasta's list): they are not consumed.
         let consume = !starts_statement
-            && !matches!(self.kind(), Kind::Ident | Kind::Keyword(_) | Kind::Eof | Kind::StrMid(..) | Kind::StrEnd(_))
+            && !matches!(
+                self.kind(),
+                Kind::Ident | Kind::Keyword(_) | Kind::Eof | Kind::StrMid(..) | Kind::StrEnd(_)
+            )
             && match self.kind() {
-                Kind::Op(op) => matches!(op, Op::At | Op::Hash | Op::Arrow | Op::Ellipsis | Op::EllipsisQuestion),
+                Kind::Op(op) => matches!(
+                    op,
+                    Op::At | Op::Hash | Op::Arrow | Op::Ellipsis | Op::EllipsisQuestion
+                ),
                 _ => true,
             };
         self.error(codes::parser::MISSING_IDENTIFIER, &[]);
@@ -1511,7 +1698,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.require(Feature::DotShorthands, start);
         }
         // `const .x<T>(…)`: the type arguments come before the parentheses.
-        if const_ && !self.at_op(Op::LParen) && !(self.at_op(Op::Lt) && self.method_type_arguments_ahead()) {
+        if const_
+            && !self.at_op(Op::LParen)
+            && !(self.at_op(Op::Lt) && self.method_type_arguments_ahead())
+        {
             return Err(self.expected_error("("));
         }
         Ok(self.push(start, ExprKind::DotShorthand { name, const_ }))
@@ -1631,8 +1821,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `looksLikeLiteralEntry` (`literal_entry_info.dart:75`).
     fn looks_like_literal_entry(&self, pos: usize) -> bool {
         self.looks_like_expression_start(pos)
-            || matches!(self.kind_of(pos), Kind::Op(Op::Ellipsis | Op::EllipsisQuestion) | Kind::Keyword(Keyword::If | Keyword::For))
-            || (self.text_of(pos) == "await" && self.kind_of(pos + 1) == Kind::Keyword(Keyword::For))
+            || matches!(
+                self.kind_of(pos),
+                Kind::Op(Op::Ellipsis | Op::EllipsisQuestion)
+                    | Kind::Keyword(Keyword::If | Keyword::For)
+            )
+            || (self.text_of(pos) == "await"
+                && self.kind_of(pos + 1) == Kind::Keyword(Keyword::For))
     }
 
     /// `element`: expression, `k: v`, `...e`, `...?e`, `if (...) e else e`,
@@ -1716,11 +1911,19 @@ impl<'s, 'i> Parser<'s, 'i> {
         // at the value's) and drops the `?`: the element is a plain one
         // (`handleNullAwareElement`, `handleLiteralMapEntry`).
         let enabled_flag = self.features.has(Feature::NullAwareElements);
-        let q_key = if self.at_op(Op::Question) { Some(self.advance().span) } else { None };
+        let q_key = if self.at_op(Op::Question) {
+            Some(self.advance().span)
+        } else {
+            None
+        };
         let key = self.parse_expression()?;
         // In a list, only the null-aware entry reads `:`.
         if (q_key.is_some() || !self.in_list) && self.eat_op(Op::Colon) {
-            let q_value = if self.at_op(Op::Question) { Some(self.advance().span) } else { None };
+            let q_value = if self.at_op(Op::Question) {
+                Some(self.advance().span)
+            } else {
+                None
+            };
             if let Some(q) = q_key.or(q_value) {
                 self.require(Feature::NullAwareElements, q);
             }
@@ -1746,11 +1949,21 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `from_pattern`: the `(` after a constant pattern's `const`, which fasta
     /// reads without `constKeywordForRecord` (`parsePrimaryPattern`): `(e)` is a
     /// parenthesized expression; a record comes out constant, like the context.
-    pub(crate) fn parse_parenthesized_or_record(&mut self, start: Span, const_: bool, from_pattern: bool) -> PResult<ExprId> {
+    pub(crate) fn parse_parenthesized_or_record(
+        &mut self,
+        start: Span,
+        const_: bool,
+        from_pattern: bool,
+    ) -> PResult<ExprId> {
         self.with_functions(|p| p.parse_parenthesized_or_record_inner(start, const_, from_pattern))
     }
 
-    fn parse_parenthesized_or_record_inner(&mut self, start: Span, const_: bool, from_pattern: bool) -> PResult<ExprId> {
+    fn parse_parenthesized_or_record_inner(
+        &mut self,
+        start: Span,
+        const_: bool,
+        from_pattern: bool,
+    ) -> PResult<ExprId> {
         let opener = self.pos;
         self.expect_op(Op::LParen)?;
         let mut positional = Vec::new();
@@ -1786,7 +1999,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `const (e)`: one positional without a comma, at the `)`.
         if const_ && positional.len() == 1 && named.is_empty() && !saw_comma {
             let closes = self.tokens[self.pos - 1].span;
-            self.error_at(codes::parser::RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA, closes, &[]);
+            self.error_at(
+                codes::parser::RECORD_LITERAL_ONE_POSITIONAL_NO_TRAILING_COMMA,
+                closes,
+                &[],
+            );
         }
         if is_record {
             return Ok(self.push(
@@ -1856,7 +2073,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         // a type followed by a name if it is followed by another identifier, `<`,
         // `.` or `?` (the filter spares the `skip_type` on almost every primary).
         if self.kind() == Kind::Ident
-            && !matches!(self.kind_of(self.pos + 1), Kind::Ident | Kind::Op(Op::Lt | Op::Dot | Op::Question))
+            && !matches!(
+                self.kind_of(self.pos + 1),
+                Kind::Ident | Kind::Op(Op::Lt | Op::Dot | Op::Question)
+            )
         {
             return None;
         }
@@ -1940,9 +2160,24 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.error_at(codes::parser::EXPECTED_TOKEN, last, &["("]);
             }
             if !self.at_op(Op::LParen) {
-                let empty = Span { start: last.end, end: last.end };
-                let arguments = Box::new(Arguments { span: empty, type_args: Box::default(), args: Box::default() });
-                return Ok(self.push(start, ExprKind::InstanceCreation { keyword, ty, constructor, arguments }));
+                let empty = Span {
+                    start: last.end,
+                    end: last.end,
+                };
+                let arguments = Box::new(Arguments {
+                    span: empty,
+                    type_args: Box::default(),
+                    args: Box::default(),
+                });
+                return Ok(self.push(
+                    start,
+                    ExprKind::InstanceCreation {
+                        keyword,
+                        ty,
+                        constructor,
+                        arguments,
+                    },
+                ));
             }
         }
         let arguments = Box::new(self.parse_arguments()?);
@@ -1969,7 +2204,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         if !self.at_op(Op::LBrace) {
             let closes = self.tokens[self.pos - 1].span;
             self.error_at(codes::parser::EXPECTED_SWITCH_EXPRESSION_BODY, closes, &[]);
-            return Ok(self.push(start, ExprKind::Switch { value, cases: Vec::new().into_boxed_slice() }));
+            return Ok(self.push(
+                start,
+                ExprKind::Switch {
+                    value,
+                    cases: Vec::new().into_boxed_slice(),
+                },
+            ));
         }
         self.expect_op(Op::LBrace)?;
         let mut cases = Vec::new();
@@ -1982,7 +2223,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             let pattern = if self.at_kw(Keyword::Default) {
                 let t = self.advance().span;
                 self.error_at(codes::parser::DEFAULT_IN_SWITCH_EXPRESSION, t, &[]);
-                self.ast.push_pattern(crate::ast::Pattern { span: t, kind: crate::ast::PatternKind::Wildcard { ty: None } })
+                self.ast.push_pattern(crate::ast::Pattern {
+                    span: t,
+                    kind: crate::ast::PatternKind::Wildcard { ty: None },
+                })
             } else {
                 if self.at_kw(Keyword::Case) {
                     self.error(codes::parser::UNEXPECTED_TOKEN, &["case"]);
@@ -2032,7 +2276,9 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.error(codes::parser::EXPECTED_TOKEN, &[","]);
                 continue;
             }
-            let Some(closes) = self.matching_close(opener) else { break };
+            let Some(closes) = self.matching_close(opener) else {
+                break;
+            };
             let mut i = self.pos;
             let mut found_it = None;
             while i < closes {
@@ -2149,10 +2395,20 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // that position (`"$"` in a constant is `INVALID_CONSTANT` there).
                 Interp::Ident if !self.at_identifier() => {
                     let s = self.span().start;
-                    self.error_at(codes::scanner::MISSING_IDENTIFIER, Span { start: s, end: s + 1 }, &[]);
+                    self.error_at(
+                        codes::scanner::MISSING_IDENTIFIER,
+                        Span {
+                            start: s,
+                            end: s + 1,
+                        },
+                        &[],
+                    );
                     let at = Span { start: s, end: s };
                     let name = self.name_from("", at);
-                    Some(self.ast.push_expr(Expr { span: at, kind: ExprKind::Identifier(name) }))
+                    Some(self.ast.push_expr(Expr {
+                        span: at,
+                        kind: ExprKind::Identifier(name),
+                    }))
                 }
                 Interp::Ident => {
                     let start = self.span();
@@ -2161,7 +2417,12 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // (`identifier_context_impl.dart:346-354`) reports the reserved word after
                     // the `$` (`"$class"`) and uses it as the identifier.
                     let text = self.text().to_string();
-                    if text != "this" && matches!(super::fasta::word_style(&text), Some(super::fasta::WordStyle::Reserved)) {
+                    if text != "this"
+                        && matches!(
+                            super::fasta::word_style(&text),
+                            Some(super::fasta::WordStyle::Reserved)
+                        )
+                    {
                         self.error(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, &[&text]);
                     }
                     let name = self.identifier();
@@ -2244,15 +2505,26 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let base = token.span.start + head;
                 match escape_error(content.as_bytes()) {
                     Some((code, start_offset, len)) => {
-                        let span = Span { start: base + start_offset, end: base + start_offset + len };
+                        let span = Span {
+                            start: base + start_offset,
+                            end: base + start_offset + len,
+                        };
                         // `INVALID_CODE_POINT` carries the literal text `\u{...}`.
-                        let args: &[&str] =
-                            if code == codes::parser::INVALID_CODE_POINT { &["\\u{...}"] } else { &[] };
+                        let args: &[&str] = if code == codes::parser::INVALID_CODE_POINT {
+                            &["\\u{...}"]
+                        } else {
+                            &[]
+                        };
                         self.error_at(code, span, args);
-                        self.scratch_parts.push(StringPart::Text(crate::text::DartStr::from(content)));
+                        self.scratch_parts
+                            .push(StringPart::Text(crate::text::DartStr::from(content)));
                         Ok(())
                     }
-                    None => Err(self.error_at(codes::parser::INVALID_UNICODE_ESCAPE_STARTED, token.span, &[])),
+                    None => Err(self.error_at(
+                        codes::parser::INVALID_UNICODE_ESCAPE_STARTED,
+                        token.span,
+                        &[],
+                    )),
                 }
             }
         }
@@ -2268,12 +2540,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     }
 }
 
-
 /// The sum of the `ifConditionDelta` of an element's entries: `+1` per
 /// `if`, `-1` per `else`.
 fn open_ifs(e: &CollectionElement) -> i32 {
     match e {
-        CollectionElement::If { then, else_, .. } => 1 + open_ifs(then) + else_.as_ref().map_or(0, |e| open_ifs(e) - 1),
+        CollectionElement::If { then, else_, .. } => {
+            1 + open_ifs(then) + else_.as_ref().map_or(0, |e| open_ifs(e) - 1)
+        }
         CollectionElement::For { body, .. } => open_ifs(body),
         _ => 0,
     }
@@ -2546,7 +2819,10 @@ mod tests {
                 ..
             }
         ));
-        assert!(p.ast.exprs.len() < 12, "speculation left nodes in the arena");
+        assert!(
+            p.ast.exprs.len() < 12,
+            "speculation left nodes in the arena"
+        );
     }
 
     #[test]
@@ -2682,7 +2958,11 @@ mod tests {
         let tokens = crate::lexer::lex(src).unwrap();
         let mut p = Parser::new(src, tokens, names);
         assert!(p.parse_expression().is_err());
-        assert!(p.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "expected_token")));
+        assert!(
+            p.diagnostics
+                .iter()
+                .any(|d| d.code.is_some_and(|c| c.info().name == "expected_token"))
+        );
     }
 
     #[test]
@@ -2901,7 +3181,11 @@ mod tests {
         let tokens = crate::lexer::lex(&src).unwrap();
         let mut p = Parser::new(&src, tokens, names);
         assert!(p.parse_expression().is_err());
-        assert!(p.diagnostics.iter().any(|d| d.code.is_some_and(|c| c.info().name == "stack_overflow")));
+        assert!(
+            p.diagnostics
+                .iter()
+                .any(|d| d.code.is_some_and(|c| c.info().name == "stack_overflow"))
+        );
     }
 
     // -- Tests that depend on other modules (types, patterns, statements,
@@ -2932,7 +3216,10 @@ mod tests {
         let id = p.parse_expression().unwrap();
         assert_eq!(binary(&p, id).0, BinaryOp::Gt);
         assert_eq!(p.diagnostics.len(), 1);
-        assert_eq!(p.diagnostics[0].code, Some(dartforge_diagnostics::codes::parser::EQUALITY_CANNOT_BE_EQUALITY_OPERAND));
+        assert_eq!(
+            p.diagnostics[0].code,
+            Some(dartforge_diagnostics::codes::parser::EQUALITY_CANNOT_BE_EQUALITY_OPERAND)
+        );
         let (p, id) = parse("a < b && c > d");
         let (op, l, r) = binary(&p, id);
         assert_eq!(op, BinaryOp::And);

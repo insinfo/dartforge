@@ -4,27 +4,40 @@
 use dartforge_emit_native::{context::Context, driver, optimize, optimize::arc::*, sdk_module};
 use dartforge_intern::Interner;
 use dartforge_types::table::{CoreTypes, TypeTable};
-use std::{collections::{BTreeMap, HashMap}, path::Path};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::Path,
+};
 
 fn inventory_externs(modules: &[dartforge_emit_native::hir::Module]) {
     use dartforge_emit_native::hir::Instruction;
     let mut inventory = BTreeMap::<String, (usize, BTreeMap<String, usize>, String)>::new();
     for f in modules.iter().flat_map(|m| &m.functions) {
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            let Instruction::CallRuntime { name, args, ret_ty } = inst else { continue };
-            if contract(name).is_ok() { continue; }
+            let Instruction::CallRuntime { name, args, ret_ty } = inst else {
+                continue;
+            };
+            if contract(name).is_ok() {
+                continue;
+            }
             let types: Vec<_> = args.iter().map(|(_, ty)| ty).collect();
             let signature = format!("{types:?} -> {ret_ty:?} (SSA {ty:?})");
-            let e = inventory.entry(name.clone()).or_insert_with(||
-                (0, BTreeMap::new(), format!("{} v{}", f.symbol, v.0)));
+            let e = inventory
+                .entry(name.clone())
+                .or_insert_with(|| (0, BTreeMap::new(), format!("{} v{}", f.symbol, v.0)));
             e.0 += 1;
             *e.1.entry(signature).or_default() += 1;
         }
     }
-    println!("Inventory before the ARC producers: {} symbols without a direct contract in the catalog; does not certify ABI, reach or ownership", inventory.len());
+    println!(
+        "Inventory before the ARC producers: {} symbols without a direct contract in the catalog; does not certify ABI, reach or ownership",
+        inventory.len()
+    );
     for (name_str, (n, signatures, example)) in inventory {
         println!("Extern without a direct contract: {name_str}: {n} calls; example {example}");
-        for (signature, n) in signatures { println!("  {n} x {signature}"); }
+        for (signature, n) in signatures {
+            println!("  {n} x {signature}");
+        }
     }
 }
 
@@ -33,8 +46,7 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
     let sdk_dir = Path::new(&lib);
     let sdk = sdk_module::load_native_sdk(sdk_dir)?;
     let mut interner = Interner::new();
-    let (program, diags) =
-        dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
+    let (program, diags) = dartforge_elements::load::load_lenient(entry, &sdk, None, &mut interner);
     if !diags.is_empty() {
         return Err(format!("carga: {diags:?}"));
     }
@@ -42,13 +54,8 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
     let core = CoreTypes::init(&mut types, &program, &interner);
     let (mut outline, diags) =
         dartforge_types::resolve_outline(&program, &interner, &mut types, &core);
-    let (bodies, body_diags) = dartforge_types::infer_program_bodies(
-        &program,
-        &interner,
-        &mut types,
-        &core,
-        &mut outline,
-    );
+    let (bodies, body_diags) =
+        dartforge_types::infer_program_bodies(&program, &interner, &mut types, &core, &mut outline);
     for d in diags.iter().chain(&body_diags) {
         if dartforge_types::codes::is_compile_error(&d.message) {
             return Err(format!("typing: {d:?}"));
@@ -89,7 +96,9 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
     if sdk_in_group {
         let mut modules = vec![m];
         modules.extend(lower_sdk_for_audit(sdk_dir, by_tables)?);
-        if externs_inventory { inventory_externs(&modules); }
+        if externs_inventory {
+            inventory_externs(&modules);
+        }
         let mut plans: Vec<HashMap<_, _>> = modules
             .iter()
             .map(|m| {
@@ -114,46 +123,66 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
             match audit_shared_ref_slots(module) {
                 Ok(slots) => println!(
                     "Shared Ref slots in module {index}: {} functions, {} addresses",
-                    slots.len(), slots.values().map(|s| s.len()).sum::<usize>()
+                    slots.len(),
+                    slots.values().map(|s| s.len()).sum::<usize>()
                 ),
-                Err(error) => println!(
-                    "Shared Ref slots in module {index}: {error}"
-                ),
+                Err(error) => println!("Shared Ref slots in module {index}: {error}"),
             }
             match lower_shared_ref_slots(module) {
                 Ok(draft) => {
                     println!(
                         "Intermediate lowering of the slots in module {index}: {} local frames, {} new signatures",
-                        draft.locals.len(), draft.symbols.len()
+                        draft.locals.len(),
+                        draft.symbols.len()
                     );
-                    let mut slot_plans = draft.functions.iter().map(|f|
-                        (f.symbol.clone(), DartFunctionPlan::default())).collect();
+                    let mut slot_plans = draft
+                        .functions
+                        .iter()
+                        .map(|f| (f.symbol.clone(), DartFunctionPlan::default()))
+                        .collect();
                     let roles = produce_cfg_ref_slot_plans(module, &draft, &mut slot_plans);
                     println!("Native roles of the slots in module {index}: {roles:?}");
                 }
-                Err(error) => println!("Intermediate lowering of the slots in module {index}: {error}"),
+                Err(error) => {
+                    println!("Intermediate lowering of the slots in module {index}: {error}")
+                }
             }
         }
         let before = format!("{modules:?}/{plans:?}");
         let result = prepare_arc_dart_modules(&mut modules, &mut plans);
         println!("Joint preparation with the source SDK: {result:?}");
         if let Err(error) = &result {
-            let size = modules.iter().flat_map(|m| &m.functions)
-                .filter(|f| error.contains(&f.symbol)).map(|f| f.symbol.len()).max();
+            let size = modules
+                .iter()
+                .flat_map(|m| &m.functions)
+                .filter(|f| error.contains(&f.symbol))
+                .map(|f| f.symbol.len())
+                .max();
             for (index, m) in modules.iter().enumerate() {
-                for f in m.functions.iter().filter(|f| Some(f.symbol.len()) == size && error.contains(&f.symbol)) {
+                for f in m
+                    .functions
+                    .iter()
+                    .filter(|f| Some(f.symbol.len()) == size && error.contains(&f.symbol))
+                {
                     println!("Associated body in module {index}: {f:#?}");
                     let mut calls = 0;
                     for caller in modules.iter().flat_map(|m| &m.functions) {
                         for (v, i, _) in caller.blocks.iter().flat_map(|b| &b.instructions) {
-                            if let dartforge_emit_native::hir::Instruction::CallStatic { symbol, args, .. } = i
+                            if let dartforge_emit_native::hir::Instruction::CallStatic {
+                                symbol,
+                                args,
+                                ..
+                            } = i
                                 && symbol == &f.symbol
                             {
                                 calls += 1;
                                 println!("Capture caller {} v{}: {args:?}", caller.symbol, v.0);
                                 for arg in args {
                                     if let dartforge_emit_native::hir::Operand::Val(id) = arg {
-                                        let definition = caller.blocks.iter().flat_map(|b| &b.instructions)
+                                        let definition = caller
+                                            .blocks
+                                            .iter()
+                                            .flat_map(|b| &b.instructions)
                                             .find(|(v, _, _)| v == id);
                                         println!("Origin of argument v{}: {definition:?}", id.0);
                                     }
@@ -171,7 +200,9 @@ fn audit(entry: &Path, sdk_in_group: bool, externs_inventory: bool) -> Result<()
         }
         return Ok(());
     }
-    if externs_inventory { inventory_externs(std::slice::from_ref(&m)); }
+    if externs_inventory {
+        inventory_externs(std::slice::from_ref(&m));
+    }
     let mut plans: HashMap<_, _> = m
         .functions
         .iter()
@@ -240,8 +271,7 @@ fn lower_sdk_for_audit(
     }
     let mut types = TypeTable::new();
     let core = CoreTypes::init(&mut types, &program, &interner);
-    let (mut outline, _) =
-        dartforge_types::resolve_outline(&program, &interner, &mut types, &core);
+    let (mut outline, _) = dartforge_types::resolve_outline(&program, &interner, &mut types, &core);
     let libs: Vec<_> = sdk_module::SOURCE_LIBRARIES
         .iter()
         .filter_map(|b| {
@@ -282,7 +312,9 @@ fn lower_sdk_for_audit(
             ));
         }
         optimize::optimize(&mut m);
-        if by_tables { optimize::table_exceptions(&mut m); }
+        if by_tables {
+            optimize::table_exceptions(&mut m);
+        }
         println!(
             "SDK {}: {} functions",
             program.library(lib).uri,
@@ -290,11 +322,21 @@ fn lower_sdk_for_audit(
         );
         // Checks compatibility with the set shared by the previous
         // emitter; these names produce no ownership contracts.
-        let previous_ones: std::collections::HashSet<_> = m.functions.iter()
-            .filter(|f| f.symbol.ends_with("$tear") || f.symbol.ends_with("$tearm") || f.symbol.starts_with("dfc."))
-            .map(|f| f.symbol.clone()).collect();
+        let previous_ones: std::collections::HashSet<_> = m
+            .functions
+            .iter()
+            .filter(|f| {
+                f.symbol.ends_with("$tear")
+                    || f.symbol.ends_with("$tearm")
+                    || f.symbol.starts_with("dfc.")
+            })
+            .map(|f| f.symbol.clone())
+            .collect();
         if previous_ones != m.arc_shared_functions {
-            return Err(format!("incomplete SDK sharing declarations in {}", program.library(lib).uri));
+            return Err(format!(
+                "incomplete SDK sharing declarations in {}",
+                program.library(lib).uri
+            ));
         }
         modules.push(m);
     }

@@ -8,18 +8,13 @@
 //!
 //! Written without compiling or running (2026-10-05).
 
-pub mod walk;
 pub mod codes_g;
-pub mod strings;
-pub mod scope;
+pub mod flutter;
+pub mod obvious;
+pub mod pubspec;
+pub mod regexp_unicode_g;
+pub mod regexp_vm;
 pub mod rules;
-pub mod rules2;
-pub mod rules3;
-pub mod rules4;
-pub mod rules5;
-pub mod rules6;
-pub mod rules7;
-pub mod rules8;
 pub mod rules10;
 pub mod rules11;
 pub mod rules12;
@@ -30,6 +25,7 @@ pub mod rules16;
 pub mod rules17;
 pub mod rules18;
 pub mod rules19;
+pub mod rules2;
 pub mod rules20;
 pub mod rules21;
 pub mod rules22;
@@ -40,17 +36,21 @@ pub mod rules26;
 pub mod rules27;
 pub mod rules28;
 pub mod rules29;
+pub mod rules3;
 pub mod rules30;
 pub mod rules31;
 pub mod rules32;
 pub mod rules33;
-pub mod obvious;
-pub mod flutter;
-pub mod pubspec;
+pub mod rules4;
+pub mod rules5;
+pub mod rules6;
+pub mod rules7;
+pub mod rules8;
 pub mod rules9;
-pub mod regexp_unicode_g;
-pub mod regexp_vm;
+pub mod scope;
+pub mod strings;
 pub mod table_g;
+pub mod walk;
 
 /// The `state:` of a rule (`linter/lib/src/analyzer.dart`, `State`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,17 +138,28 @@ pub fn is_mutated(sem: &Semantics<'_>, a: &dartforge_frontend::ast::Ast, decl: u
     for e in a.exprs.iter() {
         match &e.kind {
             ExprKind::Assign { target, .. } if is_it(*target) => return true,
-            ExprKind::Unary { op: UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec, operand } if is_it(*operand) => {
+            ExprKind::Unary {
+                op:
+                    UnaryOp::PrefixInc | UnaryOp::PrefixDec | UnaryOp::PostfixInc | UnaryOp::PostfixDec,
+                operand,
+            } if is_it(*operand) => {
                 return true;
             }
             ExprKind::List { elements, .. } | ExprKind::SetOrMap { elements, .. } => {
-                fn in_collection(el: &CollectionElement, is_it: &dyn Fn(dartforge_frontend::ast::ExprId) -> bool) -> bool {
+                fn in_collection(
+                    el: &CollectionElement,
+                    is_it: &dyn Fn(dartforge_frontend::ast::ExprId) -> bool,
+                ) -> bool {
                     match el {
                         CollectionElement::ForIn { target, body, .. } => {
-                            matches!(target, ForInTarget::Expression(x) if is_it(*x)) || in_collection(body, is_it)
+                            matches!(target, ForInTarget::Expression(x) if is_it(*x))
+                                || in_collection(body, is_it)
                         }
                         CollectionElement::For { body, .. } => in_collection(body, is_it),
-                        CollectionElement::If { then, else_, .. } => in_collection(then, is_it) || else_.as_ref().is_some_and(|x| in_collection(x, is_it)),
+                        CollectionElement::If { then, else_, .. } => {
+                            in_collection(then, is_it)
+                                || else_.as_ref().is_some_and(|x| in_collection(x, is_it))
+                        }
                         _ => false,
                     }
                 }
@@ -192,7 +203,11 @@ pub enum PropertyOwner {
 }
 
 /// The canonical element of function `f` (an accessor counts as its variable/property).
-fn function_canonical(sem: &Semantics<'_>, interner: &dartforge_intern::Interner, f: dartforge_elements::model::FunctionElementId) -> Canonical {
+fn function_canonical(
+    sem: &Semantics<'_>,
+    interner: &dartforge_intern::Interner,
+    f: dartforge_elements::model::FunctionElementId,
+) -> Canonical {
     use dartforge_elements::model::FunctionKind;
     let g = sem.program.function(f);
     if let Some(v) = g.variable {
@@ -200,7 +215,10 @@ fn function_canonical(sem: &Semantics<'_>, interner: &dartforge_intern::Interner
     }
     if matches!(g.kind, FunctionKind::Getter | FunctionKind::Setter) {
         let text = interner.resolve(g.name);
-        let base = text.strip_suffix("_=").or_else(|| text.strip_suffix('=')).unwrap_or(text);
+        let base = text
+            .strip_suffix("_=")
+            .or_else(|| text.strip_suffix('='))
+            .unwrap_or(text);
         let name = interner.lookup(base).unwrap_or(g.name);
         let owner = match (g.class, g.extension) {
             (Some(c), _) => PropertyOwner::Class(c),
@@ -214,16 +232,27 @@ fn function_canonical(sem: &Semantics<'_>, interner: &dartforge_intern::Interner
 
 /// `node.staticElement?.canonicalElement` (or the write element, on the left
 /// side of an assignment: `getWriteOrReadElement`) of expression `e`.
-pub fn canonical(sem: &Semantics<'_>, interner: &dartforge_intern::Interner, e: dartforge_frontend::ast::ExprId) -> Option<Canonical> {
+pub fn canonical(
+    sem: &Semantics<'_>,
+    interner: &dartforge_intern::Interner,
+    e: dartforge_frontend::ast::ExprId,
+) -> Option<Canonical> {
     use dartforge_elements::model::Element;
     use dartforge_types::resolved::{MemberRef, Resolved};
     Some(match sem.body.get_resolved(e)? {
         Resolved::Local(_) => Canonical::Local(sem.body.local_declaration(e)?),
         Resolved::Parameter { name, .. } => Canonical::Parameter(*name),
         Resolved::TypeParameter(p) => Canonical::TypeParameter(*p),
-        Resolved::Element(Element::Variable(v)) | Resolved::Member { member: MemberRef::Variable(v), .. } => Canonical::Variable(*v),
+        Resolved::Element(Element::Variable(v))
+        | Resolved::Member {
+            member: MemberRef::Variable(v),
+            ..
+        } => Canonical::Variable(*v),
         Resolved::Element(Element::Function(f))
-        | Resolved::Member { member: MemberRef::Function(f), .. }
+        | Resolved::Member {
+            member: MemberRef::Function(f),
+            ..
+        }
         | Resolved::ExtensionMember { member: f, .. }
         | Resolved::Constructor(f) => function_canonical(sem, interner, *f),
         Resolved::Element(x) => Canonical::Element(*x),
@@ -244,7 +273,9 @@ pub fn same_elements(
     y: Option<dartforge_frontend::ast::ExprId>,
 ) -> bool {
     use dartforge_frontend::ast::ExprKind;
-    let (Some(x), Some(y)) = (x, y) else { return false };
+    let (Some(x), Some(y)) = (x, y) else {
+        return false;
+    };
     let without_parens = |mut e: dartforge_frontend::ast::ExprId| {
         while let ExprKind::Parenthesized(i) = &a.expr(e).kind {
             e = *i;
@@ -254,18 +285,32 @@ pub fn same_elements(
     let (x, y) = (without_parens(x), without_parens(y));
     // The `PrefixedIdentifier`: `p.x` with `p` a simple identifier, without `?.`.
     let prefixed = |e: dartforge_frontend::ast::ExprId| match &a.expr(e).kind {
-        ExprKind::Property { target, null_aware: false, .. } => matches!(a.expr(*target).kind, ExprKind::Identifier(_)).then_some(*target),
+        ExprKind::Property {
+            target,
+            null_aware: false,
+            ..
+        } => matches!(a.expr(*target).kind, ExprKind::Identifier(_)).then_some(*target),
         _ => None,
     };
     match (&a.expr(x).kind, &a.expr(y).kind) {
-        (ExprKind::Identifier(_), ExprKind::Identifier(_)) => canonical(sem, interner, x) == canonical(sem, interner, y),
+        (ExprKind::Identifier(_), ExprKind::Identifier(_)) => {
+            canonical(sem, interner, x) == canonical(sem, interner, y)
+        }
         (ExprKind::Identifier(_), _) | (_, ExprKind::Identifier(_)) => false,
-        (ExprKind::Property { target: t1, .. }, ExprKind::Property { target: t2, .. }) => match (prefixed(x), prefixed(y)) {
-            (Some(p1), Some(p2)) => canonical(sem, interner, p1) == canonical(sem, interner, p2) && canonical(sem, interner, x) == canonical(sem, interner, y),
-            (Some(_), None) | (None, Some(_)) => false,
-            // `PropertyAccess`: the targets by the same rule, and the property.
-            (None, None) => same_elements(sem, interner, a, Some(*t1), Some(*t2)) && canonical(sem, interner, x) == canonical(sem, interner, y),
-        },
+        (ExprKind::Property { target: t1, .. }, ExprKind::Property { target: t2, .. }) => {
+            match (prefixed(x), prefixed(y)) {
+                (Some(p1), Some(p2)) => {
+                    canonical(sem, interner, p1) == canonical(sem, interner, p2)
+                        && canonical(sem, interner, x) == canonical(sem, interner, y)
+                }
+                (Some(_), None) | (None, Some(_)) => false,
+                // `PropertyAccess`: the targets by the same rule, and the property.
+                (None, None) => {
+                    same_elements(sem, interner, a, Some(*t1), Some(*t2))
+                        && canonical(sem, interner, x) == canonical(sem, interner, y)
+                }
+            }
+        }
         _ => false,
     }
 }
@@ -288,14 +333,20 @@ pub fn is_nullable(sem: &Semantics<'_>, t: dartforge_types::table::TypeId) -> bo
 
 /// The element type of the top-level variable or field `v`: the written one,
 /// or the inferred one (which body inference completes).
-pub fn variable_type(sem: &Semantics<'_>, v: dartforge_elements::model::VariableId) -> Option<dartforge_types::table::TypeId> {
+pub fn variable_type(
+    sem: &Semantics<'_>,
+    v: dartforge_elements::model::VariableId,
+) -> Option<dartforge_types::table::TypeId> {
     let d = sem.outline.variables.get(v.0 as usize)?;
     d.declared_type.or(d.inferred)
 }
 
 /// The element of function `f` of the unit's tree (top-level, method,
 /// accessor).
-pub fn function_element(sem: &Semantics<'_>, f: dartforge_frontend::ast::FunctionId) -> Option<dartforge_elements::model::FunctionElementId> {
+pub fn function_element(
+    sem: &Semantics<'_>,
+    f: dartforge_frontend::ast::FunctionId,
+) -> Option<dartforge_elements::model::FunctionElementId> {
     sem.program.function_of_node(sem.unit, f)
 }
 
@@ -334,18 +385,30 @@ pub fn lookup_in_chain(
             return false;
         }
         if inherited_setter {
-            k != c && setter_name.and_then(|x| e.instance_members.get(&x)).is_some_and(|f| !p.function(*f).abstract_ && !p.function(*f).static_)
+            k != c
+                && setter_name
+                    .and_then(|x| e.instance_members.get(&x))
+                    .is_some_and(|f| !p.function(*f).abstract_ && !p.function(*f).static_)
         } else {
-            e.instance_members.get(&name).or_else(|| e.static_members.get(&name)).is_some_and(|f| {
-                matches!(p.function(*f).kind, FunctionKind::Getter | FunctionKind::ImplicitAccessor)
-            })
+            e.instance_members
+                .get(&name)
+                .or_else(|| e.static_members.get(&name))
+                .is_some_and(|f| {
+                    matches!(
+                        p.function(*f).kind,
+                        FunctionKind::Getter | FunctionKind::ImplicitAccessor
+                    )
+                })
         }
     })
 }
 
 /// The class (class, enum or extension type) that declares member `m` of the
 /// unit.
-pub fn member_class(sem: &Semantics<'_>, m: dartforge_frontend::ast::MemberId) -> Option<dartforge_elements::model::ClassId> {
+pub fn member_class(
+    sem: &Semantics<'_>,
+    m: dartforge_frontend::ast::MemberId,
+) -> Option<dartforge_elements::model::ClassId> {
     use dartforge_frontend::ast::DeclKind;
     let p = sem.program;
     let a = &p.unit(sem.unit).ast;
@@ -356,15 +419,27 @@ pub fn member_class(sem: &Semantics<'_>, m: dartforge_frontend::ast::MemberId) -
         DeclKind::Mixin(x) => x.members.contains(&m),
         _ => false,
     })?;
-    let i = p.classes.iter().position(|c| c.decl.is_some_and(|r| r.unit == sem.unit && r.decl.0 as usize == di))?;
+    let i = p.classes.iter().position(|c| {
+        c.decl
+            .is_some_and(|r| r.unit == sem.unit && r.decl.0 as usize == di)
+    })?;
     Some(dartforge_elements::model::ClassId(i as u32))
 }
 
 /// `FieldFormalParameterElement.field`: the field named `name` declared in the
 /// class of constructor `m`.
-pub fn class_field(sem: &Semantics<'_>, m: dartforge_frontend::ast::MemberId, name: dartforge_intern::SymbolId) -> Option<dartforge_elements::model::VariableId> {
+pub fn class_field(
+    sem: &Semantics<'_>,
+    m: dartforge_frontend::ast::MemberId,
+    name: dartforge_intern::SymbolId,
+) -> Option<dartforge_elements::model::VariableId> {
     let c = member_class(sem, m)?;
-    sem.program.class(c).fields.iter().copied().find(|v| sem.program.variable(*v).name == name)
+    sem.program
+        .class(c)
+        .fields
+        .iter()
+        .copied()
+        .find(|v| sem.program.variable(*v).name == name)
 }
 
 /// The `superConstructorParameter` of the `super.x` parameter with index `i` of
@@ -381,7 +456,9 @@ pub fn super_parameter(
     use dartforge_frontend::ast::{Initializer, MemberKind, ParameterKind};
     let p = sem.program;
     let a = &p.unit(sem.unit).ast;
-    let MemberKind::Constructor(k) = &a.member(m).kind else { return None };
+    let MemberKind::Constructor(k) = &a.member(m).kind else {
+        return None;
+    };
     let sup = p.class(member_class(sem, m)?).supertype_class?;
     let name = k
         .initializers
@@ -401,11 +478,16 @@ pub fn super_parameter(
     match target.kind {
         ParameterKind::Named => {
             let n = target.name?.sym;
-            let j = data.parameters.iter().position(|x| x.kind == ParameterKind::Named && x.external_name.or(x.name) == Some(n))?;
+            let j = data.parameters.iter().position(|x| {
+                x.kind == ParameterKind::Named && x.external_name.or(x.name) == Some(n)
+            })?;
             Some((ctor, j))
         }
         _ => {
-            let order = k.parameters[..i].iter().filter(|x| x.super_ && x.kind != ParameterKind::Named).count();
+            let order = k.parameters[..i]
+                .iter()
+                .filter(|x| x.super_ && x.kind != ParameterKind::Named)
+                .count();
             let j = data
                 .parameters
                 .iter()
@@ -420,27 +502,41 @@ pub fn super_parameter(
 
 /// `TypeAnnotation.type` of annotation `t` of the unit: the outline's
 /// (signatures) or the bodies'.
-pub fn written_type(sem: &Semantics<'_>, t: dartforge_frontend::ast::TypeId) -> Option<dartforge_types::table::TypeId> {
-    sem.outline.written_types.get(&(sem.unit, t)).copied().or_else(|| sem.body.annotation_types.get(&t).copied())
+pub fn written_type(
+    sem: &Semantics<'_>,
+    t: dartforge_frontend::ast::TypeId,
+) -> Option<dartforge_types::table::TypeId> {
+    sem.outline
+        .written_types
+        .get(&(sem.unit, t))
+        .copied()
+        .or_else(|| sem.body.annotation_types.get(&t).copied())
 }
 
 /// The return type of the element of function `f` of the unit
 /// (`ExecutableElement.returnType`): the inferred one of a literal or local
 /// function, or the outline's (written, or inherited from the override).
-pub fn function_return(sem: &Semantics<'_>, f: dartforge_frontend::ast::FunctionId) -> Option<dartforge_types::table::TypeId> {
+pub fn function_return(
+    sem: &Semantics<'_>,
+    f: dartforge_frontend::ast::FunctionId,
+) -> Option<dartforge_types::table::TypeId> {
     if let Some(t) = sem.body.function_runtime_type(f)
         && let dartforge_types::table::Type::Function { ret, .. } = sem.table.get(t)
     {
         return Some(*ret);
     }
     let i = sem.program.function_of_node(sem.unit, f)?;
-    sem.outline.functions.get(i.0 as usize).map(|d| d.return_type)
+    sem.outline
+        .functions
+        .get(i.0 as usize)
+        .map(|d| d.return_type)
 }
 
 /// The unit's library has language version `major.minor` or later.
 pub fn version_at_least(sem: &Semantics<'_>, major: u16, minor: u16) -> bool {
     let p = sem.program;
-    p.library(p.unit(sem.unit).library).features.version() >= dartforge_frontend::features::LanguageVersion::new(major, minor)
+    p.library(p.unit(sem.unit).library).features.version()
+        >= dartforge_frontend::features::LanguageVersion::new(major, minor)
 }
 
 /// `LinterContext.isInTestDirectory`: the unit defining the unit's library is
@@ -449,8 +545,16 @@ pub fn version_at_least(sem: &Semantics<'_>, major: u16, minor: u16) -> bool {
 pub fn in_package_test(sem: &Semantics<'_>) -> bool {
     let p = sem.program;
     let lib = p.library(p.unit(sem.unit).library);
-    let Some(path) = lib.units.first().and_then(|d| p.unit(*d).path.as_ref()) else { return false };
-    let Some(root) = path.ancestors().skip(1).find(|d| d.join("pubspec.yaml").is_file()) else { return false };
+    let Some(path) = lib.units.first().and_then(|d| p.unit(*d).path.as_ref()) else {
+        return false;
+    };
+    let Some(root) = path
+        .ancestors()
+        .skip(1)
+        .find(|d| d.join("pubspec.yaml").is_file())
+    else {
+        return false;
+    };
     path.starts_with(root.join("test"))
 }
 

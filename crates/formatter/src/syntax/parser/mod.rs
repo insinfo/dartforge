@@ -34,16 +34,16 @@
 
 mod declarations;
 mod expressions;
-mod statements;
 mod lookahead;
 mod patterns;
+mod statements;
 mod types;
 pub mod verify;
 
 use dartforge_frontend::token::{Keyword, Op};
 
-use super::tree::{Tree, Node, NodeId};
-use super::token::{SyntaxError, TokenKind, Tk, Token, Tokens};
+use super::token::{SyntaxError, Tk, Token, TokenKind, Tokens};
+use super::tree::{Node, NodeId, Tree};
 
 /// Result of the parser functions.
 type R<T> = Result<T, SyntaxError>;
@@ -306,7 +306,11 @@ impl<'f> Parser<'f> {
                 | TokenKind::ExpressionInterpolation => stack.push(i),
                 TokenKind::Op(o @ (Op::RParen | Op::RBracket | Op::RBrace)) => {
                     let Some(a) = stack.pop() else {
-                        return Err(token_error(source, t, &format!("Unexpected '{}'.", o.text())));
+                        return Err(token_error(
+                            source,
+                            t,
+                            &format!("Unexpected '{}'.", o.text()),
+                        ));
                     };
                     let expected = match toks.list[a].kind_ {
                         TokenKind::Op(Op::LParen) => Op::RParen,

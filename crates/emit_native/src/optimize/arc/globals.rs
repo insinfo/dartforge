@@ -73,9 +73,10 @@ pub(super) fn prepare(m: &mut Module) -> Result<(), String> {
                 }
                 super::super::operands::operands(inst, &mut constant);
                 let valid = match inst {
-                    Instruction::LoadGlobal { symbol, ty: read_done }
-                        if refs.contains(symbol.as_str()) =>
-                    {
+                    Instruction::LoadGlobal {
+                        symbol,
+                        ty: read_done,
+                    } if refs.contains(symbol.as_str()) => {
                         affected = true;
                         *read_done == Type::Ref && *ty == Type::Ref
                     }
@@ -137,9 +138,7 @@ pub(super) fn prepare(m: &mut Module) -> Result<(), String> {
                         },
                     }
                 }
-                Instruction::StoreGlobal { symbol, val, .. }
-                    if refs.contains(symbol.as_str()) =>
-                {
+                Instruction::StoreGlobal { symbol, val, .. } if refs.contains(symbol.as_str()) => {
                     Instruction::ArcStoreStrong {
                         slot: StrongSlot::Global {
                             symbol: symbol.clone(),
@@ -171,7 +170,8 @@ pub(super) fn produce_scalars(
     if !m.arc_memory || m.dart_scalar_globals.is_empty() {
         return Ok(());
     }
-    let declarations: HashMap<&str, Type> = m.globals.iter().map(|(_, t, s)| (s.as_str(), *t)).collect();
+    let declarations: HashMap<&str, Type> =
+        m.globals.iter().map(|(_, t, s)| (s.as_str(), *t)).collect();
     for s in &m.dart_scalar_globals {
         match declarations.get(s.as_str()) {
             Some(Type::I64 | Type::F64 | Type::I1 | Type::I8) | None => {}
@@ -181,18 +181,43 @@ pub(super) fn produce_scalars(
     let mut new_set = plans.clone();
     for f in &m.functions {
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            let Instruction::LoadGlobal { symbol, ty: read_done } = inst else { continue };
+            let Instruction::LoadGlobal {
+                symbol,
+                ty: read_done,
+            } = inst
+            else {
+                continue;
+            };
             if !m.dart_scalar_globals.contains(symbol) || *read_done != Type::I64 {
                 continue;
             }
-            if *ty != Type::I64 || declarations.get(symbol.as_str()).is_some_and(|d| *d != Type::I64) {
-                return Err(format!("scalar global {symbol} read in {} v{} with another width", f.symbol, v.0));
-            }
-            let Some(plan) = new_set.get_mut(&f.symbol) else { continue };
-            if plan.classes.get(v).is_some_and(|c| *c != Ownership::Trivial)
-                || plan.tokens.instructions.get(v).is_some_and(|e| *e != TokenEffect::default())
+            if *ty != Type::I64
+                || declarations
+                    .get(symbol.as_str())
+                    .is_some_and(|d| *d != Type::I64)
             {
-                return Err(format!("scalar global {symbol} with a conflicting contract in {} v{}", f.symbol, v.0));
+                return Err(format!(
+                    "scalar global {symbol} read in {} v{} with another width",
+                    f.symbol, v.0
+                ));
+            }
+            let Some(plan) = new_set.get_mut(&f.symbol) else {
+                continue;
+            };
+            if plan
+                .classes
+                .get(v)
+                .is_some_and(|c| *c != Ownership::Trivial)
+                || plan
+                    .tokens
+                    .instructions
+                    .get(v)
+                    .is_some_and(|e| *e != TokenEffect::default())
+            {
+                return Err(format!(
+                    "scalar global {symbol} with a conflicting contract in {} v{}",
+                    f.symbol, v.0
+                ));
             }
             plan.classes.insert(*v, Ownership::Trivial);
             plan.tokens.instructions.insert(*v, TokenEffect::default());

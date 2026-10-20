@@ -7,8 +7,7 @@ use dartforge_elements::sdk::SdkLayout;
 use dartforge_intern::Interner;
 use dartforge_ng_generator::resolution::Resolver;
 use dartforge_ng_generator::{
-    NgIndex, NgQuery, Package, Scoreboard, analyze_file, template_path, generate_in,
-    generate_file,
+    NgIndex, NgQuery, Package, Scoreboard, analyze_file, generate_file, generate_in, template_path,
 };
 use std::path::{Path, PathBuf};
 

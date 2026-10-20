@@ -72,16 +72,23 @@ fn cli_preserves_static_after_editing_the_same_dart_file() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     // One directory per test: they run in parallel in the same process, and
     // one's cleanup used to delete the other's fixture.
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-reload-cli-{}", std::process::id()));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp-reload-cli-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("fixture directory");
     let input = dir.join("main.dart");
     edit(&fixtures.join("reload_state_v1.dart"), &input);
 
     let mut command = cli_with_sdk();
-    command.arg("reload").arg(&input).arg("--preserve-state")
-        .arg("--interval").arg("50")
-        .stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .arg("reload")
+        .arg(&input)
+        .arg("--preserve-state")
+        .arg("--interval")
+        .arg("50")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = command.spawn().expect("CLI");
     let (tx, rx) = mpsc::channel();
     let stdout = child.stdout.take().expect("stdout");
@@ -130,16 +137,23 @@ fn cli_preserves_static_after_editing_the_same_dart_file() {
 #[ignore = "compiles the source-built SDK DLL; run in the sdk-fonte job of the Pesado workflow"]
 fn cli_preserves_unified_space_state_across_three_reloads() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-reload-espaco-{}", std::process::id()));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp-reload-espaco-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("fixture directory");
     let input = dir.join("main.dart");
     edit(&fixtures.join("reload_espaco_v1.dart"), &input);
 
     let mut command = cli_with_sdk();
-    command.arg("reload").arg(&input).arg("--preserve-state")
-        .arg("--interval").arg("50")
-        .stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .arg("reload")
+        .arg(&input)
+        .arg("--preserve-state")
+        .arg("--interval")
+        .arg("50")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = command.spawn().expect("CLI");
     let (tx, rx) = mpsc::channel();
     let stdout = child.stdout.take().expect("stdout");
@@ -158,11 +172,20 @@ fn cli_preserves_unified_space_state_across_three_reloads() {
     ];
     let mut seen = Vec::new();
     for (i, _) in expected_lines.iter().enumerate() {
-        let deadline = if i == 0 { DEADLINE } else { Duration::from_secs(20) };
-        let Ok(line) = rx.recv_timeout(deadline) else { break };
+        let deadline = if i == 0 {
+            DEADLINE
+        } else {
+            Duration::from_secs(20)
+        };
+        let Ok(line) = rx.recv_timeout(deadline) else {
+            break;
+        };
         seen.push(line);
         if i + 1 < expected_lines.len() {
-            edit(&fixtures.join(format!("reload_espaco_v{}.dart", i + 2)), &input);
+            edit(
+                &fixtures.join(format!("reload_espaco_v{}.dart", i + 2)),
+                &input,
+            );
         }
     }
     let stderr = shut_down(&mut child, Some("generation 4: state preserved"));
@@ -171,7 +194,10 @@ fn cli_preserves_unified_space_state_across_three_reloads() {
 
     assert_eq!(seen, expected_lines, "{stderr}");
     for g in 1..=4 {
-        assert!(stderr.contains(&format!("generation {g}: state preserved")), "{stderr}");
+        assert!(
+            stderr.contains(&format!("generation {g}: state preserved")),
+            "{stderr}"
+        );
     }
 }
 
@@ -181,17 +207,23 @@ fn cli_preserves_unified_space_state_across_three_reloads() {
 #[test]
 fn cli_reloads_the_running_program() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-reload-vivo-{}", std::process::id()));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp-reload-vivo-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("fixture directory");
     let input = dir.join("main.dart");
     edit(&fixtures.join("reload_live_v1.dart"), &input);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-        .arg("reload").arg(&input)
-        .arg("--interval").arg("50")
-        .stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().expect("CLI");
+        .arg("reload")
+        .arg(&input)
+        .arg("--interval")
+        .arg("50")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("CLI");
     let (tx, rx) = mpsc::channel();
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
@@ -218,16 +250,30 @@ fn cli_reloads_the_running_program() {
             break;
         }
     }
-    let stderr = shut_down(&mut child, Some("generation 2: published into the running program"));
+    let stderr = shut_down(
+        &mut child,
+        Some("generation 2: published into the running program"),
+    );
     reader.join().expect("reader");
     std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
     let (Some(v1), Some(v2)) = (last_v1, first_v2) else {
         panic!("missing the two versions in the output: {lines:?}\n{stderr}");
     };
-    assert_eq!(v2, v1 + 1, "the count continues from the live static: {lines:?}");
-    assert_eq!(lines.iter().filter(|l| *l == "main").count(), 1, "main does not run again: {lines:?}");
-    assert!(stderr.contains("generation 2: published into the running program"), "{stderr}");
+    assert_eq!(
+        v2,
+        v1 + 1,
+        "the count continues from the live static: {lines:?}"
+    );
+    assert_eq!(
+        lines.iter().filter(|l| *l == "main").count(),
+        1,
+        "main does not run again: {lines:?}"
+    );
+    assert!(
+        stderr.contains("generation 2: published into the running program"),
+        "{stderr}"
+    );
 }
 
 /// Structural reload (J03): a new class inserted before a class with a live
@@ -237,17 +283,23 @@ fn cli_reloads_the_running_program() {
 #[test]
 fn cli_reloads_with_an_inserted_class() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-reload-classe-{}", std::process::id()));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp-reload-classe-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("fixture directory");
     let input = dir.join("main.dart");
     edit(&fixtures.join("reload_class_v1.dart"), &input);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-        .arg("reload").arg(&input)
-        .arg("--interval").arg("50")
-        .stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().expect("CLI");
+        .arg("reload")
+        .arg(&input)
+        .arg("--interval")
+        .arg("50")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("CLI");
     let (tx, rx) = mpsc::channel();
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
@@ -279,16 +331,30 @@ fn cli_reloads_with_an_inserted_class() {
             _ => {}
         }
     }
-    let stderr = shut_down(&mut child, Some("generation 2: published into the running program"));
+    let stderr = shut_down(
+        &mut child,
+        Some("generation 2: published into the running program"),
+    );
     reader.join().expect("reader");
     std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
     let (Some(v1), Some(v2)) = (last_v1, first_v2) else {
         panic!("missing the two versions in the output: {lines:?}\n{stderr}");
     };
-    assert_eq!(v2, format!("v2 {} zz alfa true", v1 + 1), "{lines:?}\n{stderr}");
-    assert_eq!(lines.iter().filter(|l| *l == "main").count(), 1, "main does not run again: {lines:?}");
-    assert!(stderr.contains("generation 2: published into the running program"), "{stderr}");
+    assert_eq!(
+        v2,
+        format!("v2 {} zz alfa true", v1 + 1),
+        "{lines:?}\n{stderr}"
+    );
+    assert_eq!(
+        lines.iter().filter(|l| *l == "main").count(),
+        1,
+        "main does not run again: {lines:?}"
+    );
+    assert!(
+        stderr.contains("generation 2: published into the running program"),
+        "{stderr}"
+    );
 }
 
 /// A class that disappears in one generation and comes back in the next keeps
@@ -297,17 +363,23 @@ fn cli_reloads_with_an_inserted_class() {
 #[test]
 fn cli_class_that_disappears_and_returns_keeps_its_id() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-reload-volta-{}", std::process::id()));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp-reload-volta-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("fixture directory");
     let input = dir.join("main.dart");
     edit(&fixtures.join("reload_class_v1.dart"), &input);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-        .arg("reload").arg(&input)
-        .arg("--interval").arg("50")
-        .stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().expect("CLI");
+        .arg("reload")
+        .arg(&input)
+        .arg("--interval")
+        .arg("50")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("CLI");
     let (tx, rx) = mpsc::channel();
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
@@ -343,7 +415,10 @@ fn cli_class_that_disappears_and_returns_keeps_its_id() {
     std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
     let v2 = first_v2.unwrap_or_else(|| panic!("missing v2 in the output: {lines:?}\n{stderr}"));
-    assert!(v2.ends_with(" zz alfa true"), "the live object stopped being a Zeta: {v2}\n{lines:?}\n{stderr}");
+    assert!(
+        v2.ends_with(" zz alfa true"),
+        "the live object stopped being a Zeta: {v2}\n{lines:?}\n{stderr}"
+    );
 }
 
 /// Structural reload (J03): a removed field, a new nullable field (before an
@@ -353,17 +428,23 @@ fn cli_class_that_disappears_and_returns_keeps_its_id() {
 #[test]
 fn cli_reloads_with_changed_fields() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-reload-campos-{}", std::process::id()));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp-reload-campos-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("fixture directory");
     let input = dir.join("main.dart");
     edit(&fixtures.join("reload_fields_v1.dart"), &input);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-        .arg("reload").arg(&input)
-        .arg("--interval").arg("50")
-        .stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().expect("CLI");
+        .arg("reload")
+        .arg(&input)
+        .arg("--interval")
+        .arg("50")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("CLI");
     let (tx, rx) = mpsc::channel();
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
@@ -395,16 +476,30 @@ fn cli_reloads_with_changed_fields() {
             _ => {}
         }
     }
-    let stderr = shut_down(&mut child, Some("generation 2: published into the running program"));
+    let stderr = shut_down(
+        &mut child,
+        Some("generation 2: published into the running program"),
+    );
     reader.join().expect("reader");
     std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
     let (Some(v1), Some(v2)) = (last_v1, first_v2) else {
         panic!("missing the two versions in the output: {lines:?}\n{stderr}");
     };
-    assert_eq!(v2, format!("v2 {} null true", v1 + 1), "{lines:?}\n{stderr}");
-    assert_eq!(lines.iter().filter(|l| *l == "main").count(), 1, "main does not run again: {lines:?}");
-    assert!(stderr.contains("generation 2: published into the running program"), "{stderr}");
+    assert_eq!(
+        v2,
+        format!("v2 {} null true", v1 + 1),
+        "{lines:?}\n{stderr}"
+    );
+    assert_eq!(
+        lines.iter().filter(|l| *l == "main").count(),
+        1,
+        "main does not run again: {lines:?}"
+    );
+    assert!(
+        stderr.contains("generation 2: published into the running program"),
+        "{stderr}"
+    );
 }
 
 /// Structural reload (J03): the signature of a top-level function and of a
@@ -413,17 +508,23 @@ fn cli_reloads_with_changed_fields() {
 #[test]
 fn cli_reloads_with_a_changed_signature() {
     let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-reload-assinatura-{}", std::process::id()));
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp-reload-assinatura-{}",
+        std::process::id()
+    ));
     std::fs::create_dir_all(&dir).expect("fixture directory");
     let input = dir.join("main.dart");
     edit(&fixtures.join("reload_signature_v1.dart"), &input);
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_dartforge"))
-        .arg("reload").arg(&input)
-        .arg("--interval").arg("50")
-        .stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().expect("CLI");
+        .arg("reload")
+        .arg(&input)
+        .arg("--interval")
+        .arg("50")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("CLI");
     let (tx, rx) = mpsc::channel();
     let stdout = child.stdout.take().expect("stdout");
     let reader = std::thread::spawn(move || {
@@ -455,7 +556,10 @@ fn cli_reloads_with_a_changed_signature() {
             _ => {}
         }
     }
-    let stderr = shut_down(&mut child, Some("generation 2: published into the running program"));
+    let stderr = shut_down(
+        &mut child,
+        Some("generation 2: published into the running program"),
+    );
     reader.join().expect("reader");
     std::fs::remove_dir_all(&dir).expect("fixture cleanup");
 
@@ -464,6 +568,13 @@ fn cli_reloads_with_a_changed_signature() {
     };
     let n = v1 + 1;
     assert_eq!(v2, format!("v2 p{n} {}", 3 * n), "{lines:?}\n{stderr}");
-    assert_eq!(lines.iter().filter(|l| *l == "main").count(), 1, "main does not run again: {lines:?}");
-    assert!(stderr.contains("generation 2: published into the running program"), "{stderr}");
+    assert_eq!(
+        lines.iter().filter(|l| *l == "main").count(),
+        1,
+        "main does not run again: {lines:?}"
+    );
+    assert!(
+        stderr.contains("generation 2: published into the running program"),
+        "{stderr}"
+    );
 }

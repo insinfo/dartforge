@@ -213,7 +213,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// it came from (shared resolution or own lookup) and records the divergence
     /// when the two find different declarations. Once per node and kind (read or
     /// write), outside speculative emission.
-    pub(crate) fn check_member(&self, e: ExprId, name: &str, shared: Option<&Member>, own: Option<&Member>) {
+    pub(crate) fn check_member(
+        &self,
+        e: ExprId,
+        name: &str,
+        shared: Option<&Member>,
+        own: Option<&Member>,
+    ) {
         let Some(c) = &self.ctx.type_check else {
             return;
         };
@@ -229,12 +235,29 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             c.borrow_mut().members_from_own_lookup += 1;
         }
-        let (Some(a), Some(b)) = (shared, own) else { return };
+        let (Some(a), Some(b)) = (shared, own) else {
+            return;
+        };
         if a.class == b.class && a.kind == b.kind && a.subst == b.subst {
             return;
         }
-        let describe = |m: &Member| format!("{}.{name} ({:?}) {:?}", self.ctx.interner.resolve(self.ctx.program.class(m.class).name), m.kind, m.subst);
-        let d = self.divergence(e, "membro", "member declaration".to_string(), describe(b), describe(a));
+        let describe = |m: &Member| {
+            format!(
+                "{}.{name} ({:?}) {:?}",
+                self.ctx
+                    .interner
+                    .resolve(self.ctx.program.class(m.class).name),
+                m.kind,
+                m.subst
+            )
+        };
+        let d = self.divergence(
+            e,
+            "membro",
+            "member declaration".to_string(),
+            describe(b),
+            describe(a),
+        );
         c.borrow_mut().divergences.push(d);
     }
 
@@ -329,11 +352,7 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if emitter == shared || (emitter == "unknown" && shared == "unresolved") {
             return;
         }
-        let category = format!(
-            "{} × {}",
-            key_kind(&emitter),
-            key_kind(&shared)
-        );
+        let category = format!("{} × {}", key_kind(&emitter), key_kind(&shared));
         let d = self.divergence(e, "alvo", category, emitter, shared);
         c.borrow_mut().divergences.push(d);
     }
@@ -985,9 +1004,7 @@ fn shared_key(ctx: &Ctx, r: &Resolved) -> String {
         } => element_key(ctx, &Element::Variable(*v)),
         Resolved::Prefix(_) => "prefix".into(),
         Resolved::Dynamic => "dynamic".into(),
-        Resolved::ExtensionMember { member, .. } => {
-            element_key(ctx, &Element::Function(*member))
-        }
+        Resolved::ExtensionMember { member, .. } => element_key(ctx, &Element::Function(*member)),
         Resolved::Constructor(f) => format!("constructor #{}", f.0),
     }
 }

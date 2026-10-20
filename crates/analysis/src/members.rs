@@ -84,7 +84,10 @@ fn start_with_docs(source: &str, start: usize) -> usize {
                 break;
             }
             end = without_space[..line_start].trim_end().len();
-            if !without_space[end..line_start].chars().all(char::is_whitespace) {
+            if !without_space[end..line_start]
+                .chars()
+                .all(char::is_whitespace)
+            {
                 break;
             }
         } else {
@@ -269,10 +272,7 @@ impl Ctx<'_> {
             Some(_) => s.end + (after.len() - after.trim_start().len()) + 1,
             None => s.end,
         };
-        Span {
-            start,
-            end,
-        }
+        Span { start, end }
     }
 
     /// `_checkForConflictingInitializerErrorCodes`: redirection and
@@ -308,7 +308,14 @@ impl Ctx<'_> {
                         );
                     } else if supers == 1 {
                         // In the primary (3.13.4), on the `super`.
-                        let sp = if self.super_in_primary { Span { start: span.start, end: span.start + 5 } } else { *span };
+                        let sp = if self.super_in_primary {
+                            Span {
+                                start: span.start,
+                                end: span.start + 5,
+                            }
+                        } else {
+                            *span
+                        };
                         self.report(c::MULTIPLE_SUPER_INITIALIZERS, sp, &[]);
                     }
                     last_super = Some(i);
@@ -369,7 +376,11 @@ impl Ctx<'_> {
                 if p.default_value.is_some()
                     && let Some(n) = p.name
                 {
-                    self.report(c::DEFAULT_VALUE_IN_REDIRECTING_FACTORY_CONSTRUCTOR, n.span, &[]);
+                    self.report(
+                        c::DEFAULT_VALUE_IN_REDIRECTING_FACTORY_CONSTRUCTOR,
+                        n.span,
+                        &[],
+                    );
                 }
             }
         }
@@ -410,8 +421,18 @@ impl Ctx<'_> {
 /// expression, local function, constructor, function type, function-typed
 /// parameter, `typedef`) each direct `covariant` reports, on the token.
 fn misplaced_covariant(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
-    let extensions: Vec<Span> = ast_.decls.iter().filter(|d| matches!(d.kind, DeclKind::Extension(_))).map(|d| d.span).collect();
-    let extension_types: Vec<Span> = ast_.decls.iter().filter(|d| matches!(d.kind, DeclKind::ExtensionType(_))).map(|d| d.span).collect();
+    let extensions: Vec<Span> = ast_
+        .decls
+        .iter()
+        .filter(|d| matches!(d.kind, DeclKind::Extension(_)))
+        .map(|d| d.span)
+        .collect();
+    let extension_types: Vec<Span> = ast_
+        .decls
+        .iter()
+        .filter(|d| matches!(d.kind, DeclKind::ExtensionType(_)))
+        .map(|d| d.span)
+        .collect();
     let inside = |v: &[Span], s: Span| v.iter().any(|x| x.start <= s.start && s.end <= x.end);
     fn report_list(cx: &mut Ctx<'_>, ps: &[Parameter]) {
         for p in ps {
@@ -419,9 +440,14 @@ fn misplaced_covariant(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
                 continue;
             }
             let end = p.name.map_or(p.span.end, |n| n.span.start);
-            let Some(fragment) = cx.source.get(p.span.start..end) else { continue };
+            let Some(fragment) = cx.source.get(p.span.start..end) else {
+                continue;
+            };
             if let Some(i) = fragment.find("covariant") {
-                let s = Span { start: p.span.start + i, end: p.span.start + i + "covariant".len() };
+                let s = Span {
+                    start: p.span.start + i,
+                    end: p.span.start + i + "covariant".len(),
+                };
                 cx.report(c::INVALID_USE_OF_COVARIANT, s, &[]);
             }
         }
@@ -474,7 +500,9 @@ fn misplaced_covariant(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
         .map(|m| m.0)
         .collect();
     for (mi, m) in ast_.members.iter().enumerate() {
-        let MemberKind::Constructor(k) = &m.kind else { continue };
+        let MemberKind::Constructor(k) = &m.kind else {
+            continue;
+        };
         if inside(&extensions, m.span) {
             continue;
         }
@@ -485,7 +513,9 @@ fn misplaced_covariant(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
         nested(cx, &k.parameters);
     }
     for ty in &ast_.types {
-        let TypeKind::Function { parameters, .. } = &ty.kind else { continue };
+        let TypeKind::Function { parameters, .. } = &ty.kind else {
+            continue;
+        };
         if inside(&extensions, ty.span) {
             continue;
         }
@@ -517,13 +547,28 @@ fn misplaced_super(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
         .filter(|d| matches!(d.kind, DeclKind::ExtensionType(_)))
         .map(|d| d.span)
         .collect();
-    let in_extension_type = |s: Span| extension_types.iter().any(|x| x.start <= s.start && s.end <= x.end);
+    let in_extension_type = |s: Span| {
+        extension_types
+            .iter()
+            .any(|x| x.start <= s.start && s.end <= x.end)
+    };
     fn report_super(cx: &mut Ctx<'_>, p: &Parameter, extension: bool) {
         let end = p.name.map_or(p.span.end, |n| n.span.start);
-        let Some(fragment) = cx.source.get(p.span.start..end) else { return };
-        let Some(i) = fragment.rfind("super") else { return };
-        let s = Span { start: p.span.start + i, end: p.span.start + i + 5 };
-        let code = if extension { c::EXTENSION_TYPE_CONSTRUCTOR_WITH_SUPER_FORMAL_PARAMETER } else { c::INVALID_SUPER_FORMAL_PARAMETER_LOCATION };
+        let Some(fragment) = cx.source.get(p.span.start..end) else {
+            return;
+        };
+        let Some(i) = fragment.rfind("super") else {
+            return;
+        };
+        let s = Span {
+            start: p.span.start + i,
+            end: p.span.start + i + 5,
+        };
+        let code = if extension {
+            c::EXTENSION_TYPE_CONSTRUCTOR_WITH_SUPER_FORMAL_PARAMETER
+        } else {
+            c::INVALID_SUPER_FORMAL_PARAMETER_LOCATION
+        };
         cx.report(code, s, &[]);
     }
     fn all(cx: &mut Ctx<'_>, ps: &[Parameter], extension: bool) {
@@ -543,9 +588,16 @@ fn misplaced_super(cx: &mut Ctx<'_>, ast_: &ast::Ast) {
         }
     }
     for m in &ast_.members {
-        let MemberKind::Constructor(k) = &m.kind else { continue };
+        let MemberKind::Constructor(k) = &m.kind else {
+            continue;
+        };
         let extension = in_extension_type(m.span);
-        let direct_generative = !k.factory && !k.external && !k.initializers.iter().any(|i| matches!(i, Initializer::Redirect { .. }));
+        let direct_generative = !k.factory
+            && !k.external
+            && !k
+                .initializers
+                .iter()
+                .any(|i| matches!(i, Initializer::Redirect { .. }));
         for p in k.parameters.iter() {
             // The constructor's list in an extension type already comes out in `a_context`.
             if p.super_ && !direct_generative && !extension {
@@ -578,8 +630,12 @@ enum Access {
 /// the `this` decides, and a local function passes the question outward.
 fn this_without_access(cx: &mut Ctx<'_>) {
     let ast_ = cx.ast;
-    let sites: Vec<Span> =
-        ast_.exprs.iter().filter(|e| matches!(e.kind, ast::ExprKind::This)).map(|e| e.span).collect();
+    let sites: Vec<Span> = ast_
+        .exprs
+        .iter()
+        .filter(|e| matches!(e.kind, ast::ExprKind::This))
+        .map(|e| e.span)
+        .collect();
     if sites.is_empty() {
         return;
     }
@@ -604,7 +660,11 @@ fn this_without_access(cx: &mut Ctx<'_>) {
                     }
                 }
             }
-            DeclKind::Class(_) | DeclKind::Mixin(_) | DeclKind::Enum(_) | DeclKind::Extension(_) | DeclKind::ExtensionType(_) => {
+            DeclKind::Class(_)
+            | DeclKind::Mixin(_)
+            | DeclKind::Enum(_)
+            | DeclKind::Extension(_)
+            | DeclKind::ExtensionType(_) => {
                 let members: &[ast::MemberId] = match &ast_.decl(id).kind {
                     DeclKind::Class(d) => &d.members,
                     DeclKind::Mixin(d) => &d.members,
@@ -617,10 +677,21 @@ fn this_without_access(cx: &mut Ctx<'_>) {
                     match &ast_.member(m).kind {
                         MemberKind::Method(f) => {
                             let is_static = ast_.function(*f).static_;
-                            role.insert(f.0, if is_static { Access::HasNot } else { Access::Has });
+                            role.insert(
+                                f.0,
+                                if is_static {
+                                    Access::HasNot
+                                } else {
+                                    Access::Has
+                                },
+                            );
                         }
                         MemberKind::Field(vl) => {
-                            let access = if !vl.static_ && vl.late { Access::Has } else { Access::HasNot };
+                            let access = if !vl.static_ && vl.late {
+                                Access::Has
+                            } else {
+                                Access::HasNot
+                            };
                             for v in vl.variables.iter() {
                                 if let Some(e) = v.initializer {
                                     regions.push((ast_.expr(e).span, access));
@@ -629,7 +700,14 @@ fn this_without_access(cx: &mut Ctx<'_>) {
                         }
                         MemberKind::Constructor(k) => {
                             if let Some(sp) = body(&k.body) {
-                                regions.push((sp, if k.factory { Access::HasNot } else { Access::Has }));
+                                regions.push((
+                                    sp,
+                                    if k.factory {
+                                        Access::HasNot
+                                    } else {
+                                        Access::Has
+                                    },
+                                ));
                             }
                         }
                     }
@@ -650,11 +728,20 @@ fn this_without_access(cx: &mut Ctx<'_>) {
             _ => None,
         })
         .collect();
-    let sites: Vec<Span> =
-        sites.into_iter().filter(|u| !discarded.iter().any(|d| d.start <= u.start && u.end <= d.end)).collect();
+    let sites: Vec<Span> = sites
+        .into_iter()
+        .filter(|u| {
+            !discarded
+                .iter()
+                .any(|d| d.start <= u.start && u.end <= d.end)
+        })
+        .collect();
     for (i, f) in ast_.functions.iter().enumerate() {
         if let Some(sp) = body(&f.body) {
-            regions.push((sp, role.get(&(i as u32)).copied().unwrap_or(Access::Inherits)));
+            regions.push((
+                sp,
+                role.get(&(i as u32)).copied().unwrap_or(Access::Inherits),
+            ));
         }
     }
     // From the narrowest to the widest.
@@ -683,10 +770,25 @@ fn this_without_access(cx: &mut Ctx<'_>) {
 /// T1.1 a: the top-level name `name` designates, in the library's scope,
 /// something other than declaration `decl` (the same-named one that enters
 /// the scope first).
-fn name_designates_another(program: &Program, lib: LibraryId, name: SymbolId, decl: DeclRef) -> bool {
-    let Some(designated) = program.library(lib).declared.get(&name).and_then(|d| d.getter) else { return false };
+fn name_designates_another(
+    program: &Program,
+    lib: LibraryId,
+    name: SymbolId,
+    decl: DeclRef,
+) -> bool {
+    let Some(designated) = program
+        .library(lib)
+        .declared
+        .get(&name)
+        .and_then(|d| d.getter)
+    else {
+        return false;
+    };
     match designated {
-        Element::Class(c) => program.class(c).decl.is_some_and(|d| d.unit != decl.unit || d.decl != decl.decl),
+        Element::Class(c) => program
+            .class(c)
+            .decl
+            .is_some_and(|d| d.unit != decl.unit || d.decl != decl.decl),
         Element::Extension(_) | Element::Prefix(..) => false,
         _ => true,
     }
@@ -695,9 +797,29 @@ fn name_designates_another(program: &Program, lib: LibraryId, name: SymbolId, de
 fn is_built_in(name: &str) -> bool {
     matches!(
         name,
-        "abstract" | "as" | "covariant" | "deferred" | "dynamic" | "export" | "extension" | "external" | "factory"
-            | "Function" | "get" | "implements" | "import" | "interface" | "late" | "library" | "mixin"
-            | "operator" | "part" | "required" | "set" | "static" | "typedef"
+        "abstract"
+            | "as"
+            | "covariant"
+            | "deferred"
+            | "dynamic"
+            | "export"
+            | "extension"
+            | "external"
+            | "factory"
+            | "Function"
+            | "get"
+            | "implements"
+            | "import"
+            | "interface"
+            | "late"
+            | "library"
+            | "mixin"
+            | "operator"
+            | "part"
+            | "required"
+            | "set"
+            | "static"
+            | "typedef"
     )
 }
 
@@ -711,23 +833,55 @@ fn built_in_identifiers(cx: &mut Ctx<'_>) {
     let sdk = program.library(unit.library).is_sdk;
     let mut found: Vec<(Code, ast::Name)> = Vec::new();
     for d in &unit.unit.directives {
-        if let ast::DirectiveKind::Import { prefix: Some(p), .. } = &d.kind {
+        if let ast::DirectiveKind::Import {
+            prefix: Some(p), ..
+        } = &d.kind
+        {
             found.push((c::BUILT_IN_IDENTIFIER_AS_PREFIX_NAME, *p));
         }
     }
     let mut params: Vec<ast::Name> = Vec::new();
     for &id in &unit.unit.declarations {
-        let (code, name, tps): (Code, Option<ast::Name>, &[ast::TypeParameter]) = match &ast_.decl(id).kind {
-            // `visitClassTypeAlias`: a class alias uses the `typedef` code.
-            DeclKind::Class(d) if d.mixin_application => (c::BUILT_IN_IDENTIFIER_AS_TYPEDEF_NAME, Some(d.name), &d.type_params),
-            DeclKind::Class(d) => (c::BUILT_IN_IDENTIFIER_AS_TYPE_NAME, Some(d.name), &d.type_params),
-            DeclKind::Mixin(d) => (c::BUILT_IN_IDENTIFIER_AS_TYPE_NAME, Some(d.name), &d.type_params),
-            DeclKind::Enum(d) => (c::BUILT_IN_IDENTIFIER_AS_TYPE_NAME, Some(d.name), &d.type_params),
-            DeclKind::Typedef(d) => (c::BUILT_IN_IDENTIFIER_AS_TYPEDEF_NAME, Some(d.name), &d.type_params),
-            DeclKind::Extension(d) => (c::BUILT_IN_IDENTIFIER_AS_EXTENSION_NAME, d.name, &d.type_params),
-            DeclKind::ExtensionType(d) => (c::BUILT_IN_IDENTIFIER_AS_EXTENSION_TYPE_NAME, Some(d.name), &d.type_params),
-            _ => continue,
-        };
+        let (code, name, tps): (Code, Option<ast::Name>, &[ast::TypeParameter]) =
+            match &ast_.decl(id).kind {
+                // `visitClassTypeAlias`: a class alias uses the `typedef` code.
+                DeclKind::Class(d) if d.mixin_application => (
+                    c::BUILT_IN_IDENTIFIER_AS_TYPEDEF_NAME,
+                    Some(d.name),
+                    &d.type_params,
+                ),
+                DeclKind::Class(d) => (
+                    c::BUILT_IN_IDENTIFIER_AS_TYPE_NAME,
+                    Some(d.name),
+                    &d.type_params,
+                ),
+                DeclKind::Mixin(d) => (
+                    c::BUILT_IN_IDENTIFIER_AS_TYPE_NAME,
+                    Some(d.name),
+                    &d.type_params,
+                ),
+                DeclKind::Enum(d) => (
+                    c::BUILT_IN_IDENTIFIER_AS_TYPE_NAME,
+                    Some(d.name),
+                    &d.type_params,
+                ),
+                DeclKind::Typedef(d) => (
+                    c::BUILT_IN_IDENTIFIER_AS_TYPEDEF_NAME,
+                    Some(d.name),
+                    &d.type_params,
+                ),
+                DeclKind::Extension(d) => (
+                    c::BUILT_IN_IDENTIFIER_AS_EXTENSION_NAME,
+                    d.name,
+                    &d.type_params,
+                ),
+                DeclKind::ExtensionType(d) => (
+                    c::BUILT_IN_IDENTIFIER_AS_EXTENSION_TYPE_NAME,
+                    Some(d.name),
+                    &d.type_params,
+                ),
+                _ => continue,
+            };
         if let Some(n) = name {
             // The `Function` class of `dart:core` is the exception.
             if !(sdk && cx.name(n.sym) == "Function") {
@@ -744,7 +898,11 @@ fn built_in_identifiers(cx: &mut Ctx<'_>) {
             params.extend(type_params.iter().map(|p| p.name));
         }
     }
-    found.extend(params.into_iter().map(|n| (c::BUILT_IN_IDENTIFIER_AS_TYPE_PARAMETER_NAME, n)));
+    found.extend(
+        params
+            .into_iter()
+            .map(|n| (c::BUILT_IN_IDENTIFIER_AS_TYPE_PARAMETER_NAME, n)),
+    );
     for (code, n) in found {
         let text = cx.name(n.sym).to_string();
         // The written name (the parser's recovery may give a synthetic name).
@@ -766,11 +924,7 @@ enum Container {
 
 /// The names that `getNamedConstructor`/`getMethod`/`getGetter`/`getSetter`
 /// find in the declaration.
-fn member_names(
-    ast_: &ast::Ast,
-    members: &[ast::MemberId],
-    constructors: bool,
-) -> Vec<SymbolId> {
+fn member_names(ast_: &ast::Ast, members: &[ast::MemberId], constructors: bool) -> Vec<SymbolId> {
     let mut v = Vec::new();
     for &m in members {
         match &ast_.member(m).kind {
@@ -794,11 +948,7 @@ fn member_names(
 }
 
 /// The diagnostics of this family in library `lib`.
-pub fn check(
-    program: &Program,
-    lib: LibraryId,
-    names: &Interner,
-) -> Vec<(UnitId, Diagnostic)> {
+pub fn check(program: &Program, lib: LibraryId, names: &Interner) -> Vec<(UnitId, Diagnostic)> {
     let library = program.library(lib);
     let wildcard = library.features.has(Feature::WildcardVariables);
     let mut out = Vec::new();
@@ -847,7 +997,11 @@ pub fn check(
                     &d.members,
                     // The implicit `values` is also a member
                     // (`ConflictTypeParameterValues<values>`).
-                    d.constants.iter().map(|k| k.name.sym).chain(names.lookup("values")).collect(),
+                    d.constants
+                        .iter()
+                        .map(|k| k.name.sym)
+                        .chain(names.lookup("values"))
+                        .collect(),
                 ),
                 DeclKind::Extension(d) => (
                     Container::Extension,
@@ -863,7 +1017,9 @@ pub fn check(
                     &d.members,
                     // The named primary constructor (`extension type A<T>.T(…)`)
                     // is a member like the other constructors.
-                    std::iter::once(d.representation_name.sym).chain(d.constructor.map(|n| n.sym)).collect(),
+                    std::iter::once(d.representation_name.sym)
+                        .chain(d.constructor.map(|n| n.sym))
+                        .collect(),
                 ),
                 DeclKind::Function(f) => {
                     let f = ast_.function(*f);
@@ -913,8 +1069,7 @@ pub fn check(
             };
             // Conflicting type parameters (only in the declaration, not in augmentations).
             if !decl.augment {
-                let constructors =
-                    matches!(container, Container::Class | Container::ExtensionType);
+                let constructors = matches!(container, Container::Class | Container::ExtensionType);
                 let mut member_name_set = member_names(ast_, members, constructors);
                 member_name_set.extend(extra.iter().copied());
                 for tp in tps {
@@ -1040,7 +1195,8 @@ pub fn check(
                         // The primary constructor (3.13): the initializer list
                         // of the `this : …` body goes through the same rules,
                         // on the `super`.
-                        if (k.primary_body_part || primary == Some(m)) && !k.initializers.is_empty() {
+                        if (k.primary_body_part || primary == Some(m)) && !k.initializers.is_empty()
+                        {
                             cx.super_in_primary = true;
                             cx.initializers(k, container, superclass.as_deref());
                             cx.super_in_primary = false;
@@ -1057,8 +1213,16 @@ pub fn check(
                         // another (T1.1 a and e, `c10`).
                         if k.factory
                             && let Some(n) = name
-                            && (k.class_name.sym != n.sym || name_designates_another(program, lib, n.sym, DeclRef { unit: u, decl: id }))
-                            && cx.source.get(k.class_name.span.start..k.class_name.span.end)
+                            && (k.class_name.sym != n.sym
+                                || name_designates_another(
+                                    program,
+                                    lib,
+                                    n.sym,
+                                    DeclRef { unit: u, decl: id },
+                                ))
+                            && cx
+                                .source
+                                .get(k.class_name.span.start..k.class_name.span.end)
                                 == Some(cx.name(k.class_name.sym))
                         {
                             cx.report(c::INVALID_FACTORY_NAME_NOT_A_CLASS, k.class_name.span, &[]);
@@ -1092,13 +1256,29 @@ pub fn check(
             }
         }
         for fid in parser_functions {
-            let Some(ps) = &ast_.function(fid).parameters else { continue };
-            for p in ps.iter().filter(|p| p.this_ && !p.super_ && p.kind == ast::ParameterKind::Required) {
+            let Some(ps) = &ast_.function(fid).parameters else {
+                continue;
+            };
+            for p in ps
+                .iter()
+                .filter(|p| p.this_ && !p.super_ && p.kind == ast::ParameterKind::Required)
+            {
                 let end = p.name.map_or(p.span.end, |n| n.span.start);
-                let Some(fragment) = cx.source.get(p.span.start..end) else { continue };
-                let Some(i) = fragment.rfind("this") else { continue };
-                let s = Span { start: p.span.start + i, end: p.span.start + i + 4 };
-                cx.report(dartforge_diagnostics::codes::parser::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR, s, &[]);
+                let Some(fragment) = cx.source.get(p.span.start..end) else {
+                    continue;
+                };
+                let Some(i) = fragment.rfind("this") else {
+                    continue;
+                };
+                let s = Span {
+                    start: p.span.start + i,
+                    end: p.span.start + i + 4,
+                };
+                cx.report(
+                    dartforge_diagnostics::codes::parser::FIELD_INITIALIZER_OUTSIDE_CONSTRUCTOR,
+                    s,
+                    &[],
+                );
             }
         }
         misplaced_super(&mut cx, ast_);
@@ -1145,17 +1325,16 @@ mod tests {
         fs::write(&entry, source).unwrap();
         let mut names = Interner::new();
         let (program, _) = load_lenient(&entry, &sdk, None, &mut names);
-        let mut v: Vec<(String, String, String)> =
-            check(&program, program.entry.unwrap(), &names)
-                .into_iter()
-                .map(|(_, d)| {
-                    (
-                        d.code.map_or("", |c| c.info().name).to_string(),
-                        source[d.span.start..d.span.end].to_string(),
-                        d.message,
-                    )
-                })
-                .collect();
+        let mut v: Vec<(String, String, String)> = check(&program, program.entry.unwrap(), &names)
+            .into_iter()
+            .map(|(_, d)| {
+                (
+                    d.code.map_or("", |c| c.info().name).to_string(),
+                    source[d.span.start..d.span.end].to_string(),
+                    d.message,
+                )
+            })
+            .collect();
         v.sort();
         fs::remove_dir_all(&root).unwrap();
         v
@@ -1445,7 +1624,10 @@ mod tests {
             "this",
             "var t = this;\nf() => this;\nclass A {\n  var a = this;\n  late var b = this;\n  static var c = this;\n  int x;\n  A() : x = this.hashCode { this; () => this; }\n  factory A.f() { this; return A(); }\n  m([p = this]) { this; g() => this; }\n  static s() => this;\n}\n",
         );
-        let n = v.iter().filter(|x| x.0 == "invalid_reference_to_this").count();
+        let n = v
+            .iter()
+            .filter(|x| x.0 == "invalid_reference_to_this")
+            .count();
         assert_eq!(n, 8, "{v:?}");
     }
 
@@ -1461,13 +1643,34 @@ mod tests {
         assert_eq!(
             names,
             vec![
-                ("Function", "The built-in identifier 'Function' can't be used as a typedef name."),
-                ("abstract", "The built-in identifier 'abstract' can't be used as a prefix name."),
-                ("as", "The built-in identifier 'as' can't be used as a type name."),
-                ("dynamic", "The built-in identifier 'dynamic' can't be used as a type parameter name."),
-                ("implements", "The built-in identifier 'implements' can't be used as a type parameter name."),
-                ("interface", "The built-in identifier 'interface' can't be used as a typedef name."),
-                ("set", "The built-in identifier 'set' can't be used as an extension name."),
+                (
+                    "Function",
+                    "The built-in identifier 'Function' can't be used as a typedef name."
+                ),
+                (
+                    "abstract",
+                    "The built-in identifier 'abstract' can't be used as a prefix name."
+                ),
+                (
+                    "as",
+                    "The built-in identifier 'as' can't be used as a type name."
+                ),
+                (
+                    "dynamic",
+                    "The built-in identifier 'dynamic' can't be used as a type parameter name."
+                ),
+                (
+                    "implements",
+                    "The built-in identifier 'implements' can't be used as a type parameter name."
+                ),
+                (
+                    "interface",
+                    "The built-in identifier 'interface' can't be used as a typedef name."
+                ),
+                (
+                    "set",
+                    "The built-in identifier 'set' can't be used as an extension name."
+                ),
             ]
         );
     }
@@ -1477,8 +1680,15 @@ mod tests {
     /// constructor `A.foo`, hence version 3.6).
     #[test]
     fn factory_with_another_name() {
-        let v = run("factory", "// @dart = 3.6\nclass A {\n  factory B() => throw 0;\n  factory A.c() => throw 0;\n  factory foo() => throw 0;\n}\n");
-        let v: Vec<&str> = v.iter().filter(|x| x.0 == "invalid_factory_name_not_a_class").map(|x| x.1.as_str()).collect();
+        let v = run(
+            "factory",
+            "// @dart = 3.6\nclass A {\n  factory B() => throw 0;\n  factory A.c() => throw 0;\n  factory foo() => throw 0;\n}\n",
+        );
+        let v: Vec<&str> = v
+            .iter()
+            .filter(|x| x.0 == "invalid_factory_name_not_a_class")
+            .map(|x| x.1.as_str())
+            .collect();
         assert_eq!(v, vec!["B", "foo"]);
     }
 }

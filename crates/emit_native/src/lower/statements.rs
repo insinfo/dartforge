@@ -1,10 +1,10 @@
 //! Statements: blocks, declarations, `if`, loops, labeled `break`/`continue`,
 //! `return`, `try`/`catch`/`finally` and `assert`.
 
-use super::fn_builder::{FinallyScope, FnBuilder, FixedList};
-use dartforge_intern::SymbolId;
+use super::fn_builder::{FinallyScope, FixedList, FnBuilder};
 use crate::hir::*;
 use dartforge_frontend::ast::{self, ExprId, ExprKind, StmtId, StmtKind};
+use dartforge_intern::SymbolId;
 
 impl<'a, 'c> FnBuilder<'a, 'c> {
     /// `assert(cond, msg)`: throws a catchable `AssertionError` when the
@@ -33,10 +33,20 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             None => Operand::Constant(Constant::Null),
         };
         // Under ARC the message goes as a `Ref` (`new_runtime_error`).
-        let (bits, is_ref) = if self.ctx.arc_memory { (self.coerce(msg, Type::Ref), true) } else { self.to_bits(msg) };
+        let (bits, is_ref) = if self.ctx.arc_memory {
+            (self.coerce(msg, Type::Ref), true)
+        } else {
+            self.to_bits(msg)
+        };
         let err = self.new_runtime_error(
             "dartforge_assertion_error_new",
-            vec![(bits, Type::I64), (Operand::Constant(Constant::Int(i64::from(is_ref))), Type::I8)],
+            vec![
+                (bits, Type::I64),
+                (
+                    Operand::Constant(Constant::Int(i64::from(is_ref))),
+                    Type::I8,
+                ),
+            ],
         );
         self.emit_throw_op(err);
         self.set_block(cont_b);
@@ -69,7 +79,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 // Inside a `try`: an extern that does not check the pending
                 // exception (those of the SDK matched by name, frozen) cannot
                 // leave the `catch` for later — it checks at the end of the statement.
-                if !self.is_terminated() && (!self.exception_targets.is_empty() || !self.finally_scopes.is_empty()) {
+                if !self.is_terminated()
+                    && (!self.exception_targets.is_empty() || !self.finally_scopes.is_empty())
+                {
                     self.emit_call_with_check(
                         Instruction::CallRuntime {
                             name: "dartforge_exception_pending".to_string(),
@@ -107,7 +119,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         // (a read before the assignment does not compile).
                         match var.initializer {
                             Some(init_id) => self.lower_simd(ast, init_id, ty),
-                            None => self.emit(Instruction::Simd { op: OpSimd::Zero, args: Vec::new() }, ty),
+                            None => self.emit(
+                                Instruction::Simd {
+                                    op: OpSimd::Zero,
+                                    args: Vec::new(),
+                                },
+                                ty,
+                            ),
                         }
                     } else if let Some(init_id) = var.initializer {
                         let op = if var_list.const_ {
@@ -122,7 +140,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         let dynamic_init = self.ctx.get_type(self.unit_id, init_id)
                             == Some(self.ctx.core.dynamic_);
                         if let Some(tid) = var_ty_opt.filter(|_| dynamic_init) {
-                            self.check_type_or_throw(ast.ty(tid), op.clone(), super::rti::CastContext::Implicit);
+                            self.check_type_or_throw(
+                                ast.ty(tid),
+                                op.clone(),
+                                super::rti::CastContext::Implicit,
+                            );
                         }
                         op
                     } else {
@@ -287,7 +309,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                                 };
                                 self.declare_variable(sym, var.name.span.start, ty, init_op);
                                 if late_local {
-                                    self.configure_late_local(sym, var_list.final_, var.initializer);
+                                    self.configure_late_local(
+                                        sym,
+                                        var_list.final_,
+                                        var.initializer,
+                                    );
                                 }
                             }
                         }
@@ -297,7 +323,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         // Like a declaration by pattern, in the loop scope.
                         ast::ForInit::Pattern { pattern, value, .. } => {
                             let v = self.lower_expr(ast, *value);
-                            self.match_irrefutable(ast, *pattern, v, super::patterns::Linkage::Declare, *value);
+                            self.match_irrefutable(
+                                ast,
+                                *pattern,
+                                v,
+                                super::patterns::Linkage::Declare,
+                                *value,
+                            );
                         }
                     }
                 }
@@ -317,7 +349,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     // iterations, which check the shape at each access.
                     Some(Counted::CoreList { target, local }) => {
                         let shape = match self.indexable(self.ctx.get_type(self.unit_id, target)) {
-                            Some(super::typed_items::Indexable::Core { write_op: Some(t) }) => super::typed_items::shape_code(t),
+                            Some(super::typed_items::Indexable::Core { write_op: Some(t) }) => {
+                                super::typed_items::shape_code(t)
+                            }
                             _ => super::typed_items::SHAPE_GENERAL,
                         };
                         let list = self.lower_expr(ast, target);
@@ -327,35 +361,95 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                         // (unified space, §2.16): the body calls nothing, and
                         // neither the length nor the storage change during the iterations.
                         let n = self.core_length(&list);
-                        let from_runtime = self.emit(Instruction::ICmp(ICmpOp::Ne, n.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+                        let from_runtime = self.emit(
+                            Instruction::ICmp(
+                                ICmpOp::Ne,
+                                n.clone(),
+                                Operand::Constant(Constant::Int(0)),
+                            ),
+                            Type::I1,
+                        );
                         let check_shape = self.new_block();
                         let fast = self.new_block();
                         let general = self.new_block();
                         let join = self.new_block();
-                        self.terminate(Terminator::CondBranch { cond: from_runtime, then_block: check_shape, else_block: general });
+                        self.terminate(Terminator::CondBranch {
+                            cond: from_runtime,
+                            then_block: check_shape,
+                            else_block: general,
+                        });
                         self.set_block(check_shape);
                         let (data, f) = self.list_storage(&list);
-                        let from_shape = self.emit(Instruction::ICmp(ICmpOp::Eq, f, Operand::Constant(Constant::Int(shape))), Type::I1);
-                        self.terminate(Terminator::CondBranch { cond: from_shape, then_block: fast, else_block: general });
+                        let from_shape = self.emit(
+                            Instruction::ICmp(
+                                ICmpOp::Eq,
+                                f,
+                                Operand::Constant(Constant::Int(shape)),
+                            ),
+                            Type::I1,
+                        );
+                        self.terminate(Terminator::CondBranch {
+                            cond: from_shape,
+                            then_block: fast,
+                            else_block: general,
+                        });
                         self.set_block(fast);
-                        let writable_length =
-                            (shape != super::typed_items::SHAPE_GENERAL).then(|| self.core_writable_length(&list, shape));
+                        let writable_length = (shape != super::typed_items::SHAPE_GENERAL)
+                            .then(|| self.core_writable_length(&list, shape));
                         let key = match self.lookup_local(local).map(|l| l.mode) {
                             Some(super::locals::Mode::Memory(p)) => p,
                             _ => unreachable!("the list loop requires a local in memory"),
                         };
-                        self.fixed_lists.push(FixedList { key, length: n, data, shape, writable_length });
-                        self.for_iterations(ast, init.as_ref(), *condition, updates, *body, true, &label_list);
+                        self.fixed_lists.push(FixedList {
+                            key,
+                            length: n,
+                            data,
+                            shape,
+                            writable_length,
+                        });
+                        self.for_iterations(
+                            ast,
+                            init.as_ref(),
+                            *condition,
+                            updates,
+                            *body,
+                            true,
+                            &label_list,
+                        );
                         self.fixed_lists.pop();
                         self.terminate(Terminator::Branch(join));
                         self.set_block(general);
-                        self.for_iterations(ast, init.as_ref(), *condition, updates, *body, false, &label_list);
+                        self.for_iterations(
+                            ast,
+                            init.as_ref(),
+                            *condition,
+                            updates,
+                            *body,
+                            false,
+                            &label_list,
+                        );
                         self.terminate(Terminator::Branch(join));
                         self.set_block(join);
                     }
-                    Some(Counted::TypedSet(t)) => self.versioned_typed_round_trips(ast, init.as_ref(), *condition, updates, *body, &t, &label_list),
+                    Some(Counted::TypedSet(t)) => self.versioned_typed_round_trips(
+                        ast,
+                        init.as_ref(),
+                        *condition,
+                        updates,
+                        *body,
+                        &t,
+                        &label_list,
+                    ),
                     _ => {
-                        self.for_iterations(ast, init.as_ref(), *condition, updates, *body, counted.is_some(), &label_list);
+                        self.for_iterations(
+                            ast,
+                            init.as_ref(),
+                            *condition,
+                            updates,
+                            *body,
+                            counted.is_some(),
+                            &label_list,
+                        );
                     }
                 }
                 self.close_scope();
@@ -629,7 +723,10 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 self.set_block(body_b);
                 // The explicit stack trace belongs to the pending exception. Read it
                 // before `clear`, which releases the slot and the runtime root.
-                let st_val = clause.stack_trace.as_ref().map(|_| self.pending_stack_trace());
+                let st_val = clause
+                    .stack_trace
+                    .as_ref()
+                    .map(|_| self.pending_stack_trace());
                 self.emit(
                     Instruction::CallRuntime {
                         name: "dartforge_exception_clear".to_string(),
@@ -641,7 +738,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
 
                 self.open_scope();
                 if let Some(ex_name) = &clause.exception {
-                    self.declare_variable(ex_name.sym, ex_name.span.start, Type::Ref, ex_bits.clone());
+                    self.declare_variable(
+                        ex_name.sym,
+                        ex_name.span.start,
+                        Type::Ref,
+                        ex_bits.clone(),
+                    );
                 }
                 if let (Some(st_name), Some(st_val)) = (&clause.stack_trace, st_val) {
                     self.declare_variable(st_name.sym, st_name.span.start, Type::Ref, st_val);
@@ -762,7 +864,11 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             );
             let b_body = self.new_block();
             let b_unwind = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: unwinding, then_block: b_unwind, else_block: b_body });
+            self.terminate(Terminator::CondBranch {
+                cond: unwinding,
+                then_block: b_unwind,
+                else_block: b_body,
+            });
             self.set_block(b_unwind);
             if let Some(&parent_target) = self.exception_targets.last() {
                 self.terminate(Terminator::Branch(parent_target));
@@ -843,7 +949,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// or of `dart:typed_data` lists (final SDK classes). No
     /// path of it runs program code, so the length and the
     /// data of the list do not change during the iterations (the heap does not move objects).
-    fn body_without_calls(&self, ast: &ast::Ast, body: StmtId, list: SymbolId, counter: SymbolId) -> bool {
+    fn body_without_calls(
+        &self,
+        ast: &ast::Ast,
+        body: StmtId,
+        list: SymbolId,
+        counter: SymbolId,
+    ) -> bool {
         let mut declared_set: std::collections::HashSet<SymbolId> = [counter].into_iter().collect();
         self.statement_without_calls(ast, body, list, &mut declared_set)
     }
@@ -856,23 +968,33 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         declared_set: &mut std::collections::HashSet<SymbolId>,
     ) -> bool {
         match &ast.stmt(s).kind {
-            StmtKind::Block(ss) => ss.iter().all(|&x| self.statement_without_calls(ast, x, list, declared_set)),
+            StmtKind::Block(ss) => ss
+                .iter()
+                .all(|&x| self.statement_without_calls(ast, x, list, declared_set)),
             StmtKind::Expression(e) => self.expression_without_calls(ast, *e, list, declared_set),
             StmtKind::Variables(l) => {
                 if l.late {
                     return false;
                 }
                 l.variables.iter().all(|v| {
-                    let ok = v.initializer.is_none_or(|e| self.expression_without_calls(ast, e, list, declared_set))
+                    let ok = v
+                        .initializer
+                        .is_none_or(|e| self.expression_without_calls(ast, e, list, declared_set))
                         && self.scalar(self.ctx.local_type(self.unit_id, v.name.span.start));
                     declared_set.insert(v.name.sym);
                     ok
                 })
             }
-            StmtKind::If { condition, then, else_, .. } => {
+            StmtKind::If {
+                condition,
+                then,
+                else_,
+                ..
+            } => {
                 self.expression_without_calls(ast, *condition, list, declared_set)
                     && self.statement_without_calls(ast, *then, list, declared_set)
-                    && else_.is_none_or(|x| self.statement_without_calls(ast, x, list, declared_set))
+                    && else_
+                        .is_none_or(|x| self.statement_without_calls(ast, x, list, declared_set))
             }
             StmtKind::Break(None) | StmtKind::Continue(None) => true,
             _ => false,
@@ -895,12 +1017,16 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) -> bool {
         use super::typed_items::Indexable;
         let ty = |x: ExprId| self.ctx.get_type(self.unit_id, x);
-        let local = |n: &ast::Name| declared_set.contains(&n.sym) || self.lookup_local(n.sym).is_some();
+        let local =
+            |n: &ast::Name| declared_set.contains(&n.sym) || self.lookup_local(n.sym).is_some();
         // The list itself, or one from `dart:typed_data`.
         let list_ok = |x: ExprId| match &ast.expr(x).kind {
             ExprKind::Identifier(n) if n.sym == list => true,
             ExprKind::Identifier(n) if local(n) => {
-                matches!(self.indexable(ty(x)), Some(Indexable::Typed(_) | Indexable::Simd { .. }))
+                matches!(
+                    self.indexable(ty(x)),
+                    Some(Indexable::Typed(_) | Indexable::Simd { .. })
+                )
             }
             _ => false,
         };
@@ -917,21 +1043,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     && sub(*right)
             }
             ExprKind::Unary { operand, .. } => self.scalar(ty(*operand)) && sub(*operand),
-            ExprKind::Conditional { condition, then, else_ } => sub(*condition) && sub(*then) && sub(*else_),
-            ExprKind::Index { target, index, null_aware: false } => {
-                list_ok(*target) && self.scalar(ty(*index)) && sub(*index)
-            }
-            ExprKind::Property { target, name, null_aware: false } => {
-                self.ctx.symbol_name(name.sym) == "length" && list_ok(*target)
-            }
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => sub(*condition) && sub(*then) && sub(*else_),
+            ExprKind::Index {
+                target,
+                index,
+                null_aware: false,
+            } => list_ok(*target) && self.scalar(ty(*index)) && sub(*index),
+            ExprKind::Property {
+                target,
+                name,
+                null_aware: false,
+            } => self.ctx.symbol_name(name.sym) == "length" && list_ok(*target),
             ExprKind::Assign { target, value, .. } => {
                 let target_ok = match &ast.expr(*target).kind {
                     // The type of the target of an assignment stays on the
                     // assignment itself (that of the result: the local's, in `s += x`).
                     ExprKind::Identifier(n) => local(n) && self.scalar(ty(e)),
-                    ExprKind::Index { target: t, index, null_aware: false } => {
-                        list_ok(*t) && self.scalar(ty(*index)) && sub(*index)
-                    }
+                    ExprKind::Index {
+                        target: t,
+                        index,
+                        null_aware: false,
+                    } => list_ok(*t) && self.scalar(ty(*index)) && sub(*index),
                     _ => false,
                 };
                 target_ok && self.scalar(ty(*value)) && sub(*value)
@@ -1030,8 +1166,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         updates: &[ExprId],
         body: StmtId,
     ) -> Option<Counted> {
-        let Some(ast::ForInit::Variables(list)) = init else { return None };
-        let [var] = &list.variables[..] else { return None };
+        let Some(ast::ForInit::Variables(list)) = init else {
+            return None;
+        };
+        let [var] = &list.variables[..] else {
+            return None;
+        };
         if list.late || var.initializer.is_none() {
             return None;
         }
@@ -1041,7 +1181,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             return None;
         }
         let cond = condition?;
-        let ExprKind::Binary { op, left, right } = &ast.expr(cond).kind else { return None };
+        let ExprKind::Binary { op, left, right } = &ast.expr(cond).kind else {
+            return None;
+        };
         let e_i = |e: ExprId| matches!(&ast.expr(e).kind, ExprKind::Identifier(n) if n.sym == i);
         // `i < L` or `L > i` (and the others): the direction in which `i` moves and whether the
         // comparison is strict.
@@ -1070,20 +1212,31 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         };
         // The step, positive, in the direction of the comparison.
         let step = match &ast.expr(*u).kind {
-            ExprKind::Unary { op: ast::UnaryOp::PostfixInc | ast::UnaryOp::PrefixInc, operand } if increasing && e_i(*operand) => 1,
-            ExprKind::Unary { op: ast::UnaryOp::PostfixDec | ast::UnaryOp::PrefixDec, operand } if !increasing && e_i(*operand) => 1,
-            ExprKind::Assign { op: ast::AssignOp::Compound(ast::BinaryOp::Add), target, value } if increasing && e_i(*target) => {
-                literal(*value).unwrap_or(0)
-            }
-            ExprKind::Assign { op: ast::AssignOp::Compound(ast::BinaryOp::Sub), target, value } if !increasing && e_i(*target) => {
-                literal(*value).unwrap_or(0)
-            }
+            ExprKind::Unary {
+                op: ast::UnaryOp::PostfixInc | ast::UnaryOp::PrefixInc,
+                operand,
+            } if increasing && e_i(*operand) => 1,
+            ExprKind::Unary {
+                op: ast::UnaryOp::PostfixDec | ast::UnaryOp::PrefixDec,
+                operand,
+            } if !increasing && e_i(*operand) => 1,
+            ExprKind::Assign {
+                op: ast::AssignOp::Compound(ast::BinaryOp::Add),
+                target,
+                value,
+            } if increasing && e_i(*target) => literal(*value).unwrap_or(0),
+            ExprKind::Assign {
+                op: ast::AssignOp::Compound(ast::BinaryOp::Sub),
+                target,
+                value,
+            } if !increasing && e_i(*target) => literal(*value).unwrap_or(0),
             _ => 0,
         };
         if step <= 0 {
             return None;
         }
-        let stored_set = super::capture::stored_from_outside(self.ctx, self.unit_id, ast, body, &[cond]);
+        let stored_set =
+            super::capture::stored_from_outside(self.ctx, self.unit_id, ast, body, &[cond]);
         if stored_set.contains(&i) {
             return None;
         }
@@ -1093,7 +1246,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             ExprKind::Identifier(n) => {
                 !stored_set.contains(&n.sym)
                     && self.lookup_local(n.sym).is_some_and(|l| {
-                        matches!(l.mode, super::locals::Mode::Memory(_) | super::locals::Mode::Value(_) | super::locals::Mode::Environment { cell: false, .. })
+                        matches!(
+                            l.mode,
+                            super::locals::Mode::Memory(_)
+                                | super::locals::Mode::Value(_)
+                                | super::locals::Mode::Environment { cell: false, .. }
+                        )
                     })
             }
             _ => false,
@@ -1102,18 +1260,39 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         // or `L`; the loop ends if adding the step to it does not overflow — the
         // native `int` wraps around, and then the loop would not end.
         let without_overflow = |l: i64| {
-            let last_one = if strict { if increasing { l.checked_sub(1) } else { l.checked_add(1) } } else { Some(l) };
-            last_one.is_some_and(|u| if increasing { u.checked_add(step).is_some() } else { u.checked_sub(step).is_some() })
+            let last_one = if strict {
+                if increasing {
+                    l.checked_sub(1)
+                } else {
+                    l.checked_add(1)
+                }
+            } else {
+                Some(l)
+            };
+            last_one.is_some_and(|u| {
+                if increasing {
+                    u.checked_add(step).is_some()
+                } else {
+                    u.checked_sub(step).is_some()
+                }
+            })
         };
         let simple = match &ast.expr(limit).kind {
             ExprKind::Int(_) => literal(limit).is_some_and(without_overflow),
             // An arbitrary value: only a strict step of 1 never overflows.
             ExprKind::Identifier(_) => {
-                strict && step == 1 && fixed_local(limit) && self.ctx.get_type(self.unit_id, limit) == Some(int)
+                strict
+                    && step == 1
+                    && fixed_local(limit)
+                    && self.ctx.get_type(self.unit_id, limit) == Some(int)
             }
             // The length of a typed list stays in `0..=2^60` (it fits in
             // addressable memory); the step does not make it overflow.
-            ExprKind::Property { target, name, null_aware: false } if self.ctx.symbol_name(name.sym) == "length" => {
+            ExprKind::Property {
+                target,
+                name,
+                null_aware: false,
+            } if self.ctx.symbol_name(name.sym) == "length" => {
                 let indexable = self.indexable(self.ctx.get_type(self.unit_id, *target));
                 // N13: `List<E>` only ends by itself if the length does not change
                 // during the iterations — no callee in the body — and the list belongs to the
@@ -1126,15 +1305,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     && fixed_local(*target)
                     && matches!(indexable, Some(super::typed_items::Indexable::Core { .. }))
                     && let ExprKind::Identifier(n) = &ast.expr(*target).kind
-                    && self.lookup_local(n.sym).is_some_and(|l| matches!(l.mode, super::locals::Mode::Memory(_)))
+                    && self
+                        .lookup_local(n.sym)
+                        .is_some_and(|l| matches!(l.mode, super::locals::Mode::Memory(_)))
                     && self.body_without_calls(ast, body, n.sym, i)
                 {
-                    return Some(Counted::CoreList { target: *target, local: n.sym });
+                    return Some(Counted::CoreList {
+                        target: *target,
+                        local: n.sym,
+                    });
                 }
                 increasing
                     && step <= 1 << 60
                     && fixed_local(*target)
-                    && matches!(indexable, Some(super::typed_items::Indexable::Typed(_) | super::typed_items::Indexable::Simd { .. }))
+                    && matches!(
+                        indexable,
+                        Some(
+                            super::typed_items::Indexable::Typed(_)
+                                | super::typed_items::Indexable::Simd { .. }
+                        )
+                    )
             }
             _ => false,
         };
@@ -1191,11 +1381,15 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         self.indexed_accesses_stmt(ast, body, i, &mut accesses);
         let mut lists: Vec<LoopList> = Vec::new();
         for (target, write) in accesses {
-            let ExprKind::Identifier(n) = &ast.expr(target).kind else { continue };
+            let ExprKind::Identifier(n) = &ast.expr(target).kind else {
+                continue;
+            };
             if stored_set.contains(&n.sym) {
                 continue;
             }
-            let Some(local) = self.lookup_local(n.sym) else { continue };
+            let Some(local) = self.lookup_local(n.sym) else {
+                continue;
+            };
             if local.late.is_some() || !matches!(local.mode, super::locals::Mode::Memory(_)) {
                 continue;
             }
@@ -1207,22 +1401,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             if ty.is_none() || self.ctx.local_type(self.unit_id, off) != ty {
                 continue;
             }
-            if !matches!(self.indexable(ty), Some(Indexable::Typed(_) | Indexable::Simd { .. })) {
+            if !matches!(
+                self.indexable(ty),
+                Some(Indexable::Typed(_) | Indexable::Simd { .. })
+            ) {
                 continue;
             }
             match lists.iter_mut().find(|l| l.local == n.sym) {
                 Some(l) => l.write |= write,
-                None => lists.push(LoopList { target, local: n.sym, write }),
+                None => lists.push(LoopList {
+                    target,
+                    local: n.sym,
+                    write,
+                }),
             }
         }
-        (!lists.is_empty()).then_some(TypedRoundTrips { counter: i, limit, lists })
+        (!lists.is_empty()).then_some(TypedRoundTrips {
+            counter: i,
+            limit,
+            lists,
+        })
     }
 
     /// The accesses `x[i]` (`x` an identifier, `i` the counter) of statement
     /// `s`, with `true` when the access writes (assignment target, `++`/`--`).
-    fn indexed_accesses_stmt(&self, ast: &ast::Ast, s: StmtId, i: SymbolId, out: &mut Vec<(ExprId, bool)>) {
+    fn indexed_accesses_stmt(
+        &self,
+        ast: &ast::Ast,
+        s: StmtId,
+        i: SymbolId,
+        out: &mut Vec<(ExprId, bool)>,
+    ) {
         match &ast.stmt(s).kind {
-            StmtKind::Block(ss) => ss.iter().for_each(|&x| self.indexed_accesses_stmt(ast, x, i, out)),
+            StmtKind::Block(ss) => ss
+                .iter()
+                .for_each(|&x| self.indexed_accesses_stmt(ast, x, i, out)),
             StmtKind::Expression(e) => self.indexed_accesses_expr(ast, *e, i, false, out),
             StmtKind::Variables(l) => {
                 for v in l.variables.iter() {
@@ -1231,7 +1444,12 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                     }
                 }
             }
-            StmtKind::If { condition, then, else_, .. } => {
+            StmtKind::If {
+                condition,
+                then,
+                else_,
+                ..
+            } => {
                 self.indexed_accesses_expr(ast, *condition, i, false, out);
                 self.indexed_accesses_stmt(ast, *then, i, out);
                 if let Some(x) = else_ {
@@ -1243,10 +1461,23 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
     }
 
-    fn indexed_accesses_expr(&self, ast: &ast::Ast, e: ExprId, i: SymbolId, writes: bool, out: &mut Vec<(ExprId, bool)>) {
-        let sub = |x: ExprId, g: bool, out: &mut Vec<(ExprId, bool)>| self.indexed_accesses_expr(ast, x, i, g, out);
+    fn indexed_accesses_expr(
+        &self,
+        ast: &ast::Ast,
+        e: ExprId,
+        i: SymbolId,
+        writes: bool,
+        out: &mut Vec<(ExprId, bool)>,
+    ) {
+        let sub = |x: ExprId, g: bool, out: &mut Vec<(ExprId, bool)>| {
+            self.indexed_accesses_expr(ast, x, i, g, out)
+        };
         match &ast.expr(e).kind {
-            ExprKind::Index { target, index, null_aware: false } => {
+            ExprKind::Index {
+                target,
+                index,
+                null_aware: false,
+            } => {
                 if matches!(&ast.expr(*target).kind, ExprKind::Identifier(_))
                     && matches!(&ast.expr(*index).kind, ExprKind::Identifier(n) if n.sym == i)
                 {
@@ -1270,17 +1501,25 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 sub(*target, false, out);
                 arguments.args.iter().for_each(|a| sub(a.value, false, out));
             }
-            ExprKind::InstanceCreation { arguments, .. } => arguments.args.iter().for_each(|a| sub(a.value, false, out)),
+            ExprKind::InstanceCreation { arguments, .. } => {
+                arguments.args.iter().for_each(|a| sub(a.value, false, out))
+            }
             ExprKind::Binary { left, right, .. } => {
                 sub(*left, false, out);
                 sub(*right, false, out);
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 sub(*condition, false, out);
                 sub(*then, false, out);
                 sub(*else_, false, out);
             }
-            ExprKind::Is { value, .. } | ExprKind::As { value, .. } | ExprKind::Throw(value) => sub(*value, false, out),
+            ExprKind::Is { value, .. } | ExprKind::As { value, .. } | ExprKind::Throw(value) => {
+                sub(*value, false, out)
+            }
             _ => {}
         }
     }
@@ -1299,9 +1538,19 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         match &ast.stmt(s).kind {
             StmtKind::Block(ss) => ss.iter().all(|&x| self.duplicable(ast, x, prof + 1)),
             StmtKind::Expression(x) => e(*x),
-            StmtKind::Variables(l) => !l.late && !l.const_ && l.variables.iter().all(|v| v.initializer.is_none_or(e)),
-            StmtKind::If { condition, case_pattern: None, guard: None, then, else_ } => {
-                e(*condition) && self.duplicable(ast, *then, prof + 1) && else_.is_none_or(|x| self.duplicable(ast, x, prof + 1))
+            StmtKind::Variables(l) => {
+                !l.late && !l.const_ && l.variables.iter().all(|v| v.initializer.is_none_or(e))
+            }
+            StmtKind::If {
+                condition,
+                case_pattern: None,
+                guard: None,
+                then,
+                else_,
+            } => {
+                e(*condition)
+                    && self.duplicable(ast, *then, prof + 1)
+                    && else_.is_none_or(|x| self.duplicable(ast, x, prof + 1))
             }
             StmtKind::Break(None) | StmtKind::Continue(None) | StmtKind::Empty => true,
             StmtKind::Return(x) => x.is_none_or(e),
@@ -1316,17 +1565,26 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let e = |y: ExprId| self.duplicable_expr(ast, y, prof + 1);
         let args = |a: &ast::Arguments| a.type_args.is_empty() && a.args.iter().all(|a| e(a.value));
         match &ast.expr(x).kind {
-            ExprKind::Int(_) | ExprKind::Double(_) | ExprKind::Bool(_) | ExprKind::Null | ExprKind::Identifier(_) | ExprKind::This => true,
+            ExprKind::Int(_)
+            | ExprKind::Double(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Null
+            | ExprKind::Identifier(_)
+            | ExprKind::This => true,
             ExprKind::Parenthesized(y) | ExprKind::Throw(y) => e(*y),
             ExprKind::Property { target, .. } => e(*target),
             ExprKind::Index { target, index, .. } => e(*target) && e(*index),
             ExprKind::Call { target, arguments } => e(*target) && args(arguments),
-            ExprKind::InstanceCreation { keyword, arguments, .. } => {
-                !matches!(keyword, Some(ast::CreationKeyword::Const)) && args(arguments)
-            }
+            ExprKind::InstanceCreation {
+                keyword, arguments, ..
+            } => !matches!(keyword, Some(ast::CreationKeyword::Const)) && args(arguments),
             ExprKind::Unary { operand, .. } => e(*operand),
             ExprKind::Binary { left, right, .. } => e(*left) && e(*right),
-            ExprKind::Conditional { condition, then, else_ } => e(*condition) && e(*then) && e(*else_),
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => e(*condition) && e(*then) && e(*else_),
             ExprKind::Is { value, .. } | ExprKind::As { value, .. } => e(*value),
             ExprKind::Assign { target, value, .. } => e(*target) && e(*value),
             _ => false,
@@ -1351,7 +1609,9 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     ) {
         use super::fn_builder::ProvenTyped;
         let int = |x: i64| Operand::Constant(Constant::Int(x));
-        let Some(super::locals::Mode::Memory(counter)) = self.lookup_local(t.counter).map(|l| l.mode) else {
+        let Some(super::locals::Mode::Memory(counter)) =
+            self.lookup_local(t.counter).map(|l| l.mode)
+        else {
             // In a cell (captured): the usual iterations.
             self.for_iterations(ast, init, condition, updates, body, true, label_list);
             return;
@@ -1359,26 +1619,50 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let fast = self.new_block();
         let general = self.new_block();
         let join = self.new_block();
-        let i0 = self.read_local_by_name(t.counter).expect("contador declarado");
+        let i0 = self
+            .read_local_by_name(t.counter)
+            .expect("contador declarado");
         let i0 = self.coerce(i0, Type::I64);
         let b = self.lower_expr(ast, t.limit);
         let b = self.coerce(b, Type::I64);
         let mut proven_set = Vec::with_capacity(t.lists.len());
         let ok = self.emit(Instruction::ICmp(ICmpOp::Sge, i0, int(0)), Type::I1);
         let mut next = self.new_block();
-        self.terminate(Terminator::CondBranch { cond: ok, then_block: next, else_block: general });
+        self.terminate(Terminator::CondBranch {
+            cond: ok,
+            then_block: next,
+            else_block: general,
+        });
         for l in &t.lists {
             self.set_block(next);
-            let ix = self.indexable(self.ctx.get_type(self.unit_id, l.target)).expect("checked typed list");
-            let Some(super::locals::Mode::Memory(key)) = self.lookup_local(l.local).map(|x| x.mode) else {
+            let ix = self
+                .indexable(self.ctx.get_type(self.unit_id, l.target))
+                .expect("checked typed list");
+            let Some(super::locals::Mode::Memory(key)) = self.lookup_local(l.local).map(|x| x.mode)
+            else {
                 unreachable!("list of the versioned loop in an `alloca`")
             };
             let list = self.read_local_by_name(l.local).expect("declared list");
-            let (data, n) = self.proven_data(&list, ix, l.write).expect("typed or SIMD list");
-            let fits = self.emit(Instruction::ICmp(ICmpOp::Sle, b.clone(), n.clone()), Type::I1);
+            let (data, n) = self
+                .proven_data(&list, ix, l.write)
+                .expect("typed or SIMD list");
+            let fits = self.emit(
+                Instruction::ICmp(ICmpOp::Sle, b.clone(), n.clone()),
+                Type::I1,
+            );
             next = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: fits, then_block: next, else_block: general });
-            proven_set.push(ProvenTyped { key, counter: counter.clone(), data, length: n, write: l.write });
+            self.terminate(Terminator::CondBranch {
+                cond: fits,
+                then_block: next,
+                else_block: general,
+            });
+            proven_set.push(ProvenTyped {
+                key,
+                counter: counter.clone(),
+                data,
+                length: n,
+                write: l.write,
+            });
         }
         self.set_block(next);
         self.terminate(Terminator::Branch(fast));
@@ -1436,5 +1720,7 @@ struct LoopList {
 /// `DARTFORGE_NO_…`).
 fn versioning_disabled() -> bool {
     static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_TYPED_VERSIONING").is_some_and(|v| !v.is_empty() && v != "0"))
+    *OFF.get_or_init(|| {
+        std::env::var_os("DARTFORGE_NO_TYPED_VERSIONING").is_some_and(|v| !v.is_empty() && v != "0")
+    })
 }

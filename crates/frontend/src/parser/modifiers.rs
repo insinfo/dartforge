@@ -100,8 +100,10 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `_thisOrSuperWithDot`.
     fn this_or_super_with_dot(&self, pos: usize) -> bool {
-        matches!(self.kind_of(pos), Kind::Keyword(Keyword::This | Keyword::Super))
-            && self.kind_of(pos + 1) == Kind::Op(Op::Dot)
+        matches!(
+            self.kind_of(pos),
+            Kind::Keyword(Keyword::This | Keyword::Super)
+        ) && self.kind_of(pos + 1) == Kind::Op(Op::Dot)
     }
 
     pub(crate) fn span_of(&self, pos: usize) -> Span {
@@ -141,7 +143,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         let text = self.text_of(pos).to_string();
         let before = self.text_of(previous).to_string();
         let span = self.span_of(pos);
-        self.error_at(codes::parser::CONFLICTING_MODIFIERS, span, &[&text, &before]);
+        self.error_at(
+            codes::parser::CONFLICTING_MODIFIERS,
+            span,
+            &[&text, &before],
+        );
     }
 
     /// `ModifierContext._parseModifiers`: consumes every modifier from the
@@ -240,11 +246,17 @@ impl<'s, 'i> Parser<'s, 'i> {
             let before = if after_factory {
                 Some("factory".to_string())
             } else {
-                [f.const_, f.static_, f.late, f.var_final_or_const(), f.covariant]
-                    .into_iter()
-                    .flatten()
-                    .next()
-                    .map(|p| self.text_of(p).to_string())
+                [
+                    f.const_,
+                    f.static_,
+                    f.late,
+                    f.var_final_or_const(),
+                    f.covariant,
+                ]
+                .into_iter()
+                .flatten()
+                .next()
+                .map(|p| self.text_of(p).to_string())
             };
             if let Some(before) = before {
                 self.out_of_order_modifier(pos, &before);
@@ -374,7 +386,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         // Another `var`/`final`/`const` after one of them is not read: it starts
         // the next declaration (`final final class C {}`).
         if f.var_final_or_const().is_some()
-            && matches!(self.kind(), Kind::Keyword(Keyword::Final | Keyword::Var | Keyword::Const))
+            && matches!(
+                self.kind(),
+                Kind::Keyword(Keyword::Final | Keyword::Var | Keyword::Const)
+            )
         {
             return f;
         }
@@ -437,13 +452,21 @@ impl<'s, 'i> Parser<'s, 'i> {
             ParameterOwner::Extension => {
                 if let Some(c) = f.covariant {
                     let span = self.span_of(c);
-                    self.error_at(codes::parser::INVALID_USE_OF_COVARIANT_IN_EXTENSION, span, &["covariant"]);
+                    self.error_at(
+                        codes::parser::INVALID_USE_OF_COVARIANT_IN_EXTENSION,
+                        span,
+                        &["covariant"],
+                    );
                 }
             }
             ParameterOwner::ExtensionType => {
                 if let Some(c) = f.covariant {
                     let span = self.span_of(c);
-                    self.error_at(codes::parser::EXTRANEOUS_MODIFIER_IN_EXTENSION_TYPE, span, &["covariant"]);
+                    self.error_at(
+                        codes::parser::EXTRANEOUS_MODIFIER_IN_EXTENSION_TYPE,
+                        span,
+                        &["covariant"],
+                    );
                 }
             }
             // `modifier_context.dart:234-249` (main checkout): without the feature,
@@ -453,7 +476,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                     && (!self.features.has(crate::Feature::PrimaryConstructors) || f.var_.is_none())
                 {
                     let span = self.span_of(c);
-                    self.error_at(codes::parser::EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR, span, &["covariant"]);
+                    self.error_at(
+                        codes::parser::EXTRANEOUS_MODIFIER_IN_PRIMARY_CONSTRUCTOR,
+                        span,
+                        &["covariant"],
+                    );
                 }
             }
             ParameterOwner::FunctionTypeKind
@@ -483,7 +510,8 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `final` also on `enum`/`mixin`/`extension`).
     pub(crate) fn report_modifiers_before_top_level(&mut self, f: &ModifierTokens, word: &str) {
         let class = word == "class";
-        let directive_or_typedef = matches!(word, "typedef" | "library" | "import" | "export" | "part");
+        let directive_or_typedef =
+            matches!(word, "typedef" | "library" | "import" | "export" | "part");
         if let Some(c) = f.const_ {
             if class {
                 self.error_at_token(c, codes::parser::CONST_CLASS);

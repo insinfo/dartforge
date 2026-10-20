@@ -1,17 +1,17 @@
 //! LLVM IR generator from the native HIR.
 
-pub mod c_abi;
-pub mod externs;
-mod debug_info;
-mod roots;
 mod arc_context;
 mod arc_ports;
+pub mod c_abi;
+mod debug_info;
+pub mod externs;
 mod numeric_vectors;
+mod roots;
 pub(crate) use numeric_vectors::numeric_vector_pooling_enabled;
+mod simd;
 mod stack_trace;
 pub mod verify_maps;
 pub mod verify_shadow;
-mod simd;
 // The emissions that depend on the representation of the runtime values, one per
 // package of the unified space (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, step 4).
 mod ir_boxes;
@@ -29,14 +29,20 @@ const TLAB_N: i64 = layout::TLAB_N as i64;
 const OBJECT_MASK: i64 = 7 | i64::MIN;
 /// The stack pointer register the stack check reads (`llvm.read_register`,
 /// [`LlvmEmitter::emit_stack_check`]): the target is the host.
-fn stack_pointer() -> &'static str { if crate::target::is_aarch64() { "sp" } else { "rsp" } }
-mod selectors;
+fn stack_pointer() -> &'static str {
+    if crate::target::is_aarch64() {
+        "sp"
+    } else {
+        "rsp"
+    }
+}
 mod arc_immediates;
-mod arc_tag_guards;
-#[cfg(test)]
-mod tests;
 #[cfg(test)]
 mod arc_null_literals;
+mod arc_tag_guards;
+mod selectors;
+#[cfg(test)]
+mod tests;
 
 use crate::hir::*;
 use std::fmt::Write;
@@ -115,7 +121,8 @@ pub struct LlvmEmitter<'a> {
     registry_closed: bool,
     /// Allocation facts retain witnesses to the exact immutable HIR bodies.
     receiver_provenance: Option<crate::pruning::receiver_provenance::Provenance<'a>>,
-    current_exact_receivers: std::collections::HashMap<ValueId, crate::pruning::receiver_provenance::Classes>,
+    current_exact_receivers:
+        std::collections::HashMap<ValueId, crate::pruning::receiver_provenance::Classes>,
     cache_in_function: usize,
     /// The index of each slot name of the layout of the live generation (reload).
     slot_index: std::collections::HashMap<i64, usize>,
@@ -285,16 +292,27 @@ pub struct LlvmEmitter<'a> {
 
 impl<'a> LlvmEmitter<'a> {
     fn arc_retain_target(&self) -> &'static str {
-        if self.arc_tag_guards { arc_tag_guards::RETAIN } else { "dartforge_arc_retain" }
+        if self.arc_tag_guards {
+            arc_tag_guards::RETAIN
+        } else {
+            "dartforge_arc_retain"
+        }
     }
 
     fn arc_release_target(&self) -> &'static str {
-        if self.arc_tag_guards { arc_tag_guards::RELEASE } else { "dartforge_arc_release" }
+        if self.arc_tag_guards {
+            arc_tag_guards::RELEASE
+        } else {
+            "dartforge_arc_release"
+        }
     }
 
     /// Supplies a jointly audited SDK snapshot. Its Function borrows prevent
     /// changing a callee after its return fact was used to prove a receiver.
-    pub(crate) fn with_receiver_provenance(mut self, proof: crate::pruning::receiver_provenance::Provenance<'a>) -> Self {
+    pub(crate) fn with_receiver_provenance(
+        mut self,
+        proof: crate::pruning::receiver_provenance::Provenance<'a>,
+    ) -> Self {
         self.receiver_provenance = Some(proof);
         self
     }
@@ -302,7 +320,8 @@ impl<'a> LlvmEmitter<'a> {
         Self {
             module,
             out: String::new(),
-            arc_tag_guards: module.arc_memory && !std::env::var("DARTFORGE_NO_ARC_TAG_GUARDS").is_ok_and(|value| value == "1"),
+            arc_tag_guards: module.arc_memory
+                && !std::env::var("DARTFORGE_NO_ARC_TAG_GUARDS").is_ok_and(|value| value == "1"),
             string_constants: Vec::new(),
             string_index: std::collections::HashMap::new(),
             types: std::collections::HashMap::new(),
@@ -336,7 +355,9 @@ impl<'a> LlvmEmitter<'a> {
             owned_thunks: std::collections::BTreeMap::new(),
             scope_thunks: std::collections::BTreeMap::new(),
             comdats: Vec::new(),
-            stack_trace: std::env::var("DARTFORGE_CALL_TRACE").is_ok_and(|v| v == "1").then_some(0),
+            stack_trace: std::env::var("DARTFORGE_CALL_TRACE")
+                .is_ok_and(|v| v == "1")
+                .then_some(0),
             stack_trace_names: Vec::new(),
             global_slots: std::collections::HashMap::new(),
             slot_hashes: Vec::new(),
@@ -344,7 +365,8 @@ impl<'a> LlvmEmitter<'a> {
             lean_area: false,
             // The positions serve the line tables only with `--debug`; without
             // it, they belong only to the symbolic stack trace (`vm_stack_trace`).
-            debug_info: (module.dwarf && module.functions.iter().any(|f| f.debug_info.is_some())).then(debug_info::DebugInfo::new_one),
+            debug_info: (module.dwarf && module.functions.iter().any(|f| f.debug_info.is_some()))
+                .then(debug_info::DebugInfo::new_one),
             function_by_symbol: {
                 let mut m = std::collections::HashMap::with_capacity(module.functions.len());
                 for f in &module.functions {
@@ -408,7 +430,9 @@ impl<'a> LlvmEmitter<'a> {
     fn maps_registration_call() -> &'static str {
         match crate::target::target_os() {
             crate::target::Os::Windows => "  call void @dartforge_register_map(ptr @__ImageBase)\n",
-            crate::target::Os::Linux => "  call void @dartforge_register_map_section(ptr @__start_dfgcm, ptr @__stop_dfgcm)\n",
+            crate::target::Os::Linux => {
+                "  call void @dartforge_register_map_section(ptr @__start_dfgcm, ptr @__stop_dfgcm)\n"
+            }
             crate::target::Os::MacOs => {
                 "  call void @dartforge_register_map_llvm(ptr @\"\\01section$start$__LLVM_STACKMAPS$__llvm_stackmaps\", ptr @\"\\01section$end$__LLVM_STACKMAPS$__llvm_stackmaps\")\n"
             }
@@ -428,7 +452,11 @@ impl<'a> LlvmEmitter<'a> {
             if !self.module.functions.iter().any(|f| f.symbol == *sym_name) {
                 continue;
             }
-            writeln!(s, "  call void @dartforge_register_stack_trace_tearoff(ptr @{sym_name}, i64 {kind})").unwrap();
+            writeln!(
+                s,
+                "  call void @dartforge_register_stack_trace_tearoff(ptr @{sym_name}, i64 {kind})"
+            )
+            .unwrap();
         }
         s
     }
@@ -440,7 +468,9 @@ impl<'a> LlvmEmitter<'a> {
             return None;
         }
         let (_, start, end) = stack_trace::markers();
-        Some(format!("  call void @dartforge_register_stack_trace(ptr {start}, ptr {end})\n"))
+        Some(format!(
+            "  call void @dartforge_register_stack_trace(ptr {start}, ptr {end})\n"
+        ))
     }
 
     /// Gets the address of the fields through a call to `@df.body`, out of line.
@@ -580,17 +610,30 @@ impl<'a> LlvmEmitter<'a> {
     /// Resume still requires Itanium without statepoints; Windows needs funclets.
     pub fn emit_all(mut self) -> String {
         if !self.registry_closed {
-            self.receiver_provenance = Some(crate::pruning::receiver_provenance::Provenance::default());
+            self.receiver_provenance =
+                Some(crate::pruning::receiver_provenance::Provenance::default());
         }
         if self.receiver_provenance.is_none() {
             self.receiver_provenance = Some(if crate::pruning::receiver_provenance::enabled() {
                 crate::pruning::receiver_provenance::analyze(&[self.module])
-            } else { crate::pruning::receiver_provenance::Provenance::default() });
+            } else {
+                crate::pruning::receiver_provenance::Provenance::default()
+            });
         }
-        assert!(self.module.errors.is_empty(), "emit_all with diagnostics: {:?}", self.module.errors);
-        assert!(crate::target::is_unix() || !self.module.tables.iter().any(|t|
-            t.exits.values().any(|s| *s == ExceptionExit::Resume)),
-            "Resume requires Itanium; Windows needs SEH funclets");
+        assert!(
+            self.module.errors.is_empty(),
+            "emit_all with diagnostics: {:?}",
+            self.module.errors
+        );
+        assert!(
+            crate::target::is_unix()
+                || !self
+                    .module
+                    .tables
+                    .iter()
+                    .any(|t| t.exits.values().any(|s| *s == ExceptionExit::Resume)),
+            "Resume requires Itanium; Windows needs SEH funclets"
+        );
         // Collects the string literals of the module for declaration as global constants
         self.collect_string_constants();
 
@@ -622,7 +665,11 @@ impl<'a> LlvmEmitter<'a> {
             );
         }
         for (k, func) in module.functions.iter().enumerate() {
-            self.tab = if module.table_exceptions { module.tables.get(k) } else { None };
+            self.tab = if module.table_exceptions {
+                module.tables.get(k)
+            } else {
+                None
+            };
             self.emit_function(func);
         }
         self.tab = None;
@@ -634,7 +681,11 @@ impl<'a> LlvmEmitter<'a> {
             // A source SDK library (P5c): without the entry or the `toString`
             // dispatch, which belong to the program; the registration function of its
             // classes, which the program entry calls.
-            let reg = self.module.record.clone().unwrap_or_else(|| "df.register".to_string());
+            let reg = self
+                .module
+                .record
+                .clone()
+                .unwrap_or_else(|| "df.register".to_string());
             self.emit_registration(&reg);
             self.emit_selector_globals();
             self.emit_area_descriptor();
@@ -678,7 +729,8 @@ impl<'a> LlvmEmitter<'a> {
         // internal `@df.area_id` of one of them with the same name — "duplicate
         // symbol: df.area_id" (docs/NATIVO-PRODUCAO-GRANDE.md §5).
         let get_area = GET_AREA.replace("@df.area_id", "@df.area_id.program");
-        self.out.push_str(&out_of_line(&get_area, &self.outlined_helpers));
+        self.out
+            .push_str(&out_of_line(&get_area, &self.outlined_helpers));
         self.emit_string_globals();
         self.emit_external_declarations();
         self.close_maps();
@@ -706,8 +758,13 @@ impl<'a> LlvmEmitter<'a> {
         if self.maps {
             self.out = empty_deopt(&self.out);
         }
-        if self.maps && !self.maps_in_jit && self.gc_functions > 0 && crate::target::target_os() == crate::target::Os::MacOs {
-            self.out.push_str("module asm \".no_dead_strip __LLVM_StackMaps\"\n");
+        if self.maps
+            && !self.maps_in_jit
+            && self.gc_functions > 0
+            && crate::target::target_os() == crate::target::Os::MacOs
+        {
+            self.out
+                .push_str("module asm \".no_dead_strip __LLVM_StackMaps\"\n");
         }
     }
 
@@ -715,27 +772,44 @@ impl<'a> LlvmEmitter<'a> {
         for func in &self.module.functions {
             for block in &func.blocks {
                 for (_, inst, _) in &block.instructions {
-                    if let Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) = inst {
+                    if let Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) = inst
+                    {
                         let bytes: &[u8] = match inst {
                             Instruction::Const(Constant::String(s)) => s.as_bytes(),
                             Instruction::Const(Constant::StringWtf8(s)) => s,
                             _ => unreachable!(),
                         };
-                        Self::register_string(&mut self.string_constants, &mut self.string_index, bytes);
+                        Self::register_string(
+                            &mut self.string_constants,
+                            &mut self.string_index,
+                            bytes,
+                        );
                     }
                 }
             }
         }
         for class in &self.module.classes {
-            Self::register_string(&mut self.string_constants, &mut self.string_index, class.name.as_bytes());
+            Self::register_string(
+                &mut self.string_constants,
+                &mut self.string_index,
+                class.name.as_bytes(),
+            );
         }
         for (_, name_str, _) in &self.module.trace_fields {
-            Self::register_string(&mut self.string_constants, &mut self.string_index, name_str.as_bytes());
+            Self::register_string(
+                &mut self.string_constants,
+                &mut self.string_index,
+                name_str.as_bytes(),
+            );
         }
     }
 
     /// Adds `bytes` to the constant table, if not there yet.
-    fn register_string(table: &mut Vec<Vec<u8>>, idx_value: &mut std::collections::HashMap<Vec<u8>, usize>, bytes: &[u8]) {
+    fn register_string(
+        table: &mut Vec<Vec<u8>>,
+        idx_value: &mut std::collections::HashMap<Vec<u8>, usize>,
+        bytes: &[u8],
+    ) {
         if !idx_value.contains_key(bytes) {
             idx_value.insert(bytes.to_vec(), table.len());
             table.push(bytes.to_vec());
@@ -746,7 +820,8 @@ impl<'a> LlvmEmitter<'a> {
         if self.maps && !self.maps_in_jit {
             // `-ni:1`: `addrspace(1)` is of non-integral pointers — the
             // optimizer does not fabricate `ptrtoint`/`inttoptr` with the roots.
-            self.out.push_str(&crate::target::ir_header().replacen("-S128\"", "-S128-ni:1\"", 1));
+            self.out
+                .push_str(&crate::target::ir_header().replacen("-S128\"", "-S128-ni:1\"", 1));
         } else {
             self.out.push_str(crate::target::ir_header());
         }
@@ -760,7 +835,12 @@ impl<'a> LlvmEmitter<'a> {
         for cid in nominal_classes {
             writeln!(self.out, "; df.cone-class {cid}").unwrap();
         }
-        let mut ambiguous_classes: Vec<_> = self.module.pruning_ambiguous_class_ids.iter().copied().collect();
+        let mut ambiguous_classes: Vec<_> = self
+            .module
+            .pruning_ambiguous_class_ids
+            .iter()
+            .copied()
+            .collect();
         ambiguous_classes.sort_unstable();
         for cid in ambiguous_classes {
             writeln!(self.out, "; df.cone-ambiguous {cid}").unwrap();
@@ -772,7 +852,13 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "; df.cone-parent {child} {parent}").unwrap();
         }
         for (id, lib, class) in &self.module.program_ids {
-            writeln!(self.out, "; df.class {id} {} {}", crate::context::escape_str(lib), crate::context::escape_str(class)).unwrap();
+            writeln!(
+                self.out,
+                "; df.class {id} {} {}",
+                crate::context::escape_str(lib),
+                crate::context::escape_str(class)
+            )
+            .unwrap();
         }
         let mut frames: Vec<_> = self.module.async_frame_layouts.iter().filter(|(owner, site, _, count)| {
             self.module.functions.iter().find(|f| &f.symbol == owner).is_some_and(|f| {
@@ -782,10 +868,20 @@ impl<'a> LlvmEmitter<'a> {
                 })
             })
         }).collect();
-        frames.sort_unstable_by(|left, right| left.0.cmp(&right.0)
-            .then(left.1.0.cmp(&right.1.0)).then(left.2.cmp(&right.2)).then(left.3.cmp(&right.3)));
+        frames.sort_unstable_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then(left.1.0.cmp(&right.1.0))
+                .then(left.2.cmp(&right.2))
+                .then(left.3.cmp(&right.3))
+        });
         for (owner, site, body, fields) in frames {
-            writeln!(self.out, "; df.async-frame {owner} v{} {body} {fields}", site.0).unwrap();
+            writeln!(
+                self.out,
+                "; df.async-frame {owner} v{} {body} {fields}",
+                site.0
+            )
+            .unwrap();
         }
         // The layout of the objects, to migrate the live instances (J03):
         // `name:flags:ty:owner:type_identity`, with `a` nullable and `l` late. The
@@ -794,10 +890,26 @@ impl<'a> LlvmEmitter<'a> {
             let list: Vec<String> = fields
                 .iter()
                 .map(|c| {
-                    let flags = format!("{}{}", if c.nullable { "a" } else { "" }, if c.late { "l" } else { "" });
-                    let owner = c.owner.as_deref().map(crate::context::escape_str).unwrap_or_default();
-                    let identity = c.type_identity.as_deref().map(crate::context::escape_str).unwrap_or_default();
-                    format!("{}:{flags}:{}:{owner}:{identity}", crate::context::escape_str(&c.name), crate::context::escape_str(&c.ty))
+                    let flags = format!(
+                        "{}{}",
+                        if c.nullable { "a" } else { "" },
+                        if c.late { "l" } else { "" }
+                    );
+                    let owner = c
+                        .owner
+                        .as_deref()
+                        .map(crate::context::escape_str)
+                        .unwrap_or_default();
+                    let identity = c
+                        .type_identity
+                        .as_deref()
+                        .map(crate::context::escape_str)
+                        .unwrap_or_default();
+                    format!(
+                        "{}:{flags}:{}:{owner}:{identity}",
+                        crate::context::escape_str(&c.name),
+                        crate::context::escape_str(&c.ty)
+                    )
                 })
                 .collect();
             writeln!(self.out, "; df.fields {id} {base} {}", list.join(",")).unwrap();
@@ -805,7 +917,8 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn emit_runtime_decls(&mut self) {
-        self.out.push_str("; Declarations of the native Rust runtime (table in llvm/externs.rs)\n");
+        self.out
+            .push_str("; Declarations of the native Rust runtime (table in llvm/externs.rs)\n");
         for e in externs::EXTERNS {
             self.out.push_str(e.decl);
             // Roots by maps: the extern that does not collect is a leaf — the call
@@ -842,12 +955,17 @@ impl<'a> LlvmEmitter<'a> {
         // The native calls with a struct by value copy the bytes into a
         // stack temporary (`llvm/c_abi.rs`).
         let composites = self.module.functions.iter().any(|f| {
-            f.blocks.iter().any(|b| b.instructions.iter().any(|(_, i, _)| matches!(i, Instruction::CompositeNativeCall { .. })))
+            f.blocks.iter().any(|b| {
+                b.instructions
+                    .iter()
+                    .any(|(_, i, _)| matches!(i, Instruction::CompositeNativeCall { .. }))
+            })
         });
         self.out.push_str(simd::DECLARATIONS);
         self.out.push_str("declare i8 @llvm.expect.i8(i8, i8)\n");
         self.out.push_str("declare i1 @llvm.expect.i1(i1, i1)\n");
-        self.out.push_str("declare i64 @llvm.read_register.i64(metadata)\n");
+        self.out
+            .push_str("declare i64 @llvm.read_register.i64(metadata)\n");
         for (_, decl) in externs::GLOBALS {
             self.out.push_str(decl);
             self.out.push('\n');
@@ -856,16 +974,24 @@ impl<'a> LlvmEmitter<'a> {
         let helpers_start = self.out.len();
         self.out.push_str(ir_strings::HELPERS);
         self.out.push_str(ir_boxes::HELPERS);
-        if self.arc_tag_guards { self.out.push_str(arc_tag_guards::HELPERS); }
-        self.out.push_str(&ir_lists::helpers(self.module.arc_memory));
+        if self.arc_tag_guards {
+            self.out.push_str(arc_tag_guards::HELPERS);
+        }
+        self.out
+            .push_str(&ir_lists::helpers(self.module.arc_memory));
         self.out.push_str(ir_typed::HELPERS);
         let value_class = value_class(&self.module.runtime_cids);
         self.out.push_str(&value_class);
         self.out.push_str(&space_helpers());
-        self.out.push_str(&body_helper(self.fields_per_call, self.production, self.body_without_outside));
+        self.out.push_str(&body_helper(
+            self.fields_per_call,
+            self.production,
+            self.body_without_outside,
+        ));
         if !self.outlined_helpers.is_empty() {
             let helpers = self.out.split_off(helpers_start);
-            self.out.push_str(&out_of_line(&helpers, &self.outlined_helpers));
+            self.out
+                .push_str(&out_of_line(&helpers, &self.outlined_helpers));
         }
         if self.maps {
             let helpers = self.out.split_off(helpers_start);
@@ -875,7 +1001,8 @@ impl<'a> LlvmEmitter<'a> {
             // Without the closed set of active program tables (experimental), every
             // table of the module is registered at startup, and the helper
             // has no registration test.
-            let registered = self.tables_registered_at_startup && self.module.closed_class_tables.is_none();
+            let registered =
+                self.tables_registered_at_startup && self.module.closed_class_tables.is_none();
             self.out.push_str(&new_instance(registered));
         }
         if self.compact_selector {
@@ -890,7 +1017,11 @@ impl<'a> LlvmEmitter<'a> {
             );
         }
         if self.module.table_exceptions {
-            self.out.push_str(if !crate::target::is_unix() { EXCEPTIONS_BY_TABLES } else { EXCEPTIONS_BY_TABLES_ITANIUM });
+            self.out.push_str(if !crate::target::is_unix() {
+                EXCEPTIONS_BY_TABLES
+            } else {
+                EXCEPTIONS_BY_TABLES_ITANIUM
+            });
         }
         if externs::check_effects() {
             // The frame of the check does not collect: with roots by maps, it is a
@@ -926,7 +1057,8 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(
                 self.out,
                 "@.str.{idx} = private unnamed_addr constant [{len} x i8] c\"{escaped}\""
-            ).unwrap();
+            )
+            .unwrap();
         }
         self.out.push('\n');
     }
@@ -938,7 +1070,12 @@ impl<'a> LlvmEmitter<'a> {
     fn emit_vtables(&mut self) {
         // Global vtables if there are classes
         for class in &self.module.classes {
-            writeln!(self.out, "; VTable of class {} (id {})", class.name, class.id).unwrap();
+            writeln!(
+                self.out,
+                "; VTable of class {} (id {})",
+                class.name, class.id
+            )
+            .unwrap();
         }
     }
 
@@ -946,16 +1083,31 @@ impl<'a> LlvmEmitter<'a> {
         let arc_retain_target = self.arc_retain_target();
         let arc_release_target = self.arc_release_target();
         self.current_function.clone_from(&func.symbol);
-        self.current_exact_receivers = self.receiver_provenance.as_ref()
-            .and_then(|proof| proof.values_for(func)).cloned().unwrap_or_default();
-        self.current_receiver_cone = self.module.pruning_this_receivers.get(&func.symbol)
+        self.current_exact_receivers = self
+            .receiver_provenance
+            .as_ref()
+            .and_then(|proof| proof.values_for(func))
+            .cloned()
+            .unwrap_or_default();
+        self.current_receiver_cone = self
+            .module
+            .pruning_this_receivers
+            .get(&func.symbol)
             .filter(|_| self.registry_closed)
-            .copied().filter(|(id, _)| func.params.iter().any(|(parameter, _, ty)| parameter == id && *ty == Type::Ref));
+            .copied()
+            .filter(|(id, _)| {
+                func.params
+                    .iter()
+                    .any(|(parameter, _, ty)| parameter == id && *ty == Type::Ref)
+            });
         self.cache_in_function = 0;
         self.frame_allocas = Self::escaping_ref_allocas(func);
         self.prepare_types_and_phis(func);
         let immediate_refs = arc_immediates::ImmediateRefs::new(
-            func, !self.function_by_symbol.contains_key("dartforge_arc_box_int_owned_v1"),
+            func,
+            !self
+                .function_by_symbol
+                .contains_key("dartforge_arc_box_int_owned_v1"),
         );
 
         let ret_ty = func.return_ty.llvm_ir();
@@ -972,10 +1124,20 @@ impl<'a> LlvmEmitter<'a> {
         // §7.4, shadow mode: the `Ref` values of the function (the candidates of
         // `roots::analyze`) for the dominance checker.
         if !self.maps && verify_shadow::linked() {
-            let mut refs: Vec<u32> = func.params.iter().filter(|(_, _, t)| *t == Type::Ref).map(|(v, _, _)| v.0).collect();
+            let mut refs: Vec<u32> = func
+                .params
+                .iter()
+                .filter(|(_, _, t)| *t == Type::Ref)
+                .map(|(v, _, _)| v.0)
+                .collect();
             for b in &func.blocks {
                 for (v, inst, t) in &b.instructions {
-                    if *t == Type::Ref && !matches!(inst, Instruction::Const(Constant::Null) | Instruction::Alloca(_)) {
+                    if *t == Type::Ref
+                        && !matches!(
+                            inst,
+                            Instruction::Const(Constant::Null) | Instruction::Alloca(_)
+                        )
+                    {
                         refs.push(v.0);
                     }
                 }
@@ -990,20 +1152,31 @@ impl<'a> LlvmEmitter<'a> {
         let inline_attribute = match self.module.inline_policies.get(&func.symbol) {
             Some(InlinePolicy::Never) => " noinline",
             // Debug/stack-trace policies retain precedence over a preference.
-            Some(InlinePolicy::Prefer) if func.debug_info.is_none() && !self.module.dwarf => " inlinehint",
+            Some(InlinePolicy::Prefer) if func.debug_info.is_none() && !self.module.dwarf => {
+                " inlinehint"
+            }
             _ => "",
         };
         // Dart recursion must still grow the stack and throw StackOverflowError.
         // Reading sp does not make a frame escape: without this attribute LLVM
         // can replace a recursive call with a loop and hoist its stack check.
-        let attributes = format!("{}{} \"disable-tail-calls\"=\"true\"", if self.optimize_size { " optsize" } else { "" }, inline_attribute);
+        let attributes = format!(
+            "{}{} \"disable-tail-calls\"=\"true\"",
+            if self.optimize_size { " optsize" } else { "" },
+            inline_attribute
+        );
         // The `this` of a method is always an object of the space (never null or a
         // `Smi`: the class has the read field); without an outside body, the address
         // of its fields is `this − 2 + 16`.
         self.this_object = func
             .params
             .first()
-            .filter(|(_, name_str, t)| self.body_without_outside && !self.module.arc_memory && name_str == "this" && *t == Type::Ref)
+            .filter(|(_, name_str, t)| {
+                self.body_without_outside
+                    && !self.module.arc_memory
+                    && name_str == "this"
+                    && *t == Type::Ref
+            })
             .map(|(vid, _, _)| vid.0);
         // Exceptions by tables: the decision of the pass for this function. Only the
         // function with a landing pad names the personality (it is the one that reads the table of the
@@ -1012,21 +1185,32 @@ impl<'a> LlvmEmitter<'a> {
         let has_landing_pad = tab.is_some_and(|t| !t.landing_pads.is_empty());
         let has_resume = tab.is_some_and(|t| t.exits.values().any(|s| *s == ExceptionExit::Resume));
         if let Some(c) = tab.and_then(|t| t.foreign_cleanup.as_ref()) {
-            c.check(func, tab.unwrap()).expect("invalid foreign cleanup");
+            c.check(func, tab.unwrap())
+                .expect("invalid foreign cleanup");
         }
-        let has_cleanup = has_resume || (crate::target::is_unix() && tab.is_some_and(|t| t.foreign_cleanup.is_some()));
-        assert!(!has_cleanup || !self.maps, "Resume does not admit a statepoint landingpad token");
+        let has_cleanup = has_resume
+            || (crate::target::is_unix() && tab.is_some_and(|t| t.foreign_cleanup.is_some()));
+        assert!(
+            !has_cleanup || !self.maps,
+            "Resume does not admit a statepoint landingpad token"
+        );
         if has_resume {
             crate::optimize::arc::check_resumes(func, tab.unwrap()).expect("invalid Resume");
         }
-        let personality = if has_cleanup { " personality ptr @dartforge_personality_cleanup_itanium" }
-            else if has_landing_pad { " personality ptr @dartforge_personality" } else { "" };
+        let personality = if has_cleanup {
+            " personality ptr @dartforge_personality_cleanup_itanium"
+        } else if has_landing_pad {
+            " personality ptr @dartforge_personality"
+        } else {
+            ""
+        };
 
         // G1/G2 (docs/NATIVO-PLANO.md §6.5): one slot per `alloca` of type
         // `Ref`, and the `Ref` SSA values live at some collection point, with a
         // slot shared among those that are never live together
         // (`roots.rs`).
-        let converting_blocks: std::collections::HashSet<u32> = self.conv_phi.iter().map(|(b, ..)| *b).collect();
+        let converting_blocks: std::collections::HashSet<u32> =
+            self.conv_phi.iter().map(|(b, ..)| *b).collect();
         let mut analysis = roots::analyze_with(
             func,
             &self.types,
@@ -1038,10 +1222,14 @@ impl<'a> LlvmEmitter<'a> {
         // superlinearly with `live × collection points`. Above the ceiling
         // the whole function stays on the shadow stack, as a residual frame
         // (§3.7): without `gc`, with the usual slots.
-        let cost = analysis.rooted_set.len() as u64 * (analysis.live_at.len() + analysis.live_at_end.len()) as u64;
+        let cost = analysis.rooted_set.len() as u64
+            * (analysis.live_at.len() + analysis.live_at_end.len()) as u64;
         let within_budget = cost <= crate::target::maps_budget();
         if self.maps && !within_budget && std::env::var_os("DARTFORGE_MAPS_REPORT").is_some() {
-            eprintln!("dartforge: {} outside the maps budget ({cost}): shadow stack", func.symbol);
+            eprintln!(
+                "dartforge: {} outside the maps budget ({cost}): shadow stack",
+                func.symbol
+            );
         }
         if self.maps && within_budget {
             // Roots by maps: only the `Ref` `alloca`s stay in the frame (the
@@ -1081,9 +1269,17 @@ impl<'a> LlvmEmitter<'a> {
                 self.check = Some((first_one, k));
             }
         }
-        let gc = if has_gc { " gc \"statepoint-example\"" } else { "" };
-        writeln!(self.out, "define {linkage}{ret_ty} @{}({}){attributes}{comdat}{gc}{personality} {{", func.symbol, params_str)
-            .unwrap();
+        let gc = if has_gc {
+            " gc \"statepoint-example\""
+        } else {
+            ""
+        };
+        writeln!(
+            self.out,
+            "define {linkage}{ret_ty} @{}({}){attributes}{comdat}{gc}{personality} {{",
+            func.symbol, params_str
+        )
+        .unwrap();
         self.has_frame = !self.slots.is_empty() || self.check.is_some();
         self.exit_labels = func
             .blocks
@@ -1122,7 +1318,9 @@ impl<'a> LlvmEmitter<'a> {
         if has_cleanup && let Some(t) = tab {
             for p in &t.landing_pads {
                 if t.exits.get(p) != Some(&ExceptionExit::Resume) {
-                    self.exit_labels.entry(p.0).or_insert_with(|| format!("lpad{}.dart", p.0));
+                    self.exit_labels
+                        .entry(p.0)
+                        .or_insert_with(|| format!("lpad{}.dart", p.0));
                 }
             }
         }
@@ -1138,7 +1336,12 @@ impl<'a> LlvmEmitter<'a> {
             // to that of this function, before any other instruction.
             if tab.is_some_and(|t| t.landing_pads.contains(&block.id)) {
                 if tab.is_some_and(|t| t.exits.get(&block.id) == Some(&ExceptionExit::Resume)) {
-                    writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }} cleanup", block.id.0).unwrap();
+                    writeln!(
+                        self.out,
+                        "  %lpad{} = landingpad {{ ptr, i32 }} cleanup",
+                        block.id.0
+                    )
+                    .unwrap();
                 } else if has_gc {
                     // In a `gc` function the `invoke` becomes a statepoint, and its
                     // landing pad is a `token` (what the relocations of the
@@ -1146,30 +1349,63 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %lpad{} = landingpad token cleanup", block.id.0).unwrap();
                 } else {
                     let cleanup = if has_cleanup { " cleanup" } else { "" };
-                    writeln!(self.out, "  %lpad{} = landingpad {{ ptr, i32 }}{cleanup} catch ptr null", block.id.0).unwrap();
+                    writeln!(
+                        self.out,
+                        "  %lpad{} = landingpad {{ ptr, i32 }}{cleanup} catch ptr null",
+                        block.id.0
+                    )
+                    .unwrap();
                 }
                 let top = if self.has_frame { "%gcq" } else { "%topo0" };
                 if !crate::target::sabotage("pad_without_top") {
                     writeln!(self.out, "  store ptr {top}, ptr %ctxtopo, align 8").unwrap();
                 }
                 if externs::check_effects() {
-                    writeln!(self.out, "  call void @dartforge_effects_restore(i64 %efnivel)").unwrap();
+                    writeln!(
+                        self.out,
+                        "  call void @dartforge_effects_restore(i64 %efnivel)"
+                    )
+                    .unwrap();
                 }
-                if has_cleanup && tab.is_some_and(|t| t.exits.get(&block.id) != Some(&ExceptionExit::Resume)) {
+                if has_cleanup
+                    && tab.is_some_and(|t| t.exits.get(&block.id) != Some(&ExceptionExit::Resume))
+                {
                     // The inliner may combine catch and cleanup. A zero selector
                     // runs cleanup, but does not authorize treating a foreign exception as Dart.
                     let b = block.id.0;
-                    writeln!(self.out, "  %lpseletor{b} = extractvalue {{ ptr, i32 }} %lpad{b}, 1").unwrap();
-                    writeln!(self.out, "  %lptipo{b} = call i32 @llvm.eh.typeid.for(ptr null)").unwrap();
-                    writeln!(self.out, "  %lpdart{b} = icmp eq i32 %lpseletor{b}, %lptipo{b}").unwrap();
-                    writeln!(self.out, "  br i1 %lpdart{b}, label %lpad{b}.dart, label %lpad{b}.estrangeira").unwrap();
+                    writeln!(
+                        self.out,
+                        "  %lpseletor{b} = extractvalue {{ ptr, i32 }} %lpad{b}, 1"
+                    )
+                    .unwrap();
+                    writeln!(
+                        self.out,
+                        "  %lptipo{b} = call i32 @llvm.eh.typeid.for(ptr null)"
+                    )
+                    .unwrap();
+                    writeln!(
+                        self.out,
+                        "  %lpdart{b} = icmp eq i32 %lpseletor{b}, %lptipo{b}"
+                    )
+                    .unwrap();
+                    writeln!(
+                        self.out,
+                        "  br i1 %lpdart{b}, label %lpad{b}.dart, label %lpad{b}.estrangeira"
+                    )
+                    .unwrap();
                     writeln!(self.out, "lpad{b}.estrangeira:").unwrap();
                     if let Some(c) = tab.and_then(|t| t.foreign_cleanup.as_ref()) {
                         for v in c.owners(block.id) {
-                            writeln!(self.out, "  call void @{arc_release_target}(i64 %v{})", v.0).unwrap();
+                            writeln!(self.out, "  call void @{arc_release_target}(i64 %v{})", v.0)
+                                .unwrap();
                         }
                         for q in c.frames(block.id).iter().rev() {
-                            writeln!(self.out, "  call void @dartforge_arc_frame_close_v1(i64 %v{})", q.0).unwrap();
+                            writeln!(
+                                self.out,
+                                "  call void @dartforge_arc_frame_close_v1(i64 %v{})",
+                                q.0
+                            )
+                            .unwrap();
                         }
                     }
                     if self.stack_trace.is_some() {
@@ -1181,7 +1417,9 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  resume {{ ptr, i32 }} %lpad{b}").unwrap();
                     writeln!(self.out, "lpad{b}.dart:").unwrap();
                     self.current_label = format!("lpad{b}.dart");
-                    self.exit_labels.entry(b).or_insert_with(|| format!("lpad{b}.dart"));
+                    self.exit_labels
+                        .entry(b)
+                        .or_insert_with(|| format!("lpad{b}.dart"));
                 }
                 // Roots by maps: what the handler still reads was live at the
                 // entry of the `invoke` and goes into its `"deopt"`.
@@ -1201,7 +1439,11 @@ impl<'a> LlvmEmitter<'a> {
                 // old place (measurement).
                 if self.has_frame && Self::frame_at_entry() {
                     let n = self.frame_size();
-                    writeln!(self.out, "  %gcq = alloca {{ ptr, i64, [{n} x i64] }}, align 8").unwrap();
+                    writeln!(
+                        self.out,
+                        "  %gcq = alloca {{ ptr, i64, [{n} x i64] }}, align 8"
+                    )
+                    .unwrap();
                 }
                 if Self::uses_area(func) {
                     writeln!(self.out, "  %area = call ptr @df.get_area()").unwrap();
@@ -1213,13 +1455,22 @@ impl<'a> LlvmEmitter<'a> {
                 let n = *k;
                 *k += 1;
                 self.stack_trace_names.push(func.symbol.clone());
-                writeln!(self.out, "  call void @dartforge_call_trace_entry(ptr @df.call_trace.{n}, i64 {})", func.symbol.len()).unwrap();
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_call_trace_entry(ptr @df.call_trace.{n}, i64 {})",
+                    func.symbol.len()
+                )
+                .unwrap();
             }
             // The thread context (`runtime/src/heap.rs`, `Context`): the
             // pending exception at offset 0, the top of the shadow stack at 8.
             if block.id.0 == 0 && self.has_ctx {
                 writeln!(self.out, "  %ctx = call ptr @dartforge_context()").unwrap();
-                writeln!(self.out, "  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8").unwrap();
+                writeln!(
+                    self.out,
+                    "  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8"
+                )
+                .unwrap();
                 // Without a roots frame, the top that the landing pad restores is that of the
                 // entry of the function.
                 if has_landing_pad && !self.has_frame {
@@ -1247,7 +1498,11 @@ impl<'a> LlvmEmitter<'a> {
                 } else {
                     "zeroinitializer".to_string()
                 };
-                writeln!(self.out, "  store {t} {{ ptr null, i64 {header}, [{n} x i64] {slots} }}, ptr %gcq").unwrap();
+                writeln!(
+                    self.out,
+                    "  store {t} {{ ptr null, i64 {header}, [{n} x i64] {slots} }}, ptr %gcq"
+                )
+                .unwrap();
                 for slot in 0..n {
                     writeln!(self.out, "  %gcs{slot} = getelementptr inbounds {t}, ptr %gcq, i64 0, i32 2, i64 {slot}").unwrap();
                 }
@@ -1264,7 +1519,12 @@ impl<'a> LlvmEmitter<'a> {
                 in_frame.sort_by_key(|v| v.0);
                 for vid in in_frame {
                     let slot = self.slots[&vid];
-                    writeln!(self.out, "  %v{} = getelementptr inbounds i8, ptr %gcs{slot}, i64 0", vid.0).unwrap();
+                    writeln!(
+                        self.out,
+                        "  %v{} = getelementptr inbounds i8, ptr %gcs{slot}, i64 0",
+                        vid.0
+                    )
+                    .unwrap();
                 }
             }
             if block.id.0 == 0 {
@@ -1273,7 +1533,12 @@ impl<'a> LlvmEmitter<'a> {
                 // collect, with the rooted parameters live — every
                 // rooted parameter is live at the entry.
                 if !self.rooted_set.is_empty() {
-                    let params: Vec<ValueId> = func.params.iter().map(|p| p.0).filter(|v| self.rooted_set.contains(v)).collect();
+                    let params: Vec<ValueId> = func
+                        .params
+                        .iter()
+                        .map(|p| p.0)
+                        .filter(|v| self.rooted_set.contains(v))
+                        .collect();
                     self.attach_deopt_with(block_start, &params, false);
                 }
                 // The `raw_in_map` sabotage: a value that the optimizer does not
@@ -1295,9 +1560,21 @@ impl<'a> LlvmEmitter<'a> {
                 // J05: the position of the statement, when it changes (`llvm/debug_info.rs`);
                 // that of an instruction copied by HIR inlining, with its
                 // context, goes into a marker only for the stack trace (§13.14).
-                if let Some(e) = func.debug_info.as_ref().and_then(|d| d.embedded_positions.get(vid)) {
+                if let Some(e) = func
+                    .debug_info
+                    .as_ref()
+                    .and_then(|d| d.embedded_positions.get(vid))
+                {
                     if written_embedded != Some(*e) {
-                        writeln!(self.out, "{}{} {} {}", debug_info::EMBEDDED_MARKER, e.0, e.1, e.2).unwrap();
+                        writeln!(
+                            self.out,
+                            "{}{} {} {}",
+                            debug_info::EMBEDDED_MARKER,
+                            e.0,
+                            e.1,
+                            e.2
+                        )
+                        .unwrap();
                         written_embedded = Some(*e);
                         written_position = None;
                     }
@@ -1338,29 +1615,39 @@ impl<'a> LlvmEmitter<'a> {
                         // the verified HIR and ownership plan remain unchanged.
                         let val_ref = self.arc_reference(value);
                         if matches!(inst, Instruction::ArcCopy { .. })
-                            && !immediate_refs.contains(value, block.id, instruction_index) {
-                            writeln!(self.out, "  call void @{arc_retain_target}(i64 {val_ref})").unwrap();
+                            && !immediate_refs.contains(value, block.id, instruction_index)
+                        {
+                            writeln!(self.out, "  call void @{arc_retain_target}(i64 {val_ref})")
+                                .unwrap();
                         }
                         writeln!(self.out, "  %v{v} = add i64 {val_ref}, 0").unwrap();
                     }
                     Instruction::ArcDrop { value } => {
                         let val_ref = self.arc_reference(value);
                         if !immediate_refs.contains(value, block.id, instruction_index) {
-                            writeln!(self.out, "  call void @{arc_release_target}(i64 {val_ref})").unwrap();
+                            writeln!(self.out, "  call void @{arc_release_target}(i64 {val_ref})")
+                                .unwrap();
                         }
                     }
-                    Instruction::ArcLoadStrong { slot: StrongSlot::Global { symbol: sym_name } } => {
+                    Instruction::ArcLoadStrong {
+                        slot: StrongSlot::Global { symbol: sym_name },
+                    } => {
                         self.check_arc_global(sym_name);
                         self.global_address(v, sym_name);
                         writeln!(self.out, "  %v{v} = load i64, ptr %ga{v}").unwrap();
                         writeln!(self.out, "  call void @{arc_retain_target}(i64 %v{v})").unwrap();
                     }
-                    Instruction::ArcStoreStrong { slot: StrongSlot::Global { symbol: sym_name }, value, mode } => {
+                    Instruction::ArcStoreStrong {
+                        slot: StrongSlot::Global { symbol: sym_name },
+                        value,
+                        mode,
+                    } => {
                         self.check_arc_global(sym_name);
                         let val_ref = self.arc_reference(value);
                         self.global_address(v, sym_name);
                         if *mode == StrongStoreMode::Copy {
-                            writeln!(self.out, "  call void @{arc_retain_target}(i64 {val_ref})").unwrap();
+                            writeln!(self.out, "  call void @{arc_retain_target}(i64 {val_ref})")
+                                .unwrap();
                         }
                         writeln!(self.out, "  store i64 {val_ref}, ptr %ga{v}").unwrap();
                         writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
@@ -1368,7 +1655,8 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  call void @dartforge_arc_global_receive_v1(i64 %gr{v}, i64 {val_ref})").unwrap();
                         } else {
                             writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {val_ref}) nounwind").unwrap();
-                            writeln!(self.out, "  call void @{arc_release_target}(i64 {val_ref})").unwrap();
+                            writeln!(self.out, "  call void @{arc_release_target}(i64 {val_ref})")
+                                .unwrap();
                         }
                     }
                     Instruction::ArcLoadStrong { slot } => {
@@ -1378,7 +1666,11 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::ArcStoreStrong { slot, value, mode } => {
                         let (frame, idx_value) = self.slot_arc(slot);
                         let val_ref = self.arc_reference(value);
-                        let name_str = if *mode == StrongStoreMode::Copy { "copy" } else { "receive" };
+                        let name_str = if *mode == StrongStoreMode::Copy {
+                            "copy"
+                        } else {
+                            "receive"
+                        };
                         writeln!(self.out, "  call void @dartforge_arc_frame_{name_str}_v1(i64 {frame}, i64 {idx_value}, i64 {val_ref})").unwrap();
                     }
                     Instruction::Const(Constant::Int(n)) => {
@@ -1395,7 +1687,9 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::Const(Constant::Null) => {
                         writeln!(self.out, "  %v{v} = add i64 0, 0").unwrap();
                     }
-                    Instruction::Const(Constant::String(s)) => self.emit_const_string(v, s.as_bytes()),
+                    Instruction::Const(Constant::String(s)) => {
+                        self.emit_const_string(v, s.as_bytes())
+                    }
                     Instruction::Const(Constant::StringWtf8(s)) => self.emit_const_string(v, s),
                     Instruction::Add(a, b) => {
                         let sa = self.coerce(a, Type::I64);
@@ -1538,7 +1832,11 @@ impl<'a> LlvmEmitter<'a> {
                         // the read-modify-write of each bit ([`Self::static_map`]).
                         let map = self.static_maps().then(|| {
                             fields.iter().take(32).enumerate().fold(0u32, |m, (i, f)| {
-                                if self.type_of(f) == Type::Ref { m | 1 << i } else { m }
+                                if self.type_of(f) == Type::Ref {
+                                    m | 1 << i
+                                } else {
+                                    m
+                                }
                             })
                         });
                         match map {
@@ -1554,13 +1852,27 @@ impl<'a> LlvmEmitter<'a> {
                         // The inline fields, through the field table (the object
                         // is new: no other code sees it before this).
                         if !fields.is_empty() {
-                            self.emit_field_addresses_of(v, &format!("%v{v}"), !self.module.arc_memory);
+                            self.emit_field_addresses_of(
+                                v,
+                                &format!("%v{v}"),
+                                !self.module.arc_memory,
+                            );
                         }
                         for (idx, field) in fields.iter().enumerate() {
                             // E1: `is_ref` by the representation of the value.
                             let is_ref = u8::from(self.type_of(field) == Type::Ref).to_string();
                             let sf = self.coerce(field, Type::I64);
-                            self.emit_field_write(v, &format!(".{idx}"), idx, &sf, &is_ref, FieldWriteFacts { known_map: map, fresh: !self.module.arc_memory });
+                            self.emit_field_write(
+                                v,
+                                &format!(".{idx}"),
+                                idx,
+                                &sf,
+                                &is_ref,
+                                FieldWriteFacts {
+                                    known_map: map,
+                                    fresh: !self.module.arc_memory,
+                                },
+                            );
                         }
                         // Under ARC, the fields written inline count.
                         if fields.iter().any(|f| self.type_of(f) == Type::Ref) {
@@ -1573,21 +1885,35 @@ impl<'a> LlvmEmitter<'a> {
                         let only = self.coerce(object, Type::I64);
                         let bits = if matches!(ty, Type::Ref | Type::I64) {
                             format!("%v{v}")
-                        } else { format!("%fb{v}") };
+                        } else {
+                            format!("%fb{v}")
+                        };
                         if *index < INLINE_FIELDS {
                             let direct = self.direct_body(object);
                             self.emit_field_addresses_of(v, &only, direct);
-                            writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {index}").unwrap();
+                            writeln!(
+                                self.out,
+                                "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {index}"
+                            )
+                            .unwrap();
                             writeln!(self.out, "  {bits} = load i64, ptr %fg{v}, align 8").unwrap();
                         } else {
-                            writeln!(self.out, "  {bits} = call i64 @dartforge_object_get(i64 {only}, i64 {index})").unwrap();
+                            writeln!(
+                                self.out,
+                                "  {bits} = call i64 @dartforge_object_get(i64 {only}, i64 {index})"
+                            )
+                            .unwrap();
                         }
                         if !matches!(ty, Type::Ref | Type::I64) {
                             self.emit_named_conversion(&format!("%v{v}"), Type::I64, &bits, *ty);
                         }
                     }
                     // Under ARC the store goes to the runtime (`dartforge_object_set`), which counts the swap.
-                    Instruction::SetField { object, index, value } if *index < INLINE_FIELDS && !self.module.arc_memory => {
+                    Instruction::SetField {
+                        object,
+                        index,
+                        value,
+                    } if *index < INLINE_FIELDS && !self.module.arc_memory => {
                         let is_ref = u8::from(self.type_of(value) == Type::Ref);
                         let only = self.coerce(object, Type::I64);
                         let sv = self.coerce(value, Type::I64);
@@ -1595,7 +1921,17 @@ impl<'a> LlvmEmitter<'a> {
                         let known = self.fresh_map(object);
                         let direct = self.direct_body(object);
                         self.emit_field_addresses_of(v, &only, direct);
-                        self.emit_field_write(v, "", *index, &sv, &is_ref.to_string(), FieldWriteFacts { known_map: known, fresh });
+                        self.emit_field_write(
+                            v,
+                            "",
+                            *index,
+                            &sv,
+                            &is_ref.to_string(),
+                            FieldWriteFacts {
+                                known_map: known,
+                                fresh,
+                            },
+                        );
                         if self.inline_barrier(inst) {
                             if fresh {
                                 self.emit_barrier_label(v);
@@ -1604,7 +1940,11 @@ impl<'a> LlvmEmitter<'a> {
                             }
                         }
                     }
-                    Instruction::SetField { object, index, value } => {
+                    Instruction::SetField {
+                        object,
+                        index,
+                        value,
+                    } => {
                         let is_ref = u8::from(self.type_of(value) == Type::Ref);
                         let only = self.coerce(object, Type::I64);
                         let sv = self.coerce(value, Type::I64);
@@ -1613,7 +1953,11 @@ impl<'a> LlvmEmitter<'a> {
                             "  call void @dartforge_object_set(i64 {only}, i64 {index}, i64 {sv}, i8 {is_ref})"
                         ).unwrap();
                     }
-                    Instruction::CallStatic { symbol, args, ret_ty } => {
+                    Instruction::CallStatic {
+                        symbol,
+                        args,
+                        ret_ty,
+                    } => {
                         let target_func = self.function_by_symbol.get(symbol.as_str()).copied();
                         let mut args_str: Vec<String> = Vec::with_capacity(args.len());
                         let mut args_types = Vec::with_capacity(args.len());
@@ -1624,7 +1968,11 @@ impl<'a> LlvmEmitter<'a> {
                             let target = target_func
                                 .and_then(|f| f.params.get(idx))
                                 .map_or_else(|| self.type_of(a), |p| p.2);
-                            let target = if target == Type::Void { Type::I64 } else { target };
+                            let target = if target == Type::Void {
+                                Type::I64
+                            } else {
+                                target
+                            };
                             let s = self.coerce(a, target);
                             args_str.push(format!("{} {s}", target.llvm_ir()));
                             args_types.push(target);
@@ -1641,24 +1989,34 @@ impl<'a> LlvmEmitter<'a> {
                         }
                     }
                     // Field with a constant index: inline, like `GetField`.
-                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+                    Instruction::CallRuntime { name, args, .. }
+                    | Instruction::DeclaredFieldCall { name, args, .. }
                         if name == "dartforge_object_get"
                             && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
                     {
-                        let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else { unreachable!() };
+                        let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else {
+                            unreachable!()
+                        };
                         let only = self.coerce(&args[0].0, Type::I64);
                         let direct = self.direct_body(&args[0].0);
                         self.emit_field_addresses_of(v, &only, direct);
-                        writeln!(self.out, "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {i}").unwrap();
+                        writeln!(
+                            self.out,
+                            "  %fg{v} = getelementptr inbounds i64, ptr %fp{v}, i64 {i}"
+                        )
+                        .unwrap();
                         writeln!(self.out, "  %v{v} = load i64, ptr %fg{v}, align 8").unwrap();
                     }
-                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+                    Instruction::CallRuntime { name, args, .. }
+                    | Instruction::DeclaredFieldCall { name, args, .. }
                         if name == "dartforge_object_set"
                             && !self.module.arc_memory
                             && args.len() == 4
                             && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
                     {
-                        let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else { unreachable!() };
+                        let Some((Operand::Constant(Constant::Int(i)), _)) = args.get(1) else {
+                            unreachable!()
+                        };
                         let only = self.coerce(&args[0].0, Type::I64);
                         let sv = self.coerce(&args[2].0, Type::I64);
                         // `is_ref` is a Rust `bool`: only 0 or 1.
@@ -1676,7 +2034,17 @@ impl<'a> LlvmEmitter<'a> {
                         let known = self.fresh_map(&args[0].0);
                         let direct = self.direct_body(&args[0].0);
                         self.emit_field_addresses_of(v, &only, direct);
-                        self.emit_field_write(v, "", *i as usize, &sv, &is_ref, FieldWriteFacts { known_map: known, fresh });
+                        self.emit_field_write(
+                            v,
+                            "",
+                            *i as usize,
+                            &sv,
+                            &is_ref,
+                            FieldWriteFacts {
+                                known_map: known,
+                                fresh,
+                            },
+                        );
                         if self.inline_barrier(inst) {
                             if fresh {
                                 self.emit_barrier_label(v);
@@ -1686,64 +2054,117 @@ impl<'a> LlvmEmitter<'a> {
                             }
                         }
                     }
-                    Instruction::CallRuntime { .. } | Instruction::DeclaredFieldCall { .. } if Self::inline_allocation(inst).is_some() => {
+                    Instruction::CallRuntime { .. } | Instruction::DeclaredFieldCall { .. }
+                        if Self::inline_allocation(inst).is_some() =>
+                    {
                         let (c, n) = Self::inline_allocation(inst).expect("checked at the guard");
                         self.emit_inline_allocation(v, c, n);
                     }
-                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
-                        if (name == "dartforge_object_new" || name == "dartforge_arc_object_owned_v1")
-                            && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                    Instruction::CallRuntime { name, args, ret_ty }
+                    | Instruction::DeclaredFieldCall {
+                        name, args, ret_ty, ..
+                    } if (name == "dartforge_object_new"
+                        || name == "dartforge_arc_object_owned_v1")
+                        && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
                         // Source SDK: the first allocation registers the method table
                         // of the class (`selectors.rs`).
-                        let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
+                        let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else {
+                            unreachable!()
+                        };
                         let f = self.module.table_functions[&(*c as u32)].clone();
                         self.annotate_external(&f, Type::Ptr, &[]);
                         let n = self.coerce(&args[1].0, Type::I64);
                         let factory = if name == "dartforge_arc_object_owned_v1" {
                             "dartforge_arc_object_owned_t_v1"
-                        } else { "dartforge_object_new_t" };
-                        writeln!(self.out, "  %v{v} = call i64 @{factory}(i64 {c}, i64 {n}, ptr @{f})").unwrap();
+                        } else {
+                            "dartforge_object_new_t"
+                        };
+                        writeln!(
+                            self.out,
+                            "  %v{v} = call i64 @{factory}(i64 {c}, i64 {n}, ptr @{f})"
+                        )
+                        .unwrap();
                         let _ = ret_ty;
                     }
-                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
-                        if (name == "dartforge_typed_new" || name == "dartforge_view_new" || name == "dartforge_typed_external")
-                            && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                    Instruction::CallRuntime { name, args, ret_ty }
+                    | Instruction::DeclaredFieldCall {
+                        name, args, ret_ty, ..
+                    } if (name == "dartforge_typed_new"
+                        || name == "dartforge_view_new"
+                        || name == "dartforge_typed_external")
+                        && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
                         // The first typed list (or view) of a class
                         // registers its method table, like
                         // `dartforge_object_new_t`.
-                        let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
+                        let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else {
+                            unreachable!()
+                        };
                         let f = self.module.table_functions[&(*c as u32)].clone();
                         self.annotate_external(&f, Type::Ptr, &[]);
-                        let rest: Vec<String> = args.iter().map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coerce(a, *t))).collect();
-                        writeln!(self.out, "  %v{v} = call i64 @{name}_t({}, ptr @{f})", rest.join(", ")).unwrap();
+                        let rest: Vec<String> = args
+                            .iter()
+                            .map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coerce(a, *t)))
+                            .collect();
+                        writeln!(
+                            self.out,
+                            "  %v{v} = call i64 @{name}_t({}, ptr @{f})",
+                            rest.join(", ")
+                        )
+                        .unwrap();
                         let _ = ret_ty;
                     }
                     // The same through the generic Owned thunk (`optimize::arc::natives`):
                     // the thunk of the `_t` variant, which registers the table.
-                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
-                        if name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX).is_some_and(|b|
-                            matches!(b, "dartforge_typed_new" | "dartforge_view_new" | "dartforge_typed_external"))
-                            && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
+                    Instruction::CallRuntime { name, args, ret_ty }
+                    | Instruction::DeclaredFieldCall {
+                        name, args, ret_ty, ..
+                    } if name
+                        .strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX)
+                        .is_some_and(|b| {
+                            matches!(
+                                b,
+                                "dartforge_typed_new"
+                                    | "dartforge_view_new"
+                                    | "dartforge_typed_external"
+                            )
+                        })
+                        && matches!(args.first(), Some((Operand::Constant(Constant::Int(c)), _))
                                 if self.module.table_functions.contains_key(&(*c as u32))) =>
                     {
-                        let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else { unreachable!() };
+                        let Some((Operand::Constant(Constant::Int(c)), _)) = args.first() else {
+                            unreachable!()
+                        };
                         let f = self.module.table_functions[&(*c as u32)].clone();
                         self.annotate_external(&f, Type::Ptr, &[]);
-                        let base = format!("{}_t", &name[crate::optimize::arc::GENERIC_OWNED_PREFIX.len()..]);
+                        let base = format!(
+                            "{}_t",
+                            &name[crate::optimize::arc::GENERIC_OWNED_PREFIX.len()..]
+                        );
                         let thunk = format!("{}{base}", crate::optimize::arc::GENERIC_OWNED_PREFIX);
                         let mut types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                         types.push(Type::Ptr);
                         self.owned_thunks.insert(thunk.clone(), (base, types));
-                        let rest: Vec<String> = args.iter().map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coerce(a, *t))).collect();
-                        writeln!(self.out, "  %v{v} = call i64 @{thunk}({}, ptr @{f})", rest.join(", ")).unwrap();
+                        let rest: Vec<String> = args
+                            .iter()
+                            .map(|(a, t)| format!("{} {}", t.llvm_ir(), self.coerce(a, *t)))
+                            .collect();
+                        writeln!(
+                            self.out,
+                            "  %v{v} = call i64 @{thunk}({}, ptr @{f})",
+                            rest.join(", ")
+                        )
+                        .unwrap();
                         let _ = ret_ty;
                     }
                     // The pending exception: the mirror in the thread context.
-                    Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_pending" && self.has_ctx => {
+                    Instruction::CallRuntime { name, .. }
+                    | Instruction::DeclaredFieldCall { name, .. }
+                        if name == "dartforge_exception_pending" && self.has_ctx =>
+                    {
                         writeln!(self.out, "  %v{v} = load i8, ptr %ctx, align 8").unwrap();
                     }
                     // The `dartforge_exception_clear` of each `return` and jump:
@@ -1751,11 +2172,22 @@ impl<'a> LlvmEmitter<'a> {
                     // to clear — the entry of the `catch` and the `finally` already
                     // cleared the stack trace together with the exception. Only a pending one
                     // (the `finally` that leaves through `return`) calls the runtime.
-                    Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_exception_clear" && self.has_ctx => {
+                    Instruction::CallRuntime { name, .. }
+                    | Instruction::DeclaredFieldCall { name, .. }
+                        if name == "dartforge_exception_clear" && self.has_ctx =>
+                    {
                         writeln!(self.out, "  %xcp{v} = load i8, ptr %ctx, align 8").unwrap();
                         writeln!(self.out, "  %xcn{v} = icmp ne i8 %xcp{v}, 0").unwrap();
-                        writeln!(self.out, "  %xce{v} = call i1 @llvm.expect.i1(i1 %xcn{v}, i1 false)").unwrap();
-                        writeln!(self.out, "  br i1 %xce{v}, label %xc{v}.limpar, label %xc{v}.fim").unwrap();
+                        writeln!(
+                            self.out,
+                            "  %xce{v} = call i1 @llvm.expect.i1(i1 %xcn{v}, i1 false)"
+                        )
+                        .unwrap();
+                        writeln!(
+                            self.out,
+                            "  br i1 %xce{v}, label %xc{v}.limpar, label %xc{v}.fim"
+                        )
+                        .unwrap();
                         writeln!(self.out, "xc{v}.limpar:").unwrap();
                         writeln!(self.out, "  call void @dartforge_exception_clear()").unwrap();
                         if tab.is_some() {
@@ -1767,7 +2199,11 @@ impl<'a> LlvmEmitter<'a> {
                             // same function, would not handle it anyway).
                             writeln!(self.out, "  %xcd{v} = load i8, ptr %ctx, align 8").unwrap();
                             writeln!(self.out, "  %xcq{v} = icmp ne i8 %xcd{v}, 0").unwrap();
-                            writeln!(self.out, "  br i1 %xcq{v}, label %xc{v}.sai, label %xc{v}.fim").unwrap();
+                            writeln!(
+                                self.out,
+                                "  br i1 %xcq{v}, label %xc{v}.sai, label %xc{v}.fim"
+                            )
+                            .unwrap();
                             writeln!(self.out, "xc{v}.sai:").unwrap();
                             writeln!(self.out, "  call void @df.throw()").unwrap();
                             writeln!(self.out, "  unreachable").unwrap();
@@ -1780,59 +2216,101 @@ impl<'a> LlvmEmitter<'a> {
                     // The interrupt request (J01): the byte in the context
                     // (offset 32), read atomically — another thread sets it, and
                     // the load cannot leave the loop.
-                    Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_pending_interrupt" && self.has_ctx => {
-                        writeln!(self.out, "  %ip{v} = getelementptr inbounds i8, ptr %ctx, i64 32").unwrap();
-                        writeln!(self.out, "  %iv{v} = load atomic i8, ptr %ip{v} monotonic, align 8").unwrap();
+                    Instruction::CallRuntime { name, .. }
+                    | Instruction::DeclaredFieldCall { name, .. }
+                        if name == "dartforge_pending_interrupt" && self.has_ctx =>
+                    {
+                        writeln!(
+                            self.out,
+                            "  %ip{v} = getelementptr inbounds i8, ptr %ctx, i64 32"
+                        )
+                        .unwrap();
+                        writeln!(
+                            self.out,
+                            "  %iv{v} = load atomic i8, ptr %ip{v} monotonic, align 8"
+                        )
+                        .unwrap();
                         // The request is rare: the slow path stays outside the body
                         // of the loop.
-                        writeln!(self.out, "  %v{v} = call i8 @llvm.expect.i8(i8 %iv{v}, i8 0)").unwrap();
+                        writeln!(
+                            self.out,
+                            "  %v{v} = call i8 @llvm.expect.i8(i8 %iv{v}, i8 0)"
+                        )
+                        .unwrap();
                     }
                     // The cache miss helper has more conservative effects than
                     // the source operation. In maps mode retain the direct
                     // operation until root placement models that extra call.
-                    Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } if !self.maps && Self::rti_evaluate_cached(inst) => {
+                    Instruction::CallRuntime { args, .. }
+                    | Instruction::DeclaredFieldCall { args, .. }
+                        if !self.maps && Self::rti_evaluate_cached(inst) =>
+                    {
                         self.emit_rti_evaluate_cached(v, args);
                     }
-                    Instruction::CallRuntime { args, .. } | Instruction::DeclaredFieldCall { args, .. } if Self::rti_test_cached(inst) => {
+                    Instruction::CallRuntime { args, .. }
+                    | Instruction::DeclaredFieldCall { args, .. }
+                        if Self::rti_test_cached(inst) =>
+                    {
                         self.emit_rti_test_cached(v, args);
                     }
                     // The class of the receiver: that of the object of the space read from the
                     // header, inline (`df.class`); the rest, the runtime.
-                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_value_class" && args.len() == 1 => {
+                    Instruction::CallRuntime { name, args, .. }
+                    | Instruction::DeclaredFieldCall { name, args, .. }
+                        if name == "dartforge_value_class" && args.len() == 1 =>
+                    {
                         let h = self.coerce(&args[0].0, Type::I64);
                         writeln!(self.out, "  %v{v} = call i64 @df.class(i64 {h})").unwrap();
                     }
                     // `cid <: C` through the bitmap of the target (`df.subclass`),
                     // without a call after the first query.
-                    Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } if name == "dartforge_is_subclass" && args.len() == 2 => {
+                    Instruction::CallRuntime { name, args, .. }
+                    | Instruction::DeclaredFieldCall { name, args, .. }
+                        if name == "dartforge_is_subclass" && args.len() == 2 =>
+                    {
                         let a = self.coerce(&args[0].0, Type::I64);
                         let b = self.coerce(&args[1].0, Type::I64);
-                        writeln!(self.out, "  %v{v} = call i8 @df.subclass(i64 {a}, i64 {b})").unwrap();
+                        writeln!(self.out, "  %v{v} = call i8 @df.subclass(i64 {a}, i64 {b})")
+                            .unwrap();
                     }
-                    Instruction::CallRuntime { name, args, ret_ty } | Instruction::DeclaredFieldCall { name, args, ret_ty, .. } => {
+                    Instruction::CallRuntime { name, args, ret_ty }
+                    | Instruction::DeclaredFieldCall {
+                        name, args, ret_ty, ..
+                    } => {
                         if name.starts_with("dartforge_native_") {
                             let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             self.annotate_external(name, *ret_ty, &types);
                         }
                         // The code of the tear-off may live in another module.
                         if name == "dartforge_arc_tearoff_owned_v1"
-                            && let [(Operand::Constant(Constant::Function(code)), _)] = args.as_slice()
+                            && let [(Operand::Constant(Constant::Function(code)), _)] =
+                                args.as_slice()
                         {
-                            self.annotate_external(code, Type::Ref, &[Type::Ref, Type::Ptr, Type::Ptr]);
+                            self.annotate_external(
+                                code,
+                                Type::Ref,
+                                &[Type::Ref, Type::Ptr, Type::Ptr],
+                            );
                         }
-                        if let Some(base) = name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX) {
+                        if let Some(base) =
+                            name.strip_prefix(crate::optimize::arc::GENERIC_OWNED_PREFIX)
+                        {
                             let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             if base.starts_with("dartforge_native_") {
                                 self.annotate_external(base, Type::Ref, &types);
                             }
-                            self.owned_thunks.insert(name.clone(), (base.to_string(), types));
+                            self.owned_thunks
+                                .insert(name.clone(), (base.to_string(), types));
                         }
-                        if let Some(base) = name.strip_prefix(crate::optimize::arc::NATIVE_SCOPE_PREFIX) {
+                        if let Some(base) =
+                            name.strip_prefix(crate::optimize::arc::NATIVE_SCOPE_PREFIX)
+                        {
                             let types: Vec<Type> = args.iter().map(|(_, t)| *t).collect();
                             if base.starts_with("dartforge_native_") {
                                 self.annotate_external(base, *ret_ty, &types);
                             }
-                            self.scope_thunks.insert(name.clone(), (base.to_string(), types, *ret_ty));
+                            self.scope_thunks
+                                .insert(name.clone(), (base.to_string(), types, *ret_ty));
                         }
                         let mut args_formatted = Vec::new();
                         for (a, ty) in args {
@@ -1844,7 +2322,11 @@ impl<'a> LlvmEmitter<'a> {
                         let r = ret_ty.llvm_ir();
                         // `DARTFORGE_EFFECTS=check`: the extern marked as not
                         // collecting or not throwing runs watched by the runtime.
-                        let marks = if externs::check_effects() { externs::marks_to_check(name) } else { 0 };
+                        let marks = if externs::check_effects() {
+                            externs::marks_to_check(name)
+                        } else {
+                            0
+                        };
                         if marks != 0 {
                             let k = match self.checked_externs.iter().position(|n| n == name) {
                                 Some(k) => k,
@@ -1877,22 +2359,40 @@ impl<'a> LlvmEmitter<'a> {
                         }
                         let list = parts.join(", ");
                         let conv = match ret {
-                            CType::I8 | CType::I16 | CType::I32 => Some(format!("sext {} %nr{v} to i64", ret.llvm())),
-                            CType::U8 | CType::U16 | CType::U32 => Some(format!("zext {} %nr{v} to i64", ret.llvm())),
+                            CType::I8 | CType::I16 | CType::I32 => {
+                                Some(format!("sext {} %nr{v} to i64", ret.llvm()))
+                            }
+                            CType::U8 | CType::U16 | CType::U32 => {
+                                Some(format!("zext {} %nr{v} to i64", ret.llvm()))
+                            }
                             CType::F32 => Some(format!("fpext float %nr{v} to double")),
-                            CType::Ptr | CType::Handle => Some(format!("ptrtoint ptr %nr{v} to i64")),
-                            CType::I64 | CType::U64 | CType::F64 | CType::Bool | CType::Void => None,
+                            CType::Ptr | CType::Handle => {
+                                Some(format!("ptrtoint ptr %nr{v} to i64"))
+                            }
+                            CType::I64 | CType::U64 | CType::F64 | CType::Bool | CType::Void => {
+                                None
+                            }
                         };
                         match (ret, conv) {
-                            (CType::Void, _) => writeln!(self.out, "  call void %fn{v}({list})").unwrap(),
-                            (_, None) => writeln!(self.out, "  %v{v} = call {} %fn{v}({list})", ret.llvm()).unwrap(),
+                            (CType::Void, _) => {
+                                writeln!(self.out, "  call void %fn{v}({list})").unwrap()
+                            }
+                            (_, None) => {
+                                writeln!(self.out, "  %v{v} = call {} %fn{v}({list})", ret.llvm())
+                                    .unwrap()
+                            }
                             (_, Some(c)) => {
-                                writeln!(self.out, "  %nr{v} = call {} %fn{v}({list})", ret.llvm()).unwrap();
+                                writeln!(self.out, "  %nr{v} = call {} %fn{v}({list})", ret.llvm())
+                                    .unwrap();
                                 writeln!(self.out, "  %v{v} = {c}").unwrap();
                             }
                         }
                     }
-                    Instruction::NativeLoad { address, index: idx_value, ty: typ } => {
+                    Instruction::NativeLoad {
+                        address,
+                        index: idx_value,
+                        ty: typ,
+                    } => {
                         // No assumed alignment (the bytes of a typed
                         // list are from a `Vec<u8>`).
                         let e = self.coerce(address, Type::I64);
@@ -1900,29 +2400,47 @@ impl<'a> LlvmEmitter<'a> {
                         let t = typ.llvm();
                         let inv = "";
                         writeln!(self.out, "  %cp{v} = inttoptr i64 {e} to ptr").unwrap();
-                        writeln!(self.out, "  %cg{v} = getelementptr {t}, ptr %cp{v}, i64 {i}").unwrap();
+                        writeln!(
+                            self.out,
+                            "  %cg{v} = getelementptr {t}, ptr %cp{v}, i64 {i}"
+                        )
+                        .unwrap();
                         let conv = match typ {
-                            CType::I8 | CType::I16 | CType::I32 => Some(format!("sext {t} %cl{v} to i64")),
-                            CType::U8 | CType::U16 | CType::U32 => Some(format!("zext {t} %cl{v} to i64")),
+                            CType::I8 | CType::I16 | CType::I32 => {
+                                Some(format!("sext {t} %cl{v} to i64"))
+                            }
+                            CType::U8 | CType::U16 | CType::U32 => {
+                                Some(format!("zext {t} %cl{v} to i64"))
+                            }
                             CType::F32 => Some(format!("fpext float %cl{v} to double")),
                             _ => None,
                         };
                         match conv {
                             Some(c) => {
-                                writeln!(self.out, "  %cl{v} = load {t}, ptr %cg{v}, align 1").unwrap();
+                                writeln!(self.out, "  %cl{v} = load {t}, ptr %cg{v}, align 1")
+                                    .unwrap();
                                 writeln!(self.out, "  %v{v} = {c}").unwrap();
                             }
-                            None => writeln!(self.out, "  %v{v} = load {t}, ptr %cg{v}, align 1{inv}").unwrap(),
+                            None => {
+                                writeln!(self.out, "  %v{v} = load {t}, ptr %cg{v}, align 1{inv}")
+                                    .unwrap()
+                            }
                         }
                     }
-                    Instruction::NativeWrite { address, index: idx_value, ty: typ, value: val_ref } => {
+                    Instruction::NativeWrite {
+                        address,
+                        index: idx_value,
+                        ty: typ,
+                        value: val_ref,
+                    } => {
                         let e = self.coerce(address, Type::I64);
                         let i = self.coerce(idx_value, Type::I64);
                         let t = typ.llvm();
                         let x = match typ {
                             CType::F32 => {
                                 let d = self.coerce(val_ref, Type::F64);
-                                writeln!(self.out, "  %gx{v} = fptrunc double {d} to float").unwrap();
+                                writeln!(self.out, "  %gx{v} = fptrunc double {d} to float")
+                                    .unwrap();
                                 format!("%gx{v}")
                             }
                             CType::F64 => self.coerce(val_ref, Type::F64),
@@ -1934,11 +2452,28 @@ impl<'a> LlvmEmitter<'a> {
                             }
                         };
                         writeln!(self.out, "  %gp{v} = inttoptr i64 {e} to ptr").unwrap();
-                        writeln!(self.out, "  %gg{v} = getelementptr {t}, ptr %gp{v}, i64 {i}").unwrap();
+                        writeln!(
+                            self.out,
+                            "  %gg{v} = getelementptr {t}, ptr %gp{v}, i64 {i}"
+                        )
+                        .unwrap();
                         writeln!(self.out, "  store {t} {x}, ptr %gg{v}, align 1").unwrap();
                     }
-                    Instruction::CompositeNativeCall { target, args, ret, dest, variadic_flag } => {
-                        self.composite_native_call(v, target, args, ret, dest.as_ref(), *variadic_flag);
+                    Instruction::CompositeNativeCall {
+                        target,
+                        args,
+                        ret,
+                        dest,
+                        variadic_flag,
+                    } => {
+                        self.composite_native_call(
+                            v,
+                            target,
+                            args,
+                            ret,
+                            dest.as_ref(),
+                            *variadic_flag,
+                        );
                     }
                     Instruction::AllocList { elements } => self.emit_alloc_list(v, elements),
                     Instruction::AllocRecord { elements } => self.emit_alloc_record(v, elements),
@@ -1959,13 +2494,15 @@ impl<'a> LlvmEmitter<'a> {
                         // of the caller (the `listenerHasError` of
                         // `_Future._propagateToListeners`).
                         let t = match ptr {
-                            Operand::Val(p) => self.pointee.get(p).copied().unwrap_or_else(|| match self.type_of(val) {
-                                Type::I1 => Type::I1,
-                                Type::I8 => Type::I8,
-                                Type::F64 => Type::F64,
-                                // Unboxed SIMD local of the caller (16 bytes).
-                                t if t.is_vector() => t,
-                                _ => Type::I64,
+                            Operand::Val(p) => self.pointee.get(p).copied().unwrap_or_else(|| {
+                                match self.type_of(val) {
+                                    Type::I1 => Type::I1,
+                                    Type::I8 => Type::I8,
+                                    Type::F64 => Type::F64,
+                                    // Unboxed SIMD local of the caller (16 bytes).
+                                    t if t.is_vector() => t,
+                                    _ => Type::I64,
+                                }
                             }),
                             _ => Type::I64,
                         };
@@ -1981,8 +2518,12 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  store i64 {sv}, ptr %gcs{slot}").unwrap();
                         }
                     }
-                    Instruction::Box { op, from } if from.is_vector() => self.emit_simd_box(v, op, *from),
-                    Instruction::Unbox { op, to } if to.is_vector() => self.emit_simd_unbox(v, op, *to),
+                    Instruction::Box { op, from } if from.is_vector() => {
+                        self.emit_simd_box(v, op, *from)
+                    }
+                    Instruction::Unbox { op, to } if to.is_vector() => {
+                        self.emit_simd_unbox(v, op, *to)
+                    }
                     Instruction::Simd { op, args } => {
                         let ty = self.types.get(vid).copied().unwrap_or(Type::Void);
                         self.emit_simd(v, *op, args, ty);
@@ -2003,11 +2544,19 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  %v{v} = bitcast double {only} to i64").unwrap();
                         }
                     }
-                    Instruction::LoadGlobal { symbol: sym_name, ty } => {
+                    Instruction::LoadGlobal {
+                        symbol: sym_name,
+                        ty,
+                    } => {
                         self.global_address(v, sym_name);
                         writeln!(self.out, "  %v{v} = load {}, ptr %ga{v}", ty.llvm_ir()).unwrap();
                     }
-                    Instruction::StoreGlobal { symbol: sym_name, val, ty, root } => {
+                    Instruction::StoreGlobal {
+                        symbol: sym_name,
+                        val,
+                        ty,
+                        root,
+                    } => {
                         let sv = self.coerce(val, *ty);
                         self.global_address(v, sym_name);
                         writeln!(self.out, "  store {} {sv}, ptr %ga{v}", ty.llvm_ir()).unwrap();
@@ -2015,7 +2564,11 @@ impl<'a> LlvmEmitter<'a> {
                             // The root is identified by the address of the slot:
                             // unique across modules and isolates.
                             writeln!(self.out, "  %gr{v} = ptrtoint ptr %ga{v} to i64").unwrap();
-                            writeln!(self.out, "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {sv})").unwrap();
+                            writeln!(
+                                self.out,
+                                "  call void @dartforge_gc_global_root(i64 %gr{v}, i64 {sv})"
+                            )
+                            .unwrap();
                         }
                     }
                     Instruction::Phi { incoming, ty } => {
@@ -2036,7 +2589,9 @@ impl<'a> LlvmEmitter<'a> {
                                             .conv_phi
                                             .iter()
                                             .find(|(bb, _, _, vv, to_repr)| {
-                                                *bb == b.0 && vv == v && to_repr.llvm_ir() == ty.llvm_ir()
+                                                *bb == b.0
+                                                    && vv == v
+                                                    && to_repr.llvm_ir() == ty.llvm_ir()
                                             })
                                             .map(|(_, name_str, _, _, _)| name_str.clone()),
                                         _ => None,
@@ -2083,7 +2638,8 @@ impl<'a> LlvmEmitter<'a> {
                     self.attach_deopt(instruction_start, &live_set);
                 }
                 if !self.module.arc_memory
-                    && (matches!(inst, Instruction::AllocObject { .. }) || Self::inline_allocation(inst).is_some()
+                    && (matches!(inst, Instruction::AllocObject { .. })
+                        || Self::inline_allocation(inst).is_some()
                         || matches!(inst, Instruction::CallRuntime { name, .. } | Instruction::DeclaredFieldCall { name, .. } if name == "dartforge_object_new"))
                 {
                     self.fresh_set.insert(v);
@@ -2096,7 +2652,12 @@ impl<'a> LlvmEmitter<'a> {
 
             // The checking build: the collection point at the end of the block.
             if self.check.is_some() {
-                let live_set = self.function_roots.live_at_end.get(&block.id).cloned().unwrap_or_default();
+                let live_set = self
+                    .function_roots
+                    .live_at_end
+                    .get(&block.id)
+                    .cloned()
+                    .unwrap_or_default();
                 self.store_check(&live_set);
             }
             if let Some(dead) = self.function_roots.clear_at_end.get(&block.id) {
@@ -2119,7 +2680,10 @@ impl<'a> LlvmEmitter<'a> {
                 self.attach_deopt(end_start, &live_set);
             }
 
-            if let Some(p) = func.debug_info.as_ref().and_then(|d| d.exits.get(&block.id))
+            if let Some(p) = func
+                .debug_info
+                .as_ref()
+                .and_then(|d| d.exits.get(&block.id))
                 && written_position != Some(*p)
             {
                 writeln!(self.out, "{}{} {}", debug_info::MARKER, p.0, p.1).unwrap();
@@ -2142,7 +2706,8 @@ impl<'a> LlvmEmitter<'a> {
                             writeln!(self.out, "  call void @dartforge_call_trace_exit()").unwrap();
                         }
                         if self.has_frame {
-                            writeln!(self.out, "  store ptr %gcant, ptr %ctxtopo, align 8").unwrap();
+                            writeln!(self.out, "  store ptr %gcant, ptr %ctxtopo, align 8")
+                                .unwrap();
                         }
                         writeln!(self.out, "  resume {{ ptr, i32 }} %lpad{}", block.id.0).unwrap();
                         continue;
@@ -2151,8 +2716,16 @@ impl<'a> LlvmEmitter<'a> {
                         let b = block.id.0;
                         writeln!(self.out, "  %xgp{b} = load i8, ptr %ctx, align 8").unwrap();
                         writeln!(self.out, "  %xgn{b} = icmp ne i8 %xgp{b}, 0").unwrap();
-                        writeln!(self.out, "  %xge{b} = call i1 @llvm.expect.i1(i1 %xgn{b}, i1 false)").unwrap();
-                        writeln!(self.out, "  br i1 %xge{b}, label %xg{b}.lanca, label %xg{b}.ret").unwrap();
+                        writeln!(
+                            self.out,
+                            "  %xge{b} = call i1 @llvm.expect.i1(i1 %xgn{b}, i1 false)"
+                        )
+                        .unwrap();
+                        writeln!(
+                            self.out,
+                            "  br i1 %xge{b}, label %xg{b}.lanca, label %xg{b}.ret"
+                        )
+                        .unwrap();
                         writeln!(self.out, "xg{b}.lanca:").unwrap();
                         writeln!(self.out, "  call void @df.throw()").unwrap();
                         writeln!(self.out, "  unreachable").unwrap();
@@ -2167,8 +2740,18 @@ impl<'a> LlvmEmitter<'a> {
             // G3: the roots frame closes before EVERY `ret`, including that
             // of the exception exits (which return the default value).
             if self.has_frame && matches!(block.terminator, Terminator::Return(_)) {
-                writeln!(self.out, "  %gcvolta{} = load ptr, ptr %gcq, align 8", block.id.0).unwrap();
-                writeln!(self.out, "  store ptr %gcvolta{}, ptr %ctxtopo, align 8", block.id.0).unwrap();
+                writeln!(
+                    self.out,
+                    "  %gcvolta{} = load ptr, ptr %gcq, align 8",
+                    block.id.0
+                )
+                .unwrap();
+                writeln!(
+                    self.out,
+                    "  store ptr %gcvolta{}, ptr %ctxtopo, align 8",
+                    block.id.0
+                )
+                .unwrap();
             }
             match &block.terminator {
                 Terminator::Return(Some(op)) => {
@@ -2196,14 +2779,31 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 // The branch to the landing pad is that of the `invoke` of this block
                 // (`optimize/tables.rs`): here only the continuation follows.
-                Terminator::CondBranch { then_block, else_block, .. } if tab.is_some_and(|t| t.landing_pads.contains(then_block)) => {
+                Terminator::CondBranch {
+                    then_block,
+                    else_block,
+                    ..
+                } if tab.is_some_and(|t| t.landing_pads.contains(then_block)) => {
                     writeln!(self.out, "  br label %b{}", else_block.0).unwrap();
                 }
-                Terminator::CondBranch { cond, then_block, else_block } => {
+                Terminator::CondBranch {
+                    cond,
+                    then_block,
+                    else_block,
+                } => {
                     let sc = self.coerce(cond, Type::I1);
-                    writeln!(self.out, "  br i1 {sc}, label %b{}, label %b{}", then_block.0, else_block.0).unwrap();
+                    writeln!(
+                        self.out,
+                        "  br i1 {sc}, label %b{}, label %b{}",
+                        then_block.0, else_block.0
+                    )
+                    .unwrap();
                 }
-                Terminator::Switch { val, default, cases } => {
+                Terminator::Switch {
+                    val,
+                    default,
+                    cases,
+                } => {
                     let sv = self.coerce(val, Type::I64);
                     write!(self.out, "  switch i64 {sv}, label %b{} [", default.0).unwrap();
                     for (c, b) in cases {
@@ -2220,9 +2820,14 @@ impl<'a> LlvmEmitter<'a> {
                     };
                     let sop = self.coerce(op, Type::I64);
                     let throw_start = self.out.len();
-                    writeln!(self.out, "  call void @dartforge_exception_throw(i64 {sop}, i8 {tag})").unwrap();
+                    writeln!(
+                        self.out,
+                        "  call void @dartforge_exception_throw(i64 {sop}, i8 {tag})"
+                    )
+                    .unwrap();
                     if !self.rooted_set.is_empty()
-                        && let Some(live_set) = self.function_roots.live_at_end.get(&block.id).cloned()
+                        && let Some(live_set) =
+                            self.function_roots.live_at_end.get(&block.id).cloned()
                     {
                         self.attach_deopt(throw_start, &live_set);
                     }
@@ -2244,7 +2849,13 @@ impl<'a> LlvmEmitter<'a> {
             && let Some(mut r) = self.vm_stack_trace.take()
         {
             let text = self.out.split_off(function_start);
-            let labeled = r.label(&text, func, func.debug_info.as_deref(), self.debug_info.is_some(), shared);
+            let labeled = r.label(
+                &text,
+                func,
+                func.debug_info.as_deref(),
+                self.debug_info.is_some(),
+                shared,
+            );
             self.out.push_str(&labeled);
             self.vm_stack_trace = Some(r);
         }
@@ -2283,10 +2894,14 @@ impl<'a> LlvmEmitter<'a> {
     /// The checking build: writes `live_set` into the check slots and zeroes
     /// the remaining ones.
     fn store_check(&mut self, live_set: &[ValueId]) {
-        let Some((first_one, k)) = self.check else { return };
+        let Some((first_one, k)) = self.check else {
+            return;
+        };
         for i in 0..k {
             match live_set.get(i) {
-                Some(x) => writeln!(self.out, "  store i64 %v{}, ptr %gcs{}", x.0, first_one + i).unwrap(),
+                Some(x) => {
+                    writeln!(self.out, "  store i64 %v{}, ptr %gcs{}", x.0, first_one + i).unwrap()
+                }
                 None => writeln!(self.out, "  store i64 0, ptr %gcs{}", first_one + i).unwrap(),
             }
         }
@@ -2360,7 +2975,11 @@ impl<'a> LlvmEmitter<'a> {
         );
         self.out.push_str(before);
         self.out.push_str(&call.replacen("call ", "invoke ", 1));
-        writeln!(self.out, " to label %inv{v}.fim unwind label %b{landing_pad}").unwrap();
+        writeln!(
+            self.out,
+            " to label %inv{v}.fim unwind label %b{landing_pad}"
+        )
+        .unwrap();
         writeln!(self.out, "inv{v}.fim:").unwrap();
         self.current_label = format!("inv{v}.fim");
     }
@@ -2373,10 +2992,15 @@ impl<'a> LlvmEmitter<'a> {
     /// # Panics
     /// Prepared ARC bodies without the ports certificate.
     pub(super) fn arc_uniform_abi(&self) -> bool {
-        if !self.module.arc_memory || !(self.module.arc_prepared || self.module.arc_aot_ports.is_some()) {
+        if !self.module.arc_memory
+            || !(self.module.arc_prepared || self.module.arc_aot_ports.is_some())
+        {
             return false;
         }
-        assert!(self.module.arc_aot_ports.is_some(), "prepared ARC invocation requires certified AOT ports");
+        assert!(
+            self.module.arc_aot_ports.is_some(),
+            "prepared ARC invocation requires certified AOT ports"
+        );
         true
     }
 
@@ -2392,7 +3016,11 @@ impl<'a> LlvmEmitter<'a> {
     /// the entry stays with the runtime (`dartforge_closure_entry`, or the
     /// uniform ARC invocation).
     fn inline_closure_entry(&self, inst: &Instruction) -> bool {
-        !self.module.arc_memory && matches!(inst, Instruction::CallClosure { .. } | Instruction::CallClosureForward { .. })
+        !self.module.arc_memory
+            && matches!(
+                inst,
+                Instruction::CallClosure { .. } | Instruction::CallClosureForward { .. }
+            )
     }
 
     /// `%cf<v>`: the pointer of the uniform entry of the closure `c` — its
@@ -2406,20 +3034,43 @@ impl<'a> LlvmEmitter<'a> {
     /// The block ends at `ce{v}.fim` ([`LlvmEmitter::exit_labels`]).
     fn closure_entry(&mut self, v: u32, c: &str) {
         if self.module.arc_memory {
-            writeln!(self.out, "  %cc{v} = call i64 @dartforge_closure_entry(i64 {c})").unwrap();
+            writeln!(
+                self.out,
+                "  %cc{v} = call i64 @dartforge_closure_entry(i64 {c})"
+            )
+            .unwrap();
         } else {
             let o = &mut self.out;
             writeln!(o, "  %cek{v} = and i64 {c}, {OBJECT_MASK}").unwrap();
             writeln!(o, "  %ceo{v} = icmp eq i64 %cek{v}, 2").unwrap();
             writeln!(o, "  br i1 %ceo{v}, label %ce{v}.obj, label %ce{v}.lento").unwrap();
             writeln!(o, "ce{v}.obj:").unwrap();
-            writeln!(o, "  %ceca{v} = add i64 {c}, {}", layout::offsets::CLASS as i64 - layout::HANDLE_OFFSET).unwrap();
+            writeln!(
+                o,
+                "  %ceca{v} = add i64 {c}, {}",
+                layout::offsets::CLASS as i64 - layout::HANDLE_OFFSET
+            )
+            .unwrap();
             writeln!(o, "  %cecp{v} = inttoptr i64 %ceca{v} to ptr").unwrap();
             writeln!(o, "  %cec{v} = load i32, ptr %cecp{v}, align 4").unwrap();
-            writeln!(o, "  %ceq{v} = icmp eq i32 %cec{v}, {}", layout::cid::CLOSURE).unwrap();
-            writeln!(o, "  br i1 %ceq{v}, label %ce{v}.rapido, label %ce{v}.lento").unwrap();
+            writeln!(
+                o,
+                "  %ceq{v} = icmp eq i32 %cec{v}, {}",
+                layout::cid::CLOSURE
+            )
+            .unwrap();
+            writeln!(
+                o,
+                "  br i1 %ceq{v}, label %ce{v}.rapido, label %ce{v}.lento"
+            )
+            .unwrap();
             writeln!(o, "ce{v}.rapido:").unwrap();
-            writeln!(o, "  %cefa{v} = add i64 {c}, {}", layout::offsets::CLOSURE_CODE as i64 - layout::HANDLE_OFFSET).unwrap();
+            writeln!(
+                o,
+                "  %cefa{v} = add i64 {c}, {}",
+                layout::offsets::CLOSURE_CODE as i64 - layout::HANDLE_OFFSET
+            )
+            .unwrap();
             writeln!(o, "  %cefp{v} = inttoptr i64 %cefa{v} to ptr").unwrap();
             writeln!(o, "  %cer{v} = load i64, ptr %cefp{v}, align 8").unwrap();
             writeln!(o, "  br label %ce{v}.fim").unwrap();
@@ -2427,7 +3078,11 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(o, "  %cel{v} = call i64 @dartforge_closure_entry(i64 {c})").unwrap();
             writeln!(o, "  br label %ce{v}.fim").unwrap();
             writeln!(o, "ce{v}.fim:").unwrap();
-            writeln!(o, "  %cc{v} = phi i64 [ %cer{v}, %ce{v}.rapido ], [ %cel{v}, %ce{v}.lento ]").unwrap();
+            writeln!(
+                o,
+                "  %cc{v} = phi i64 [ %cer{v}, %ce{v}.rapido ], [ %cel{v}, %ce{v}.lento ]"
+            )
+            .unwrap();
             self.current_label = format!("ce{v}.fim");
         }
         writeln!(self.out, "  %cz{v} = icmp eq i64 %cc{v}, 0").unwrap();
@@ -2463,8 +3118,12 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn pool_numeric_vectors(&self) -> bool {
-        self.numeric_vector_pooling && self.body_without_outside && self.module.arc_fixed_ancestry
-            && self.previous_area.is_none() && !self.maps_in_jit && !self.stack_trace_in_jit
+        self.numeric_vector_pooling
+            && self.body_without_outside
+            && self.module.arc_fixed_ancestry
+            && self.previous_area.is_none()
+            && !self.maps_in_jit
+            && !self.stack_trace_in_jit
     }
 
     /// `@df_clo_invalido` (the entry that the call uses when the value is not a
@@ -2481,7 +3140,8 @@ impl<'a> LlvmEmitter<'a> {
                         }
                         Instruction::FunctionTable(v) => {
                             if !self.function_table_of.contains_key(v) {
-                                self.function_table_of.insert(v.clone(), self.function_tables.len());
+                                self.function_table_of
+                                    .insert(v.clone(), self.function_tables.len());
                                 self.function_tables.push(v.clone());
                             }
                             for s in v {
@@ -2490,7 +3150,8 @@ impl<'a> LlvmEmitter<'a> {
                                 }
                             }
                         }
-                        Instruction::CallClosure { args, names, .. } | Instruction::CallSelector { args, names, .. } => {
+                        Instruction::CallClosure { args, names, .. }
+                        | Instruction::CallSelector { args, names, .. } => {
                             self.register_vector(Self::descriptor(args.len(), names));
                             self.argument_names.extend(names.iter().cloned());
                         }
@@ -2503,17 +3164,26 @@ impl<'a> LlvmEmitter<'a> {
             // The descriptor without arguments of `dartforge_dispatch_toString`.
             self.register_vector(vec![0, 0]);
         }
-        self.out.push_str("; Closures: invalid entry and constant vectors\n");
-        self.out.push_str("define internal i64 @df_clo_invalido(i64 %c, ptr %a, ptr %d) {\nb0:\n  ret i64 0\n}\n");
+        self.out
+            .push_str("; Closures: invalid entry and constant vectors\n");
+        self.out.push_str(
+            "define internal i64 @df_clo_invalido(i64 %c, ptr %a, ptr %d) {\nb0:\n  ret i64 0\n}\n",
+        );
         for (k, v) in self.vectors.iter().enumerate() {
             let items: Vec<String> = v.iter().map(|x| format!("i64 {x}")).collect();
             let symbol = &self.vector_symbols[k];
             let shared = self.pool_numeric_vectors();
-            let linkage = if shared { "linkonce_odr hidden" } else { "private" };
+            let linkage = if shared {
+                "linkonce_odr hidden"
+            } else {
+                "private"
+            };
             let comdat = if shared && crate::target::has_comdat() {
                 self.comdats.push(symbol.clone());
                 format!(", comdat($\"{symbol}\")")
-            } else { String::new() };
+            } else {
+                String::new()
+            };
             writeln!(
                 self.out,
                 "@{symbol} = {linkage} unnamed_addr constant [{} x i64] [{}]{comdat}, align 8",
@@ -2524,7 +3194,13 @@ impl<'a> LlvmEmitter<'a> {
         }
         for (k, v) in self.function_tables.iter().enumerate() {
             let items: Vec<String> = v.iter().map(|s| format!("ptr @{s}")).collect();
-            writeln!(self.out, "@df.fns.{k} = private unnamed_addr constant [{} x ptr] [{}]", v.len(), items.join(", ")).unwrap();
+            writeln!(
+                self.out,
+                "@df.fns.{k} = private unnamed_addr constant [{} x ptr] [{}]",
+                v.len(),
+                items.join(", ")
+            )
+            .unwrap();
         }
         self.out.push('\n');
     }
@@ -2559,8 +3235,16 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::EnvGet { env, index } => self.emit_env_get(v, env, *index, ty),
             Instruction::ConcatStrings { parts } => self.emit_concat_strings(v, parts),
             Instruction::AllocEnv { values } => self.emit_alloc_env(v, values),
-            Instruction::AllocClosure { code_symbol, env } => self.emit_alloc_closure(v, code_symbol, env),
-            Instruction::AllocClosureTyped { code_symbol, env, typed, abi, direct } => {
+            Instruction::AllocClosure { code_symbol, env } => {
+                self.emit_alloc_closure(v, code_symbol, env)
+            }
+            Instruction::AllocClosureTyped {
+                code_symbol,
+                env,
+                typed,
+                abi,
+                direct,
+            } => {
                 self.emit_alloc_typed_closure(v, code_symbol, env, typed, *abi, *direct);
             }
             Instruction::TypedCall { target, args, ret } => {
@@ -2577,22 +3261,43 @@ impl<'a> LlvmEmitter<'a> {
                 if *ret == Type::Void {
                     writeln!(self.out, "  call void %ct{v}({})", parts.join(", ")).unwrap();
                 } else {
-                    writeln!(self.out, "  %v{v} = call {} %ct{v}({})", ret.llvm_ir(), parts.join(", ")).unwrap();
+                    writeln!(
+                        self.out,
+                        "  %v{v} = call {} %ct{v}({})",
+                        ret.llvm_ir(),
+                        parts.join(", ")
+                    )
+                    .unwrap();
                 }
             }
             Instruction::TearOff { code_symbol } => self.emit_tearoff(v, code_symbol),
-            Instruction::CallClosure { closure, args, names, tuple_types, .. } => {
+            Instruction::CallClosure {
+                closure,
+                args,
+                names,
+                tuple_types,
+                ..
+            } => {
                 let k = self.vector_of[&Self::descriptor(args.len(), names)];
                 // The slot after the arguments carries the type tuple (the
                 // same convention as the call by selector).
                 let n = args.len() + 1;
                 for (i, a) in args.iter().enumerate() {
                     let s = self.coerce(a, Type::I64);
-                    writeln!(self.out, "  %ca{v}_{i} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {i}").unwrap();
+                    writeln!(
+                        self.out,
+                        "  %ca{v}_{i} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {i}"
+                    )
+                    .unwrap();
                     writeln!(self.out, "  store i64 {s}, ptr %ca{v}_{i}").unwrap();
                 }
                 let tuple = self.coerce(tuple_types, Type::I64);
-                writeln!(self.out, "  %cat{v} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {}", args.len()).unwrap();
+                writeln!(
+                    self.out,
+                    "  %cat{v} = getelementptr [{n} x i64], ptr %cargs{v}, i64 0, i64 {}",
+                    args.len()
+                )
+                .unwrap();
                 writeln!(self.out, "  store i64 {tuple}, ptr %cat{v}").unwrap();
                 let c = self.coerce(closure, Type::Ref);
                 let descriptor = &self.vector_symbols[k];
@@ -2602,28 +3307,56 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_closure_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
                 } else {
                     self.closure_entry(v, &c);
-                    writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr %cargs{v}, ptr @{})", self.vector_symbols[k]).unwrap();
+                    writeln!(
+                        self.out,
+                        "  %v{v} = call i64 %cf{v}(i64 {c}, ptr %cargs{v}, ptr @{})",
+                        self.vector_symbols[k]
+                    )
+                    .unwrap();
                 }
             }
-            Instruction::CallClosureForward { arc_owned, closure, args, desc } => {
+            Instruction::CallClosureForward {
+                arc_owned,
+                closure,
+                args,
+                desc,
+            } => {
                 let c = self.coerce(closure, Type::Ref);
                 let a = self.operand_str(args);
                 let d = self.operand_str(desc);
                 if *arc_owned {
-                    assert!(self.module.arc_memory && self.module.arc_aot_ports.is_some(),
-                        "ARC closure forwarding requires certified AOT ports");
+                    assert!(
+                        self.module.arc_memory && self.module.arc_aot_ports.is_some(),
+                        "ARC closure forwarding requires certified AOT ports"
+                    );
                     writeln!(self.out, "  %cav{v} = ptrtoint ptr {a} to i64").unwrap();
                     writeln!(self.out, "  %cdv{v} = ptrtoint ptr {d} to i64").unwrap();
                     writeln!(self.out, "  %v{v} = call i64 @dartforge_arc_invoke_uniform_closure_v1(i64 {c}, i64 %cav{v}, i64 %cdv{v})").unwrap();
                 } else {
                     self.closure_entry(v, &c);
-                    writeln!(self.out, "  %v{v} = call i64 %cf{v}(i64 {c}, ptr {a}, ptr {d})").unwrap();
+                    writeln!(
+                        self.out,
+                        "  %v{v} = call i64 %cf{v}(i64 {c}, ptr {a}, ptr {d})"
+                    )
+                    .unwrap();
                 }
             }
-            Instruction::CallSelector { selector, recv, args, names, tuple_types } => {
+            Instruction::CallSelector {
+                selector,
+                recv,
+                args,
+                names,
+                tuple_types,
+            } => {
                 self.emit_selector_call(v, selector, recv, args, names, tuple_types);
             }
-            Instruction::CallSelectorForward { arc_owned, selector, recv, args, desc } => {
+            Instruction::CallSelectorForward {
+                arc_owned,
+                selector,
+                recv,
+                args,
+                desc,
+            } => {
                 self.emit_selector_forward(v, selector, recv, args, desc, *arc_owned);
             }
             Instruction::LoadIndexed { base, index } => {
@@ -2634,11 +3367,20 @@ impl<'a> LlvmEmitter<'a> {
             }
             Instruction::ConstArray(vals) => {
                 let k = self.vector_of[vals];
-                writeln!(self.out, "  %v{v} = getelementptr i64, ptr @{}, i64 0", self.vector_symbols[k]).unwrap();
+                writeln!(
+                    self.out,
+                    "  %v{v} = getelementptr i64, ptr @{}, i64 0",
+                    self.vector_symbols[k]
+                )
+                .unwrap();
             }
             Instruction::FunctionTable(fns) => {
                 let k = self.function_table_of[fns];
-                writeln!(self.out, "  %v{v} = getelementptr ptr, ptr @df.fns.{k}, i64 0").unwrap();
+                writeln!(
+                    self.out,
+                    "  %v{v} = getelementptr ptr, ptr @df.fns.{k}, i64 0"
+                )
+                .unwrap();
             }
             _ => return false,
         }
@@ -2660,13 +3402,27 @@ impl<'a> LlvmEmitter<'a> {
                     Instruction::AllocList { elements } => self.list_buffer(vid.0, elements),
                     Instruction::AllocRecord { elements } => self.record_buffer(vid.0, elements),
                     Instruction::CallClosure { args, .. } => {
-                        writeln!(self.out, "  %cargs{} = alloca [{} x i64]", vid.0, args.len() + 1).unwrap();
+                        writeln!(
+                            self.out,
+                            "  %cargs{} = alloca [{} x i64]",
+                            vid.0,
+                            args.len() + 1
+                        )
+                        .unwrap();
                     }
                     Instruction::CallSelector { args, .. } => {
-                        writeln!(self.out, "  %sargs{} = alloca [{} x i64]", vid.0, args.len() + 1).unwrap();
+                        writeln!(
+                            self.out,
+                            "  %sargs{} = alloca [{} x i64]",
+                            vid.0,
+                            args.len() + 1
+                        )
+                        .unwrap();
                     }
                     Instruction::AllocEnv { values } => self.env_buffer(vid.0, values),
-                    Instruction::ConcatStrings { parts } => self.concat_strings_buffer(vid.0, parts),
+                    Instruction::ConcatStrings { parts } => {
+                        self.concat_strings_buffer(vid.0, parts)
+                    }
                     _ => {}
                 }
             }
@@ -2687,7 +3443,11 @@ impl<'a> LlvmEmitter<'a> {
         let previous: std::collections::HashMap<i64, usize> = match &self.previous_area {
             Some(a) => {
                 self.slot_hashes = a.clone();
-                a.iter().enumerate().filter(|(_, h)| **h != 0).map(|(i, h)| (*h, i)).collect()
+                a.iter()
+                    .enumerate()
+                    .filter(|(_, h)| **h != 0)
+                    .map(|(i, h)| (*h, i))
+                    .collect()
             }
             None => std::collections::HashMap::new(),
         };
@@ -2714,12 +3474,21 @@ impl<'a> LlvmEmitter<'a> {
     /// addresses, and the method tables have just changed). In production,
     /// `[key, -n]` ([`LlvmEmitter::with_lean_area`]).
     fn emit_area_descriptor(&mut self) {
-        let key = self.module.record.clone().unwrap_or_else(|| "df.program".to_string());
+        let key = self
+            .module
+            .record
+            .clone()
+            .unwrap_or_else(|| "df.program".to_string());
         if self.lean_area {
             // Production (`with_lean_area`): `[key, -n]`, without the names.
             let n = self.slot_hashes.len() as i64;
-            writeln!(self.out, "@df.area = private unnamed_addr constant [2 x i64] [i64 {}, i64 {}]", slot_hash(&key), -n)
-                .unwrap();
+            writeln!(
+                self.out,
+                "@df.area = private unnamed_addr constant [2 x i64] [i64 {}, i64 {}]",
+                slot_hash(&key),
+                -n
+            )
+            .unwrap();
             return;
         }
         let mut values = vec![slot_hash(&key).to_string(), String::new()];
@@ -2728,7 +3497,13 @@ impl<'a> LlvmEmitter<'a> {
         }
         values[1] = (values.len() - 2).to_string();
         let items: Vec<String> = values.iter().map(|v| format!("i64 {v}")).collect();
-        writeln!(self.out, "@df.area = private unnamed_addr constant [{} x i64] [{}]", items.len(), items.join(", ")).unwrap();
+        writeln!(
+            self.out,
+            "@df.area = private unnamed_addr constant [{} x i64] [{}]",
+            items.len(),
+            items.join(", ")
+        )
+        .unwrap();
     }
 
     /// The slot of the next selector cache of the function being emitted: the two
@@ -2769,13 +3544,20 @@ impl<'a> LlvmEmitter<'a> {
             for (_, inst, _) in &b.instructions {
                 let uses = match inst {
                     Instruction::Load { .. } => Vec::new(),
-                    Instruction::Store { val: Operand::Val(v), .. } => vec![*v],
+                    Instruction::Store {
+                        val: Operand::Val(v),
+                        ..
+                    } => vec![*v],
                     Instruction::Store { .. } => Vec::new(),
                     other => crate::lower::async_sm::uses_of(other),
                 };
                 escape.extend(uses.into_iter().filter(|v| refs.contains(v)));
             }
-            escape.extend(crate::lower::async_sm::terminator_uses(&b.terminator).into_iter().filter(|v| refs.contains(v)));
+            escape.extend(
+                crate::lower::async_sm::terminator_uses(&b.terminator)
+                    .into_iter()
+                    .filter(|v| refs.contains(v)),
+            );
         }
         escape
     }
@@ -2788,8 +3570,13 @@ impl<'a> LlvmEmitter<'a> {
                     i,
                     Instruction::LoadGlobal { .. }
                         | Instruction::StoreGlobal { .. }
-                        | Instruction::ArcLoadStrong { slot: StrongSlot::Global { .. } }
-                        | Instruction::ArcStoreStrong { slot: StrongSlot::Global { .. }, .. }
+                        | Instruction::ArcLoadStrong {
+                            slot: StrongSlot::Global { .. }
+                        }
+                        | Instruction::ArcStoreStrong {
+                            slot: StrongSlot::Global { .. },
+                            ..
+                        }
                         | Instruction::CallSelector { .. }
                         | Instruction::CallSelectorForward { .. }
                         | Instruction::Const(Constant::String(_) | Constant::StringWtf8(_))
@@ -2802,7 +3589,10 @@ impl<'a> LlvmEmitter<'a> {
     /// The roots frame at the top of the entry block (see the prologue).
     fn frame_at_entry() -> bool {
         static OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_FRAME_AT_ENTRY").is_some_and(|v| !v.is_empty() && v != "0"))
+        !*OFF.get_or_init(|| {
+            std::env::var_os("DARTFORGE_NO_FRAME_AT_ENTRY")
+                .is_some_and(|v| !v.is_empty() && v != "0")
+        })
     }
 
     /// `dartforge_rti_eval` without a tuple and with `this`: goes through the cache of the
@@ -2815,7 +3605,10 @@ impl<'a> LlvmEmitter<'a> {
                 && args.len() == 4
                 && matches!(args[3].0, Operand::Constant(Constant::Int(0)))
                 && !matches!(args[1].0, Operand::Constant(_)))
-            && !*OFF.get_or_init(|| std::env::var_os("DARTFORGE_NO_RTI_CACHE").is_some_and(|v| !v.is_empty() && v != "0"))
+            && !*OFF.get_or_init(|| {
+                std::env::var_os("DARTFORGE_NO_RTI_CACHE")
+                    .is_some_and(|v| !v.is_empty() && v != "0")
+            })
     }
 
     /// `dartforge_rti_e` (`v is T`) with a cache at the use site
@@ -2848,32 +3641,60 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  br i1 %rt{v}o, label %rt{v}.obj, label %rt{v}.lenta").unwrap();
         writeln!(o, "rt{v}.obj:").unwrap();
         writeln!(o, "  %rt{v}p = inttoptr i64 {value} to ptr").unwrap();
-        writeln!(o, "  %rt{v}mp = getelementptr inbounds i8, ptr %rt{v}p, i64 10").unwrap();
+        writeln!(
+            o,
+            "  %rt{v}mp = getelementptr inbounds i8, ptr %rt{v}p, i64 10"
+        )
+        .unwrap();
         writeln!(o, "  %rt{v}md = load i32, ptr %rt{v}mp, align 4").unwrap();
-        writeln!(o, "  %rt{v}cp = getelementptr inbounds i8, ptr %rt{v}p, i64 2").unwrap();
+        writeln!(
+            o,
+            "  %rt{v}cp = getelementptr inbounds i8, ptr %rt{v}p, i64 2"
+        )
+        .unwrap();
         writeln!(o, "  %rt{v}cl = load i32, ptr %rt{v}cp, align 4").unwrap();
         writeln!(o, "  %rt{v}mz = zext i32 %rt{v}md to i64").unwrap();
         writeln!(o, "  %rt{v}cs = sext i32 %rt{v}cl to i64").unwrap();
         writeln!(o, "  %rt{v}cn = sub i64 -16, %rt{v}cs").unwrap();
         writeln!(o, "  %rt{v}tm = icmp ne i32 %rt{v}md, 0").unwrap();
-        writeln!(o, "  %rt{v}k = select i1 %rt{v}tm, i64 %rt{v}mz, i64 %rt{v}cn").unwrap();
+        writeln!(
+            o,
+            "  %rt{v}k = select i1 %rt{v}tm, i64 %rt{v}mz, i64 %rt{v}cn"
+        )
+        .unwrap();
         writeln!(o, "  %rt{v}k0 = load i64, ptr %rt{v}c, align 8").unwrap();
-        writeln!(o, "  %rt{v}wp = getelementptr inbounds i64, ptr %rt{v}c, i64 1").unwrap();
+        writeln!(
+            o,
+            "  %rt{v}wp = getelementptr inbounds i64, ptr %rt{v}c, i64 1"
+        )
+        .unwrap();
         writeln!(o, "  %rt{v}w = load i64, ptr %rt{v}wp, align 8").unwrap();
         writeln!(o, "  %rt{v}wt = lshr i64 %rt{v}w, 1").unwrap();
         writeln!(o, "  %rt{v}ok1 = icmp eq i64 %rt{v}k0, %rt{v}k").unwrap();
         writeln!(o, "  %rt{v}ok2 = icmp eq i64 %rt{v}wt, {t}").unwrap();
         writeln!(o, "  %rt{v}ok = and i1 %rt{v}ok1, %rt{v}ok2").unwrap();
-        writeln!(o, "  br i1 %rt{v}ok, label %rt{v}.acerto, label %rt{v}.lenta").unwrap();
+        writeln!(
+            o,
+            "  br i1 %rt{v}ok, label %rt{v}.acerto, label %rt{v}.lenta"
+        )
+        .unwrap();
         writeln!(o, "rt{v}.acerto:").unwrap();
         writeln!(o, "  %rt{v}b = and i64 %rt{v}w, 1").unwrap();
         writeln!(o, "  %rt{v}r1 = trunc i64 %rt{v}b to i8").unwrap();
         writeln!(o, "  br label %rt{v}.fim").unwrap();
         writeln!(o, "rt{v}.lenta:").unwrap();
-        writeln!(o, "  %rt{v}r2 = call i8 @dartforge_rti_e_cache(ptr %rt{v}c, i64 {value}, i64 {t})").unwrap();
+        writeln!(
+            o,
+            "  %rt{v}r2 = call i8 @dartforge_rti_e_cache(ptr %rt{v}c, i64 {value}, i64 {t})"
+        )
+        .unwrap();
         writeln!(o, "  br label %rt{v}.fim").unwrap();
         writeln!(o, "rt{v}.fim:").unwrap();
-        writeln!(o, "  %v{v} = phi i8 [ %rt{v}r1, %rt{v}.acerto ], [ %rt{v}r2, %rt{v}.lenta ]").unwrap();
+        writeln!(
+            o,
+            "  %v{v} = phi i8 [ %rt{v}r1, %rt{v}.acerto ], [ %rt{v}r2, %rt{v}.lenta ]"
+        )
+        .unwrap();
         self.current_label = format!("rt{v}.fim");
     }
 
@@ -2899,53 +3720,88 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  br i1 %ra{v}o, label %ra{v}.obj, label %ra{v}.lenta").unwrap();
         writeln!(o, "ra{v}.obj:").unwrap();
         writeln!(o, "  %ra{v}p = inttoptr i64 {this} to ptr").unwrap();
-        writeln!(o, "  %ra{v}mp = getelementptr inbounds i8, ptr %ra{v}p, i64 10").unwrap();
+        writeln!(
+            o,
+            "  %ra{v}mp = getelementptr inbounds i8, ptr %ra{v}p, i64 10"
+        )
+        .unwrap();
         writeln!(o, "  %ra{v}md = load i32, ptr %ra{v}mp, align 4").unwrap();
-        writeln!(o, "  %ra{v}cp = getelementptr inbounds i8, ptr %ra{v}p, i64 2").unwrap();
+        writeln!(
+            o,
+            "  %ra{v}cp = getelementptr inbounds i8, ptr %ra{v}p, i64 2"
+        )
+        .unwrap();
         writeln!(o, "  %ra{v}cl = load i32, ptr %ra{v}cp, align 4").unwrap();
         writeln!(o, "  %ra{v}mz = zext i32 %ra{v}md to i64").unwrap();
         writeln!(o, "  %ra{v}cs = sext i32 %ra{v}cl to i64").unwrap();
         writeln!(o, "  %ra{v}cn = sub i64 -16, %ra{v}cs").unwrap();
         writeln!(o, "  %ra{v}tm = icmp ne i32 %ra{v}md, 0").unwrap();
-        writeln!(o, "  %ra{v}k = select i1 %ra{v}tm, i64 %ra{v}mz, i64 %ra{v}cn").unwrap();
+        writeln!(
+            o,
+            "  %ra{v}k = select i1 %ra{v}tm, i64 %ra{v}mz, i64 %ra{v}cn"
+        )
+        .unwrap();
         writeln!(o, "  %ra{v}k0 = load i64, ptr %ra{v}c, align 8").unwrap();
         writeln!(o, "  %ra{v}ok = icmp eq i64 %ra{v}k0, %ra{v}k").unwrap();
-        writeln!(o, "  br i1 %ra{v}ok, label %ra{v}.acerto, label %ra{v}.lenta").unwrap();
+        writeln!(
+            o,
+            "  br i1 %ra{v}ok, label %ra{v}.acerto, label %ra{v}.lenta"
+        )
+        .unwrap();
         writeln!(o, "ra{v}.acerto:").unwrap();
-        writeln!(o, "  %ra{v}rp = getelementptr inbounds i64, ptr %ra{v}c, i64 1").unwrap();
+        writeln!(
+            o,
+            "  %ra{v}rp = getelementptr inbounds i64, ptr %ra{v}c, i64 1"
+        )
+        .unwrap();
         writeln!(o, "  %ra{v}r1 = load i64, ptr %ra{v}rp, align 8").unwrap();
         writeln!(o, "  br label %ra{v}.fim").unwrap();
         writeln!(o, "ra{v}.lenta:").unwrap();
         writeln!(o, "  %ra{v}r2 = call i64 @dartforge_rti_eval_cache(ptr %ra{v}c, i64 {model}, i64 {this}, i64 {class})").unwrap();
         writeln!(o, "  br label %ra{v}.fim").unwrap();
         writeln!(o, "ra{v}.fim:").unwrap();
-        writeln!(o, "  %v{v} = phi i64 [ %ra{v}r1, %ra{v}.acerto ], [ %ra{v}r2, %ra{v}.lenta ]").unwrap();
+        writeln!(
+            o,
+            "  %v{v} = phi i64 [ %ra{v}r1, %ra{v}.acerto ], [ %ra{v}r2, %ra{v}.lenta ]"
+        )
+        .unwrap();
         self.current_label = format!("ra{v}.fim");
     }
 
     /// The address of the slot of a global, in `%ga<v>`.
     fn global_address(&mut self, v: u32, sym_name: &str) {
-        let slot = *self
-            .global_slots
-            .get(sym_name)
-            .unwrap_or_else(|| panic!("compiler bug: global @{sym_name} without a slot in the area"));
-        writeln!(self.out, "  %ga{v} = getelementptr i64, ptr %area, i64 {slot}").unwrap();
+        let slot = *self.global_slots.get(sym_name).unwrap_or_else(|| {
+            panic!("compiler bug: global @{sym_name} without a slot in the area")
+        });
+        writeln!(
+            self.out,
+            "  %ga{v} = getelementptr i64, ptr %area, i64 {slot}"
+        )
+        .unwrap();
     }
 
     fn emit_dispatch_functions(&mut self) {
-        self.out.push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n");
+        self.out
+            .push_str("define i64 @dartforge_dispatch_toString(i64 %obj) {\n");
         self.out.push_str("b0:\n");
         self.out.push_str("  %is_null = icmp eq i64 %obj, 0\n");
-        self.out.push_str("  br i1 %is_null, label %ret_null, label %check_obj\n");
+        self.out
+            .push_str("  br i1 %is_null, label %ret_null, label %check_obj\n");
         self.out.push_str("ret_null:\n");
-        self.out.push_str("  %null_s = call i64 @dartforge_to_string_handle(i64 0)\n");
+        self.out
+            .push_str("  %null_s = call i64 @dartforge_to_string_handle(i64 0)\n");
         self.out.push_str("  ret i64 %null_s\n");
         self.out.push_str("check_obj:\n");
         self.out.push_str("  %cls = call i64 @df.class(i64 %obj)\n");
 
         let mut cases = Vec::new();
         for class in &self.module.classes {
-            if self.module.closed_class_tables.as_ref().is_some_and(|classes| !classes.contains(&class.id)) {
+            if self
+                .module
+                .closed_class_tables
+                .as_ref()
+                .is_some_and(|classes| !classes.contains(&class.id))
+            {
                 continue;
             }
             if let Some(sym) = &class.to_string_symbol {
@@ -2968,7 +3824,8 @@ impl<'a> LlvmEmitter<'a> {
             }
         }
         self.out.push_str("fallback:\n");
-        self.out.push_str("  %fb = call i64 @dartforge_to_string_handle(i64 %obj)\n");
+        self.out
+            .push_str("  %fb = call i64 @dartforge_to_string_handle(i64 %obj)\n");
         self.out.push_str("  ret i64 %fb\n");
         self.out.push_str("}\n\n");
     }
@@ -2978,7 +3835,11 @@ impl<'a> LlvmEmitter<'a> {
     fn arc_reference(&self, value: &Operand) -> String {
         match value {
             Operand::Val(v) => {
-                assert_eq!(self.types.get(v), Some(&Type::Ref), "ARC operation requires an SSA Ref");
+                assert_eq!(
+                    self.types.get(v),
+                    Some(&Type::Ref),
+                    "ARC operation requires an SSA Ref"
+                );
                 format!("%v{}", v.0)
             }
             Operand::Constant(Constant::Null) => "0".into(),
@@ -2988,7 +3849,13 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Classified frame descriptor; never coerce a pointer to an ID.
     fn slot_arc(&self, slot: &StrongSlot) -> (String, u32) {
-        let StrongSlot::Frame { frame, index: idx_value } = slot else { panic!("descriptor is not a frame") };
+        let StrongSlot::Frame {
+            frame,
+            index: idx_value,
+        } = slot
+        else {
+            panic!("descriptor is not a frame")
+        };
         let Operand::Val(v) = frame else {
             panic!("ARC slot requires an SSA frame")
         };
@@ -3003,8 +3870,15 @@ impl<'a> LlvmEmitter<'a> {
     /// Schema of the real storage; do not infer Ref by width or address.
     fn check_arc_global(&self, sym_name: &str) {
         let mut declarations = self.module.globals.iter().filter(|(_, _, s)| s == sym_name);
-        assert_eq!(declarations.next().map(|(_, ty, _)| *ty), Some(Type::Ref), "ARC global must be a declared Ref");
-        assert!(declarations.next().is_none(), "ARC global must have a single declaration");
+        assert_eq!(
+            declarations.next().map(|(_, ty, _)| *ty),
+            Some(Type::Ref),
+            "ARC global must be a declared Ref"
+        );
+        assert!(
+            declarations.next().is_none(),
+            "ARC global must have a single declaration"
+        );
     }
 
     /// Checks the token ABI before the registrations and before any Dart code.
@@ -3013,15 +3887,18 @@ impl<'a> LlvmEmitter<'a> {
         if !self.module.arc_memory {
             return;
         }
-        self.externals.insert("llvm.trap".into(), "declare void @llvm.trap()".into());
-        self.out.push_str("  call void @dartforge_memory_arc_v1()\n\
+        self.externals
+            .insert("llvm.trap".into(), "declare void @llvm.trap()".into());
+        self.out.push_str(
+            "  call void @dartforge_memory_arc_v1()\n\
             \x20 %df.arc.abi = call i8 @dartforge_arc_verify_abi(i64 1)\n\
             \x20 %df.arc.abi.ok = icmp eq i8 %df.arc.abi, 1\n\
             \x20 br i1 %df.arc.abi.ok, label %df.arc.compatible, label %df.arc.incompatible\n\
             df.arc.incompatible:\n\
             \x20 call void @llvm.trap()\n\
             \x20 unreachable\n\
-            df.arc.compatible:\n");
+            df.arc.compatible:\n",
+        );
         if !self.module.sdk_mode {
             self.register_arc_aot_ports();
         }
@@ -3033,7 +3910,12 @@ impl<'a> LlvmEmitter<'a> {
         }
         if self.module.sdk_mode {
             self.emit_registration("df.register.program");
-            let ids: Vec<String> = self.module.runtime_cids.iter().map(|c| format!("i64 {c}")).collect();
+            let ids: Vec<String> = self
+                .module
+                .runtime_cids
+                .iter()
+                .map(|c| format!("i64 {c}"))
+                .collect();
             writeln!(
                 self.out,
                 "@df.cids = private unnamed_addr constant [{} x i64] [{}]",
@@ -3060,23 +3942,42 @@ impl<'a> LlvmEmitter<'a> {
             // (registrations, RTI, embedder) return owners to a native scope.
             let root_scope = self.module.arc_memory && self.module.arc_prepared;
             if root_scope {
-                writeln!(self.out, "  %escopo.prep = call i64 @dartforge_arc_native_scope_open_v1()").unwrap();
+                writeln!(
+                    self.out,
+                    "  %escopo.prep = call i64 @dartforge_arc_native_scope_open_v1()"
+                )
+                .unwrap();
             }
-            writeln!(self.out, "  call void @dartforge_register_cids(ptr @df.cids, i64 {})", ids.len()).unwrap();
+            writeln!(
+                self.out,
+                "  call void @dartforge_register_cids(ptr @df.cids, i64 {})",
+                ids.len()
+            )
+            .unwrap();
             if let Some(v) = &self.module.sdk_version {
-                writeln!(self.out, "  call void @dartforge_register_sdk_version(ptr @df.sdk_version, i64 {})", v.len()).unwrap();
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_register_sdk_version(ptr @df.sdk_version, i64 {})",
+                    v.len()
+                )
+                .unwrap();
             }
             // The tables of the classes of the runtime values (which do not go
             // through `dartforge_object_new_t`).
             for c in self.module.runtime_cids.clone() {
                 if let Some(f) = self.module.table_functions.get(&(c as u32)).cloned() {
                     self.annotate_external(&f, Type::Ptr, &[]);
-                    writeln!(self.out, "  call void @dartforge_register_table(i64 {c}, ptr @{f})").unwrap();
+                    writeln!(
+                        self.out,
+                        "  call void @dartforge_register_table(i64 {c}, ptr @{f})"
+                    )
+                    .unwrap();
                 }
             }
             for r in &self.module.sdk_records {
                 writeln!(self.out, "  call void @{r}()").unwrap();
-                self.externals.insert(r.clone(), format!("declare void @{r}()"));
+                self.externals
+                    .insert(r.clone(), format!("declare void @{r}()"));
             }
             writeln!(self.out, "  call void @df.register.program()").unwrap();
             if self.tables_registered_at_startup {
@@ -3085,11 +3986,19 @@ impl<'a> LlvmEmitter<'a> {
                 // this declaration), registered before any Dart code: the
                 // inline allocation does not test the registration.
                 writeln!(self.out, "  call void @df.register.sdk_tables()").unwrap();
-                self.externals.insert("df.register.sdk_tables".into(), "declare void @df.register.sdk_tables()".into());
+                self.externals.insert(
+                    "df.register.sdk_tables".into(),
+                    "declare void @df.register.sdk_tables()".into(),
+                );
             }
             // RTI and the event loop, as in the usual entry (below).
             if let Some(start) = &self.module.start_rti {
-                writeln!(self.out, "  {}", entry_call(self.module.table_exceptions, start, &[])).unwrap();
+                writeln!(
+                    self.out,
+                    "  {}",
+                    entry_call(self.module.table_exceptions, start, &[])
+                )
+                .unwrap();
             }
             // What the VM's embedder prepares before `main` (the script of
             // `dart:io`, `Uri.base`), already with the libraries registered.
@@ -3104,7 +4013,12 @@ impl<'a> LlvmEmitter<'a> {
                 .unwrap();
             }
             for (c, letter) in &self.module.ffi_types {
-                writeln!(self.out, "  call void @dartforge_ffi_register_type(i64 {c}, i64 {})", u32::from(*letter)).unwrap();
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_ffi_register_type(i64 {c}, i64 {})",
+                    u32::from(*letter)
+                )
+                .unwrap();
             }
             for (i, (key, sym_name)) in self.module.ffi_trampolines.iter().enumerate() {
                 writeln!(
@@ -3124,33 +4038,62 @@ impl<'a> LlvmEmitter<'a> {
             }
             writeln!(self.out, "  call void @dartforge_prepare_embedder()").unwrap();
             if root_scope {
-                writeln!(self.out, "  call void @dartforge_arc_native_scope_close_v1(i64 %escopo.prep)").unwrap();
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_arc_native_scope_close_v1(i64 %escopo.prep)"
+                )
+                .unwrap();
             }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
             for (i, (key, _)) in self.module.ffi_trampolines.iter().enumerate() {
-                writeln!(self.out, "@df.ffi.key.{i} = private unnamed_addr constant [{} x i8] c\"{key}\"", key.len()).unwrap();
+                writeln!(
+                    self.out,
+                    "@df.ffi.key.{i} = private unnamed_addr constant [{} x i8] c\"{key}\"",
+                    key.len()
+                )
+                .unwrap();
             }
             self.emit_callbacks_ffi();
             writeln!(self.out, "define void @dartforge_entry() {{").unwrap();
             // Exceptions by tables: the ports through which the runtime calls
             // Dart code, delivered before any Dart code runs.
             if self.module.table_exceptions {
-                writeln!(self.out, "  call void @dartforge_register_ports(ptr @df.ports, i64 {N_PORTS})").unwrap();
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_register_ports(ptr @df.ports, i64 {N_PORTS})"
+                )
+                .unwrap();
             }
-            let call = self.module.call_dart.as_ref().map_or("null".to_string(), |c| format!("@{c}"));
-            writeln!(self.out, "  call void @dartforge_register_isolates(ptr @df.prepare_isolate, ptr {call})").unwrap();
+            let call = self
+                .module
+                .call_dart
+                .as_ref()
+                .map_or("null".to_string(), |c| format!("@{c}"));
+            writeln!(
+                self.out,
+                "  call void @dartforge_register_isolates(ptr @df.prepare_isolate, ptr {call})"
+            )
+            .unwrap();
             writeln!(self.out, "  call void @df.prepare_isolate()").unwrap();
             // The root scope of the main isolate: `main` and the event
             // loop, whose calls from the runtime into Dart return owners.
             if root_scope {
-                writeln!(self.out, "  %escopo.raiz = call i64 @dartforge_arc_native_scope_open_v1()").unwrap();
+                writeln!(
+                    self.out,
+                    "  %escopo.raiz = call i64 @dartforge_arc_native_scope_open_v1()"
+                )
+                .unwrap();
             }
             self.call_main();
             if let Some(call) = &self.module.call_dart {
                 writeln!(self.out, "  call void @dartforge_event_loop(ptr @{call})").unwrap();
             }
             if root_scope {
-                writeln!(self.out, "  call void @dartforge_arc_native_scope_close_v1(i64 %escopo.raiz)").unwrap();
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_arc_native_scope_close_v1(i64 %escopo.raiz)"
+                )
+                .unwrap();
             }
             writeln!(self.out, "  ret void\n}}\n").unwrap();
             // The runtime and the SDK live in the source SDK DLL: the `main` of the
@@ -3168,7 +4111,11 @@ impl<'a> LlvmEmitter<'a> {
         // Exceptions by tables: the ports through which the runtime calls
         // Dart code, delivered before any Dart code runs.
         if self.module.table_exceptions {
-            writeln!(self.out, "  call void @dartforge_register_ports(ptr @df.ports, i64 {N_PORTS})").unwrap();
+            writeln!(
+                self.out,
+                "  call void @dartforge_register_ports(ptr @df.ports, i64 {N_PORTS})"
+            )
+            .unwrap();
         }
         // Registra classes
         for class in &self.module.classes {
@@ -3178,7 +4125,8 @@ impl<'a> LlvmEmitter<'a> {
                 self.out,
                 "  call void @dartforge_register_class_name(i64 {}, ptr @.str.{}, i64 {})",
                 class.id, idx, len
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         if self.maps && !self.maps_in_jit {
@@ -3194,12 +4142,18 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(
                 self.out,
                 "  call void @dartforge_register_subclass(i64 {sub}, i64 {sup})"
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         // RTI: the type universe (cited classes and supertype rules).
         if let Some(start) = &self.module.start_rti {
-            writeln!(self.out, "  {}", entry_call(self.module.table_exceptions, start, &[])).unwrap();
+            writeln!(
+                self.out,
+                "  {}",
+                entry_call(self.module.table_exceptions, start, &[])
+            )
+            .unwrap();
         }
         self.call_main();
         // P6: microtasks and timers after `main` (runtime, `events.rs`).
@@ -3233,7 +4187,12 @@ impl<'a> LlvmEmitter<'a> {
             CType::Void => unreachable!("void native argument"),
             narrow => {
                 let n = self.coerce(op, Type::I64);
-                writeln!(self.out, "  %na{v}_{i} = trunc i64 {n} to {}", narrow.llvm()).unwrap();
+                writeln!(
+                    self.out,
+                    "  %na{v}_{i} = trunc i64 {n} to {}",
+                    narrow.llvm()
+                )
+                .unwrap();
                 format!("%na{v}_{i}")
             }
         };
@@ -3250,7 +4209,14 @@ impl<'a> LlvmEmitter<'a> {
     /// collects carries the operand, also that of a function without roots, which may be
     /// copied by the inliner into one with roots). The intermediary passes on the
     /// arguments with the same types and attributes.
-    fn c_call_text(&mut self, v: u32, ret: &str, typ: &str, parts: &[String], variadic_flag: bool) -> String {
+    fn c_call_text(
+        &mut self,
+        v: u32,
+        ret: &str,
+        typ: &str,
+        parts: &[String],
+        variadic_flag: bool,
+    ) -> String {
         let list = parts.join(", ");
         if !variadic_flag || !self.maps {
             return format!("call {typ} %fn{v}({list})");
@@ -3264,8 +4230,15 @@ impl<'a> LlvmEmitter<'a> {
             forward.push(format!("{head} %p{j}"));
         }
         let internal = format!("call {typ} %f({})", forward.join(", "));
-        let body = if ret == "void" { format!("  {internal}\n  ret void\n") } else { format!("  %r = {internal}\n  ret {ret} %r\n") };
-        self.variadic_set.push(format!("define internal {ret} @{name_str}({}) noinline {{\n{body}}}\n\n", params.join(", ")));
+        let body = if ret == "void" {
+            format!("  {internal}\n  ret void\n")
+        } else {
+            format!("  %r = {internal}\n  ret {ret} %r\n")
+        };
+        self.variadic_set.push(format!(
+            "define internal {ret} @{name_str}({}) noinline {{\n{body}}}\n\n",
+            params.join(", ")
+        ));
         let mut args = vec![format!("ptr %fn{v}")];
         args.extend(parts.iter().cloned());
         format!("call {ret} @{name_str}({})", args.join(", "))
@@ -3322,8 +4295,19 @@ impl<'a> LlvmEmitter<'a> {
                         CType::F32 => self.c_argument(v, i, op, CType::F64),
                         CType::I8 | CType::I16 => self.c_argument(v, i, op, CType::I32),
                         CType::U8 | CType::U16 | CType::Bool => {
-                            let n = self.coerce(op, if *tc == CType::Bool { Type::I1 } else { Type::I64 });
-                            let ext = if *tc == CType::Bool { format!("zext i1 {n} to i32") } else { format!("trunc i64 {n} to i32") };
+                            let n = self.coerce(
+                                op,
+                                if *tc == CType::Bool {
+                                    Type::I1
+                                } else {
+                                    Type::I64
+                                },
+                            );
+                            let ext = if *tc == CType::Bool {
+                                format!("zext i1 {n} to i32")
+                            } else {
+                                format!("trunc i64 {n} to i32")
+                            };
                             writeln!(self.out, "  %na{v}_{i} = {ext}").unwrap();
                             format!("i32 %na{v}_{i}")
                         }
@@ -3344,7 +4328,11 @@ impl<'a> LlvmEmitter<'a> {
                     let al = l.alignment.max(16);
                     writeln!(self.out, "  %src{v}_{i} = inttoptr i64 {n} to ptr").unwrap();
                     writeln!(self.out, "  %tmp{v}_{i} = alloca [{sz} x i8], align {al}").unwrap();
-                    writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %tmp{v}_{i}, i8 0, i64 {sz}, i1 false)").unwrap();
+                    writeln!(
+                        self.out,
+                        "  call void @llvm.memset.p0.i64(ptr %tmp{v}_{i}, i8 0, i64 {sz}, i1 false)"
+                    )
+                    .unwrap();
                     writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr %tmp{v}_{i}, ptr %src{v}_{i}, i64 {}, i1 false)", l.size).unwrap();
                     // In the variadic part the pieces do not enter the type of the
                     // call (`ret (fixed, ...)`).
@@ -3361,14 +4349,27 @@ impl<'a> LlvmEmitter<'a> {
                     match passing {
                         ArgPassing::Direct(pieces) => {
                             for (k, p) in pieces.iter().enumerate() {
-                                writeln!(self.out, "  %pp{v}_{i}_{k} = getelementptr i8, ptr %tmp{v}_{i}, i64 {}", p.offset).unwrap();
-                                writeln!(self.out, "  %pc{v}_{i}_{k} = load {}, ptr %pp{v}_{i}_{k}, align 1", p.ty).unwrap();
+                                writeln!(
+                                    self.out,
+                                    "  %pp{v}_{i}_{k} = getelementptr i8, ptr %tmp{v}_{i}, i64 {}",
+                                    p.offset
+                                )
+                                .unwrap();
+                                writeln!(
+                                    self.out,
+                                    "  %pc{v}_{i}_{k} = load {}, ptr %pp{v}_{i}_{k}, align 1",
+                                    p.ty
+                                )
+                                .unwrap();
                                 parts.push(format!("{} {}%pc{v}_{i}_{k}", p.ty, p.attributes));
                                 fixed(p.ty.clone());
                             }
                         }
                         ArgPassing::Byval { alignment } => {
-                            parts.push(format!("ptr byval([{} x i8]) align {alignment} %tmp{v}_{i}", l.size));
+                            parts.push(format!(
+                                "ptr byval([{} x i8]) align {alignment} %tmp{v}_{i}",
+                                l.size
+                            ));
                             fixed("ptr".to_string());
                         }
                         ArgPassing::Indirect => {
@@ -3386,18 +4387,31 @@ impl<'a> LlvmEmitter<'a> {
             None => ret.to_string(),
         };
         let return_type = match (ret, &ret_passing) {
-            (NativeType::Prim(CType::Void), _) | (NativeType::Composite(_), Some((RetPassing::Sret { .. }, _))) => "void".to_string(),
+            (NativeType::Prim(CType::Void), _)
+            | (NativeType::Composite(_), Some((RetPassing::Sret { .. }, _))) => "void".to_string(),
             (NativeType::Prim(tc), _) => tc.llvm().to_string(),
-            (NativeType::Composite(_), Some((RetPassing::Direct(pieces), _))) => c_abi::return_ty(pieces),
+            (NativeType::Composite(_), Some((RetPassing::Direct(pieces), _))) => {
+                c_abi::return_ty(pieces)
+            }
             (NativeType::Composite(_), None) => unreachable!("compound return without passing"),
         };
-        let call = self.c_call_text(v, &return_type, &call_type(&return_type), &parts, variadic_flag.is_some());
+        let call = self.c_call_text(
+            v,
+            &return_type,
+            &call_type(&return_type),
+            &parts,
+            variadic_flag.is_some(),
+        );
         match (ret, &ret_passing) {
             (NativeType::Prim(CType::Void), _) => writeln!(self.out, "  {call}").unwrap(),
             (NativeType::Prim(tc), _) => {
                 let conv_ret = match tc {
-                    CType::I8 | CType::I16 | CType::I32 => Some(format!("sext {} %nr{v} to i64", tc.llvm())),
-                    CType::U8 | CType::U16 | CType::U32 => Some(format!("zext {} %nr{v} to i64", tc.llvm())),
+                    CType::I8 | CType::I16 | CType::I32 => {
+                        Some(format!("sext {} %nr{v} to i64", tc.llvm()))
+                    }
+                    CType::U8 | CType::U16 | CType::U32 => {
+                        Some(format!("zext {} %nr{v} to i64", tc.llvm()))
+                    }
                     CType::F32 => Some(format!("fpext float %nr{v} to double")),
                     CType::Ptr | CType::Handle => Some(format!("ptrtoint ptr %nr{v} to i64")),
                     _ => None,
@@ -3422,14 +4436,25 @@ impl<'a> LlvmEmitter<'a> {
                     let val = if pieces.len() == 1 {
                         format!("%rr{v}")
                     } else {
-                        writeln!(self.out, "  %re{v}_{k} = extractvalue {typ} %rr{v}, {k}").unwrap();
+                        writeln!(self.out, "  %re{v}_{k} = extractvalue {typ} %rr{v}, {k}")
+                            .unwrap();
                         format!("%re{v}_{k}")
                     };
-                    writeln!(self.out, "  %rp{v}_{k} = getelementptr i8, ptr %rt{v}, i64 {}", p.offset).unwrap();
+                    writeln!(
+                        self.out,
+                        "  %rp{v}_{k} = getelementptr i8, ptr %rt{v}, i64 {}",
+                        p.offset
+                    )
+                    .unwrap();
                     writeln!(self.out, "  store {} {val}, ptr %rp{v}_{k}, align 1", p.ty).unwrap();
                 }
                 if let Some(d) = &dest_ptr {
-                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr {d}, ptr %rt{v}, i64 {}, i1 false)", l.size).unwrap();
+                    writeln!(
+                        self.out,
+                        "  call void @llvm.memcpy.p0.p0.i64(ptr {d}, ptr %rt{v}, i64 {}, i1 false)",
+                        l.size
+                    )
+                    .unwrap();
                 }
             }
             (NativeType::Composite(_), None) => unreachable!("compound return without passing"),
@@ -3446,18 +4471,32 @@ impl<'a> LlvmEmitter<'a> {
     /// returns the exceptional return, if the closure threw.
     /// Converts runtime scalar result bits to the exact native callback ABI.
     /// Float results use widened Double bits, matching the callback runtime.
-    fn emit_callback_bits_return(&mut self, native: CType, llvm_return: &str, bits: &str, prefix: &str) {
+    fn emit_callback_bits_return(
+        &mut self,
+        native: CType,
+        llvm_return: &str,
+        bits: &str,
+        prefix: &str,
+    ) {
         let conversion = match native {
             CType::I64 | CType::U64 => format!("add i64 {bits}, 0"),
             CType::F64 => format!("bitcast i64 {bits} to double"),
             CType::F32 => {
-                writeln!(self.out, "  %{prefix}_double = bitcast i64 {bits} to double").unwrap();
+                writeln!(
+                    self.out,
+                    "  %{prefix}_double = bitcast i64 {bits} to double"
+                )
+                .unwrap();
                 format!("fptrunc double %{prefix}_double to float")
             }
             CType::Ptr | CType::Handle => format!("inttoptr i64 {bits} to ptr"),
             narrow => format!("trunc i64 {bits} to {}", narrow.llvm()),
         };
-        writeln!(self.out, "  %{prefix}_value = {conversion}\n  ret {llvm_return} %{prefix}_value").unwrap();
+        writeln!(
+            self.out,
+            "  %{prefix}_value = {conversion}\n  ret {llvm_return} %{prefix}_value"
+        )
+        .unwrap();
     }
 
     fn emit_callbacks_ffi(&mut self) {
@@ -3467,7 +4506,13 @@ impl<'a> LlvmEmitter<'a> {
         }
         let conv = c_abi::Convention::of_target();
         for (i, cb) in self.module.ffi_callbacks.clone().iter().enumerate() {
-            writeln!(self.out, "@df.ffi.cbkey.{i} = private unnamed_addr constant [{} x i8] c\"{}\"", cb.key.len(), cb.key).unwrap();
+            writeln!(
+                self.out,
+                "@df.ffi.cbkey.{i} = private unnamed_addr constant [{} x i8] c\"{}\"",
+                cb.key.len(),
+                cb.key
+            )
+            .unwrap();
             let mut regs = c_abi::Registers::new_set();
             // The return first: an `sret` takes the first register.
             let ret = match &cb.ret {
@@ -3476,11 +4521,15 @@ impl<'a> LlvmEmitter<'a> {
             };
             let mut decls = vec!["ptr nest %ctx".to_string()];
             if let Some((RetPassing::Sret { alignment }, l)) = &ret {
-                decls.push(format!("ptr sret([{} x i8]) align {alignment} %sret", l.size));
+                decls.push(format!(
+                    "ptr sret([{} x i8]) align {alignment} %sret",
+                    l.size
+                ));
             }
             // How each compound arrives: in pieces (reassembled into a
             // temporary) or already in memory (`byval`/pointer).
-            let mut pieces_of: Vec<Option<(Vec<c_abi::Piece>, usize)>> = Vec::with_capacity(cb.params.len());
+            let mut pieces_of: Vec<Option<(Vec<c_abi::Piece>, usize)>> =
+                Vec::with_capacity(cb.params.len());
             for (j, t) in cb.params.iter().enumerate() {
                 match t {
                     NativeType::Prim(tc) => {
@@ -3496,7 +4545,10 @@ impl<'a> LlvmEmitter<'a> {
                             pieces_of.push(Some((pieces, l.size)));
                         }
                         ArgPassing::Byval { alignment } => {
-                            decls.push(format!("ptr byval([{} x i8]) align {alignment} %a{j}", l.size));
+                            decls.push(format!(
+                                "ptr byval([{} x i8]) align {alignment} %a{j}",
+                                l.size
+                            ));
                             pieces_of.push(None);
                         }
                         ArgPassing::Indirect => {
@@ -3522,10 +4574,19 @@ impl<'a> LlvmEmitter<'a> {
             // Exceptions by tables: the entry lands the unwinding of the body
             // (below) — C code is not crossed. The
             // `callback_without_pad` sabotage (D9 of §7.3) removes the landing pad.
-            let by_tables = self.module.table_exceptions && !crate::target::sabotage("callback_without_pad");
-            let personality = if by_tables { " personality ptr @dartforge_personality" } else { "" };
-            writeln!(self.out, "define internal {ret_ext}{r} @df.ffi.cbentry.{i}({}){personality} {{", decls.join(", "))
-                .unwrap();
+            let by_tables =
+                self.module.table_exceptions && !crate::target::sabotage("callback_without_pad");
+            let personality = if by_tables {
+                " personality ptr @dartforge_personality"
+            } else {
+                ""
+            };
+            writeln!(
+                self.out,
+                "define internal {ret_ext}{r} @df.ffi.cbentry.{i}({}){personality} {{",
+                decls.join(", ")
+            )
+            .unwrap();
             let n = cb.params.len().max(1);
             // A retired callback is a permanent tombstone. Do not touch Dart
             // TLS, roots or native argument memory on the closed path.
@@ -3539,24 +4600,54 @@ impl<'a> LlvmEmitter<'a> {
                     writeln!(self.out, "  ret {r} zeroinitializer").unwrap();
                 }
                 (NativeType::Prim(native), _) => {
-                    writeln!(self.out, "  %late_bits = call i64 @dartforge_ffi_callback_late_return(ptr %ctx)").unwrap();
+                    writeln!(
+                        self.out,
+                        "  %late_bits = call i64 @dartforge_ffi_callback_late_return(ptr %ctx)"
+                    )
+                    .unwrap();
                     self.emit_callback_bits_return(*native, r, "%late_bits", "late");
                 }
                 _ => unreachable!("compound callback return without ABI passing"),
             }
-            writeln!(self.out, "active_callback:\n  %saida = alloca i64\n  %buf = alloca [{n} x i64]").unwrap();
+            writeln!(
+                self.out,
+                "active_callback:\n  %saida = alloca i64\n  %buf = alloca [{n} x i64]"
+            )
+            .unwrap();
             if let Some((_, l)) = &ret {
-                writeln!(self.out, "  %rt = alloca [{} x i8], align 16", l.size.div_ceil(16) * 16).unwrap();
+                writeln!(
+                    self.out,
+                    "  %rt = alloca [{} x i8], align 16",
+                    l.size.div_ceil(16) * 16
+                )
+                .unwrap();
             }
             // The address of each compound (`%end{j}`, i64).
             for (j, t) in cb.params.iter().enumerate() {
-                let NativeType::Composite(_) = t else { continue };
+                let NativeType::Composite(_) = t else {
+                    continue;
+                };
                 match &pieces_of[j] {
                     Some((pieces, size)) => {
-                        writeln!(self.out, "  %m{j} = alloca [{} x i8], align 16", size.div_ceil(16) * 16).unwrap();
+                        writeln!(
+                            self.out,
+                            "  %m{j} = alloca [{} x i8], align 16",
+                            size.div_ceil(16) * 16
+                        )
+                        .unwrap();
                         for (k, p) in pieces.iter().enumerate() {
-                            writeln!(self.out, "  %mp{j}_{k} = getelementptr i8, ptr %m{j}, i64 {}", p.offset).unwrap();
-                            writeln!(self.out, "  store {} %a{j}_{k}, ptr %mp{j}_{k}, align 1", p.ty).unwrap();
+                            writeln!(
+                                self.out,
+                                "  %mp{j}_{k} = getelementptr i8, ptr %m{j}, i64 {}",
+                                p.offset
+                            )
+                            .unwrap();
+                            writeln!(
+                                self.out,
+                                "  store {} %a{j}_{k}, ptr %mp{j}_{k}, align 1",
+                                p.ty
+                            )
+                            .unwrap();
                         }
                         writeln!(self.out, "  %end{j} = ptrtoint ptr %m{j} to i64").unwrap();
                     }
@@ -3571,8 +4662,12 @@ impl<'a> LlvmEmitter<'a> {
                 let bits = match t {
                     NativeType::Composite(_) => format!("add i64 %end{j}, 0"),
                     NativeType::Prim(tc) => match tc {
-                        CType::I8 | CType::I16 | CType::I32 => format!("sext {} %a{j} to i64", tc.llvm()),
-                        CType::U8 | CType::U16 | CType::U32 | CType::Bool => format!("zext {} %a{j} to i64", tc.llvm()),
+                        CType::I8 | CType::I16 | CType::I32 => {
+                            format!("sext {} %a{j} to i64", tc.llvm())
+                        }
+                        CType::U8 | CType::U16 | CType::U32 | CType::Bool => {
+                            format!("zext {} %a{j} to i64", tc.llvm())
+                        }
                         CType::I64 | CType::U64 => format!("add i64 %a{j}, 0"),
                         CType::F32 => {
                             writeln!(self.out, "  %of{j} = fpext float %a{j} to double").unwrap();
@@ -3591,24 +4686,36 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(self.out, "  %is_sync_callback = icmp eq i64 %modo, 3\n  br i1 %is_sync_callback, label %foreign_sync, label %listener_post\nforeign_sync:\n  %sync_bits = call i64 @dartforge_ffi_callback_sync(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
             match (&cb.ret, &ret) {
                 (NativeType::Prim(CType::Void), _) => writeln!(self.out, "  ret void").unwrap(),
-                (NativeType::Prim(native), _) => self.emit_callback_bits_return(*native, r, "%sync_bits", "sync"),
+                (NativeType::Prim(native), _) => {
+                    self.emit_callback_bits_return(*native, r, "%sync_bits", "sync")
+                }
                 // Runtime creation rejects aggregate returns for synchronous
                 // callbacks. These defensive paths cannot execute for a valid
                 // registration; local/listener aggregate ABIs remain intact.
                 (_, Some((RetPassing::Sret { .. }, layout))) => {
                     writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %sret, i8 0, i64 {}, i1 false)\n  ret void", layout.size).unwrap();
                 }
-                (_, Some((RetPassing::Direct(_), _))) => writeln!(self.out, "  ret {r} zeroinitializer").unwrap(),
+                (_, Some((RetPassing::Direct(_), _))) => {
+                    writeln!(self.out, "  ret {r} zeroinitializer").unwrap()
+                }
                 _ => unreachable!("compound callback return without ABI passing"),
             }
             writeln!(self.out, "listener_post:\n  call void @dartforge_ffi_callback_post(ptr %ctx, ptr %buf, i64 {})", cb.params.len()).unwrap();
             match &cb.ret {
                 NativeType::Prim(CType::Void) => writeln!(self.out, "  ret void").unwrap(),
-                NativeType::Prim(CType::Ptr | CType::Handle) => writeln!(self.out, "  ret ptr null").unwrap(),
-                NativeType::Prim(CType::F32 | CType::F64) => writeln!(self.out, "  ret {r} 0.0").unwrap(),
+                NativeType::Prim(CType::Ptr | CType::Handle) => {
+                    writeln!(self.out, "  ret ptr null").unwrap()
+                }
+                NativeType::Prim(CType::F32 | CType::F64) => {
+                    writeln!(self.out, "  ret {r} 0.0").unwrap()
+                }
                 NativeType::Prim(_) => writeln!(self.out, "  ret {r} 0").unwrap(),
-                NativeType::Composite(_) if r == "void" => writeln!(self.out, "  ret void").unwrap(),
-                NativeType::Composite(_) => writeln!(self.out, "  ret {r} zeroinitializer").unwrap(),
+                NativeType::Composite(_) if r == "void" => {
+                    writeln!(self.out, "  ret void").unwrap()
+                }
+                NativeType::Composite(_) => {
+                    writeln!(self.out, "  ret {r} zeroinitializer").unwrap()
+                }
             }
             // Local: the call to the HIR body in the Dart representation.
             writeln!(self.out, "local:\n  %c = ptrtoint ptr %ctx to i64").unwrap();
@@ -3622,10 +4729,16 @@ impl<'a> LlvmEmitter<'a> {
                     NativeType::Prim(tc) => *tc,
                 };
                 let (conv_arg, ty) = match tc {
-                    CType::I8 | CType::I16 | CType::I32 => (Some(format!("sext {} %a{j} to i64", tc.llvm())), "i64"),
-                    CType::U8 | CType::U16 | CType::U32 => (Some(format!("zext {} %a{j} to i64", tc.llvm())), "i64"),
+                    CType::I8 | CType::I16 | CType::I32 => {
+                        (Some(format!("sext {} %a{j} to i64", tc.llvm())), "i64")
+                    }
+                    CType::U8 | CType::U16 | CType::U32 => {
+                        (Some(format!("zext {} %a{j} to i64", tc.llvm())), "i64")
+                    }
                     CType::F32 => (Some(format!("fpext float %a{j} to double")), "double"),
-                    CType::Ptr | CType::Handle => (Some(format!("ptrtoint ptr %a{j} to i64")), "i64"),
+                    CType::Ptr | CType::Handle => {
+                        (Some(format!("ptrtoint ptr %a{j} to i64")), "i64")
+                    }
                     CType::I64 | CType::U64 => (None, "i64"),
                     CType::F64 => (None, "double"),
                     CType::Bool => (None, "i1"),
@@ -3650,7 +4763,13 @@ impl<'a> LlvmEmitter<'a> {
                 );
                 let landing_pad = "tlp:\n  %tx = landingpad { ptr, i32 } catch ptr null\n  store ptr %ttopo, ptr %ttp, align 8\n  br label %tcont\n";
                 if empty {
-                    writeln!(self.out, "  invoke void @{}({}) to label %tcont unwind label %tlp", cb.body, args.join(", ")).unwrap();
+                    writeln!(
+                        self.out,
+                        "  invoke void @{}({}) to label %tcont unwind label %tlp",
+                        cb.body,
+                        args.join(", ")
+                    )
+                    .unwrap();
                     self.out.push_str(landing_pad);
                     self.out.push_str("tcont:\n");
                 } else {
@@ -3659,43 +4778,88 @@ impl<'a> LlvmEmitter<'a> {
                         "i1" => "false",
                         _ => "0",
                     };
-                    writeln!(self.out, "  %r.ok = invoke {hr} @{}({}) to label %tok unwind label %tlp", cb.body, args.join(", ")).unwrap();
+                    writeln!(
+                        self.out,
+                        "  %r.ok = invoke {hr} @{}({}) to label %tok unwind label %tlp",
+                        cb.body,
+                        args.join(", ")
+                    )
+                    .unwrap();
                     self.out.push_str(landing_pad);
                     self.out.push_str("tok:\n  br label %tcont\ntcont:\n");
-                    writeln!(self.out, "  %r = phi {hr} [ %r.ok, %tok ], [ {zero}, %tlp ]").unwrap();
+                    writeln!(
+                        self.out,
+                        "  %r = phi {hr} [ %r.ok, %tok ], [ {zero}, %tlp ]"
+                    )
+                    .unwrap();
                 }
             } else if empty {
                 writeln!(self.out, "  call void @{}({})", cb.body, args.join(", ")).unwrap();
             } else {
-                writeln!(self.out, "  %r = call {hr} @{}({})", cb.body, args.join(", ")).unwrap();
+                writeln!(
+                    self.out,
+                    "  %r = call {hr} @{}({})",
+                    cb.body,
+                    args.join(", ")
+                )
+                .unwrap();
             }
             // A returned struct: the bytes copied right away (before any
             // allocation); with an exception the body returns 0 and the return is zeroed.
             if let Some((_, l)) = &ret {
                 let sz = l.size.div_ceil(16) * 16;
-                writeln!(self.out, "  call void @llvm.memset.p0.i64(ptr %rt, i8 0, i64 {sz}, i1 false)").unwrap();
-                writeln!(self.out, "  call void @dartforge_ffi_copy_compound(ptr %rt, i64 %r, i64 {})", l.size).unwrap();
+                writeln!(
+                    self.out,
+                    "  call void @llvm.memset.p0.i64(ptr %rt, i8 0, i64 {sz}, i1 false)"
+                )
+                .unwrap();
+                writeln!(
+                    self.out,
+                    "  call void @dartforge_ffi_copy_compound(ptr %rt, i64 %r, i64 {})",
+                    l.size
+                )
+                .unwrap();
             }
-            writeln!(self.out, "  %x = call i8 @dartforge_ffi_callback_exit(ptr %ctx, ptr %saida)").unwrap();
+            writeln!(
+                self.out,
+                "  %x = call i8 @dartforge_ffi_callback_exit(ptr %ctx, ptr %saida)"
+            )
+            .unwrap();
             match (&cb.ret, &ret) {
                 (NativeType::Prim(CType::Void), _) => {
                     writeln!(self.out, "  ret void\n}}\n").unwrap();
                     continue;
                 }
                 (_, Some((RetPassing::Sret { .. }, l))) => {
-                    writeln!(self.out, "  call void @llvm.memcpy.p0.p0.i64(ptr %sret, ptr %rt, i64 {}, i1 false)", l.size).unwrap();
+                    writeln!(
+                        self.out,
+                        "  call void @llvm.memcpy.p0.p0.i64(ptr %sret, ptr %rt, i64 {}, i1 false)",
+                        l.size
+                    )
+                    .unwrap();
                     writeln!(self.out, "  ret void\n}}\n").unwrap();
                     continue;
                 }
                 (_, Some((RetPassing::Direct(pieces), _))) => {
                     let mut current = "undef".to_string();
                     for (k, p) in pieces.iter().enumerate() {
-                        writeln!(self.out, "  %rp{k} = getelementptr i8, ptr %rt, i64 {}", p.offset).unwrap();
-                        writeln!(self.out, "  %rv{k} = load {}, ptr %rp{k}, align 1", p.ty).unwrap();
+                        writeln!(
+                            self.out,
+                            "  %rp{k} = getelementptr i8, ptr %rt, i64 {}",
+                            p.offset
+                        )
+                        .unwrap();
+                        writeln!(self.out, "  %rv{k} = load {}, ptr %rp{k}, align 1", p.ty)
+                            .unwrap();
                         if pieces.len() == 1 {
                             current = format!("%rv{k}");
                         } else {
-                            writeln!(self.out, "  %ra{k} = insertvalue {r} {current}, {} %rv{k}, {k}", p.ty).unwrap();
+                            writeln!(
+                                self.out,
+                                "  %ra{k} = insertvalue {r} {current}, {} %rv{k}, {k}",
+                                p.ty
+                            )
+                            .unwrap();
                             current = format!("%ra{k}");
                         }
                     }
@@ -3704,8 +4868,14 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 _ => {}
             }
-            let NativeType::Prim(tr) = cb.ret else { unreachable!("compound return without passing") };
-            writeln!(self.out, "  %e_excecao = icmp ne i8 %x, 0\n  br i1 %e_excecao, label %excecao, label %normal").unwrap();
+            let NativeType::Prim(tr) = cb.ret else {
+                unreachable!("compound return without passing")
+            };
+            writeln!(
+                self.out,
+                "  %e_excecao = icmp ne i8 %x, 0\n  br i1 %e_excecao, label %excecao, label %normal"
+            )
+            .unwrap();
             // The exceptional return (bits of the C type) and the normal one (Dart → C).
             writeln!(self.out, "excecao:\n  %e = load i64, ptr %saida").unwrap();
             let exc = match tr {
@@ -3733,15 +4903,25 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     fn call_main(&mut self) {
-        let Some(entry) = self.module.entry_symbol.clone() else { return };
+        let Some(entry) = self.module.entry_symbol.clone() else {
+            return;
+        };
         let by_tables = self.module.table_exceptions;
         let n = self.module.entry_params.min(2);
         if n == 0 {
             writeln!(self.out, "  {}", entry_call(by_tables, &entry, &[])).unwrap();
             return;
         }
-        writeln!(self.out, "  %df.args = call i64 @dartforge_main_arguments()").unwrap();
-        let args: &[&str] = if n == 1 { &["i64 %df.args"] } else { &["i64 %df.args", "i64 0"] };
+        writeln!(
+            self.out,
+            "  %df.args = call i64 @dartforge_main_arguments()"
+        )
+        .unwrap();
+        let args: &[&str] = if n == 1 {
+            &["i64 %df.args"]
+        } else {
+            &["i64 %df.args", "i64 0"]
+        };
         writeln!(self.out, "  {}", entry_call(by_tables, &entry, args)).unwrap();
     }
 
@@ -3761,14 +4941,22 @@ impl<'a> LlvmEmitter<'a> {
                 let name_str = format!("df.port.{}{n}", if returns { 'r' } else { 'v' });
                 let params: String = (0..n).map(|i| format!(", i64 %a{i}")).collect();
                 let args: Vec<String> = (0..n).map(|i| format!("i64 %a{i}")).collect();
-                let (typ, result, back, pattern) =
-                    if returns { ("i64", "%r = ", "ret i64 %r", "ret i64 0") } else { ("void", "", "ret void", "ret void") };
+                let (typ, result, back, pattern) = if returns {
+                    ("i64", "%r = ", "ret i64 %r", "ret i64 0")
+                } else {
+                    ("void", "", "ret void", "ret void")
+                };
                 writeln!(self.out, "define internal {typ} @{name_str}(ptr %f{params}) personality ptr @dartforge_personality {{")
                     .unwrap();
                 self.out.push_str(
                     "entrada:\n  %ctx = call ptr @dartforge_context()\n  %tp = getelementptr inbounds i8, ptr %ctx, i64 8\n  %topo = load ptr, ptr %tp, align 8\n",
                 );
-                writeln!(self.out, "  {result}invoke {typ} %f({}) to label %volta unwind label %pouso", args.join(", ")).unwrap();
+                writeln!(
+                    self.out,
+                    "  {result}invoke {typ} %f({}) to label %volta unwind label %pouso",
+                    args.join(", ")
+                )
+                .unwrap();
                 writeln!(
                     self.out,
                     "volta:\n  {back}\npouso:\n  %lp = landingpad {{ ptr, i32 }} catch ptr null\n  store ptr %topo, ptr %tp, align 8\n  {pattern}\n}}"
@@ -3777,7 +4965,12 @@ impl<'a> LlvmEmitter<'a> {
                 table.push(format!("ptr @{name_str}"));
             }
         }
-        writeln!(self.out, "@df.ports = private unnamed_addr constant [{N_PORTS} x ptr] [{}]\n", table.join(", ")).unwrap();
+        writeln!(
+            self.out,
+            "@df.ports = private unnamed_addr constant [{N_PORTS} x ptr] [{}]\n",
+            table.join(", ")
+        )
+        .unwrap();
     }
 
     /// Type of the value that the emitter actually prints for an instruction.
@@ -3829,9 +5022,15 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::NativeLoad { ty: typ, .. } => typ.hir_type(),
             Instruction::NativeWrite { .. } => Type::Void,
             Instruction::CompositeNativeCall { ret, dest, .. } => {
-                if dest.is_some() { Type::Void } else { ret.hir_type() }
+                if dest.is_some() {
+                    Type::Void
+                } else {
+                    ret.hir_type()
+                }
             }
-            Instruction::CellSet { .. } | Instruction::ArcDrop { .. } | Instruction::ArcStoreStrong { .. } => Type::Void,
+            Instruction::CellSet { .. }
+            | Instruction::ArcDrop { .. }
+            | Instruction::ArcStoreStrong { .. } => Type::Void,
             Instruction::ConstArray(_) | Instruction::FunctionTable(_) => Type::Ptr,
             Instruction::Unbox { to, .. } => *to,
             Instruction::Alloca(_) => Type::Ptr,
@@ -3843,15 +5042,18 @@ impl<'a> LlvmEmitter<'a> {
             | Instruction::FNeg(..)
             | Instruction::IntToDouble(..) => Type::F64,
             Instruction::ICmp(..) | Instruction::FCmp(..) | Instruction::LNot(..) => Type::I1,
-            Instruction::ZExt { to, .. } | Instruction::Trunc { to, .. } | Instruction::Bitcast { to, .. } => *to,
+            Instruction::ZExt { to, .. }
+            | Instruction::Trunc { to, .. }
+            | Instruction::Bitcast { to, .. } => *to,
             Instruction::LoadGlobal { ty, .. } => *ty,
-            Instruction::CallStatic { ret_ty, .. } | Instruction::CallRuntime { ret_ty, .. } | Instruction::DeclaredFieldCall { ret_ty, .. } => *ret_ty,
+            Instruction::CallStatic { ret_ty, .. }
+            | Instruction::CallRuntime { ret_ty, .. }
+            | Instruction::DeclaredFieldCall { ret_ty, .. } => *ret_ty,
             Instruction::Load { ty, .. } => *ty,
             Instruction::Phi { ty, .. } => *ty,
             _ => registered,
         }
     }
-
 
     /// The stack check in the prologue (the VM's `stack_overflow_check`,
     /// `runtime/vm/compiler/backend/il.h:9693`, `CheckStackOverflowInstr`): the
@@ -3870,11 +5072,25 @@ impl<'a> LlvmEmitter<'a> {
     fn emit_stack_check(&mut self, func: &Function) {
         let by_tables = self.tab.is_some();
         let o = &mut self.out;
-        writeln!(o, "  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::context::STACK_LIMIT).unwrap();
+        writeln!(
+            o,
+            "  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 {}",
+            layout::context::STACK_LIMIT
+        )
+        .unwrap();
         writeln!(o, "  %pilhal = load i64, ptr %pilhalp, align 8").unwrap();
-        writeln!(o, "  %pilhasp = call i64 @llvm.read_register.i64(metadata !{{!\"{}\"}})", stack_pointer()).unwrap();
+        writeln!(
+            o,
+            "  %pilhasp = call i64 @llvm.read_register.i64(metadata !{{!\"{}\"}})",
+            stack_pointer()
+        )
+        .unwrap();
         writeln!(o, "  %pilhab = icmp ult i64 %pilhasp, %pilhal").unwrap();
-        writeln!(o, "  %pilhax = call i1 @llvm.expect.i1(i1 %pilhab, i1 false)").unwrap();
+        writeln!(
+            o,
+            "  %pilhax = call i1 @llvm.expect.i1(i1 %pilhab, i1 false)"
+        )
+        .unwrap();
         writeln!(o, "  br i1 %pilhax, label %pilha.estouro, label %pilha.ok").unwrap();
         writeln!(o, "pilha.estouro:").unwrap();
         writeln!(o, "  call void @dartforge_stack_overflow()").unwrap();
@@ -3887,7 +5103,9 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(o, "  unreachable").unwrap();
             writeln!(o, "pilha.ok:").unwrap();
             self.current_label = "pilha.ok".to_string();
-            self.exit_labels.entry(0).or_insert_with(|| "pilha.ok".to_string());
+            self.exit_labels
+                .entry(0)
+                .or_insert_with(|| "pilha.ok".to_string());
             return;
         }
         match func.return_ty {
@@ -3901,7 +5119,9 @@ impl<'a> LlvmEmitter<'a> {
         }
         writeln!(o, "pilha.ok:").unwrap();
         self.current_label = "pilha.ok".to_string();
-        self.exit_labels.entry(0).or_insert_with(|| "pilha.ok".to_string());
+        self.exit_labels
+            .entry(0)
+            .or_insert_with(|| "pilha.ok".to_string());
     }
 
     /// The body of the object `only` (`%fcb{v}`, the header) and its fields
@@ -3940,14 +5160,22 @@ impl<'a> LlvmEmitter<'a> {
         let o = &mut self.out;
         writeln!(o, "  %fxa{v} = add i64 {only}, -{}", layout::HANDLE_OFFSET).unwrap();
         writeln!(o, "  %fcb{v} = inttoptr i64 %fxa{v} to ptr").unwrap();
-        writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
+        writeln!(
+            o,
+            "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16"
+        )
+        .unwrap();
     }
 
     fn emit_field_addresses(&mut self, v: u32, only: &str) {
         let o = &mut self.out;
         if self.fields_per_call {
             writeln!(o, "  %fcb{v} = call ptr @df.body(i64 {only}, ptr %ctx)").unwrap();
-            writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
+            writeln!(
+                o,
+                "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16"
+            )
+            .unwrap();
             return;
         }
         // The sign bit enters the mask: a negative is never an object.
@@ -3955,22 +5183,46 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  %fxo{v} = icmp eq i64 %fxk{v}, 2").unwrap();
         writeln!(o, "  %fxa{v} = add i64 {only}, -2").unwrap();
         writeln!(o, "  %fxq{v} = inttoptr i64 %fxa{v} to ptr").unwrap();
-        writeln!(o, "  %fxvp{v} = getelementptr inbounds i8, ptr %ctx, i64 40").unwrap();
+        writeln!(
+            o,
+            "  %fxvp{v} = getelementptr inbounds i8, ptr %ctx, i64 40"
+        )
+        .unwrap();
         writeln!(o, "  %fxv{v} = load ptr, ptr %fxvp{v}, align 8").unwrap();
         if self.body_without_outside {
             writeln!(o, "  %fcb{v} = select i1 %fxo{v}, ptr %fxq{v}, ptr %fxv{v}").unwrap();
-            writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
+            writeln!(
+                o,
+                "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16"
+            )
+            .unwrap();
             return;
         }
         writeln!(o, "  %fxh{v} = select i1 %fxo{v}, ptr %fxq{v}, ptr %fxv{v}").unwrap();
-        writeln!(o, "  %fxfp{v} = getelementptr inbounds i8, ptr %fxh{v}, i64 1").unwrap();
+        writeln!(
+            o,
+            "  %fxfp{v} = getelementptr inbounds i8, ptr %fxh{v}, i64 1"
+        )
+        .unwrap();
         writeln!(o, "  %fxf{v} = load i8, ptr %fxfp{v}, align 1").unwrap();
         writeln!(o, "  %fxfb{v} = and i8 %fxf{v}, 1").unwrap();
         writeln!(o, "  %fxfo{v} = icmp ne i8 %fxfb{v}, 0").unwrap();
-        writeln!(o, "  %fxcp{v} = getelementptr inbounds i8, ptr %fxh{v}, i64 16").unwrap();
+        writeln!(
+            o,
+            "  %fxcp{v} = getelementptr inbounds i8, ptr %fxh{v}, i64 16"
+        )
+        .unwrap();
         writeln!(o, "  %fxc{v} = load ptr, ptr %fxcp{v}, align 8").unwrap();
-        writeln!(o, "  %fcb{v} = select i1 %fxfo{v}, ptr %fxc{v}, ptr %fxh{v}").unwrap();
-        writeln!(o, "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16").unwrap();
+        writeln!(
+            o,
+            "  %fcb{v} = select i1 %fxfo{v}, ptr %fxc{v}, ptr %fxh{v}"
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "  %fp{v} = getelementptr inbounds i8, ptr %fcb{v}, i64 16"
+        )
+        .unwrap();
     }
 
     /// Writes `sv` into the field `idx` of the body `%fcb{v}` and sets or clears its
@@ -3985,12 +5237,27 @@ impl<'a> LlvmEmitter<'a> {
     /// ([`Self::fresh`]), so its fields are still the zeros of the handout
     /// (contract E8, `Heap::take_from_region`; the runtime allocations too):
     /// the store of the constant `0` (null, `0`, `false`) is not emitted.
-    fn emit_field_write(&mut self, v: u32, suffix: &str, idx: usize, sv: &str, is_ref: &str, facts: FieldWriteFacts) {
-        let FieldWriteFacts { known_map: known, fresh } = facts;
+    fn emit_field_write(
+        &mut self,
+        v: u32,
+        suffix: &str,
+        idx: usize,
+        sv: &str,
+        is_ref: &str,
+        facts: FieldWriteFacts,
+    ) {
+        let FieldWriteFacts {
+            known_map: known,
+            fresh,
+        } = facts;
         let o = &mut self.out;
         let t = format!("{v}{suffix}");
         if !(fresh && sv == "0") {
-            writeln!(o, "  %fg{t} = getelementptr inbounds i64, ptr %fp{v}, i64 {idx}").unwrap();
+            writeln!(
+                o,
+                "  %fg{t} = getelementptr inbounds i64, ptr %fp{v}, i64 {idx}"
+            )
+            .unwrap();
             writeln!(o, "  store i64 {sv}, ptr %fg{t}, align 8").unwrap();
         }
         let constant = match is_ref {
@@ -4004,19 +5271,34 @@ impl<'a> LlvmEmitter<'a> {
             return;
         }
         let (word, width, bit) = if idx < 32 {
-            writeln!(o, "  %fmp{t} = getelementptr inbounds i8, ptr %fcb{v}, i64 8").unwrap();
+            writeln!(
+                o,
+                "  %fmp{t} = getelementptr inbounds i8, ptr %fcb{v}, i64 8"
+            )
+            .unwrap();
             (format!("%fmp{t}"), "i32", idx)
         } else {
-            writeln!(o, "  %fnp{t} = getelementptr inbounds i8, ptr %fcb{v}, i64 2").unwrap();
+            writeln!(
+                o,
+                "  %fnp{t} = getelementptr inbounds i8, ptr %fcb{v}, i64 2"
+            )
+            .unwrap();
             writeln!(o, "  %fn{t} = load i16, ptr %fnp{t}, align 2").unwrap();
             writeln!(o, "  %fnz{t} = zext i16 %fn{t} to i64").unwrap();
             writeln!(o, "  %fnw{t} = add i64 %fnz{t}, {}", (idx - 32) / 64).unwrap();
-            writeln!(o, "  %fmp{t} = getelementptr inbounds i64, ptr %fp{v}, i64 %fnw{t}").unwrap();
+            writeln!(
+                o,
+                "  %fmp{t} = getelementptr inbounds i64, ptr %fp{v}, i64 %fnw{t}"
+            )
+            .unwrap();
             (format!("%fmp{t}"), "i64", (idx - 32) % 64)
         };
         // The constants in the width of the word, signed (the IR text).
         let (cleans, lights_up) = if width == "i32" {
-            (i64::from(!(1u32 << bit) as i32), i64::from((1u32 << bit) as i32))
+            (
+                i64::from(!(1u32 << bit) as i32),
+                i64::from((1u32 << bit) as i32),
+            )
         } else {
             (!(1u64 << bit) as i64, (1u64 << bit) as i64)
         };
@@ -4041,12 +5323,18 @@ impl<'a> LlvmEmitter<'a> {
     /// and `n ≤ TLAB_N`: the allocation comes out inline
     /// ([`LlvmEmitter::emit_inline_allocation`]). Returns `(c, n)`.
     fn inline_allocation(inst: &Instruction) -> Option<(i64, i64)> {
-        let (Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }) = inst else { return None };
+        let (Instruction::CallRuntime { name, args, .. }
+        | Instruction::DeclaredFieldCall { name, args, .. }) = inst
+        else {
+            return None;
+        };
         if name != "dartforge_object_new" || args.len() != 2 {
             return None;
         }
         match (&args[0].0, &args[1].0) {
-            (Operand::Constant(Constant::Int(c)), Operand::Constant(Constant::Int(n))) if (0..=TLAB_N).contains(n) && (0..=i64::from(i32::MAX)).contains(c) => {
+            (Operand::Constant(Constant::Int(c)), Operand::Constant(Constant::Int(n)))
+                if (0..=TLAB_N).contains(n) && (0..=i64::from(i32::MAX)).contains(c) =>
+            {
                 Some((*c, *n))
             }
             _ => None,
@@ -4114,7 +5402,13 @@ impl<'a> LlvmEmitter<'a> {
             return false;
         }
         match &self.module.closed_class_tables {
-            Some(active) if self.module.method_tables.iter().any(|(cid, _, _)| i64::from(*cid) == c) => {
+            Some(active)
+                if self
+                    .module
+                    .method_tables
+                    .iter()
+                    .any(|(cid, _, _)| i64::from(*cid) == c) =>
+            {
                 active.contains(&(c as u32))
             }
             _ => true,
@@ -4152,11 +5446,18 @@ impl<'a> LlvmEmitter<'a> {
         // `max(n, 1)` words (no map extension).
         let w = layout::instance_words(n as usize);
         let size = layout::block_bytes(w);
-        let header = layout::header_word(layout::state::YOUNG, layout::flags::INSTANCE, n as usize, c as i32);
+        let header = layout::header_word(
+            layout::state::YOUNG,
+            layout::flags::INSTANCE,
+            n as usize,
+            c as i32,
+        );
         if self.out_of_line_allocation {
             // Production of the large program: the same computation, in a call to
             // `@df.new_instance` (docs/NATIVO-PRODUCAO-GRANDE.md §3).
-            let t = table.as_ref().map_or("null".to_string(), |f| format!("@{f}"));
+            let t = table
+                .as_ref()
+                .map_or("null".to_string(), |f| format!("@{f}"));
             writeln!(
                 self.out,
                 "  %v{v} = call i64 @df.new_instance(ptr %ctx, i64 {}, i64 {size}, i64 {}, i64 {c}, i64 {n}, ptr {t}, i64 {})",
@@ -4168,9 +5469,19 @@ impl<'a> LlvmEmitter<'a> {
             return;
         }
         let o = &mut self.out;
-        writeln!(o, "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::context::tlab_cursor(w)).unwrap();
+        writeln!(
+            o,
+            "  %ta{v} = getelementptr inbounds i8, ptr %ctx, i64 {}",
+            layout::context::tlab_cursor(w)
+        )
+        .unwrap();
         writeln!(o, "  %tb{v} = load ptr, ptr %ta{v}, align 8").unwrap();
-        writeln!(o, "  %tfa{v} = getelementptr inbounds i8, ptr %ctx, i64 {}", layout::context::tlab_end(w)).unwrap();
+        writeln!(
+            o,
+            "  %tfa{v} = getelementptr inbounds i8, ptr %ctx, i64 {}",
+            layout::context::tlab_end(w)
+        )
+        .unwrap();
         writeln!(o, "  %tf{v} = load ptr, ptr %tfa{v}, align 8").unwrap();
         writeln!(o, "  %tnx{v} = getelementptr i8, ptr %tb{v}, i64 {size}").unwrap();
         writeln!(o, "  %tz{v} = icmp ugt ptr %tnx{v}, %tf{v}").unwrap();
@@ -4184,11 +5495,23 @@ impl<'a> LlvmEmitter<'a> {
             writeln!(o, "ao{v}.reg:").unwrap();
             writeln!(o, "  %trp{v} = getelementptr inbounds i8, ptr %ctx, i64 48").unwrap();
             writeln!(o, "  %tr{v} = load ptr, ptr %trp{v}, align 8").unwrap();
-            writeln!(o, "  %trb{v} = getelementptr inbounds i8, ptr %tr{v}, i64 {c}").unwrap();
+            writeln!(
+                o,
+                "  %trb{v} = getelementptr inbounds i8, ptr %tr{v}, i64 {c}"
+            )
+            .unwrap();
             writeln!(o, "  %trv{v} = load i8, ptr %trb{v}, align 1").unwrap();
             writeln!(o, "  %trz{v} = icmp eq i8 %trv{v}, 0").unwrap();
-            writeln!(o, "  %try{v} = call i1 @llvm.expect.i1(i1 %trz{v}, i1 false)").unwrap();
-            writeln!(o, "  br i1 %try{v}, label %ao{v}.lento, label %ao{v}.rapido").unwrap();
+            writeln!(
+                o,
+                "  %try{v} = call i1 @llvm.expect.i1(i1 %trz{v}, i1 false)"
+            )
+            .unwrap();
+            writeln!(
+                o,
+                "  br i1 %try{v}, label %ao{v}.lento, label %ao{v}.rapido"
+            )
+            .unwrap();
         } else {
             writeln!(o, "  %tx{v} = call i1 @llvm.expect.i1(i1 %tz{v}, i1 false)").unwrap();
             writeln!(o, "  br i1 %tx{v}, label %ao{v}.lento, label %ao{v}.rapido").unwrap();
@@ -4201,7 +5524,12 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  store ptr %tnx{v}, ptr %ta{v}, align 8").unwrap();
         writeln!(o, "  store i64 {}, ptr %tb{v}, align 8", header as i64).unwrap();
         if let Some(m) = written_map {
-            writeln!(o, "  %tmp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 {}", layout::offsets::MAP).unwrap();
+            writeln!(
+                o,
+                "  %tmp{v} = getelementptr inbounds i8, ptr %tb{v}, i64 {}",
+                layout::offsets::MAP
+            )
+            .unwrap();
             writeln!(o, "  store i32 {}, ptr %tmp{v}, align 4", m as i32).unwrap();
         }
         writeln!(o, "  %thb{v} = ptrtoint ptr %tb{v} to i64").unwrap();
@@ -4209,14 +5537,34 @@ impl<'a> LlvmEmitter<'a> {
         writeln!(o, "  br label %ao{v}.fim").unwrap();
         writeln!(o, "ao{v}.lento:").unwrap();
         match (&table, written_map) {
-            (Some(f), Some(m)) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new_mt(i64 {c}, i64 {n}, i64 {m}, ptr @{f})").unwrap(),
-            (Some(f), None) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})").unwrap(),
-            (None, Some(m)) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new_m(i64 {c}, i64 {n}, i64 {m})").unwrap(),
-            (None, None) => writeln!(o, "  %tl{v} = call i64 @dartforge_object_new(i64 {c}, i64 {n})").unwrap(),
+            (Some(f), Some(m)) => writeln!(
+                o,
+                "  %tl{v} = call i64 @dartforge_object_new_mt(i64 {c}, i64 {n}, i64 {m}, ptr @{f})"
+            )
+            .unwrap(),
+            (Some(f), None) => writeln!(
+                o,
+                "  %tl{v} = call i64 @dartforge_object_new_t(i64 {c}, i64 {n}, ptr @{f})"
+            )
+            .unwrap(),
+            (None, Some(m)) => writeln!(
+                o,
+                "  %tl{v} = call i64 @dartforge_object_new_m(i64 {c}, i64 {n}, i64 {m})"
+            )
+            .unwrap(),
+            (None, None) => writeln!(
+                o,
+                "  %tl{v} = call i64 @dartforge_object_new(i64 {c}, i64 {n})"
+            )
+            .unwrap(),
         }
         writeln!(o, "  br label %ao{v}.fim").unwrap();
         writeln!(o, "ao{v}.fim:").unwrap();
-        writeln!(o, "  %v{v} = phi i64 [ %th{v}, %ao{v}.rapido ], [ %tl{v}, %ao{v}.lento ]").unwrap();
+        writeln!(
+            o,
+            "  %v{v} = phi i64 [ %th{v}, %ao{v}.rapido ], [ %tl{v}, %ao{v}.lento ]"
+        )
+        .unwrap();
         self.current_label = format!("ao{v}.fim");
     }
 
@@ -4229,18 +5577,27 @@ impl<'a> LlvmEmitter<'a> {
             return false;
         }
         let may_be_ref = |op: &Operand| {
-            !matches!(op, Operand::Constant(Constant::Null | Constant::Int(_) | Constant::Bool(_) | Constant::Double(_)))
+            !matches!(
+                op,
+                Operand::Constant(
+                    Constant::Null | Constant::Int(_) | Constant::Bool(_) | Constant::Double(_)
+                )
+            )
         };
         match inst {
             Instruction::SetField { index, value, .. } => {
                 *index < INLINE_FIELDS && self.type_of(value) == Type::Ref && may_be_ref(value)
             }
-            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+            Instruction::CallRuntime { name, args, .. }
+            | Instruction::DeclaredFieldCall { name, args, .. }
                 if name == "dartforge_object_set"
                     && args.len() == 4
                     && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
             {
-                let scalar = matches!(&args[3].0, Operand::Constant(Constant::Int(0)) | Operand::Constant(Constant::Bool(false)));
+                let scalar = matches!(
+                    &args[3].0,
+                    Operand::Constant(Constant::Int(0)) | Operand::Constant(Constant::Bool(false))
+                );
                 !scalar && may_be_ref(&args[2].0)
             }
             _ => false,
@@ -4299,12 +5656,16 @@ impl<'a> LlvmEmitter<'a> {
     /// inline allocation.
     fn uses_context(inst: &Instruction) -> bool {
         match inst {
-            Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => *index < INLINE_FIELDS,
+            Instruction::GetField { index, .. } | Instruction::SetField { index, .. } => {
+                *index < INLINE_FIELDS
+            }
             Instruction::AllocObject { fields, .. } => !fields.is_empty(),
-            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
+            Instruction::CallRuntime { name, args, .. }
+            | Instruction::DeclaredFieldCall { name, args, .. } => {
                 Self::inline_allocation(inst).is_some()
                     || name == "dartforge_exception_clear"
-                    || ((name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
+                    || ((name == "dartforge_object_get"
+                        || (name == "dartforge_object_set" && args.len() == 4))
                         && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)))
             }
             _ => false,
@@ -4318,7 +5679,11 @@ impl<'a> LlvmEmitter<'a> {
     /// scalar where a `Ref` is expected, or a text constant, allocates).
     fn may_collect(&self, inst: &Instruction) -> bool {
         let scalar = |op: &Operand| {
-            self.type_of(op) != Type::Ref && !matches!(op, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
+            self.type_of(op) != Type::Ref
+                && !matches!(
+                    op,
+                    Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+                )
         };
         let exact = |op: &Operand, t: Type| match op {
             Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)) => false,
@@ -4329,7 +5694,9 @@ impl<'a> LlvmEmitter<'a> {
             }
         };
         match inst {
-            Instruction::Const(Constant::Int(_) | Constant::Double(_) | Constant::Bool(_) | Constant::Null) => false,
+            Instruction::Const(
+                Constant::Int(_) | Constant::Double(_) | Constant::Bool(_) | Constant::Null,
+            ) => false,
             Instruction::Add(a, b)
             | Instruction::Sub(a, b)
             | Instruction::Mul(a, b)
@@ -4362,7 +5729,10 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::GetField { index, .. } => *index >= INLINE_FIELDS,
             Instruction::SetField { index, value, .. } => {
                 *index >= INLINE_FIELDS
-                    || matches!(value, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_)))
+                    || matches!(
+                        value,
+                        Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+                    )
             }
             Instruction::Store { ptr, val } => {
                 let t = match ptr {
@@ -4376,18 +5746,33 @@ impl<'a> LlvmEmitter<'a> {
             // barrier; the operands go through `coerce`, which never boxes):
             // the object freshly allocated before them stays fresh — direct
             // body, no barrier — and no root is kept across them.
-            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. }
+            Instruction::CallRuntime { name, args, .. }
+            | Instruction::DeclaredFieldCall { name, args, .. }
                 if !self.module.arc_memory
-                    && (name == "dartforge_object_get" || (name == "dartforge_object_set" && args.len() == 4))
+                    && (name == "dartforge_object_get"
+                        || (name == "dartforge_object_set" && args.len() == 4))
                     && matches!(args.get(1), Some((Operand::Constant(Constant::Int(i)), _)) if (0..INLINE_FIELDS as i64).contains(i)) =>
             {
-                args.iter().any(|(a, _)| matches!(a, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))))
+                args.iter().any(|(a, _)| {
+                    matches!(
+                        a,
+                        Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+                    )
+                })
             }
-            Instruction::NativeLoad { address, index: idx_value, .. } => !(scalar(address) && scalar(idx_value)),
-            Instruction::NativeWrite { address, index: idx_value, value: val_ref, .. } => {
-                !(scalar(address) && scalar(idx_value) && scalar(val_ref))
-            }
-            Instruction::CallRuntime { name, args, .. } | Instruction::DeclaredFieldCall { name, args, .. } => {
+            Instruction::NativeLoad {
+                address,
+                index: idx_value,
+                ..
+            } => !(scalar(address) && scalar(idx_value)),
+            Instruction::NativeWrite {
+                address,
+                index: idx_value,
+                value: val_ref,
+                ..
+            } => !(scalar(address) && scalar(idx_value) && scalar(val_ref)),
+            Instruction::CallRuntime { name, args, .. }
+            | Instruction::DeclaredFieldCall { name, args, .. } => {
                 let e = externs::effects_of(name);
                 let does_not_allocate = !e.allocates && !e.calls_dart;
                 !(does_not_allocate && args.iter().all(|(a, t)| exact(a, *t)))
@@ -4400,9 +5785,9 @@ impl<'a> LlvmEmitter<'a> {
             Instruction::Const(Constant::String(_) | Constant::StringWtf8(_)) => {
                 !(self.static_objects && !self.module.arc_memory)
             }
-            Instruction::LoadIndexed { .. } | Instruction::ConstArray(_) | Instruction::FunctionTable(_) => {
-                self.module.arc_memory
-            }
+            Instruction::LoadIndexed { .. }
+            | Instruction::ConstArray(_)
+            | Instruction::FunctionTable(_) => self.module.arc_memory,
             _ => true,
         }
     }
@@ -4418,13 +5803,18 @@ impl<'a> LlvmEmitter<'a> {
         if !roots_in_callee(self.maps, self.module.arc_memory) {
             return false;
         }
-        let Instruction::CallStatic { symbol, args, .. } = inst else { return false };
+        let Instruction::CallStatic { symbol, args, .. } = inst else {
+            return false;
+        };
         let target = self.function_by_symbol.get(symbol.as_str()).copied();
         if target.is_none() && !symbol.starts_with("df.dart$3a") {
             return false;
         }
         args.iter().enumerate().all(|(i, a)| {
-            if matches!(a, Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))) {
+            if matches!(
+                a,
+                Operand::Constant(Constant::String(_) | Constant::StringWtf8(_))
+            ) {
                 return false;
             }
             let t = self.type_of(a);
@@ -4466,21 +5856,49 @@ impl<'a> LlvmEmitter<'a> {
     /// Rewrites a constant directly in the requested type, without an instruction.
     /// Returns None when the operand is not a constant.
     fn constant_in_type(&self, op: &Operand, target: Type) -> Option<String> {
-        let Operand::Constant(c) = op else { return None };
+        let Operand::Constant(c) = op else {
+            return None;
+        };
         let s = match (c, target) {
-            (Constant::String(_) | Constant::StringWtf8(_), _) => panic!("string must be loaded via Instruction::Const"),
+            (Constant::String(_) | Constant::StringWtf8(_), _) => {
+                panic!("string must be loaded via Instruction::Const")
+            }
             (Constant::Function(f), Type::I64) => format!("ptrtoint (ptr @{f} to i64)"),
             (Constant::Function(_), _) => panic!("function address only as i64"),
-            (Constant::Int(n), Type::I1) => if *n != 0 { "true".to_string() } else { "false".to_string() },
-            (Constant::Bool(b), Type::I1) => if *b { "true".to_string() } else { "false".to_string() },
+            (Constant::Int(n), Type::I1) => {
+                if *n != 0 {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                }
+            }
+            (Constant::Bool(b), Type::I1) => {
+                if *b {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                }
+            }
             (Constant::Null, Type::I1) => "false".to_string(),
-            (Constant::Double(d), Type::I1) => if d.to_bits() != 0 { "true".to_string() } else { "false".to_string() },
+            (Constant::Double(d), Type::I1) => {
+                if d.to_bits() != 0 {
+                    "true".to_string()
+                } else {
+                    "false".to_string()
+                }
+            }
             (Constant::Double(d), Type::F64) => Self::double_literal(*d),
             (Constant::Int(n), Type::F64) => Self::double_literal(f64::from_bits(*n as u64)),
             (Constant::Bool(b), Type::F64) => Self::double_literal(f64::from_bits(u64::from(*b))),
             (Constant::Null, Type::F64) => Self::double_literal(0.0),
             (Constant::Int(n), _) => n.to_string(),
-            (Constant::Bool(b), _) => if *b { "1".to_string() } else { "0".to_string() },
+            (Constant::Bool(b), _) => {
+                if *b {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                }
+            }
             (Constant::Null, _) => "0".to_string(),
             (Constant::Double(d), _) => (d.to_bits() as i64).to_string(),
         };
@@ -4509,7 +5927,8 @@ impl<'a> LlvmEmitter<'a> {
         }
         let mut current = self.type_of(op);
         let mut text = self.operand_str(op);
-        if current.llvm_ir() == target.llvm_ir() && (current == Type::F64) == (target == Type::F64) {
+        if current.llvm_ir() == target.llvm_ir() && (current == Type::F64) == (target == Type::F64)
+        {
             return text;
         }
         // double becomes i64 (and vice versa) always through the bits; smaller widths
@@ -4557,13 +5976,25 @@ impl<'a> LlvmEmitter<'a> {
         } else {
             "trunc"
         };
-        writeln!(self.out, "  {name_str} = {op} {} {text} to {}", current.llvm_ir(), to_repr.llvm_ir()).unwrap();
+        writeln!(
+            self.out,
+            "  {name_str} = {op} {} {text} to {}",
+            current.llvm_ir(),
+            to_repr.llvm_ir()
+        )
+        .unwrap();
     }
 
     fn emit_conversion(&mut self, op: &str, of: Type, text: &str, to_repr: Type) -> String {
         let c = self.next_coercion;
         self.next_coercion += 1;
-        writeln!(self.out, "  %c{c} = {op} {} {text} to {}", of.llvm_ir(), to_repr.llvm_ir()).unwrap();
+        writeln!(
+            self.out,
+            "  %c{c} = {op} {} {text} to {}",
+            of.llvm_ir(),
+            to_repr.llvm_ir()
+        )
+        .unwrap();
         format!("%c{c}")
     }
 
@@ -4618,7 +6049,8 @@ pub(crate) fn roots_in_callee(maps: bool, arc_memory: bool) -> bool {
         return false;
     }
     static ENABLED_IN_CALLEE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED_IN_CALLEE.get_or_init(|| std::env::var("DARTFORGE_ROOTS_IN_CALLEE").is_ok_and(|v| v == "1"))
+    *ENABLED_IN_CALLEE
+        .get_or_init(|| std::env::var("DARTFORGE_ROOTS_IN_CALLEE").is_ok_and(|v| v == "1"))
 }
 
 /// Roots by maps: the call of the line may collect — the indirect one, and the
@@ -4632,7 +6064,10 @@ fn collecting_call(line: &str) -> bool {
         None => false,
         Some(None) => true,
         Some(Some(name_str)) => {
-            if name_str.starts_with("llvm.") || MAP_LEAVES.contains(&name_str) || crate::target::sabotaged_leaf(name_str) {
+            if name_str.starts_with("llvm.")
+                || MAP_LEAVES.contains(&name_str)
+                || crate::target::sabotaged_leaf(name_str)
+            {
                 return false;
             }
             let ef = externs::effects_of(name_str);
@@ -4653,7 +6088,11 @@ fn with_deopt<'a>(line: &'a str, beam: &str) -> std::borrow::Cow<'a, str> {
         Some(c) => (c, "\n"),
         None => (line, ""),
     };
-    let pos = [body.find(" to label "), body.find(", !")].into_iter().flatten().min().unwrap_or(body.len());
+    let pos = [body.find(" to label "), body.find(", !")]
+        .into_iter()
+        .flatten()
+        .min()
+        .unwrap_or(body.len());
     std::borrow::Cow::Owned(format!("{} [ {beam} ]{}{end}", &body[..pos], &body[pos..]))
 }
 
@@ -4695,10 +6134,17 @@ fn empty_deopt(text: &str) -> String {
 /// nothing. Only those that do not call the runtime, or call an extern that does not allocate
 /// in the heap of the collector (`dartforge_remember`).
 fn leaf_helpers(text: &str) -> String {
-    const LEAVES: &[&str] = &["@df.body(", "@df.barrier(", "@df.element_barrier(", "@df.is_object(", "@df.young_child("];
+    const LEAVES: &[&str] = &[
+        "@df.body(",
+        "@df.barrier(",
+        "@df.element_barrier(",
+        "@df.is_object(",
+        "@df.young_child(",
+    ];
     let mut exit = String::with_capacity(text.len() + 256);
     for line in text.split_inclusive('\n') {
-        let target = line.starts_with("define internal ") && LEAVES.iter().any(|f| line.contains(f));
+        let target =
+            line.starts_with("define internal ") && LEAVES.iter().any(|f| line.contains(f));
         match line.rfind(" {") {
             Some(i) if target => {
                 exit.push_str(&line[..i]);
@@ -4743,7 +6189,8 @@ define internal void @df.throw() noreturn noinline cold \"gc-leaf-function\" {\n
 /// and Rust's personality returned `_URC_FATAL_PHASE1_ERROR` (3) to the
 /// foreign exception. If the unwinder comes back, the code goes to the runtime,
 /// which terminates.
-const EXCEPTIONS_BY_TABLES_ITANIUM: &str = "; Table exceptions (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
+const EXCEPTIONS_BY_TABLES_ITANIUM: &str =
+    "; Table exceptions (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md)
 declare i32 @dartforge_personality(...)
 declare i32 @dartforge_personality_cleanup_itanium(...)
 declare i32 @llvm.eh.typeid.for(ptr)
@@ -4858,7 +6305,10 @@ lenta:\n\
 fn value_class(cids: &[i64]) -> String {
     let text = VALUE_CLASS
         .replace("@@MASCARA@@", &OBJECT_MASK.to_string())
-        .replace("@@CLASSE@@", &(layout::offsets::CLASS as i64 - layout::HANDLE_OFFSET).to_string())
+        .replace(
+            "@@CLASSE@@",
+            &(layout::offsets::CLASS as i64 - layout::HANDLE_OFFSET).to_string(),
+        )
         .replace("@@SUBTIPOS@@", &layout::context::SUBTYPES.to_string())
         .replace("@@N_SUBTIPOS@@", &layout::context::N_SUBTYPES.to_string())
         .replace("@@LARGURA@@", &layout::context::SUBTYPES_WIDTH.to_string());
@@ -4948,8 +6398,14 @@ lento:\n\
 /// dynamic dispatch, in [`out_of_line_helpers`]): each one is a
 /// sequence that repeats in hundreds of thousands of places of the large
 /// program (docs/NATIVO-PRODUCAO-GRANDE.md §1.4).
-pub const OUTLINED_HELPERS_LARGE_PROGRAM: &[&str] =
-    &["subclass", "allocate", "barrier", "element_barrier", "get_area", "new_instance"];
+pub const OUTLINED_HELPERS_LARGE_PROGRAM: &[&str] = &[
+    "subclass",
+    "allocate",
+    "barrier",
+    "element_barrier",
+    "get_area",
+    "new_instance",
+];
 
 /// The list of out-of-line helpers: `DARTFORGE_OUTLINED_HELPERS` (a list
 /// separated by commas; `1`, all; empty, none); otherwise all in the
@@ -4959,10 +6415,21 @@ pub const OUTLINED_HELPERS_LARGE_PROGRAM: &[&str] =
 /// in the others — the small program runs twice as long at `-O0` without the
 /// inline helpers (the corpus/native: 53 → 116 s).
 pub fn out_of_line_helpers(large_development: bool, large_program: bool) -> Vec<String> {
-    let all = || ["selector", "class"].iter().chain(OUTLINED_HELPERS_LARGE_PROGRAM).map(|s| (*s).to_string()).collect();
+    let all = || {
+        ["selector", "class"]
+            .iter()
+            .chain(OUTLINED_HELPERS_LARGE_PROGRAM)
+            .map(|s| (*s).to_string())
+            .collect()
+    };
     match std::env::var("DARTFORGE_OUTLINED_HELPERS") {
         Ok(v) if v == "1" => all(),
-        Ok(v) => v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect(),
+        Ok(v) => v
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect(),
         Err(_) if large_development || large_program => all(),
         Err(_) => Vec::new(),
     }
@@ -4970,7 +6437,8 @@ pub fn out_of_line_helpers(large_development: bool, large_program: bool) -> Vec<
 
 /// Dispatch by selector with the static descriptor (`@df.seld.<k>`), out
 /// of line ([`LlvmEmitter::compact_selector`]).
-const SELECTOR_BY_DESCRIPTOR: &str = "define internal ptr @df.selector_d(ptr %c, i64 %r, ptr %d) noinline {
+const SELECTOR_BY_DESCRIPTOR: &str =
+    "define internal ptr @df.selector_d(ptr %c, i64 %r, ptr %d) noinline {
   %h = load i64, ptr %d, align 8
   %np = getelementptr inbounds i8, ptr %d, i64 8
   %n = load ptr, ptr %np, align 8
@@ -5137,7 +6605,7 @@ fn body_helper(per_call: bool, production: bool, without_outside: bool) -> Strin
 }
 
 fn space_helpers() -> String {
-    use layout::{context, offsets, state, flags};
+    use layout::{context, flags, offsets, state};
     let d = |x: usize| x as i64 - layout::HANDLE_OFFSET;
     format!(
         "define internal i1 @df.is_object(i64 %h) alwaysinline {{\n\

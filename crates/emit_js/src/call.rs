@@ -1,6 +1,6 @@
 //! Calls, arguments, type-argument inference and closures.
 
-use crate::body::{static_member_name, AsyncKind, FnEmitter};
+use crate::body::{AsyncKind, FnEmitter, static_member_name};
 use crate::ctx::MemberKind;
 use crate::expr::{Guard, IdentTarget};
 use crate::js::{self, Js, P_ASSIGN, P_PRIMARY};
@@ -11,7 +11,12 @@ use std::collections::HashMap;
 
 impl<'m, 'a> FnEmitter<'m, 'a> {
     /// `f(args)`, `a.m(args)`, `C.named(args)`, `p.f(args)`…
-    pub fn emit_call(&mut self, target: ExprId, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty, Vec<Guard>) {
+    pub fn emit_call(
+        &mut self,
+        target: ExprId,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+    ) -> (Js, Ty, Vec<Guard>) {
         let t = self.expr(target);
         match &t.kind {
             // `.name(args)` / `.new(args)` / `const .name(args)` (3.10): the
@@ -30,25 +35,40 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 match r {
                     Some((js, ty)) => (js, ty, vec![]),
                     None => {
-                        let msg = format!("'{}' has no static member or constructor '{n}' for the dot shorthand", self.ctx.class_name(d));
+                        let msg = format!(
+                            "'{}' has no static member or constructor '{n}' for the dot shorthand",
+                            self.ctx.class_name(d)
+                        );
                         self.language_error(span, msg);
                         (Js::prim("null"), Ty::Dynamic, vec![])
                     }
                 }
             }
-            ExprKind::Property { target: recv, name, null_aware } => {
+            ExprKind::Property {
+                target: recv,
+                name,
+                null_aware,
+            } => {
                 let n = self.name(name.sym).to_string();
                 if let Some((owner, member)) = self.ext_type_member(target) {
                     let (rjs, _, mut guards) = self.emit_target(*recv);
                     let r = if *null_aware {
                         let tmp = self.temp();
-                        guards.push(Guard { temp: tmp.clone(), init: rjs.code });
+                        guards.push(Guard {
+                            temp: tmp.clone(),
+                            init: rjs.code,
+                        });
                         Js::prim(tmp)
                     } else {
                         rjs
                     };
-                    let (js, ty) = self.ext_type_call(&r, Some(*recv), owner, member, arguments, expected);
-                    let ty = if *null_aware { ty.with_nullable(true) } else { ty };
+                    let (js, ty) =
+                        self.ext_type_call(&r, Some(*recv), owner, member, arguments, expected);
+                    let ty = if *null_aware {
+                        ty.with_nullable(true)
+                    } else {
+                        ty
+                    };
                     return (js, ty, guards);
                 }
                 if let Some(r) = self.try_static_call(*recv, &n, arguments, expected) {
@@ -56,19 +76,42 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 if let ExprKind::Super = self.expr(*recv).kind {
                     let sup_ty = self.super_ty_for(&n, false);
-                    let (js, ty) = self.emit_method_call(&Js::prim(self.super_ref()), &sup_ty, &n, arguments, expected, true, None);
+                    let (js, ty) = self.emit_method_call(
+                        &Js::prim(self.super_ref()),
+                        &sup_ty,
+                        &n,
+                        arguments,
+                        expected,
+                        true,
+                        None,
+                    );
                     return (js, ty, vec![]);
                 }
                 let (rjs, rty, mut guards) = self.emit_target(*recv);
                 let (recv, recv_ty) = if *null_aware {
                     let tmp = self.temp();
-                    guards.push(Guard { temp: tmp.clone(), init: rjs.code });
+                    guards.push(Guard {
+                        temp: tmp.clone(),
+                        init: rjs.code,
+                    });
                     (Js::prim(tmp), rty.non_null())
                 } else {
                     (rjs, rty)
                 };
-                let (js, ty) = self.emit_method_call(&recv, &recv_ty, &n, arguments, expected, false, Some(target));
-                let ty = if *null_aware { ty.with_nullable(true) } else { ty };
+                let (js, ty) = self.emit_method_call(
+                    &recv,
+                    &recv_ty,
+                    &n,
+                    arguments,
+                    expected,
+                    false,
+                    Some(target),
+                );
+                let ty = if *null_aware {
+                    ty.with_nullable(true)
+                } else {
+                    ty
+                };
                 (js, ty, guards)
             }
             ExprKind::Identifier(id) => {
@@ -78,17 +121,36 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 // Instance member of an extension type through the implicit `this`.
                 if let Some((owner, member)) = self.ext_type_member(target) {
-                    let (js, ty) = self.ext_type_call(&Js::prim("$this"), None, owner, member, arguments, expected);
+                    let (js, ty) = self.ext_type_call(
+                        &Js::prim("$this"),
+                        None,
+                        owner,
+                        member,
+                        arguments,
+                        expected,
+                    );
                     return (js, ty, vec![]);
                 }
                 match self.ident_target(id.sym, target) {
                     IdentTarget::Local(js, ty) => {
-                        let (r, rt) = self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected);
+                        let (r, rt) =
+                            self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected);
                         (r, rt, vec![])
                     }
                     IdentTarget::ThisMember(_) => {
-                        let this_ty = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
-                        let (js, ty) = self.emit_method_call(&Js::prim("this"), &this_ty, &n, arguments, expected, false, None);
+                        let this_ty = self
+                            .class
+                            .map(|c| self.ctx.this_ty(c))
+                            .unwrap_or(Ty::Dynamic);
+                        let (js, ty) = self.emit_method_call(
+                            &Js::prim("this"),
+                            &this_ty,
+                            &n,
+                            arguments,
+                            expected,
+                            false,
+                            None,
+                        );
                         (js, ty, vec![])
                     }
                     IdentTarget::Static(c, mk) => {
@@ -101,36 +163,81 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                     IdentTarget::ExtThisMember(_) => {
                         let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
-                        let (js, ty) = self.emit_method_call(&Js::prim("$this"), &t, &n, arguments, expected, false, None);
+                        let (js, ty) = self.emit_method_call(
+                            &Js::prim("$this"),
+                            &t,
+                            &n,
+                            arguments,
+                            expected,
+                            false,
+                            None,
+                        );
                         (js, ty, vec![])
                     }
                     IdentTarget::ThisExt => {
-                        let t = self.class.map(|c| self.ctx.this_ty(c)).unwrap_or(Ty::Dynamic);
-                        let (js, ty) = self.emit_method_call(&Js::prim("this"), &t, &n, arguments, expected, false, None);
+                        let t = self
+                            .class
+                            .map(|c| self.ctx.this_ty(c))
+                            .unwrap_or(Ty::Dynamic);
+                        let (js, ty) = self.emit_method_call(
+                            &Js::prim("this"),
+                            &t,
+                            &n,
+                            arguments,
+                            expected,
+                            false,
+                            None,
+                        );
                         (js, ty, vec![])
                     }
                     IdentTarget::ExtMember(ext, fid) => {
                         let t = self.extension_this.clone().unwrap_or(Ty::Dynamic);
                         let _ = (ext, fid);
-                        let (js, ty) = self.emit_method_call(&Js::prim("$this"), &t, &n, arguments, expected, false, None);
+                        let (js, ty) = self.emit_method_call(
+                            &Js::prim("$this"),
+                            &t,
+                            &n,
+                            arguments,
+                            expected,
+                            false,
+                            None,
+                        );
                         (js, ty, vec![])
                     }
                     IdentTarget::ExtStatic(ext, _) => {
-                        let (js, ty) = self.static_extension_call(ext, &n, arguments, expected).unwrap_or((Js::prim("null"), Ty::Dynamic));
+                        let (js, ty) = self
+                            .static_extension_call(ext, &n, arguments, expected)
+                            .unwrap_or((Js::prim("null"), Ty::Dynamic));
                         (js, ty, vec![])
                     }
                     IdentTarget::ExtField(ext) => {
                         let e = self.ctx.program.extension(ext);
                         let lib_var = self.lib_var(e.library);
                         let ext_name = self.extension_js_name(ext);
-                        let ty = e.fields.iter().find(|v| self.ctx.program.variable(**v).name == id.sym).map(|v| self.ctx.var_ty(*v)).unwrap_or(Ty::Dynamic);
-                        let f = Js::prim(format!("{lib_var}[{}]", js::string_literal(&format!("{ext_name}|{n}"))));
+                        let ty = e
+                            .fields
+                            .iter()
+                            .find(|v| self.ctx.program.variable(**v).name == id.sym)
+                            .map(|v| self.ctx.var_ty(*v))
+                            .unwrap_or(Ty::Dynamic);
+                        let f = Js::prim(format!(
+                            "{lib_var}[{}]",
+                            js::string_literal(&format!("{ext_name}|{n}"))
+                        ));
                         let (r, rt) = self.emit_fn_value_call(&f, &ty, arguments, expected);
                         (r, rt, vec![])
                     }
                     IdentTarget::TypeParam(_) | IdentTarget::Prefix(_) | IdentTarget::Unknown => {
                         let (args, _, _) = self.emit_args_plain(arguments);
-                        (Js::prim(format!("dart.dcall({}, [{}])", js::ident(&n), args.join(", "))), Ty::Dynamic, vec![])
+                        (
+                            Js::prim(format!(
+                                "dart.dcall({}, [{}])",
+                                js::ident(&n),
+                                args.join(", ")
+                            )),
+                            Ty::Dynamic,
+                            vec![],
+                        )
                     }
                 }
             }
@@ -143,22 +250,39 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// Call of a function value.
-    pub fn emit_fn_value_call(&mut self, f: &Js, fty: &Ty, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
+    pub fn emit_fn_value_call(
+        &mut self,
+        f: &Js,
+        fty: &Ty,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+    ) -> (Js, Ty) {
         match fty {
-            Ty::Fn { nullable: false, .. } => {
+            Ty::Fn {
+                nullable: false, ..
+            } => {
                 let (args, ret, targs) = self.emit_args_for(fty, arguments, expected);
                 let mut all = targs;
                 all.extend(args);
-                (Js::prim(format!("{}({})", f.at(P_PRIMARY), all.join(", "))), ret)
+                (
+                    Js::prim(format!("{}({})", f.at(P_PRIMARY), all.join(", "))),
+                    ret,
+                )
             }
             // Object with a `call` method (callable class): `o(args)` is
             // `o.call(args)`, dispatched on the receiver type like any other
             // method (the CFE inserts the `.call` and the DDC emits it directly);
             // only a value of type `Function`, `dynamic` or nullable stays in
             // `dart.dcall`.
-            Ty::Iface { class, nullable: false, .. }
-                if Some(*class) != self.ctx.function_
-                    && self.ctx.lookup_member(fty, "call", false).is_some_and(|m| matches!(m.kind, MemberKind::Method(_))) =>
+            Ty::Iface {
+                class,
+                nullable: false,
+                ..
+            } if Some(*class) != self.ctx.function_
+                && self
+                    .ctx
+                    .lookup_member(fty, "call", false)
+                    .is_some_and(|m| matches!(m.kind, MemberKind::Method(_))) =>
             {
                 self.emit_method_call(f, fty, "call", arguments, expected, false, None)
             }
@@ -166,16 +290,38 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let (args, named, _) = self.emit_args_plain(arguments);
                 let named_js = named.map(|n| format!(", {n}")).unwrap_or_default();
                 if !arguments.type_args.is_empty() {
-                    let targs: Vec<String> = arguments.type_args.iter().map(|t| self.rti(&self.resolve_type(*t))).collect();
-                    return (Js::prim(format!("dart.dgcall({}, [{}], [{}]{named_js})", f.code, targs.join(", "), args.join(", "))), Ty::Dynamic);
+                    let targs: Vec<String> = arguments
+                        .type_args
+                        .iter()
+                        .map(|t| self.rti(&self.resolve_type(*t)))
+                        .collect();
+                    return (
+                        Js::prim(format!(
+                            "dart.dgcall({}, [{}], [{}]{named_js})",
+                            f.code,
+                            targs.join(", "),
+                            args.join(", ")
+                        )),
+                        Ty::Dynamic,
+                    );
                 }
-                (Js::prim(format!("dart.dcall({}, [{}]{named_js})", f.code, args.join(", "))), Ty::Dynamic)
+                (
+                    Js::prim(format!(
+                        "dart.dcall({}, [{}]{named_js})",
+                        f.code,
+                        args.join(", ")
+                    )),
+                    Ty::Dynamic,
+                )
             }
         }
     }
 
     /// Untyped arguments (dynamic call): (positional, named object, types).
-    pub fn emit_args_plain(&mut self, arguments: &ast::Arguments) -> (Vec<String>, Option<String>, Vec<Ty>) {
+    pub fn emit_args_plain(
+        &mut self,
+        arguments: &ast::Arguments,
+    ) -> (Vec<String>, Option<String>, Vec<Ty>) {
         let mut pos = Vec::new();
         let mut named = Vec::new();
         let mut tys = Vec::new();
@@ -183,17 +329,33 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let (js, ty) = self.emit_expr(a.value, None);
             tys.push(ty);
             match a.name {
-                Some(n) => named.push(format!("{}: {}", js::prop_key(&self.ctx.named_key(self.name(n.sym))), js.at(P_ASSIGN))),
+                Some(n) => named.push(format!(
+                    "{}: {}",
+                    js::prop_key(&self.ctx.named_key(self.name(n.sym))),
+                    js.at(P_ASSIGN)
+                )),
                 None => pos.push(js.into_at(P_ASSIGN)),
             }
         }
-        let named_obj = if named.is_empty() { None } else { Some(format!("{{{}}}", named.join(", "))) };
+        let named_obj = if named.is_empty() {
+            None
+        } else {
+            Some(format!("{{{}}}", named.join(", ")))
+        };
         (pos, named_obj, tys)
     }
 
     /// Emits arguments for a known function type; returns (JS args, substituted return type, rtis of the type arguments).
-    pub fn emit_args_for(&mut self, fty: &Ty, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Vec<String>, Ty, Vec<String>) {
-        let Ty::Fn { type_params, ret, .. } = fty else {
+    pub fn emit_args_for(
+        &mut self,
+        fty: &Ty,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+    ) -> (Vec<String>, Ty, Vec<String>) {
+        let Ty::Fn {
+            type_params, ret, ..
+        } = fty
+        else {
             let (args, named, _) = self.emit_args_plain(arguments);
             let mut all = args;
             if let Some(n) = named {
@@ -204,7 +366,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let free: Vec<u32> = type_params.iter().map(|p| p.id).collect();
         let mut subst = HashMap::new();
         let inner = match fty {
-            Ty::Fn { ret, pos, opt, named, nullable, .. } => Ty::Fn { type_params: vec![], ret: ret.clone(), pos: pos.clone(), opt: opt.clone(), named: named.clone(), nullable: *nullable },
+            Ty::Fn {
+                ret,
+                pos,
+                opt,
+                named,
+                nullable,
+                ..
+            } => Ty::Fn {
+                type_params: vec![],
+                ret: ret.clone(),
+                pos: pos.clone(),
+                opt: opt.clone(),
+                named: named.clone(),
+                nullable: *nullable,
+            },
             t => t.clone(),
         };
         // The instantiation the common inference chose (explicit or
@@ -213,8 +389,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // signature, and the reified type arguments are those.
         if !type_params.is_empty() {
             if let Some(inst) = self.common_instantiation(arguments, type_params.len()) {
-                let map: HashMap<u32, Ty> = free.iter().copied().zip(inst.iter().cloned()).collect();
-                let (args, _) = self.emit_args_infer(&inner.subst(&map), arguments, &[], &mut HashMap::new(), expected);
+                let map: HashMap<u32, Ty> =
+                    free.iter().copied().zip(inst.iter().cloned()).collect();
+                let (args, _) = self.emit_args_infer(
+                    &inner.subst(&map),
+                    arguments,
+                    &[],
+                    &mut HashMap::new(),
+                    expected,
+                );
                 let targs = inst.iter().map(|t| self.rti(t)).collect();
                 return (args, ret.subst(&map), targs);
             }
@@ -225,7 +408,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
         let mut targs = Vec::new();
         for p in type_params {
-            let t = subst.get(&p.id).cloned().unwrap_or_else(|| self.default_type_arg(&p.bound));
+            let t = subst
+                .get(&p.id)
+                .cloned()
+                .unwrap_or_else(|| self.default_type_arg(&p.bound));
             subst.insert(p.id, t.clone());
             targs.push(self.rti(&t));
         }
@@ -240,14 +426,30 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// with `C <: B <: A<B>`, gives `X = B`; `Caixa<T extends Comparable<T>>(3)`
     /// gives `T = num`. It is the rule of `GenericInferrer::restringir_pelos_limites`
     /// in `types`.
-    pub fn constrain_by_bounds(&self, params: &[TyParam], free: &[u32], subst: &mut HashMap<u32, Ty>) {
+    pub fn constrain_by_bounds(
+        &self,
+        params: &[TyParam],
+        free: &[u32],
+        subst: &mut HashMap<u32, Ty>,
+    ) {
         let library = self.ctx.program.library(self.lib);
-        if !library.features.has(dartforge_frontend::Feature::InferenceUsingBounds) {
+        if !library
+            .features
+            .has(dartforge_frontend::Feature::InferenceUsingBounds)
+        {
             return;
         }
         for p in params {
-            let Some(s) = subst.get(&p.id).cloned() else { continue };
-            if p.bound.is_dynamic() || s.is_dynamic() || self.ctx.object.is_some_and(|o| *p.bound == Ty::iface(o).with_nullable(true)) {
+            let Some(s) = subst.get(&p.id).cloned() else {
+                continue;
+            };
+            if p.bound.is_dynamic()
+                || s.is_dynamic()
+                || self
+                    .ctx
+                    .object
+                    .is_some_and(|o| *p.bound == Ty::iface(o).with_nullable(true))
+            {
                 continue;
             }
             if self.ctx.is_subtype(&s, &p.bound.subst(subst)) {
@@ -268,7 +470,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         expected_ret: Option<&Ty>,
     ) -> (Vec<String>, Vec<Ty>) {
         let (pos_p, opt_p, named_p, ret) = match fty {
-            Ty::Fn { pos, opt, named, ret, .. } => (pos.clone(), opt.clone(), named.clone(), (**ret).clone()),
+            Ty::Fn {
+                pos,
+                opt,
+                named,
+                ret,
+                ..
+            } => (pos.clone(), opt.clone(), named.clone(), (**ret).clone()),
             _ => (vec![], vec![], vec![], Ty::Dynamic),
         };
         // Only the direct arguments of this call go through `assertInterop`.
@@ -289,7 +497,10 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             match a.name {
                 Some(nm) => {
                     let name = self.name(nm.sym);
-                    param_of[i] = named_p.iter().find(|(x, _, _)| x == name).map(|(_, t, _)| t.clone());
+                    param_of[i] = named_p
+                        .iter()
+                        .find(|(x, _, _)| x == name)
+                        .map(|(_, t, _)| t.clone());
                 }
                 None => {
                     param_of[i] = if pi < pos_p.len() {
@@ -301,7 +512,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
         }
-        let is_closure = |s: &Self, e: ExprId| matches!(s.expr(e).kind, ExprKind::FunctionExpression(_));
+        let is_closure =
+            |s: &Self, e: ExprId| matches!(s.expr(e).kind, ExprKind::FunctionExpression(_));
         // Phase 1: arguments that are not closures.
         for (i, a) in arguments.args.iter().enumerate() {
             if is_closure(self, a.value) {
@@ -309,7 +521,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             let is_literal = matches!(
                 self.expr(a.value).kind,
-                ExprKind::List { .. } | ExprKind::SetOrMap { .. } | ExprKind::Record { .. } | ExprKind::Int(_) | ExprKind::Double(_)
+                ExprKind::List { .. }
+                    | ExprKind::SetOrMap { .. }
+                    | ExprKind::Record { .. }
+                    | ExprKind::Int(_)
+                    | ExprKind::Double(_)
             );
             let expected = param_of[i].as_ref().map(|p| p.subst(subst)).and_then(|p| {
                 if !mentions_any(&p, free) {
@@ -331,7 +547,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.match_type(p, &ty, free, subst);
                 }
             }
-            let js = if interop { self.assert_interop(js, &ty) } else { js };
+            let js = if interop {
+                self.assert_interop(js, &ty)
+            } else {
+                js
+            };
             out[i] = Some(js.into_at(P_ASSIGN));
             tys[i] = ty;
         }
@@ -349,9 +569,25 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let p2 = p.subst(subst);
                 // Keep the return type with free parameters, to match it later.
                 match (&p2, p.subst(&m)) {
-                    (Ty::Fn { ret, type_params, .. }, Ty::Fn { pos, opt, named, nullable, .. }) => {
-                        Ty::Fn { type_params: type_params.clone(), ret: ret.clone(), pos, opt, named, nullable }
-                    }
+                    (
+                        Ty::Fn {
+                            ret, type_params, ..
+                        },
+                        Ty::Fn {
+                            pos,
+                            opt,
+                            named,
+                            nullable,
+                            ..
+                        },
+                    ) => Ty::Fn {
+                        type_params: type_params.clone(),
+                        ret: ret.clone(),
+                        pos,
+                        opt,
+                        named,
+                        nullable,
+                    },
                     (_, other) => other,
                 }
             });
@@ -361,7 +597,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.match_type(p, &ty, free, subst);
                 }
             }
-            let js = if interop { self.assert_interop(js, &ty) } else { js };
+            let js = if interop {
+                self.assert_interop(js, &ty)
+            } else {
+                js
+            };
             out[i] = Some(js.into_at(P_ASSIGN));
             tys[i] = ty;
         }
@@ -387,7 +627,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         for (i, a) in arguments.args.iter().enumerate() {
             let js = out[i].clone().unwrap_or_else(|| "null".into());
             match a.name {
-                Some(nm) => named_js.push(format!("{}: {}", js::prop_key(&self.ctx.named_key(self.name(nm.sym))), js)),
+                Some(nm) => named_js.push(format!(
+                    "{}: {}",
+                    js::prop_key(&self.ctx.named_key(self.name(nm.sym))),
+                    js
+                )),
                 None => pos_js.push(js),
             }
         }
@@ -409,17 +653,32 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// `node` is the `recv.name` access in the source, when there is one: the
     /// member is the one the common resolution recorded for it
     /// ([`Self::access_member`]).
-    pub fn emit_method_call(&mut self, recv: &Js, recv_ty: &Ty, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>, is_super: bool, node: Option<ExprId>) -> (Js, Ty) {
+    pub fn emit_method_call(
+        &mut self,
+        recv: &Js,
+        recv_ty: &Ty,
+        name: &str,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+        is_super: bool,
+        node: Option<ExprId>,
+    ) -> (Js, Ty) {
         let recv_nn = recv_ty.non_null();
         // Object members with helpers.
         let user = self.is_user_class_ty(&recv_nn) || is_super;
         match name {
             "toString" if !user && arguments.args.is_empty() => {
-                return (Js::prim(format!("dart.toString({})", recv.code)), self.ctx.t_string());
+                return (
+                    Js::prim(format!("dart.toString({})", recv.code)),
+                    self.ctx.t_string(),
+                );
             }
             "noSuchMethod" if !user && arguments.args.len() == 1 => {
                 let (a, _) = self.emit_expr(arguments.args[0].value, None);
-                return (Js::prim(format!("dart.noSuchMethod({}, {})", recv.code, a.code)), Ty::Dynamic);
+                return (
+                    Js::prim(format!("dart.noSuchMethod({}, {})", recv.code, a.code)),
+                    Ty::Dynamic,
+                );
             }
             _ => {}
         }
@@ -450,28 +709,73 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         self.interop_args = true;
                         let (args, ret, _) = self.emit_args_for(&mty, arguments, expected);
                         self.interop_args = saved;
-                        (self.js_null_check(Js::prim(format!("{}{access}({})", recv.at(P_PRIMARY), args.join(", "))), &m.kind), ret)
+                        (
+                            self.js_null_check(
+                                Js::prim(format!(
+                                    "{}{access}({})",
+                                    recv.at(P_PRIMARY),
+                                    args.join(", ")
+                                )),
+                                &m.kind,
+                            ),
+                            ret,
+                        )
                     }
                     MemberKind::Method(_) => {
-                        let fresh = if !is_super && name == "add" { self.fresh_append_fact(node, recv_ty, arguments) } else { None };
+                        let fresh = if !is_super && name == "add" {
+                            self.fresh_append_fact(node, recv_ty, arguments)
+                        } else {
+                            None
+                        };
                         let (args, ret, targs) = self.emit_args_for(&mty, arguments, expected);
                         if let Some(fact) = fresh.filter(|_| args.len() == 1 && targs.is_empty()) {
                             let helper = crate::fresh_list_append::helper_name(self.ctx);
                             let list = self.temp();
                             if fact.closed_window {
                                 let callee = self.temp();
-                                return (Js::prim(format!("({list} = {}, {callee} = {list}{access}, {helper}.appendClosed({}, {list}, {callee}, {}))", recv.at(P_PRIMARY), fact.token, args[0])), ret);
+                                return (
+                                    Js::prim(format!(
+                                        "({list} = {}, {callee} = {list}{access}, {helper}.appendClosed({}, {list}, {callee}, {}))",
+                                        recv.at(P_PRIMARY),
+                                        fact.token,
+                                        args[0]
+                                    )),
+                                    ret,
+                                );
                             }
                             let before = self.temp();
                             let callee = self.temp();
-                            return (Js::prim(format!("({list} = {}, {before} = {helper}.ready({}, {list}), {callee} = {list}{access}, {helper}.append({}, {list}, {callee}, {before}, {}))", recv.at(P_PRIMARY), fact.token, fact.token, args[0])), ret);
+                            return (
+                                Js::prim(format!(
+                                    "({list} = {}, {before} = {helper}.ready({}, {list}), {callee} = {list}{access}, {helper}.append({}, {list}, {callee}, {before}, {}))",
+                                    recv.at(P_PRIMARY),
+                                    fact.token,
+                                    fact.token,
+                                    args[0]
+                                )),
+                                ret,
+                            );
                         }
                         let mut all = targs;
                         all.extend(args);
                         if is_super && self.async_kind != AsyncKind::None {
-                            return (Js::prim(format!("{}{access}.call(this{})", recv.at(P_PRIMARY), all.iter().map(|a| format!(", {a}")).collect::<String>())), ret);
+                            return (
+                                Js::prim(format!(
+                                    "{}{access}.call(this{})",
+                                    recv.at(P_PRIMARY),
+                                    all.iter().map(|a| format!(", {a}")).collect::<String>()
+                                )),
+                                ret,
+                            );
                         }
-                        (Js::prim(format!("{}{access}({})", recv.at(P_PRIMARY), all.join(", "))), ret)
+                        (
+                            Js::prim(format!(
+                                "{}{access}({})",
+                                recv.at(P_PRIMARY),
+                                all.join(", ")
+                            )),
+                            ret,
+                        )
                     }
                     _ => {
                         // Getter/field returning a function.
@@ -481,7 +785,8 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
             }
             None => {
-                if let Some(r) = self.try_extension_call(recv, &recv_nn, name, arguments, expected) {
+                if let Some(r) = self.try_extension_call(recv, &recv_nn, name, arguments, expected)
+                {
                     return r;
                 }
                 if let Ty::Record { .. } = &recv_nn {
@@ -495,7 +800,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
 
     pub fn is_user_class_ty(&self, t: &Ty) -> bool {
         match t {
-            Ty::Iface { class, .. } => !self.ctx.libs[self.ctx.lib_of_class(*class).0 as usize].is_sdk,
+            Ty::Iface { class, .. } => {
+                !self.ctx.libs[self.ctx.lib_of_class(*class).0 as usize].is_sdk
+            }
             _ => false,
         }
     }
@@ -505,13 +812,41 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let named_js = named.map(|n| format!(", {n}")).unwrap_or_default();
         let jsname = crate::body::js_member_name(name);
         if !arguments.type_args.is_empty() {
-            let targs: Vec<String> = arguments.type_args.iter().map(|t| self.rti(&self.resolve_type(*t))).collect();
-            return (Js::prim(format!("dart.dgsend({}, [{}], {}, [{}]{named_js})", recv.code, targs.join(", "), js::string_literal(&jsname), args.join(", "))), Ty::Dynamic);
+            let targs: Vec<String> = arguments
+                .type_args
+                .iter()
+                .map(|t| self.rti(&self.resolve_type(*t)))
+                .collect();
+            return (
+                Js::prim(format!(
+                    "dart.dgsend({}, [{}], {}, [{}]{named_js})",
+                    recv.code,
+                    targs.join(", "),
+                    js::string_literal(&jsname),
+                    args.join(", ")
+                )),
+                Ty::Dynamic,
+            );
         }
-        (Js::prim(format!("dart.dsend({}, {}, [{}]{named_js})", recv.code, js::string_literal(&jsname), args.join(", "))), Ty::Dynamic)
+        (
+            Js::prim(format!(
+                "dart.dsend({}, {}, [{}]{named_js})",
+                recv.code,
+                js::string_literal(&jsname),
+                args.join(", ")
+            )),
+            Ty::Dynamic,
+        )
     }
 
-    fn try_extension_call(&mut self, recv: &Js, recv_ty: &Ty, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>) -> Option<(Js, Ty)> {
+    fn try_extension_call(
+        &mut self,
+        recv: &Js,
+        recv_ty: &Ty,
+        name: &str,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+    ) -> Option<(Js, Ty)> {
         let found = self.find_extension_member(recv_ty, name, false);
         self.forced_ext = None;
         let (ext, fid, subst) = found?;
@@ -520,27 +855,52 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if let Some(r) = self.lower_is_a(ext, name, recv, arguments) {
             return Some(r);
         }
-        if let (Some(js_name), FunctionKind::Function) = (self.ctx.interop_extension_member(fid), f.kind) {
+        if let (Some(js_name), FunctionKind::Function) =
+            (self.ctx.interop_extension_member(fid), f.kind)
+        {
             // Interop: `recv.jsName(args)`, as for a member of an interop class.
             let fty = self.ctx.fn_ty(fid).subst_prop(&subst);
             let saved = self.interop_args;
             self.interop_args = true;
             let (args, ret, _) = self.emit_args_for(&fty, arguments, expected);
             self.interop_args = saved;
-            let call = Js::prim(format!("{}{}({})", recv.at(P_PRIMARY), js::prop_access(&js_name), args.join(", ")));
+            let call = Js::prim(format!(
+                "{}{}({})",
+                recv.at(P_PRIMARY),
+                js::prop_access(&js_name),
+                args.join(", ")
+            ));
             return Some((self.js_null_check(call, &MemberKind::Method(fid)), ret));
         }
         let ext_name = self.extension_js_name(ext);
         let lib_var = self.lib_var(e.library);
-        let ext_tps: Vec<u32> = self.ctx.outline.extensions[ext.0 as usize].type_params.iter().map(|p| p.0).collect();
+        let ext_tps: Vec<u32> = self.ctx.outline.extensions[ext.0 as usize]
+            .type_params
+            .iter()
+            .map(|p| p.0)
+            .collect();
         let fty = self.ctx.fn_ty(fid);
         match f.kind {
             FunctionKind::Function | FunctionKind::Operator => {
                 // Free parameters: the extension's (partially bound) + the method's.
                 let (mtps, inner) = match &fty {
-                    Ty::Fn { type_params, ret, pos, opt, named, nullable } => (
+                    Ty::Fn {
+                        type_params,
+                        ret,
+                        pos,
+                        opt,
+                        named,
+                        nullable,
+                    } => (
                         type_params.clone(),
-                        Ty::Fn { type_params: vec![], ret: ret.clone(), pos: pos.clone(), opt: opt.clone(), named: named.clone(), nullable: *nullable },
+                        Ty::Fn {
+                            type_params: vec![],
+                            ret: ret.clone(),
+                            pos: pos.clone(),
+                            opt: opt.clone(),
+                            named: named.clone(),
+                            nullable: *nullable,
+                        },
                     ),
                     t => (vec![], t.clone()),
                 };
@@ -549,7 +909,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 // The method's own parameters from the common instantiation,
                 // when there is one; the extension's still come from the
                 // application that was found.
-                let common = if mtps.is_empty() { None } else { self.common_instantiation(arguments, mtps.len()) };
+                let common = if mtps.is_empty() {
+                    None
+                } else {
+                    self.common_instantiation(arguments, mtps.len())
+                };
                 let inner = match common {
                     Some(inst) => {
                         for (p, t) in mtps.iter().zip(inst) {
@@ -563,9 +927,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     }
                 };
                 let (args, _) = self.emit_args_infer(&inner, arguments, &free, &mut s, expected);
-                let mut all: Vec<String> = ext_tps.iter().map(|p| self.rti(s.get(p).unwrap_or(&Ty::Dynamic))).collect();
+                let mut all: Vec<String> = ext_tps
+                    .iter()
+                    .map(|p| self.rti(s.get(p).unwrap_or(&Ty::Dynamic)))
+                    .collect();
                 for p in &mtps {
-                    let t = s.get(&p.id).cloned().unwrap_or_else(|| self.default_type_arg(&p.bound));
+                    let t = s
+                        .get(&p.id)
+                        .cloned()
+                        .unwrap_or_else(|| self.default_type_arg(&p.bound));
                     s.insert(p.id, t.clone());
                     all.push(self.rti(&t));
                 }
@@ -575,7 +945,14 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     Ty::Fn { ret, .. } => ret.subst(&s),
                     _ => Ty::Dynamic,
                 };
-                Some((Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|{name}")), all.join(", "))), ret))
+                Some((
+                    Js::prim(format!(
+                        "{lib_var}[{}]({})",
+                        js::string_literal(&format!("{ext_name}|{name}")),
+                        all.join(", ")
+                    )),
+                    ret,
+                ))
             }
             FunctionKind::Getter => {
                 let (g, gty) = self.try_extension_get(recv, recv_ty, name)?;
@@ -586,7 +963,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     }
 
     /// `C.m(args)`, `C.named(args)`, `p.f(args)`, `p.C.m(args)`, `E.method(...)` (static extension member).
-    fn try_static_call(&mut self, recv: ExprId, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>) -> Option<(Js, Ty)> {
+    fn try_static_call(
+        &mut self,
+        recv: ExprId,
+        name: &str,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+    ) -> Option<(Js, Ty)> {
         let t = self.expr(recv);
         match &t.kind {
             ExprKind::Identifier(id) => match self.ident_target(id.sym, recv) {
@@ -598,12 +981,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                         return Some((Js::prim(format!("async.Future.value({rti}, null)")), t));
                     }
                     let sym = self.ctx.sym(name)?;
-                    let b = self.ctx.program.lookup_prefixed_in_unit(self.unit, p, sym)?;
+                    let b = self
+                        .ctx
+                        .program
+                        .lookup_prefixed_in_unit(self.unit, p, sym)?;
                     let el = b.getter?;
                     Some(self.emit_element_call(el, arguments, expected))
                 }
-                IdentTarget::Element(Element::Class(c)) => self.static_call_on_class(c, name, arguments, expected),
-                IdentTarget::Element(Element::Extension(ext)) => self.static_extension_call(ext, name, arguments, expected),
+                IdentTarget::Element(Element::Class(c)) => {
+                    self.static_call_on_class(c, name, arguments, expected)
+                }
+                IdentTarget::Element(Element::Extension(ext)) => {
+                    self.static_extension_call(ext, name, arguments, expected)
+                }
                 IdentTarget::Element(Element::Typedef(td)) => {
                     let data = &self.ctx.outline.typedefs[td.0 as usize];
                     if let Ty::Iface { class, .. } = self.ctx.ty_of(data.target_type) {
@@ -613,11 +1003,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 _ => None,
             },
-            ExprKind::Property { target: t2, name: n2, .. } => {
+            ExprKind::Property {
+                target: t2,
+                name: n2,
+                ..
+            } => {
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
                     if let IdentTarget::Prefix(p) = self.ident_target(id.sym, *t2) {
                         let sym = self.ctx.sym(self.name(n2.sym))?;
-                        let b = self.ctx.program.lookup_prefixed_in_unit(self.unit, p, sym)?;
+                        let b = self
+                            .ctx
+                            .program
+                            .lookup_prefixed_in_unit(self.unit, p, sym)?;
                         if let Some(Element::Class(c)) = b.getter {
                             return self.static_call_on_class(c, name, arguments, expected);
                         }
@@ -625,32 +1022,53 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 }
                 None
             }
-            ExprKind::TypeArguments { target: t2, type_args } if matches!(&self.expr(*t2).kind, ExprKind::Property { .. }) => {
+            ExprKind::TypeArguments {
+                target: t2,
+                type_args,
+            } if matches!(&self.expr(*t2).kind, ExprKind::Property { .. }) => {
                 // `p.C<int>.named(args)`
-                if let ExprKind::Property { target: t3, name: n3, .. } = &self.expr(*t2).kind {
+                if let ExprKind::Property {
+                    target: t3,
+                    name: n3,
+                    ..
+                } = &self.expr(*t2).kind
+                {
                     if let ExprKind::Identifier(id) = &self.expr(*t3).kind {
                         if let IdentTarget::Prefix(p) = self.ident_target(id.sym, *t3) {
                             let sym = self.ctx.sym(self.name(n3.sym))?;
-                            let b = self.ctx.program.lookup_prefixed_in_unit(self.unit, p, sym)?;
+                            let b = self
+                                .ctx
+                                .program
+                                .lookup_prefixed_in_unit(self.unit, p, sym)?;
                             if let Some(Element::Class(c)) = b.getter {
-                                let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                                let targs: Vec<Ty> =
+                                    type_args.iter().map(|t| self.resolve_type(*t)).collect();
                                 let cname = if name == "new" { "" } else { name };
                                 let is_const = self.in_const;
-                                return Some(self.emit_constructor_call(c, targs, true, cname, arguments, expected, is_const));
+                                return Some(self.emit_constructor_call(
+                                    c, targs, true, cname, arguments, expected, is_const,
+                                ));
                             }
                         }
                     }
                 }
                 None
             }
-            ExprKind::TypeArguments { target: t2, type_args } => {
+            ExprKind::TypeArguments {
+                target: t2,
+                type_args,
+            } => {
                 // `C<int>.named(args)`
                 if let ExprKind::Identifier(id) = &self.expr(*t2).kind {
-                    if let IdentTarget::Element(Element::Class(c)) = self.ident_target(id.sym, *t2) {
-                        let targs: Vec<Ty> = type_args.iter().map(|t| self.resolve_type(*t)).collect();
+                    if let IdentTarget::Element(Element::Class(c)) = self.ident_target(id.sym, *t2)
+                    {
+                        let targs: Vec<Ty> =
+                            type_args.iter().map(|t| self.resolve_type(*t)).collect();
                         let cname = if name == "new" { "" } else { name };
                         let is_const = self.in_const;
-                        return Some(self.emit_constructor_call(c, targs, true, cname, arguments, expected, is_const));
+                        return Some(self.emit_constructor_call(
+                            c, targs, true, cname, arguments, expected, is_const,
+                        ));
                     }
                 }
                 None
@@ -659,7 +1077,13 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         }
     }
 
-    fn static_call_on_class(&mut self, c: ClassId, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>) -> Option<(Js, Ty)> {
+    fn static_call_on_class(
+        &mut self,
+        c: ClassId,
+        name: &str,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+    ) -> Option<(Js, Ty)> {
         let mut cur = Some(c);
         while let Some(k) = cur {
             if let Some(mk) = self.ctx.declared_static(k, name, false) {
@@ -672,7 +1096,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         // SDK mode: the representation constructor of an interop extension
         // type (`JSNumber._(x)` in the `dart:js_interop` *patches*) is the
         // value itself, as with erased ones.
-        if self.ctx.sdk.is_some() && self.ctx.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType && crate::extension_type::primary_constructor_name(self.ctx, c).as_deref() == Some(cname) {
+        if self.ctx.sdk.is_some()
+            && self.ctx.program.class(c).kind == dartforge_elements::model::ClassKind::ExtensionType
+            && crate::extension_type::primary_constructor_name(self.ctx, c).as_deref()
+                == Some(cname)
+        {
             return Some(self.ext_type_construct(c, vec![], false, cname, arguments, expected));
         }
         if crate::extension_type::is_erased_extension_type(self.ctx, c) {
@@ -682,15 +1110,33 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
             return Some(self.ext_type_construct(c, vec![], false, cname, arguments, expected));
         }
-        let key = if cname.is_empty() { self.ctx.empty_sym } else { self.ctx.sym(cname) };
+        let key = if cname.is_empty() {
+            self.ctx.empty_sym
+        } else {
+            self.ctx.sym(cname)
+        };
         if key.is_some_and(|k| self.ctx.program.class(c).constructors.contains_key(&k)) {
             let is_const = self.in_const;
-            return Some(self.emit_constructor_call(c, vec![], false, cname, arguments, expected, is_const));
+            return Some(self.emit_constructor_call(
+                c,
+                vec![],
+                false,
+                cname,
+                arguments,
+                expected,
+                is_const,
+            ));
         }
         None
     }
 
-    fn static_extension_call(&mut self, ext: dartforge_elements::model::ExtensionId, name: &str, arguments: &ast::Arguments, expected: Option<&Ty>) -> Option<(Js, Ty)> {
+    fn static_extension_call(
+        &mut self,
+        ext: dartforge_elements::model::ExtensionId,
+        name: &str,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+    ) -> Option<(Js, Ty)> {
         let e = self.ctx.program.extension(ext);
         let sym = self.ctx.sym(name)?;
         let ext_name = self.extension_js_name(ext);
@@ -700,13 +1146,27 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             let (args, ret, targs) = self.emit_args_for(&fty, arguments, expected);
             let mut all = targs;
             all.extend(args);
-            return Some((Js::prim(format!("{lib_var}[{}]({})", js::string_literal(&format!("{ext_name}|{name}")), all.join(", "))), ret));
+            return Some((
+                Js::prim(format!(
+                    "{lib_var}[{}]({})",
+                    js::string_literal(&format!("{ext_name}|{name}")),
+                    all.join(", ")
+                )),
+                ret,
+            ));
         }
         // `Ext(x).m()` is handled as a call on `Ext(x)`; only statics here.
         None
     }
 
-    pub fn emit_static_call(&mut self, c: ClassId, name: &str, mk: MemberKind, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
+    pub fn emit_static_call(
+        &mut self,
+        c: ClassId,
+        name: &str,
+        mk: MemberKind,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+    ) -> (Js, Ty) {
         // Environment constant called as a static (`X.fromEnvironment(...)`
         // without `const`): the value is the same, evaluated at compile time.
         if name == "fromEnvironment" {
@@ -715,7 +1175,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             }
         }
         if self.ctx.is_js_class(c) && self.ctx.is_js_member_kind(&mk) {
-            let js = self.ctx.js_static_ref(Some(c), self.ctx.lib_of_class(c), &mk, name);
+            let js = self
+                .ctx
+                .js_static_ref(Some(c), self.ctx.lib_of_class(c), &mk, name);
             return match mk {
                 MemberKind::Method(fid) => {
                     let fty = self.ctx.fn_ty(fid);
@@ -723,14 +1185,19 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.interop_args = true;
                     let (args, ret, _) = self.emit_args_for(&fty, arguments, expected);
                     self.interop_args = saved;
-                    (self.js_null_check(Js::prim(format!("{js}({})", args.join(", "))), &mk), ret)
+                    (
+                        self.js_null_check(Js::prim(format!("{js}({})", args.join(", "))), &mk),
+                        ret,
+                    )
                 }
                 MemberKind::Field(vid) => {
                     let ty = self.ctx.var_ty(vid);
                     self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected)
                 }
                 MemberKind::Getter(fid) => {
-                    let ty = self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type);
+                    let ty = self
+                        .ctx
+                        .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type);
                     self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected)
                 }
                 MemberKind::Setter(_) => (Js::prim("null"), Ty::Dynamic),
@@ -751,25 +1218,42 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected)
             }
             MemberKind::Getter(fid) => {
-                let ty = self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type);
+                let ty = self
+                    .ctx
+                    .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type);
                 self.emit_fn_value_call(&Js::prim(js), &ty, arguments, expected)
             }
             MemberKind::Setter(_) => (Js::prim("null"), Ty::Dynamic),
         }
     }
 
-    pub fn emit_element_call(&mut self, el: Element, arguments: &ast::Arguments, expected: Option<&Ty>) -> (Js, Ty) {
+    pub fn emit_element_call(
+        &mut self,
+        el: Element,
+        arguments: &ast::Arguments,
+        expected: Option<&Ty>,
+    ) -> (Js, Ty) {
         match el {
             Element::Function(fid) => {
                 // SDK mode: `JS(...)`, `JS_GET_FLAG(...)`, `TYPE_REF<T>()`…
                 if self.ctx.sdk.is_some() {
-                    if let Some(r) = crate::own_sdk::emit_intrinsic(self, fid, arguments, expected) {
+                    if let Some(r) = crate::own_sdk::emit_intrinsic(self, fid, arguments, expected)
+                    {
                         return r;
                     }
                 }
                 let f = self.ctx.program.function(fid);
                 if f.kind == FunctionKind::Getter {
-                    let (g, gty) = self.element_ref(el).map(|(j, _)| (Js::prim(j), self.ctx.ty_of(self.ctx.outline.functions[fid.0 as usize].return_type))).expect("getter");
+                    let (g, gty) = self
+                        .element_ref(el)
+                        .map(|(j, _)| {
+                            (
+                                Js::prim(j),
+                                self.ctx
+                                    .ty_of(self.ctx.outline.functions[fid.0 as usize].return_type),
+                            )
+                        })
+                        .expect("getter");
                     return self.emit_fn_value_call(&g, &gty, arguments, expected);
                 }
                 let (js, fty) = self.element_ref(el).expect("function");
@@ -778,11 +1262,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     self.interop_args = true;
                     let (args, ret, _) = self.emit_args_for(&fty, arguments, expected);
                     self.interop_args = saved;
-                    return (self.js_null_check(Js::prim(format!("{js}({})", args.join(", "))), &MemberKind::Method(fid)), ret);
+                    return (
+                        self.js_null_check(
+                            Js::prim(format!("{js}({})", args.join(", "))),
+                            &MemberKind::Method(fid),
+                        ),
+                        ret,
+                    );
                 }
                 let (args, ret, targs) = self.emit_args_for(&fty, arguments, expected);
                 // SDK mode: `@NoReifyGeneric` does not pass the type arguments.
-                let mut all = if crate::own_sdk::no_reify_generic_fn(self.ctx, fid) { Vec::new() } else { targs };
+                let mut all = if crate::own_sdk::no_reify_generic_fn(self.ctx, fid) {
+                    Vec::new()
+                } else {
+                    targs
+                };
                 all.extend(args);
                 (Js::prim(format!("{js}({})", all.join(", "))), ret)
             }
@@ -812,7 +1306,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                 let data = &self.ctx.outline.typedefs[td.0 as usize];
                 if let Ty::Iface { class, args, .. } = self.ctx.ty_of(data.target_type) {
                     let is_const = self.in_const;
-                    return self.emit_constructor_call(class, args.clone(), !args.is_empty(), "", arguments, expected, is_const);
+                    return self.emit_constructor_call(
+                        class,
+                        args.clone(),
+                        !args.is_empty(),
+                        "",
+                        arguments,
+                        expected,
+                        is_const,
+                    );
                 }
                 (Js::prim("null"), Ty::Dynamic)
             }
@@ -833,13 +1335,20 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// `return`, `Never` for a body that only throws, the downward context),
     /// and the `TypeTable` type parameters it binds are translated into the
     /// emitter's ones while the body is emitted.
-    pub fn emit_function_expr(&mut self, fid: ast::FunctionId, expected: Option<&Ty>, common: Option<dartforge_types::table::TypeId>) -> (Js, Ty) {
+    pub fn emit_function_expr(
+        &mut self,
+        fid: ast::FunctionId,
+        expected: Option<&Ty>,
+        common: Option<dartforge_types::table::TypeId>,
+    ) -> (Js, Ty) {
         let f = self.ast().function(fid);
         // Own type parameters.
         let mut tps: Vec<TyParam> = Vec::new();
         let mut scope_params = Vec::new();
         for tp in f.type_params.iter() {
-            let p = self.ctx.fresh_param(self.name(tp.name.sym), self.ctx.t_object_q());
+            let p = self
+                .ctx
+                .fresh_param(self.name(tp.name.sym), self.ctx.t_object_q());
             let jsn = self.type_param_js_name(&p.name);
             scope_params.push((p.id, jsn));
             tps.push(p);
@@ -849,10 +1358,21 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         new_tps.extend(saved_tps.iter().cloned());
         self.fn_type_params = new_tps;
         let saved_common_params = self.shared_params.clone();
-        if let Some(dartforge_types::table::Type::Function { type_params: from_table, .. }) = common.map(|id| self.ctx.table.get(id)) {
+        if let Some(dartforge_types::table::Type::Function {
+            type_params: from_table,
+            ..
+        }) = common.map(|id| self.ctx.table.get(id))
+        {
             if from_table.len() == tps.len() {
                 for (t, p) in from_table.iter().zip(tps.iter()) {
-                    self.shared_params.insert(t.0, Ty::Param { id: p.id, name: p.name.clone(), nullable: false });
+                    self.shared_params.insert(
+                        t.0,
+                        Ty::Param {
+                            id: p.id,
+                            name: p.name.clone(),
+                            nullable: false,
+                        },
+                    );
                 }
             }
         }
@@ -889,7 +1409,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             Some(Ty::Fn { ret, .. }) => Some((**ret).clone()),
             _ => None,
         };
-        let ret_for_body = declared_ret.clone().or(common_ret.clone()).or(expected_ret.clone()).unwrap_or(Ty::Dynamic);
+        let ret_for_body = declared_ret
+            .clone()
+            .or(common_ret.clone())
+            .or(expected_ret.clone())
+            .unwrap_or(Ty::Dynamic);
         let saved = self.enter_fn(kind, ret_for_body.clone(), self.is_static);
         self.is_closure_body = true;
         let params: &[ast::Parameter] = f.parameters.as_deref().unwrap_or(&[]);
@@ -901,10 +1425,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         self.is_closure_body = false;
         // In a generator, `returns` are the produced elements (`yield`).
         let is_generator = matches!(kind, AsyncKind::SyncStar | AsyncKind::AsyncStar);
-        let (returns, mut yields) = if is_generator { (Vec::new(), returns) } else { (returns, Vec::new()) };
+        let (returns, mut yields) = if is_generator {
+            (Vec::new(), returns)
+        } else {
+            (returns, Vec::new())
+        };
         // Return type: declared, otherwise inferred from the body (or from the context).
         let inferred = if returns.is_empty() {
-            if matches!(f.body, ast::FunctionBody::Expression(_)) { None } else { Some(Ty::Void) }
+            if matches!(f.body, ast::FunctionBody::Expression(_)) {
+                None
+            } else {
+                Some(Ty::Void)
+            }
         } else {
             let mut it = returns.into_iter();
             let first = it.next().unwrap();
@@ -921,8 +1453,17 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     _ => i,
                 };
                 match (&expected_ret, kind) {
-                    (Some(e), AsyncKind::None) if !e.is_dynamic() && !e.mentions_params() && self.ctx.is_subtype(&i, e) && !matches!(i, Ty::Never) => {
-                        if matches!(e, Ty::Void) { Ty::Void } else { i }
+                    (Some(e), AsyncKind::None)
+                        if !e.is_dynamic()
+                            && !e.mentions_params()
+                            && self.ctx.is_subtype(&i, e)
+                            && !matches!(i, Ty::Never) =>
+                    {
+                        if matches!(e, Ty::Void) {
+                            Ty::Void
+                        } else {
+                            i
+                        }
                     }
                     _ => i,
                 }
@@ -941,15 +1482,28 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
             _ if common_ret.is_some() => common_ret.unwrap_or(Ty::Dynamic),
             AsyncKind::None => inner_ret,
             AsyncKind::Async => match &inner_ret {
-                Ty::Iface { class, .. } if Some(*class) == self.ctx.future_ && declared_ret.is_some() => inner_ret.clone(),
+                Ty::Iface { class, .. }
+                    if Some(*class) == self.ctx.future_ && declared_ret.is_some() =>
+                {
+                    inner_ret.clone()
+                }
                 _ => self.ctx.t_future(self.flatten_future(&inner_ret)),
             },
             AsyncKind::AsyncStar | AsyncKind::SyncStar if declared_ret.is_some() => inner_ret,
-            AsyncKind::AsyncStar | AsyncKind::SyncStar => {
-                self.inferred_generator_return(kind, std::mem::take(&mut yields), expected_ret.as_ref())
-            }
+            AsyncKind::AsyncStar | AsyncKind::SyncStar => self.inferred_generator_return(
+                kind,
+                std::mem::take(&mut yields),
+                expected_ret.as_ref(),
+            ),
         };
-        let fn_ty = Ty::Fn { type_params: tps.clone(), ret: Box::new(ret_ty.clone()), pos, opt, named, nullable: false };
+        let fn_ty = Ty::Fn {
+            type_params: tps.clone(),
+            ret: Box::new(ret_ty.clone()),
+            pos,
+            opt,
+            named,
+            nullable: false,
+        };
         let mut all_params: Vec<String> = scope_params.iter().map(|(_, n)| n.clone()).collect();
         if !param_js.is_empty() {
             all_params.push(param_js);
@@ -966,9 +1520,15 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         if tps.is_empty() {
             (Js::prim(format!("dart.fn({text}, {rti})")), fn_ty)
         } else {
-            let defaults: Vec<String> = tps.iter().map(|p| self.rti(&self.default_type_arg(&p.bound))).collect();
+            let defaults: Vec<String> = tps
+                .iter()
+                .map(|p| self.rti(&self.default_type_arg(&p.bound)))
+                .collect();
             (
-                Js::prim(format!("dart.gFn({text}, {rti}, dart.constList(dart_rti._Universe.eval(dart_rti._theUniverse(), \"@\", true), [{}]))", defaults.join(", "))),
+                Js::prim(format!(
+                    "dart.gFn({text}, {rti}, dart.constList(dart_rti._Universe.eval(dart_rti._theUniverse(), \"@\", true), [{}]))",
+                    defaults.join(", ")
+                )),
                 fn_ty,
             )
         }
@@ -983,7 +1543,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     /// `R`: that is why `Iterable<num> Function() f = () sync* { yield 1; }` has
     /// type `() => Iterable<num>`, but with `Iterable<Object>` it is
     /// `() => Iterable<int>` (measured on the 3.6.2 and 3.13.4 VMs).
-    fn inferred_generator_return(&self, kind: AsyncKind, yields: Vec<Ty>, context: Option<&Ty>) -> Ty {
+    fn inferred_generator_return(
+        &self,
+        kind: AsyncKind,
+        yields: Vec<Ty>,
+        context: Option<&Ty>,
+    ) -> Ty {
         let mut it = yields.into_iter();
         let element = match it.next() {
             Some(first) => it.fold(first, |a, b| self.ctx.lub(&a, &b)),
@@ -994,8 +1559,12 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             (self.ctx.t_iterable(element), self.ctx.iterable_)
         };
-        let Some(r) = context.filter(|r| !r.is_dynamic()) else { return inferred };
-        let e = target.and_then(|c| self.ctx.as_super(&r.non_null(), c)).and_then(|s| s.args().first().cloned());
+        let Some(r) = context.filter(|r| !r.is_dynamic()) else {
+            return inferred;
+        };
+        let e = target
+            .and_then(|c| self.ctx.as_super(&r.non_null(), c))
+            .and_then(|s| s.args().first().cloned());
         match e {
             Some(e) if !self.ctx.is_subtype(&inferred, &e) => r.clone(),
             _ => inferred,
@@ -1005,7 +1574,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
     pub fn flatten_future(&self, t: &Ty) -> Ty {
         match t {
             Ty::FutureOr { arg, .. } => (**arg).clone(),
-            Ty::Iface { class, args, .. } if Some(*class) == self.ctx.future_ && !args.is_empty() => args[0].clone(),
+            Ty::Iface { class, args, .. }
+                if Some(*class) == self.ctx.future_ && !args.is_empty() =>
+            {
+                args[0].clone()
+            }
             _ => t.clone(),
         }
     }
@@ -1017,11 +1590,18 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let mut named = Vec::new();
         for p in params {
             let Some(n) = p.name else { continue };
-            let t = self.lookup_local(n.sym).map(|l| l.ty.clone()).unwrap_or(Ty::Dynamic);
+            let t = self
+                .lookup_local(n.sym)
+                .map(|l| l.ty.clone())
+                .unwrap_or(Ty::Dynamic);
             match p.kind {
                 ast::ParameterKind::Required => pos.push(t),
                 ast::ParameterKind::Optional => opt.push(t),
-                ast::ParameterKind::Named => named.push((self.name(p.external_name().unwrap_or(n).sym).to_string(), t, p.required)),
+                ast::ParameterKind::Named => named.push((
+                    self.name(p.external_name().unwrap_or(n).sym).to_string(),
+                    t,
+                    p.required,
+                )),
             }
         }
         named.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1058,28 +1638,42 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         let e = self.ctx.program.extension(ext);
         if name != "isA"
             || self.ctx.program.library(e.library).uri != "dart:js_interop"
-            || !e.name.is_some_and(|n| self.ctx.name(n) == "JSAnyUtilityExtension")
+            || !e
+                .name
+                .is_some_and(|n| self.ctx.name(n) == "JSAnyUtilityExtension")
             || !arguments.args.is_empty()
         {
             return None;
         }
-        let [t] = &arguments.type_args[..] else { return None };
+        let [t] = &arguments.type_args[..] else {
+            return None;
+        };
         let node = self.ast().ty(*t);
-        let ast::TypeKind::Named { name: parts, .. } = &node.kind else { return None };
+        let ast::TypeKind::Named { name: parts, .. } = &node.kind else {
+            return None;
+        };
         let nullable = node.nullable;
         let binding = match &parts[..] {
-            [p, n] => self.ctx.program.lookup_prefixed_in_unit(self.unit, p.sym, n.sym),
+            [p, n] => self
+                .ctx
+                .program
+                .lookup_prefixed_in_unit(self.unit, p.sym, n.sym),
             [n] => self.ctx.program.lookup_in_unit(self.unit, n.sym),
             _ => None,
         };
-        let Some(Element::Class(c)) = binding.and_then(|b| b.getter) else { return None };
+        let Some(Element::Class(c)) = binding.and_then(|b| b.getter) else {
+            return None;
+        };
         let class = self.ctx.program.class(c);
         let dart_name = self.ctx.name(class.name).to_string();
         let from_js_interop = self.ctx.program.library(class.library).uri == "dart:js_interop";
         // `JSAny`: only the null check (`true` with `JSAny?`).
         if from_js_interop && dart_name == "JSAny" {
             let body = if nullable { "true" } else { "v != null" };
-            return Some((Js::prim(format!("((v) => {body})({})", recv.code)), self.ctx.t_bool()));
+            return Some((
+                Js::prim(format!("((v) => {body})({})", recv.code)),
+                self.ctx.t_bool(),
+            ));
         }
         let check = |v: &str| -> Option<String> {
             if from_js_interop {
@@ -1090,7 +1684,11 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                     "JSBigInt" => "bigint",
                     "JSSymbol" => "symbol",
                     // DDC 3.6.2: the prototype of the typed array constructors.
-                    "JSTypedArray" => return Some(format!("{v} instanceof Object.getPrototypeOf(dart.global.Int8Array)")),
+                    "JSTypedArray" => {
+                        return Some(format!(
+                            "{v} instanceof Object.getPrototypeOf(dart.global.Int8Array)"
+                        ));
+                    }
                     // The `@JS('…')` name of the other `dart:js_interop` types.
                     _ => {
                         let js_name = match dart_name.as_str() {
@@ -1098,11 +1696,22 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
                             "JSFunction" | "JSExportedDartFunction" => "Function",
                             "JSArray" => "Array",
                             "JSPromise" => "Promise",
-                            "JSArrayBuffer" | "JSDataView" | "JSInt8Array" | "JSUint8Array" | "JSUint8ClampedArray" | "JSInt16Array"
-                            | "JSUint16Array" | "JSInt32Array" | "JSUint32Array" | "JSFloat32Array" | "JSFloat64Array" => &dart_name[2..],
+                            "JSArrayBuffer"
+                            | "JSDataView"
+                            | "JSInt8Array"
+                            | "JSUint8Array"
+                            | "JSUint8ClampedArray"
+                            | "JSInt16Array"
+                            | "JSUint16Array"
+                            | "JSInt32Array"
+                            | "JSUint32Array"
+                            | "JSFloat32Array"
+                            | "JSFloat64Array" => &dart_name[2..],
                             _ => return None,
                         };
-                        return Some(format!("js_interop['JSAnyUtilityExtension|instanceOfString']({v}, \"{js_name}\")"));
+                        return Some(format!(
+                            "js_interop['JSAnyUtilityExtension|instanceOfString']({v}, \"{js_name}\")"
+                        ));
                     }
                 };
                 return Some(format!("typeof {v} === \"{type_name}\""));
@@ -1133,6 +1742,9 @@ impl<'m, 'a> FnEmitter<'m, 'a> {
         } else {
             format!("v != null && {test}")
         };
-        Some((Js::prim(format!("((v) => {body})({})", recv.code)), self.ctx.t_bool()))
+        Some((
+            Js::prim(format!("((v) => {body})({})", recv.code)),
+            self.ctx.t_bool(),
+        ))
     }
 }

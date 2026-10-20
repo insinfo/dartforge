@@ -36,6 +36,7 @@
 //!   needs resolution.
 //! * **Directive order.** It is not enforced: any directive is accepted
 //!   anywhere at top level (superset; the next phase validates).
+use super::modifiers::{ModifierTokens, ParameterOwner};
 use super::{ComposedGt, PResult, ParseError, Parser};
 use crate::ast::ExprId;
 use crate::ast::{
@@ -45,7 +46,6 @@ use crate::ast::{
     Initializer, Member, MemberId, MemberKind, MixinDecl, Name, ParameterKind, RedirectTarget,
     TypeAnnotation, TypeId, TypeKind, TypedefDecl, TypedefKind, Variable, VariableList,
 };
-use super::modifiers::{ParameterOwner, ModifierTokens};
 use crate::features::Feature;
 use crate::token::{Keyword, Kind, Op};
 use dartforge_diagnostics::{Diagnostic, Span, codes};
@@ -207,7 +207,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                         self.directive_state = E::ImportExport;
                         None
                     }
-                    E::Part => Some(if import { c::IMPORT_DIRECTIVE_AFTER_PART_DIRECTIVE } else { c::EXPORT_DIRECTIVE_AFTER_PART_DIRECTIVE }),
+                    E::Part => Some(if import {
+                        c::IMPORT_DIRECTIVE_AFTER_PART_DIRECTIVE
+                    } else {
+                        c::EXPORT_DIRECTIVE_AFTER_PART_DIRECTIVE
+                    }),
                     E::PartOf if parts => {
                         self.directive_state = E::ImportExport;
                         None
@@ -486,11 +490,7 @@ impl<'s, 'i> Parser<'s, 'i> {
                         break;
                     }
                 }
-                _ if speculative
-                    && depth == 0
-                    && self.pos > start_pos
-                    && self.starts_member() =>
-                {
+                _ if speculative && depth == 0 && self.pos > start_pos && self.starts_member() => {
                     let mark = self.diagnostics.len();
                     self.speculating = true;
                     let r = self.parse_member(class_name);
@@ -524,14 +524,16 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn starts_member(&self) -> bool {
         matches!(
             self.kind(),
-            Kind::Ident | Kind::Op(Op::At) | Kind::Keyword(
-                Keyword::Final
-                | Keyword::Const
-                | Keyword::Var
-                | Keyword::Void
-                | Keyword::This
-                | Keyword::New,
-            )
+            Kind::Ident
+                | Kind::Op(Op::At)
+                | Kind::Keyword(
+                    Keyword::Final
+                        | Keyword::Const
+                        | Keyword::Var
+                        | Keyword::Void
+                        | Keyword::This
+                        | Keyword::New,
+                )
         )
     }
 
@@ -738,7 +740,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             // annotation (the `>` or the `.name`).
             if with_types && !self.at_op(Op::LParen) {
                 let last = self.tokens[self.pos - 1].span;
-                self.error_at(codes::parser::ANNOTATION_WITH_TYPE_ARGUMENTS_UNINSTANTIATED, last, &[]);
+                self.error_at(
+                    codes::parser::ANNOTATION_WITH_TYPE_ARGUMENTS_UNINSTANTIATED,
+                    last,
+                    &[],
+                );
             }
             // `parseArgumentsOptMetadata` (`:7718-7752`): a glued `(` is the
             // arguments; a separate one, only with type arguments or when what follows
@@ -747,12 +753,18 @@ impl<'s, 'i> Parser<'s, 'i> {
             let glued = self.pos > 0 && self.tokens[self.pos - 1].glued;
             let arguments = if self.at_op(Op::LParen) {
                 let after_closer = self.matching_close(self.pos).map(|f| f + 1 - self.pos);
-                let class_or_enum = after_closer.is_some_and(|n| self.at_kw_at(n, Keyword::Class) || self.at_kw_at(n, Keyword::Enum));
+                let class_or_enum = after_closer.is_some_and(|n| {
+                    self.at_kw_at(n, Keyword::Class) || self.at_kw_at(n, Keyword::Enum)
+                });
                 if glued {
                     Some(self.parse_arguments()?)
                 } else if with_types || class_or_enum {
                     let parens = self.span();
-                    self.error_at(codes::parser::ANNOTATION_SPACE_BEFORE_PARENTHESIS, parens, &[]);
+                    self.error_at(
+                        codes::parser::ANNOTATION_SPACE_BEFORE_PARENTHESIS,
+                        parens,
+                        &[],
+                    );
                     Some(self.parse_arguments()?)
                 } else {
                     None
@@ -858,7 +870,9 @@ impl<'s, 'i> Parser<'s, 'i> {
             let following = word(p0 + 1);
             match word(p0) {
                 "var" | "late" => return TopLevelRoute::Member,
-                "final" if !matches!(following, "class" | "mixin" | "enum") => return TopLevelRoute::Member,
+                "final" if !matches!(following, "class" | "mixin" | "enum") => {
+                    return TopLevelRoute::Member;
+                }
                 "const" if following != "class" => return TopLevelRoute::Member,
                 _ => {}
             }
@@ -869,7 +883,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut k = j;
         match word(j) {
             "macro" if word(j + 1) == "class" => k = j + 1,
-            "sealed" | "base" | "interface" if matches!(word(j + 1), "class" | "mixin" | "enum") => k = j + 1,
+            "sealed" | "base" | "interface"
+                if matches!(word(j + 1), "class" | "mixin" | "enum") =>
+            {
+                k = j + 1
+            }
             "sealed" if word(j + 1) == "abstract" && word(j + 2) == "class" => k = j + 2,
             _ => {}
         }
@@ -905,7 +923,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 pre.abstract_ = f.abstract_.is_some();
                 pre.final_ = f.final_.is_some();
                 if f.final_.is_some() && self.text_of(word) == "mixin" {
-                    self.error_at_token(f.final_.unwrap_or_default(), codes::parser::FINAL_MIXIN_CLASS);
+                    self.error_at_token(
+                        f.final_.unwrap_or_default(),
+                        codes::parser::FINAL_MIXIN_CLASS,
+                    );
                 }
             }
             "mixin" => {
@@ -941,11 +962,16 @@ impl<'s, 'i> Parser<'s, 'i> {
             ("enum", "sealed") => codes::parser::SEALED_ENUM,
             ("enum", "base") => codes::parser::BASE_ENUM,
             ("enum", _) => codes::parser::INTERFACE_ENUM,
-            ("mixin", _) if self.text_at(2) == "class" && self.kind_at(2) == Kind::Keyword(Keyword::Class) => match text {
-                "sealed" => codes::parser::SEALED_MIXIN_CLASS,
-                "interface" => codes::parser::INTERFACE_MIXIN_CLASS,
-                _ => return,
-            },
+            ("mixin", _)
+                if self.text_at(2) == "class"
+                    && self.kind_at(2) == Kind::Keyword(Keyword::Class) =>
+            {
+                match text {
+                    "sealed" => codes::parser::SEALED_MIXIN_CLASS,
+                    "interface" => codes::parser::INTERFACE_MIXIN_CLASS,
+                    _ => return,
+                }
+            }
             ("mixin", "sealed") => codes::parser::SEALED_MIXIN,
             ("mixin", "interface") => codes::parser::INTERFACE_MIXIN,
             _ => return,
@@ -984,7 +1010,12 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `parseTopLevelKeywordDeclaration`: after `mixin`, only `(`, `.` and `<`
         // make it a plain name (a top-level member); anything else opens a mixin,
         // even if the name is missing (`mixin final M {}`).
-        let opener = |i: usize| !matches!(self.kind_of(i), Kind::Op(Op::LParen | Op::Dot | Op::Lt) | Kind::Eof);
+        let opener = |i: usize| {
+            !matches!(
+                self.kind_of(i),
+                Kind::Op(Op::LParen | Op::Dot | Op::Lt) | Kind::Eof
+            )
+        };
         (self.at_ident("mixin") && opener(self.pos + 1))
             || (self.at_ident("base") && self.at_ident_at(1, "mixin") && opener(self.pos + 2))
     }
@@ -1007,9 +1038,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             let tk = &self.tokens[i];
             let text = &self.source[tk.span.start..tk.span.end];
             // An annotation's name (`@sealed class C`) is not a modifier.
-            let from_annotation = i > 0 && &self.source[self.tokens[i - 1].span.start..self.tokens[i - 1].span.end] == "@";
+            let from_annotation = i > 0
+                && &self.source[self.tokens[i - 1].span.start..self.tokens[i - 1].span.end] == "@";
             match text {
-                "abstract" | "base" | "interface" | "final" | "sealed" | "mixin" | "macro" | "augment" if !from_annotation => {
+                "abstract" | "base" | "interface" | "final" | "sealed" | "mixin" | "macro"
+                | "augment"
+                    if !from_annotation =>
+                {
                     found_items.push((text.to_string(), tk.span));
                 }
                 _ => break,
@@ -1096,17 +1131,26 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `AstBuilder.endNamedMixinApplication`: a superclass that is not a
             // named type is `EXPECTED_NAMED_TYPE_EXTENDS` (and becomes a
             // synthetic name: nothing else is reported on it).
-            let extends = if matches!(self.ast.ty(extends).kind, TypeKind::Named { .. } | TypeKind::Void) {
+            let extends = if matches!(
+                self.ast.ty(extends).kind,
+                TypeKind::Named { .. } | TypeKind::Void
+            ) {
                 extends
             } else {
                 let span = self.ast.ty(extends).span;
                 self.error_at(codes::parser::EXPECTED_NAMED_TYPE_EXTENDS, span, &[]);
-                let s = Span { start: span.start, end: span.start };
+                let s = Span {
+                    start: span.start,
+                    end: span.start,
+                };
                 let name = self.name_from("", s);
                 self.ast.push_type(TypeAnnotation {
                     span: s,
                     nullable: false,
-                    kind: TypeKind::Named { name: vec![name].into_boxed_slice(), args: Box::default() },
+                    kind: TypeKind::Named {
+                        name: vec![name].into_boxed_slice(),
+                        args: Box::default(),
+                    },
                 })
             };
             let extends = Some(extends);
@@ -1130,7 +1174,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         let primary_ = self.parse_primary_header_opt(class_token.span, primary_const)?;
         let extends = if self.eat_kw(Keyword::Extends) {
             let t = self.parse_type_not_void()?;
-            self.named_clause_types(vec![t], codes::parser::EXPECTED_NAMED_TYPE_EXTENDS).pop()
+            self.named_clause_types(vec![t], codes::parser::EXPECTED_NAMED_TYPE_EXTENDS)
+                .pop()
         } else {
             None
         };
@@ -1255,13 +1300,20 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` and becomes the name.
     fn declaration_name(&mut self) -> PResult<(&'s str, Name)> {
         let segue = |p: &Self, i: usize| {
-            matches!(p.kind_of(i), Kind::Op(Op::Lt | Op::LBrace | Op::Assign | Op::LParen | Op::Dot) | Kind::Eof)
-                || matches!(p.kind_of(i), Kind::Keyword(Keyword::Extends | Keyword::With))
-                || (p.kind_of(i) == Kind::Ident && matches!(p.text_of(i), "implements" | "on"))
+            matches!(
+                p.kind_of(i),
+                Kind::Op(Op::Lt | Op::LBrace | Op::Assign | Op::LParen | Op::Dot) | Kind::Eof
+            ) || matches!(
+                p.kind_of(i),
+                Kind::Keyword(Keyword::Extends | Keyword::With)
+            ) || (p.kind_of(i) == Kind::Ident && matches!(p.text_of(i), "implements" | "on"))
         };
         let pos = self.pos;
         let pseudo = self.kind() == Kind::Ident
-            && matches!(super::fasta::word_style(self.text()), None | Some(super::fasta::WordStyle::Pseudo));
+            && matches!(
+                super::fasta::word_style(self.text()),
+                None | Some(super::fasta::WordStyle::Pseudo)
+            );
         if !pseudo {
             let recover = self.at_eof()
                 || (self.looks_like_top_level_start(pos) && !segue(self, pos + 1))
@@ -1270,7 +1322,13 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let here = self.span();
                 self.error_at(codes::parser::MISSING_IDENTIFIER, here, &[]);
                 self.synthetic_name = Some(here);
-                let name = self.name_from("", Span { start: here.start, end: here.start });
+                let name = self.name_from(
+                    "",
+                    Span {
+                        start: here.start,
+                        end: here.start,
+                    },
+                );
                 return Ok(("", name));
             }
         }
@@ -1306,12 +1364,20 @@ impl<'s, 'i> Parser<'s, 'i> {
         // without the primary header.
         for &i in parts.iter().skip(1) {
             let span = self.this_span(members[i]);
-            self.error_at(codes::compile_time_error::MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS, span, &[]);
+            self.error_at(
+                codes::compile_time_error::MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS,
+                span,
+                &[],
+            );
         }
         let Some(cab) = cab else {
             for &i in &parts {
                 let span = self.this_span(members[i]);
-                self.error_at(codes::compile_time_error::PRIMARY_CONSTRUCTOR_BODY_WITHOUT_DECLARATION, span, &[]);
+                self.error_at(
+                    codes::compile_time_error::PRIMARY_CONSTRUCTOR_BODY_WITHOUT_DECLARATION,
+                    span,
+                    &[],
+                );
             }
             return None;
         };
@@ -1330,7 +1396,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                 if !c.factory && !redirects {
                     // At the constructor's name (`C` or `C.name`), like the analyzer.
                     let end_offset = c.name.map_or(c.class_name.span.end, |n| n.span.end);
-                    let span = Span { start: c.class_name.span.start, end: end_offset };
+                    let span = Span {
+                        start: c.class_name.span.start,
+                        end: end_offset,
+                    };
                     self.diagnostics.push(Diagnostic::with_code(
                         codes::compile_time_error::NON_REDIRECTING_GENERATIVE_CONSTRUCTOR_WITH_PRIMARY,
                         span,
@@ -1341,7 +1410,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                     // The body's constructor repeats the primary one's name: the analyzer's
                     // `duplicate_constructor`, at the second one's name.
                     let end_offset = c.name.map_or(c.class_name.span.end, |n| n.span.end);
-                    let span = Span { start: c.class_name.span.start, end: end_offset };
+                    let span = Span {
+                        start: c.class_name.span.start,
+                        end: end_offset,
+                    };
                     let d = match c.name {
                         None => Diagnostic::with_code(
                             codes::compile_time_error::DUPLICATE_CONSTRUCTOR_DEFAULT,
@@ -1404,15 +1476,27 @@ impl<'s, 'i> Parser<'s, 'i> {
                 let types_: Vec<crate::ast::TypeParameter> = p
                     .function_type_params
                     .iter()
-                    .map(|t| crate::ast::TypeParameter { span: t.span, metadata: Vec::new().into_boxed_slice(), name: t.name, bound: t.bound, variance: t.variance })
+                    .map(|t| crate::ast::TypeParameter {
+                        span: t.span,
+                        metadata: Vec::new().into_boxed_slice(),
+                        name: t.name,
+                        bound: t.bound,
+                        variance: t.variance,
+                    })
                     .collect();
                 Some(self.ast.push_type(TypeAnnotation {
                     span: p.span,
                     nullable: p.function_nullable,
-                    kind: TypeKind::Function { return_type: p.ty, type_params: types_.into_boxed_slice(), parameters: parameters_.into_boxed_slice() },
+                    kind: TypeKind::Function {
+                        return_type: p.ty,
+                        type_params: types_.into_boxed_slice(),
+                        parameters: parameters_.into_boxed_slice(),
+                    },
                 }))
             } else {
-                p.ty.or_else(|| self.untyped_declarant_type(p.default_value, has_supertypes, p.span))
+                p.ty.or_else(|| {
+                    self.untyped_declarant_type(p.default_value, has_supertypes, p.span)
+                })
             };
             let field_ = Member {
                 span: p.span,
@@ -1460,20 +1544,36 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // the target); the generative cycle ignores it.
                 for i in inits.iter() {
                     if let Initializer::Redirect { span: sp, .. } = i {
-                        let s = Span { start: sp.start, end: sp.start + 4 };
-                        self.diagnostics.push(Diagnostic::with_code(codes::compile_time_error::PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT, s, Vec::<&str>::new()));
+                        let s = Span {
+                            start: sp.start,
+                            end: sp.start + 4,
+                        };
+                        self.diagnostics.push(Diagnostic::with_code(
+                            codes::compile_time_error::PRIMARY_CONSTRUCTOR_CANNOT_REDIRECT,
+                            s,
+                            Vec::<&str>::new(),
+                        ));
                     }
                 }
                 (inits, body, Some(span), body_node)
             }
-            None => (Vec::new().into_boxed_slice(), FunctionBody::Empty, None, None),
+            None => (
+                Vec::new().into_boxed_slice(),
+                FunctionBody::Empty,
+                None,
+                None,
+            ),
         };
         // Body of the `this` part, at the `{`/`=>` that opens it (recorded during
         // the parse): `const` accepts no body at all; otherwise, `=>` is the error.
         if let Some(span) = body_part {
             let code = match (&body, const_) {
-                (FunctionBody::Block(_), true) => Some(codes::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY),
-                (FunctionBody::Expression(_), true) => Some(codes::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY),
+                (FunctionBody::Block(_), true) => {
+                    Some(codes::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY)
+                }
+                (FunctionBody::Expression(_), true) => {
+                    Some(codes::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY)
+                }
                 (FunctionBody::Expression(_), false) => {
                     Some(codes::compile_time_error::PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY)
                 }
@@ -1577,7 +1677,11 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// `AstBuilder._popNamedTypeList`: the clause keeps only the named types
     /// (`void` is one); a function or record type is `code` on the whole type
     /// and is dropped.
-    fn named_clause_types(&mut self, types: Vec<TypeId>, code: dartforge_diagnostics::Code) -> Vec<TypeId> {
+    fn named_clause_types(
+        &mut self,
+        types: Vec<TypeId>,
+        code: dartforge_diagnostics::Code,
+    ) -> Vec<TypeId> {
         let mut out = Vec::with_capacity(types.len());
         for t in types {
             if matches!(self.ast.ty(t).kind, TypeKind::Named { .. } | TypeKind::Void) {
@@ -1646,7 +1750,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.kind() == Kind::Ident
             && !self.at_ident("on")
             && !self.at_ident("implements")
-            && (self.at_op_at(1, Op::LBrace) || self.at_ident_at(1, "on") || self.at_ident_at(1, "implements"))
+            && (self.at_op_at(1, Op::LBrace)
+                || self.at_ident_at(1, "on")
+                || self.at_ident_at(1, "implements"))
         {
             let text = self.text().to_string();
             self.error(codes::parser::UNEXPECTED_TOKEN, &[&text]);
@@ -1693,7 +1799,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             let t = self.advance();
             self.require_in_ast(Feature::PrimaryConstructors, t.span);
             let mut members = Vec::new();
-            let primary_constructor = self.elaborate_primary_constructor(name, primary_, &mut members, Elaborating::Enum);
+            let primary_constructor =
+                self.elaborate_primary_constructor(name, primary_, &mut members, Elaborating::Enum);
             return Ok(EnumDecl {
                 name,
                 type_params: type_params.into_boxed_slice(),
@@ -1816,7 +1923,10 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `on`. Without a type after it (`{`), `EXPECTED_TYPE_NAME` at the `{` and
         // a synthetic type; the body is read normally.
         if !self.eat_ident("on") {
-            if self.at_kw(Keyword::Extends) || self.at_kw(Keyword::With) || self.at_ident("implements") {
+            if self.at_kw(Keyword::Extends)
+                || self.at_kw(Keyword::With)
+                || self.at_ident("implements")
+            {
                 self.error(codes::parser::EXPECTED_INSTEAD, &["on"]);
                 self.advance();
             } else {
@@ -1824,15 +1934,24 @@ impl<'s, 'i> Parser<'s, 'i> {
                 self.error_at(codes::parser::EXPECTED_TOKEN, last, &["on"]);
             }
         }
-        let on = if matches!(self.kind(), Kind::Op(Op::LBrace | Op::Semicolon | Op::RBrace) | Kind::Eof) {
+        let on = if matches!(
+            self.kind(),
+            Kind::Op(Op::LBrace | Op::Semicolon | Op::RBrace) | Kind::Eof
+        ) {
             let here = self.span();
             self.error_at(codes::parser::EXPECTED_TYPE_NAME, here, &[]);
-            let s = Span { start: here.start, end: here.start };
+            let s = Span {
+                start: here.start,
+                end: here.start,
+            };
             let name = self.name_from("", s);
             self.ast.push_type(TypeAnnotation {
                 span: s,
                 nullable: false,
-                kind: TypeKind::Named { name: vec![name].into_boxed_slice(), args: Vec::new().into_boxed_slice() },
+                kind: TypeKind::Named {
+                    name: vec![name].into_boxed_slice(),
+                    args: Vec::new().into_boxed_slice(),
+                },
             })
         } else {
             self.parse_type()?
@@ -1862,30 +1981,37 @@ impl<'s, 'i> Parser<'s, 'i> {
             None
         };
         let representation_start = self.span();
-        let (representation_metadata, representation_type, representation_name) = if self.at_op(Op::LParen) {
-            self.parse_representation()?
-        } else {
-            // `parseExtensionTypeDeclaration`: without `(` or `.`,
-            // `MISSING_PRIMARY_CONSTRUCTOR` at the last token read (the name or the
-            // `>`); with `.name` without `(`, `MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS`
-            // at the name. The rest of the declaration is read normally, with the
-            // synthetic representation (empty, zero width).
-            let code = if has_primary {
-                codes::parser::MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS
+        let (representation_metadata, representation_type, representation_name) =
+            if self.at_op(Op::LParen) {
+                self.parse_representation()?
             } else {
-                codes::parser::MISSING_PRIMARY_CONSTRUCTOR
+                // `parseExtensionTypeDeclaration`: without `(` or `.`,
+                // `MISSING_PRIMARY_CONSTRUCTOR` at the last token read (the name or the
+                // `>`); with `.name` without `(`, `MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS`
+                // at the name. The rest of the declaration is read normally, with the
+                // synthetic representation (empty, zero width).
+                let code = if has_primary {
+                    codes::parser::MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS
+                } else {
+                    codes::parser::MISSING_PRIMARY_CONSTRUCTOR
+                };
+                let last = self.tokens[self.pos - 1].span;
+                self.error_at(code, last, &[]);
+                let s = Span {
+                    start: last.end,
+                    end: last.end,
+                };
+                let name = self.name_from("", s);
+                let ty = self.ast.push_type(TypeAnnotation {
+                    span: s,
+                    nullable: false,
+                    kind: TypeKind::Named {
+                        name: vec![name].into_boxed_slice(),
+                        args: Vec::new().into_boxed_slice(),
+                    },
+                });
+                (Vec::new(), ty, name)
             };
-            let last = self.tokens[self.pos - 1].span;
-            self.error_at(code, last, &[]);
-            let s = Span { start: last.end, end: last.end };
-            let name = self.name_from("", s);
-            let ty = self.ast.push_type(TypeAnnotation {
-                span: s,
-                nullable: false,
-                kind: TypeKind::Named { name: vec![name].into_boxed_slice(), args: Vec::new().into_boxed_slice() },
-            });
-            (Vec::new(), ty, name)
-        };
         let representation_span = self.span_from(representation_start);
         let implements = self.parse_implements_opt()?;
         self.owner = super::MemberOwner::ExtensionType;
@@ -1900,21 +2026,35 @@ impl<'s, 'i> Parser<'s, 'i> {
             .collect();
         for &m in parts.iter().skip(1) {
             let span = self.this_span(m);
-            self.error_at(codes::compile_time_error::MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS, span, &[]);
+            self.error_at(
+                codes::compile_time_error::MULTIPLE_PRIMARY_CONSTRUCTOR_BODY_DECLARATIONS,
+                span,
+                &[],
+            );
         }
         // The `this …` body part of the extension type's primary constructor (the
         // representation), like the class one (`elaborate_primary_constructor`):
         // `const` accepts no body at all; otherwise, `=>` is the error.
         for &mid in members.iter() {
-            let MemberKind::Constructor(c) = &self.ast.member(mid).kind else { continue };
+            let MemberKind::Constructor(c) = &self.ast.member(mid).kind else {
+                continue;
+            };
             if !c.primary_body_part {
                 continue;
             }
-            let Some(span) = self.primary_bodies.get(&c.class_name.span.start).copied() else { continue };
+            let Some(span) = self.primary_bodies.get(&c.class_name.span.start).copied() else {
+                continue;
+            };
             let code = match (&c.body, const_) {
-                (FunctionBody::Block(_), true) => Some(codes::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY),
-                (FunctionBody::Expression(_), true) => Some(codes::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY),
-                (FunctionBody::Expression(_), false) => Some(codes::compile_time_error::PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY),
+                (FunctionBody::Block(_), true) => {
+                    Some(codes::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_BLOCK_BODY)
+                }
+                (FunctionBody::Expression(_), true) => {
+                    Some(codes::parser::CONST_PRIMARY_CONSTRUCTOR_WITH_EXPRESSION_BODY)
+                }
+                (FunctionBody::Expression(_), false) => {
+                    Some(codes::compile_time_error::PRIMARY_CONSTRUCTOR_BODY_WITH_EXPRESSION_BODY)
+                }
                 _ => None,
             };
             if let Some(code) = code {
@@ -1960,17 +2100,27 @@ impl<'s, 'i> Parser<'s, 'i> {
         let mut params = params?;
         let after_open = self.tokens[opener + 1].span;
         let synthetic = |p: &mut Self| {
-            let s = Span { start: after_open.start, end: after_open.start };
+            let s = Span {
+                start: after_open.start,
+                end: after_open.start,
+            };
             let name = p.name_from("", s);
             let ty = p.ast.push_type(TypeAnnotation {
                 span: s,
                 nullable: false,
-                kind: TypeKind::Named { name: vec![name].into_boxed_slice(), args: Vec::new().into_boxed_slice() },
+                kind: TypeKind::Named {
+                    name: vec![name].into_boxed_slice(),
+                    args: Vec::new().into_boxed_slice(),
+                },
             });
             (ty, name)
         };
         let simple = params.first().is_some_and(|p| {
-            p.kind == ParameterKind::Required && !p.this_ && !p.super_ && p.function_parameters.is_none() && p.name.is_some()
+            p.kind == ParameterKind::Required
+                && !p.this_
+                && !p.super_
+                && p.function_parameters.is_none()
+                && p.name.is_some()
         });
         // The 3.13.4 analyzer reports more than one parameter as
         // `MULTIPLE_REPRESENTATION_FIELDS` at the first comma, whatever the shape
@@ -1987,22 +2137,39 @@ impl<'s, 'i> Parser<'s, 'i> {
             && !p.this_
             && !p.super_
             && let Some(name) = p.name
-            && matches!(&self.source[name.span.start..name.span.end], "hashCode" | "noSuchMethod" | "runtimeType" | "toString" | "==")
+            && matches!(
+                &self.source[name.span.start..name.span.end],
+                "hashCode" | "noSuchMethod" | "runtimeType" | "toString" | "=="
+            )
         {
-            self.error_at(codes::compile_time_error::EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT, name.span, &[]);
-            self.only_3_13.push((codes::compile_time_error::EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT, name.span));
+            self.error_at(
+                codes::compile_time_error::EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT,
+                name.span,
+                &[],
+            );
+            self.only_3_13.push((
+                codes::compile_time_error::EXTENSION_TYPE_DECLARES_MEMBER_OF_OBJECT,
+                name.span,
+            ));
         }
         if n > 1 && !simple {
             let end_offset = params[0].span.end;
-            if let Some(comma) =
-                self.tokens[opener..self.pos].iter().find(|t| t.span.start >= end_offset && t.kind == Kind::Op(Op::Comma))
+            if let Some(comma) = self.tokens[opener..self.pos]
+                .iter()
+                .find(|t| t.span.start >= end_offset && t.kind == Kind::Op(Op::Comma))
             {
                 let span = comma.span;
                 self.error_at(codes::parser::MULTIPLE_REPRESENTATION_FIELDS, span, &[]);
-                self.only_3_13.push((codes::parser::MULTIPLE_REPRESENTATION_FIELDS, span));
+                self.only_3_13
+                    .push((codes::parser::MULTIPLE_REPRESENTATION_FIELDS, span));
             }
-            self.error_at(codes::parser::EXPECTED_REPRESENTATION_FIELD, after_open, &[]);
-            self.only_3_6.push((codes::parser::EXPECTED_REPRESENTATION_FIELD, after_open));
+            self.error_at(
+                codes::parser::EXPECTED_REPRESENTATION_FIELD,
+                after_open,
+                &[],
+            );
+            self.only_3_6
+                .push((codes::parser::EXPECTED_REPRESENTATION_FIELD, after_open));
             let (ty, name) = synthetic(self);
             return Ok((Vec::new(), ty, name));
         }
@@ -2014,35 +2181,61 @@ impl<'s, 'i> Parser<'s, 'i> {
             // parameter; 3.6.2, the token after the `(`.
             let in_3_13 = params.first().and_then(|p| {
                 let word = |pp: &Self, k: Keyword| {
-                    pp.tokens[opener..pp.pos].iter().find(|t| t.span.start >= p.span.start && t.kind == Kind::Keyword(k)).map(|t| t.span)
+                    pp.tokens[opener..pp.pos]
+                        .iter()
+                        .find(|t| t.span.start >= p.span.start && t.kind == Kind::Keyword(k))
+                        .map(|t| t.span)
                 };
-                let start_offset = p.metadata.first().map_or(p.span.start, |m| m.span.start.min(p.span.start));
+                let start_offset = p
+                    .metadata
+                    .first()
+                    .map_or(p.span.start, |m| m.span.start.min(p.span.start));
                 if p.this_ {
                     word(self, Keyword::This)
                 } else if p.super_ {
                     word(self, Keyword::Super)
                 } else if p.name.is_none() {
-                    Some(Span { start: start_offset, end: p.span.end })
-                } else if p.kind != ParameterKind::Required && !self.features.has(Feature::PrimaryConstructors) {
+                    Some(Span {
+                        start: start_offset,
+                        end: p.span.end,
+                    })
+                } else if p.kind != ParameterKind::Required
+                    && !self.features.has(Feature::PrimaryConstructors)
+                {
                     self.tokens[opener..self.pos]
                         .iter()
                         .find(|t| matches!(t.kind, Kind::Op(Op::LBracket | Op::LBrace)))
                         .map(|t| t.span)
-                } else if p.function_parameters.is_some() && !self.features.has(Feature::PrimaryConstructors) {
-                    self.tokens[opener..self.pos].iter().find(|t| t.span.start >= start_offset).map(|t| t.span)
+                } else if p.function_parameters.is_some()
+                    && !self.features.has(Feature::PrimaryConstructors)
+                {
+                    self.tokens[opener..self.pos]
+                        .iter()
+                        .find(|t| t.span.start >= start_offset)
+                        .map(|t| t.span)
                 } else {
                     None
                 }
             });
             match in_3_13 {
                 Some(sp) if sp != after_open => {
-                    self.error_at(codes::parser::EXPECTED_REPRESENTATION_FIELD, after_open, &[]);
-                    self.only_3_6.push((codes::parser::EXPECTED_REPRESENTATION_FIELD, after_open));
+                    self.error_at(
+                        codes::parser::EXPECTED_REPRESENTATION_FIELD,
+                        after_open,
+                        &[],
+                    );
+                    self.only_3_6
+                        .push((codes::parser::EXPECTED_REPRESENTATION_FIELD, after_open));
                     self.error_at(codes::parser::EXPECTED_REPRESENTATION_FIELD, sp, &[]);
-                    self.only_3_13.push((codes::parser::EXPECTED_REPRESENTATION_FIELD, sp));
+                    self.only_3_13
+                        .push((codes::parser::EXPECTED_REPRESENTATION_FIELD, sp));
                 }
                 _ => {
-                    self.error_at(codes::parser::EXPECTED_REPRESENTATION_FIELD, after_open, &[]);
+                    self.error_at(
+                        codes::parser::EXPECTED_REPRESENTATION_FIELD,
+                        after_open,
+                        &[],
+                    );
                 }
             }
             let (ty, name) = synthetic(self);
@@ -2059,7 +2252,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             None if p.final_ || p.var_ => {
                 if !self.features.has(Feature::PrimaryConstructors) {
                     self.error_at(codes::parser::EXPECTED_REPRESENTATION_TYPE, after_open, &[]);
-                    self.only_3_6.push((codes::parser::EXPECTED_REPRESENTATION_TYPE, after_open));
+                    self.only_3_6
+                        .push((codes::parser::EXPECTED_REPRESENTATION_TYPE, after_open));
                     // With more than one parameter, 3.13.4 only reports
                     // `MULTIPLE_REPRESENTATION_FIELDS` (`extension type
                     // ET3(final i, final x)`).
@@ -2067,7 +2261,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                         && n == 1
                     {
                         self.error_at(codes::parser::EXPECTED_REPRESENTATION_TYPE, name.span, &[]);
-                        self.only_3_13.push((codes::parser::EXPECTED_REPRESENTATION_TYPE, name.span));
+                        self.only_3_13
+                            .push((codes::parser::EXPECTED_REPRESENTATION_TYPE, name.span));
                     }
                 }
                 synthetic(self).0
@@ -2077,9 +2272,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 match p.name {
                     Some(name) if name.span != after_open => {
                         self.error_at(codes::parser::EXPECTED_REPRESENTATION_TYPE, after_open, &[]);
-                        self.only_3_6.push((codes::parser::EXPECTED_REPRESENTATION_TYPE, after_open));
+                        self.only_3_6
+                            .push((codes::parser::EXPECTED_REPRESENTATION_TYPE, after_open));
                         self.error_at(codes::parser::EXPECTED_REPRESENTATION_TYPE, name.span, &[]);
-                        self.only_3_13.push((codes::parser::EXPECTED_REPRESENTATION_TYPE, name.span));
+                        self.only_3_13
+                            .push((codes::parser::EXPECTED_REPRESENTATION_TYPE, name.span));
                     }
                     _ => {
                         self.error_at(codes::parser::EXPECTED_REPRESENTATION_TYPE, after_open, &[]);
@@ -2099,18 +2296,26 @@ impl<'s, 'i> Parser<'s, 'i> {
         let modifier = p.var_ || (p.final_ && !self.features.has(Feature::PrimaryConstructors));
         if modifier {
             let target_expr = if p.var_ { Keyword::Var } else { Keyword::Final };
-            if let Some(t) = self.tokens[opener..self.pos].iter().find(|t| t.span.start >= p.span.start && t.kind == Kind::Keyword(target_expr)) {
+            if let Some(t) = self.tokens[opener..self.pos]
+                .iter()
+                .find(|t| t.span.start >= p.span.start && t.kind == Kind::Keyword(target_expr))
+            {
                 let span = t.span;
                 if p.var_ && with_type {
                     self.require_in_ast(Feature::PrimaryConstructors, span);
                 }
                 self.error_at(codes::parser::REPRESENTATION_FIELD_MODIFIER, span, &["var"]);
                 if n > 1 {
-                    self.only_3_6.push((codes::parser::REPRESENTATION_FIELD_MODIFIER, span));
+                    self.only_3_6
+                        .push((codes::parser::REPRESENTATION_FIELD_MODIFIER, span));
                 }
             }
         }
-        if let Some(comma) = self.tokens[opener..self.pos].iter().find(|t| t.span.start >= p.span.end).filter(|t| t.kind == Kind::Op(Op::Comma)) {
+        if let Some(comma) = self.tokens[opener..self.pos]
+            .iter()
+            .find(|t| t.span.start >= p.span.end)
+            .filter(|t| t.kind == Kind::Op(Op::Comma))
+        {
             let span = comma.span;
             let code = if n == 1 {
                 codes::parser::REPRESENTATION_FIELD_TRAILING_COMMA
@@ -2174,7 +2379,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         if self.at_identifier() {
             // `computeTypeParamOrArg(inDeclaration: true)`: the whole list, including
             // bounds with function types of named parameters.
-            let after = self.skip_type_arguments(self.pos + 1).unwrap_or_else(|| self.skip_angles(self.pos + 1));
+            let after = self
+                .skip_type_arguments(self.pos + 1)
+                .unwrap_or_else(|| self.skip_angles(self.pos + 1));
             if self.kind_of(after) == Kind::Op(Op::Assign) {
                 self.recovered_typedef_name();
                 let name = self.identifier();
@@ -2213,7 +2420,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let return_type = Some(self.parse_type()?);
         if self.at_identifier() {
-            let after = self.skip_type_arguments(self.pos + 1).unwrap_or_else(|| self.skip_angles(self.pos + 1));
+            let after = self
+                .skip_type_arguments(self.pos + 1)
+                .unwrap_or_else(|| self.skip_angles(self.pos + 1));
             if self.kind_of(after) == Kind::Op(Op::LParen) {
                 self.recovered_typedef_name();
             }
@@ -2241,7 +2450,11 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (`read_top_level_modifiers`/`read_member_modifiers`, which report wrong
     /// order, repetition and what does not fit in the context).
     fn parse_modifiers(&mut self, top_level: bool) -> Modifiers {
-        let f = if top_level { self.read_top_level_modifiers() } else { self.read_member_modifiers() };
+        let f = if top_level {
+            self.read_top_level_modifiers()
+        } else {
+            self.read_member_modifiers()
+        };
         let span = |p: Option<usize>| p.map(|p| self.tokens[p].span);
         Modifiers {
             external: f.external.is_some(),
@@ -2265,7 +2478,12 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// word that indicates a method or field (`parseClassOrMixin…MemberImpl`:
     /// "Getter or setter followed by a reserved word (name)").
     fn accessor_follows_at(&self, top_level: bool) -> Option<FunctionKind> {
-        let name_after = |p: &Self| p.at_identifier_at(1) || (!top_level && matches!(p.kind_at(1), Kind::Keyword(_)) && p.indicates_method_or_field(p.pos + 2));
+        let name_after = |p: &Self| {
+            p.at_identifier_at(1)
+                || (!top_level
+                    && matches!(p.kind_at(1), Kind::Keyword(_))
+                    && p.indicates_method_or_field(p.pos + 2))
+        };
         if self.at_ident("get") && name_after(self) {
             Some(FunctionKind::Getter)
         } else if self.at_ident("set") && name_after(self) {
@@ -2279,17 +2497,27 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     /// `indicatesMethodOrField` (`parser_impl.dart`).
     pub(crate) fn indicates_method_or_field(&self, pos: usize) -> bool {
-        matches!(self.kind_of(pos), Kind::Op(Op::Semicolon | Op::Assign | Op::LParen | Op::LBrace | Op::Arrow | Op::Lt))
+        matches!(
+            self.kind_of(pos),
+            Kind::Op(Op::Semicolon | Op::Assign | Op::LParen | Op::LBrace | Op::Arrow | Op::Lt)
+        )
     }
 
     /// A declaration's name: an identifier, or the reserved word that fasta's
     /// recovery takes as the name when what follows indicates a method or field
     /// (`EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD` at it).
     fn declaration_name_or_reserved(&mut self) -> PResult<Name> {
-        if !self.at_identifier() && matches!(self.kind(), Kind::Keyword(_)) && self.indicates_method_or_field(self.pos + 1) {
+        if !self.at_identifier()
+            && matches!(self.kind(), Kind::Keyword(_))
+            && self.indicates_method_or_field(self.pos + 1)
+        {
             let text = self.text().to_string();
             let token = self.advance();
-            self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, token.span, &[&text]);
+            self.error_at(
+                codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD,
+                token.span,
+                &[&text],
+            );
             return Ok(self.name_from(&text, token.span));
         }
         self.expect_identifier()
@@ -2319,7 +2547,10 @@ impl<'s, 'i> Parser<'s, 'i> {
                     ComposedGt::Shr => ">>",
                     ComposedGt::UShr => ">>>",
                     ComposedGt::ShrAssign | ComposedGt::UShrAssign => {
-                        return Err({ let t = self.text().to_string(); self.error(codes::parser::INVALID_OPERATOR, &[&t]) });
+                        return Err({
+                            let t = self.text().to_string();
+                            self.error(codes::parser::INVALID_OPERATOR, &[&t])
+                        });
                     }
                 };
                 self.eat_composed_gt(composed);
@@ -2343,7 +2574,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             ) => {
                 // `operator ===`: the name is the lexeme (the scanner already reported the
                 // operator).
-                let text = if op == Op::EqEq && self.span().end - self.span().start == 3 { "===" } else { op.text() };
+                let text = if op == Op::EqEq && self.span().end - self.span().start == 3 {
+                    "==="
+                } else {
+                    op.text()
+                };
                 self.advance();
                 text
             }
@@ -2423,10 +2658,23 @@ impl<'s, 'i> Parser<'s, 'i> {
             && let Some(end_offset) = self.outer_pattern_followed_by_equals(self.pos)
         {
             let start_offset = self.span();
-            let span = Span { start: start_offset.start, end: self.tokens[end_offset].span.end };
-            self.error_at(codes::parser::PATTERN_VARIABLE_DECLARATION_OUTSIDE_FUNCTION_OR_METHOD, span, &[]);
+            let span = Span {
+                start: start_offset.start,
+                end: self.tokens[end_offset].span.end,
+            };
+            self.error_at(
+                codes::parser::PATTERN_VARIABLE_DECLARATION_OUTSIDE_FUNCTION_OR_METHOD,
+                span,
+                &[],
+            );
             self.pos = end_offset + 1;
-            let name = self.name_from("", Span { start: start_offset.start, end: start_offset.start });
+            let name = self.name_from(
+                "",
+                Span {
+                    start: start_offset.start,
+                    end: start_offset.start,
+                },
+            );
             let variables = self.parse_declared_variables_tail(name)?;
             return Ok(FunctionOrVariables::Variables(VariableList {
                 external: mods.external,
@@ -2481,7 +2729,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `get`, `final`, `set`, `var`, `void`.
         let text = self.text_of(self.pos);
         let next_declaration = matches!(self.kind(), Kind::Ident | Kind::Keyword(_))
-            && (super::fasta::is_top_level_word(text) || matches!(text, "const" | "get" | "final" | "set" | "var" | "void"));
+            && (super::fasta::is_top_level_word(text)
+                || matches!(text, "const" | "get" | "final" | "set" | "var" | "void"));
         if top_level
             && (ty.is_some() || mods.any_())
             && next_declaration
@@ -2498,7 +2747,13 @@ impl<'s, 'i> Parser<'s, 'i> {
             let word = self.span();
             self.error_at(codes::parser::MISSING_IDENTIFIER, word, &[]);
             let _ = self.expected_error(";");
-            let name = self.name_from("", Span { start: word.start, end: word.start });
+            let name = self.name_from(
+                "",
+                Span {
+                    start: word.start,
+                    end: word.start,
+                },
+            );
             self.report_field_modifiers(mods, top_level, name.span);
             return Ok(FunctionOrVariables::Variables(VariableList {
                 external: mods.external,
@@ -2510,7 +2765,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 const_: mods.const_,
                 var_: mods.var_,
                 ty,
-                variables: vec![crate::ast::Variable { name, initializer: None }].into_boxed_slice(),
+                variables: vec![crate::ast::Variable {
+                    name,
+                    initializer: None,
+                }]
+                .into_boxed_slice(),
             }));
         }
         // `recoverFromInvalidMember`: in a member, `(` or `{` in place of the name
@@ -2518,7 +2777,13 @@ impl<'s, 'i> Parser<'s, 'i> {
         let name = if !top_level && matches!(self.kind(), Kind::Op(Op::LParen | Op::LBrace)) {
             let s = self.span();
             self.error_at(codes::parser::MISSING_IDENTIFIER, s, &[]);
-            self.name_from("", Span { start: s.start, end: s.start })
+            self.name_from(
+                "",
+                Span {
+                    start: s.start,
+                    end: s.start,
+                },
+            )
         } else {
             self.declaration_name_or_reserved()?
         };
@@ -2528,19 +2793,28 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `MISSING_METHOD_PARAMETERS` in a class, at the name) and the body is
         // read. Also with `.` after the name (`augment core.int foo();` without the
         // experiment: `augment` is the type and `core`, the function).
-        let without_parameters = self.at_op(Op::LBrace) || self.at_op(Op::Arrow) || self.at_op(Op::Dot);
+        let without_parameters =
+            self.at_op(Op::LBrace) || self.at_op(Op::Arrow) || self.at_op(Op::Dot);
         if self.at_op(Op::LParen) || self.at_op(Op::Lt) || without_parameters {
             self.report_method_modifiers(mods, top_level, FunctionKind::Function);
             let type_params = self.parse_type_parameters_opt()?;
             self.params_owner = self.parameter_owner(mods, top_level);
             let parameters = if without_parameters {
-                let code = if !top_level && !matches!(self.owner, super::MemberOwner::Extension | super::MemberOwner::ExtensionType) {
+                let code = if !top_level
+                    && !matches!(
+                        self.owner,
+                        super::MemberOwner::Extension | super::MemberOwner::ExtensionType
+                    ) {
                     codes::parser::MISSING_METHOD_PARAMETERS
                 } else {
                     codes::parser::MISSING_FUNCTION_PARAMETERS
                 };
                 // At a synthetic name, the error goes to the next token.
-                let target_expr = if name.span.start == name.span.end { self.span() } else { name.span };
+                let target_expr = if name.span.start == name.span.end {
+                    self.span()
+                } else {
+                    name.span
+                };
                 self.error_at(code, target_expr, &[]);
                 Vec::new()
             } else {
@@ -2570,7 +2844,11 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `MISSING_CONST_FINAL_VAR_OR_TYPE` at the name (`interface interface
         // class C {}`: the built-in identifier is not a type).
         if ty.is_none() && !mods.var_ && !mods.final_ && !mods.const_ {
-            self.error_at(codes::parser::MISSING_CONST_FINAL_VAR_OR_TYPE, name.span, &[]);
+            self.error_at(
+                codes::parser::MISSING_CONST_FINAL_VAR_OR_TYPE,
+                name.span,
+                &[],
+            );
         }
         let variables = self.parse_declared_variables_tail(name)?;
         Ok(FunctionOrVariables::Variables(VariableList {
@@ -2603,7 +2881,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             if self.kind_of(i) != Kind::Op(Op::LParen) {
                 return None;
             }
-        } else if !matches!(self.kind_of(i), Kind::Op(Op::LParen | Op::LBracket | Op::LBrace)) {
+        } else if !matches!(
+            self.kind_of(i),
+            Kind::Op(Op::LParen | Op::LBracket | Op::LBrace)
+        ) {
             return None;
         }
         let closes = self.matching_close(i)?;
@@ -2643,7 +2924,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // error at the name (`missingParameterMessage`: method's in a class, mixin
                 // and enum; function's elsewhere) and a synthetic empty list.
                 if !self.at_op(Op::LParen) {
-                    let code = if !top_level && !matches!(self.owner, super::MemberOwner::Extension | super::MemberOwner::ExtensionType) {
+                    let code = if !top_level
+                        && !matches!(
+                            self.owner,
+                            super::MemberOwner::Extension | super::MemberOwner::ExtensionType
+                        ) {
                         codes::parser::MISSING_METHOD_PARAMETERS
                     } else {
                         codes::parser::MISSING_FUNCTION_PARAMETERS
@@ -2753,7 +3038,13 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// In an extension, a method with a `;` body and no `external` is
     /// `EXTENSION_DECLARES_ABSTRACT_MEMBER` at the name (at the operator, for
     /// `operator`; `parser_impl.dart:5084`).
-    fn check_abstract_in_extension(&mut self, mods: Modifiers, top_level: bool, name: Span, body: &FunctionBody) {
+    fn check_abstract_in_extension(
+        &mut self,
+        mods: Modifiers,
+        top_level: bool,
+        name: Span,
+        body: &FunctionBody,
+    ) {
         if !top_level
             && self.owner == super::MemberOwner::Extension
             && matches!(body, FunctionBody::Empty)
@@ -2796,7 +3087,10 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// (`parser_impl.dart:3934`, `:5003`): a field, getter or setter with the
     /// enclosing declaration's name is `MEMBER_WITH_CLASS_NAME` at the name.
     fn check_member_name(&mut self, name: Span) {
-        if self.enclosing_name.is_some_and(|n| n == &self.source[name.start..name.end]) {
+        if self
+            .enclosing_name
+            .is_some_and(|n| n == &self.source[name.start..name.end])
+        {
             self.error_at(codes::parser::MEMBER_WITH_CLASS_NAME, name, &[]);
         }
     }
@@ -2820,10 +3114,19 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `=`, `,` or `}` (and the end), fasta reports `MISSING_IDENTIFIER` and
             // inserts a synthetic identifier, and the list goes on with the unnamed
             // variable (`Object? foo,;`).
-            if matches!(self.kind(), Kind::Op(Op::Semicolon | Op::Assign | Op::Comma | Op::RBrace) | Kind::Eof) {
+            if matches!(
+                self.kind(),
+                Kind::Op(Op::Semicolon | Op::Assign | Op::Comma | Op::RBrace) | Kind::Eof
+            ) {
                 self.error(codes::parser::MISSING_IDENTIFIER, &[]);
                 let start_offset = self.span().start;
-                name = self.name_from("", Span { start: start_offset, end: start_offset });
+                name = self.name_from(
+                    "",
+                    Span {
+                        start: start_offset,
+                        end: start_offset,
+                    },
+                );
                 continue;
             }
             name = self.expect_identifier()?;
@@ -2905,7 +3208,8 @@ impl<'s, 'i> Parser<'s, 'i> {
         // diagnostics) and only adds `experiment_not_enabled` at the `this`/`new`
         // (probed in a 3.6 library). The superset applies even in a class without
         // a primary header.
-        if !self.can_start_declaration() && !self.at_kw(Keyword::This) && !self.at_kw(Keyword::New) {
+        if !self.can_start_declaration() && !self.at_kw(Keyword::This) && !self.at_kw(Keyword::New)
+        {
             return Err(self.error(codes::parser::EXPECTED_CLASS_MEMBER, &[]));
         }
         let augment = self.parse_augment_opt();
@@ -2933,7 +3237,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             let types_before = self.ast.types.len();
             let _ty = self.parse_type()?;
             self.ast.types.truncate(types_before);
-            self.error_at(codes::parser::CONSTRUCTOR_WITH_RETURN_TYPE, self.span_from(tstart), &[]);
+            self.error_at(
+                codes::parser::CONSTRUCTOR_WITH_RETURN_TYPE,
+                self.span_from(tstart),
+                &[],
+            );
             debug_assert_eq!(self.pos, end_offset);
             self.parse_new_constructor(mods, class_name)?
         } else if let Some(end_offset) = self.type_before_factory() {
@@ -2946,7 +3254,8 @@ impl<'s, 'i> Parser<'s, 'i> {
             self.parse_constructor(mods, true, class_name)?
         } else if self.at_ident("factory")
             && (self.at_identifier_at(1)
-                || (self.features.has(Feature::PrimaryConstructors) && self.at_op_at(1, Op::LParen))
+                || (self.features.has(Feature::PrimaryConstructors)
+                    && self.at_op_at(1, Op::LParen))
                 || self.factory_new_as_constructor())
         {
             // `factory(` is only a constructor from 3.13 on; before that, it is a
@@ -2977,11 +3286,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             } else if self.method_without_parameters() {
                 // `T X.Y` without parentheses (`int C.named;`): X is flagged.
                 let span = self.span();
-                self.error_at(
-                    codes::parser::MISSING_METHOD_PARAMETERS,
-                    span,
-                    &[],
-                );
+                self.error_at(codes::parser::MISSING_METHOD_PARAMETERS, span, &[]);
                 return Err(self.skip_broken_member());
             } else {
                 // Exotic form (`T get.Y;`): no probed rule, it just fails for recovery
@@ -2996,11 +3301,7 @@ impl<'s, 'i> Parser<'s, 'i> {
             // old path. The rest of the member is skipped without new errors (each code
             // has its turn).
             let span = self.span();
-            self.error_at(
-                codes::parser::MISSING_METHOD_PARAMETERS,
-                span,
-                &[],
-            );
+            self.error_at(codes::parser::MISSING_METHOD_PARAMETERS, span, &[]);
             return Err(self.skip_broken_member());
         } else {
             match self.parse_function_or_variables(mods, fstart, None, false)? {
@@ -3008,7 +3309,8 @@ impl<'s, 'i> Parser<'s, 'i> {
                 FunctionOrVariables::Variables(list) => {
                     // fasta `AstBuilder._endClassFields`: the restriction no longer applies
                     // with the augmentations experiment.
-                    if mods.static_ && !self.features.has(Feature::Augmentations)
+                    if mods.static_
+                        && !self.features.has(Feature::Augmentations)
                         && let Some(span) = mods.abstract_span
                     {
                         self.diagnostics.push(Diagnostic::with_code(
@@ -3147,7 +3449,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         // error, reported in `parse_constructor`).
         if class_name == Some(self.text())
             && self.at_op_at(1, Op::Lt)
-            && self.skip_type_arguments(self.pos + 1).is_some_and(|f| self.kind_of(f) == Kind::Op(Op::LParen))
+            && self
+                .skip_type_arguments(self.pos + 1)
+                .is_some_and(|f| self.kind_of(f) == Kind::Op(Op::LParen))
         {
             return true;
         }
@@ -3207,7 +3511,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             // (`Other.x()`) is `INVALID_CONSTRUCTOR_NAME` at the name; `static`,
             // `STATIC_CONSTRUCTOR`.
             if Some(&self.source[class_name.span.start..class_name.span.end]) != class {
-                self.error_at(codes::parser::INVALID_CONSTRUCTOR_NAME, class_name.span, &[]);
+                self.error_at(
+                    codes::parser::INVALID_CONSTRUCTOR_NAME,
+                    class_name.span,
+                    &[],
+                );
             }
             if let Some(st) = mods.modifier_tokens.static_ {
                 self.error_at_token(st, codes::parser::STATIC_CONSTRUCTOR);
@@ -3291,7 +3599,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         // `parser_impl.dart:5514-5556`): `var`/`final`/`const`, `external`,
         // `static`, `covariant`, `late`.
         let f = mods.modifier_tokens;
-        for p in [f.var_final_or_const(), f.external, f.static_, f.covariant, f.late].into_iter().flatten() {
+        for p in [
+            f.var_final_or_const(),
+            f.external,
+            f.static_,
+            f.covariant,
+            f.late,
+        ]
+        .into_iter()
+        .flatten()
+        {
             let tok = self.tokens[p];
             let text = self.text_of(p).to_string();
             self.error_at(codes::parser::EXTRANEOUS_MODIFIER, tok.span, &[&text]);
@@ -3318,7 +3635,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 _ => "sync*",
             };
             let span = self.tokens[before].span;
-            self.error_at(codes::parser::PRIMARY_CONSTRUCTOR_BODY_WITH_MODIFIER, span, &[text]);
+            self.error_at(
+                codes::parser::PRIMARY_CONSTRUCTOR_BODY_WITH_MODIFIER,
+                span,
+                &[text],
+            );
             body_node += if text.ends_with('*') { 2 } else { 1 };
         }
         if let Some(tok) = self.tokens.get(body_node) {
@@ -3361,9 +3682,19 @@ impl<'s, 'i> Parser<'s, 'i> {
             let source = self.source;
             for p in parameters.iter().filter(|p| p.this_) {
                 let until = p.name.map_or(p.span.end, |n| n.span.start);
-                if let Some(i) = source.get(p.span.start..until).and_then(|s| s.rfind("this")) {
+                if let Some(i) = source
+                    .get(p.span.start..until)
+                    .and_then(|s| s.rfind("this"))
+                {
                     let start_ = p.span.start + i;
-                    self.error_at(codes::parser::EXTERNAL_CONSTRUCTOR_WITH_FIELD_INITIALIZERS, Span { start: start_, end: start_ + 4 }, &[]);
+                    self.error_at(
+                        codes::parser::EXTERNAL_CONSTRUCTOR_WITH_FIELD_INITIALIZERS,
+                        Span {
+                            start: start_,
+                            end: start_ + 4,
+                        },
+                        &[],
+                    );
                 }
             }
         }
@@ -3373,10 +3704,16 @@ impl<'s, 'i> Parser<'s, 'i> {
         // a factory is `NON_SYNC_FACTORY`, at the `async`/`sync` token, before the
         // `=` test — it also applies to the redirecting factory, which has no body
         // (there the modifier is just skipped).
-        if factory && (self.at_ident("async") || (self.at_ident("sync") && self.at_op_at(1, Op::Star))) {
+        if factory
+            && (self.at_ident("async") || (self.at_ident("sync") && self.at_op_at(1, Op::Star)))
+        {
             let span = self.span();
             self.error_at(codes::compile_time_error::NON_SYNC_FACTORY, span, &[]);
-            let modifier_tokens_ = if self.at_ident("sync") || self.at_op_at(1, Op::Star) { 2 } else { 1 };
+            let modifier_tokens_ = if self.at_ident("sync") || self.at_op_at(1, Op::Star) {
+                2
+            } else {
+                1
+            };
             if self.at_op_at(modifier_tokens_, Op::Assign) {
                 for _ in 0..modifier_tokens_ {
                     self.advance();
@@ -3435,13 +3772,25 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `async*`).
             if modifier != AsyncModifier::None {
                 let span = self.tokens[body_start].span;
-                let word = if modifier == AsyncModifier::SyncStar { "sync" } else { "async" };
-                self.error_at(codes::compile_time_error::INVALID_MODIFIER_ON_CONSTRUCTOR, span, &[word]);
+                let word = if modifier == AsyncModifier::SyncStar {
+                    "sync"
+                } else {
+                    "async"
+                };
+                self.error_at(
+                    codes::compile_time_error::INVALID_MODIFIER_ON_CONSTRUCTOR,
+                    span,
+                    &[word],
+                );
             }
             self.check_external_body(mods.external, factory, body_start, &body, None);
             // `parseFactoryMethod`: only an `external` factory may omit the body; the
             // generative constructor follows the method rule (`parseMethod`).
-            let allows = if factory { mods.external } else { Self::allows_abstract(mods, modifier, false) };
+            let allows = if factory {
+                mods.external
+            } else {
+                Self::allows_abstract(mods, modifier, false)
+            };
             self.check_empty_body(&body, allows);
             if mods.const_ && !factory {
                 let delimiter = match body {
@@ -3463,7 +3812,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         // The SDK declares `external` constant factories (for example
         // `bool.fromEnvironment`); the ErrorVerifier only applies `constFactory` to
         // the branch without `externalKeyword`.
-        if factory && !mods.external && redirect.is_none()
+        if factory
+            && !mods.external
+            && redirect.is_none()
             && let Some(span) = mods.const_span
         {
             self.error_at(codes::parser::CONST_FACTORY, span, &[]);
@@ -3500,7 +3851,11 @@ impl<'s, 'i> Parser<'s, 'i> {
             // `?.` (`parseSuperExpression`), read as `.`.
             if self.at_op(Op::QuestionDot) {
                 let span = self.span();
-                self.error_at(codes::parser::INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER, span, &[]);
+                self.error_at(
+                    codes::parser::INVALID_OPERATOR_QUESTIONMARK_PERIOD_FOR_SUPER,
+                    span,
+                    &[],
+                );
             }
             let mut via_primary = false;
             let constructor = if self.eat_op(Op::Dot) || self.eat_op(Op::QuestionDot) {
@@ -3511,10 +3866,16 @@ impl<'s, 'i> Parser<'s, 'i> {
                 // `const ()` rejected as a name).
                 if self.at_kw(Keyword::New) || self.at_identifier() {
                     Some(self.identifier_or_new()?)
-                } else if matches!(self.kind(), Kind::Keyword(_)) && !self.looks_like_statement_start(self.pos) {
+                } else if matches!(self.kind(), Kind::Keyword(_))
+                    && !self.looks_like_statement_start(self.pos)
+                {
                     let text = self.text().to_string();
                     let span = self.span();
-                    self.error_at(codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD, span, &[&text]);
+                    self.error_at(
+                        codes::parser::EXPECTED_IDENTIFIER_BUT_GOT_KEYWORD,
+                        span,
+                        &[&text],
+                    );
                     via_primary = true;
                     Some(self.member_name(true)?)
                 } else {
@@ -3532,14 +3893,25 @@ impl<'s, 'i> Parser<'s, 'i> {
                 return Ok(Initializer::Super {
                     span: self.span_from(start),
                     constructor,
-                    arguments: crate::ast::Arguments { span: Span { start: s, end: s }, type_args: Box::default(), args: Box::default() },
+                    arguments: crate::ast::Arguments {
+                        span: Span { start: s, end: s },
+                        type_args: Box::default(),
+                        args: Box::default(),
+                    },
                 });
             }
             // `buildInitializer`: reread by `parsePrimary`, `super.x` without arguments
             // is not a call to the superclass constructor
             // (`INVALID_SUPER_IN_INITIALIZER`).
             if via_primary && !self.at_op(Op::LParen) {
-                self.error_at(codes::parser::INVALID_SUPER_IN_INITIALIZER, Span { start: start.start, end: start.start + 5 }, &[]);
+                self.error_at(
+                    codes::parser::INVALID_SUPER_IN_INITIALIZER,
+                    Span {
+                        start: start.start,
+                        end: start.start + 5,
+                    },
+                    &[],
+                );
                 self.skip_rest_of_initializer();
                 let s = self.span().start;
                 // Not a constructor invocation in the `AstBuilder`: without the name, so
@@ -3548,7 +3920,11 @@ impl<'s, 'i> Parser<'s, 'i> {
                 return Ok(Initializer::Super {
                     span: self.span_from(start),
                     constructor: None,
-                    arguments: crate::ast::Arguments { span: Span { start: s, end: s }, type_args: Box::default(), args: Box::default() },
+                    arguments: crate::ast::Arguments {
+                        span: Span { start: s, end: s },
+                        type_args: Box::default(),
+                        args: Box::default(),
+                    },
                 });
             }
             let arguments = self.parse_arguments()?;
@@ -3556,7 +3932,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             // not a call to the superclass constructor: `INVALID_SUPER_IN_INITIALIZER`
             // at the `super` (the node becomes the call with the last argument list).
             if self.selector_after_initializer() {
-                self.error_at(codes::parser::INVALID_SUPER_IN_INITIALIZER, Span { start: start.start, end: start.start + 5 }, &[]);
+                self.error_at(
+                    codes::parser::INVALID_SUPER_IN_INITIALIZER,
+                    Span {
+                        start: start.start,
+                        end: start.start + 5,
+                    },
+                    &[],
+                );
                 self.skip_rest_of_initializer();
             }
             return Ok(Initializer::Super {
@@ -3571,7 +3954,14 @@ impl<'s, 'i> Parser<'s, 'i> {
                 if self.at_op(Op::LParen) {
                     let arguments = self.parse_arguments()?;
                     if self.selector_after_initializer() {
-                        self.error_at(codes::parser::INVALID_THIS_IN_INITIALIZER, Span { start: start.start, end: start.start + 4 }, &[]);
+                        self.error_at(
+                            codes::parser::INVALID_THIS_IN_INITIALIZER,
+                            Span {
+                                start: start.start,
+                                end: start.start + 4,
+                            },
+                            &[],
+                        );
                         self.skip_rest_of_initializer();
                     }
                     self.check_redirecting_body();
@@ -3601,7 +3991,14 @@ impl<'s, 'i> Parser<'s, 'i> {
             }
             let arguments = self.parse_arguments()?;
             if self.selector_after_initializer() {
-                self.error_at(codes::parser::INVALID_THIS_IN_INITIALIZER, Span { start: start.start, end: start.start + 4 }, &[]);
+                self.error_at(
+                    codes::parser::INVALID_THIS_IN_INITIALIZER,
+                    Span {
+                        start: start.start,
+                        end: start.start + 4,
+                    },
+                    &[],
+                );
                 self.skip_rest_of_initializer();
             }
             self.check_redirecting_body();
@@ -3657,7 +4054,14 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn selector_after_initializer(&self) -> bool {
         matches!(
             self.kind(),
-            Kind::Op(Op::Dot | Op::QuestionDot | Op::DotDot | Op::QuestionDotDot | Op::LBracket | Op::LParen)
+            Kind::Op(
+                Op::Dot
+                    | Op::QuestionDot
+                    | Op::DotDot
+                    | Op::QuestionDotDot
+                    | Op::LBracket
+                    | Op::LParen
+            )
         )
     }
 
@@ -3686,15 +4090,37 @@ impl<'s, 'i> Parser<'s, 'i> {
     fn this_without_period(&mut self, start: Span) -> PResult<Initializer> {
         use crate::ast::{Expr, ExprKind};
         self.error_at(codes::parser::MISSING_ASSIGNMENT_IN_INITIALIZER, start, &[]);
-        let this_span = Span { start: start.start, end: start.start + 4 };
-        let this_ = self.ast.push_expr(Expr { span: this_span, kind: ExprKind::This });
-        let synthetic = self.name_from("", Span { start: this_span.end, end: this_span.end });
+        let this_span = Span {
+            start: start.start,
+            end: start.start + 4,
+        };
+        let this_ = self.ast.push_expr(Expr {
+            span: this_span,
+            kind: ExprKind::This,
+        });
+        let synthetic = self.name_from(
+            "",
+            Span {
+                start: this_span.end,
+                end: this_span.end,
+            },
+        );
         let property = self.ast.push_expr(Expr {
             span: this_span,
-            kind: ExprKind::Property { target: this_, name: synthetic, null_aware: false },
+            kind: ExprKind::Property {
+                target: this_,
+                name: synthetic,
+                null_aware: false,
+            },
         });
         let value = self.parse_expression_after_primary(start, property)?;
-        let name = self.name_from("", Span { start: start.start, end: start.start });
+        let name = self.name_from(
+            "",
+            Span {
+                start: start.start,
+                end: start.start,
+            },
+        );
         Ok(Initializer::Field {
             span: self.span_from(start),
             this_: false,
@@ -3705,9 +4131,19 @@ impl<'s, 'i> Parser<'s, 'i> {
 
     fn initializer_without_assignment(&mut self, start: Span) -> PResult<Initializer> {
         self.error_at(codes::parser::MISSING_ASSIGNMENT_IN_INITIALIZER, start, &[]);
-        self.pos = self.tokens.iter().position(|t| t.span.start == start.start).unwrap_or(self.pos);
+        self.pos = self
+            .tokens
+            .iter()
+            .position(|t| t.span.start == start.start)
+            .unwrap_or(self.pos);
         let value = self.parse_expression()?;
-        let name = self.name_from("", Span { start: start.start, end: start.start });
+        let name = self.name_from(
+            "",
+            Span {
+                start: start.start,
+                end: start.start,
+            },
+        );
         Ok(Initializer::Field {
             span: self.span_from(start),
             this_: false,
@@ -3726,7 +4162,14 @@ impl<'s, 'i> Parser<'s, 'i> {
     /// The range from `start_offset` starts before the `async` modifier and
     /// only includes this function's tokens, so the first delimiter is the
     /// body.
-    fn check_external_body(&mut self, external: bool, factory: bool, start_offset: usize, body: &FunctionBody, external_top_level: Option<Span>) {
+    fn check_external_body(
+        &mut self,
+        external: bool,
+        factory: bool,
+        start_offset: usize,
+        body: &FunctionBody,
+        external_top_level: Option<Span>,
+    ) {
         if !external {
             return;
         }
@@ -3762,7 +4205,9 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         let end_offset = self.pos + 1;
         let n = 1;
-        (self.at_kw_at(n, Keyword::New) && (self.at_op_at(n + 1, Op::LParen) || self.at_identifier_at(n + 1))).then_some(end_offset)
+        (self.at_kw_at(n, Keyword::New)
+            && (self.at_op_at(n + 1, Op::LParen) || self.at_identifier_at(n + 1)))
+        .then_some(end_offset)
     }
 
     /// `factory new(` (without `.` after the `new`): 3.13.4 reads a factory
@@ -3785,7 +4230,10 @@ impl<'s, 'i> Parser<'s, 'i> {
             return None;
         }
         let end_offset = self.skip_type(self.pos)?;
-        (end_offset > self.pos && self.kind_of(end_offset) == Kind::Ident && self.text_of(end_offset) == "factory" && self.kind_of(end_offset + 1) == Kind::Ident)
+        (end_offset > self.pos
+            && self.kind_of(end_offset) == Kind::Ident
+            && self.text_of(end_offset) == "factory"
+            && self.kind_of(end_offset + 1) == Kind::Ident)
             .then_some(end_offset)
     }
 
@@ -3904,8 +4352,14 @@ impl<'s, 'i> Parser<'s, 'i> {
         }
         self.error(codes::parser::MISSING_FUNCTION_BODY, &[]);
         let here = self.span().start;
-        let empty = Span { start: here, end: here };
-        let block = self.ast.push_stmt(crate::ast::Stmt { span: empty, kind: crate::ast::StmtKind::Block(Box::default()) });
+        let empty = Span {
+            start: here,
+            end: here,
+        };
+        let block = self.ast.push_stmt(crate::ast::Stmt {
+            span: empty,
+            kind: crate::ast::StmtKind::Block(Box::default()),
+        });
         Ok(FunctionBody::Block(block))
     }
 }
@@ -3937,7 +4391,12 @@ mod tests {
         let v: Vec<(&str, &str)> = out
             .diagnostics
             .iter()
-            .map(|d| (d.code.map_or("", |c| c.info().name), &source[d.span.start..d.span.end]))
+            .map(|d| {
+                (
+                    d.code.map_or("", |c| c.info().name),
+                    &source[d.span.start..d.span.end],
+                )
+            })
             .collect();
         assert_eq!(
             v,
@@ -3970,7 +4429,11 @@ mod tests {
             .diagnostics
             .iter()
             .map(|d| {
-                assert_eq!(d.code, Some(dartforge_diagnostics::codes::parser::MISSING_FUNCTION_BODY), "{d:?}");
+                assert_eq!(
+                    d.code,
+                    Some(dartforge_diagnostics::codes::parser::MISSING_FUNCTION_BODY),
+                    "{d:?}"
+                );
                 assert_eq!(&source[d.span.start..d.span.end], ";");
                 source[..d.span.start].matches('\n').count() + 1
             })
@@ -3989,9 +4452,14 @@ mod tests {
     fn parse_ok_except_order(src: &str, names: &mut Interner) -> Parsed {
         use dartforge_diagnostics::codes::parser as c;
         let out = parse(src, names);
-        let order = [c::NON_PART_OF_DIRECTIVE_IN_PART, c::DIRECTIVE_AFTER_DECLARATION];
+        let order = [
+            c::NON_PART_OF_DIRECTIVE_IN_PART,
+            c::DIRECTIVE_AFTER_DECLARATION,
+        ];
         assert!(
-            out.diagnostics.iter().all(|d| d.code.is_some_and(|k| order.contains(&k))),
+            out.diagnostics
+                .iter()
+                .all(|d| d.code.is_some_and(|k| order.contains(&k))),
             "{src}: {:?}",
             out.diagnostics
         );
@@ -4028,8 +4496,13 @@ mod tests {
             &mut names,
         );
         for (i, expected_) in ["extension", "get", "mixin"].into_iter().enumerate() {
-            let DeclKind::Function(f) = decl(&out, i) else { panic!("expected a function") };
-            assert_eq!(text(&names, out.ast.function(*f).name.expect("name")), expected_);
+            let DeclKind::Function(f) = decl(&out, i) else {
+                panic!("expected a function")
+            };
+            assert_eq!(
+                text(&names, out.ast.function(*f).name.expect("name")),
+                expected_
+            );
         }
     }
 
@@ -4037,25 +4510,54 @@ mod tests {
     fn external_body_marks_block_opening_or_arrow_with_official_code() {
         use dartforge_diagnostics::codes::parser as c;
         for (src, token, code) in [
-            ("external int f() => 1;", "external", c::EXTERNAL_METHOD_WITH_BODY),
-            ("class C { external C() {} }", "{}", c::EXTERNAL_METHOD_WITH_BODY),
-            ("class C { external factory C.x() => C(); }", "=>", c::EXTERNAL_FACTORY_WITH_BODY),
-            ("class C { external factory C.x() {} }", "{}", c::EXTERNAL_FACTORY_WITH_BODY),
-            ("class C { external int get v => 1; }", "=>", c::EXTERNAL_METHOD_WITH_BODY),
+            (
+                "external int f() => 1;",
+                "external",
+                c::EXTERNAL_METHOD_WITH_BODY,
+            ),
+            (
+                "class C { external C() {} }",
+                "{}",
+                c::EXTERNAL_METHOD_WITH_BODY,
+            ),
+            (
+                "class C { external factory C.x() => C(); }",
+                "=>",
+                c::EXTERNAL_FACTORY_WITH_BODY,
+            ),
+            (
+                "class C { external factory C.x() {} }",
+                "{}",
+                c::EXTERNAL_FACTORY_WITH_BODY,
+            ),
+            (
+                "class C { external int get v => 1; }",
+                "=>",
+                c::EXTERNAL_METHOD_WITH_BODY,
+            ),
         ] {
             let mut names = Interner::new();
             let out = parse(src, &mut names);
             let start_offset = src.find(token).unwrap();
             let end_offset = start_offset + if token == "{}" { 1 } else { token.len() };
-            assert!(out.diagnostics.iter().any(|d|
-                d.code == Some(code) && d.span.start == start_offset && d.span.end == end_offset
-            ), "{src}: {:?}", out.diagnostics);
+            assert!(
+                out.diagnostics.iter().any(|d| d.code == Some(code)
+                    && d.span.start == start_offset
+                    && d.span.end == end_offset),
+                "{src}: {:?}",
+                out.diagnostics
+            );
             assert_eq!(out.diagnostics.len(), 1, "{src}: {:?}", out.diagnostics);
         }
         let mut names = Interner::new();
-        let out = parse("external int f(); class C { external factory C.x(); }", &mut names);
-        assert!(!out.diagnostics.iter().any(|d| matches!(d.code,
-            Some(c::EXTERNAL_METHOD_WITH_BODY | c::EXTERNAL_FACTORY_WITH_BODY))));
+        let out = parse(
+            "external int f(); class C { external factory C.x(); }",
+            &mut names,
+        );
+        assert!(!out.diagnostics.iter().any(|d| matches!(
+            d.code,
+            Some(c::EXTERNAL_METHOD_WITH_BODY | c::EXTERNAL_FACTORY_WITH_BODY)
+        )));
     }
 
     #[test]
@@ -4063,14 +4565,20 @@ mod tests {
         use dartforge_diagnostics::codes::parser as c;
         for (src, code, start_offset, message, correction) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_0c2b43e4.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_0c2b43e4.dart"
+                )),
                 c::EXTERNAL_METHOD_WITH_BODY,
                 25,
                 "An external or native method can't have a body.",
                 None,
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_42cae48d.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_42cae48d.dart"
+                )),
                 c::EXTERNAL_FACTORY_WITH_BODY,
                 39,
                 "External factories can't have a body.",
@@ -4079,24 +4587,36 @@ mod tests {
         ] {
             let mut names = Interner::new();
             let out = parse(src, &mut names);
-            assert!(out.diagnostics.iter().any(|d|
-                d.code == Some(code) && d.span.start == start_offset && d.span.end == start_offset + 2
-                    && d.message == message && d.correction().as_deref() == correction
-            ), "{src}: {:?}", out.diagnostics);
+            assert!(
+                out.diagnostics.iter().any(|d| d.code == Some(code)
+                    && d.span.start == start_offset
+                    && d.span.end == start_offset + 2
+                    && d.message == message
+                    && d.correction().as_deref() == correction),
+                "{src}: {:?}",
+                out.diagnostics
+            );
         }
     }
 
     #[test]
     fn external_top_level_function_points_to_external_like_fasta() {
         use dartforge_diagnostics::codes::parser as c;
-        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/executable_body/ExecutableBody__topLevelFunction_extern_0464d54b.dart"));
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../corpus/diagnostics/analyzer/executable_body/ExecutableBody__topLevelFunction_extern_0464d54b.dart"
+        ));
         let mut names = Interner::new();
         let out = parse(source, &mut names);
-        assert!(out.diagnostics.iter().any(|d|
-            d.code == Some(c::EXTERNAL_METHOD_WITH_BODY)
-                && d.span.start == 43 && d.span.end == 51
-                && d.message == "An external or native method can't have a body."
-        ), "{out:?}");
+        assert!(
+            out.diagnostics
+                .iter()
+                .any(|d| d.code == Some(c::EXTERNAL_METHOD_WITH_BODY)
+                    && d.span.start == 43
+                    && d.span.end == 51
+                    && d.message == "An external or native method can't have a body."),
+            "{out:?}"
+        );
     }
 
     #[test]
@@ -4105,19 +4625,42 @@ mod tests {
         use crate::parser::parse_with;
         use dartforge_diagnostics::codes::parser as c;
 
-        let source = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/executable_body/ExecutableBody__class_staticField_abstr_5d2b9f54.dart"));
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../corpus/diagnostics/analyzer/executable_body/ExecutableBody__class_staticField_abstr_5d2b9f54.dart"
+        ));
         let span = source.find("abstract int foo").unwrap();
         let mut names = Interner::new();
-        let without_feature = parse_with(source, &mut names, LibraryFeatures::new(LanguageVersion::FLOOR, &[]));
-        assert!(without_feature.diagnostics.iter().any(|d|
-            d.code == Some(c::ABSTRACT_STATIC_FIELD)
-                && d.span.start == span && d.span.end == span + "abstract".len()
-                && d.message == "Static fields can't be declared 'abstract'."
-                && d.correction().as_deref() == Some("Try removing the 'abstract' or 'static' keyword.")
-        ), "{:?}", without_feature.diagnostics);
+        let without_feature = parse_with(
+            source,
+            &mut names,
+            LibraryFeatures::new(LanguageVersion::FLOOR, &[]),
+        );
+        assert!(
+            without_feature
+                .diagnostics
+                .iter()
+                .any(|d| d.code == Some(c::ABSTRACT_STATIC_FIELD)
+                    && d.span.start == span
+                    && d.span.end == span + "abstract".len()
+                    && d.message == "Static fields can't be declared 'abstract'."
+                    && d.correction().as_deref()
+                        == Some("Try removing the 'abstract' or 'static' keyword.")),
+            "{:?}",
+            without_feature.diagnostics
+        );
 
-        let with_feature = parse_with(source, &mut names, LibraryFeatures::new(LanguageVersion::FLOOR, &[Feature::Augmentations]));
-        assert!(!with_feature.diagnostics.iter().any(|d| d.code == Some(c::ABSTRACT_STATIC_FIELD)));
+        let with_feature = parse_with(
+            source,
+            &mut names,
+            LibraryFeatures::new(LanguageVersion::FLOOR, &[Feature::Augmentations]),
+        );
+        assert!(
+            !with_feature
+                .diagnostics
+                .iter()
+                .any(|d| d.code == Some(c::ABSTRACT_STATIC_FIELD))
+        );
     }
 
     #[test]
@@ -4125,34 +4668,58 @@ mod tests {
         use dartforge_diagnostics::codes::parser as c;
         for (source, start_offset, end_offset) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_482771f3.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_482771f3.dart"
+                )),
                 41,
                 43,
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_4a7cd473.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_4a7cd473.dart"
+                )),
                 50,
                 52,
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_79e52946.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_79e52946.dart"
+                )),
                 50,
                 51,
             ),
         ] {
             let mut names = Interner::new();
             let parsed = parse(source, &mut names);
-            assert!(parsed.diagnostics.iter().any(|d|
-                d.code == Some(c::CONST_CONSTRUCTOR_WITH_BODY)
-                    && d.span.start == start_offset && d.span.end == end_offset
-                    && d.message == "Const constructors can't have a body."
-                    && d.correction().as_deref() == Some("Try removing either the 'const' keyword or the body.")
-            ), "{source}: {:?}", parsed.diagnostics);
+            assert!(
+                parsed
+                    .diagnostics
+                    .iter()
+                    .any(|d| d.code == Some(c::CONST_CONSTRUCTOR_WITH_BODY)
+                        && d.span.start == start_offset
+                        && d.span.end == end_offset
+                        && d.message == "Const constructors can't have a body."
+                        && d.correction().as_deref()
+                            == Some("Try removing either the 'const' keyword or the body.")),
+                "{source}: {:?}",
+                parsed.diagnostics
+            );
         }
 
         let mut names = Interner::new();
-        let parsed = parse("class C { const C(); const factory C.x() => C(); }", &mut names);
-        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_CONSTRUCTOR_WITH_BODY)));
+        let parsed = parse(
+            "class C { const C(); const factory C.x() => C(); }",
+            &mut names,
+        );
+        assert!(
+            !parsed
+                .diagnostics
+                .iter()
+                .any(|d| d.code == Some(c::CONST_CONSTRUCTOR_WITH_BODY))
+        );
     }
 
     #[test]
@@ -4160,15 +4727,24 @@ mod tests {
         use dartforge_diagnostics::codes::parser as c;
         for (source, start_offset) in [
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_6ecedb96.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_6ecedb96.dart"
+                )),
                 12,
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_c135c0a2.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_c135c0a2.dart"
+                )),
                 25,
             ),
             (
-                include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_d7023785.dart")),
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../../corpus/diagnostics/analyzer/constructor_body/ConstructorBody__class_secondaryConstru_d7023785.dart"
+                )),
                 55,
             ),
         ] {
@@ -4182,17 +4758,42 @@ mod tests {
         }
 
         let mut names = Interner::new();
-        let parsed = parse("class A { const A(); const factory A.named() = A; }", &mut names);
-        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)));
+        let parsed = parse(
+            "class A { const A(); const factory A.named() = A; }",
+            &mut names,
+        );
+        assert!(
+            !parsed
+                .diagnostics
+                .iter()
+                .any(|d| d.code == Some(c::CONST_FACTORY))
+        );
 
         // SDK 3.6.2 declarations: lib/core/bool.dart and lib/core/int.dart.
         let sdk = "class bool { external const factory bool.fromEnvironment(String name, {bool defaultValue = false}); external const factory bool.hasEnvironment(String name); } class int { external const factory int.fromEnvironment(String name, {int defaultValue = 0}); }";
         let parsed = parse(sdk, &mut names);
-        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)), "{:?}", parsed.diagnostics);
+        assert!(
+            !parsed
+                .diagnostics
+                .iter()
+                .any(|d| d.code == Some(c::CONST_FACTORY)),
+            "{:?}",
+            parsed.diagnostics
+        );
 
-        let corpus = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../corpus/diagnostics/linguagem/const/native_factory_test.dart"));
+        let corpus = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../corpus/diagnostics/linguagem/const/native_factory_test.dart"
+        ));
         let parsed = parse(corpus, &mut names);
-        assert!(!parsed.diagnostics.iter().any(|d| d.code == Some(c::CONST_FACTORY)), "{:?}", parsed.diagnostics);
+        assert!(
+            !parsed
+                .diagnostics
+                .iter()
+                .any(|d| d.code == Some(c::CONST_FACTORY)),
+            "{:?}",
+            parsed.diagnostics
+        );
     }
 
     // -- Independent of the other modules --------------------------------------
@@ -4421,7 +5022,11 @@ mod tests {
             assert_eq!(out.diagnostics.len(), 1, "{source}: {:?}", out.diagnostics);
             let single = &out.diagnostics[0];
             assert_eq!(single.code, Some(c::EXPECTED_CLASS_MEMBER), "{source}");
-            assert_eq!((single.span.start, single.span.end), (start_offset, end_offset), "{source}");
+            assert_eq!(
+                (single.span.start, single.span.end),
+                (start_offset, end_offset),
+                "{source}"
+            );
             assert_eq!(out.unit.declarations.len(), 1, "{source}");
             let field_ = match member(&out, class(&out, 0), 0) {
                 MemberKind::Field(list) => list,
@@ -4443,8 +5048,9 @@ mod tests {
         let mut names = Interner::new();
         let out = parse(source, &mut names);
         assert!(
-            out.diagnostics.iter().any(|d|
-                d.code == Some(c::EXPECTED_TOKEN)
+            out.diagnostics
+                .iter()
+                .any(|d| d.code == Some(c::EXPECTED_TOKEN)
                     && d.span.start == 20
                     && d.span.end == 21
                     && d.message == "Expected to find ';'."),
@@ -4452,11 +5058,20 @@ mod tests {
             out.diagnostics
         );
         let class = class(&out, 0);
-        let field_names: Vec<_> = class.members.iter().map(|m| match &out.ast.member(*m).kind {
-            MemberKind::Field(list) => text(&names, list.variables[0].name).to_string(),
-            other => panic!("{source}: {other:?}"),
-        }).collect();
-        assert_eq!(field_names, ["x", "garbage", "y"], "{source}: {:?}", out.diagnostics);
+        let field_names: Vec<_> = class
+            .members
+            .iter()
+            .map(|m| match &out.ast.member(*m).kind {
+                MemberKind::Field(list) => text(&names, list.variables[0].name).to_string(),
+                other => panic!("{source}: {other:?}"),
+            })
+            .collect();
+        assert_eq!(
+            field_names,
+            ["x", "garbage", "y"],
+            "{source}: {:?}",
+            out.diagnostics
+        );
     }
 
     /// Valid members of every shape never touch recovery.
@@ -4482,12 +5097,19 @@ mod tests {
 
         let source = "class C {\n  augment int get foo => 0;\n}\n";
         let mut names = Interner::new();
-        let out = parse_with(source, &mut names, LibraryFeatures::new(LanguageVersion::FLOOR, &[]));
+        let out = parse_with(
+            source,
+            &mut names,
+            LibraryFeatures::new(LanguageVersion::FLOOR, &[]),
+        );
         assert_eq!(out.diagnostics.len(), 1, "{source}: {:?}", out.diagnostics);
         assert_eq!(out.diagnostics[0].code, Some(c::EXPECTED_TOKEN));
         let class = class(&out, 0);
         assert_eq!(class.members.len(), 2, "{source}: {:?}", out.diagnostics);
-        assert_eq!((out.diagnostics[0].span.start, out.diagnostics[0].span.end), (20, 23));
+        assert_eq!(
+            (out.diagnostics[0].span.start, out.diagnostics[0].span.end),
+            (20, 23)
+        );
         match member(&out, class, 1) {
             MemberKind::Method(id) => {
                 assert_eq!(text(&names, out.ast.function(*id).name.unwrap()), "foo");
@@ -4503,14 +5125,30 @@ mod tests {
     fn extension_type_without_primary_constructor() {
         use dartforge_diagnostics::codes::parser as c;
         for (source, code, start_offset, end_offset, members_) in [
-            ("extension type A<T> { int get x => 0; }", c::MISSING_PRIMARY_CONSTRUCTOR, 18, 19, 1),
-            ("extension type A.n { }", c::MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS, 17, 18, 0),
+            (
+                "extension type A<T> { int get x => 0; }",
+                c::MISSING_PRIMARY_CONSTRUCTOR,
+                18,
+                19,
+                1,
+            ),
+            (
+                "extension type A.n { }",
+                c::MISSING_PRIMARY_CONSTRUCTOR_PARAMETERS,
+                17,
+                18,
+                0,
+            ),
         ] {
             let mut names = Interner::new();
             let out = parse(source, &mut names);
             assert_eq!(out.diagnostics.len(), 1, "{source}: {:?}", out.diagnostics);
             let d = &out.diagnostics[0];
-            assert_eq!((d.code, d.span.start, d.span.end), (Some(code), start_offset, end_offset), "{source}");
+            assert_eq!(
+                (d.code, d.span.start, d.span.end),
+                (Some(code), start_offset, end_offset),
+                "{source}"
+            );
             match &out.ast.decl(out.unit.declarations[0]).kind {
                 DeclKind::ExtensionType(e) => assert_eq!(e.members.len(), members_, "{source}"),
                 other => panic!("{source}: {other:?}"),
@@ -4530,15 +5168,28 @@ mod tests {
 
         let source = "class C {\n  augment C.named() : this.missing();\n}\n";
         let mut names = Interner::new();
-        let out = parse_with(source, &mut names, LibraryFeatures::new(LanguageVersion::FLOOR, &[]));
-        let found_codes: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        let out = parse_with(
+            source,
+            &mut names,
+            LibraryFeatures::new(LanguageVersion::FLOOR, &[]),
+        );
+        let found_codes: Vec<_> = out
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, (d.span.start, d.span.end)))
+            .collect();
         assert_eq!(
             found_codes,
             [(Some(c::CONSTRUCTOR_WITH_RETURN_TYPE), (12, 19))],
             "{source}: {:?}",
             out.diagnostics
         );
-        assert_eq!(class(&out, 0).members.len(), 1, "{source}: {:?}", out.diagnostics);
+        assert_eq!(
+            class(&out, 0).members.len(),
+            1,
+            "{source}: {:?}",
+            out.diagnostics
+        );
     }
 
     /// A stray token skips one: `[` does not swallow the rest (`int? a]` stays
@@ -4553,7 +5204,11 @@ mod tests {
         let source = "[int? a]);\nvar b = 0;\n";
         let mut names = Interner::new();
         let out = parse(source, &mut names);
-        let found_codes: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        let found_codes: Vec<_> = out
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, (d.span.start, d.span.end)))
+            .collect();
         assert_eq!(
             found_codes,
             [
@@ -4568,7 +5223,9 @@ mod tests {
         );
         // `int? a` becomes a field with the inserted `;`; `var b` comes after.
         assert_eq!(out.unit.declarations.len(), 2);
-        assert!(matches!(decl(&out, 1), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&names, v.name) == "b")));
+        assert!(
+            matches!(decl(&out, 1), DeclKind::Variables(l) if l.variables.iter().any(|v| text(&names, v.name) == "b"))
+        );
     }
 
     /// `Foo() = Bar;` without `factory`: the target is read and only the `=` is
@@ -4580,7 +5237,11 @@ mod tests {
         let source = "class Foo {\n  Foo()\n  = Bar\n  ;\n}\n";
         let mut names = Interner::new();
         let out = parse(source, &mut names);
-        let found_codes: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        let found_codes: Vec<_> = out
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, (d.span.start, d.span.end)))
+            .collect();
         assert_eq!(
             found_codes,
             [(Some(c::REDIRECTION_IN_NON_FACTORY_CONSTRUCTOR), (22, 23))],
@@ -4599,14 +5260,23 @@ mod tests {
         let source = "class A {\n  int value;\n  augment A(int? p1) : value = p1;\n}\n";
         let mut names = Interner::new();
         let out = parse(source, &mut names);
-        let found_codes: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        let found_codes: Vec<_> = out
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, (d.span.start, d.span.end)))
+            .collect();
         assert_eq!(
             found_codes,
             [(Some(c::CONSTRUCTOR_WITH_RETURN_TYPE), (25, 32))],
             "{source}: {:?}",
             out.diagnostics
         );
-        assert_eq!(class(&out, 0).members.len(), 2, "{source}: {:?}", out.diagnostics);
+        assert_eq!(
+            class(&out, 0).members.len(),
+            2,
+            "{source}: {:?}",
+            out.diagnostics
+        );
     }
 
     /// `this :` in a class WITH a primary header is a body part even without
@@ -4619,15 +5289,24 @@ mod tests {
 
         let source = "class A(int x) {\n  A.named() : this(0);\n  this : assert(x > 0);\n}\n";
         let mut names = Interner::new();
-        let out = parse_with(source, &mut names, LibraryFeatures::new(LanguageVersion::FLOOR, &[]));
+        let out = parse_with(
+            source,
+            &mut names,
+            LibraryFeatures::new(LanguageVersion::FLOOR, &[]),
+        );
         assert!(
-            !out.diagnostics.iter().any(|d| d.code == Some(
-                dartforge_diagnostics::codes::parser::EXPECTED_CLASS_MEMBER
-            )),
+            !out.diagnostics.iter().any(
+                |d| d.code == Some(dartforge_diagnostics::codes::parser::EXPECTED_CLASS_MEMBER)
+            ),
             "{source}: {:?}",
             out.diagnostics
         );
-        assert_eq!(class(&out, 0).members.len(), 2, "{source}: {:?}", out.diagnostics);
+        assert_eq!(
+            class(&out, 0).members.len(),
+            2,
+            "{source}: {:?}",
+            out.diagnostics
+        );
     }
 
     /// `this => 0;` without the feature: the 3.13.4 analyzer reads the `this`
@@ -4644,20 +5323,42 @@ mod tests {
 
         let source = "class A(int x) {\n  this => 0;\n}\n";
         let mut names = Interner::new();
-        let out = parse_with(source, &mut names, LibraryFeatures::new(LanguageVersion::FLOOR, &[]));
+        let out = parse_with(
+            source,
+            &mut names,
+            LibraryFeatures::new(LanguageVersion::FLOOR, &[]),
+        );
         let feature: Vec<_> = out
             .diagnostics
             .iter()
             .filter(|d| d.code == Some(c::EXPERIMENT_NOT_ENABLED))
             .map(|d| ((d.span.start, d.span.end), d.args[1].to_string()))
             .collect();
-        assert_eq!(feature, [((7, 8), "3.13.0".to_string()), ((19, 23), "3.13".to_string())], "{:?}", out.diagnostics);
-        assert!(!out.diagnostics.iter().any(|d| d.code == Some(c::EXPECTED_CLASS_MEMBER)), "{:?}", out.diagnostics);
+        assert_eq!(
+            feature,
+            [
+                ((7, 8), "3.13.0".to_string()),
+                ((19, 23), "3.13".to_string())
+            ],
+            "{:?}",
+            out.diagnostics
+        );
+        assert!(
+            !out.diagnostics
+                .iter()
+                .any(|d| d.code == Some(c::EXPECTED_CLASS_MEMBER)),
+            "{:?}",
+            out.diagnostics
+        );
 
         let source = "class C {\n  => 0;\n}\n";
         let mut names = Interner::new();
         let out = parse(source, &mut names);
-        let found_codes: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        let found_codes: Vec<_> = out
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, (d.span.start, d.span.end)))
+            .collect();
         assert_eq!(
             found_codes,
             [
@@ -4680,15 +5381,33 @@ mod tests {
 
         let source = "class C {\n  new foo();\n  static int foo = 0;\n}\n";
         let mut names = Interner::new();
-        let out = parse_with(source, &mut names, LibraryFeatures::new(LanguageVersion::FLOOR, &[]));
+        let out = parse_with(
+            source,
+            &mut names,
+            LibraryFeatures::new(LanguageVersion::FLOOR, &[]),
+        );
         let found_codes: Vec<_> = out
             .diagnostics
             .iter()
-            .map(|d| (d.code, (d.span.start, d.span.end), d.args.iter().map(|a| a.to_string()).collect::<Vec<_>>()))
+            .map(|d| {
+                (
+                    d.code,
+                    (d.span.start, d.span.end),
+                    d.args.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+                )
+            })
             .collect();
         assert_eq!(
             found_codes,
-            [(Some(c::EXPERIMENT_NOT_ENABLED), (12, 15), vec!["primary-constructors".to_string(), "3.13".to_string(), "3.13".to_string()])],
+            [(
+                Some(c::EXPERIMENT_NOT_ENABLED),
+                (12, 15),
+                vec![
+                    "primary-constructors".to_string(),
+                    "3.13".to_string(),
+                    "3.13".to_string()
+                ]
+            )],
             "{:?}",
             out.diagnostics
         );
@@ -4708,9 +5427,25 @@ mod tests {
         let source = "class C {\n  int? _123;\n  C({this._123});\n}\n";
         let start_offset = source.rfind("_123").unwrap();
         let mut names = Interner::new();
-        let out = parse_with(source, &mut names, LibraryFeatures::new(LanguageVersion::FLOOR, &[]));
-        let found_codes: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
-        assert_eq!(found_codes, [(Some(c::EXPERIMENT_NOT_ENABLED), (start_offset, start_offset + 4))], "{:?}", out.diagnostics);
+        let out = parse_with(
+            source,
+            &mut names,
+            LibraryFeatures::new(LanguageVersion::FLOOR, &[]),
+        );
+        let found_codes: Vec<_> = out
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, (d.span.start, d.span.end)))
+            .collect();
+        assert_eq!(
+            found_codes,
+            [(
+                Some(c::EXPERIMENT_NOT_ENABLED),
+                (start_offset, start_offset + 4)
+            )],
+            "{:?}",
+            out.diagnostics
+        );
     }
 
     /// `T X.Y` without parentheses: both errors (`int C.named;`, probed).
@@ -4721,7 +5456,11 @@ mod tests {
         let source = "class C {\n  int C.named;\n}\n";
         let mut names = Interner::new();
         let out = parse(source, &mut names);
-        let found_codes: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        let found_codes: Vec<_> = out
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, (d.span.start, d.span.end)))
+            .collect();
         assert_eq!(
             found_codes,
             [
@@ -4749,8 +5488,17 @@ mod tests {
             let mut names = Interner::new();
             let out = parse(&source, &mut names);
             let first = &out.diagnostics[0];
-            assert_eq!(first.code, Some(c::MISSING_METHOD_PARAMETERS), "{source}: {:?}", out.diagnostics);
-            assert_eq!((first.span.start, first.span.end), (start_offset, end_offset), "{source}");
+            assert_eq!(
+                first.code,
+                Some(c::MISSING_METHOD_PARAMETERS),
+                "{source}: {:?}",
+                out.diagnostics
+            );
+            assert_eq!(
+                (first.span.start, first.span.end),
+                (start_offset, end_offset),
+                "{source}"
+            );
         }
     }
 
@@ -4776,11 +5524,24 @@ mod tests {
             let source = format!("class C {{\n  {member}\n}}\n");
             let mut names = Interner::new();
             let out = parse(&source, &mut names);
-            assert_eq!(out.diagnostics.len(), errors, "{source}: {:?}", out.diagnostics);
+            assert_eq!(
+                out.diagnostics.len(),
+                errors,
+                "{source}: {:?}",
+                out.diagnostics
+            );
             if errors == 1 {
                 let single = &out.diagnostics[0];
-                assert_eq!(single.code, Some(c::MISSING_CONST_FINAL_VAR_OR_TYPE), "{source}");
-                assert_eq!((single.span.start, single.span.end), (start_offset, end_offset), "{source}");
+                assert_eq!(
+                    single.code,
+                    Some(c::MISSING_CONST_FINAL_VAR_OR_TYPE),
+                    "{source}"
+                );
+                assert_eq!(
+                    (single.span.start, single.span.end),
+                    (start_offset, end_offset),
+                    "{source}"
+                );
             }
         }
     }
@@ -4793,7 +5554,11 @@ mod tests {
         let source = "class C {\n  int? ab]\n}\n";
         let mut names = Interner::new();
         let out = parse(source, &mut names);
-        let found_codes: Vec<_> = out.diagnostics.iter().map(|d| (d.code, (d.span.start, d.span.end))).collect();
+        let found_codes: Vec<_> = out
+            .diagnostics
+            .iter()
+            .map(|d| (d.code, (d.span.start, d.span.end)))
+            .collect();
         assert_eq!(
             found_codes,
             [
@@ -4805,7 +5570,12 @@ mod tests {
         );
         assert_eq!(out.unit.declarations.len(), 1, "{source}");
         // The inserted `;` closes the field `int? ab` (`ensureSemicolon`).
-        assert_eq!(class(&out, 0).members.len(), 1, "{source}: {:?}", out.diagnostics);
+        assert_eq!(
+            class(&out, 0).members.len(),
+            1,
+            "{source}: {:?}",
+            out.diagnostics
+        );
     }
 
     /// `(` without a type or modifiers does not open a declaration at top
@@ -4821,7 +5591,9 @@ mod tests {
         assert_eq!(first.code, Some(c::EXPECTED_EXECUTABLE));
         assert_eq!((first.span.start, first.span.end), (0, 1));
         assert!(
-            !out.diagnostics.iter().any(|d| d.code == Some(c::MISSING_IDENTIFIER)),
+            !out.diagnostics
+                .iter()
+                .any(|d| d.code == Some(c::MISSING_IDENTIFIER)),
             "{source}: {:?}",
             out.diagnostics
         );
@@ -4862,7 +5634,10 @@ mod tests {
         let mut p = Parser::new(src, tokens, &mut names);
         // fasta's `ensureBlock`: a missing body becomes a synthetic empty block,
         // without consuming the `)`.
-        assert!(matches!(p.parse_function_body(), Ok((_, FunctionBody::Block(_)))));
+        assert!(matches!(
+            p.parse_function_body(),
+            Ok((_, FunctionBody::Block(_)))
+        ));
         assert_eq!(p.diagnostics.len(), 1);
         assert!(p.at_op(crate::token::Op::RParen));
         assert!(!p.in_async);
@@ -5251,7 +6026,11 @@ mod tests {
         use crate::parser::parse_with;
 
         fn with_features(exp: &[Feature], src: &str, names: &mut Interner) -> Parsed {
-            parse_with(src, names, LibraryFeatures::new(LanguageVersion::FLOOR, exp))
+            parse_with(
+                src,
+                names,
+                LibraryFeatures::new(LanguageVersion::FLOOR, exp),
+            )
         }
 
         #[test]
@@ -5264,7 +6043,11 @@ mod tests {
             let d = out.ast.decl(out.unit.declarations[0]);
             assert!(d.augment);
             let c = class(&out, 0);
-            let aug: Vec<bool> = c.members.iter().map(|&m| out.ast.member(m).augment).collect();
+            let aug: Vec<bool> = c
+                .members
+                .iter()
+                .map(|&m| out.ast.member(m).augment)
+                .collect();
             assert_eq!(aug, [true, false, true, true]);
             assert!(matches!(member(&out, c, 2), MemberKind::Constructor(_)));
             assert!(out.ast.decl(out.unit.declarations[1]).augment);
@@ -5275,25 +6058,36 @@ mod tests {
             // Without `augmentations`/`macros`, `augment` stays an identifier: 3.6
             // code that uses it as a name does not change meaning.
             let mut names = Interner::new();
-            let out = with_features(&[], "var augment = 1; int f() => augment; void augment2() {}", &mut names);
+            let out = with_features(
+                &[],
+                "var augment = 1; int f() => augment; void augment2() {}",
+                &mut names,
+            );
             assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
             assert!(!out.ast.decl(out.unit.declarations[0]).augment);
             // Not even `augment class` is a modifier: fasta tokenizes `augment` as an
             // identifier and top-level recovery reports the 3.13.4 analyzer's pair at
             // the `augment` (probed), without a disabled feature.
             let out = with_features(&[], "augment class C {}", &mut names);
-            let mut found_codes: Vec<_> = out.diagnostics.iter().map(|d| (d.code, d.span.start, d.span.end)).collect();
+            let mut found_codes: Vec<_> = out
+                .diagnostics
+                .iter()
+                .map(|d| (d.code, d.span.start, d.span.end))
+                .collect();
             found_codes.sort();
             use dartforge_diagnostics::codes::parser as c;
-            let mut expected_ = [(Some(c::EXPECTED_TOKEN), 0, 7), (Some(c::MISSING_CONST_FINAL_VAR_OR_TYPE), 0, 7)];
+            let mut expected_ = [
+                (Some(c::EXPECTED_TOKEN), 0, 7),
+                (Some(c::MISSING_CONST_FINAL_VAR_OR_TYPE), 0, 7),
+            ];
             expected_.sort();
-            assert_eq!(
-                found_codes,
-                expected_,
-                "{:?}",
-                out.diagnostics
+            assert_eq!(found_codes, expected_, "{:?}", out.diagnostics);
+            assert!(
+                out.unit
+                    .declarations
+                    .iter()
+                    .all(|&d| !out.ast.decl(d).augment)
             );
-            assert!(out.unit.declarations.iter().all(|&d| !out.ast.decl(d).augment));
         }
 
         /// Without the experiment, `augment` before a declaration is a plain name
@@ -5305,16 +6099,38 @@ mod tests {
             use dartforge_diagnostics::codes::parser as c;
             type ExpectedDiagnostic = (dartforge_diagnostics::Code, usize, usize);
             let cases_: [(&str, &[ExpectedDiagnostic]); 5] = [
-                ("augment class C {}", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_CONST_FINAL_VAR_OR_TYPE, 0, 7)]),
-                ("augment enum E { a }", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_CONST_FINAL_VAR_OR_TYPE, 0, 7)]),
-                ("augment mixin M {}", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_IDENTIFIER, 8, 13)]),
-                ("augment extension X on int {}", &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_IDENTIFIER, 8, 17)]),
+                (
+                    "augment class C {}",
+                    &[
+                        (c::EXPECTED_TOKEN, 0, 7),
+                        (c::MISSING_CONST_FINAL_VAR_OR_TYPE, 0, 7),
+                    ],
+                ),
+                (
+                    "augment enum E { a }",
+                    &[
+                        (c::EXPECTED_TOKEN, 0, 7),
+                        (c::MISSING_CONST_FINAL_VAR_OR_TYPE, 0, 7),
+                    ],
+                ),
+                (
+                    "augment mixin M {}",
+                    &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_IDENTIFIER, 8, 13)],
+                ),
+                (
+                    "augment extension X on int {}",
+                    &[(c::EXPECTED_TOKEN, 0, 7), (c::MISSING_IDENTIFIER, 8, 17)],
+                ),
                 ("augment abstract class D {}", &[(c::EXPECTED_TOKEN, 8, 16)]),
             ];
             for (source, expected_) in cases_ {
                 let mut names = Interner::new();
                 let out = with_features(&[], source, &mut names);
-                let mut found: Vec<_> = out.diagnostics.iter().map(|d| (d.code.unwrap(), d.span.start, d.span.end)).collect();
+                let mut found: Vec<_> = out
+                    .diagnostics
+                    .iter()
+                    .map(|d| (d.code.unwrap(), d.span.start, d.span.end))
+                    .collect();
                 let mut expected_ = expected_.to_vec();
                 found.sort_by_key(|&(c, s, e)| (s, e, c));
                 expected_.sort_by_key(|&(c, s, e)| (s, e, c));
@@ -5329,12 +6145,22 @@ mod tests {
 macro class M implements Macro { const M(); }";
             let out = with_features(&[Feature::Macros], src, &mut names);
             assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
-            assert!(matches!(out.unit.directives[0].kind, DirectiveKind::ImportAugment { .. }));
+            assert!(matches!(
+                out.unit.directives[0].kind,
+                DirectiveKind::ImportAugment { .. }
+            ));
             assert!(class(&out, 0).modifiers.macro_);
-            let out = with_features(&[Feature::Macros], "augment library 'main.dart';
-import 'dart:core' as p;", &mut names);
+            let out = with_features(
+                &[Feature::Macros],
+                "augment library 'main.dart';
+import 'dart:core' as p;",
+                &mut names,
+            );
             assert!(out.diagnostics.is_empty(), "{:?}", out.diagnostics);
-            assert!(matches!(out.unit.directives[0].kind, DirectiveKind::AugmentLibrary { .. }));
+            assert!(matches!(
+                out.unit.directives[0].kind,
+                DirectiveKind::AugmentLibrary { .. }
+            ));
             // Without `macros`: a diagnostic, not a syntax error.
             let out = with_features(&[], "macro class M {}", &mut names);
             assert_eq!(out.diagnostics.len(), 1, "{:?}", out.diagnostics);

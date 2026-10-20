@@ -9,8 +9,8 @@
 //! `dartforge_types::annotations::is_shadowed`, and the extensions chosen during
 //! member resolution (`BodyTypes::used_extensions`); see [`unused`].
 
-use dartforge_diagnostics::codes::{compile_time_error as c, warning as w};
 use dartforge_diagnostics::Diagnostic;
+use dartforge_diagnostics::codes::{compile_time_error as c, warning as w};
 use dartforge_elements::model::{Element, LibraryId, Program, UnitRole};
 use dartforge_frontend::ast::{Combinator, DirectiveKind, ExprKind, PatternKind, TypeKind};
 use dartforge_intern::{Interner, SymbolId};
@@ -45,7 +45,10 @@ fn suppresses(d: &Diagnostic) -> bool {
 /// Written without compiling or running (2026-10-04).
 /// The types of the formal parameters (that of a function-typed parameter is
 /// its return type), also those of the nested old-style ones.
-fn param_types(ps: &[dartforge_frontend::ast::Parameter], out: &mut Vec<dartforge_frontend::ast::TypeId>) {
+fn param_types(
+    ps: &[dartforge_frontend::ast::Parameter],
+    out: &mut Vec<dartforge_frontend::ast::TypeId>,
+) {
     for p in ps {
         out.extend(p.ty);
         for tp in p.function_type_params.iter() {
@@ -67,10 +70,15 @@ fn param_types(ps: &[dartforge_frontend::ast::Parameter], out: &mut Vec<dartforg
 /// the new-style `typedef`, the function type and the record itself, the
 /// patterns, the `for-in` and the type of a creation (`new p.T()`). On the
 /// whole type, with `p.T`.
-pub fn deferred_types(program: &Program, lib: LibraryId, names: &Interner) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
+pub fn deferred_types(
+    program: &Program,
+    lib: LibraryId,
+    names: &Interner,
+) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
     use dartforge_frontend::ast::{self, DeclKind, MemberKind, StmtKind};
     let library = program.library(lib);
-    let mut by_prefix: std::collections::HashMap<SymbolId, (usize, bool)> = std::collections::HashMap::new();
+    let mut by_prefix: std::collections::HashMap<SymbolId, (usize, bool)> =
+        std::collections::HashMap::new();
     for i in &library.imports {
         if let Some(p) = i.prefix {
             let e = by_prefix.entry(p).or_insert((0, false));
@@ -78,7 +86,11 @@ pub fn deferred_types(program: &Program, lib: LibraryId, names: &Interner) -> Ve
             e.1 = i.deferred;
         }
     }
-    let deferred: HashSet<SymbolId> = by_prefix.into_iter().filter(|(_, (n, d))| *n == 1 && *d).map(|(p, _)| p).collect();
+    let deferred: HashSet<SymbolId> = by_prefix
+        .into_iter()
+        .filter(|(_, (n, d))| *n == 1 && *d)
+        .map(|(p, _)| p)
+        .collect();
     let mut out = Vec::new();
     if deferred.is_empty() {
         return out;
@@ -94,7 +106,11 @@ pub fn deferred_types(program: &Program, lib: LibraryId, names: &Interner) -> Ve
         for ty in &a.types {
             match &ty.kind {
                 TypeKind::Named { args, .. } => targets.extend(args.iter().copied()),
-                TypeKind::Function { parameters, type_params, .. } => {
+                TypeKind::Function {
+                    parameters,
+                    type_params,
+                    ..
+                } => {
                     param_types(parameters, &mut targets);
                     bounds(type_params, &mut targets);
                 }
@@ -104,17 +120,23 @@ pub fn deferred_types(program: &Program, lib: LibraryId, names: &Interner) -> Ve
         for e in &a.exprs {
             match &e.kind {
                 ExprKind::As { ty, .. } | ExprKind::Is { ty, .. } => targets.push(*ty),
-                ExprKind::List { type_args, .. } | ExprKind::SetOrMap { type_args, .. } | ExprKind::TypeArguments { type_args, .. } => {
+                ExprKind::List { type_args, .. }
+                | ExprKind::SetOrMap { type_args, .. }
+                | ExprKind::TypeArguments { type_args, .. } => {
                     targets.extend(type_args.iter().copied())
                 }
-                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => targets.extend(arguments.type_args.iter().copied()),
+                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
+                    targets.extend(arguments.type_args.iter().copied())
+                }
                 _ => {}
             }
         }
         for s in &a.stmts {
             match &s.kind {
                 StmtKind::Variables(l) => targets.extend(l.ty),
-                StmtKind::Try { catches, .. } => targets.extend(catches.iter().filter_map(|c| c.on_type)),
+                StmtKind::Try { catches, .. } => {
+                    targets.extend(catches.iter().filter_map(|c| c.on_type))
+                }
                 _ => {}
             }
         }
@@ -144,7 +166,11 @@ pub fn deferred_types(program: &Program, lib: LibraryId, names: &Interner) -> Ve
                 DeclKind::ExtensionType(k) => bounds(&k.type_params, &mut targets),
                 DeclKind::Typedef(k) => {
                     bounds(&k.type_params, &mut targets);
-                    if let ast::TypedefKind::Legacy { return_type, parameters } = &k.kind {
+                    if let ast::TypedefKind::Legacy {
+                        return_type,
+                        parameters,
+                    } = &k.kind
+                    {
                         targets.extend(*return_type);
                         param_types(parameters, &mut targets);
                     }
@@ -156,19 +182,31 @@ pub fn deferred_types(program: &Program, lib: LibraryId, names: &Interner) -> Ve
         targets.dedup();
         for t in targets {
             let annotation = a.ty(t);
-            let TypeKind::Named { name, .. } = &annotation.kind else { continue };
+            let TypeKind::Named { name, .. } = &annotation.kind else {
+                continue;
+            };
             let [p, n] = &name[..] else { continue };
             if !deferred.contains(&p.sym) {
                 continue;
             }
             let text = format!("{}.{}", names.resolve(p.sym), names.resolve(n.sym));
-            out.push((u, Diagnostic::with_code(c::TYPE_ANNOTATION_DEFERRED_CLASS, annotation.span, [text.as_str()])));
+            out.push((
+                u,
+                Diagnostic::with_code(
+                    c::TYPE_ANNOTATION_DEFERRED_CLASS,
+                    annotation.span,
+                    [text.as_str()],
+                ),
+            ));
         }
     }
     out
 }
 
-pub fn deferred_extensions(program: &Program, lib: LibraryId) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
+pub fn deferred_extensions(
+    program: &Program,
+    lib: LibraryId,
+) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
     let mut out = Vec::new();
     for imp in &program.library(lib).imports {
         if !imp.deferred {
@@ -188,9 +226,20 @@ pub fn deferred_extensions(program: &Program, lib: LibraryId) -> Vec<(dartforge_
         if !has_extension {
             continue;
         }
-        let Some(dir) = program.unit(imp.unit).unit.directives.get(imp.directive) else { continue };
-        let DirectiveKind::Import { uri, .. } = &dir.kind else { continue };
-        out.push((imp.unit, Diagnostic::with_code(c::DEFERRED_IMPORT_OF_EXTENSION, uri.span, std::iter::empty::<&str>())));
+        let Some(dir) = program.unit(imp.unit).unit.directives.get(imp.directive) else {
+            continue;
+        };
+        let DirectiveKind::Import { uri, .. } = &dir.kind else {
+            continue;
+        };
+        out.push((
+            imp.unit,
+            Diagnostic::with_code(
+                c::DEFERRED_IMPORT_OF_EXTENSION,
+                uri.span,
+                std::iter::empty::<&str>(),
+            ),
+        ));
     }
     out
 }
@@ -198,15 +247,34 @@ pub fn deferred_extensions(program: &Program, lib: LibraryId) -> Vec<(dartforge_
 /// The internal libraries of SDK 3.6.2 (`isInternal`: empty `categories` in
 /// `lib/_internal/sdk_library_metadata/lib/libraries.dart`).
 const INTERNAL_LIBRARIES: &[&str] = &[
-    "_http", "_native_typed_data", "_internal", "_js_helper", "_late_helper", "_rti", "_dart2js_only",
-    "_dart2js_runtime_metrics", "_interceptors", "_foreign_helper", "_js_names", "_js_primitives",
-    "_js_embedded_names", "_js_shared_embedded_names", "_js_types", "_async_status_codes",
-    "_invocation_mirror_constants", "_recipe_syntax", "_load_library_priority", "_metadata",
-    "_js_annotations", "_wasm", "_macros",
+    "_http",
+    "_native_typed_data",
+    "_internal",
+    "_js_helper",
+    "_late_helper",
+    "_rti",
+    "_dart2js_only",
+    "_dart2js_runtime_metrics",
+    "_interceptors",
+    "_foreign_helper",
+    "_js_names",
+    "_js_primitives",
+    "_js_embedded_names",
+    "_js_shared_embedded_names",
+    "_js_types",
+    "_async_status_codes",
+    "_invocation_mirror_constants",
+    "_recipe_syntax",
+    "_load_library_priority",
+    "_metadata",
+    "_js_annotations",
+    "_wasm",
+    "_macros",
 ];
 
 fn is_internal(uri: &str) -> bool {
-    uri.strip_prefix("dart:").is_some_and(|n| INTERNAL_LIBRARIES.contains(&n))
+    uri.strip_prefix("dart:")
+        .is_some_and(|n| INTERNAL_LIBRARIES.contains(&n))
 }
 
 /// `_checkForImportInternalLibrary` (`error_verifier.dart:3800-3822`, on the
@@ -215,7 +283,10 @@ fn is_internal(uri: &str) -> bool {
 /// imports of the unit with the same prefix, each `deferred` on its token).
 /// Outside the `dart:` libraries; `dart:_wasm` is allowed in
 /// `package:js/js.dart` and `package:ui/`, `dart:_macros` re-exported in `package:macros`.
-pub fn internal_and_deferred_directives(program: &Program, lib: LibraryId) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
+pub fn internal_and_deferred_directives(
+    program: &Program,
+    lib: LibraryId,
+) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
     let mut out = Vec::new();
     let library = program.library(lib);
     let current = library.uri.as_str();
@@ -226,12 +297,21 @@ pub fn internal_and_deferred_directives(program: &Program, lib: LibraryId) -> Ve
             if !is_internal(target) || program.library(imp.library).units.is_empty() {
                 continue;
             }
-            if target == "dart:_wasm" && (current == "package:js/js.dart" || current.starts_with("package:ui/")) {
+            if target == "dart:_wasm"
+                && (current == "package:js/js.dart" || current.starts_with("package:ui/"))
+            {
                 continue;
             }
-            let Some(dir) = program.unit(imp.unit).unit.directives.get(imp.directive) else { continue };
-            let DirectiveKind::Import { uri, .. } = &dir.kind else { continue };
-            out.push((imp.unit, Diagnostic::with_code(c::IMPORT_INTERNAL_LIBRARY, uri.span, [target])));
+            let Some(dir) = program.unit(imp.unit).unit.directives.get(imp.directive) else {
+                continue;
+            };
+            let DirectiveKind::Import { uri, .. } = &dir.kind else {
+                continue;
+            };
+            out.push((
+                imp.unit,
+                Diagnostic::with_code(c::IMPORT_INTERNAL_LIBRARY, uri.span, [target]),
+            ));
         }
         for exp in &library.exports {
             let target = program.library(exp.library).uri.as_str();
@@ -241,16 +321,25 @@ pub fn internal_and_deferred_directives(program: &Program, lib: LibraryId) -> Ve
             if target == "dart:_macros" && current.starts_with("package:macros/") {
                 continue;
             }
-            let Some(dir) = program.unit(exp.unit).unit.directives.get(exp.directive) else { continue };
-            out.push((exp.unit, Diagnostic::with_code(c::EXPORT_INTERNAL_LIBRARY, dir.span, [target])));
+            let Some(dir) = program.unit(exp.unit).unit.directives.get(exp.directive) else {
+                continue;
+            };
+            out.push((
+                exp.unit,
+                Diagnostic::with_code(c::EXPORT_INTERNAL_LIBRARY, dir.span, [target]),
+            ));
         }
     }
     // `SHARED_DEFERRED_PREFIX`, unit by unit.
     for &u in &library.units {
         let unit = program.unit(u);
-        let mut by_prefix: std::collections::HashMap<SymbolId, Vec<usize>> = std::collections::HashMap::new();
+        let mut by_prefix: std::collections::HashMap<SymbolId, Vec<usize>> =
+            std::collections::HashMap::new();
         for (i, d) in unit.unit.directives.iter().enumerate() {
-            if let DirectiveKind::Import { prefix: Some(p), .. } = &d.kind {
+            if let DirectiveKind::Import {
+                prefix: Some(p), ..
+            } = &d.kind
+            {
                 by_prefix.entry(p.sym).or_default().push(i);
             }
         }
@@ -259,12 +348,30 @@ pub fn internal_and_deferred_directives(program: &Program, lib: LibraryId) -> Ve
         for g in groups {
             for i in g {
                 let d = &unit.unit.directives[i];
-                let DirectiveKind::Import { uri, deferred: true, prefix: Some(p), .. } = &d.kind else { continue };
+                let DirectiveKind::Import {
+                    uri,
+                    deferred: true,
+                    prefix: Some(p),
+                    ..
+                } = &d.kind
+                else {
+                    continue;
+                };
                 // The `deferred` token, between the URI and the prefix.
                 let fragment = unit.source.get(uri.span.end..p.span.start).unwrap_or("");
                 if let Some(k) = fragment.find("deferred") {
                     let start = uri.span.end + k;
-                    out.push((u, Diagnostic::with_code(c::SHARED_DEFERRED_PREFIX, dartforge_diagnostics::Span { start, end: start + "deferred".len() }, [] as [&str; 0])));
+                    out.push((
+                        u,
+                        Diagnostic::with_code(
+                            c::SHARED_DEFERRED_PREFIX,
+                            dartforge_diagnostics::Span {
+                                start,
+                                end: start + "deferred".len(),
+                            },
+                            [] as [&str; 0],
+                        ),
+                    ));
                 }
             }
         }
@@ -278,14 +385,23 @@ pub fn internal_and_deferred_directives(program: &Program, lib: LibraryId) -> Ve
 /// `export`, that the target library does not export (neither as a getter nor
 /// as a setter). On the combinator's identifier; it depends neither on use nor
 /// on the import suppression. Written without compiling or running (2026-10-04).
-pub fn undefined_shown_names(program: &Program, lib: LibraryId, interner: &Interner) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
+pub fn undefined_shown_names(
+    program: &Program,
+    lib: LibraryId,
+    interner: &Interner,
+) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
     let mut out = Vec::new();
     let library = program.library(lib);
     let directives = library
         .imports
         .iter()
         .map(|i| (i.unit, i.library, &i.combinators))
-        .chain(library.exports.iter().map(|e| (e.unit, e.library, &e.combinators)));
+        .chain(
+            library
+                .exports
+                .iter()
+                .map(|e| (e.unit, e.library, &e.combinators)),
+        );
     for (unit, target, combinators) in directives {
         // A target that does not exist (`importedLibrary == null`, only
         // `URI_DOES_NOT_EXIST`): the library has no units.
@@ -298,7 +414,14 @@ pub fn undefined_shown_names(program: &Program, lib: LibraryId, interner: &Inter
             let Combinator::Show(names) = k else { continue };
             for n in names.iter() {
                 if !exported.contains_key(&n.sym) {
-                    out.push((unit, Diagnostic::with_code(w::UNDEFINED_SHOWN_NAME, n.span, [uri, interner.resolve(n.sym)])));
+                    out.push((
+                        unit,
+                        Diagnostic::with_code(
+                            w::UNDEFINED_SHOWN_NAME,
+                            n.span,
+                            [uri, interner.resolve(n.sym)],
+                        ),
+                    ));
                 }
             }
         }
@@ -324,10 +447,15 @@ fn element_library(program: &Program, e: Element) -> Option<LibraryId> {
 /// that already came from another one with ANOTHER element is reported on its
 /// URI, and the rest of the directive does not count. Written without
 /// compiling or running.
-pub fn ambiguous_exports(program: &Program, lib: LibraryId, interner: &Interner) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
+pub fn ambiguous_exports(
+    program: &Program,
+    lib: LibraryId,
+    interner: &Interner,
+) -> Vec<(dartforge_elements::model::UnitId, Diagnostic)> {
     let mut out = Vec::new();
     // (name, is the setter slot) → element.
-    let mut seen: std::collections::HashMap<(SymbolId, bool), Element> = std::collections::HashMap::new();
+    let mut seen: std::collections::HashMap<(SymbolId, bool), Element> =
+        std::collections::HashMap::new();
     for exp in &program.library(lib).exports {
         let visible = |name: SymbolId| -> bool {
             exp.combinators.iter().all(|k| match k {
@@ -349,7 +477,12 @@ pub fn ambiguous_exports(program: &Program, lib: LibraryId, interner: &Interner)
                 entries.push(((*name, true), e));
             }
         }
-        entries.sort_by(|x, y| interner.resolve(x.0 .0).cmp(interner.resolve(y.0 .0)).then(x.0 .1.cmp(&y.0 .1)));
+        entries.sort_by(|x, y| {
+            interner
+                .resolve(x.0.0)
+                .cmp(interner.resolve(y.0.0))
+                .then(x.0.1.cmp(&y.0.1))
+        });
         let mut conflict: Option<(SymbolId, Element, Element)> = None;
         let mut new: Vec<((SymbolId, bool), Element)> = Vec::new();
         for (key, e) in entries {
@@ -365,12 +498,29 @@ pub fn ambiguous_exports(program: &Program, lib: LibraryId, interner: &Interner)
         for (key, e) in new {
             seen.insert(key, e);
         }
-        let Some((name, previous, current)) = conflict else { continue };
-        let Some(dir) = program.unit(exp.unit).unit.directives.get(exp.directive) else { continue };
-        let DirectiveKind::Export { uri, .. } = &dir.kind else { continue };
-        let uri_of = |e: Element| -> String { element_library(program, e).map(|l| program.library(l).uri.clone()).unwrap_or_default() };
+        let Some((name, previous, current)) = conflict else {
+            continue;
+        };
+        let Some(dir) = program.unit(exp.unit).unit.directives.get(exp.directive) else {
+            continue;
+        };
+        let DirectiveKind::Export { uri, .. } = &dir.kind else {
+            continue;
+        };
+        let uri_of = |e: Element| -> String {
+            element_library(program, e)
+                .map(|l| program.library(l).uri.clone())
+                .unwrap_or_default()
+        };
         let (one, other) = (uri_of(previous), uri_of(current));
-        out.push((exp.unit, Diagnostic::with_code(c::AMBIGUOUS_EXPORT, uri.span, [interner.resolve(name), one.as_str(), other.as_str()])));
+        out.push((
+            exp.unit,
+            Diagnostic::with_code(
+                c::AMBIGUOUS_EXPORT,
+                uri.span,
+                [interner.resolve(name), one.as_str(), other.as_str()],
+            ),
+        ));
     }
     out
 }
@@ -385,20 +535,42 @@ pub fn ambiguous_exports(program: &Program, lib: LibraryId, interner: &Interner)
 /// indexed by `p.x`). The extensions used without a name are left to the
 /// caller, which has the unit's bodies. `None`: the directive is not an
 /// import with a target.
-pub fn import_used_names(program: &Program, u: dartforge_elements::model::UnitId, directive: usize, interner: &Interner) -> Option<Vec<SymbolId>> {
+pub fn import_used_names(
+    program: &Program,
+    u: dartforge_elements::model::UnitId,
+    directive: usize,
+    interner: &Interner,
+) -> Option<Vec<SymbolId>> {
     let lib = program.unit(u).library;
     let library = program.library(lib);
     let mut imps: Vec<Imp<'_>> = Vec::new();
     let mut this_one = None;
     for imp in &library.imports {
         let unit = program.unit(imp.unit);
-        let Some(dir) = unit.unit.directives.get(imp.directive) else { continue };
-        let DirectiveKind::Import { uri, combinators, .. } = &dir.kind else { continue };
-        let Some(text) = dartforge_elements::load::string_lit_value(uri) else { continue };
+        let Some(dir) = unit.unit.directives.get(imp.directive) else {
+            continue;
+        };
+        let DirectiveKind::Import {
+            uri, combinators, ..
+        } = &dir.kind
+        else {
+            continue;
+        };
+        let Some(text) = dartforge_elements::load::string_lit_value(uri) else {
+            continue;
+        };
         if imp.unit == u && imp.directive == directive {
             this_one = Some(imps.len());
         }
-        imps.push(Imp { unit: imp.unit, prefix: imp.prefix, deferred: imp.deferred, target: imp.library, combinators, uri: uri.span, text });
+        imps.push(Imp {
+            unit: imp.unit,
+            prefix: imp.prefix,
+            deferred: imp.deferred,
+            target: imp.library,
+            combinators,
+            uri: uri.span,
+            text,
+        });
     }
     let this_one = this_one?;
     if imps[this_one].prefix.is_some() {
@@ -406,7 +578,8 @@ pub fn import_used_names(program: &Program, u: dartforge_elements::model::UnitId
     }
     let prefixes: HashSet<SymbolId> = imps.iter().filter_map(|i| i.prefix).collect();
     let declared = &library.declared;
-    let is_sdk = |e: Element| element_library(program, e).is_some_and(|l| program.library(l).is_sdk);
+    let is_sdk =
+        |e: Element| element_library(program, e).is_some_and(|l| program.library(l).is_sdk);
     // `_merge` over the elements the unprefixed imports provide.
     // (the multiple element is not from the SDK and absorbs what comes after).
     let from_scope = |elements: &mut dyn Iterator<Item = Element>| -> Option<Element> {
@@ -424,22 +597,38 @@ pub fn import_used_names(program: &Program, u: dartforge_elements::model::UnitId
     };
     let mut names: Vec<SymbolId> = Vec::new();
     let is_prefix = |a: &dartforge_frontend::ast::Ast, pos: usize, p: SymbolId| {
-        prefixes.contains(&p) && !declared.contains_key(&p) && !dartforge_types::annotations::is_shadowed(a, interner, pos, p)
+        prefixes.contains(&p)
+            && !declared.contains_key(&p)
+            && !dartforge_types::annotations::is_shadowed(a, interner, pos, p)
     };
     let unit = program.unit(u);
-    unit_lookups(unit, interner, &is_prefix, &|p| prefixes.contains(&p) && !declared.contains_key(&p), &mut |b| {
-        let Lookup::Name(n) = b else { return };
-        if declared.contains_key(&n) || prefixes.contains(&n) || names.contains(&n) {
-            return;
-        }
-        let Some(own) = provides(program, &imps[this_one], n) else { return };
-        let unprefixed = || imps.iter().filter(|i| i.prefix.is_none()).filter_map(|i| provides(program, i, n));
-        let getter = from_scope(&mut unprefixed().filter_map(|b| b.getter));
-        let setter = from_scope(&mut unprefixed().filter_map(|b| b.setter));
-        if (own.getter.is_some() && own.getter == getter) || (own.setter.is_some() && own.setter == setter) {
-            names.push(n);
-        }
-    });
+    unit_lookups(
+        unit,
+        interner,
+        &is_prefix,
+        &|p| prefixes.contains(&p) && !declared.contains_key(&p),
+        &mut |b| {
+            let Lookup::Name(n) = b else { return };
+            if declared.contains_key(&n) || prefixes.contains(&n) || names.contains(&n) {
+                return;
+            }
+            let Some(own) = provides(program, &imps[this_one], n) else {
+                return;
+            };
+            let unprefixed = || {
+                imps.iter()
+                    .filter(|i| i.prefix.is_none())
+                    .filter_map(|i| provides(program, i, n))
+            };
+            let getter = from_scope(&mut unprefixed().filter_map(|b| b.getter));
+            let setter = from_scope(&mut unprefixed().filter_map(|b| b.setter));
+            if (own.getter.is_some() && own.getter == getter)
+                || (own.setter.is_some() && own.setter == setter)
+            {
+                names.push(n);
+            }
+        },
+    );
     Some(names)
 }
 
@@ -504,9 +693,12 @@ fn unit_lookups(
     for t in a.types.iter() {
         if let TypeKind::Named { name, .. } = &t.kind {
             match &name[..] {
-                [p, n, ..] if is_prefix(a, p.span.start, p.sym) => f(Lookup::Prefixed(p.sym, n.sym)),
+                [p, n, ..] if is_prefix(a, p.span.start, p.sym) => {
+                    f(Lookup::Prefixed(p.sym, n.sym))
+                }
                 [n, ..] => {
-                    if !dartforge_types::annotations::is_shadowed(a, interner, n.span.start, n.sym) {
+                    if !dartforge_types::annotations::is_shadowed(a, interner, n.span.start, n.sym)
+                    {
                         f(Lookup::Name(n.sym));
                     }
                 }
@@ -540,7 +732,9 @@ fn unit_lookups(
         for parts in doc_references(&source[doc.start..doc.end]) {
             let symbols: Vec<Option<SymbolId>> = parts.iter().map(|x| interner.lookup(x)).collect();
             let Some(first) = symbols[0] else { continue };
-            if extras.contains(&first) || dartforge_types::annotations::is_shadowed(a, interner, pos, first) {
+            if extras.contains(&first)
+                || dartforge_types::annotations::is_shadowed(a, interner, pos, first)
+            {
                 continue;
             }
             let prefix = simple_prefix(first);
@@ -580,7 +774,9 @@ fn mark_extension_in_comment(
     use dartforge_elements::model::{ClassId, UnitId};
     // The class a written type names, by name.
     let named_class = |u: UnitId, t: dartforge_frontend::ast::TypeId| -> Option<ClassId> {
-        let TypeKind::Named { name, .. } = &program.unit(u).ast.ty(t).kind else { return None };
+        let TypeKind::Named { name, .. } = &program.unit(u).ast.ty(t).kind else {
+            return None;
+        };
         let b = match &name[..] {
             [x] => program.lookup_in_unit(u, x.sym)?,
             [p, x] => program.lookup_prefixed_in_unit(u, p.sym, x.sym)?,
@@ -591,14 +787,15 @@ fn mark_extension_in_comment(
             _ => None,
         }
     };
-    let enclosing: Option<ClassId> = owner.and_then(|o| match program.lookup_in_unit(unit, o)?.getter? {
-        Element::Class(c) => Some(c),
-        Element::Extension(x) => {
-            let (u, t) = program.extension(x).on;
-            named_class(u, t)
-        }
-        _ => None,
-    });
+    let enclosing: Option<ClassId> =
+        owner.and_then(|o| match program.lookup_in_unit(unit, o)?.getter? {
+            Element::Class(c) => Some(c),
+            Element::Extension(x) => {
+                let (u, t) = program.extension(x).on;
+                named_class(u, t)
+            }
+            _ => None,
+        });
     // The enclosing class and its supertypes.
     let mut supers: Vec<ClassId> = Vec::new();
     if let Some(c) = enclosing {
@@ -614,14 +811,21 @@ fn mark_extension_in_comment(
             stack.extend(k.interface_classes.iter().copied());
             stack.extend(k.on_classes.iter().copied());
         }
-        if supers.iter().any(|&c| program.class(c).instance_members.contains_key(&n)) {
+        if supers
+            .iter()
+            .any(|&c| program.class(c).instance_members.contains_key(&n))
+        {
             return;
         }
     }
     let applies = |x: dartforge_elements::model::ExtensionId| {
         let (u, t) = program.extension(x).on;
         match named_class(u, t) {
-            Some(c) => enclosing.is_none() || supers.contains(&c) || program.class(c).supertype_class.is_none(),
+            Some(c) => {
+                enclosing.is_none()
+                    || supers.contains(&c)
+                    || program.class(c).supertype_class.is_none()
+            }
             None => true,
         }
     };
@@ -651,7 +855,11 @@ struct Imp<'a> {
 
 /// What import `imp` provides under `name` (the target's exported namespace
 /// with the combinators).
-fn provides<'p>(program: &'p Program, imp: &Imp<'_>, name: SymbolId) -> Option<&'p dartforge_elements::model::Binding> {
+fn provides<'p>(
+    program: &'p Program,
+    imp: &Imp<'_>,
+    name: SymbolId,
+) -> Option<&'p dartforge_elements::model::Binding> {
     let b = program.library(imp.target).exported.get(&name)?;
     imp.combinators
         .iter()
@@ -681,7 +889,14 @@ fn doc_references(text: &str) -> Vec<Vec<String>> {
             })
             .collect()
     } else {
-        text.split('\n').map(|l| l.trim_start().strip_prefix("///").unwrap_or(l).trim_end_matches('\r')).collect()
+        text.split('\n')
+            .map(|l| {
+                l.trim_start()
+                    .strip_prefix("///")
+                    .unwrap_or(l)
+                    .trim_end_matches('\r')
+            })
+            .collect()
     };
     let mut fenced = false;
     let mut previous_empty = true;
@@ -715,19 +930,27 @@ fn doc_references(text: &str) -> Vec<Vec<String>> {
                             // Without the `]` (`_findCommentReferenceEnd`): the
                             // identifier, and its `.identifier`.
                             let letter = |c: u8| c.is_ascii_alphabetic() || c == b'_' || c == b'$';
-                            let letter_or_digit = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
+                            let letter_or_digit =
+                                |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'$';
                             let mut j = i;
                             if b.get(j).is_some_and(|c| letter(*c)) {
                                 while b.get(j).is_some_and(|c| letter_or_digit(*c)) {
                                     j += 1;
                                 }
-                                if b.get(j) == Some(&b'.') && b.get(j + 1).is_some_and(|c| letter(*c)) {
+                                if b.get(j) == Some(&b'.')
+                                    && b.get(j + 1).is_some_and(|c| letter(*c))
+                                {
                                     j += 1;
                                     while b.get(j).is_some_and(|c| letter_or_digit(*c)) {
                                         j += 1;
                                     }
                                 }
-                                v.push(contents[start..j].split('.').map(|x| x.to_string()).collect());
+                                v.push(
+                                    contents[start..j]
+                                        .split('.')
+                                        .map(|x| x.to_string())
+                                        .collect(),
+                                );
                             }
                             break;
                         };
@@ -745,7 +968,11 @@ fn doc_references(text: &str) -> Vec<Vec<String>> {
                             }
                         };
                         if !link {
-                            let mut parts: Vec<String> = contents[start..end].trim().split('.').map(|x| x.trim().to_string()).collect();
+                            let mut parts: Vec<String> = contents[start..end]
+                                .trim()
+                                .split('.')
+                                .map(|x| x.trim().to_string())
+                                .collect();
                             if let Some(first) = parts.first_mut()
                                 && let Some(r) = first.strip_prefix("new ")
                             {
@@ -753,10 +980,14 @@ fn doc_references(text: &str) -> Vec<Vec<String>> {
                             }
                             let identifier = |x: &String| {
                                 !x.is_empty()
-                                    && x.chars().next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
-                                    && x.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                                    && x.chars().next().is_some_and(|c| {
+                                        c.is_ascii_alphabetic() || c == '_' || c == '$'
+                                    })
+                                    && x.chars()
+                                        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
                             };
-                            if !parts.is_empty() && parts.len() <= 3 && parts.iter().all(identifier) {
+                            if !parts.is_empty() && parts.len() <= 3 && parts.iter().all(identifier)
+                            {
                                 v.push(parts);
                             }
                         }
@@ -809,9 +1040,18 @@ pub fn unused(
     let mut imps: Vec<Imp<'_>> = Vec::new();
     for imp in &library.imports {
         let unit = program.unit(imp.unit);
-        let Some(dir) = unit.unit.directives.get(imp.directive) else { continue };
-        let DirectiveKind::Import { uri, combinators, .. } = &dir.kind else { continue };
-        let Some(text) = dartforge_elements::load::string_lit_value(uri) else { continue };
+        let Some(dir) = unit.unit.directives.get(imp.directive) else {
+            continue;
+        };
+        let DirectiveKind::Import {
+            uri, combinators, ..
+        } = &dir.kind
+        else {
+            continue;
+        };
+        let Some(text) = dartforge_elements::load::string_lit_value(uri) else {
+            continue;
+        };
         imps.push(Imp {
             unit: imp.unit,
             prefix: imp.prefix,
@@ -860,7 +1100,9 @@ pub fn unused(
     };
     // `p` is a prefix at that place (neither shadowed nor declared).
     let is_prefix = |a: &dartforge_frontend::ast::Ast, pos: usize, p: SymbolId| {
-        prefixes.contains(&p) && !declared.contains_key(&p) && !dartforge_types::annotations::is_shadowed(a, interner, pos, p)
+        prefixes.contains(&p)
+            && !declared.contains_key(&p)
+            && !dartforge_types::annotations::is_shadowed(a, interner, pos, p)
     };
 
     for &u in &library.units {
@@ -868,23 +1110,31 @@ pub fn unused(
         if unit.role == UnitRole::Patch {
             continue;
         }
-        unit_lookups(unit, interner, &is_prefix, &|p| prefixes.contains(&p) && !declared.contains_key(&p), &mut |b| match b {
-            Lookup::Name(n) => mark(&mut used, n),
-            Lookup::Prefixed(p, n) => mark_prefixed(&mut used, p, n),
-            Lookup::PrefixInComment(p) => {
-                prefix_in_comment.insert(p);
-            }
-            Lookup::NameInTypeComment(n, owner) => {
-                let lexical = declared.contains_key(&n)
-                    || prefixes.contains(&n)
-                    || imps.iter().any(|imp| imp.prefix.is_none() && provides(program, imp, n).is_some());
-                if lexical {
-                    mark(&mut used, n);
-                    return;
+        unit_lookups(
+            unit,
+            interner,
+            &is_prefix,
+            &|p| prefixes.contains(&p) && !declared.contains_key(&p),
+            &mut |b| match b {
+                Lookup::Name(n) => mark(&mut used, n),
+                Lookup::Prefixed(p, n) => mark_prefixed(&mut used, p, n),
+                Lookup::PrefixInComment(p) => {
+                    prefix_in_comment.insert(p);
                 }
-                mark_extension_in_comment(program, u, owner, n, &imps, &mut used);
-            }
-        });
+                Lookup::NameInTypeComment(n, owner) => {
+                    let lexical = declared.contains_key(&n)
+                        || prefixes.contains(&n)
+                        || imps
+                            .iter()
+                            .any(|imp| imp.prefix.is_none() && provides(program, imp, n).is_some());
+                    if lexical {
+                        mark(&mut used, n);
+                        return;
+                    }
+                    mark_extension_in_comment(program, u, owner, n, &imps, &mut used);
+                }
+            },
+        );
     }
     // `notifyExtensionUsed`.
     match bodies {
@@ -893,9 +1143,13 @@ pub fn unused(
                 if l != lib {
                     continue;
                 }
-                let Some(name) = program.extension(x).name else { continue };
+                let Some(name) = program.extension(x).name else {
+                    continue;
+                };
                 for (i, imp) in imps.iter().enumerate() {
-                    if provides(program, imp, name).is_some_and(|b| b.getter == Some(Element::Extension(x))) {
+                    if provides(program, imp, name)
+                        .is_some_and(|b| b.getter == Some(Element::Extension(x)))
+                    {
                         used[i].insert(Element::Extension(x));
                     }
                 }
@@ -928,7 +1182,10 @@ pub fn unused(
         }
         if used[i].is_empty() {
             unused_one[i] = true;
-            out.push((imp.unit, Diagnostic::with_code(w::UNUSED_IMPORT, imp.uri, [imp.text.as_str()])));
+            out.push((
+                imp.unit,
+                Diagnostic::with_code(w::UNUSED_IMPORT, imp.uri, [imp.text.as_str()]),
+            ));
         }
     }
     // `generateUnusedShownNameHints`: the shown name whose element was not
@@ -941,10 +1198,21 @@ pub fn unused(
         for comb in imp.combinators.iter() {
             let Combinator::Show(ns) = comb else { continue };
             for n in ns.iter() {
-                let Some(b) = target.exported.get(&n.sym) else { continue };
-                let Some(element) = b.getter.or(b.setter) else { continue };
+                let Some(b) = target.exported.get(&n.sym) else {
+                    continue;
+                };
+                let Some(element) = b.getter.or(b.setter) else {
+                    continue;
+                };
                 if !used[i].contains(&element) {
-                    out.push((imp.unit, Diagnostic::with_code(w::UNUSED_SHOWN_NAME, n.span, [interner.resolve(n.sym)])));
+                    out.push((
+                        imp.unit,
+                        Diagnostic::with_code(
+                            w::UNUSED_SHOWN_NAME,
+                            n.span,
+                            [interner.resolve(n.sym)],
+                        ),
+                    ));
                 }
             }
         }
@@ -955,14 +1223,27 @@ pub fn unused(
     let accessed: Vec<HashSet<Element>> = imps
         .iter()
         .enumerate()
-        .map(|(i, imp)| used[i].iter().copied().filter(|e| !from_deprecated_export(program, interner, imp.target, *e)).collect())
+        .map(|(i, imp)| {
+            used[i]
+                .iter()
+                .copied()
+                .filter(|e| !from_deprecated_export(program, interner, imp.target, *e))
+                .collect()
+        })
         .collect();
     for (i, first) in imps.iter().enumerate() {
-        if unused_one[i] || program.library(first.target).uri == "dart:core" || program.library(first.target).units.is_empty() {
+        if unused_one[i]
+            || program.library(first.target).uri == "dart:core"
+            || program.library(first.target).units.is_empty()
+        {
             continue;
         }
         for (j, second) in imps.iter().enumerate() {
-            if i == j || unused_one[j] || program.library(second.target).units.is_empty() || first.prefix != second.prefix {
+            if i == j
+                || unused_one[j]
+                || program.library(second.target).units.is_empty()
+                || first.prefix != second.prefix
+            {
                 continue;
             }
             if accessed[i].is_subset(&accessed[j]) && accessed[j].len() > accessed[i].len() {
@@ -983,26 +1264,44 @@ pub fn unused(
 
 /// `isFromDeprecatedExport`: the element is not declared in library `target`
 /// and every `export` of it that provides it is `@deprecated`.
-fn from_deprecated_export(program: &Program, interner: &Interner, target: LibraryId, e: Element) -> bool {
+fn from_deprecated_export(
+    program: &Program,
+    interner: &Interner,
+    target: LibraryId,
+    e: Element,
+) -> bool {
     let b = program.library(target);
-    if b.declared.values().any(|x| x.getter == Some(e) || x.setter == Some(e)) {
+    if b.declared
+        .values()
+        .any(|x| x.getter == Some(e) || x.setter == Some(e))
+    {
         return false;
     }
     let mut any = false;
     for ex in b.exports.iter() {
-        let provides = program.library(ex.library).exported.iter().any(|(name, x)| {
-            (x.getter == Some(e) || x.setter == Some(e))
-                && ex.combinators.iter().all(|c| match c {
-                    Combinator::Show(ns) => ns.iter().any(|n| n.sym == *name),
-                    Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == *name),
-                })
-        });
+        let provides = program
+            .library(ex.library)
+            .exported
+            .iter()
+            .any(|(name, x)| {
+                (x.getter == Some(e) || x.setter == Some(e))
+                    && ex.combinators.iter().all(|c| match c {
+                        Combinator::Show(ns) => ns.iter().any(|n| n.sym == *name),
+                        Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == *name),
+                    })
+            });
         if !provides {
             continue;
         }
         any = true;
-        let Some(dir) = program.unit(ex.unit).unit.directives.get(ex.directive) else { return false };
-        if !dir.metadata.iter().any(|m| dartforge_types::annotations::is_deprecated(program, interner, ex.unit, m)) {
+        let Some(dir) = program.unit(ex.unit).unit.directives.get(ex.directive) else {
+            return false;
+        };
+        if !dir
+            .metadata
+            .iter()
+            .any(|m| dartforge_types::annotations::is_deprecated(program, interner, ex.unit, m))
+        {
             return false;
         }
     }
@@ -1017,20 +1316,30 @@ fn pattern_constants(a: &dartforge_frontend::ast::Ast) -> Vec<dartforge_frontend
     for s in a.stmts.iter() {
         match &s.kind {
             StmtKind::Switch { cases, .. } => roots.extend(cases.iter().filter_map(|c| c.pattern)),
-            StmtKind::If { case_pattern: Some(p), .. } => roots.push(*p),
+            StmtKind::If {
+                case_pattern: Some(p),
+                ..
+            } => roots.push(*p),
             _ => {}
         }
     }
     fn from_collection(el: &CollectionElement, roots: &mut Vec<PatternId>) {
         match el {
-            CollectionElement::If { case_pattern, then, else_, .. } => {
+            CollectionElement::If {
+                case_pattern,
+                then,
+                else_,
+                ..
+            } => {
                 roots.extend(case_pattern.iter().copied());
                 from_collection(then, roots);
                 if let Some(x) = else_ {
                     from_collection(x, roots);
                 }
             }
-            CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => from_collection(body, roots),
+            CollectionElement::For { body, .. } | CollectionElement::ForIn { body, .. } => {
+                from_collection(body, roots)
+            }
             _ => {}
         }
     }
@@ -1048,19 +1357,31 @@ fn pattern_constants(a: &dartforge_frontend::ast::Ast) -> Vec<dartforge_frontend
     let mut v = Vec::new();
     while let Some(p) = roots.pop() {
         match &a.pattern(p).kind {
-            PatternKind::Variable { name, final_: false, var_: false, ty: None } => v.push(*name),
+            PatternKind::Variable {
+                name,
+                final_: false,
+                var_: false,
+                ty: None,
+            } => v.push(*name),
             PatternKind::Or(l, r) | PatternKind::And(l, r) => roots.extend([*l, *r]),
-            PatternKind::NullCheck(x) | PatternKind::NullAssert(x) | PatternKind::Parenthesized(x) | PatternKind::Cast { pattern: x, .. } => roots.push(*x),
-            PatternKind::List { elements, .. } => roots.extend(elements.iter().filter_map(|e| match e {
-                ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) => Some(*x),
-                ListPatternElement::Rest(None) => None,
-            })),
+            PatternKind::NullCheck(x)
+            | PatternKind::NullAssert(x)
+            | PatternKind::Parenthesized(x)
+            | PatternKind::Cast { pattern: x, .. } => roots.push(*x),
+            PatternKind::List { elements, .. } => {
+                roots.extend(elements.iter().filter_map(|e| match e {
+                    ListPatternElement::Pattern(x) | ListPatternElement::Rest(Some(x)) => Some(*x),
+                    ListPatternElement::Rest(None) => None,
+                }))
+            }
             PatternKind::Map { entries, .. } => roots.extend(entries.iter().map(|e| e.value)),
             PatternKind::Record { fields } | PatternKind::Object { fields, .. } => {
                 // A field's `:x` is the variable, not a lookup.
                 for f in fields.iter() {
                     let sp = a.pattern(f.pattern).span;
-                    let shorthand = f.name.is_some_and(|n| n.span.start >= sp.start && n.span.end <= sp.end);
+                    let shorthand = f
+                        .name
+                        .is_some_and(|n| n.span.start >= sp.start && n.span.end <= sp.end);
                     if !shorthand {
                         roots.push(f.pattern);
                     }
@@ -1084,7 +1405,12 @@ fn doc_comments(
     unit: &dartforge_frontend::ast::CompilationUnit,
     source: &str,
     comments: &dartforge_frontend::comments::Comments,
-) -> Vec<(dartforge_diagnostics::Span, usize, Vec<SymbolId>, Option<EnclosingType>)> {
+) -> Vec<(
+    dartforge_diagnostics::Span,
+    usize,
+    Vec<SymbolId>,
+    Option<EnclosingType>,
+)> {
     use dartforge_frontend::ast::{Annotation, DeclKind, MemberKind, Parameter, TypedefKind};
     // `_findComment(metadata, tokenAfterMetadata)`.
     let doc = |metadata: &[Annotation], start: usize| {
@@ -1092,7 +1418,12 @@ fn doc_comments(
             Some(m) => dartforge_frontend::source::skip_whitespace(source.as_bytes(), m.span.end),
             None => start,
         };
-        comments.dart_doc(source, after).or_else(|| metadata.iter().rev().find_map(|m| comments.dart_doc(source, m.span.start)))
+        comments.dart_doc(source, after).or_else(|| {
+            metadata
+                .iter()
+                .rev()
+                .find_map(|m| comments.dart_doc(source, m.span.start))
+        })
     };
     // The whole comment: the `/**`, or the sequence of `///` that starts at
     // the found one.
@@ -1101,19 +1432,29 @@ fn doc_comments(
             let mut end = d.end;
             for c in comments.all().iter().filter(|c| c.start > d.start) {
                 let between = &source[end..c.start];
-                if !between.trim().is_empty() || !source[c.start..c.end].starts_with("///") || between.matches('\n').count() > 1 {
+                if !between.trim().is_empty()
+                    || !source[c.start..c.end].starts_with("///")
+                    || between.matches('\n').count() > 1
+                {
                     break;
                 }
                 end = c.end;
             }
-            dartforge_diagnostics::Span { start: d.start, end }
+            dartforge_diagnostics::Span {
+                start: d.start,
+                end,
+            }
         } else {
             d
         }
     };
-    let names_of = |ps: &[Parameter], tps: &[dartforge_frontend::ast::TypeParameter]| -> Vec<SymbolId> {
-        ps.iter().filter_map(|p| p.name.map(|n| n.sym)).chain(tps.iter().map(|t| t.name.sym)).collect()
-    };
+    let names_of =
+        |ps: &[Parameter], tps: &[dartforge_frontend::ast::TypeParameter]| -> Vec<SymbolId> {
+            ps.iter()
+                .filter_map(|p| p.name.map(|n| n.sym))
+                .chain(tps.iter().map(|t| t.name.sym))
+                .collect()
+        };
     // The type of each member.
     let type_name = |k: &DeclKind| -> Option<EnclosingType> {
         match k {
@@ -1125,7 +1466,8 @@ fn doc_comments(
             DeclKind::Function(_) | DeclKind::Typedef(_) | DeclKind::Variables(_) => None,
         }
     };
-    let mut owners: std::collections::HashMap<dartforge_frontend::ast::MemberId, EnclosingType> = std::collections::HashMap::new();
+    let mut owners: std::collections::HashMap<dartforge_frontend::ast::MemberId, EnclosingType> =
+        std::collections::HashMap::new();
     for decl in a.decls.iter() {
         let members: &[dartforge_frontend::ast::MemberId] = match &decl.kind {
             DeclKind::Class(x) => &x.members,
@@ -1146,11 +1488,16 @@ fn doc_comments(
         }
     }
     for decl in a.decls.iter() {
-        let Some(x) = doc(&decl.metadata, decl.span.start) else { continue };
+        let Some(x) = doc(&decl.metadata, decl.span.start) else {
+            continue;
+        };
         let (pos, extras) = match &decl.kind {
             DeclKind::Function(f) => {
                 let g = a.function(*f);
-                (decl.span.start, names_of(g.parameters.as_deref().unwrap_or(&[]), &g.type_params))
+                (
+                    decl.span.start,
+                    names_of(g.parameters.as_deref().unwrap_or(&[]), &g.type_params),
+                )
             }
             DeclKind::Typedef(t) => {
                 let ps: &[Parameter] = match &t.kind {
@@ -1164,7 +1511,10 @@ fn doc_comments(
             DeclKind::Mixin(c) => (c.name.span.end + 1, Vec::new()),
             DeclKind::Enum(c) => (c.name.span.end + 1, Vec::new()),
             DeclKind::ExtensionType(c) => (c.name.span.end + 1, Vec::new()),
-            DeclKind::Extension(c) => (c.name.map_or(decl.span.start, |n| n.span.end) + 1, c.type_params.iter().map(|t| t.name.sym).collect()),
+            DeclKind::Extension(c) => (
+                c.name.map_or(decl.span.start, |n| n.span.end) + 1,
+                c.type_params.iter().map(|t| t.name.sym).collect(),
+            ),
             DeclKind::Variables(_) => (decl.span.start, Vec::new()),
         };
         v.push((whole(x), pos, extras, type_name(&decl.kind)));
@@ -1177,8 +1527,12 @@ fn doc_comments(
         }
     }
     for (i, m) in a.members.iter().enumerate() {
-        let Some(x) = doc(&m.metadata, m.span.start) else { continue };
-        let owner = owners.get(&dartforge_frontend::ast::MemberId(i as u32)).copied();
+        let Some(x) = doc(&m.metadata, m.span.start) else {
+            continue;
+        };
+        let owner = owners
+            .get(&dartforge_frontend::ast::MemberId(i as u32))
+            .copied();
         let extras = match &m.kind {
             MemberKind::Method(f) => {
                 let g = a.function(*f);

@@ -38,19 +38,44 @@ fn selected_sdk_wrapper_survives_conflicting_discovery_and_warm_cache() {
         let selected = selected.clone();
         let binary = directory.path().join(if warm { "warm" } else { "cold" });
         let result = binary.clone();
-        std::thread::Builder::new().stack_size(64 << 20).spawn(move || {
-            let options = CompileOptions {
-                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
-                sdk: Some(&selected), packages: None, timings: false, optimize: true,
-                language_version: None, experiments: Vec::new(), debug: false, generator: None, cpu: None,
-            };
-            compile_with(&entry, &result, &options).unwrap();
-        }).unwrap().join().unwrap();
+        std::thread::Builder::new()
+            .stack_size(64 << 20)
+            .spawn(move || {
+                let options = CompileOptions {
+                    contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+                    sdk: Some(&selected),
+                    packages: None,
+                    timings: false,
+                    optimize: true,
+                    language_version: None,
+                    experiments: Vec::new(),
+                    debug: false,
+                    generator: None,
+                    cpu: None,
+                };
+                compile_with(&entry, &result, &options).unwrap();
+            })
+            .unwrap()
+            .join()
+            .unwrap();
         let output = std::process::Command::new(&binary).output().unwrap();
-        assert!(output.status.success() && output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
-        let expected = format!("selected sdk wrapper\n{}\n{}\n{}\n", std::env::consts::OS,
-            cfg!(target_os = "windows"), cfg!(target_os = "macos"));
-        assert_eq!(String::from_utf8(output.stdout).unwrap().replace("\r\n", "\n"), expected);
+        assert!(
+            output.status.success() && output.stderr.is_empty(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let expected = format!(
+            "selected sdk wrapper\n{}\n{}\n{}\n",
+            std::env::consts::OS,
+            cfg!(target_os = "windows"),
+            cfg!(target_os = "macos")
+        );
+        assert_eq!(
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .replace("\r\n", "\n"),
+            expected
+        );
     }
     assert_eq!(std::fs::read_to_string(original_file).unwrap(), original);
 }

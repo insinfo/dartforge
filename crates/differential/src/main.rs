@@ -11,8 +11,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use dartforge_differential::{
-    Environment, Limiter, Options, Program, ProgramIr, contract, corpus, dartforge_native_ir, emit_corpus_ir, format_ir_report,
-    format_report, in_parallel, ir_differences, list, run_corpus,
+    Environment, Limiter, Options, Program, ProgramIr, contract, corpus, dartforge_native_ir,
+    emit_corpus_ir, format_ir_report, format_report, in_parallel, ir_differences, list, run_corpus,
 };
 
 const USAGE: &str = "usage:
@@ -61,7 +61,9 @@ const USAGE: &str = "usage:
 fn digest_ir(root: &std::path::Path) -> u64 {
     let mut files: Vec<PathBuf> = Vec::new();
     fn collect(dir: &std::path::Path, acc: &mut Vec<PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for e in entries.flatten() {
             let p = e.path();
             if p.is_dir() {
@@ -75,7 +77,10 @@ fn digest_ir(root: &std::path::Path) -> u64 {
     files.sort();
     let mut h: u64 = 0xcbf29ce484222325;
     for a in &files {
-        let name = a.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = a
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let contents = std::fs::read(a).unwrap_or_default();
         for b in name.as_bytes().iter().chain(contents.iter()) {
             h ^= u64::from(*b);
@@ -128,7 +133,10 @@ fn ir_determinism(env: &Environment, programs: &[Program], workers: &[usize]) {
         // The `worker(s)` lines are picked up by CI (see the module docs).
         match &reference {
             None => {
-                eprintln!("{n} worker(s): reference ({} programs, {sec:.1} s)", programs.len());
+                eprintln!(
+                    "{n} worker(s): reference ({} programs, {sec:.1} s)",
+                    programs.len()
+                );
                 reference = Some((*n, current));
             }
             Some((n0, r0)) => {
@@ -137,12 +145,19 @@ fn ir_determinism(env: &Environment, programs: &[Program], workers: &[usize]) {
                     eprintln!("{n} worker(s): identical to {n0} ({sec:.1} s)");
                     continue;
                 }
-                eprintln!("{n} worker(s): LLVM IR DIFFERENT from {n0} in {} program(s) ({sec:.1} s):", diff.len());
+                eprintln!(
+                    "{n} worker(s): LLVM IR DIFFERENT from {n0} in {} program(s) ({sec:.1} s):",
+                    diff.len()
+                );
                 for d in &diff {
                     eprintln!("  {d}");
                 }
                 if first.is_none() {
-                    first = r0.iter().zip(&current).find(|(x, y)| x != y).map(|(x, _)| (x.name.clone(), *n));
+                    first = r0
+                        .iter()
+                        .zip(&current)
+                        .find(|(x, y)| x != y)
+                        .map(|(x, _)| (x.name.clone(), *n));
                 }
             }
         }
@@ -173,12 +188,28 @@ fn investigate_divergence(env: &Environment, program: &Program, n: usize, limite
     let text = |r: Result<String, String>| r.unwrap_or_else(|e| format!("ERROR: {e}\n"));
     let alone = text(limiter.run(|| dartforge_native_ir(program)));
     let copies = vec![program.clone(); n.max(1)];
-    let concurrent = in_parallel(&copies, n, |p| text(limiter.run(|| dartforge_native_ir(p))), |_| {});
-    let other = concurrent.iter().find(|t| **t != alone).unwrap_or(&concurrent[0]);
-    let (a, b) = (dir.join(format!("{}.1.ll", program.name)), dir.join(format!("{}.{n}.ll", program.name)));
+    let concurrent = in_parallel(
+        &copies,
+        n,
+        |p| text(limiter.run(|| dartforge_native_ir(p))),
+        |_| {},
+    );
+    let other = concurrent
+        .iter()
+        .find(|t| **t != alone)
+        .unwrap_or(&concurrent[0]);
+    let (a, b) = (
+        dir.join(format!("{}.1.ll", program.name)),
+        dir.join(format!("{}.{n}.ll", program.name)),
+    );
     let _ = std::fs::write(&a, &alone);
     let _ = std::fs::write(&b, other);
-    eprintln!("{}: emitted alone into {} and {n}× in parallel into {}", program.name, a.display(), b.display());
+    eprintln!(
+        "{}: emitted alone into {} and {n}× in parallel into {}",
+        program.name,
+        a.display(),
+        b.display()
+    );
     if *other == alone {
         eprintln!("  identical in isolation: the difference depends on the rest of the corpus");
     } else {
@@ -203,11 +234,13 @@ fn main() {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "contract" | "verify" | "determinism" => mode = match args[i].as_str() {
-                "contract" => "contract",
-                "verify" => "verify",
-                _ => "determinism",
-            },
+            "contract" | "verify" | "determinism" => {
+                mode = match args[i].as_str() {
+                    "contract" => "contract",
+                    "verify" => "verify",
+                    _ => "determinism",
+                }
+            }
             "--workers" => {
                 i += 1;
                 workers = args[i]
@@ -331,7 +364,11 @@ fn main() {
                 op.threads = *n;
                 let results = run_corpus(&env, &programs, op, |_| {});
                 let text = format_report(&results);
-                let ir = if compare_ir { digest_ir(&env.work_dir.join("native")) } else { 0 };
+                let ir = if compare_ir {
+                    digest_ir(&env.work_dir.join("native"))
+                } else {
+                    0
+                };
                 // The `worker(s)` lines are picked up by CI (see the module docs).
                 match &reference {
                     None => {
@@ -350,7 +387,9 @@ fn main() {
                                 print_first_difference(t0, &text);
                             }
                             if !ir_ok {
-                                eprintln!("{n} worker(s): LLVM IR DIFFERENT from {n0} ({ir0:016x} != {ir:016x})");
+                                eprintln!(
+                                    "{n} worker(s): LLVM IR DIFFERENT from {n0} ({ir0:016x} != {ir:016x})"
+                                );
                             }
                         }
                     }
@@ -371,7 +410,9 @@ fn main() {
             if op.with_forge {
                 match &env.dartforge_bin {
                     Some(b) => eprintln!("dartforge: {}", b.display()),
-                    None => eprintln!("dartforge: binary not found; using `cargo run -p dartforge-cli`"),
+                    None => {
+                        eprintln!("dartforge: binary not found; using `cargo run -p dartforge-cli`")
+                    }
                 }
             }
             let start = std::time::Instant::now();
@@ -383,7 +424,13 @@ fn main() {
                 let status = if r.program.pending && r.forge.is_some() {
                     if r.ok() { "PASSED" } else { "PEND" }
                 } else if r.production.is_some() {
-                    if r.ok() { "ok" } else if r.forge_vs_reference().is_some() { "FAIL" } else { "PROD!" }
+                    if r.ok() {
+                        "ok"
+                    } else if r.forge_vs_reference().is_some() {
+                        "FAIL"
+                    } else {
+                        "PROD!"
+                    }
                 } else if r.forge.is_some() {
                     if r.ok() { "ok" } else { "FAIL" }
                 } else if r.dart.code != 0 {
@@ -399,7 +446,11 @@ fn main() {
             });
             print!("{}", format_report(&results));
             // Parsed by CI (see the module docs).
-            println!("({} programs in {:.1} s)", results.len(), start.elapsed().as_secs_f64());
+            println!(
+                "({} programs in {:.1} s)",
+                results.len(),
+                start.elapsed().as_secs_f64()
+            );
             if let Some(file) = &matrix {
                 // The four native combinations (docs/NATIVO-MAPAS-DE-PILHA-E-EXCECOES.md
                 // §7.1): the roots mode and the exceptions mode come from the
@@ -417,13 +468,18 @@ fn main() {
                     }
                     m
                 };
-                let name = profile.clone().unwrap_or_else(|| match (op.native, op.jit, env.gc_stress) {
-                    (true, true, _) => format!("jit{suffix}"),
-                    (true, false, true) => format!("aot{suffix}-gc-stress"),
-                    (true, false, false) if env.optimize => format!("aot{suffix}-optimized"),
-                    (true, false, false) => format!("aot{suffix}"),
-                    (false, ..) => "js-dev".to_string(),
-                });
+                let name =
+                    profile
+                        .clone()
+                        .unwrap_or_else(|| match (op.native, op.jit, env.gc_stress) {
+                            (true, true, _) => format!("jit{suffix}"),
+                            (true, false, true) => format!("aot{suffix}-gc-stress"),
+                            (true, false, false) if env.optimize => {
+                                format!("aot{suffix}-optimized")
+                            }
+                            (true, false, false) => format!("aot{suffix}"),
+                            (false, ..) => "js-dev".to_string(),
+                        });
                 let lines = dartforge_differential::matrix::tsv(&results, &name);
                 let mut f = std::fs::OpenOptions::new()
                     .create(true)
@@ -438,7 +494,10 @@ fn main() {
             } else if op.native {
                 results.iter().all(|r| r.oracle_failure().is_none())
             } else {
-                results.iter().all(|r| r.oracle_failure().is_none() && (r.ddc_vs_dart().is_none() != r.program.diverge_ddc.is_some()))
+                results.iter().all(|r| {
+                    r.oracle_failure().is_none()
+                        && (r.ddc_vs_dart().is_none() != r.program.diverge_ddc.is_some())
+                })
             };
             if !all_ok {
                 std::process::exit(1);

@@ -24,9 +24,9 @@ use crate::Unit;
 use dartforge_diagnostics::codes::warning as w;
 use dartforge_diagnostics::{Diagnostic, Span};
 use dartforge_frontend::ast::{
-    self, AssignOp, Ast, BinaryOp, CollectionElement, DeclKind, ExprId, ExprKind, ForInTarget, ForInit,
-    FunctionBody, FunctionId, Initializer, ListPatternElement, MemberKind, Parameter, PatternId, PatternKind,
-    StmtId, StmtKind, StringPart,
+    self, AssignOp, Ast, BinaryOp, CollectionElement, DeclKind, ExprId, ExprKind, ForInTarget,
+    ForInit, FunctionBody, FunctionId, Initializer, ListPatternElement, MemberKind, Parameter,
+    PatternId, PatternKind, StmtId, StmtKind, StringPart,
 };
 use dartforge_intern::{Interner, SymbolId};
 
@@ -94,7 +94,15 @@ impl<'a> Visitor<'a> {
             return;
         }
         let i = self.locals.len();
-        self.locals.push(Local { name: n.sym, span: n.span, kind, read: false, group, alias: None, read_by_own_guard: false });
+        self.locals.push(Local {
+            name: n.sym,
+            span: n.span,
+            kind,
+            read: false,
+            group,
+            alias: None,
+            read_by_own_guard: false,
+        });
         if let Some(e) = self.scopes.last_mut() {
             // `for (int i = 0, i = 0; …)`, `var a; var a;`: the redeclaration
             // (`duplicate_definition`) does not enter the scope — the uses are
@@ -107,7 +115,12 @@ impl<'a> Visitor<'a> {
     }
 
     fn find(&self, name: SymbolId) -> Option<usize> {
-        self.scopes.iter().rev().flat_map(|e| e.iter().rev()).copied().find(|&i| self.locals[i].name == name)
+        self.scopes
+            .iter()
+            .rev()
+            .flat_map(|e| e.iter().rev())
+            .copied()
+            .find(|&i| self.locals[i].name == name)
     }
 
     /// A reference to identifier `n`: `read` says whether it reads the value. A
@@ -121,7 +134,12 @@ impl<'a> Visitor<'a> {
 
     fn refer(&mut self, n: ast::Name, read_: bool) {
         // In the guard, the name is the case's own variable.
-        if let Some(&i) = self.guard_vars.iter().rev().find(|&&i| self.locals[i].name == n.sym) {
+        if let Some(&i) = self
+            .guard_vars
+            .iter()
+            .rev()
+            .find(|&&i| self.locals[i].name == n.sym)
+        {
             if read_ {
                 self.locals[i].read_by_own_guard = true;
             }
@@ -158,7 +176,9 @@ impl<'a> Visitor<'a> {
                     self.element(el);
                 }
             }
-            ExprKind::Record { positional, named, .. } => {
+            ExprKind::Record {
+                positional, named, ..
+            } => {
                 for x in positional.iter() {
                     self.expr(*x);
                 }
@@ -193,7 +213,11 @@ impl<'a> Visitor<'a> {
                 self.expr(*left);
                 self.expr(*right);
             }
-            ExprKind::Conditional { condition, then, else_ } => {
+            ExprKind::Conditional {
+                condition,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 self.expr(*then);
                 self.expr(*else_);
@@ -217,7 +241,9 @@ impl<'a> Visitor<'a> {
                 self.expr(*value);
                 self.assignment_pattern(*pattern);
             }
-            ExprKind::Cascade { target, sections, .. } => {
+            ExprKind::Cascade {
+                target, sections, ..
+            } => {
                 self.expr(*target);
                 for s in sections.iter() {
                     self.expr(*s);
@@ -264,13 +290,21 @@ impl<'a> Visitor<'a> {
 
     fn element(&mut self, el: &CollectionElement) {
         match el {
-            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => self.expr(*x),
+            CollectionElement::Expression(x) | CollectionElement::NullAwareExpression(x) => {
+                self.expr(*x)
+            }
             CollectionElement::MapEntry { key, value, .. } => {
                 self.expr(*key);
                 self.expr(*value);
             }
             CollectionElement::Spread { value, .. } => self.expr(*value),
-            CollectionElement::If { condition, case_pattern, guard, then, else_ } => {
+            CollectionElement::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 self.enter();
                 if let Some(p) = case_pattern {
@@ -285,7 +319,13 @@ impl<'a> Visitor<'a> {
                     self.element(e);
                 }
             }
-            CollectionElement::For { init, condition, updates, body, .. } => {
+            CollectionElement::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 self.enter();
                 self.for_init(init.as_ref());
                 if let Some(c) = condition {
@@ -297,7 +337,12 @@ impl<'a> Visitor<'a> {
                 self.element(body);
                 self.exit();
             }
-            CollectionElement::ForIn { target, iterable, body, .. } => {
+            CollectionElement::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 self.expr(*iterable);
                 self.enter();
                 self.for_in_target(target);
@@ -332,27 +377,42 @@ impl<'a> Visitor<'a> {
     /// the **same** variable (`JoinPatternVariableElement`).
     fn declare_pattern_name(&mut self, n: ast::Name, group: Option<usize>) {
         if let Some(region) = self.shared_region
-            && let Some(i) = self.find(n.sym).filter(|&i| i >= region) {
-                let root = self.root(i);
-                if self.wildcard && self.interner.resolve(n.sym) == "_" {
-                    return;
-                }
-                self.locals.push(Local { name: n.sym, span: n.span, kind: LocalKind::Variable, read: false, group, alias: Some(root), read_by_own_guard: false });
+            && let Some(i) = self.find(n.sym).filter(|&i| i >= region)
+        {
+            let root = self.root(i);
+            if self.wildcard && self.interner.resolve(n.sym) == "_" {
                 return;
             }
+            self.locals.push(Local {
+                name: n.sym,
+                span: n.span,
+                kind: LocalKind::Variable,
+                read: false,
+                group,
+                alias: Some(root),
+                read_by_own_guard: false,
+            });
+            return;
+        }
         // `var a && var a` (`duplicate_variable_pattern`): the second does not
         // enter the scope; the uses of `a` are the first's.
         if let Some(start) = self.pattern_start
-            && self.find(n.sym).is_some_and(|i| i >= start) {
-                return;
-            }
+            && self.find(n.sym).is_some_and(|i| i >= start)
+        {
+            return;
+        }
         self.declare(n, LocalKind::Variable, group);
     }
 
     fn declare_from_pattern(&mut self, p: PatternId, group: Option<usize>) {
         let ast = self.ast;
         match &ast.pattern(p).kind {
-            PatternKind::Variable { name, final_, var_, ty } => {
+            PatternKind::Variable {
+                name,
+                final_,
+                var_,
+                ty,
+            } => {
                 // In a refutable pattern, the loose identifier is a constant.
                 if !(self.refutable && !*final_ && !*var_ && ty.is_none()) {
                     self.declare_pattern_name(*name, group);
@@ -369,9 +429,9 @@ impl<'a> Visitor<'a> {
                 self.declare_from_pattern(*a, group);
                 self.declare_from_pattern(*b, group);
             }
-            PatternKind::NullCheck(a) | PatternKind::NullAssert(a) | PatternKind::Parenthesized(a) => {
-                self.declare_from_pattern(*a, group)
-            }
+            PatternKind::NullCheck(a)
+            | PatternKind::NullAssert(a)
+            | PatternKind::Parenthesized(a) => self.declare_from_pattern(*a, group),
             PatternKind::Cast { pattern, .. } => self.declare_from_pattern(*pattern, group),
             PatternKind::List { elements, .. } => {
                 for e in elements.iter() {
@@ -390,14 +450,21 @@ impl<'a> Visitor<'a> {
                     self.declare_from_pattern(f.pattern, group);
                 }
             }
-            PatternKind::Wildcard { .. } | PatternKind::Constant(_) | PatternKind::Relational { .. } => {}
+            PatternKind::Wildcard { .. }
+            | PatternKind::Constant(_)
+            | PatternKind::Relational { .. } => {}
         }
     }
 
     fn read_from_pattern(&mut self, p: PatternId) {
         let ast = self.ast;
         match &ast.pattern(p).kind {
-            PatternKind::Variable { name, final_, var_, ty } => {
+            PatternKind::Variable {
+                name,
+                final_,
+                var_,
+                ty,
+            } => {
                 if self.refutable && !*final_ && !*var_ && ty.is_none() {
                     self.refer(*name, true)
                 }
@@ -407,9 +474,9 @@ impl<'a> Visitor<'a> {
                 self.read_from_pattern(*a);
                 self.read_from_pattern(*b);
             }
-            PatternKind::NullCheck(a) | PatternKind::NullAssert(a) | PatternKind::Parenthesized(a) => {
-                self.read_from_pattern(*a)
-            }
+            PatternKind::NullCheck(a)
+            | PatternKind::NullAssert(a)
+            | PatternKind::Parenthesized(a) => self.read_from_pattern(*a),
             PatternKind::Cast { pattern, .. } => self.read_from_pattern(*pattern),
             PatternKind::List { elements, .. } => {
                 for e in elements.iter() {
@@ -438,16 +505,21 @@ impl<'a> Visitor<'a> {
     fn assignment_pattern(&mut self, p: PatternId) {
         let ast = self.ast;
         match &ast.pattern(p).kind {
-            PatternKind::Variable { name, var_, final_, ty } if *var_ || *final_ || ty.is_some() => self.declare_pattern_name(*name, None),
+            PatternKind::Variable {
+                name,
+                var_,
+                final_,
+                ty,
+            } if *var_ || *final_ || ty.is_some() => self.declare_pattern_name(*name, None),
             PatternKind::Variable { name, .. } => self.refer(*name, false),
             PatternKind::Constant(x) | PatternKind::Relational { value: x, .. } => self.expr(*x),
             PatternKind::Or(a, b) | PatternKind::And(a, b) => {
                 self.assignment_pattern(*a);
                 self.assignment_pattern(*b);
             }
-            PatternKind::NullCheck(a) | PatternKind::NullAssert(a) | PatternKind::Parenthesized(a) => {
-                self.assignment_pattern(*a)
-            }
+            PatternKind::NullCheck(a)
+            | PatternKind::NullAssert(a)
+            | PatternKind::Parenthesized(a) => self.assignment_pattern(*a),
             PatternKind::Cast { pattern, .. } => self.assignment_pattern(*pattern),
             PatternKind::List { elements, .. } => {
                 for e in elements.iter() {
@@ -518,21 +590,28 @@ impl<'a> Visitor<'a> {
 
     /// `@name` in the text `[from, until)`: a read of local `name`, if any.
     fn annotations_in_text(&mut self, from: usize, until: usize) {
-        let Some(fragment) = self.source.get(from..until) else { return };
+        let Some(fragment) = self.source.get(from..until) else {
+            return;
+        };
         let b = fragment.as_bytes();
         let mut i = 0;
         while i < b.len() {
             if b[i] == b'@' {
                 let start = i + 1;
                 let mut j = start;
-                while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] == b'$') {
+                while j < b.len() && (b[j].is_ascii_alphanumeric() || b[j] == b'_' || b[j] == b'$')
+                {
                     j += 1;
                 }
                 if j > start
-                    && let Some(sym) = self.interner.lookup(&fragment[start..j]) {
-                        let span = Span { start: from + start, end: from + j };
-                        self.refer(ast::Name { sym, span }, true);
-                    }
+                    && let Some(sym) = self.interner.lookup(&fragment[start..j])
+                {
+                    let span = Span {
+                        start: from + start,
+                        end: from + j,
+                    };
+                    self.refer(ast::Name { sym, span }, true);
+                }
                 i = j.max(i + 1);
             } else {
                 i += 1;
@@ -625,7 +704,13 @@ impl<'a> Visitor<'a> {
                 self.local_function(*f);
             }
             StmtKind::Expression(x) => self.expr_ctx(*x, true),
-            StmtKind::If { condition, case_pattern, guard, then, else_ } => {
+            StmtKind::If {
+                condition,
+                case_pattern,
+                guard,
+                then,
+                else_,
+            } => {
                 self.expr(*condition);
                 self.enter();
                 if let Some(p) = case_pattern {
@@ -644,7 +729,13 @@ impl<'a> Visitor<'a> {
                     self.exit();
                 }
             }
-            StmtKind::For { init, condition, updates, body, .. } => {
+            StmtKind::For {
+                init,
+                condition,
+                updates,
+                body,
+                ..
+            } => {
                 self.enter();
                 self.for_init(init.as_ref());
                 if let Some(c) = condition {
@@ -656,7 +747,12 @@ impl<'a> Visitor<'a> {
                 self.stmt(*body);
                 self.exit();
             }
-            StmtKind::ForIn { target, iterable, body, .. } => {
+            StmtKind::ForIn {
+                target,
+                iterable,
+                body,
+                ..
+            } => {
                 self.expr(*iterable);
                 self.enter();
                 self.for_in_target(target);
@@ -694,7 +790,10 @@ impl<'a> Visitor<'a> {
                             self.case_pattern(p);
                         }
                         if let Some(g) = c.guard {
-                            let guard = std::mem::replace(&mut self.guard_vars, (first..self.locals.len()).collect());
+                            let guard = std::mem::replace(
+                                &mut self.guard_vars,
+                                (first..self.locals.len()).collect(),
+                            );
                             self.expr(g);
                             self.guard_vars = guard;
                         }
@@ -711,7 +810,11 @@ impl<'a> Visitor<'a> {
                 }
             }
             StmtKind::Yield { value, .. } => self.expr(*value),
-            StmtKind::Try { body, catches, finally_ } => {
+            StmtKind::Try {
+                body,
+                catches,
+                finally_,
+            } => {
                 self.stmt(*body);
                 for c in catches.iter() {
                     self.enter();
@@ -719,7 +822,15 @@ impl<'a> Visitor<'a> {
                     // there is a stack or there is no `on`.
                     if let Some(n) = c.exception {
                         let used = c.stack_trace.is_some() || c.on_type.is_none();
-                        self.declare(n, if used { LocalKind::Hidden } else { LocalKind::CatchException }, None);
+                        self.declare(
+                            n,
+                            if used {
+                                LocalKind::Hidden
+                            } else {
+                                LocalKind::CatchException
+                            },
+                            None,
+                        );
                     }
                     if let Some(n) = c.stack_trace {
                         self.declare(n, LocalKind::CatchStack, None);
@@ -795,7 +906,9 @@ impl<'a> Visitor<'a> {
                 Initializer::Super { arguments, .. } | Initializer::Redirect { arguments, .. } => {
                     self.arguments(arguments)
                 }
-                Initializer::Assert { condition, message, .. } => {
+                Initializer::Assert {
+                    condition, message, ..
+                } => {
                     self.expr(*condition);
                     if let Some(m) = message {
                         self.expr(*m);
@@ -863,7 +976,12 @@ fn executables(u: Unit<'_>) -> Vec<Span> {
 /// local is only left out when its name is cited in a fragment the parser
 /// skipped inside the same executable declaration (a use fasta may have
 /// kept).
-pub fn unused_with_skipped(u: Unit<'_>, interner: &Interner, wildcard: bool, skipped: crate::Skipped<'_>) -> Vec<Diagnostic> {
+pub fn unused_with_skipped(
+    u: Unit<'_>,
+    interner: &Interner,
+    wildcard: bool,
+    skipped: crate::Skipped<'_>,
+) -> Vec<Diagnostic> {
     let mut out = unused_unfiltered(u, interner, wildcard);
     if !skipped.is_empty() {
         let execs = executables(u);
@@ -879,10 +997,21 @@ pub fn unused_with_skipped(u: Unit<'_>, interner: &Interner, wildcard: bool, ski
                 }
                 let end = blocks
                     .iter()
-                    .filter(|b| b.start <= d.span.start && d.span.end <= b.end && e.start <= b.start && b.end <= e.end)
+                    .filter(|b| {
+                        b.start <= d.span.start
+                            && d.span.end <= b.end
+                            && e.start <= b.start
+                            && b.end <= e.end
+                    })
                     .min_by_key(|b| b.end - b.start)
                     .map_or(e.end, |b| b.end);
-                skipped.mentions_within(name, dartforge_diagnostics::Span { start: d.span.end, end })
+                skipped.mentions_within(
+                    name,
+                    dartforge_diagnostics::Span {
+                        start: d.span.end,
+                        end,
+                    },
+                )
             })
         });
     }
@@ -917,7 +1046,20 @@ pub fn unused(u: Unit<'_>, interner: &Interner, wildcard: bool) -> Vec<Diagnosti
 
 fn unused_unfiltered(u: Unit<'_>, interner: &Interner, wildcard: bool) -> Vec<Diagnostic> {
     let ast = u.ast;
-    let mut v = Visitor { ast, interner, wildcard, source: u.source, locals: Vec::new(), scopes: vec![Vec::new()], groups: 0, refutable: false, shared_region: None, pattern_start: None, guard_vars: Vec::new(), executable: None };
+    let mut v = Visitor {
+        ast,
+        interner,
+        wildcard,
+        source: u.source,
+        locals: Vec::new(),
+        scopes: vec![Vec::new()],
+        groups: 0,
+        refutable: false,
+        shared_region: None,
+        pattern_start: None,
+        guard_vars: Vec::new(),
+        executable: None,
+    };
     for &d in &u.unit.declarations {
         match &ast.decl(d).kind {
             DeclKind::Function(f) => v.function(*f, true),
@@ -944,7 +1086,9 @@ fn unused_unfiltered(u: Unit<'_>, interner: &Interner, wildcard: bool) -> Vec<Di
         }
     }
     // A variable is read when its root (the declaration it shares) was read.
-    let read_set: Vec<bool> = (0..v.locals.len()).map(|i| v.locals[v.root(i)].read || v.locals[i].read_by_own_guard).collect();
+    let read_set: Vec<bool> = (0..v.locals.len())
+        .map(|i| v.locals[v.root(i)].read || v.locals[i].read_by_own_guard)
+        .collect();
     let mut read_groups = std::collections::HashSet::new();
     for (i, l) in v.locals.iter().enumerate() {
         if let (Some(g), true) = (l.group, read_set[i]) {
@@ -965,10 +1109,22 @@ fn unused_unfiltered(u: Unit<'_>, interner: &Interner, wildcard: bool) -> Vec<Di
             continue;
         }
         match l.kind {
-            LocalKind::Variable => out.push(Diagnostic::with_code(w::UNUSED_LOCAL_VARIABLE, l.span, [name])),
-            LocalKind::Function => out.push(Diagnostic::with_code(w::UNUSED_ELEMENT, l.span, [name])),
-            LocalKind::CatchException => out.push(Diagnostic::with_code(w::UNUSED_CATCH_CLAUSE, l.span, [name])),
-            LocalKind::CatchStack => out.push(Diagnostic::with_code(w::UNUSED_CATCH_STACK, l.span, [name])),
+            LocalKind::Variable => out.push(Diagnostic::with_code(
+                w::UNUSED_LOCAL_VARIABLE,
+                l.span,
+                [name],
+            )),
+            LocalKind::Function => {
+                out.push(Diagnostic::with_code(w::UNUSED_ELEMENT, l.span, [name]))
+            }
+            LocalKind::CatchException => out.push(Diagnostic::with_code(
+                w::UNUSED_CATCH_CLAUSE,
+                l.span,
+                [name],
+            )),
+            LocalKind::CatchStack => {
+                out.push(Diagnostic::with_code(w::UNUSED_CATCH_STACK, l.span, [name]))
+            }
             LocalKind::Hidden => {}
         }
     }
@@ -983,10 +1139,19 @@ mod tests {
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut interner);
         assert!(p.diagnostics.is_empty(), "{:?}", p.diagnostics);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source };
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source,
+        };
         let mut v: Vec<_> = unused(u, &interner, false)
             .into_iter()
-            .map(|d| (d.code.unwrap().info().name.to_string(), source[d.span.start..d.span.end].to_string()))
+            .map(|d| {
+                (
+                    d.code.unwrap().info().name.to_string(),
+                    source[d.span.start..d.span.end].to_string(),
+                )
+            })
             .collect();
         v.sort();
         v
@@ -1014,14 +1179,21 @@ mod tests {
         // `var v` already is the inner declaration.
         let f = "void f(x) {\n  var a = 0;\n  if (x case a) {}\n  const c = 0;\n  @c\n  var b = 1;\n  print(b);\n  var v = 1;\n  {\n    v;\n    var v = 2;\n  }\n}\n";
         let r = run(f);
-        assert_eq!(r, vec![("unused_local_variable".to_string(), "v".to_string())], "{r:?}");
+        assert_eq!(
+            r,
+            vec![("unused_local_variable".to_string(), "v".to_string())],
+            "{r:?}"
+        );
     }
 
     #[test]
     fn shadow_and_closure() {
         let f = "void f() {\n  var a = 1;\n  void g(int a) { print(a); }\n  g(0);\n}\n";
         let r = run(f);
-        assert_eq!(r, vec![("unused_local_variable".to_string(), "a".to_string())]);
+        assert_eq!(
+            r,
+            vec![("unused_local_variable".to_string(), "a".to_string())]
+        );
     }
 
     #[test]
@@ -1030,8 +1202,15 @@ mod tests {
         let f = "void f() {\n  for (int i = 0, i = 0; i < 5;) {}\n}\n";
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(f, &mut interner);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source: f };
-        let r: Vec<usize> = unused(u, &interner, false).iter().map(|d| d.span.start).collect();
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source: f,
+        };
+        let r: Vec<usize> = unused(u, &interner, false)
+            .iter()
+            .map(|d| d.span.start)
+            .collect();
         assert_eq!(r, vec![f.find(", i").unwrap() + 2]);
     }
 
@@ -1040,16 +1219,35 @@ mod tests {
         let f = "void f() {\n  var a = 1;\n  // a b c\n}\nvoid g() {\n  var b = 1;\n}\n";
         let mut interner = Interner::new();
         let p = dartforge_frontend::parser::parse(f, &mut interner);
-        let u = Unit { ast: &p.ast, unit: &p.unit, source: f };
+        let u = Unit {
+            ast: &p.ast,
+            unit: &p.unit,
+            source: f,
+        };
         // A skipped fragment in the body of `f` that cites `a`: `a` is not
         // reported (fasta would have read the read); `b`, from `g`, is.
-        let fragment = Span { start: f.find("a b c").unwrap(), end: f.find("a b c").unwrap() + 5 };
-        let skipped = crate::Skipped { source: f, spans: &[fragment] };
-        let r: Vec<usize> = unused_with_skipped(u, &interner, false, skipped).iter().map(|d| d.span.start).collect();
+        let fragment = Span {
+            start: f.find("a b c").unwrap(),
+            end: f.find("a b c").unwrap() + 5,
+        };
+        let skipped = crate::Skipped {
+            source: f,
+            spans: &[fragment],
+        };
+        let r: Vec<usize> = unused_with_skipped(u, &interner, false, skipped)
+            .iter()
+            .map(|d| d.span.start)
+            .collect();
         assert_eq!(r, vec![f.find("b = 1;\n}\n").unwrap()]);
         // The fragment only counts inside the executable declaration it touches.
-        let outside = Span { start: f.find("void g").unwrap(), end: f.find("void g").unwrap() + 4 };
-        let skipped = crate::Skipped { source: f, spans: &[outside] };
+        let outside = Span {
+            start: f.find("void g").unwrap(),
+            end: f.find("void g").unwrap() + 4,
+        };
+        let skipped = crate::Skipped {
+            source: f,
+            spans: &[outside],
+        };
         assert_eq!(unused_with_skipped(u, &interner, false, skipped).len(), 2);
     }
 
@@ -1070,7 +1268,10 @@ mod tests {
         let r = run(f);
         assert_eq!(
             r,
-            vec![("unused_catch_clause".to_string(), "e".to_string()), ("unused_catch_stack".to_string(), "s".to_string())]
+            vec![
+                ("unused_catch_clause".to_string(), "e".to_string()),
+                ("unused_catch_stack".to_string(), "s".to_string())
+            ]
         );
     }
 }

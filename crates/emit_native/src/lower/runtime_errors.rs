@@ -24,14 +24,22 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let Some(data) = self.ctx.outline.functions.get(fid) else {
             return Vec::new();
         };
-        let mut positionals = evaluated.iter().filter(|(n, _)| n.is_none()).map(|(_, v)| v.clone());
-        data
-            .parameters
+        let mut positionals = evaluated
+            .iter()
+            .filter(|(n, _)| n.is_none())
+            .map(|(_, v)| v.clone());
+        data.parameters
             .iter()
             .map(|p| {
-                let name = p.name.map(|s| self.ctx.symbol_name(s).to_string()).unwrap_or_default();
+                let name = p
+                    .name
+                    .map(|s| self.ctx.symbol_name(s).to_string())
+                    .unwrap_or_default();
                 let v = if p.kind == dartforge_frontend::ast::ParameterKind::Named {
-                    evaluated.iter().find(|(n, _)| *n == p.name).map(|(_, v)| v.clone())
+                    evaluated
+                        .iter()
+                        .find(|(n, _)| *n == p.name)
+                        .map(|(_, v)| v.clone())
                 } else {
                     positionals.next()
                 };
@@ -41,7 +49,8 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     }
 
     fn arg(args: &[(String, Operand)], i: usize) -> Operand {
-        args.get(i).map_or(Operand::Constant(Constant::Null), |(_, v)| v.clone())
+        args.get(i)
+            .map_or(Operand::Constant(Constant::Null), |(_, v)| v.clone())
     }
 
     fn runtime_ref(&mut self, name: &str, args: Vec<(Operand, Type)>) -> Operand {
@@ -57,27 +66,57 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     pub fn new_runtime_error(&mut self, name: &str, mut args: Vec<(Operand, Type)>) -> Operand {
         let base = name.strip_prefix("dartforge_").unwrap_or(name);
         if !self.ctx.arc_memory || !ERRORS_WITH_ARC_VARIANT.contains(&base) {
-            return self.emit(Instruction::CallRuntime { name: name.into(), args, ret_ty: Type::Ref }, Type::Ref);
+            return self.emit(
+                Instruction::CallRuntime {
+                    name: name.into(),
+                    args,
+                    ret_ty: Type::Ref,
+                },
+                Type::Ref,
+            );
         }
         // Under ARC the value of the (bits, is-reference) pair goes as `Ref` (the
         // mark stays 1) and the pending state is checked: the preparation replaces it with the
         // Owned variant (`optimize::arc::natives`), which runs Dart.
-        if matches!(base, "exception_new" | "assertion_error_new" | "argument_error_value") {
+        if matches!(
+            base,
+            "exception_new" | "assertion_error_new" | "argument_error_value"
+        ) {
             let value = self.coerce(args[0].0.clone(), Type::Ref);
             args[0].0 = value;
             args[1].0 = Operand::Constant(Constant::Int(1));
         }
-        self.emit_call_with_check(Instruction::CallRuntime { name: name.into(), args, ret_ty: Type::Ref }, Type::Ref)
+        self.emit_call_with_check(
+            Instruction::CallRuntime {
+                name: name.into(),
+                args,
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
     /// `C(...)`/`C.name(...)` of a runtime error class; `None` if it is not one.
-    pub fn runtime_error_constructor(&mut self, fid: usize, evaluated: &[Evaluated]) -> Option<Operand> {
+    pub fn runtime_error_constructor(
+        &mut self,
+        fid: usize,
+        evaluated: &[Evaluated],
+    ) -> Option<Operand> {
         let f = &self.ctx.program.functions[fid];
         let class = f.class?;
-        if self.ctx.program.library(self.ctx.program.classes[class.0 as usize].library).uri != "dart:core" {
+        if self
+            .ctx
+            .program
+            .library(self.ctx.program.classes[class.0 as usize].library)
+            .uri
+            != "dart:core"
+        {
             return None;
         }
-        let class_name = self.ctx.symbol_name(self.ctx.program.classes[class.0 as usize].name).to_string();
+        let class_name = self
+            .ctx
+            .symbol_name(self.ctx.program.classes[class.0 as usize].name)
+            .to_string();
         let ctor = self.ctx.symbol_name(f.name).to_string();
         let a = self.args_by_name(fid, evaluated);
         let r = |s: &mut Self, i: usize| {
@@ -87,7 +126,13 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         Some(match (class_name.as_str(), ctor.as_str()) {
             ("Exception", "") => {
                 let m = r(self, 0);
-                self.runtime_ref("dartforge_exception_new", vec![(m, Type::I64), (Operand::Constant(Constant::Int(1)), Type::I8)])
+                self.runtime_ref(
+                    "dartforge_exception_new",
+                    vec![
+                        (m, Type::I64),
+                        (Operand::Constant(Constant::Int(1)), Type::I8),
+                    ],
+                )
             }
             ("StateError", "") => {
                 let m = r(self, 0);
@@ -103,13 +148,21 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             }
             ("ArgumentError", "") => {
                 let (m, n) = (r(self, 0), r(self, 1));
-                self.runtime_ref("dartforge_argument_error_new", vec![(m, Type::Ref), (n, Type::Ref)])
+                self.runtime_ref(
+                    "dartforge_argument_error_new",
+                    vec![(m, Type::Ref), (n, Type::Ref)],
+                )
             }
             ("ArgumentError", "value") => {
                 let (v, n, m) = (r(self, 0), r(self, 1), r(self, 2));
                 self.runtime_ref(
                     "dartforge_argument_error_value",
-                    vec![(v, Type::I64), (Operand::Constant(Constant::Int(1)), Type::I8), (n, Type::Ref), (m, Type::Ref)],
+                    vec![
+                        (v, Type::I64),
+                        (Operand::Constant(Constant::Int(1)), Type::I8),
+                        (n, Type::Ref),
+                        (m, Type::Ref),
+                    ],
                 )
             }
             ("ArgumentError", "notNull") => {
@@ -124,13 +177,27 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
     /// Static methods of the runtime error classes that the source
     /// code calls: `Error.throwWithStackTrace`, `ArgumentError.checkNotNull`,
     /// `RangeError.checkNotNegative`. `None` if it is not one of them.
-    pub fn runtime_error_static(&mut self, fid: usize, evaluated: &[Evaluated], span: Span) -> Option<Operand> {
+    pub fn runtime_error_static(
+        &mut self,
+        fid: usize,
+        evaluated: &[Evaluated],
+        span: Span,
+    ) -> Option<Operand> {
         let f = &self.ctx.program.functions[fid];
         let class = f.class?;
-        if self.ctx.program.library(self.ctx.program.classes[class.0 as usize].library).uri != "dart:core" {
+        if self
+            .ctx
+            .program
+            .library(self.ctx.program.classes[class.0 as usize].library)
+            .uri
+            != "dart:core"
+        {
             return None;
         }
-        let class_name = self.ctx.symbol_name(self.ctx.program.classes[class.0 as usize].name).to_string();
+        let class_name = self
+            .ctx
+            .symbol_name(self.ctx.program.classes[class.0 as usize].name)
+            .to_string();
         let method = self.ctx.symbol_name(f.name).to_string();
         let a = self.args_by_name(fid, evaluated);
         match (class_name.as_str(), method.as_str()) {
@@ -148,10 +215,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let v = self.coerce(v, Type::Ref);
                 let n = Self::arg(&a, 1);
                 let n = self.coerce(n, Type::Ref);
-                let null = self.emit(Instruction::ICmp(ICmpOp::Eq, v.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+                let null = self.emit(
+                    Instruction::ICmp(ICmpOp::Eq, v.clone(), Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                );
                 let b_error = self.new_block();
                 let b_ok = self.new_block();
-                self.terminate(Terminator::CondBranch { cond: null, then_block: b_error, else_block: b_ok });
+                self.terminate(Terminator::CondBranch {
+                    cond: null,
+                    then_block: b_error,
+                    else_block: b_ok,
+                });
                 self.set_block(b_error);
                 let e = self.runtime_ref("dartforge_argument_error_not_null", vec![(n, Type::Ref)]);
                 self.emit_throw_op(e);
@@ -165,10 +239,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
                 let n = self.coerce(n, Type::Ref);
                 let m = Self::arg(&a, 2);
                 let m = self.coerce(m, Type::Ref);
-                let neg = self.emit(Instruction::ICmp(ICmpOp::Slt, v.clone(), Operand::Constant(Constant::Int(0))), Type::I1);
+                let neg = self.emit(
+                    Instruction::ICmp(ICmpOp::Slt, v.clone(), Operand::Constant(Constant::Int(0))),
+                    Type::I1,
+                );
                 let b_error = self.new_block();
                 let b_ok = self.new_block();
-                self.terminate(Terminator::CondBranch { cond: neg, then_block: b_error, else_block: b_ok });
+                self.terminate(Terminator::CondBranch {
+                    cond: neg,
+                    then_block: b_error,
+                    else_block: b_ok,
+                });
                 self.set_block(b_error);
                 let e = self.runtime_ref(
                     "dartforge_range_error_range",
@@ -209,20 +290,41 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
             let (name, mut args) = match stack_trace {
                 Some(s) => {
                     let s = self.coerce(s, Type::Ref);
-                    ("dartforge_arc_throw_with_stack_trace_ref_v1", vec![(s, Type::Ref)])
+                    (
+                        "dartforge_arc_throw_with_stack_trace_ref_v1",
+                        vec![(s, Type::Ref)],
+                    )
                 }
                 None => ("dartforge_arc_throw_ref_v1", Vec::new()),
             };
             args.insert(0, (value, Type::Ref));
-            self.emit(Instruction::CallRuntime { name: name.into(), args, ret_ty: Type::Void }, Type::Void);
+            self.emit(
+                Instruction::CallRuntime {
+                    name: name.into(),
+                    args,
+                    ret_ty: Type::Void,
+                },
+                Type::Void,
+            );
             let pending = self.emit(
-                Instruction::CallRuntime { name: "dartforge_exception_pending".into(), args: Vec::new(), ret_ty: Type::I8 },
+                Instruction::CallRuntime {
+                    name: "dartforge_exception_pending".into(),
+                    args: Vec::new(),
+                    ret_ty: Type::I8,
+                },
                 Type::I8,
             );
-            let threw = self.emit(Instruction::ICmp(ICmpOp::Ne, pending, Operand::Constant(Constant::Int(0))), Type::I1);
+            let threw = self.emit(
+                Instruction::ICmp(ICmpOp::Ne, pending, Operand::Constant(Constant::Int(0))),
+                Type::I1,
+            );
             let exits = self.new_block();
             let dead = self.new_block();
-            self.terminate(Terminator::CondBranch { cond: threw, then_block: exits, else_block: dead });
+            self.terminate(Terminator::CondBranch {
+                cond: threw,
+                then_block: exits,
+                else_block: dead,
+            });
             self.set_block(dead);
             self.terminate(Terminator::Unreachable);
             self.set_block(exits);
@@ -230,7 +332,17 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         }
         let (tag, bits) = match self.operand_type(&value) {
             Type::I64 => (1, value),
-            Type::I1 => (2, self.emit(Instruction::ZExt { op: value, from: Type::I1, to: Type::I8 }, Type::I8)),
+            Type::I1 => (
+                2,
+                self.emit(
+                    Instruction::ZExt {
+                        op: value,
+                        from: Type::I1,
+                        to: Type::I8,
+                    },
+                    Type::I8,
+                ),
+            ),
             Type::I8 => (2, value),
             Type::F64 => (4, value),
             _ => (3, value),
@@ -239,23 +351,50 @@ impl<'a, 'c> FnBuilder<'a, 'c> {
         let (name, args) = match stack_trace {
             Some(s) => {
                 let s = self.coerce(s, Type::Ref);
-                ("dartforge_throw_with_stack_trace", vec![(bits, Type::I64), (tag, Type::I8), (s, Type::Ref)])
+                (
+                    "dartforge_throw_with_stack_trace",
+                    vec![(bits, Type::I64), (tag, Type::I8), (s, Type::Ref)],
+                )
             }
-            None => ("dartforge_exception_throw", vec![(bits, Type::I64), (tag, Type::I8)]),
+            None => (
+                "dartforge_exception_throw",
+                vec![(bits, Type::I64), (tag, Type::I8)],
+            ),
         };
-        self.emit(Instruction::CallRuntime { name: name.into(), args, ret_ty: Type::Void }, Type::Void);
+        self.emit(
+            Instruction::CallRuntime {
+                name: name.into(),
+                args,
+                ret_ty: Type::Void,
+            },
+            Type::Void,
+        );
     }
 
     /// The pending exception as a `Ref` (the `catch` variable, the one kept by the
     /// `finally`).
     pub fn pending_exception(&mut self) -> Operand {
-        self.emit(Instruction::CallRuntime { name: "dartforge_exception_peek_ref".into(), args: Vec::new(), ret_ty: Type::Ref }, Type::Ref)
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_exception_peek_ref".into(),
+                args: Vec::new(),
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
     /// The `StackTrace` of the pending exception. The ARC preparation gives it (and the
     /// exception) an owner of its own, independent of the `clear` that follows.
     pub fn pending_stack_trace(&mut self) -> Operand {
-        self.emit(Instruction::CallRuntime { name: "dartforge_stack_trace_get".into(), args: Vec::new(), ret_ty: Type::Ref }, Type::Ref)
+        self.emit(
+            Instruction::CallRuntime {
+                name: "dartforge_stack_trace_get".into(),
+                args: Vec::new(),
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )
     }
 
     pub fn branch_to_exception_handler(&mut self) {

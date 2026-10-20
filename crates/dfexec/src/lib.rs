@@ -11,7 +11,11 @@ const LARGEST_FRAME: u32 = 64 << 20;
 pub fn write_frame(w: &mut dyn Write, m: &Value) -> std::io::Result<()> {
     let body = serde_json::to_vec(m).map_err(std::io::Error::other)?;
     let n = u32::try_from(body.len()).map_err(std::io::Error::other)?;
-    if n > LARGEST_FRAME { return Err(std::io::Error::other(format!("frame of {n} bytes exceeds the limit"))); }
+    if n > LARGEST_FRAME {
+        return Err(std::io::Error::other(format!(
+            "frame of {n} bytes exceeds the limit"
+        )));
+    }
     w.write_all(&n.to_be_bytes())?;
     w.write_all(&body)?;
     w.flush()
@@ -23,15 +27,26 @@ pub fn read_frame(r: &mut dyn Read) -> std::io::Result<Option<Value>> {
     while read_list < 4 {
         match r.read(&mut n[read_list..])? {
             0 if read_list == 0 => return Ok(None),
-            0 => return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "frame truncated in the size")),
+            0 => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "frame truncated in the size",
+                ));
+            }
             k => read_list += k,
         }
     }
     let n = u32::from_be_bytes(n);
-    if n > LARGEST_FRAME { return Err(std::io::Error::other(format!("frame of {n} bytes exceeds the limit"))); }
+    if n > LARGEST_FRAME {
+        return Err(std::io::Error::other(format!(
+            "frame of {n} bytes exceeds the limit"
+        )));
+    }
     let mut body = vec![0u8; n as usize];
     r.read_exact(&mut body)?;
-    serde_json::from_slice(&body).map(Some).map_err(std::io::Error::other)
+    serde_json::from_slice(&body)
+        .map(Some)
+        .map_err(std::io::Error::other)
 }
 
 pub trait Channel: Send {
@@ -55,22 +70,34 @@ pub struct ProcessChannel {
 
 impl ProcessChannel {
     pub fn start(mut command: std::process::Command) -> Result<Self, String> {
-        command.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped());
-        let mut child = command.spawn().map_err(|e| format!("could not start the executor: {e}"))?;
+        command
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped());
+        let mut child = command
+            .spawn()
+            .map_err(|e| format!("could not start the executor: {e}"))?;
         let input = child.stdin.take().ok_or("executor without stdin")?;
         let mut out = child.stdout.take().ok_or("executor without stdout")?;
         let (tx, frames) = std::sync::mpsc::channel();
         std::thread::Builder::new()
             .name("dfexec-reader".into())
-            .spawn(move || loop {
-                let q = read_frame(&mut out);
-                let end = !matches!(q, Ok(Some(_)));
-                if tx.send(q).is_err() || end {
-                    break;
+            .spawn(move || {
+                loop {
+                    let q = read_frame(&mut out);
+                    let end = !matches!(q, Ok(Some(_)));
+                    if tx.send(q).is_err() || end {
+                        break;
+                    }
                 }
             })
             .map_err(|e| format!("could not read from the executor: {e}"))?;
-        Ok(Self { child, input, frames, deadline: None, shut: false })
+        Ok(Self {
+            child,
+            input,
+            frames,
+            deadline: None,
+            shut: false,
+        })
     }
 
     /// Waits at most `deadline` for each message from the executor (`None`: no

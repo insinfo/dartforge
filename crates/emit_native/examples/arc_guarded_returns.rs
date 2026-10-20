@@ -169,10 +169,7 @@ fn main() -> Result<(), String> {
     caller.tables.landing_pads.insert(BlockId(1));
     let mut callee = DartFunctionPlan::default();
     callee.tokens.ret = TokenReturn::Owned;
-    callee
-        .tables
-        .exits
-        .insert(BlockId(0), ExceptionExit::Guard);
+    callee.tables.exits.insert(BlockId(0), ExceptionExit::Guard);
     let mut plans = HashMap::from([
         ("prova_guardas".into(), caller),
         ("retorno_guardado".into(), callee),

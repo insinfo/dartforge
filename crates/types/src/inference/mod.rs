@@ -24,26 +24,28 @@
 //! inference of the initializer, with cycle detection (`inference.md`,
 //! "Top-level inference procedure").
 
-mod shorthands;
+mod body;
 mod calls;
 mod collections;
-mod body;
 mod expr;
 mod flow;
-mod integers;
 mod functions;
-mod statements;
+mod integers;
 mod members;
 mod non_promotion;
-mod patterns;
 mod overrides;
+mod patterns;
+mod shorthands;
+mod statements;
 mod types;
 
 use crate::resolved::{BodyTypes, UnitBodyTypes};
 use crate::table::{CoreTypes, TypeId, TypeTable};
 use body::Body;
 use dartforge_diagnostics::{Diagnostic, Span};
-use dartforge_elements::model::{ExtensionId, FunctionElementId, LibraryId, Program, UnitId, VariableId, VariableRef};
+use dartforge_elements::model::{
+    ExtensionId, FunctionElementId, LibraryId, Program, UnitId, VariableId, VariableRef,
+};
 use dartforge_frontend::ast;
 use dartforge_intern::{Interner, SymbolId};
 use std::collections::{HashMap, HashSet};
@@ -113,8 +115,14 @@ pub fn body_at_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyRe
             FunctionRef::Constructor { unit, member } if unit == u => a.member(member).span,
             _ => continue,
         };
-        if span.start <= pos && pos <= span.end && best.is_none_or(|(t, _)| span.end - span.start < t) {
-            best = Some((span.end - span.start, BodyRef::Function(FunctionElementId(i as u32))));
+        if span.start <= pos
+            && pos <= span.end
+            && best.is_none_or(|(t, _)| span.end - span.start < t)
+        {
+            best = Some((
+                span.end - span.start,
+                BodyRef::Function(FunctionElementId(i as u32)),
+            ));
         }
     }
     for (i, v) in program.variables.iter().enumerate() {
@@ -123,8 +131,14 @@ pub fn body_at_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyRe
             VariableRef::Field { unit, member, .. } if unit == u => a.member(member).span,
             _ => continue,
         };
-        if span.start <= pos && pos <= span.end && best.is_none_or(|(t, _)| span.end - span.start < t) {
-            best = Some((span.end - span.start, BodyRef::Variable(VariableId(i as u32))));
+        if span.start <= pos
+            && pos <= span.end
+            && best.is_none_or(|(t, _)| span.end - span.start < t)
+        {
+            best = Some((
+                span.end - span.start,
+                BodyRef::Variable(VariableId(i as u32)),
+            ));
         }
     }
     best.map(|(_, c)| c)
@@ -135,12 +149,20 @@ pub fn body_at_offset(program: &Program, u: UnitId, pos: usize) -> Option<BodyRe
 /// without a written type that the sketch already inferred: what the
 /// inference of a library whose bodies were not requested writes into this
 /// unit's tables (on-demand top-level inference).
-pub fn unit_bodies(program: &Program, outline: &crate::resolve::OutlineTypes, u: UnitId, all: bool) -> Vec<BodyRef> {
+pub fn unit_bodies(
+    program: &Program,
+    outline: &crate::resolve::OutlineTypes,
+    u: UnitId,
+    all: bool,
+) -> Vec<BodyRef> {
     use dartforge_elements::model::FunctionRef;
     let mut v = Vec::new();
     for (i, var) in program.variables.iter().enumerate() {
         let unit_id = match var.node {
-            VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } | VariableRef::EnumConstant { unit, .. } | VariableRef::Representation { unit, .. } => unit,
+            VariableRef::TopLevel { unit, .. }
+            | VariableRef::Field { unit, .. }
+            | VariableRef::EnumConstant { unit, .. }
+            | VariableRef::Representation { unit, .. } => unit,
             VariableRef::None => continue,
         };
         if unit_id != u {
@@ -160,9 +182,14 @@ pub fn unit_bodies(program: &Program, outline: &crate::resolve::OutlineTypes, u:
             // Synthetic ones (implicit constructor, field accessors): through the
             // class declaration or through the originating variable.
             FunctionRef::None => {
-                f.class.and_then(|c| program.class(c).decl).is_some_and(|d| d.unit == u && f.variable.is_none())
+                f.class
+                    .and_then(|c| program.class(c).decl)
+                    .is_some_and(|d| d.unit == u && f.variable.is_none())
                     || f.variable.is_some_and(|x| match program.variable(x).node {
-                        VariableRef::TopLevel { unit, .. } | VariableRef::Field { unit, .. } | VariableRef::EnumConstant { unit, .. } | VariableRef::Representation { unit, .. } => unit == u,
+                        VariableRef::TopLevel { unit, .. }
+                        | VariableRef::Field { unit, .. }
+                        | VariableRef::EnumConstant { unit, .. }
+                        | VariableRef::Representation { unit, .. } => unit == u,
                         VariableRef::None => false,
                     })
             }
@@ -245,8 +272,15 @@ pub fn infer_bodies(
 /// extensions.
 #[derive(Default)]
 pub struct SharedInference {
-    interfaces: std::cell::RefCell<rustc_hash::FxHashMap<dartforge_elements::model::ClassId, Rc<crate::inheritance::Interface>>>,
-    promotion: std::cell::RefCell<rustc_hash::FxHashMap<LibraryId, Rc<crate::field_promotion::LibraryPromotion>>>,
+    interfaces: std::cell::RefCell<
+        rustc_hash::FxHashMap<
+            dartforge_elements::model::ClassId,
+            Rc<crate::inheritance::Interface>,
+        >,
+    >,
+    promotion: std::cell::RefCell<
+        rustc_hash::FxHashMap<LibraryId, Rc<crate::field_promotion::LibraryPromotion>>,
+    >,
     extensions: std::cell::RefCell<rustc_hash::FxHashMap<u32, Rc<[ExtensionId]>>>,
     /// The variables whose type some pass already inferred (the type is in the
     /// outline): a later pass over other libraries takes it as ready instead
@@ -293,10 +327,12 @@ pub struct BodyInferrer<'a> {
     /// New parameters, per class, for constructor inference.
     pub(crate) constructor_params: HashMap<u32, Vec<crate::table::TypeParamId>>,
     /// The `FieldPromotability` of each library already consulted.
-    pub(crate) promotion_by_library: HashMap<LibraryId, std::rc::Rc<crate::field_promotion::LibraryPromotion>>,
+    pub(crate) promotion_by_library:
+        HashMap<LibraryId, std::rc::Rc<crate::field_promotion::LibraryPromotion>>,
     /// The `whyNotPromoted` of each reference read (local or property) that has
     /// some reason: `ty -> motivo`, in the order of the flow's map.
-    pub(crate) non_promotions: HashMap<(UnitId, ast::ExprId), Vec<(TypeId, flow::NonPromotionReason)>>,
+    pub(crate) non_promotions:
+        HashMap<(UnitId, ast::ExprId), Vec<(TypeId, flow::NonPromotionReason)>>,
     /// Refined context of the arguments of `clamp`/`remainder` for the next
     /// invocation.
     pub(crate) pending_numeric_context: Option<TypeId>,
@@ -347,7 +383,10 @@ pub struct BodyInferrer<'a> {
     pub(crate) locals_as_type: HashMap<SymbolId, (Span, bool)>,
     /// The class and the extension whose members are in scope in the
     /// annotation.
-    pub(crate) type_container: (Option<dartforge_elements::model::ClassId>, Option<ExtensionId>),
+    pub(crate) type_container: (
+        Option<dartforge_elements::model::ClassId>,
+        Option<ExtensionId>,
+    ),
     /// Extension ambiguity of the last member lookup: `(name, list)`.
     pub(crate) extension_ambiguity: Option<ExtensionAmbiguity>,
     /// The annotation being resolved is in a static method or field.
@@ -400,9 +439,18 @@ pub fn applicable_extensions(
     recv: TypeId,
 ) -> Vec<(ExtensionId, Vec<TypeId>)> {
     // Without body tables: only applicability is consulted.
-    let mut inf = BodyInferrer::with_tables(program, interner, table, core, outline, Some(UnitId(u32::MAX)));
+    let mut inf = BodyInferrer::with_tables(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        Some(UnitId(u32::MAX)),
+    );
     let exts = inf.accessible_extensions(lib);
-    exts.iter().filter_map(|&e| inf.applicable_extension(e, recv).map(|a| (e, a))).collect()
+    exts.iter()
+        .filter_map(|&e| inf.applicable_extension(e, recv).map(|a| (e, a)))
+        .collect()
 }
 
 /// Like [`applicable_extensions`], for a given list of extensions (those of
@@ -417,8 +465,18 @@ pub fn applicable_extensions_among(
     candidates: &[ExtensionId],
     recv: TypeId,
 ) -> Vec<(ExtensionId, Vec<TypeId>)> {
-    let mut inf = BodyInferrer::with_tables(program, interner, table, core, outline, Some(UnitId(u32::MAX)));
-    candidates.iter().filter_map(|&e| inf.applicable_extension(e, recv).map(|a| (e, a))).collect()
+    let mut inf = BodyInferrer::with_tables(
+        program,
+        interner,
+        table,
+        core,
+        outline,
+        Some(UnitId(u32::MAX)),
+    );
+    candidates
+        .iter()
+        .filter_map(|&e| inf.applicable_extension(e, recv).map(|a| (e, a)))
+        .collect()
 }
 
 impl<'a> BodyInferrer<'a> {
@@ -464,7 +522,10 @@ impl<'a> BodyInferrer<'a> {
             core,
             outline,
             diagnostics: Vec::new(),
-            body_types: BodyTypes { units, used_extensions: std::collections::HashSet::new() },
+            body_types: BodyTypes {
+                units,
+                used_extensions: std::collections::HashSet::new(),
+            },
             only_libraries: None,
             only_mask: Vec::new(),
             only_bodies: None,
@@ -513,8 +574,12 @@ impl<'a> BodyInferrer<'a> {
     /// cite the searched name (docs/LSP-ESPECIFICACAO.md §11.9 B).
     pub fn allocate_bodies_of(&mut self, libs: &[LibraryId]) {
         for (i, u) in self.program.units.iter().enumerate() {
-            if libs.contains(&u.library) && self.program.library(u.library).is_sdk && !self.body_types.units[i].has_tables() {
-                self.body_types.units[i] = UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
+            if libs.contains(&u.library)
+                && self.program.library(u.library).is_sdk
+                && !self.body_types.units[i].has_tables()
+            {
+                self.body_types.units[i] =
+                    UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
             }
         }
     }
@@ -597,7 +662,13 @@ impl<'a> BodyInferrer<'a> {
 
     /// Like [`BodyInferrer::infer_all`], also returning the scope captured by
     /// [`BodyInferrer::scope_probe`] (LSP completion).
-    pub fn infer_all_with_probe(mut self) -> (BodyTypes, Vec<Diagnostic>, Option<crate::resolved::ProbedScope>) {
+    pub fn infer_all_with_probe(
+        mut self,
+    ) -> (
+        BodyTypes,
+        Vec<Diagnostic>,
+        Option<crate::resolved::ProbedScope>,
+    ) {
         self.infer_everything();
         (self.body_types, self.diagnostics, self.probed_scope)
     }
@@ -623,7 +694,8 @@ impl<'a> BodyInferrer<'a> {
         if let Some(requested) = self.only_libraries.clone() {
             for (ui, u) in self.program.units.iter().enumerate() {
                 if self.program.library(u.library).is_sdk && requested.contains(&u.library.0) {
-                    self.body_types.units[ui] = UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
+                    self.body_types.units[ui] =
+                        UnitBodyTypes::new(u.ast.exprs.len(), self.core.dynamic_);
                 }
             }
         }
@@ -649,10 +721,20 @@ impl<'a> BodyInferrer<'a> {
         // program's index (in id order, like the walks below).
         if let Some(requested) = &self.only_libraries {
             let index = self.program.index();
-            let mut libs: Vec<u32> = requested.iter().copied().filter(|&l| (l as usize) < self.program.libraries.len()).collect();
+            let mut libs: Vec<u32> = requested
+                .iter()
+                .copied()
+                .filter(|&l| (l as usize) < self.program.libraries.len())
+                .collect();
             libs.sort_unstable();
-            let mut vars: Vec<VariableId> = libs.iter().flat_map(|&l| index.library_variables[l as usize].iter().copied()).collect();
-            let mut funcs: Vec<FunctionElementId> = libs.iter().flat_map(|&l| index.library_functions[l as usize].iter().copied()).collect();
+            let mut vars: Vec<VariableId> = libs
+                .iter()
+                .flat_map(|&l| index.library_variables[l as usize].iter().copied())
+                .collect();
+            let mut funcs: Vec<FunctionElementId> = libs
+                .iter()
+                .flat_map(|&l| index.library_functions[l as usize].iter().copied())
+                .collect();
             if libs.len() > 1 {
                 vars.sort_unstable();
                 funcs.sort_unstable();
@@ -706,7 +788,9 @@ impl<'a> BodyInferrer<'a> {
     /// request (including the SDK's); otherwise all except the SDK's.
     pub(crate) fn infer_bodies_of(&self, lib: LibraryId) -> bool {
         match &self.only_libraries {
-            Some(_) if self.only_mask.len() == self.program.libraries.len() => self.only_mask[lib.0 as usize],
+            Some(_) if self.only_mask.len() == self.program.libraries.len() => {
+                self.only_mask[lib.0 as usize]
+            }
             Some(s) => s.contains(&lib.0),
             None => !self.program.library(lib).is_sdk,
         }
@@ -740,7 +824,11 @@ impl<'a> BodyInferrer<'a> {
         self.variable_stack.pop();
         // In a cycle, the type already became `dynamic` (the initializer's result
         // does not count).
-        let t = if self.in_cycle.contains(&vid) { self.core.dynamic_ } else { t };
+        let t = if self.in_cycle.contains(&vid) {
+            self.core.dynamic_
+        } else {
+            t
+        };
         self.current_unit = saved_unit;
         // On-demand inference of a variable whose bodies were not requested
         // (SDK, a library not re-emitted): its warnings do not belong to this
@@ -765,12 +853,25 @@ impl<'a> BodyInferrer<'a> {
     fn inference_cycle(&mut self, vid: VariableId) {
         // An interface built across a cycle is not shared with other passes.
         self.provisional_events += 1;
-        let Some(start) = self.variable_stack.iter().position(|&v| v == vid) else { return };
-        let cycle: Vec<VariableId> = self.variable_stack[start..].iter().copied().filter(|v| !self.in_cycle.contains(v)).collect();
+        let Some(start) = self.variable_stack.iter().position(|&v| v == vid) else {
+            return;
+        };
+        let cycle: Vec<VariableId> = self.variable_stack[start..]
+            .iter()
+            .copied()
+            .filter(|v| !self.in_cycle.contains(v))
+            .collect();
         if cycle.is_empty() {
             return;
         }
-        let mut names: Vec<String> = self.variable_stack[start..].iter().map(|&v| self.interner.resolve(self.program.variable(v).name).to_string()).collect();
+        let mut names: Vec<String> = self.variable_stack[start..]
+            .iter()
+            .map(|&v| {
+                self.interner
+                    .resolve(self.program.variable(v).name)
+                    .to_string()
+            })
+            .collect();
         names.sort();
         let list = names.join(", ");
         let saved_unit = self.current_unit;
@@ -781,14 +882,20 @@ impl<'a> BodyInferrer<'a> {
                 continue;
             }
             let (unit, span) = match var.node {
-                VariableRef::TopLevel { unit, decl, index } => match &self.program.unit(unit).ast.decl(decl).kind {
-                    ast::DeclKind::Variables(l) => match l.variables.get(index) {
-                        Some(x) => (unit, x.name.span),
-                        None => continue,
-                    },
-                    _ => continue,
-                },
-                VariableRef::Field { unit, member, index } => match &self.program.unit(unit).ast.member(member).kind {
+                VariableRef::TopLevel { unit, decl, index } => {
+                    match &self.program.unit(unit).ast.decl(decl).kind {
+                        ast::DeclKind::Variables(l) => match l.variables.get(index) {
+                            Some(x) => (unit, x.name.span),
+                            None => continue,
+                        },
+                        _ => continue,
+                    }
+                }
+                VariableRef::Field {
+                    unit,
+                    member,
+                    index,
+                } => match &self.program.unit(unit).ast.member(member).kind {
                     ast::MemberKind::Field(l) => match l.variables.get(index) {
                         Some(x) => (unit, x.name.span),
                         None => continue,
@@ -799,7 +906,11 @@ impl<'a> BodyInferrer<'a> {
             };
             let name = self.interner.resolve(var.name).to_string();
             self.current_unit = Some(unit);
-            self.warning_with_code(dartforge_diagnostics::codes::compile_time_error::TOP_LEVEL_CYCLE, span, &[&name, &list]);
+            self.warning_with_code(
+                dartforge_diagnostics::codes::compile_time_error::TOP_LEVEL_CYCLE,
+                span,
+                &[&name, &list],
+            );
         }
         self.current_unit = saved_unit;
     }
@@ -892,11 +1003,20 @@ impl<'a> BodyInferrer<'a> {
         if !self.infer_bodies_of(v.library) {
             return;
         }
-        let Some(declared) = self.outline.variables[vid.0 as usize].declared_type else { return };
+        let Some(declared) = self.outline.variables[vid.0 as usize].declared_type else {
+            return;
+        };
         if let Some((unit, init)) = self.initializer(vid) {
             let mut cx = Body::to_variable(self, vid, unit);
             let t = expr::infer(self, &mut cx, init, declared);
-            expr::verify_assignable_expr(self, &cx, init, t, declared, crate::codes::INVALID_ASSIGNMENT.template);
+            expr::verify_assignable_expr(
+                self,
+                &cx,
+                init,
+                t,
+                declared,
+                crate::codes::INVALID_ASSIGNMENT.template,
+            );
         }
     }
 
@@ -904,8 +1024,14 @@ impl<'a> BodyInferrer<'a> {
     /// (Dart 3.13) are evaluated in the scope of its parameters (spec, "primary
     /// initializer scope"): a parameter shadows whatever is outside the class.
     /// The default values were already inferred in the constructor itself.
-    pub(crate) fn declare_primary_parameters(&mut self, cx: &mut Body, c: dartforge_elements::model::ClassId) {
-        let Some(d) = self.program.class(c).decl else { return };
+    pub(crate) fn declare_primary_parameters(
+        &mut self,
+        cx: &mut Body,
+        c: dartforge_elements::model::ClassId,
+    ) {
+        let Some(d) = self.program.class(c).decl else {
+            return;
+        };
         let ast_unit = &self.program.unit(d.unit).ast;
         let primary = match &ast_unit.decl(d.decl).kind {
             ast::DeclKind::Class(cd) => cd.primary_constructor,
@@ -913,11 +1039,21 @@ impl<'a> BodyInferrer<'a> {
             _ => None,
         };
         let Some(mem) = primary else { return };
-        let ast::MemberKind::Constructor(k) = &ast_unit.member(mem).kind else { return };
-        let Some(f) = self.program.constructor_of_member(d.unit, mem).map(|x| x.0 as usize) else {
+        let ast::MemberKind::Constructor(k) = &ast_unit.member(mem).kind else {
             return;
         };
-        let types: Vec<TypeId> = self.outline.functions[f].parameters.iter().map(|p| p.ty).collect();
+        let Some(f) = self
+            .program
+            .constructor_of_member(d.unit, mem)
+            .map(|x| x.0 as usize)
+        else {
+            return;
+        };
+        let types: Vec<TypeId> = self.outline.functions[f]
+            .parameters
+            .iter()
+            .map(|p| p.ty)
+            .collect();
         cx.push_scope();
         for (i, p) in k.parameters.iter().enumerate() {
             let Some(n) = &p.name else { continue };
@@ -925,7 +1061,15 @@ impl<'a> BodyInferrer<'a> {
             let id = expr::declare_local(
                 self,
                 cx,
-                body::Local { name: n.sym, ty, final_: p.final_, late: false, const_: false, offset: n.span.start, local_function: false },
+                body::Local {
+                    name: n.sym,
+                    ty,
+                    final_: p.final_,
+                    late: false,
+                    const_: false,
+                    offset: n.span.start,
+                    local_function: false,
+                },
                 true,
             );
             cx.primary_parameters.insert(id);
@@ -935,12 +1079,22 @@ impl<'a> BodyInferrer<'a> {
     /// `(unit_id, expressão)` of a variable's initializer, if any.
     pub(crate) fn initializer(&self, vid: VariableId) -> Option<(UnitId, ast::ExprId)> {
         match self.program.variable(vid).node {
-            VariableRef::TopLevel { unit, decl, index } => match &self.program.unit(unit).ast.decl(decl).kind {
-                ast::DeclKind::Variables(vl) => vl.variables.get(index)?.initializer.map(|e| (unit, e)),
-                _ => None,
-            },
-            VariableRef::Field { unit, member, index } => match &self.program.unit(unit).ast.member(member).kind {
-                ast::MemberKind::Field(vl) => vl.variables.get(index)?.initializer.map(|e| (unit, e)),
+            VariableRef::TopLevel { unit, decl, index } => {
+                match &self.program.unit(unit).ast.decl(decl).kind {
+                    ast::DeclKind::Variables(vl) => {
+                        vl.variables.get(index)?.initializer.map(|e| (unit, e))
+                    }
+                    _ => None,
+                }
+            }
+            VariableRef::Field {
+                unit,
+                member,
+                index,
+            } => match &self.program.unit(unit).ast.member(member).kind {
+                ast::MemberKind::Field(vl) => {
+                    vl.variables.get(index)?.initializer.map(|e| (unit, e))
+                }
                 _ => None,
             },
             _ => None,
@@ -957,7 +1111,10 @@ impl<'a> BodyInferrer<'a> {
         if let Some(e) = self.extensions.get(&lib.0) {
             return e.clone();
         }
-        if let Some(e) = self.shared.and_then(|s| s.extensions.borrow().get(&lib.0).cloned()) {
+        if let Some(e) = self
+            .shared
+            .and_then(|s| s.extensions.borrow().get(&lib.0).cloned())
+        {
             self.extensions.insert(lib.0, e.clone());
             return e;
         }
@@ -975,7 +1132,8 @@ impl<'a> BodyInferrer<'a> {
         }
         // The scope also brings the implicit `dart:core` (which is not a
         // directive).
-        let mut names: Vec<(&SymbolId, &dartforge_elements::model::Binding)> = l.scope.iter().collect();
+        let mut names: Vec<(&SymbolId, &dartforge_elements::model::Binding)> =
+            l.scope.iter().collect();
         names.sort_by_key(|(s, _)| s.as_u32());
         for (_, b) in names {
             if let Some(dartforge_elements::model::Element::Extension(e)) = b.getter {
@@ -1013,9 +1171,17 @@ impl<'a> BodyInferrer<'a> {
     // ---------------------------------------------------------------
 
     /// The syntactic parent of expression `e` of unit `u`.
-    pub(crate) fn parent_of(&mut self, u: UnitId, e: ast::ExprId) -> dartforge_frontend::parents::Parent {
+    pub(crate) fn parent_of(
+        &mut self,
+        u: UnitId,
+        e: ast::ExprId,
+    ) -> dartforge_frontend::parents::Parent {
         let program = self.program;
-        let parents = self.parents.entry(u).or_insert_with(|| Rc::new(crate::typed_lints::unit_parents(program, u))).clone();
+        let parents = self
+            .parents
+            .entry(u)
+            .or_insert_with(|| Rc::new(crate::typed_lints::unit_parents(program, u)))
+            .clone();
         parents.parent(e)
     }
 
@@ -1028,11 +1194,24 @@ impl<'a> BodyInferrer<'a> {
     /// one of the `UNCHECKED_…_OF_NULLABLE_VALUE`); with a receiver of type
     /// `Null`, it is `INVALID_USE_OF_NULL_VALUE` (without arguments), at the
     /// same place.
-    pub(crate) fn null_warning(&mut self, recv: TypeId, code: dartforge_diagnostics::Code, span: Span, args: &[&str]) {
+    pub(crate) fn null_warning(
+        &mut self,
+        recv: TypeId,
+        code: dartforge_diagnostics::Code,
+        span: Span,
+        args: &[&str],
+    ) {
         // `Never?` is not `Null` for the analyzer (it is `NeverType` with `?`).
-        let nullable_never = matches!(self.table.decoration(recv), Some(crate::table::DisplayDecoration::NeverNullable));
+        let nullable_never = matches!(
+            self.table.decoration(recv),
+            Some(crate::table::DisplayDecoration::NeverNullable)
+        );
         if matches!(self.table.get(recv), crate::table::Type::Null) && !nullable_never {
-            self.warning_with_code(dartforge_diagnostics::codes::compile_time_error::INVALID_USE_OF_NULL_VALUE, span, &[]);
+            self.warning_with_code(
+                dartforge_diagnostics::codes::compile_time_error::INVALID_USE_OF_NULL_VALUE,
+                span,
+                &[],
+            );
         } else {
             self.warning_with_code(code, span, args);
         }
@@ -1040,16 +1219,35 @@ impl<'a> BodyInferrer<'a> {
 
     /// A warning already with the analyzer's code, the official message and the
     /// arguments (the T1 design): the parity bridge leaves it as is.
-    pub(crate) fn warning_with_code(&mut self, code: dartforge_diagnostics::Code, span: Span, args: &[&str]) {
-        self.diagnostics.push(Diagnostic::with_code(code, span, args.iter().copied()));
+    pub(crate) fn warning_with_code(
+        &mut self,
+        code: dartforge_diagnostics::Code,
+        span: Span,
+        args: &[&str],
+    ) {
+        self.diagnostics
+            .push(Diagnostic::with_code(code, span, args.iter().copied()));
         self.warning_units.push(self.current_unit);
     }
 
     /// A warning with a code and context messages (`DiagnosticFactory`):
     /// `(file, intervalo, text)`, the file when it is not the warning's.
-    pub(crate) fn warning_with_context(&mut self, code: dartforge_diagnostics::Code, span: Span, args: &[&str], context: Vec<(Option<String>, Span, String)>) {
+    pub(crate) fn warning_with_context(
+        &mut self,
+        code: dartforge_diagnostics::Code,
+        span: Span,
+        args: &[&str],
+        context: Vec<(Option<String>, Span, String)>,
+    ) {
         let mut d = Diagnostic::with_code(code, span, args.iter().copied());
-        d.context.extend(context.into_iter().map(|(file, span, message)| dartforge_diagnostics::ContextMessage { file: file.map(Into::into), span, message: message.into() }));
+        d.context
+            .extend(context.into_iter().map(|(file, span, message)| {
+                dartforge_diagnostics::ContextMessage {
+                    file: file.map(Into::into),
+                    span,
+                    message: message.into(),
+                }
+            }));
         self.diagnostics.push(d);
         self.warning_units.push(self.current_unit);
     }
@@ -1058,9 +1256,18 @@ impl<'a> BodyInferrer<'a> {
     /// `ErrorReporter`'s conversion ([`crate::display::Displayer::arguments`],
     /// T7): the types come out with aliases, and two types of the same report
     /// with the same text get the `(where X is defined in …)`.
-    pub(crate) fn warning_with_args(&mut self, code: dartforge_diagnostics::Code, span: Span, args: &[crate::display::Arg<'_>]) {
+    pub(crate) fn warning_with_args(
+        &mut self,
+        code: dartforge_diagnostics::Code,
+        span: Span,
+        args: &[crate::display::Arg<'_>],
+    ) {
         let (texts, context) = {
-            let displayer = crate::display::Displayer { table: &*self.table, interner: self.interner, program: self.program };
+            let displayer = crate::display::Displayer {
+                table: &*self.table,
+                interner: self.interner,
+                program: self.program,
+            };
             displayer.arguments_and_context(args)
         };
         let mut d = Diagnostic::with_code(code, span, texts);
@@ -1073,8 +1280,18 @@ impl<'a> BodyInferrer<'a> {
     /// docs/VERSOES-LINGUAGEM.md §3): aborts compilation, with the file and the
     /// offset in the message, like load errors.
     pub(crate) fn language_error(&mut self, unit: UnitId, span: Span, msg: String) {
-        let file = self.program.unit(unit).path.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
-        let text = format!("{}{file}:{}: {msg}", crate::codes::LANGUAGE_ERROR, span.start);
+        let file = self
+            .program
+            .unit(unit)
+            .path
+            .as_ref()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let text = format!(
+            "{}{file}:{}: {msg}",
+            crate::codes::LANGUAGE_ERROR,
+            span.start
+        );
         self.diagnostics.push(Diagnostic::new(text, span));
         self.warning_units.push(Some(unit));
     }
@@ -1085,7 +1302,13 @@ impl<'a> BodyInferrer<'a> {
 
     /// Assignability diagnostic: `dynamic` is assignable to everything (implicit
     /// cast); an object with `call` to a function type too.
-    pub(crate) fn verify_assignable(&mut self, of: TypeId, for_: TypeId, span: Span, template: &str) {
+    pub(crate) fn verify_assignable(
+        &mut self,
+        of: TypeId,
+        for_: TypeId,
+        span: Span,
+        template: &str,
+    ) {
         if self.assignable(of, for_) {
             return;
         }
@@ -1095,11 +1318,19 @@ impl<'a> BodyInferrer<'a> {
         use crate::display::Arg;
         use dartforge_diagnostics::codes::compile_time_error as c;
         if template == crate::codes::INVALID_ASSIGNMENT.template {
-            self.warning_with_args(c::INVALID_ASSIGNMENT, span, &[Arg::Type_(of), Arg::Type_(for_)]);
+            self.warning_with_args(
+                c::INVALID_ASSIGNMENT,
+                span,
+                &[Arg::Type_(of), Arg::Type_(for_)],
+            );
             return;
         }
         if template == crate::codes::ARGUMENT_TYPE_NOT_ASSIGNABLE.template {
-            self.warning_with_args(c::ARGUMENT_TYPE_NOT_ASSIGNABLE, span, &[Arg::Type_(of), Arg::Type_(for_), Arg::Text("".into())]);
+            self.warning_with_args(
+                c::ARGUMENT_TYPE_NOT_ASSIGNABLE,
+                span,
+                &[Arg::Type_(of), Arg::Type_(for_), Arg::Text("".into())],
+            );
             return;
         }
         let msg = format!(

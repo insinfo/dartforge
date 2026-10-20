@@ -2,7 +2,7 @@
 //! (`docs/VERSOES-LINGUAGEM.md` §2): the marker, else the package, else the
 //! current one. A 3.6 project must not see an error on a `final` parameter,
 //! which is only forbidden in 3.13.
-use dartforge_lsp::{Analyzer, SyntacticAnalyzer, Server};
+use dartforge_lsp::{Analyzer, Server, SyntacticAnalyzer};
 use serde_json::json;
 
 fn uri(p: &std::path::Path) -> String {
@@ -11,8 +11,10 @@ fn uri(p: &std::path::Path) -> String {
 
 #[test]
 fn package_version_with_percent_encoded_uri() {
-    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join(format!("../../target/tmp-agent/lsp-versao-{}-acentuação", std::process::id()));
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../target/tmp-agent/lsp-versao-{}-acentuação",
+        std::process::id()
+    ));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join(".dart_tool")).unwrap();
     std::fs::create_dir_all(root.join("lib")).unwrap();
@@ -85,14 +87,29 @@ fn close_and_reopen_rereads_package_config() {
         server.pump()
     };
     // Without errors, nothing is published (as in the Dart server).
-    assert!(open(&mut server, 1).iter().all(|m| m["method"] != "textDocument/publishDiagnostics"));
-    server.receive(json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{
-        "textDocument":{"uri":uri.clone()}
-    }}));
+    assert!(
+        open(&mut server, 1)
+            .iter()
+            .all(|m| m["method"] != "textDocument/publishDiagnostics")
+    );
+    server.receive(
+        json!({"jsonrpc":"2.0","method":"textDocument/didClose","params":{
+            "textDocument":{"uri":uri.clone()}
+        }}),
+    );
     server.pump();
     write("3.13");
     let outputs = open(&mut server, 2);
-    let publication = outputs.iter().find(|m| m["method"] == "textDocument/publishDiagnostics").expect("publication");
-    assert_eq!(publication["params"]["diagnostics"].as_array().unwrap().len(), 1);
+    let publication = outputs
+        .iter()
+        .find(|m| m["method"] == "textDocument/publishDiagnostics")
+        .expect("publication");
+    assert_eq!(
+        publication["params"]["diagnostics"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     let _ = std::fs::remove_dir_all(&root);
 }

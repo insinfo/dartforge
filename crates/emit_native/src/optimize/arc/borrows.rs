@@ -25,21 +25,46 @@ fn first_invalid(
     // another such Phi, null or trivial values is just an alias of the
     // parameter: nothing in this function invalidates it (the caller keeps the owner).
     // Values derived from the parameter (one of its fields) do not enter here.
-    let mut caller_aliases: HashSet<ValueId> = f.params.iter()
-        .filter(|(v, _, _)| matches!(classes.get(v), Some(Ownership::Borrowed { owner: OwnerOrigin::Caller, .. })))
+    let mut caller_aliases: HashSet<ValueId> = f
+        .params
+        .iter()
+        .filter(|(v, _, _)| {
+            matches!(
+                classes.get(v),
+                Some(Ownership::Borrowed {
+                    owner: OwnerOrigin::Caller,
+                    ..
+                })
+            )
+        })
         .map(|(v, _, _)| *v)
         .collect();
     loop {
-        let new_set: Vec<ValueId> = f.blocks.iter().flat_map(|b| &b.instructions).filter_map(|(v, i, _)| {
-            let Instruction::Phi { incoming, ty: Type::Ref } = i else { return None };
-            (!caller_aliases.contains(v)
-                && matches!(classes.get(v), Some(Ownership::Borrowed { .. }))
-                && incoming.iter().all(|(_, op)| match op {
-                    Operand::Constant(Constant::Null) => true,
-                    Operand::Val(x) => caller_aliases.contains(x) || classes.get(x) == Some(&Ownership::Trivial),
-                    _ => false,
-                })).then_some(*v)
-        }).collect();
+        let new_set: Vec<ValueId> = f
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .filter_map(|(v, i, _)| {
+                let Instruction::Phi {
+                    incoming,
+                    ty: Type::Ref,
+                } = i
+                else {
+                    return None;
+                };
+                (!caller_aliases.contains(v)
+                    && matches!(classes.get(v), Some(Ownership::Borrowed { .. }))
+                    && incoming.iter().all(|(_, op)| match op {
+                        Operand::Constant(Constant::Null) => true,
+                        Operand::Val(x) => {
+                            caller_aliases.contains(x)
+                                || classes.get(x) == Some(&Ownership::Trivial)
+                        }
+                        _ => false,
+                    }))
+                .then_some(*v)
+            })
+            .collect();
         if new_set.is_empty() {
             break;
         }
@@ -197,9 +222,10 @@ fn first_invalid(
                             op,
                             &exits[pi],
                             format!("b{} -> b{} Phi v{}", p.0, b.id.0, v.0),
-                        ) {
-                            return Ok(Some(error));
-                        }
+                        )
+                    {
+                        return Ok(Some(error));
+                    }
                 }
             } else {
                 // A call that may reenter Dart cannot depend on
@@ -492,8 +518,7 @@ mod tests {
             classes,
             ..Default::default()
         };
-        plan
-            .tokens
+        plan.tokens
             .instructions
             .insert(ValueId(4), super::super::TokenEffect::default());
         assert_eq!(protect(&mut f, &mut plan).unwrap(), 1);
@@ -558,7 +583,10 @@ mod tests {
             if fallible {
                 // The read of the record does not fail: the copy comes right after it.
                 assert_eq!(protect(&mut f, &mut plan).unwrap(), 1);
-                assert!(matches!(f.blocks[0].instructions[1].1, Instruction::ArcCopy { .. }));
+                assert!(matches!(
+                    f.blocks[0].instructions[1].1,
+                    Instruction::ArcCopy { .. }
+                ));
                 continue;
             }
             assert!(

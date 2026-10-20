@@ -40,16 +40,33 @@ pub struct OracleSdk {
 impl OracleSdk {
     /// Reads the version from `<root>/version`; `None` if it is not an SDK.
     pub fn detect(root: PathBuf, dart_sdk_js: PathBuf, primary: bool) -> Option<OracleSdk> {
-        let name = std::fs::read_to_string(root.join("version")).ok()?.trim().to_string();
+        let name = std::fs::read_to_string(root.join("version"))
+            .ok()?
+            .trim()
+            .to_string();
         let mut parts = name.split('.');
-        let version = LanguageVersion::new(parts.next()?.parse().ok()?, parts.next()?.parse().ok()?);
-        Some(OracleSdk { version, name, root, dart_sdk_js, primary })
+        let version =
+            LanguageVersion::new(parts.next()?.parse().ok()?, parts.next()?.parse().ok()?);
+        Some(OracleSdk {
+            version,
+            name,
+            root,
+            dart_sdk_js,
+            primary,
+        })
     }
 
     /// The SDK's `dart` executable; `dart` from `PATH` if the SDK lacks it.
     pub fn dart(&self) -> String {
-        let exe = self.root.join("bin").join(if cfg!(windows) { "dart.exe" } else { "dart" });
-        if exe.is_file() { exe.to_string_lossy().into_owned() } else { "dart".to_string() }
+        let exe = self
+            .root
+            .join("bin")
+            .join(if cfg!(windows) { "dart.exe" } else { "dart" });
+        if exe.is_file() {
+            exe.to_string_lossy().into_owned()
+        } else {
+            "dart".to_string()
+        }
     }
 
     fn dartdevc_snapshot(&self) -> PathBuf {
@@ -59,7 +76,11 @@ impl OracleSdk {
     /// An executor's label in the cache: the floor's does not change
     /// (`dart-ea`), the others' carry the version (`dart-ea-3.13.4`).
     fn label(&self, executor: &str) -> String {
-        if self.primary { executor.to_string() } else { format!("{executor}-{}", self.name) }
+        if self.primary {
+            executor.to_string()
+        } else {
+            format!("{executor}-{}", self.name)
+        }
     }
 }
 
@@ -115,13 +136,20 @@ impl Environment {
         let root = if cwd.join("corpus/js").is_dir() {
             cwd
         } else {
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap_or_else(|_| PathBuf::from("."))
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .canonicalize()
+                .unwrap_or_else(|_| PathBuf::from("."))
         };
         let root = strip_verbatim_prefix(root);
-        let sdk = std::env::var("DARTFORGE_DART_SDK").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from("E:/DartSDKs/3.6.2"));
+        let sdk = std::env::var("DARTFORGE_DART_SDK")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("E:/DartSDKs/3.6.2"));
         let dart_sdk_js = root.join("runtime/ddc/dart_sdk.js");
         generate_dart_sdk_js(&root, &sdk, &dart_sdk_js);
-        let mut sdks: Vec<OracleSdk> = OracleSdk::detect(sdk.clone(), dart_sdk_js.clone(), true).into_iter().collect();
+        let mut sdks: Vec<OracleSdk> = OracleSdk::detect(sdk.clone(), dart_sdk_js.clone(), true)
+            .into_iter()
+            .collect();
         // The second oracle: the SDK of the new features. Without it the
         // programs that require it come out as a harness failure, with the
         // message saying what to configure — never compared against the wrong
@@ -135,19 +163,37 @@ impl Environment {
             sdks.push(s);
         }
         sdks.sort_by_key(|s| s.version);
-        let target = std::env::var("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|_| root.join("target"));
-        let dartforge_bin = std::env::var("DARTFORGE_BIN").ok().map(PathBuf::from).or_else(|| {
-            let exe = if cfg!(windows) { "dartforge.exe" } else { "dartforge" };
-            // For the same reason, the right `dartforge` is the one next to
-            // this executable (same `target/<profile>/`), before any other.
-            let beside = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(exe)));
-            let mut candidates: Vec<PathBuf> = beside.into_iter().collect();
-            candidates.push(target.join("release").join(exe));
-            candidates.push(target.join("debug").join(exe));
-            candidates.into_iter().find(|p| p.is_file())
-        });
+        let target = std::env::var("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| root.join("target"));
+        let dartforge_bin = std::env::var("DARTFORGE_BIN")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                let exe = if cfg!(windows) {
+                    "dartforge.exe"
+                } else {
+                    "dartforge"
+                };
+                // For the same reason, the right `dartforge` is the one next to
+                // this executable (same `target/<profile>/`), before any other.
+                let beside = std::env::current_exe()
+                    .ok()
+                    .and_then(|e| e.parent().map(|d| d.join(exe)));
+                let mut candidates: Vec<PathBuf> = beside.into_iter().collect();
+                candidates.push(target.join("release").join(exe));
+                candidates.push(target.join("debug").join(exe));
+                candidates.into_iter().find(|p| p.is_file())
+            });
         let mut extra_path = Vec::new();
-        for prefix in [std::env::var("LLVM_SYS_221_PREFIX").ok(), std::env::var("DARTFORGE_LLVM_DIR").ok(), Some(r"E:\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc".to_string())].into_iter().flatten() {
+        for prefix in [
+            std::env::var("LLVM_SYS_221_PREFIX").ok(),
+            std::env::var("DARTFORGE_LLVM_DIR").ok(),
+            Some(r"E:\llvm\clang+llvm-22.1.8-x86_64-pc-windows-msvc".to_string()),
+        ]
+        .into_iter()
+        .flatten()
+        {
             let bin = PathBuf::from(prefix).join("bin");
             if bin.join("LLVM-C.dll").is_file() {
                 extra_path.push(bin);
@@ -175,7 +221,9 @@ impl Environment {
     /// `// requer-dart:` (and the `// @dart=` marker, which the SDK must also
     /// accept). `Err` says what is left to configure.
     pub fn oracle(&self, program: &Program) -> Result<&OracleSdk, String> {
-        let required = program.marker.map_or(program.requires, |m| m.max(program.requires));
+        let required = program
+            .marker
+            .map_or(program.requires, |m| m.max(program.requires));
         self.sdks.iter().find(|s| s.version >= required).ok_or_else(|| {
             format!(
                 "no oracle SDK with version ≥ {required} (configured: {}); set DARTFORGE_DART_SDK_3_13",
@@ -197,13 +245,22 @@ fn generate_dart_sdk_js(root: &Path, sdk: &Path, destination: &Path) {
     if destination.is_file() || !sdk.join("version").is_file() {
         return;
     }
-    eprintln!("{} missing; generating it with scripts/generate-dart-sdk.ps1…", destination.display());
+    eprintln!(
+        "{} missing; generating it with scripts/generate-dart-sdk.ps1…",
+        destination.display()
+    );
     let args = vec![
-        root.join("scripts/generate-dart-sdk.ps1").to_string_lossy().into_owned(),
+        root.join("scripts/generate-dart-sdk.ps1")
+            .to_string_lossy()
+            .into_owned(),
         "-Sdk".into(),
         sdk.to_string_lossy().into_owned(),
         "-Output".into(),
-        destination.parent().unwrap_or(root).to_string_lossy().into_owned(),
+        destination
+            .parent()
+            .unwrap_or(root)
+            .to_string_lossy()
+            .into_owned(),
     ];
     let s = run("pwsh", &args, root, Duration::from_secs(300));
     if s.code != 0 {
@@ -239,7 +296,12 @@ fn cache_read(env: &Environment, executor: &str, key: &str) -> Option<Output> {
     if !env.use_cache {
         return None;
     }
-    let text = std::fs::read_to_string(env.work_dir.join("cache").join(format!("{executor}-{key}.txt"))).ok()?;
+    let text = std::fs::read_to_string(
+        env.work_dir
+            .join("cache")
+            .join(format!("{executor}-{key}.txt")),
+    )
+    .ok()?;
     // Format: `code\nlen_stdout\n<stdout><stderr>`.
     let (code, rest) = text.split_once('\n')?;
     let (len, body) = rest.split_once('\n')?;
@@ -247,7 +309,11 @@ fn cache_read(env: &Environment, executor: &str, key: &str) -> Option<Output> {
     if !body.is_char_boundary(len) {
         return None;
     }
-    Some(Output { stdout: body[..len].to_string(), stderr: body[len..].to_string(), code: code.parse().ok()? })
+    Some(Output {
+        stdout: body[..len].to_string(),
+        stderr: body[len..].to_string(),
+        code: code.parse().ok()?,
+    })
 }
 
 fn cache_write(env: &Environment, executor: &str, key: &str, s: &Output) {
@@ -264,7 +330,8 @@ fn cache_write(env: &Environment, executor: &str, key: &str, s: &Output) {
 
 /// `--enable-experiment=a,b` from the header, if any.
 fn experiments_arg(program: &Program) -> Option<String> {
-    (!program.experiments.is_empty()).then(|| format!("--enable-experiment={}", program.experiments.join(",")))
+    (!program.experiments.is_empty())
+        .then(|| format!("--enable-experiment={}", program.experiments.join(",")))
 }
 
 /// Semantics oracle: `dart run --enable-asserts file` in the file's
@@ -281,7 +348,12 @@ pub fn dart_oracle(env: &Environment, program: &Program) -> Output {
     let s = match cache_read(env, &label, &key) {
         Some(s) => s,
         None => {
-            let name = program.entry.file_name().unwrap().to_string_lossy().into_owned();
+            let name = program
+                .entry
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
             let mut args: Vec<String> = vec!["run".into(), "--enable-asserts".into()];
             args.extend(experiments_arg(program));
             args.push(name);
@@ -313,12 +385,19 @@ pub fn dart_oracle(env: &Environment, program: &Program) -> Output {
 /// compared between executors: changing it requires a new oracle cache.
 pub fn rejection(line: Option<usize>) -> Output {
     let stdout = match line {
-        Some(l) => format!("compile error at line {l}
-"),
+        Some(l) => format!(
+            "compile error at line {l}
+"
+        ),
         None => "compile error (line not identified)
-".to_string(),
+"
+        .to_string(),
     };
-    Output { stdout, stderr: String::new(), code: 0 }
+    Output {
+        stdout,
+        stderr: String::new(),
+        code: 0,
+    }
 }
 
 /// The line of the first `file.dart:L:C: Error:` that the CFE (VM or
@@ -340,13 +419,22 @@ pub fn forge_error_line(text: &str, source: &str) -> Option<usize> {
     // Only the error lines: the type warnings (`warning: … at bytes …`) also
     // carry an offset, and may belong to another unit. The `error` prefix is
     // the dartforge CLI's diagnostic text.
-    let start: Option<usize> = text.lines().filter(|l| l.trim_start().starts_with("error")).find_map(|l| {
-        let (_, rest) = l.rsplit_once(" at bytes ")?;
-        rest.split("..").next()?.trim().parse().ok()
-    });
+    let start: Option<usize> = text
+        .lines()
+        .filter(|l| l.trim_start().starts_with("error"))
+        .find_map(|l| {
+            let (_, rest) = l.rsplit_once(" at bytes ")?;
+            rest.split("..").next()?.trim().parse().ok()
+        });
     if let Some(start) = start {
         let start = start.min(source.len());
-        return Some(source.as_bytes()[..start].iter().filter(|b| **b == b'\n').count() + 1);
+        return Some(
+            source.as_bytes()[..start]
+                .iter()
+                .filter(|b| **b == b'\n')
+                .count()
+                + 1,
+        );
     }
     // The language errors of the native lowering: `message (file.dart:L:C)`.
     text.lines().find_map(|l| {
@@ -396,21 +484,34 @@ pub fn compile_ddc(env: &Environment, program: &Program, dir: &Path) -> Result<S
     if packages.is_file() {
         args.push(format!("--packages={}", packages.to_string_lossy()));
     }
-    args.push(program.entry.file_name().unwrap().to_string_lossy().into_owned());
+    args.push(
+        program
+            .entry
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned(),
+    );
     let s = run(&sdk.dart(), &args, program.dir(), env.timeout);
     if s.code != 0 {
         return Err(s);
     }
-    let text = std::fs::read_to_string(&js).map_err(|e| Output::error(format!("reading {}: {e}", js.display())))?;
+    let text = std::fs::read_to_string(&js)
+        .map_err(|e| Output::error(format!("reading {}: {e}", js.display())))?;
     let url = file_url(&sdk.dart_sdk_js);
     let text = text.replace("from 'dart_sdk.js'", &format!("from '{url}'"));
-    std::fs::write(&js, &text).map_err(|e| Output::error(format!("writing {}: {e}", js.display())))?;
+    std::fs::write(&js, &text)
+        .map_err(|e| Output::error(format!("writing {}: {e}", js.display())))?;
     Ok(text)
 }
 
 fn file_url(p: &Path) -> String {
     let s = p.to_string_lossy().replace('\\', "/");
-    if s.starts_with('/') { format!("file://{s}") } else { format!("file:///{s}") }
+    if s.starts_with('/') {
+        format!("file://{s}")
+    } else {
+        format!("file:///{s}")
+    }
 }
 
 /// Exported name of the entry library: the first entry of the
@@ -418,7 +519,11 @@ fn file_url(p: &Path) -> String {
 /// `export { main, util }`).
 pub fn exported_name(js: &str) -> Option<String> {
     let line = js.lines().find(|l| l.starts_with("export {"))?;
-    let inner = line.trim_start_matches("export {").trim_end_matches(';').trim_end_matches('}').trim();
+    let inner = line
+        .trim_start_matches("export {")
+        .trim_end_matches(';')
+        .trim_end_matches('}')
+        .trim();
     let first = inner.split(',').next()?.trim();
     let name = match first.split_once(" as ") {
         Some((_, alias)) => alias.trim(),
@@ -474,17 +579,23 @@ pub fn ddc_oracle(env: &Environment, program: &Program, dir: &Path) -> Output {
 /// oracle SDK (the version the VM gives a file without a marker); without an
 /// oracle, the one required by the header.
 pub fn program_version(env: &Environment, program: &Program) -> LanguageVersion {
-    env.oracle(program).map_or_else(|_| required_version(program), |s| s.version)
+    env.oracle(program)
+        .map_or_else(|_| required_version(program), |s| s.version)
 }
 
 /// `// requer-dart:` and the `// @dart=` marker, the larger of the two.
 pub fn required_version(program: &Program) -> LanguageVersion {
-    program.marker.map_or(program.requires, |m| m.max(program.requires))
+    program
+        .marker
+        .map_or(program.requires, |m| m.max(program.requires))
 }
 
 /// `--language-version x.y` and, if any, `--enable-experiment=…` for DartForge.
 fn language_args(env: &Environment, program: &Program) -> Vec<String> {
-    let mut a = vec!["--language-version".to_string(), program_version(env, program).to_string()];
+    let mut a = vec![
+        "--language-version".to_string(),
+        program_version(env, program).to_string(),
+    ];
     a.extend(experiments_arg(program));
     a
 }
@@ -501,14 +612,23 @@ pub fn dartforge(env: &Environment, program: &Program, dir: &Path) -> Output {
         Some(bin) => run_with_path(
             &bin.to_string_lossy(),
             &args,
-
             program.dartforge_dir(),
             env.timeout,
             &env.extra_path,
         ),
         None => run_with_path(
             "cargo",
-            &[vec!["run".into(), "-q".into(), "-p".into(), "dartforge-cli".into(), "--".into()], args].concat(),
+            &[
+                vec![
+                    "run".into(),
+                    "-q".into(),
+                    "-p".into(),
+                    "dartforge-cli".into(),
+                    "--".into(),
+                ],
+                args,
+            ]
+            .concat(),
             &env.root,
             Duration::from_secs(1800),
             &env.extra_path,
@@ -519,10 +639,20 @@ pub fn dartforge(env: &Environment, program: &Program, dir: &Path) -> Output {
     }
     if s.code != 0 {
         let first = s.first_stderr_line().to_string();
-        let first = if first.is_empty() { s.stdout.lines().next().unwrap_or("").to_string() } else { first };
+        let first = if first.is_empty() {
+            s.stdout.lines().next().unwrap_or("").to_string()
+        } else {
+            first
+        };
         // The `[compile-js` prefix marks a compile-time rejection (`matrix.rs`).
-        return Output { stderr: format!("[compile-js code {}] {first}
-{}", s.code, s.stderr), ..s };
+        return Output {
+            stderr: format!(
+                "[compile-js code {}] {first}
+{}",
+                s.code, s.stderr
+            ),
+            ..s
+        };
     }
     if !dir.join("main.mjs").is_file() {
         return Output::error("[compile-js] returned 0 but did not write main.mjs");
@@ -533,7 +663,11 @@ pub fn dartforge(env: &Environment, program: &Program, dir: &Path) -> Output {
 /// DartForge Native: compiles via `dartforge_emit_native::compile` and then runs the binary.
 pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Output {
     let _ = std::fs::create_dir_all(dir);
-    let exe_name = if cfg!(windows) { format!("{}.exe", program.name) } else { program.name.clone() };
+    let exe_name = if cfg!(windows) {
+        format!("{}.exe", program.name)
+    } else {
+        program.name.clone()
+    };
     let exe_path = dir.join(&exe_name);
 
     let entry = program.entry.clone();
@@ -543,7 +677,8 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
     let compiled = std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+            let options = dartforge_emit_native::CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: None,
                 packages: None,
                 timings: false,
@@ -557,10 +692,18 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
             // The oracle is `dart run --enable-asserts` (`dart_run`): the
             // asserts stay on and `dart.vm.product` false also in the
             // `--optimize` profile, explicitly, whatever the CLI's default.
-            dartforge_emit_native::compile_with_flags(&entry, &out_path, &options, dartforge_emit_native::DartFlags::DEVELOPMENT)
+            dartforge_emit_native::compile_with_flags(
+                &entry,
+                &out_path,
+                &options,
+                dartforge_emit_native::DartFlags::DEVELOPMENT,
+            )
         })
         .map_err(|e| format!("failed to create the compilation thread: {e}"))
-        .and_then(|h| h.join().map_err(|_| "the compilation thread aborted".to_string()))
+        .and_then(|h| {
+            h.join()
+                .map_err(|_| "the compilation thread aborted".to_string())
+        })
         .and_then(|r| r);
 
     if let (true, Err(e)) = (program.compile_error, &compiled) {
@@ -575,8 +718,19 @@ pub fn dartforge_native(env: &Environment, program: &Program, dir: &Path) -> Out
         return Output::error("[compile-native] returned Ok but did not produce an executable");
     }
 
-    let child_env: &[(&str, &str)] = if env.gc_stress { &[("DARTFORGE_GC_STRESS", "1")] } else { &[] };
-    let s = run_with_env(&exe_path.to_string_lossy(), &[], dir, env.native_timeout, &env.extra_path, child_env);
+    let child_env: &[(&str, &str)] = if env.gc_stress {
+        &[("DARTFORGE_GC_STRESS", "1")]
+    } else {
+        &[]
+    };
+    let s = run_with_env(
+        &exe_path.to_string_lossy(),
+        &[],
+        dir,
+        env.native_timeout,
+        &env.extra_path,
+        child_env,
+    );
     // The executable has already said what it had to say; 214 of them would
     // stay on disk on every pass. DARTFORGE_KEEP_EXE keeps them for debugging.
     if std::env::var_os("DARTFORGE_KEEP_EXE").is_none() {
@@ -611,7 +765,8 @@ fn emit_program_ir(program: &Program, jit: bool) -> Result<String, String> {
     std::thread::Builder::new()
         .stack_size(1 << 30)
         .spawn(move || {
-            let options = dartforge_emit_native::CompileOptions { contracts: dartforge_emit_native::contracts::ContractMode::Verify,
+            let options = dartforge_emit_native::CompileOptions {
+                contracts: dartforge_emit_native::contracts::ContractMode::Verify,
                 sdk: None,
                 packages: None,
                 timings: false,
@@ -625,12 +780,22 @@ fn emit_program_ir(program: &Program, jit: bool) -> Result<String, String> {
             if jit {
                 dartforge_emit_native::emit_reloadable_ir(&entry, &options, None).map(|ir| ir.text)
             } else {
-                dartforge_emit_native::emit_ir_with_flags(&entry, &options, dartforge_emit_native::DartFlags::DEVELOPMENT).map(|ir| ir.text)
+                dartforge_emit_native::emit_ir_with_flags(
+                    &entry,
+                    &options,
+                    dartforge_emit_native::DartFlags::DEVELOPMENT,
+                )
+                .map(|ir| ir.text)
             }
         })
         .map_err(|e| format!("[emit-ir] failed to create the emission thread: {e}"))?
         .join()
-        .map_err(|p| format!("[emit-ir] the thread aborted: {}", panic_message(p.as_ref())))?
+        .map_err(|p| {
+            format!(
+                "[emit-ir] the thread aborted: {}",
+                panic_message(p.as_ref())
+            )
+        })?
         .map_err(|e| format!("[emit-ir] {e}"))
 }
 
@@ -657,33 +822,66 @@ pub fn dartforge_production(env: &Environment, program: &Program, dir: &Path) ->
     let entry = program.dartforge_entry().to_string_lossy().into_owned();
     let bundle = dir.join("output.js");
     let bundle_s = bundle.to_string_lossy().into_owned();
-    let exe = if cfg!(windows) { "dartforge-jsprod.exe" } else { "dartforge-jsprod" };
+    let exe = if cfg!(windows) {
+        "dartforge-jsprod.exe"
+    } else {
+        "dartforge-jsprod"
+    };
     // The right binary is the one next to this executable (same
     // `target/<profile>/`), as in `Environment::detect`.
     let bin = std::env::var("DARTFORGE_JSPROD_BIN")
         .ok()
         .map(PathBuf::from)
-        .or_else(|| std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(exe))).filter(|p| p.is_file()));
+        .or_else(|| {
+            std::env::current_exe()
+                .ok()
+                .and_then(|e| e.parent().map(|d| d.join(exe)))
+                .filter(|p| p.is_file())
+        });
     // The oracle runs the VM with `--enable-asserts`; the production profile,
     // which disables `assert`s by default (like `dart2js`), is compared with
     // them enabled.
     let mut args = vec![entry, "-o".into(), bundle_s, "--enable-asserts".into()];
     args.extend(language_args(env, program));
-    let packages = program.dartforge_dir()
+    let packages = program
+        .dartforge_dir()
         .ancestors()
         .map(|d| d.join(".dart_tool/package_config.json"))
         .find(|p| p.is_file())
-        .unwrap_or_else(|| program.dartforge_dir().join(".dart_tool/package_config.json"));
+        .unwrap_or_else(|| {
+            program
+                .dartforge_dir()
+                .join(".dart_tool/package_config.json")
+        });
     if packages.is_file() {
         args.push("--packages".into());
         args.push(packages.to_string_lossy().into_owned());
     }
     let s = match &bin {
-        Some(b) => run_with_path(&b.to_string_lossy(), &args, program.dartforge_dir(), env.timeout, &env.extra_path),
+        Some(b) => run_with_path(
+            &b.to_string_lossy(),
+            &args,
+            program.dartforge_dir(),
+            env.timeout,
+            &env.extra_path,
+        ),
         None => {
-            let mut a: Vec<String> = vec!["run".into(), "-q".into(), "--release".into(), "-p".into(), "dartforge-emit-js-production".into(), "--".into()];
+            let mut a: Vec<String> = vec![
+                "run".into(),
+                "-q".into(),
+                "--release".into(),
+                "-p".into(),
+                "dartforge-emit-js-production".into(),
+                "--".into(),
+            ];
             a.extend(args);
-            run_with_path("cargo", &a, &env.root, Duration::from_secs(1800), &env.extra_path)
+            run_with_path(
+                "cargo",
+                &a,
+                &env.root,
+                Duration::from_secs(1800),
+                &env.extra_path,
+            )
         }
     };
     if let Some(r) = normalize_forge_rejection(program, &s) {
@@ -691,19 +889,37 @@ pub fn dartforge_production(env: &Environment, program: &Program, dir: &Path) ->
     }
     if s.code != 0 {
         let first = s.first_stderr_line().to_string();
-        let first = if first.is_empty() { s.stdout.lines().next().unwrap_or("").to_string() } else { first };
+        let first = if first.is_empty() {
+            s.stdout.lines().next().unwrap_or("").to_string()
+        } else {
+            first
+        };
         // The `[jsprod` prefix marks a compile-time rejection (`matrix.rs`).
-        return Output { stderr: format!("[jsprod code {}] {first}
-{}", s.code, s.stderr), ..s };
+        return Output {
+            stderr: format!(
+                "[jsprod code {}] {first}
+{}",
+                s.code, s.stderr
+            ),
+            ..s
+        };
     }
     if !bundle.is_file() {
         return Output::error("[jsprod] returned 0 but did not write the file");
     }
     // A bundle that does not even parse must fail with its own message, not
     // with a runtime error ten frames deep (docs/JS-PRODUCAO.md §5.2).
-    let check = run("node", &["--check".into(), "output.js".into()], dir, env.timeout);
+    let check = run(
+        "node",
+        &["--check".into(), "output.js".into()],
+        dir,
+        env.timeout,
+    );
     if check.code != 0 {
-        return Output::error(format!("[jsprod] node --check rejected the bundle: {}", check.first_stderr_line()));
+        return Output::error(format!(
+            "[jsprod] node --check rejected the bundle: {}",
+            check.first_stderr_line()
+        ));
     }
     run("node", &["output.js".into()], dir, env.timeout)
 }
@@ -725,7 +941,11 @@ pub fn jit_executor() -> PathBuf {
     if let Some(p) = std::env::var_os("DARTFORGE_RUN_IR") {
         return PathBuf::from(p);
     }
-    let name = if cfg!(windows) { "dartforge-run-ir.exe" } else { "dartforge-run-ir" };
+    let name = if cfg!(windows) {
+        "dartforge-run-ir.exe"
+    } else {
+        "dartforge-run-ir"
+    };
     std::env::current_exe()
         .ok()
         .and_then(|e| e.parent().map(|d| d.join(name)))
@@ -738,8 +958,13 @@ pub fn jit_executor() -> PathBuf {
 /// The matched texts are the native emitter's messages.
 fn compile_error_output(e: &str) -> Output {
     let first = e.lines().next().unwrap_or("");
-    let from_program = !e.contains("not supported by the native backend") && !e.contains("compiler bug");
-    Output { stdout: String::new(), stderr: format!("[compile-native] {first}\n{e}"), code: if from_program { 254 } else { 1 } }
+    let from_program =
+        !e.contains("not supported by the native backend") && !e.contains("compiler bug");
+    Output {
+        stdout: String::new(),
+        stderr: format!("[compile-native] {first}\n{e}"),
+        code: if from_program { 254 } else { 1 },
+    }
 }
 
 /// The **development** profile of the native backend: the program's LLVM IR
@@ -753,7 +978,12 @@ fn compile_error_output(e: &str) -> Output {
 /// The emission error comes out with the same `[compile-native]` prefix as in
 /// `--native` mode: it is the same emitter, and the scoreboards of both modes
 /// must group the failures by the same keys.
-pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot: bool) -> (Output, crate::report::JitRun) {
+pub fn dartforge_jit(
+    env: &Environment,
+    program: &Program,
+    dir: &Path,
+    with_aot: bool,
+) -> (Output, crate::report::JitRun) {
     use crate::report::{AotFromSameIr, JitRun};
     let _ = std::fs::create_dir_all(dir);
     let ir = match dartforge_native_ir_jit(program) {
@@ -766,13 +996,34 @@ pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot:
             } else {
                 compile_error_output(e.strip_prefix("[emit-ir] ").unwrap_or(&e))
             };
-            let aot = with_aot.then(|| AotFromSameIr { output: output.clone(), link_time: Duration::ZERO, run_time: Duration::ZERO, object_from_cache: false });
-            return (output, JitRun { has_ir: false, time: Duration::ZERO, run_time: None, aot });
+            let aot = with_aot.then(|| AotFromSameIr {
+                output: output.clone(),
+                link_time: Duration::ZERO,
+                run_time: Duration::ZERO,
+                object_from_cache: false,
+            });
+            return (
+                output,
+                JitRun {
+                    has_ir: false,
+                    time: Duration::ZERO,
+                    run_time: None,
+                    aot,
+                },
+            );
         }
     };
     let ll = dir.join(format!("{}.ll", program.name));
     if let Err(e) = std::fs::write(&ll, &ir) {
-        return (Output::error(format!("[jit] could not write {}: {e}", ll.display())), JitRun { has_ir: true, time: Duration::ZERO, run_time: None, aot: None });
+        return (
+            Output::error(format!("[jit] could not write {}: {e}", ll.display())),
+            JitRun {
+                has_ir: true,
+                time: Duration::ZERO,
+                run_time: None,
+                aot: None,
+            },
+        );
     }
     let executor = jit_executor();
     // The AOT limit only applies to running the .exe, after Clang and
@@ -794,8 +1045,20 @@ pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot:
         match dartforge_emit_native::sdk_module::source_sdk_dll() {
             Ok(dll) => env_vars.push(("DARTFORGE_SDK_DLL", dll.to_string_lossy().into_owned())),
             Err(e) => {
-                let output = Output { stdout: String::new(), stderr: format!("[compile-native] SDK from source: {e}"), code: 1 };
-                return (output, JitRun { has_ir: true, time: Duration::ZERO, run_time: None, aot: None });
+                let output = Output {
+                    stdout: String::new(),
+                    stderr: format!("[compile-native] SDK from source: {e}"),
+                    code: 1,
+                };
+                return (
+                    output,
+                    JitRun {
+                        has_ir: true,
+                        time: Duration::ZERO,
+                        run_time: None,
+                        aot: None,
+                    },
+                );
             }
         }
     }
@@ -816,36 +1079,80 @@ pub fn dartforge_jit(env: &Environment, program: &Program, dir: &Path, with_aot:
     // comes out in the same shape `--native` gives that case.
     if jit.code == JIT_FAILURE_CODE && jit.stdout.is_empty() {
         let first = jit.first_stderr_line().to_string();
-        jit = Output { stdout: String::new(), stderr: format!("[compile-native] {first}
-{}", jit.stderr), code: 1 };
+        jit = Output {
+            stdout: String::new(),
+            stderr: format!(
+                "[compile-native] {first}
+{}",
+                jit.stderr
+            ),
+            code: 1,
+        };
     }
 
     let aot = with_aot.then(|| {
-        let exe = dir.join(if cfg!(windows) { format!("{}.exe", program.name) } else { program.name.clone() });
+        let exe = dir.join(if cfg!(windows) {
+            format!("{}.exe", program.name)
+        } else {
+            program.name.clone()
+        });
         let start = std::time::Instant::now();
-        let linked = dartforge_emit_native::driver::compile_and_link(&ir, &exe, &dartforge_emit_native::driver::NativeDriverOptions::default());
+        let linked = dartforge_emit_native::driver::compile_and_link(
+            &ir,
+            &exe,
+            &dartforge_emit_native::driver::NativeDriverOptions::default(),
+        );
         let link_time = start.elapsed();
         match linked {
             Err(e) => {
                 let first = e.lines().next().unwrap_or("").to_string();
-                let output = Output { stdout: String::new(), stderr: format!("[compile-native] {first}\n{e}"), code: 1 };
-                AotFromSameIr { output, link_time, run_time: Duration::ZERO, object_from_cache: false }
+                let output = Output {
+                    stdout: String::new(),
+                    stderr: format!("[compile-native] {first}\n{e}"),
+                    code: 1,
+                };
+                AotFromSameIr {
+                    output,
+                    link_time,
+                    run_time: Duration::ZERO,
+                    object_from_cache: false,
+                }
             }
             Ok(t) => {
                 let start = std::time::Instant::now();
-                let output = run_with_env(&exe.to_string_lossy(), &[], dir, env.native_timeout, &env.extra_path, child_env);
+                let output = run_with_env(
+                    &exe.to_string_lossy(),
+                    &[],
+                    dir,
+                    env.native_timeout,
+                    &env.extra_path,
+                    child_env,
+                );
                 let run_time = start.elapsed();
                 if std::env::var_os("DARTFORGE_KEEP_EXE").is_none() {
                     let _ = std::fs::remove_file(&exe);
                 }
-                AotFromSameIr { output, link_time, run_time, object_from_cache: t.cache_object }
+                AotFromSameIr {
+                    output,
+                    link_time,
+                    run_time,
+                    object_from_cache: t.cache_object,
+                }
             }
         }
     });
     if std::env::var_os("DARTFORGE_KEEP_IR").is_none() {
         let _ = std::fs::remove_file(&ll);
     }
-    (jit, JitRun { has_ir: true, time, run_time: jit_run_time, aot })
+    (
+        jit,
+        JitRun {
+            has_ir: true,
+            time,
+            run_time: jit_run_time,
+            aot,
+        },
+    )
 }
 
 /// Code `dartforge-run-ir` exits with when the JIT itself fails
@@ -858,8 +1165,16 @@ const JIT_FAILURE_CODE: i32 = 70;
 /// The line is taken out of stderr so that it does not become the failure key
 /// nor enter any comparison: it only exists in the JIT profile.
 fn split_executor_timings(output: &mut Output) -> Option<Duration> {
-    let line = output.stderr.lines().rev().find(|l| l.starts_with("{\"llvm\""))?.to_string();
-    output.stderr = output.stderr.replacen(&format!("{line}\n"), "", 1).replacen(&line, "", 1);
+    let line = output
+        .stderr
+        .lines()
+        .rev()
+        .find(|l| l.starts_with("{\"llvm\""))?
+        .to_string();
+    output.stderr = output
+        .stderr
+        .replacen(&format!("{line}\n"), "", 1)
+        .replacen(&line, "", 1);
     let value = line.split("\"execute_ns\":").nth(1)?;
     let digits: String = value.chars().take_while(|c| c.is_ascii_digit()).collect();
     digits.parse::<u64>().ok().map(Duration::from_nanos)
@@ -871,29 +1186,65 @@ mod tests {
 
     #[test]
     fn exported() {
-        assert_eq!(exported_name("var a = 1;\nexport { $01_print };\n").as_deref(), Some("$01_print"));
-        assert_eq!(exported_name("export { hello as target__hello };").as_deref(), Some("target__hello"));
-        assert_eq!(exported_name("export { main, util };").as_deref(), Some("main"));
+        assert_eq!(
+            exported_name("var a = 1;\nexport { $01_print };\n").as_deref(),
+            Some("$01_print")
+        );
+        assert_eq!(
+            exported_name("export { hello as target__hello };").as_deref(),
+            Some("target__hello")
+        );
+        assert_eq!(
+            exported_name("export { main, util };").as_deref(),
+            Some("main")
+        );
         assert_eq!(exported_name("nothing"), None);
     }
 
     #[test]
     fn url() {
-        assert_eq!(file_url(Path::new(r"D:\x\dart_sdk.js")), "file:///D:/x/dart_sdk.js");
-        assert_eq!(file_url(Path::new("/tmp/dart_sdk.js")), "file:///tmp/dart_sdk.js");
+        assert_eq!(
+            file_url(Path::new(r"D:\x\dart_sdk.js")),
+            "file:///D:/x/dart_sdk.js"
+        );
+        assert_eq!(
+            file_url(Path::new("/tmp/dart_sdk.js")),
+            "file:///tmp/dart_sdk.js"
+        );
     }
 
     #[test]
     fn error_lines() {
-        let vm = Output { stdout: String::new(), stderr: "x.dart:7:9: Error: Undefined name '_'.\n  print(_);\n".into(), code: 254 };
+        let vm = Output {
+            stdout: String::new(),
+            stderr: "x.dart:7:9: Error: Undefined name '_'.\n  print(_);\n".into(),
+            code: 254,
+        };
         assert_eq!(cfe_error_line(&vm), Some(7));
-        let ddc = Output { stdout: "org-dartlang-app:/x.dart:12:3: Error: y\n".into(), stderr: String::new(), code: 1 };
+        let ddc = Output {
+            stdout: "org-dartlang-app:/x.dart:12:3: Error: y\n".into(),
+            stderr: String::new(),
+            code: 1,
+        };
         assert_eq!(cfe_error_line(&ddc), Some(12));
-        assert_eq!(cfe_error_line(&Output { stdout: "nothing".into(), stderr: String::new(), code: 1 }), None);
+        assert_eq!(
+            cfe_error_line(&Output {
+                stdout: "nothing".into(),
+                stderr: String::new(),
+                code: 1
+            }),
+            None
+        );
         let source = "a\nbb\nccc\n";
-        assert_eq!(forge_error_line("error: C:\\x.dart:5: z at bytes 5..6\n", source), Some(3));
+        assert_eq!(
+            forge_error_line("error: C:\\x.dart:5: z at bytes 5..6\n", source),
+            Some(3)
+        );
         assert_eq!(forge_error_line("error: z at bytes 0..1", source), Some(1));
-        assert_eq!(rejection(Some(3)).stdout, "compile error at line 3
-");
+        assert_eq!(
+            rejection(Some(3)).stdout,
+            "compile error at line 3
+"
+        );
     }
 }

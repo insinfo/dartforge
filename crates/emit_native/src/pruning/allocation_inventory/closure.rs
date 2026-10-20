@@ -3,23 +3,38 @@
 //! These facts are separate from the legacy direct leaf records in `.poda`.
 //! Allocation closure is not an escape, registry, reflection or native-exposure
 //! certificate, and publishing this inventory does not enable import pruning.
-use std::collections::{BTreeSet, HashMap};
 use serde_json::{Value, json};
+use std::collections::{BTreeSet, HashMap};
 
-pub(in crate::pruning) mod table_getters;
 mod context_lookup;
 mod read_only;
 mod stack_storage;
+pub(in crate::pruning) mod table_getters;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct Abi { result: String, parameters: Vec<String> }
+struct Abi {
+    result: String,
+    parameters: Vec<String>,
+}
 #[derive(Clone, Debug)]
-struct Call { symbol: String, abi: Abi, arguments: Vec<String> }
+struct Call {
+    symbol: String,
+    abi: Abi,
+    arguments: Vec<String>,
+}
 #[derive(Clone, Debug)]
 struct Definition {
-    module: String, symbol: String, key: String, body_digest: String,
-    abi: Option<Abi>, local: bool, unique_linkage: bool, complete: bool,
-    direct: BTreeSet<u32>, calls: Vec<Call>, unknown: BTreeSet<String>,
+    module: String,
+    symbol: String,
+    key: String,
+    body_digest: String,
+    abi: Option<Abi>,
+    local: bool,
+    unique_linkage: bool,
+    complete: bool,
+    direct: BTreeSet<u32>,
+    calls: Vec<Call>,
+    unknown: BTreeSet<String>,
     exposures: BTreeSet<String>,
     native_tls_lookup: bool,
 }
@@ -33,7 +48,10 @@ pub(crate) struct Bundle {
 }
 
 fn primitive(token: &str) -> bool {
-    matches!(token, "void" | "i1" | "i8" | "i16" | "i32" | "i64" | "float" | "double" | "ptr")
+    matches!(
+        token,
+        "void" | "i1" | "i8" | "i16" | "i32" | "i64" | "float" | "double" | "ptr"
+    )
 }
 /// Skip a quoted LLVM identifier/string, accepting only LLVM hex escapes.
 pub(super) fn quoted_end(text: &[u8], start: usize) -> Option<usize> {
@@ -141,36 +159,110 @@ fn structural_braces(text: &str) -> Option<Vec<(usize, u8)>> {
 fn signature(text: &str) -> Option<(String, Abi, Vec<String>)> {
     let (prefix, after) = text.split_once('@')?;
     let result = prefix.split_whitespace().last()?;
-    if !primitive(result) { return None }
+    if !primitive(result) {
+        return None;
+    }
     // Calling conventions, return attributes and constant-expression callees
     // need their own ABI rules; this first inventory does not guess them.
     let prefix_words: Vec<_> = prefix.split_whitespace().collect();
-    if prefix_words[..prefix_words.len().checked_sub(1)?].iter().any(|word| !matches!(*word,
-        "define" | "declare" | "call" | "internal" | "private" | "dso_local" | "dso_preemptable"
-        | "linkonce_odr" | "linkonce" | "weak" | "weak_odr" | "available_externally" | "hidden" | "protected")) { return None }
+    if prefix_words[..prefix_words.len().checked_sub(1)?]
+        .iter()
+        .any(|word| {
+            !matches!(
+                *word,
+                "define"
+                    | "declare"
+                    | "call"
+                    | "internal"
+                    | "private"
+                    | "dso_local"
+                    | "dso_preemptable"
+                    | "linkonce_odr"
+                    | "linkonce"
+                    | "weak"
+                    | "weak_odr"
+                    | "available_externally"
+                    | "hidden"
+                    | "protected"
+            )
+        })
+    {
+        return None;
+    }
     let (symbol, tail) = after.split_once('(')?;
-    if symbol.is_empty() || !symbol.bytes().all(|b| b.is_ascii_alphanumeric() || b"_$.-".contains(&b)) { return None }
+    if symbol.is_empty()
+        || !symbol
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_$.-".contains(&b))
+    {
+        return None;
+    }
     let (values, end) = arguments(tail)?;
-    if prefix.starts_with("call ") && !tail[end + 1..].trim().is_empty() { return None }
-    let parameters = values.iter().map(|arg| {
-        let mut words = arg.split_whitespace();
-        let ty = words.next()?;
-        if let Some(value) = words.next() {
-            let operand = value.starts_with('%') || value.starts_with('@')
-                || value.as_bytes().first().is_some_and(|byte| byte.is_ascii_digit() || *byte == b'-')
-                || matches!(value,"null"|"undef"|"poison"|"true"|"false"|"zeroinitializer"|"getelementptr"|"ptrtoint"|"inttoptr"|"bitcast"|"add"|"sub"|"and"|"or"|"xor"|"shl"|"lshr"|"ashr"|"select"|"icmp"|"blockaddress");
-            if !operand { return None }
-        }
-        (primitive(ty) && ty != "void").then(|| ty.to_string())
-    }).collect::<Option<Vec<_>>>()?;
-    Some((symbol.into(), Abi { result: result.into(), parameters }, values))
+    if prefix.starts_with("call ") && !tail[end + 1..].trim().is_empty() {
+        return None;
+    }
+    let parameters = values
+        .iter()
+        .map(|arg| {
+            let mut words = arg.split_whitespace();
+            let ty = words.next()?;
+            if let Some(value) = words.next() {
+                let operand = value.starts_with('%')
+                    || value.starts_with('@')
+                    || value
+                        .as_bytes()
+                        .first()
+                        .is_some_and(|byte| byte.is_ascii_digit() || *byte == b'-')
+                    || matches!(
+                        value,
+                        "null"
+                            | "undef"
+                            | "poison"
+                            | "true"
+                            | "false"
+                            | "zeroinitializer"
+                            | "getelementptr"
+                            | "ptrtoint"
+                            | "inttoptr"
+                            | "bitcast"
+                            | "add"
+                            | "sub"
+                            | "and"
+                            | "or"
+                            | "xor"
+                            | "shl"
+                            | "lshr"
+                            | "ashr"
+                            | "select"
+                            | "icmp"
+                            | "blockaddress"
+                    );
+                if !operand {
+                    return None;
+                }
+            }
+            (primitive(ty) && ty != "void").then(|| ty.to_string())
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((
+        symbol.into(),
+        Abi {
+            result: result.into(),
+            parameters,
+        },
+        values,
+    ))
 }
 /// Check observational operands against their published ABI, without granting
 /// allocation or registry capabilities to the call.
 pub(super) fn arguments_match(result: &str, parameters: &[String], values: &[String]) -> bool {
-    let text = format!("call {result} @df.inventory.arguments({})", values.join(", "));
-    signature(&text).is_some_and(|(_, abi, actual)|
-        abi.result == result && abi.parameters == parameters && actual == values)
+    let text = format!(
+        "call {result} @df.inventory.arguments({})",
+        values.join(", ")
+    );
+    signature(&text).is_some_and(|(_, abi, actual)| {
+        abi.result == result && abi.parameters == parameters && actual == values
+    })
 }
 
 fn global_references(text: &str) -> Vec<String> {
@@ -227,79 +319,177 @@ fn native_bytes(line: &str) -> bool {
     native_byte_content(line).is_some()
 }
 
-fn analyze_body(definition: &mut Definition, header: &str, body: &[&str], byte_globals: &BTreeSet<String>, getters: &HashMap<String, u32>) {
+fn analyze_body(
+    definition: &mut Definition,
+    header: &str,
+    body: &[&str],
+    byte_globals: &BTreeSet<String>,
+    getters: &HashMap<String, u32>,
+) {
     if getters.contains_key(&definition.symbol) {
         // Exact constant-return bodies were checked against complete immutable
         // table storage. The returned addresses remain exposure obligations.
         definition.exposures.insert("method_table_address".into());
         return;
     }
-    let stack_operations = signature(header).map(|(_, _, parameters)| stack_storage::observe(body, &parameters)).unwrap_or_default();
+    let stack_operations = signature(header)
+        .map(|(_, _, parameters)| stack_storage::observe(body, &parameters))
+        .unwrap_or_default();
     for (line_index, raw) in body.iter().enumerate() {
         let Some(line) = uncomment(raw) else {
             definition.unknown.insert("malformed_quoted_operand".into());
             continue;
         };
         let line = line.trim();
-        if line.is_empty() || line.ends_with(':') { continue }
-        if let Some((left, _)) = line.split_once(" = ") && !read_only::assignment(left) {
-            definition.unknown.insert("unsupported_assignment_prefix".into());
+        if line.is_empty() || line.ends_with(':') {
+            continue;
         }
-        let operation = line.split_once(" = ").map_or(line, |(_, value)| value.trim());
-        let operation = operation.strip_prefix("tail ").or_else(|| operation.strip_prefix("musttail ")).or_else(|| operation.strip_prefix("notail ")).unwrap_or(operation);
+        if let Some((left, _)) = line.split_once(" = ")
+            && !read_only::assignment(left)
+        {
+            definition
+                .unknown
+                .insert("unsupported_assignment_prefix".into());
+        }
+        let operation = line
+            .split_once(" = ")
+            .map_or(line, |(_, value)| value.trim());
+        let operation = operation
+            .strip_prefix("tail ")
+            .or_else(|| operation.strip_prefix("musttail "))
+            .or_else(|| operation.strip_prefix("notail "))
+            .unwrap_or(operation);
         let opcode = operation.split_whitespace().next().unwrap_or_default();
         if read_only::embedded_effect(operation) {
-            definition.unknown.insert("multiple_instructions_or_embedded_effect".into());
+            definition
+                .unknown
+                .insert("multiple_instructions_or_embedded_effect".into());
         }
         if opcode == "call" {
-            let stack_read = super::register_read::parse(operation).map(|argument| (
-                super::register_read::SYMBOL.into(),
-                Abi { result: "i64".into(), parameters: vec!["metadata".into()] },
-                vec![argument.into()],
-            ));
+            let stack_read = super::register_read::parse(operation).map(|argument| {
+                (
+                    super::register_read::SYMBOL.into(),
+                    Abi {
+                        result: "i64".into(),
+                        parameters: vec!["metadata".into()],
+                    },
+                    vec![argument.into()],
+                )
+            });
             if stack_read.is_some() {
                 definition.exposures.insert("machine_register_read".into());
             }
             if let Some((symbol, abi, arguments)) = stack_read.or_else(|| signature(operation)) {
-                let call = Call {symbol, abi, arguments};
+                let call = Call {
+                    symbol,
+                    abi,
+                    arguments,
+                };
                 let table_allocation = table_getters::allocation(&call, getters).is_some();
                 for (index, argument) in call.arguments.iter().enumerate() {
                     for name in global_references(argument) {
-                        if !byte_globals.contains(&name) && !(table_allocation && index + 1 == call.arguments.len()) {
-                            definition.unknown.insert(format!("global_or_function_address_argument:{name}"));
-                            definition.exposures.insert("global_or_function_address".into());
+                        if !byte_globals.contains(&name)
+                            && !(table_allocation && index + 1 == call.arguments.len())
+                        {
+                            definition
+                                .unknown
+                                .insert(format!("global_or_function_address_argument:{name}"));
+                            definition
+                                .exposures
+                                .insert("global_or_function_address".into());
                         }
                     }
                 }
                 if table_allocation {
-                    definition.exposures.insert("method_table_registration".into());
+                    definition
+                        .exposures
+                        .insert("method_table_registration".into());
                 }
                 definition.calls.push(call);
             } else {
-                definition.unknown.insert("indirect_or_unsupported_call_abi".into());
+                definition
+                    .unknown
+                    .insert("indirect_or_unsupported_call_abi".into());
             }
             continue;
         }
-        if !matches!(opcode,
-            "ret" | "br" | "unreachable" | "add" | "sub" | "mul" | "udiv" | "sdiv" | "urem" | "srem"
-            | "shl" | "lshr" | "ashr" | "and" | "or" | "xor" | "fadd" | "fsub" | "fmul" | "fdiv" | "frem" | "fneg"
-            | "icmp" | "fcmp" | "select" | "phi" | "zext" | "sext" | "trunc" | "sitofp" | "uitofp" | "fptosi" | "fptoui"
-            | "fpext" | "fptrunc" | "alloca" | "load" | "store" | "getelementptr" | "bitcast" | "ptrtoint" | "inttoptr" | "freeze") {
-            definition.unknown.insert(format!("unsupported_opcode:{opcode}"));
+        if !matches!(
+            opcode,
+            "ret"
+                | "br"
+                | "unreachable"
+                | "add"
+                | "sub"
+                | "mul"
+                | "udiv"
+                | "sdiv"
+                | "urem"
+                | "srem"
+                | "shl"
+                | "lshr"
+                | "ashr"
+                | "and"
+                | "or"
+                | "xor"
+                | "fadd"
+                | "fsub"
+                | "fmul"
+                | "fdiv"
+                | "frem"
+                | "fneg"
+                | "icmp"
+                | "fcmp"
+                | "select"
+                | "phi"
+                | "zext"
+                | "sext"
+                | "trunc"
+                | "sitofp"
+                | "uitofp"
+                | "fptosi"
+                | "fptoui"
+                | "fpext"
+                | "fptrunc"
+                | "alloca"
+                | "load"
+                | "store"
+                | "getelementptr"
+                | "bitcast"
+                | "ptrtoint"
+                | "inttoptr"
+                | "freeze"
+        ) {
+            definition
+                .unknown
+                .insert(format!("unsupported_opcode:{opcode}"));
         }
-        if matches!(opcode, "alloca" | "load" | "store" | "getelementptr" | "ptrtoint" | "inttoptr" | "bitcast") {
+        if matches!(
+            opcode,
+            "alloca" | "load" | "store" | "getelementptr" | "ptrtoint" | "inttoptr" | "bitcast"
+        ) {
             // A complete scalar read/address instruction cannot create a Dart
             // object. A bounded typed stack subobject also cannot be heap
             // allocation state. Other writes still need a memory-region proof.
-            if opcode != "alloca" && !read_only::allocation_neutral(operation) && !stack_operations.contains(&line_index) {
-                definition.unknown.insert("unresolved_raw_memory_allocation".into());
+            if opcode != "alloca"
+                && !read_only::allocation_neutral(operation)
+                && !stack_operations.contains(&line_index)
+            {
+                definition
+                    .unknown
+                    .insert("unresolved_raw_memory_allocation".into());
             }
-            definition.exposures.insert("raw_memory_or_pointer_operation".into());
+            definition
+                .exposures
+                .insert("raw_memory_or_pointer_operation".into());
         }
         for symbol in global_references(line) {
             if !byte_globals.contains(&symbol) {
-                definition.unknown.insert(format!("global_image_or_function_address:{symbol}"));
-                definition.exposures.insert("global_or_function_address".into());
+                definition
+                    .unknown
+                    .insert(format!("global_image_or_function_address:{symbol}"));
+                definition
+                    .exposures
+                    .insert("global_or_function_address".into());
             }
         }
     }
@@ -310,14 +500,26 @@ fn analyze_body(definition: &mut Definition, header: &str, body: &[&str], byte_g
 pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
     let getters = table_getters::observe(modules);
     let context_lookups = context_lookup::observe(modules);
-    let mut definitions = Vec::new(); let mut globals = Vec::new();
+    let mut definitions = Vec::new();
+    let mut globals = Vec::new();
     let mut module_counts = HashMap::new();
-    for (module, _) in modules { *module_counts.entry(*module).or_insert(0usize) += 1; }
+    for (module, _) in modules {
+        *module_counts.entry(*module).or_insert(0usize) += 1;
+    }
     for &(module, ir) in modules {
-        let byte_globals: BTreeSet<_> = ir.lines().filter(|line| line.starts_with('@') && native_bytes(line))
-            .filter_map(|line| global_references(line).into_iter().next()).collect();
-        for line in ir.lines().filter(|line| line.starts_with('@') && line.contains(" = ")) {
-            let name = global_references(line).into_iter().next().unwrap_or_default();
+        let byte_globals: BTreeSet<_> = ir
+            .lines()
+            .filter(|line| line.starts_with('@') && native_bytes(line))
+            .filter_map(|line| global_references(line).into_iter().next())
+            .collect();
+        for line in ir
+            .lines()
+            .filter(|line| line.starts_with('@') && line.contains(" = "))
+        {
+            let name = global_references(line)
+                .into_iter()
+                .next()
+                .unwrap_or_default();
             let bytes = native_bytes(line);
             globals.push(json!({"module":module,"symbol":name,"kind":if bytes {"native_bytes"} else if super::images::static_string(line).is_some() {"static_string"} else {"unclassified_initializer"},
                 "initializer": line,
@@ -325,13 +527,25 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
         }
         let mut lines = ir.lines();
         while let Some(header) = lines.next() {
-            if !header.starts_with("define ") { continue }
-            let Some(symbol) = global_references(header).into_iter().next() else { continue };
+            if !header.starts_with("define ") {
+                continue;
+            }
+            let Some(symbol) = global_references(header).into_iter().next() else {
+                continue;
+            };
             let prefix = header.split_once('@').map_or(header, |(prefix, _)| prefix);
-            let local = prefix.split_whitespace().any(|part| matches!(part,"private"|"internal"));
-            let unique_linkage = !prefix.split_whitespace().any(|part| part.starts_with("weak") || part.starts_with("linkonce") || part == "available_externally");
+            let local = prefix
+                .split_whitespace()
+                .any(|part| matches!(part, "private" | "internal"));
+            let unique_linkage = !prefix.split_whitespace().any(|part| {
+                part.starts_with("weak")
+                    || part.starts_with("linkonce")
+                    || part == "available_externally"
+            });
             let abi = signature(header).map(|(_, abi, _)| abi);
-            let mut body = Vec::new(); let mut text = format!("{header}\n"); let mut complete = false;
+            let mut body = Vec::new();
+            let mut text = format!("{header}\n");
+            let mut complete = false;
             let structural_header = uncomment(header).unwrap_or_default();
             let braces = structural_braces(structural_header).unwrap_or_default();
             if let Some(&(start, b'{')) = braces.first()
@@ -343,19 +557,55 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
             }
             if !complete {
                 for line in lines.by_ref() {
-                    text.push_str(line); text.push('\n');
-                    if uncomment(line).is_some_and(|line| line.trim() == "}") { complete = true; break }
+                    text.push_str(line);
+                    text.push('\n');
+                    if uncomment(line).is_some_and(|line| line.trim() == "}") {
+                        complete = true;
+                        break;
+                    }
                     body.push(line);
                 }
             }
-            let key = if local { format!("{module}#{symbol}") } else { symbol.clone() };
-            let mut definition = Definition { module:module.into(), symbol, key, body_digest:blake3::hash(text.as_bytes()).to_hex().to_string(),
-                abi, local, unique_linkage, complete, direct:BTreeSet::new(), calls:Vec::new(), unknown:BTreeSet::new(), exposures:BTreeSet::new(), native_tls_lookup:false };
-            if module_counts[module] != 1 { definition.unknown.insert("duplicate_module_identity".into()); }
-            if !complete { definition.unknown.insert("incomplete_definition".into()); }
-            if definition.abi.is_none() { definition.unknown.insert("unsupported_definition_abi".into()); }
-            if !unique_linkage { definition.unknown.insert("interposable_linkage".into()); }
-            if definition.symbol == "df.context" && let Some(lookup) = context_lookups.get(&(module.to_string(), definition.symbol.clone())) {
+            let key = if local {
+                format!("{module}#{symbol}")
+            } else {
+                symbol.clone()
+            };
+            let mut definition = Definition {
+                module: module.into(),
+                symbol,
+                key,
+                body_digest: blake3::hash(text.as_bytes()).to_hex().to_string(),
+                abi,
+                local,
+                unique_linkage,
+                complete,
+                direct: BTreeSet::new(),
+                calls: Vec::new(),
+                unknown: BTreeSet::new(),
+                exposures: BTreeSet::new(),
+                native_tls_lookup: false,
+            };
+            if module_counts[module] != 1 {
+                definition
+                    .unknown
+                    .insert("duplicate_module_identity".into());
+            }
+            if !complete {
+                definition.unknown.insert("incomplete_definition".into());
+            }
+            if definition.abi.is_none() {
+                definition
+                    .unknown
+                    .insert("unsupported_definition_abi".into());
+            }
+            if !unique_linkage {
+                definition.unknown.insert("interposable_linkage".into());
+            }
+            if definition.symbol == "df.context"
+                && let Some(lookup) =
+                    context_lookups.get(&(module.to_string(), definition.symbol.clone()))
+            {
                 context_lookup::analyze(&mut definition, lookup);
             } else {
                 analyze_body(&mut definition, header, &body, &byte_globals, &getters);
@@ -368,13 +618,26 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
     bundle
 }
 
-fn close(mut definitions: Vec<Definition>, globals: Vec<Value>, getters: &HashMap<String, u32>) -> Bundle {
+fn close(
+    mut definitions: Vec<Definition>,
+    globals: Vec<Value>,
+    getters: &HashMap<String, u32>,
+) -> Bundle {
     let mut names: HashMap<String, Vec<usize>> = HashMap::new();
-    for (index, definition) in definitions.iter().enumerate() { names.entry(definition.key.clone()).or_default().push(index); }
-    let canonical: HashMap<_, _> = crate::llvm::externs::EXTERNS.iter().filter_map(|external| signature(external.decl).map(|(symbol, abi, _)| (symbol, abi))).collect();
+    for (index, definition) in definitions.iter().enumerate() {
+        names.entry(definition.key.clone()).or_default().push(index);
+    }
+    let canonical: HashMap<_, _> = crate::llvm::externs::EXTERNS
+        .iter()
+        .filter_map(|external| signature(external.decl).map(|(symbol, abi, _)| (symbol, abi)))
+        .collect();
     let mut dependencies = vec![Vec::new(); definitions.len()];
     for index in 0..definitions.len() {
-        if names[&definitions[index].key].len() != 1 { definitions[index].unknown.insert("ambiguous_definition".into()); }
+        if names[&definitions[index].key].len() != 1 {
+            definitions[index]
+                .unknown
+                .insert("ambiguous_definition".into());
+        }
         let calls = definitions[index].calls.clone();
         for call in calls {
             let local_key = format!("{}#{}", definitions[index].module, call.symbol);
@@ -382,13 +645,23 @@ fn close(mut definitions: Vec<Definition>, globals: Vec<Value>, getters: &HashMa
             if let Some(targets) = target {
                 if targets.len() == 1 && definitions[targets[0]].abi.as_ref() == Some(&call.abi) {
                     dependencies[index].push(targets[0]);
-                } else { definitions[index].unknown.insert(format!("unresolved_definition_or_abi:{}",call.symbol)); }
+                } else {
+                    definitions[index]
+                        .unknown
+                        .insert(format!("unresolved_definition_or_abi:{}", call.symbol));
+                }
                 continue;
             }
-            if definitions[index].native_tls_lookup && call.symbol == "llvm.threadlocal.address.p0" {
+            if definitions[index].native_tls_lookup && call.symbol == "llvm.threadlocal.address.p0"
+            {
                 continue;
             }
-            if super::register_read::call(&call.symbol, &call.abi.result, &call.abi.parameters, &call.arguments) {
+            if super::register_read::call(
+                &call.symbol,
+                &call.abi.result,
+                &call.abi.parameters,
+                &call.arguments,
+            ) {
                 continue;
             }
             if let Some(cid) = table_getters::allocation(&call, getters)
@@ -399,46 +672,100 @@ fn close(mut definitions: Vec<Definition>, globals: Vec<Value>, getters: &HashMa
             }
             // GC allocation-neutral does not mean registry/image-neutral. These
             // APIs can introduce managed image CIDs or replace helper bindings.
-            if call.symbol.starts_with("dartforge_register_") || call.symbol == "dartforge_set_migration" {
-                definitions[index].unknown.insert(format!("image_registry_or_helper_binding:{}",call.symbol));
-                definitions[index].exposures.insert("image_registry_or_helper_binding".into());
+            if call.symbol.starts_with("dartforge_register_")
+                || call.symbol == "dartforge_set_migration"
+            {
+                definitions[index]
+                    .unknown
+                    .insert(format!("image_registry_or_helper_binding:{}", call.symbol));
+                definitions[index]
+                    .exposures
+                    .insert("image_registry_or_helper_binding".into());
                 continue;
             }
             // The object allocator's finite footprint is an explicit ABI rule,
             // not an inference from the result type or a function name prefix.
-            if call.symbol == "dartforge_object_new" && canonical.get(&call.symbol) == Some(&call.abi) {
-                let literal = |arg: &String| arg.strip_prefix("i64 ").and_then(|value| value.parse::<i64>().ok());
+            if call.symbol == "dartforge_object_new"
+                && canonical.get(&call.symbol) == Some(&call.abi)
+            {
+                let literal = |arg: &String| {
+                    arg.strip_prefix("i64 ")
+                        .and_then(|value| value.parse::<i64>().ok())
+                };
                 let values: Option<Vec<_>> = call.arguments.iter().map(literal).collect();
-                if let Some(values) = values.filter(|values| values.len() == 2 && (0..=i64::from(i32::MAX)).contains(&values[0]) && values[1] >= 0) {
+                if let Some(values) = values.filter(|values| {
+                    values.len() == 2
+                        && (0..=i64::from(i32::MAX)).contains(&values[0])
+                        && values[1] >= 0
+                }) {
                     definitions[index].direct.insert(values[0] as u32);
-                } else { definitions[index].unknown.insert("nonconstant_allocation_cid_or_size".into()); }
+                } else {
+                    definitions[index]
+                        .unknown
+                        .insert("nonconstant_allocation_cid_or_size".into());
+                }
                 continue;
             }
-            let intrinsic = match call.symbol.as_str() { "llvm.expect.i1"=>Some("i1"), "llvm.expect.i64"=>Some("i64"), _=>None };
-            if intrinsic.is_some_and(|ty| call.abi.result == ty && call.abi.parameters == vec![ty.to_string(),ty.to_string()]) { continue }
+            let intrinsic = match call.symbol.as_str() {
+                "llvm.expect.i1" => Some("i1"),
+                "llvm.expect.i64" => Some("i64"),
+                _ => None,
+            };
+            if intrinsic.is_some_and(|ty| {
+                call.abi.result == ty && call.abi.parameters == vec![ty.to_string(), ty.to_string()]
+            }) {
+                continue;
+            }
             let effects = crate::llvm::externs::effects_of(&call.symbol);
-            if canonical.get(&call.symbol) == Some(&call.abi) && !effects.allocates && !effects.calls_dart { continue }
-            definitions[index].unknown.insert(format!("runtime_native_selector_or_helper_obligation:{}",call.symbol));
-            definitions[index].exposures.insert("unresolved_external_boundary".into());
+            if canonical.get(&call.symbol) == Some(&call.abi)
+                && !effects.allocates
+                && !effects.calls_dart
+            {
+                continue;
+            }
+            definitions[index].unknown.insert(format!(
+                "runtime_native_selector_or_helper_obligation:{}",
+                call.symbol
+            ));
+            definitions[index]
+                .exposures
+                .insert("unresolved_external_boundary".into());
         }
-        dependencies[index].sort_unstable(); dependencies[index].dedup();
+        dependencies[index].sort_unstable();
+        dependencies[index].dedup();
     }
     let mut closures: Vec<Option<BTreeSet<u32>>> = vec![None; definitions.len()];
     for component in crate::optimize::scc::components(&dependencies) {
         let members: BTreeSet<_> = component.iter().copied().collect();
-        let mut known = true; let mut classes = BTreeSet::new();
+        let mut known = true;
+        let mut classes = BTreeSet::new();
         for &index in &component {
             known &= definitions[index].unknown.is_empty();
             classes.extend(definitions[index].direct.iter().copied());
             for &target in &dependencies[index] {
-                if members.contains(&target) { continue }
-                if let Some(callee) = &closures[target] { classes.extend(callee.iter().copied()); }
-                else { known = false; }
+                if members.contains(&target) {
+                    continue;
+                }
+                if let Some(callee) = &closures[target] {
+                    classes.extend(callee.iter().copied());
+                } else {
+                    known = false;
+                }
             }
         }
-        if known { for index in component { closures[index] = Some(classes.clone()); } }
+        if known {
+            for index in component {
+                closures[index] = Some(classes.clone());
+            }
+        }
     }
-    Bundle {definitions, modules:Vec::new(), globals, closures, dependencies}
+    Bundle {
+        definitions,
+        modules: Vec::new(),
+        globals,
+        closures,
+        dependencies,
+    }
 }
 
 impl Bundle {

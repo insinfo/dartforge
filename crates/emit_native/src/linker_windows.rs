@@ -251,10 +251,21 @@ pub const IMPORTS: &[(&str, &[&str])] = &[
             "shutdown",
         ],
     ),
-    ("iphlpapi.dll", &["GetAdaptersAddresses", "if_indextoname", "if_nametoindex"]),
+    (
+        "iphlpapi.dll",
+        &["GetAdaptersAddresses", "if_indextoname", "if_nametoindex"],
+    ),
     (
         "advapi32.dll",
-        &["GetTokenInformation", "OpenProcessToken", "RegCloseKey", "RegGetValueW", "RegOpenKeyExW", "RegQueryValueExW", "SystemFunction036"],
+        &[
+            "GetTokenInformation",
+            "OpenProcessToken",
+            "RegCloseKey",
+            "RegGetValueW",
+            "RegOpenKeyExW",
+            "RegQueryValueExW",
+            "SystemFunction036",
+        ],
     ),
     ("userenv.dll", &["GetUserProfileDirectoryW"]),
     ("bcrypt.dll", &["BCryptGenRandom"]),
@@ -634,8 +645,12 @@ fim:
 "#;
 
 /// The modules of the minimal CRT: (object file, IR without the header).
-const CRT_MODULES: &[(&str, &str)] =
-    &[("dfcrt_comum.obj", CRT_COMMON_IR), ("dfcrt_exe.obj", CRT_EXE_IR), ("dfcrt_gui.obj", CRT_GUI_EXE_IR), ("dfcrt_dll.obj", CRT_DLL_IR)];
+const CRT_MODULES: &[(&str, &str)] = &[
+    ("dfcrt_comum.obj", CRT_COMMON_IR),
+    ("dfcrt_exe.obj", CRT_EXE_IR),
+    ("dfcrt_gui.obj", CRT_GUI_EXE_IR),
+    ("dfcrt_dll.obj", CRT_DLL_IR),
+];
 
 /// The complete IR (with the target header) of a module of the minimal CRT.
 pub fn crt_ir(body: &str) -> String {
@@ -745,18 +760,29 @@ pub fn generate(dir: &Path, compiler: &CrtCompiler<'_>) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     for (dll, names) in IMPORTS {
         let path = dir.join(import_name(dll));
-        std::fs::write(&path, import_library(dll, names)).map_err(|e| format!("{}: {e}", path.display()))?;
+        std::fs::write(&path, import_library(dll, names))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
     }
     for (file, body) in CRT_MODULES {
         let ir = crt_ir(body);
         let obj = dir.join(file);
         match compiler {
-            CrtCompiler::Generator(g) => g.generate(&ir, crate::generator::Generation::of_program(false, false), &obj)?,
+            CrtCompiler::Generator(g) => g.generate(
+                &ir,
+                crate::generator::Generation::of_program(false, false),
+                &obj,
+            )?,
             CrtCompiler::ClangWithTarget(clang) => {
                 let ll = obj.with_extension("ll");
                 std::fs::write(&ll, &ir).map_err(|e| format!("{}: {e}", ll.display()))?;
                 let exit = Command::new(clang)
-                    .args(["-x", "ir", "-c", "-O0", "-mno-incremental-linker-compatible"])
+                    .args([
+                        "-x",
+                        "ir",
+                        "-c",
+                        "-O0",
+                        "-mno-incremental-linker-compatible",
+                    ])
                     .arg(format!("--target={TRIPLE}"))
                     .arg(&ll)
                     .arg("-o")
@@ -765,7 +791,10 @@ pub fn generate(dir: &Path, compiler: &CrtCompiler<'_>) -> Result<(), String> {
                     .map_err(|e| format!("failed to run {}: {e}", clang.display()))?;
                 let _ = std::fs::remove_file(&ll);
                 if !exit.status.success() {
-                    return Err(format!("the minimal CRT did not compile: {}", String::from_utf8_lossy(&exit.stderr)));
+                    return Err(format!(
+                        "the minimal CRT did not compile: {}",
+                        String::from_utf8_lossy(&exit.stderr)
+                    ));
                 }
             }
         }
@@ -808,15 +837,22 @@ impl SysrootWindows {
     pub fn locate(clang: &Path) -> Result<&'static SysrootWindows, String> {
         static S: std::sync::OnceLock<Result<SysrootWindows, String>> = std::sync::OnceLock::new();
         S.get_or_init(|| {
-            if let Some(dir) = crate::cross::sysroot() { return Ok(SysrootWindows { dir }); }
-            if let Some(dir) = dartforge_elements::distribution::in_lib(&format!("sysroot/{TRIPLE}"))
+            if let Some(dir) = crate::cross::sysroot() {
+                return Ok(SysrootWindows { dir });
+            }
+            if let Some(dir) =
+                dartforge_elements::distribution::in_lib(&format!("sysroot/{TRIPLE}"))
                 && dir.join("dfcrt_comum.obj").is_file()
                 && dir.join("dfcrt_gui.obj").is_file()
             {
                 return Ok(SysrootWindows { dir });
             }
             let generator = crate::generator::Generator::choose(clang);
-            let key = format!("{}-{}", printing(), &blake3::hash(generator.identity()?.as_bytes()).to_hex()[..8]);
+            let key = format!(
+                "{}-{}",
+                printing(),
+                &blake3::hash(generator.identity()?.as_bytes()).to_hex()[..8]
+            );
             let root = crate::cache::native_cache_dir().join("ligacao-windows");
             let dir = root.join(&key);
             if dir.join("pronto").is_file() {
@@ -844,7 +880,10 @@ impl SysrootWindows {
     }
 
     fn libraries(&self) -> Vec<PathBuf> {
-        IMPORTS.iter().map(|(dll, _)| self.dir.join(import_name(dll))).collect()
+        IMPORTS
+            .iter()
+            .map(|(dll, _)| self.dir.join(import_name(dll)))
+            .collect()
     }
 }
 
@@ -873,7 +912,9 @@ impl Subsystem {
         match name {
             "console" => Ok(Self::Console),
             "gui" => Ok(Self::Gui),
-            _ => Err(format!("--subsystem={name}: the subsystems are `console` and `gui`")),
+            _ => Err(format!(
+                "--subsystem={name}: the subsystems are `console` and `gui`"
+            )),
         }
     }
 
@@ -934,8 +975,16 @@ pub fn lld_link(clang: &Path) -> PathBuf {
     if let Some(l) = dartforge_elements::distribution::llvm_tool("lld-link") {
         return l;
     }
-    let alongside = clang.with_file_name(if cfg!(windows) { "lld-link.exe" } else { "lld-link" });
-    if alongside.is_file() { alongside } else { PathBuf::from("lld-link") }
+    let alongside = clang.with_file_name(if cfg!(windows) {
+        "lld-link.exe"
+    } else {
+        "lld-link"
+    });
+    if alongside.is_file() {
+        alongside
+    } else {
+        PathBuf::from("lld-link")
+    }
 }
 
 /// The `lld-link` arguments for link `l`.
@@ -944,7 +993,13 @@ pub fn arguments(sysroot: &SysrootWindows, l: &Linkage<'_>) -> Vec<std::ffi::OsS
     // Nothing from the environment (`LIB`, the detected Visual Studio) nor from the
     // `/DEFAULTLIB` directives of the objects (`msvcrt.lib`, `oldnames.lib`, the Rust ones):
     // everything that goes in is on the command line.
-    for s in ["/nologo", "/lldignoreenv", "/nodefaultlib", "/machine:x64", "/include:_tls_used"] {
+    for s in [
+        "/nologo",
+        "/lldignoreenv",
+        "/nodefaultlib",
+        "/machine:x64",
+        "/include:_tls_used",
+    ] {
         a.push(s.into());
     }
     // A top-level function tear-off is compared by address (`left == right`,
@@ -954,7 +1009,14 @@ pub fn arguments(sysroot: &SysrootWindows, l: &Linkage<'_>) -> Vec<std::ffi::OsS
     // address nobody takes (the `.llvm_addrsig` table of the object; an object
     // without it, like the Rust ones, counts as entirely taken); in
     // development, none (the fast link).
-    a.push(if l.prune { "/opt:safeicf" } else { "/opt:noicf" }.into());
+    a.push(
+        if l.prune {
+            "/opt:safeicf"
+        } else {
+            "/opt:noicf"
+        }
+        .into(),
+    );
     let common_crt = sysroot.dir.join("dfcrt_comum.obj");
     match &l.product {
         Product::Executable { subsystem } => {
@@ -989,7 +1051,9 @@ pub fn arguments(sysroot: &SysrootWindows, l: &Linkage<'_>) -> Vec<std::ffi::OsS
         }
     }
     if l.lto {
-        let partitions = std::thread::available_parallelism().map_or(4, |n| n.get()).clamp(2, 16);
+        let partitions = std::thread::available_parallelism()
+            .map_or(4, |n| n.get())
+            .clamp(2, 16);
         a.push(format!("/opt:lldlto={}", crate::driver::lto_level()).into());
         a.push(format!("/opt:lldltopartitions={partitions}").into());
         // ThinLTO (the bitcodes of the parts of a large program, C9): one
@@ -1053,8 +1117,16 @@ pub fn link(lld: &Path, sysroot: &SysrootWindows, l: &Linkage<'_>) -> Result<(),
     if !exit.status.success() {
         let mut text = String::from_utf8_lossy(&exit.stderr).into_owned();
         text.push_str(&String::from_utf8_lossy(&exit.stdout));
-        let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).take(40).collect();
-        return Err(format!("lld-link failed to link ({}):\n{}", exit.status, lines.join("\n")));
+        let lines: Vec<&str> = text
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .take(40)
+            .collect();
+        return Err(format!(
+            "lld-link failed to link ({}):\n{}",
+            exit.status,
+            lines.join("\n")
+        ));
     }
     Ok(())
 }
@@ -1076,7 +1148,11 @@ mod tests {
     fn file_with_symbol_table() {
         let lib = import_library("abc.dll", &["Um", "Dois"]);
         assert_eq!(&lib[..8], b"!<arch>\n");
-        let sz: usize = std::str::from_utf8(&lib[8 + 48..8 + 58]).unwrap().trim().parse().unwrap();
+        let sz: usize = std::str::from_utf8(&lib[8 + 48..8 + 58])
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
         let table = &lib[68..68 + sz];
         assert_eq!(u32::from_be_bytes(table[..4].try_into().unwrap()), 4);
         // Each offset points to a member header with the name of the DLL.
@@ -1093,33 +1169,61 @@ mod tests {
         for subsystem in [Subsystem::Console, Subsystem::Gui] {
             let linkage = Linkage {
                 product: Product::Executable { subsystem },
-                entries: vec![], lto: false, cpu: None, prune: false,
-                debug_info: false, exit: Path::new("app.exe"),
+                entries: vec![],
+                lto: false,
+                cpu: None,
+                prune: false,
+                debug_info: false,
+                exit: Path::new("app.exe"),
             };
             let args = arguments(&sysroot, &linkage);
-            assert_eq!(args.iter().filter(|a| a.to_string_lossy().starts_with("/subsystem:")).count(), 1);
+            assert_eq!(
+                args.iter()
+                    .filter(|a| a.to_string_lossy().starts_with("/subsystem:"))
+                    .count(),
+                1
+            );
             assert!(args.contains(&subsystem.linker_argument().into()));
             assert!(args.contains(&"/entry:mainCRTStartup".into()));
-            let crt = if subsystem == Subsystem::Gui { "dfcrt_gui.obj" } else { "dfcrt_exe.obj" };
+            let crt = if subsystem == Subsystem::Gui {
+                "dfcrt_gui.obj"
+            } else {
+                "dfcrt_exe.obj"
+            };
             assert!(args.contains(&Path::new("sysroot").join(crt).into_os_string()));
             assert!(!args.contains(&"/dll".into()));
         }
-        assert_eq!(CRT_GUI_EXE_IR, CRT_EXE_IR.replace("@_set_app_type(i32 1)", "@_set_app_type(i32 2)"));
+        assert_eq!(
+            CRT_GUI_EXE_IR,
+            CRT_EXE_IR.replace("@_set_app_type(i32 1)", "@_set_app_type(i32 2)")
+        );
         assert_eq!(Subsystem::default(), Subsystem::Console);
         assert!(Subsystem::from_name("windows").is_err());
         assert_eq!(Subsystem::from_name("gui").unwrap(), Subsystem::Gui);
-        let args = arguments(&sysroot, &Linkage {
-            product: Product::Dll { def: Path::new("app.def") },
-            entries: vec![], lto: false, cpu: None, prune: false,
-            debug_info: false, exit: Path::new("app.dll"),
-        });
+        let args = arguments(
+            &sysroot,
+            &Linkage {
+                product: Product::Dll {
+                    def: Path::new("app.def"),
+                },
+                entries: vec![],
+                lto: false,
+                cpu: None,
+                prune: false,
+                debug_info: false,
+                exit: Path::new("app.dll"),
+            },
+        );
         assert!(args.contains(&"/subsystem:console".into()));
         assert!(args.contains(&"/entry:_DllMainCRTStartup".into()));
     }
 
     #[test]
     fn no_repeated_import() {
-        let mut all: Vec<&str> = IMPORTS.iter().flat_map(|(_, n)| n.iter().copied()).collect();
+        let mut all: Vec<&str> = IMPORTS
+            .iter()
+            .flat_map(|(_, n)| n.iter().copied())
+            .collect();
         let total = all.len();
         all.sort_unstable();
         all.dedup();
@@ -1164,7 +1268,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn imports_exist_in_system() {
-        let target_os = PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into())).join("System32");
+        let target_os =
+            PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into()))
+                .join("System32");
         let mut missing_set = Vec::new();
         for (dll, names) in IMPORTS {
             let exp = exported(&target_os.join(dll));
@@ -1174,7 +1280,10 @@ mod tests {
                 }
             }
         }
-        assert!(missing_set.is_empty(), "not exported by the system: {missing_set:?}");
+        assert!(
+            missing_set.is_empty(),
+            "not exported by the system: {missing_set:?}"
+        );
     }
 
     /// Links C programs for Windows (compiled by Clang with `--target`)
@@ -1204,7 +1313,12 @@ static void escrever(const char* s) { unsigned n = 0, t = 0; while (s[t]) t++; W
             std::fs::write(&c, format!("{common}{source}")).unwrap();
             let obj = d.join(format!("{name}.obj"));
             let st = Command::new(&clang)
-                .args([&format!("--target={TRIPLE}"), "-c", "-O1", "-fms-extensions"])
+                .args([
+                    &format!("--target={TRIPLE}"),
+                    "-c",
+                    "-O1",
+                    "-fms-extensions",
+                ])
                 .arg(&c)
                 .arg("-o")
                 .arg(&obj)
@@ -1243,17 +1357,38 @@ int main(void) {
             link(
                 &lld_link(&clang),
                 &sysroot,
-                &Linkage { product: Product::Executable { subsystem: Subsystem::Console }, entries, lto: false, cpu: None, prune: true, debug_info: true, exit },
+                &Linkage {
+                    product: Product::Executable {
+                        subsystem: Subsystem::Console,
+                    },
+                    entries,
+                    lto: false,
+                    cpu: None,
+                    prune: true,
+                    debug_info: true,
+                    exit,
+                },
             )
             .unwrap();
         };
         link_exe(vec![p.clone()], &exe);
         let gui = d.join("p-gui.exe");
-        link(&lld_link(&clang), &sysroot, &Linkage {
-            product: Product::Executable { subsystem: Subsystem::Gui },
-            entries: vec![p], lto: false, cpu: None, prune: true,
-            debug_info: true, exit: &gui,
-        }).unwrap();
+        link(
+            &lld_link(&clang),
+            &sysroot,
+            &Linkage {
+                product: Product::Executable {
+                    subsystem: Subsystem::Gui,
+                },
+                entries: vec![p],
+                lto: false,
+                cpu: None,
+                prune: true,
+                debug_info: true,
+                exit: &gui,
+            },
+        )
+        .unwrap();
         // Verify the linked headers before any optional Windows/Wine execution.
         // PE32 and PE32+ place Subsystem at the same optional-header offset.
         for (file, expected) in [(&exe, 3u16), (&gui, 2u16)] {
@@ -1261,8 +1396,14 @@ int main(void) {
             let pe = u32::from_le_bytes(bytes[0x3c..0x40].try_into().unwrap()) as usize;
             assert_eq!(&bytes[pe..pe + 4], b"PE\0\0");
             let optional = pe + 24;
-            assert_eq!(u16::from_le_bytes(bytes[optional + 68..optional + 70].try_into().unwrap()), expected);
-            assert_ne!(u32::from_le_bytes(bytes[optional + 16..optional + 20].try_into().unwrap()), 0);
+            assert_eq!(
+                u16::from_le_bytes(bytes[optional + 68..optional + 70].try_into().unwrap()),
+                expected
+            );
+            assert_ne!(
+                u32::from_le_bytes(bytes[optional + 16..optional + 20].try_into().unwrap()),
+                0
+            );
         }
         let dll_obj = compile(
             "b",
@@ -1277,14 +1418,27 @@ int df_value(void) { static int registrado; if (!registrado) { registrado = 1; a
         link(
             &lld_link(&clang),
             &sysroot,
-            &Linkage { product: Product::Dll { def: &def }, entries: vec![dll_obj], lto: false, cpu: None, prune: false, debug_info: false, exit: &d.join("b.dll") },
+            &Linkage {
+                product: Product::Dll { def: &def },
+                entries: vec![dll_obj],
+                lto: false,
+                cpu: None,
+                prune: false,
+                debug_info: false,
+                exit: &d.join("b.dll"),
+            },
         )
         .unwrap();
         assert!(d.join("b.lib").is_file(), "the DLL import library");
-        let q = compile("q", "int df_value(void);\nint main(void) { if (df_value() == 6) escrever(\"dll ok\\n\"); return 0; }\n");
+        let q = compile(
+            "q",
+            "int df_value(void);\nint main(void) { if (df_value() == 6) escrever(\"dll ok\\n\"); return 0; }\n",
+        );
         let exe_dll = d.join("q.exe");
         link_exe(vec![q, d.join("b.lib")], &exe_dll);
-        let wine = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).map(|p| p.join("wine")).find(|w| w.is_file());
+        let wine = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+            .map(|p| p.join("wine"))
+            .find(|w| w.is_file());
         if !cfg!(windows) && wine.is_none() {
             return;
         }
@@ -1297,8 +1451,15 @@ int df_value(void) { static int registrado; if (!registrado) { registrado = 1; a
                 }
                 _ => Command::new(exe),
             };
-            let s = cmd.current_dir(d).env("WINEDEBUG", "-all").output().unwrap();
-            (String::from_utf8_lossy(&s.stdout).replace('\r', ""), s.status.code())
+            let s = cmd
+                .current_dir(d)
+                .env("WINEDEBUG", "-all")
+                .output()
+                .unwrap();
+            (
+                String::from_utf8_lossy(&s.stdout).replace('\r', ""),
+                s.status.code(),
+            )
         };
         assert_eq!(run(&exe), ("ok\nfim\n".to_string(), Some(3)));
         assert_eq!(run(&gui), ("ok\nfim\n".to_string(), Some(3)));

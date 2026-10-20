@@ -185,12 +185,12 @@ pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
     let all = comments.all();
     let mut out = Vec::new();
     // `_verifyMisplaced`: after the first significant token.
-    let first_significant = u
-        .unit
-        .directives
-        .first()
-        .map(|d| d.span.start)
-        .or_else(|| u.unit.declarations.first().map(|&d| u.ast.decl(d).span.start));
+    let first_significant = u.unit.directives.first().map(|d| d.span.start).or_else(|| {
+        u.unit
+            .declarations
+            .first()
+            .map(|&d| u.ast.decl(d).span.start)
+    });
     if let Some(p) = first_significant {
         for c in all.iter().filter(|c| c.start > p) {
             let lexeme = &source[c.start..c.end];
@@ -199,16 +199,29 @@ pub fn check(u: Unit<'_>) -> Vec<Diagnostic> {
             {
                 out.push(Diagnostic::with_code(
                     w::INVALID_LANGUAGE_VERSION_OVERRIDE_LOCATION,
-                    Span { start: c.start + at_sign, end: c.start + end },
+                    Span {
+                        start: c.start + at_sign,
+                        end: c.start + end,
+                    },
                     Vec::<&str>::new(),
                 ));
             }
         }
     }
     // The comments before the first token (after the `#!`).
-    let after_script = if source.starts_with(b"#!") { source.iter().position(|&b| b == b'\n').map_or(source.len(), |i| i + 1) } else { 0 };
+    let after_script = if source.starts_with(b"#!") {
+        source
+            .iter()
+            .position(|&b| b == b'\n')
+            .map_or(source.len(), |i| i + 1)
+    } else {
+        0
+    };
     let first = first_token(source, all, after_script);
-    for c in all.iter().filter(|c| c.start >= after_script && c.end <= first) {
+    for c in all
+        .iter()
+        .filter(|c| c.start >= after_script && c.end <= first)
+    {
         match check_comment(&source[c.start..c.end]) {
             Ok(true) => break,
             Ok(false) => {}
@@ -225,14 +238,38 @@ mod tests {
     #[test]
     fn formats() {
         assert_eq!(check_comment(b"// @dart = 2.12"), Ok(true));
-        assert_eq!(check_comment(b"// dart = 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_AT_SIGN));
-        assert_eq!(check_comment(b"// @dart 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_EQUALS));
-        assert_eq!(check_comment(b"// @dart >= 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_EQUALS));
-        assert_eq!(check_comment(b"// @Dart = 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_LOWER_CASE));
-        assert_eq!(check_comment(b"/// @dart = 2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_TWO_SLASHES));
-        assert_eq!(check_comment(b"// @dart = v2.0"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_PREFIX));
-        assert_eq!(check_comment(b"// @dart = 2"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_NUMBER));
-        assert_eq!(check_comment(b"// @dart = 2.0 x"), Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_TRAILING_CHARACTERS));
+        assert_eq!(
+            check_comment(b"// dart = 2.0"),
+            Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_AT_SIGN)
+        );
+        assert_eq!(
+            check_comment(b"// @dart 2.0"),
+            Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_EQUALS)
+        );
+        assert_eq!(
+            check_comment(b"// @dart >= 2.0"),
+            Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_EQUALS)
+        );
+        assert_eq!(
+            check_comment(b"// @Dart = 2.0"),
+            Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_LOWER_CASE)
+        );
+        assert_eq!(
+            check_comment(b"/// @dart = 2.0"),
+            Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_TWO_SLASHES)
+        );
+        assert_eq!(
+            check_comment(b"// @dart = v2.0"),
+            Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_PREFIX)
+        );
+        assert_eq!(
+            check_comment(b"// @dart = 2"),
+            Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_NUMBER)
+        );
+        assert_eq!(
+            check_comment(b"// @dart = 2.0 x"),
+            Err(w::INVALID_LANGUAGE_VERSION_OVERRIDE_TRAILING_CHARACTERS)
+        );
         assert_eq!(check_comment(b"/// dart2 is great"), Ok(false));
         assert_eq!(match_override(b"// @dart = 3.0"), Some(14));
     }

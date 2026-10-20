@@ -24,12 +24,7 @@ fn state(m: &Module) -> String {
     // may invalidate the transfer even if the registered body does not change.
     format!(
         "{:?}/{:?}/{:?}/{:?}/{:?}",
-        (
-            &m.functions,
-            &m.tables,
-            m.arc_memory,
-            m.table_exceptions
-        ),
+        (&m.functions, &m.tables, m.arc_memory, m.table_exceptions),
         (
             &m.dart_scalar_parameters,
             &m.dart_rti_parameters,
@@ -43,19 +38,17 @@ fn state(m: &Module) -> String {
             &m.globals,
             &m.arc_rti_caches
         ),
-        (
-            &m.helpers,
-            &m.method_tables,
-            m.sdk_mode,
-            m.sdk_library
-        ),
+        (&m.helpers, &m.method_tables, m.sdk_mode, m.sdk_library),
         (
             &m.entry_symbol,
             &m.record,
             &m.call_dart,
             &m.arc_shared_functions,
-            &m.subtyping_edges, &m.pruning_class_ids,
-            &m.pruning_ambiguous_class_ids, m.arc_fixed_ancestry, &m.arc_external_ancestry
+            &m.subtyping_edges,
+            &m.pruning_class_ids,
+            &m.pruning_ambiguous_class_ids,
+            m.arc_fixed_ancestry,
+            &m.arc_external_ancestry
         )
     )
 }
@@ -93,30 +86,51 @@ pub(super) fn check_typed(
     let mut typed_set = Vec::new();
     for f in &m.functions {
         for (v, inst, ty) in f.blocks.iter().flat_map(|b| &b.instructions) {
-            let Instruction::CallRuntime { name, args, ret_ty } = inst else { continue };
-            if name != "dartforge_arc_closure_owned_v1" { continue; }
-            let error = || format!("ARC ports: typed closure {} v{} without a verified body/ABI/Owned return", f.symbol, v.0);
+            let Instruction::CallRuntime { name, args, ret_ty } = inst else {
+                continue;
+            };
+            if name != "dartforge_arc_closure_owned_v1" {
+                continue;
+            }
+            let error = || {
+                format!(
+                    "ARC ports: typed closure {} v{} without a verified body/ABI/Owned return",
+                    f.symbol, v.0
+                )
+            };
             let [
                 (Operand::Constant(Constant::Function(uniform)), Type::I64),
                 (_, Type::Ref),
                 (target, Type::I64),
                 (Operand::Constant(Constant::Int(abi)), Type::I64),
-            ] = args.as_slice() else { return Err(error()); };
-            if *ty != Type::Ref || *ret_ty != Type::Ref
-                || !m.arc_uniform_returns.contains(uniform)
-            { return Err(error()); }
+            ] = args.as_slice()
+            else {
+                return Err(error());
+            };
+            if *ty != Type::Ref || *ret_ty != Type::Ref || !m.arc_uniform_returns.contains(uniform)
+            {
+                return Err(error());
+            }
             match target {
                 Operand::Constant(Constant::Int(0)) if *abi == 0 => continue,
                 Operand::Constant(Constant::Function(s)) => {
                     let body = functions.get(s).ok_or_else(error)?;
                     // ABI zero disables the typed path, including for scalar
                     // bodies that still use only the uniform entry.
-                    if *abi == 0 { continue; }
+                    if *abi == 0 {
+                        continue;
+                    }
                     let params: Vec<_> = body.params.iter().map(|(_, _, t)| *t).collect();
-                    let ret_val = if body.return_ty == Type::Ref { TokenReturn::Owned } else { TokenReturn::Trivial };
+                    let ret_val = if body.return_ty == Type::Ref {
+                        TokenReturn::Owned
+                    } else {
+                        TokenReturn::Trivial
+                    };
                     if super::objects::typed_abi(&params, body.return_ty) != Some(*abi)
                         || plans.get(s).map(|p| p.tokens.ret) != Some(ret_val)
-                    { return Err(error()); }
+                    {
+                        return Err(error());
+                    }
                     typed_set.push((s.clone(), *abi));
                 }
                 _ => return Err(error()),
@@ -125,7 +139,9 @@ pub(super) fn check_typed(
     }
     typed_set.sort();
     typed_set.dedup();
-    let Some(outside_abis) = outside_abis else { return Ok(typed_set) };
+    let Some(outside_abis) = outside_abis else {
+        return Ok(typed_set);
+    };
     for f in &m.functions {
         for (_, inst, _) in f.blocks.iter().flat_map(|b| &b.instructions) {
             if let Instruction::TypedCall { args, ret, .. } = inst {
@@ -134,7 +150,10 @@ pub(super) fn check_typed(
                 if !typed_set.iter().any(|(_, code)| Some(*code) == abi)
                     && !abi.is_some_and(|a| outside_abis.contains(&a))
                 {
-                    return Err(format!("ARC ports: {} calls a typed ABI without a body registered in the image", f.symbol));
+                    return Err(format!(
+                        "ARC ports: {} calls a typed ABI without a body registered in the image",
+                        f.symbol
+                    ));
                 }
             }
         }
@@ -152,7 +171,10 @@ fn check_vectors(m: &Module) -> Result<(), String> {
             .ok_or_else(|| format!("ARC ports: missing function vector {s}"))?;
         for (p, role) in roles {
             if f.params.iter().find(|(v, _, _)| v == p).map(|(_, _, t)| t) != Some(&Type::Ptr) {
-                return Err(format!("ARC ports: vector {s} v{} without a Ptr parameter", p.0));
+                return Err(format!(
+                    "ARC ports: vector {s} v{} without a Ptr parameter",
+                    p.0
+                ));
             }
             for (v, i, t) in f.blocks.iter().flat_map(|b| &b.instructions) {
                 let uses = |o: &Operand| matches!(o, Operand::Val(id) if id == p);
@@ -204,13 +226,16 @@ fn check_vectors(m: &Module) -> Result<(), String> {
                                 && super::vectors::tuple_read(f, i, *t, roles))
                     }
                     Instruction::CallRuntime { name, args, .. } => {
-                        super::vectors::checked_read(i, roles) || (*role == DartEntryVector::Descriptor
-                            && matches!(
-                                name.as_str(),
-                                "dartforge_args_match" | "dartforge_arg_index"
-                            )
-                            && args.first().is_some_and(|(o, t)| uses(o) && *t == Type::Ptr)
-                            && args.iter().skip(1).all(|(o, _)| !uses(o)))
+                        super::vectors::checked_read(i, roles)
+                            || (*role == DartEntryVector::Descriptor
+                                && matches!(
+                                    name.as_str(),
+                                    "dartforge_args_match" | "dartforge_arg_index"
+                                )
+                                && args
+                                    .first()
+                                    .is_some_and(|(o, t)| uses(o) && *t == Type::Ptr)
+                                && args.iter().skip(1).all(|(o, _)| !uses(o)))
                     }
                     _ => false,
                 };
@@ -227,7 +252,9 @@ fn check_vectors(m: &Module) -> Result<(), String> {
                     published |= matches!(o, Operand::Val(v) if v == p);
                 });
                 if published {
-                    return Err(format!("ARC ports: {s} publishes a vector in the terminator"));
+                    return Err(format!(
+                        "ARC ports: {s} publishes a vector in the terminator"
+                    ));
                 }
             }
         }
@@ -339,17 +366,23 @@ pub(super) fn certify(
                 ));
             }
         } else if !p.tables.invocations.is_empty()
-            || p.tables
-                .exits
-                .values()
-                .any(|s| *s == ExceptionExit::Resume)
+            || p.tables.exits.values().any(|s| *s == ExceptionExit::Resume)
         {
-            let calls: Vec<String> = f.blocks.iter().flat_map(|b| &b.instructions)
+            let calls: Vec<String> = f
+                .blocks
+                .iter()
+                .flat_map(|b| &b.instructions)
                 .filter(|(v, _, _)| p.tables.invocations.contains_key(v))
-                .map(|(v, i, _)| format!("v{} {}", v.0, match i {
-                    Instruction::CallStatic { symbol, .. } => symbol.as_str(),
-                    _ => "?",
-                }))
+                .map(|(v, i, _)| {
+                    format!(
+                        "v{} {}",
+                        v.0,
+                        match i {
+                            Instruction::CallStatic { symbol, .. } => symbol.as_str(),
+                            _ => "?",
+                        }
+                    )
+                })
                 .collect();
             return Err(format!(
                 "ARC ports: {} requires emission of invokes/tables: {calls:?}",
@@ -376,9 +409,10 @@ pub(super) fn certify(
             }
             let list_write = matches!(i, Instruction::NativeWrite { address: Operand::Val(d), .. }
                 if list_addresses.contains(d));
-            if !list_write && matches!(
-                i,
-                Instruction::CallDynamic { .. }
+            if !list_write
+                && matches!(
+                    i,
+                    Instruction::CallDynamic { .. }
                     | Instruction::CallInterface { .. }
                     | Instruction::CallClosureForward {
                         arc_owned: false,
@@ -395,10 +429,11 @@ pub(super) fn certify(
                     | Instruction::GetField { .. }
                     | Instruction::SetField { .. }
                     | Instruction::CellSet { .. }
-            ) || (*t == Type::Ref
-                && !matches!(
-                    i,
-                    Instruction::Const(
+                )
+                || (*t == Type::Ref
+                    && !matches!(
+                        i,
+                        Instruction::Const(
                         Constant::Null | Constant::String(_) | Constant::StringWtf8(_)
                     ) | Instruction::Phi { .. }
                         | Instruction::ArcCopy { .. }
@@ -424,7 +459,7 @@ pub(super) fn certify(
                         | Instruction::AllocRecord { .. }
                         | Instruction::ConcatStrings { .. }
                         | Instruction::Box { .. }
-                ))
+                    ))
             {
                 return Err(format!(
                     "ARC ports: {} contains an operation without an audited ABI: {i:?}",
@@ -459,7 +494,8 @@ pub(super) fn certify(
     if idempotence {
         let before = format!("{fs:?}");
         let plans_before = ps.clone();
-        let changes = super::functions::prepare_functions(&mut fs, &mut ps, m.arc_external_callees)?;
+        let changes =
+            super::functions::prepare_functions(&mut fs, &mut ps, m.arc_external_callees)?;
         if changes != (0, 0) || before != format!("{fs:?}") || plans_before != ps {
             return Err("ARC ports: bodies/plans not prepared yet or divergent".into());
         }
@@ -493,7 +529,11 @@ pub(super) fn certify(
     // from another image (a program closure passed to the SDK, or the
     // reverse): the runtime registry checks the body of each closure
     // before the call (`dartforge_arc_typed_target_v1`).
-    let typed_set = check_typed(m, plans, (idempotence && !m.arc_external_callees).then_some(&[][..]))?;
+    let typed_set = check_typed(
+        m,
+        plans,
+        (idempotence && !m.arc_external_callees).then_some(&[][..]),
+    )?;
     let total = callbacks.len() + uniforms.len() + typed_set.len();
     m.arc_aot_ports = Some(ArcAotPorts {
         state: state(m),
@@ -653,10 +693,7 @@ mod tests {
                 }
                 assert_eq!(plans["repasse"].classes[&ValueId(3)], Ownership::Owned);
                 assert_eq!(plans["repasse"].tokens.pendings[&ValueId(3)], BlockId(1));
-                assert_eq!(
-                    prepare_arc_dart_module(&mut m, &mut plans).unwrap(),
-                    (0, 0)
-                );
+                assert_eq!(prepare_arc_dart_module(&mut m, &mut plans).unwrap(), (0, 0));
                 certify_arc_aot_ports(&mut m, &plans).unwrap();
                 let ir = crate::llvm::LlvmEmitter::new(&m).emit_all();
                 if closure {
@@ -677,22 +714,42 @@ mod tests {
         for case in 0..10 {
             let (mut m, mut p) = module(false);
             m.functions.push(Function {
-                symbol: "tipada".into(), name: "tipada".into(), debug_info: None,
-                params: vec![(ValueId(0), "contexto".into(), Type::Ref),
-                    (ValueId(1), "x".into(), Type::Ref)], return_ty: Type::Ref,
-                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![],
-                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))) }],
+                symbol: "tipada".into(),
+                name: "tipada".into(),
+                debug_info: None,
+                params: vec![
+                    (ValueId(0), "contexto".into(), Type::Ref),
+                    (ValueId(1), "x".into(), Type::Ref),
+                ],
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(1)))),
+                }],
             });
             m.dart_ref_returns.insert("tipada".into());
             m.functions.push(Function {
-                symbol: "capturar".into(), name: "capturar".into(), debug_info: None,
-                params: vec![], return_ty: Type::Ref,
-                blocks: vec![BasicBlock { id: BlockId(0), instructions: vec![
-                    (ValueId(0), Instruction::AllocClosureTyped {
-                        code_symbol: "folha".into(), env: Operand::Constant(Constant::Null),
-                        typed: "tipada".into(), abi: 31, direct: false,
-                    }, Type::Ref),
-                ], terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))) }],
+                symbol: "capturar".into(),
+                name: "capturar".into(),
+                debug_info: None,
+                params: vec![],
+                return_ty: Type::Ref,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(0),
+                        Instruction::AllocClosureTyped {
+                            code_symbol: "folha".into(),
+                            env: Operand::Constant(Constant::Null),
+                            typed: "tipada".into(),
+                            abi: 31,
+                            direct: false,
+                        },
+                        Type::Ref,
+                    )],
+                    terminator: Terminator::Return(Some(Operand::Val(ValueId(0)))),
+                }],
             });
             m.dart_ref_returns.insert("capturar".into());
             p.insert("tipada".into(), DartFunctionPlan::default());
@@ -700,7 +757,9 @@ mod tests {
             prepare_arc_dart_module(&mut m, &mut p).unwrap();
             // Duplicating the construction cannot duplicate the registration of the same PC/ABI.
             let inst = m.functions[3].blocks[0].instructions[0].1.clone();
-            m.functions[3].blocks[0].instructions.insert(0, (ValueId(5), inst, Type::Ref));
+            m.functions[3].blocks[0]
+                .instructions
+                .insert(0, (ValueId(5), inst, Type::Ref));
             prepare_arc_dart_module(&mut m, &mut p).unwrap();
             if case == 7 {
                 certify_arc_aot_ports(&mut m, &p).unwrap();
@@ -709,8 +768,11 @@ mod tests {
                 continue;
             }
             if case == 8 {
-                m.functions[2].blocks[0].instructions.retain(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. }));
-                m.functions[2].blocks[0].terminator = Terminator::Return(Some(Operand::Val(ValueId(1))));
+                m.functions[2].blocks[0]
+                    .instructions
+                    .retain(|(_, i, _)| !matches!(i, Instruction::ArcCopy { .. }));
+                m.functions[2].blocks[0].terminator =
+                    Terminator::Return(Some(Operand::Val(ValueId(1))));
             } else if case == 9 {
                 // The nominal producer cannot replace a proof of a Borrowed
                 // return after the verification of the bodies by the certificate.
@@ -722,7 +784,9 @@ mod tests {
                     {
                         match case {
                             1 => args[2].0 = Operand::Constant(Constant::Int(123)),
-                            2 => args[2].0 = Operand::Constant(Constant::Function("ausente".into())),
+                            2 => {
+                                args[2].0 = Operand::Constant(Constant::Function("ausente".into()))
+                            }
                             3 => args[3].0 = Operand::Constant(Constant::Int(41)),
                             4 => args[0].0 = Operand::Constant(Constant::Function("tipada".into())),
                             5 => args[2].0 = Operand::Constant(Constant::Int(0)),
@@ -737,12 +801,21 @@ mod tests {
             if matches!(case, 0 | 6) {
                 assert_eq!(result.unwrap(), if case == 0 { 3 } else { 2 });
                 let certificate = m.arc_aot_ports.clone();
-                assert_eq!(certificate.as_ref().unwrap().typed_set().len(), usize::from(case == 0));
+                assert_eq!(
+                    certificate.as_ref().unwrap().typed_set().len(),
+                    usize::from(case == 0)
+                );
                 certify_arc_aot_ports(&mut m, &p).unwrap();
                 assert_eq!(m.arc_aot_ports, certificate);
                 let ir = LlvmEmitter::new(&m).emit_all();
-                assert_eq!(ir.matches(" = call i64 @dartforge_arc_register_typed_v1").count(), usize::from(case == 0));
-                if case == 0 { assert!(ir.contains("i64 %t0, i64 31)")); }
+                assert_eq!(
+                    ir.matches(" = call i64 @dartforge_arc_register_typed_v1")
+                        .count(),
+                    usize::from(case == 0)
+                );
+                if case == 0 {
+                    assert!(ir.contains("i64 %t0, i64 31)"));
+                }
             } else {
                 assert!(result.is_err(), "caso {case}: {result:?}");
                 assert_eq!(before, format!("{m:?}/{p:?}"));

@@ -25,7 +25,12 @@ pub(crate) enum NonPromotionReason {
     /// `PropertyNotPromotedForNonInherentReason` (without): the name, the member
     /// (`propertyMember`) and whether field promotion applies in the body's
     /// library (`fieldPromotionEnabled`).
-    Property { name: SymbolId, member: FunctionElementId, inherent: Option<WhyNotPromoted>, enabled: bool },
+    Property {
+        name: SymbolId,
+        member: FunctionElementId,
+        inherent: Option<WhyNotPromoted>,
+        enabled: bool,
+    },
     /// `ThisNotPromoted`.
     This,
 }
@@ -73,7 +78,10 @@ pub(crate) struct Flow {
 
 impl Flow {
     pub fn reachable() -> Self {
-        Flow { reachable: true, vars: Vec::new() }
+        Flow {
+            reachable: true,
+            vars: Vec::new(),
+        }
     }
 
     pub fn unreachable(&self) -> Self {
@@ -130,7 +138,9 @@ impl Flow {
 
     /// Current (promoted) type of a variable.
     pub fn current_type(&self, id: LocalId, declared: TypeId) -> TypeId {
-        self.model(id).and_then(|m| m.chain.last().copied()).unwrap_or(declared)
+        self.model(id)
+            .and_then(|m| m.chain.last().copied())
+            .unwrap_or(declared)
     }
 
     /// A write in a closure: no promotion and, as in the `conservativeJoin` of
@@ -192,13 +202,18 @@ impl<'a> BodyInferrer<'a> {
                 _ => None,
             });
         }
-        Flow { reachable: true, vars }
+        Flow {
+            reachable: true,
+            vars,
+        }
     }
 
     /// Joins a list of models (empty → unreachable starting from `base`).
     pub(crate) fn join_all(&mut self, base: &Flow, list: &[Flow]) -> Flow {
         let mut it = list.iter();
-        let Some(p) = it.next() else { return base.unreachable() };
+        let Some(p) = it.next() else {
+            return base.unreachable();
+        };
         let mut acc = p.clone();
         for f in it {
             acc = self.join(&acc, f);
@@ -214,11 +229,20 @@ impl<'a> BodyInferrer<'a> {
     /// Promotes to `t` recording `the_tested` as a type of interest (the false
     /// branch of `x is T` tests `T` and promotes to `factor(S, T)`; the
     /// analyzer's `_finishTypeTest`).
-    pub(crate) fn promote_tested(&mut self, flow: &mut Flow, id: LocalId, declared: TypeId, t: TypeId, the_tested: TypeId) {
+    pub(crate) fn promote_tested(
+        &mut self,
+        flow: &mut Flow,
+        id: LocalId,
+        declared: TypeId,
+        t: TypeId,
+        the_tested: TypeId,
+    ) {
         // Also in unreachable code: the model's `tryPromoteForTypeCheck` does
         // not look at reachability (`flow_analysis.dart`), and dead code stays
         // resolved with the promotions.
-        let Some(m) = flow.model(id).cloned() else { return };
+        let Some(m) = flow.model(id).cloned() else {
+            return;
+        };
         if m.captured {
             return;
         }
@@ -230,9 +254,10 @@ impl<'a> BodyInferrer<'a> {
         if t == s {
             // The same type: does not promote, but records the type of interest.
             if !m.tested.contains(&the_tested)
-                && let Some(Some(mm)) = flow.vars.get_mut(id.0 as usize) {
-                    mm.tested.push(the_tested);
-                }
+                && let Some(Some(mm)) = flow.vars.get_mut(id.0 as usize)
+            {
+                mm.tested.push(the_tested);
+            }
             return;
         }
         let t1 = if self.sub(t, s) {
@@ -244,7 +269,10 @@ impl<'a> BodyInferrer<'a> {
                 // 6.11 `type_system.dart:2104-2121`: the intersection with a
                 // non-nullable type is non-nullable). With `T?` the result would
                 // be `(X & T)?`, which the table does not represent: no promotion.
-                Type::TypeParameter { param, nullable } if param != self.core.unknown_param && (!nullable || !self.table.get(t).is_declared_nullable()) => {
+                Type::TypeParameter { param, nullable }
+                    if param != self.core.unknown_param
+                        && (!nullable || !self.table.get(t).is_declared_nullable()) =>
+                {
                     let b = self.table.param(param).bound;
                     if self.sub(t, b) {
                         Some(self.table.intern(Type::Intersection { param, bound: t }))
@@ -271,9 +299,10 @@ impl<'a> BodyInferrer<'a> {
             }
         }
         if let Some(t1) = t1
-            && matches!(self.table.get(t1), Type::Never) {
-                flow.reachable = false;
-            }
+            && matches!(self.table.get(t1), Type::Never)
+        {
+            flow.reachable = false;
+        }
     }
 
     /// The false branch of `x is T` (`tryPromoteForTypeCheck`, 3.6.2
@@ -281,7 +310,13 @@ impl<'a> BodyInferrer<'a> {
     /// the factored type goes straight into the chain, without the true branch's
     /// `tryPromoteToType` (`FutureOr<void>` minus `Future` is `void`, which is a
     /// supertype), and `T` is recorded as tested.
-    pub(crate) fn promote_factored(&mut self, flow: &mut Flow, id: LocalId, factored: Option<TypeId>, the_tested: TypeId) {
+    pub(crate) fn promote_factored(
+        &mut self,
+        flow: &mut Flow,
+        id: LocalId,
+        factored: Option<TypeId>,
+        the_tested: TypeId,
+    ) {
         let Some(m) = flow.model(id) else { return };
         if m.captured {
             return;
@@ -309,7 +344,13 @@ impl<'a> BodyInferrer<'a> {
     pub(crate) fn non_null_promotion(&mut self, t: TypeId) -> TypeId {
         match self.table.get(t).clone() {
             Type::Null => self.core.never,
-            Type::FutureOr { arg, nullable: true } => self.table.intern(Type::FutureOr { arg, nullable: false }),
+            Type::FutureOr {
+                arg,
+                nullable: true,
+            } => self.table.intern(Type::FutureOr {
+                arg,
+                nullable: false,
+            }),
             // NonNull(X) = X & NonNull(B) when the bound B is nullable (the
             // analyzer's promoteToNonNull): T? becomes T & Object.
             Type::TypeParameter { param, .. } if param != self.core.unknown_param => {
@@ -318,7 +359,10 @@ impl<'a> BodyInferrer<'a> {
                 if nb != b && !matches!(self.table.get(b), Type::Dynamic) {
                     self.table.intern(Type::Intersection { param, bound: nb })
                 } else {
-                    self.table.intern(Type::TypeParameter { param, nullable: false })
+                    self.table.intern(Type::TypeParameter {
+                        param,
+                        nullable: false,
+                    })
                 }
             }
             _ => self.non_null(t),
@@ -335,7 +379,9 @@ impl<'a> BodyInferrer<'a> {
         let mut r = current.clone();
         for (i, g) in stored.vars.iter().enumerate() {
             let Some(g) = g else { continue };
-            let Some(Some(c)) = r.vars.get(i) else { continue };
+            let Some(Some(c)) = r.vars.get(i) else {
+                continue;
+            };
             if g.version != c.version || c.captured {
                 continue;
             }
@@ -363,15 +409,32 @@ impl<'a> BodyInferrer<'a> {
     /// `assign(x, T)`: demotes and applies promotion by type of interest.
     /// `reason`: the write's `DemoteViaExplicitWrite`, which goes into the
     /// history of each undone type.
-    pub(crate) fn assign_flow(&mut self, flow: &mut Flow, id: LocalId, declared: TypeId, written: TypeId, reason: Option<NonPromotionReason>) {
+    pub(crate) fn assign_flow(
+        &mut self,
+        flow: &mut Flow,
+        id: LocalId,
+        declared: TypeId,
+        written: TypeId,
+        reason: Option<NonPromotionReason>,
+    ) {
         self.write_flow(flow, id, declared, written, true, reason);
     }
 
     /// A write with or without promotion by type of interest (the
     /// initialization of a `final` variable or one without a written type does
     /// not promote, `_initialize`).
-    pub(crate) fn write_flow(&mut self, flow: &mut Flow, id: LocalId, declared: TypeId, written: TypeId, toi: bool, reason: Option<NonPromotionReason>) {
-        let Some(m) = flow.model(id).cloned() else { return };
+    pub(crate) fn write_flow(
+        &mut self,
+        flow: &mut Flow,
+        id: LocalId,
+        declared: TypeId,
+        written: TypeId,
+        toi: bool,
+        reason: Option<NonPromotionReason>,
+    ) {
+        let Some(m) = flow.model(id).cloned() else {
+            return;
+        };
         let mut m = m;
         let assigned_before = m.assigned;
         m.assigned = true;
@@ -404,7 +467,11 @@ impl<'a> BodyInferrer<'a> {
             let mut history = m.history.clone();
             if let Some(reason) = &reason {
                 for &t in m.chain[chain.len()..].iter().rev() {
-                    history = Some(Rc::new(History { ty: t, reason: reason.clone(), previous: history }));
+                    history = Some(Rc::new(History {
+                        ty: t,
+                        reason: reason.clone(),
+                        previous: history,
+                    }));
                 }
             }
             // toi_promote
@@ -432,7 +499,8 @@ impl<'a> BodyInferrer<'a> {
                     } else {
                         let mut p3: Vec<TypeId> = Vec::new();
                         for &t in &interesting {
-                            if self.sub(written, t) && self.sub(t, provisional) && !p3.contains(&t) {
+                            if self.sub(written, t) && self.sub(t, provisional) && !p3.contains(&t)
+                            {
                                 p3.push(t);
                             }
                         }
@@ -483,7 +551,12 @@ fn flow_slot(f: &mut Flow, id: LocalId) -> &mut Option<VarModel> {
 fn join_model(a: &VarModel, b: &VarModel) -> VarModel {
     let mut r = join_model_without_history(a, b);
     let equal = |x: &VarModel, r: &VarModel| {
-        x.chain == r.chain && x.tested == r.tested && x.assigned == r.assigned && x.unassigned == r.unassigned && x.captured == r.captured && x.version == r.version
+        x.chain == r.chain
+            && x.tested == r.tested
+            && x.assigned == r.assigned
+            && x.unassigned == r.unassigned
+            && x.captured == r.captured
+            && x.version == r.version
     };
     r.history = if equal(a, &r) {
         a.history.clone()
@@ -496,7 +569,12 @@ fn join_model(a: &VarModel, b: &VarModel) -> VarModel {
 }
 
 fn join_model_without_history(a: &VarModel, b: &VarModel) -> VarModel {
-    let chain: Vec<TypeId> = a.chain.iter().copied().filter(|t| b.chain.contains(t)).collect();
+    let chain: Vec<TypeId> = a
+        .chain
+        .iter()
+        .copied()
+        .filter(|t| b.chain.contains(t))
+        .collect();
     let mut tested = a.tested.clone();
     for t in &b.tested {
         if !tested.contains(t) {
@@ -509,7 +587,11 @@ fn join_model_without_history(a: &VarModel, b: &VarModel) -> VarModel {
         assigned: a.assigned && b.assigned,
         unassigned: a.unassigned && b.unassigned,
         captured: a.captured || b.captured,
-        version: if a.version == b.version { a.version } else { new_version() },
+        version: if a.version == b.version {
+            a.version
+        } else {
+            new_version()
+        },
         history: None,
     }
 }

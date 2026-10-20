@@ -443,7 +443,12 @@ fn test_table_60_normative_subtyping_cases() {
         (null_ty, fut_or_int_null, true, "Null <: FutureOr<int?>"),
         (null_ty, fut_or_int, false, "Null <: FutureOr<int>"),
         (null_ty, fut_or_int_nullable, true, "Null <: FutureOr<int>?"),
-        (int_null, fut_or_int_nullable, true, "int? <: FutureOr<int>?"),
+        (
+            int_null,
+            fut_or_int_nullable,
+            true,
+            "int? <: FutureOr<int>?",
+        ),
         (int_null, int_ty, false, "int? <: int"),
         (int_ty, int_null, true, "int <: int?"),
         (int_null, num_null, true, "int? <: num?"),
@@ -578,9 +583,5 @@ fn test_table_60_normative_subtyping_cases() {
         failed,
         passed + failed
     );
-    assert!(
-        passed >= 60,
-        "Expected at least 60 cases, ran {}",
-        passed
-    );
+    assert!(passed >= 60, "Expected at least 60 cases, ran {}", passed);
 }

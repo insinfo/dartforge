@@ -104,38 +104,65 @@ impl Project {
         let mut best: Option<(ast::ExprId, Span)> = None;
         for (i, e) in ast.exprs.iter().enumerate() {
             let arguments_ = match &e.kind {
-                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => arguments,
+                ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
+                    arguments
+                }
                 _ => continue,
             };
             let s = arguments_.span;
             let closed = s.end > s.start && source.get(s.end - 1) == Some(&b')');
-            let inside = s.start < offset && if closed { offset < s.end } else { offset <= s.end };
+            let inside = s.start < offset
+                && if closed {
+                    offset < s.end
+                } else {
+                    offset <= s.end
+                };
             if inside && best.is_none_or(|(_, m)| s.end - s.start < m.end - m.start) {
                 best = Some((ast::ExprId(i as u32), s));
             }
         }
         let (call, s) = best?;
         // A `FunctionExpression` between the cursor and the list: the analyzer stops.
-        let slashed = ast
-            .functions
-            .iter()
-            .any(|f| f.name.is_none() && s.start < f.span.start && f.span.end <= s.end && f.span.start <= offset && offset <= f.span.end);
+        let slashed = ast.functions.iter().any(|f| {
+            f.name.is_none()
+                && s.start < f.span.start
+                && f.span.end <= s.end
+                && f.span.start <= offset
+                && offset <= f.span.end
+        });
         (!slashed).then_some((call, s))
     }
 
     /// Displayed name, parameters and documentation of what the call invokes.
-    fn callee(&mut self, unit: UnitId, call: ast::ExprId) -> Option<(String, Vec<Parameter>, Option<String>)> {
+    fn callee(
+        &mut self,
+        unit: UnitId,
+        call: ast::ExprId,
+    ) -> Option<(String, Vec<Parameter>, Option<String>)> {
         /// What the call is, copied from the tree before the mutable queries.
         enum Shape {
-            Creation { ty: Span, constructor: Option<ast::Name> },
-            Call { target: ast::ExprId, target_span: Span, name: Span, receiver: Option<ast::ExprId> },
+            Creation {
+                ty: Span,
+                constructor: Option<ast::Name>,
+            },
+            Call {
+                target: ast::ExprId,
+                target_span: Span,
+                name: Span,
+                receiver: Option<ast::ExprId>,
+            },
         }
         let source = self.program().unit(unit).source.clone();
         let text = |s: Span| clear_name(&source[s.start..s.end]);
         let shape = {
             let ast = &self.program().unit(unit).ast;
             match &ast.expr(call).kind {
-                ExprKind::InstanceCreation { ty, constructor, .. } => Shape::Creation { ty: ast.ty(*ty).span, constructor: *constructor },
+                ExprKind::InstanceCreation {
+                    ty, constructor, ..
+                } => Shape::Creation {
+                    ty: ast.ty(*ty).span,
+                    constructor: *constructor,
+                },
                 ExprKind::Call { target, .. } => {
                     // `A<int>(…)` and `f<int>(…)`: the name is inside the explicit
                     // instantiation.
@@ -146,16 +173,26 @@ impl Project {
                     let target_span = ast.expr(*target).span;
                     let (name_, receiver) = match &target_.kind {
                         ExprKind::Identifier(n) => (n.span, None),
-                        ExprKind::Property { target: r, name, .. } => (name.span, Some(*r)),
+                        ExprKind::Property {
+                            target: r, name, ..
+                        } => (name.span, Some(*r)),
                         _ => return None,
                     };
-                    Shape::Call { target: *target, target_span, name: name_, receiver }
+                    Shape::Call {
+                        target: *target,
+                        target_span,
+                        name: name_,
+                        receiver,
+                    }
                 }
                 _ => return None,
             }
         };
         match shape {
-            Shape::Creation { ty: ty_, constructor: constructor_ } => {
+            Shape::Creation {
+                ty: ty_,
+                constructor: constructor_,
+            } => {
                 let mut name_ = text(ty_);
                 if let Some(c) = constructor_ {
                     name_ = format!("{name_}.{}", &source[c.span.start..c.span.end]);
@@ -165,10 +202,16 @@ impl Project {
                     _ => return None,
                 };
                 let parameters = self.constructor_parameters(unit, call, f);
-                let documentation = self.documentation_of(unit, constructor_.map_or(ty_, |c| c.span));
+                let documentation =
+                    self.documentation_of(unit, constructor_.map_or(ty_, |c| c.span));
                 Some((name_, parameters, documentation))
             }
-            Shape::Call { target: target_, target_span, name: name_span, receiver } => {
+            Shape::Call {
+                target: target_,
+                target_span,
+                name: name_span,
+                receiver,
+            } => {
                 let d = self.identify(unit, name_span.start).ok()??;
                 let documentation = self.hover(unit, &d).and_then(|h| h.documentation);
                 match d.concrete {
@@ -179,7 +222,9 @@ impl Project {
                         }
                         // A getter or field returning a function: the analyzer has no parameter
                         // list to show.
-                        FunctionKind::Getter | FunctionKind::Setter | FunctionKind::ImplicitAccessor => None,
+                        FunctionKind::Getter
+                        | FunctionKind::Setter
+                        | FunctionKind::ImplicitAccessor => None,
                         _ => {
                             let name_ = source[name_span.start..name_span.end].to_string();
                             let ty_ = self.member_type(unit, receiver, target_, f);
@@ -189,13 +234,21 @@ impl Project {
                     Some(Concrete::Variable(_)) => None,
                     None => {
                         // Local function: the tree gives the names, the local's type gives the types.
-                        let crate::project::Target::Local { unit: ul, declaration } = d.target else {
+                        let crate::project::Target::Local {
+                            unit: ul,
+                            declaration,
+                        } = d.target
+                        else {
                             return None;
                         };
                         let name_ = source[name_span.start..name_span.end].to_string();
                         let ty_ = self.query.bodies.units[ul.0 as usize].local_type(declaration)?;
                         let ast_local = &self.program().unit(ul).ast;
-                        let parameters = match ast_local.functions.iter().find(|f| f.name.is_some_and(|n| n.span.start == declaration)) {
+                        let parameters = match ast_local
+                            .functions
+                            .iter()
+                            .find(|f| f.name.is_some_and(|n| n.span.start == declaration))
+                        {
                             Some(f) => {
                                 let ps = f.parameters.as_deref().unwrap_or(&[]);
                                 let types = aligned_types(&self.query.table, ps, ty_);
@@ -235,7 +288,10 @@ impl Project {
         let lib = self.program().unit(unit).library;
         let type_r = receiver.and_then(|r| self.query.bodies.units[unit.0 as usize].get_type(r));
         if let Some(type_r) = type_r
-            && let Some((_, t)) = self.query.resolver().lookup_member(type_r, symbol, false, lib)
+            && let Some((_, t)) = self
+                .query
+                .resolver()
+                .lookup_member(type_r, symbol, false, lib)
             && matches!(self.query.table.get(t), Type::Function { .. })
         {
             return Some(t);
@@ -252,12 +308,26 @@ impl Project {
         let FunctionRef::Function { unit, function } = p.function(f).node else {
             return Vec::new();
         };
-        let ps = p.unit(unit).ast.function(function).parameters.as_deref().unwrap_or(&[]);
-        let declared: Vec<Option<TypeId>> = self.query.outline.functions[f.0 as usize].parameters.iter().map(|q| Some(q.ty)).collect();
+        let ps = p
+            .unit(unit)
+            .ast
+            .function(function)
+            .parameters
+            .as_deref()
+            .unwrap_or(&[]);
+        let declared: Vec<Option<TypeId>> = self.query.outline.functions[f.0 as usize]
+            .parameters
+            .iter()
+            .map(|q| Some(q.ty))
+            .collect();
         let types = match ty {
             Some(t) => {
                 let aligned = aligned_types(&self.query.table, ps, t);
-                if aligned.iter().all(Option::is_some) { aligned } else { declared }
+                if aligned.iter().all(Option::is_some) {
+                    aligned
+                } else {
+                    declared
+                }
             }
             None => declared,
         };
@@ -266,7 +336,12 @@ impl Project {
 
     /// Parameters of a constructor with the class's type parameters replaced by
     /// the arguments of the created type (`List<int>.filled` shows `int fill`).
-    fn constructor_parameters(&mut self, unit_: UnitId, call: ast::ExprId, f: FunctionElementId) -> Vec<Parameter> {
+    fn constructor_parameters(
+        &mut self,
+        unit_: UnitId,
+        call: ast::ExprId,
+        f: FunctionElementId,
+    ) -> Vec<Parameter> {
         let p = self.program();
         let FunctionRef::Constructor { unit, member } = p.function(f).node else {
             return Vec::new();
@@ -275,7 +350,11 @@ impl Project {
             return Vec::new();
         };
         let n = k.parameters.len();
-        let declared: Vec<TypeId> = self.query.outline.functions[f.0 as usize].parameters.iter().map(|q| q.ty).collect();
+        let declared: Vec<TypeId> = self.query.outline.functions[f.0 as usize]
+            .parameters
+            .iter()
+            .map(|q| q.ty)
+            .collect();
         let mut map = HashMap::new();
         if let Some(c) = p.function(f).class
             && let Some(t) = self.query.bodies.units[unit_.0 as usize].get_type(call)
@@ -290,7 +369,13 @@ impl Project {
         }
         let types: Vec<Option<TypeId>> = declared
             .into_iter()
-            .map(|t| Some(dartforge_types::ops::substitute(t, &map, &mut self.query.table)))
+            .map(|t| {
+                Some(dartforge_types::ops::substitute(
+                    t,
+                    &map,
+                    &mut self.query.table,
+                ))
+            })
             .chain(std::iter::repeat(None))
             .take(n)
             .collect();
@@ -303,19 +388,37 @@ impl Project {
 
     /// Parameters from the function type only (no positional names).
     fn type_parameters(&self, ty: TypeId) -> Vec<Parameter> {
-        let Type::Function { positional, optional, named, .. } = self.query.table.get(ty).clone() else {
+        let Type::Function {
+            positional,
+            optional,
+            named,
+            ..
+        } = self.query.table.get(ty).clone()
+        else {
             return Vec::new();
         };
         let fmt = |t: TypeId| self.query.format(t);
         let mut output: Vec<Parameter> = positional
             .iter()
-            .map(|t| Parameter { label: format!("{} ", fmt(*t)), ty: ParameterKind::Required, name: None })
-            .chain(optional.iter().map(|t| Parameter { label: format!("{} ", fmt(*t)), ty: ParameterKind::Optional, name: None }))
+            .map(|t| Parameter {
+                label: format!("{} ", fmt(*t)),
+                ty: ParameterKind::Required,
+                name: None,
+            })
+            .chain(optional.iter().map(|t| Parameter {
+                label: format!("{} ", fmt(*t)),
+                ty: ParameterKind::Optional,
+                name: None,
+            }))
             .collect();
         for (n, t, required) in named.iter() {
             let name = self.name(*n).to_string();
             let prefix = if *required { "required " } else { "" };
-            output.push(Parameter { label: format!("{prefix}{} {name}", fmt(*t)), ty: ParameterKind::Named, name: Some(name) });
+            output.push(Parameter {
+                label: format!("{prefix}{} {name}", fmt(*t)),
+                ty: ParameterKind::Named,
+                name: Some(name),
+            });
         }
         output
     }
@@ -332,12 +435,19 @@ impl Project {
                     .copied()
                     .flatten()
                     .map_or_else(|| "dynamic".to_string(), |t| self.query.format(t));
-                let name = p.public_name.or(p.name).map(|n| source[n.span.start..n.span.end].to_string());
+                let name = p
+                    .public_name
+                    .or(p.name)
+                    .map(|n| source[n.span.start..n.span.end].to_string());
                 let pattern = p.default_value.map_or(String::new(), |e| {
                     let s = unit.ast.expr(e).span;
                     format!(" = {}", &source[s.start..s.end])
                 });
-                let prefix = if p.kind == ParameterKind::Named && p.required { "required " } else { "" };
+                let prefix = if p.kind == ParameterKind::Named && p.required {
+                    "required "
+                } else {
+                    ""
+                };
                 Parameter {
                     label: format!("{prefix}{ty} {}{pattern}", name.as_deref().unwrap_or("")),
                     ty: p.kind,
@@ -349,10 +459,18 @@ impl Project {
 
     /// The active parameter: that of the argument under the cursor, or the next
     /// positional between arguments.
-    fn active_parameter(&self, unit: UnitId, call: ast::ExprId, offset: usize, parameters: &[Parameter]) -> Option<usize> {
+    fn active_parameter(
+        &self,
+        unit: UnitId,
+        call: ast::ExprId,
+        offset: usize,
+        parameters: &[Parameter],
+    ) -> Option<usize> {
         let ast = &self.program().unit(unit).ast;
         let arguments_ = match &ast.expr(call).kind {
-            ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => arguments,
+            ExprKind::Call { arguments, .. } | ExprKind::InstanceCreation { arguments, .. } => {
+                arguments
+            }
             _ => return None,
         };
         let range = |a: &ast::Argument| {
@@ -374,7 +492,9 @@ impl Project {
                 return match a.name {
                     Some(n) => {
                         let name = &self.program().unit(unit).source[n.span.start..n.span.end];
-                        parameters.iter().position(|p| p.ty == ParameterKind::Named && p.name.as_deref() == Some(name))
+                        parameters.iter().position(|p| {
+                            p.ty == ParameterKind::Named && p.name.as_deref() == Some(name)
+                        })
                     }
                     None => positional_n(positional_before),
                 };
@@ -383,15 +503,29 @@ impl Project {
                 positional_before += 1;
             }
         }
-        let before = arguments_.args.iter().filter(|a| a.name.is_none() && range(a).1 < offset).count();
+        let before = arguments_
+            .args
+            .iter()
+            .filter(|a| a.name.is_none() && range(a).1 < offset)
+            .count();
         positional_n(before)
     }
 }
 
 /// The types of `ty` (a function) aligned with the written parameters:
 /// positionals by order, named ones by name.
-fn aligned_types(table: &dartforge_types::TypeTable, ps: &[ast::Parameter], ty: TypeId) -> Vec<Option<TypeId>> {
-    let Type::Function { positional, optional, named, .. } = table.get(ty).clone() else {
+fn aligned_types(
+    table: &dartforge_types::TypeTable,
+    ps: &[ast::Parameter],
+    ty: TypeId,
+) -> Vec<Option<TypeId>> {
+    let Type::Function {
+        positional,
+        optional,
+        named,
+        ..
+    } = table.get(ty).clone()
+    else {
         return vec![None; ps.len()];
     };
     let mut positional_ = positional.iter().chain(optional.iter());
@@ -399,7 +533,10 @@ fn aligned_types(table: &dartforge_types::TypeTable, ps: &[ast::Parameter], ty: 
         .map(|p| match p.kind {
             ParameterKind::Named => {
                 let symbol = p.public_name.or(p.name)?.sym;
-                named.iter().find(|(n, _, _)| *n == symbol).map(|(_, t, _)| *t)
+                named
+                    .iter()
+                    .find(|(n, _, _)| *n == symbol)
+                    .map(|(_, t, _)| *t)
             }
             _ => positional_.next().copied(),
         })

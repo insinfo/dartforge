@@ -2,8 +2,10 @@
 //! temporary: no previous revision stays in the server.
 
 use dartforge_diagnostics::Span;
-use dartforge_frontend::ast::{Ast, DeclKind, DirectiveKind, ExprKind, MemberKind, Name, StmtKind, TypeKind, TypedefKind};
 use dartforge_frontend::LibraryFeatures;
+use dartforge_frontend::ast::{
+    Ast, DeclKind, DirectiveKind, ExprKind, MemberKind, Name, StmtKind, TypeKind, TypedefKind,
+};
 use dartforge_intern::Interner;
 use serde_json::{Value, json};
 
@@ -17,13 +19,23 @@ pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> 
     // The `group`/`test` symbols: only in a unit that imports a `…test.dart`
     // file and declares no top-level function with one of those names.
     let imports_tests = parsed.unit.directives.iter().any(|d| match &d.kind {
-        DirectiveKind::Import { uri, .. } => dartforge_elements::load::string_lit_value(uri).is_some_and(|u| u.ends_with("test.dart")),
+        DirectiveKind::Import { uri, .. } => dartforge_elements::load::string_lit_value(uri)
+            .is_some_and(|u| u.ends_with("test.dart")),
         _ => false,
     });
-    let declares_homonym = parsed.unit.declarations.iter().any(|d| match &parsed.ast.decl(*d).kind {
-        DeclKind::Function(f) => parsed.ast.function(*f).name.is_some_and(|n| matches!(names.resolve(n.sym), "group" | "test")),
-        _ => false,
-    });
+    let declares_homonym =
+        parsed
+            .unit
+            .declarations
+            .iter()
+            .any(|d| match &parsed.ast.decl(*d).kind {
+                DeclKind::Function(f) => parsed
+                    .ast
+                    .function(*f)
+                    .name
+                    .is_some_and(|n| matches!(names.resolve(n.sym), "group" | "test")),
+                _ => false,
+            });
     let tests = imports_tests && !declares_homonym;
     for id in &parsed.unit.declarations {
         let decl = parsed.ast.decl(*id);
@@ -31,13 +43,22 @@ pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> 
             DeclKind::Class(c) => (Some(c.name), 5, Some(c.members.as_slice())),
             DeclKind::Mixin(m) => (Some(m.name), 5, Some(m.members.as_slice())),
             DeclKind::Enum(e) => {
-                let mut children = e.constants.iter().map(|c| {
-                    symbol(text, &lines, &names, c.name, c.span, 22, Vec::new())
-                }).collect::<Vec<_>>();
+                let mut children = e
+                    .constants
+                    .iter()
+                    .map(|c| symbol(text, &lines, &names, c.name, c.span, 22, Vec::new()))
+                    .collect::<Vec<_>>();
                 children.extend(member_symbols(
-                    text, &lines, &names, &parsed.ast, &e.members, tests,
+                    text,
+                    &lines,
+                    &names,
+                    &parsed.ast,
+                    &e.members,
+                    tests,
                 ));
-                output.push(symbol(text, &lines, &names, e.name, decl.span, 10, children));
+                output.push(symbol(
+                    text, &lines, &names, e.name, decl.span, 10, children,
+                ));
                 continue;
             }
             // Extensions and extension types are `Namespace` in the Dart server.
@@ -49,14 +70,17 @@ pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> 
             DeclKind::Typedef(t) => {
                 let is_function_alias = match &t.kind {
                     TypedefKind::Legacy { .. } => true,
-                    TypedefKind::Alias(ty) => matches!(parsed.ast.ty(*ty).kind, TypeKind::Function { .. }),
+                    TypedefKind::Alias(ty) => {
+                        matches!(parsed.ast.ty(*ty).kind, TypeKind::Function { .. })
+                    }
                 };
                 (Some(t.name), if is_function_alias { 5 } else { 19 }, None)
             }
             DeclKind::Function(f) => {
                 let func = parsed.ast.function(*f);
                 let kind = match func.kind {
-                    dartforge_frontend::ast::FunctionKind::Getter | dartforge_frontend::ast::FunctionKind::Setter => 7,
+                    dartforge_frontend::ast::FunctionKind::Getter
+                    | dartforge_frontend::ast::FunctionKind::Setter => 7,
                     _ => 12,
                 };
                 (func.name, kind, None)
@@ -64,8 +88,13 @@ pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> 
             DeclKind::Variables(v) => {
                 for variable in v.variables.iter() {
                     output.push(symbol(
-                        text, &lines, &names, variable.name, decl.span,
-                        13, Vec::new(),
+                        text,
+                        &lines,
+                        &names,
+                        variable.name,
+                        decl.span,
+                        13,
+                        Vec::new(),
                     ));
                 }
                 continue;
@@ -75,10 +104,14 @@ pub(super) fn for_document(text: &str, features: LibraryFeatures) -> Vec<Value> 
         let children = match members {
             Some(ids) => member_symbols(text, &lines, &names, &parsed.ast, ids, tests),
             // Top-level function: the local functions of the body, recursively.
-            None if matches!(decl.kind, DeclKind::Function(_)) => local_functions(text, &lines, &names, &parsed.ast, decl.span, tests),
+            None if matches!(decl.kind, DeclKind::Function(_)) => {
+                local_functions(text, &lines, &names, &parsed.ast, decl.span, tests)
+            }
             None => Vec::new(),
         };
-        output.push(symbol(text, &lines, &names, name, decl.span, kind, children));
+        output.push(symbol(
+            text, &lines, &names, name, decl.span, kind, children,
+        ));
     }
     output
 }
@@ -113,15 +146,24 @@ fn member_symbols(
                 let locals = local_functions(text, lines, names, ast, member.span, tests);
                 let mut s = symbol(text, lines, names, name, member.span, 9, locals);
                 if let Some(n) = c.name {
-                    s["name"] = json!(format!("{}.{}", names.resolve(c.class_name.sym), names.resolve(n.sym)));
+                    s["name"] = json!(format!(
+                        "{}.{}",
+                        names.resolve(c.class_name.sym),
+                        names.resolve(n.sym)
+                    ));
                 }
                 output.push(s);
             }
             MemberKind::Field(v) => {
                 for variable in v.variables.iter() {
                     output.push(symbol(
-                        text, lines, names, variable.name, member.span,
-                        8, Vec::new(),
+                        text,
+                        lines,
+                        names,
+                        variable.name,
+                        member.span,
+                        8,
+                        Vec::new(),
                     ));
                 }
             }
@@ -143,7 +185,14 @@ fn member_symbols(
 /// top-level function of a `…test.dart` file, or a function with `@isTest`
 /// or `@isTestGroup`); here the unprefixed call counts in a unit that
 /// imports a `…test.dart` and declares no top-level function with that name.
-fn local_functions(text: &str, lines: &LineTable, names: &Interner, ast: &Ast, inside: Span, tests: bool) -> Vec<Value> {
+fn local_functions(
+    text: &str,
+    lines: &LineTable,
+    names: &Interner,
+    ast: &Ast,
+    inside: Span,
+    tests: bool,
+) -> Vec<Value> {
     /// An outline item of a body.
     struct Item {
         span: Span,
@@ -155,21 +204,32 @@ fn local_functions(text: &str, lines: &LineTable, names: &Interner, ast: &Ast, i
     }
     let mut found: Vec<Item> = Vec::new();
     for s in ast.stmts.iter() {
-        let StmtKind::Function(f) = &s.kind else { continue };
+        let StmtKind::Function(f) = &s.kind else {
+            continue;
+        };
         if s.span.start < inside.start || s.span.end > inside.end {
             continue;
         }
         if let Some(name) = ast.function(*f).name {
-            found.push(Item { span: s.span, name, test_only: None, leaf: false });
+            found.push(Item {
+                span: s.span,
+                name,
+                test_only: None,
+                leaf: false,
+            });
         }
     }
     if tests {
         for e in ast.exprs.iter() {
-            let ExprKind::Call { target, arguments } = &e.kind else { continue };
+            let ExprKind::Call { target, arguments } = &e.kind else {
+                continue;
+            };
             if e.span.start < inside.start || e.span.end > inside.end {
                 continue;
             }
-            let ExprKind::Identifier(name) = &ast.expr(*target).kind else { continue };
+            let ExprKind::Identifier(name) = &ast.expr(*target).kind else {
+                continue;
+            };
             let call = names.resolve(name.sym);
             if call != "group" && call != "test" {
                 continue;
@@ -184,15 +244,36 @@ fn local_functions(text: &str, lines: &LineTable, names: &Interner, ast: &Ast, i
                         ExprKind::String(lit) => dartforge_elements::load::string_lit_value(lit),
                         _ => None,
                     };
-                    value.unwrap_or_else(|| text.get(expr.span.start..expr.span.end).unwrap_or("").to_string())
+                    value.unwrap_or_else(|| {
+                        text.get(expr.span.start..expr.span.end)
+                            .unwrap_or("")
+                            .to_string()
+                    })
                 }
             };
-            found.push(Item { span: e.span, name: *name, test_only: Some(format!("{call}(\"{description}\")")), leaf: call == "test" });
+            found.push(Item {
+                span: e.span,
+                name: *name,
+                test_only: Some(format!("{call}(\"{description}\")")),
+                leaf: call == "test",
+            });
         }
     }
     // Pre-order: by start and, on a tie, the larger first.
-    found.sort_by(|a, b| a.span.start.cmp(&b.span.start).then(b.span.end.cmp(&a.span.end)));
-    fn build(text: &str, lines: &LineTable, names: &Interner, found: &[Item], i: &mut usize, limit: usize) -> Vec<Value> {
+    found.sort_by(|a, b| {
+        a.span
+            .start
+            .cmp(&b.span.start)
+            .then(b.span.end.cmp(&a.span.end))
+    });
+    fn build(
+        text: &str,
+        lines: &LineTable,
+        names: &Interner,
+        found: &[Item],
+        i: &mut usize,
+        limit: usize,
+    ) -> Vec<Value> {
         let mut output = Vec::new();
         while *i < found.len() && found[*i].span.start < limit {
             let item = &found[*i];
@@ -206,7 +287,15 @@ fn local_functions(text: &str, lines: &LineTable, names: &Interner, ast: &Ast, i
             } else {
                 build(text, lines, names, found, i, item.span.end)
             };
-            let mut s = symbol(text, lines, names, item.name, item.span, if item.test_only.is_some() { 6 } else { 12 }, children);
+            let mut s = symbol(
+                text,
+                lines,
+                names,
+                item.name,
+                item.span,
+                if item.test_only.is_some() { 6 } else { 12 },
+                children,
+            );
             if let Some(shown) = &item.test_only {
                 s["name"] = json!(shown);
             }

@@ -37,8 +37,13 @@ impl<'a, 'p> Writer<'a, 'p> {
             let mut current = Some(n);
             while let Some(k) = current {
                 match (cx.kind(k), cx.tree.nodes[k].mark) {
-                    ("ClassDeclaration", crate::analyzer_tree::Mark::Decl(d)) => class = cx.declaration_class(cx.unit, d),
-                    ("MethodDeclaration" | "FunctionDeclaration", crate::analyzer_tree::Mark::Function(fid)) => {
+                    ("ClassDeclaration", crate::analyzer_tree::Mark::Decl(d)) => {
+                        class = cx.declaration_class(cx.unit, d)
+                    }
+                    (
+                        "MethodDeclaration" | "FunctionDeclaration",
+                        crate::analyzer_tree::Mark::Function(fid),
+                    ) => {
                         executable = cx.p.node_function(cx.unit, fid);
                     }
                     ("ConstructorDeclaration", _) => {
@@ -48,15 +53,34 @@ impl<'a, 'p> Writer<'a, 'p> {
                             .members
                             .iter()
                             .enumerate()
-                            .find(|(_, m)| matches!(m.kind, dartforge_frontend::ast::MemberKind::Constructor(_)) && m.span.start >= s.start && m.span.end <= s.end)
-                            .and_then(|(mi, _)| cx.p.node_constructor(cx.unit, dartforge_frontend::ast::MemberId(mi as u32)));
+                            .find(|(_, m)| {
+                                matches!(
+                                    m.kind,
+                                    dartforge_frontend::ast::MemberKind::Constructor(_)
+                                ) && m.span.start >= s.start
+                                    && m.span.end <= s.end
+                            })
+                            .and_then(|(mi, _)| {
+                                cx.p.node_constructor(
+                                    cx.unit,
+                                    dartforge_frontend::ast::MemberId(mi as u32),
+                                )
+                            });
                     }
                     _ => {}
                 }
                 current = cx.parent(k);
             }
         }
-        Writer { query: &cx.p.query, _p: std::marker::PhantomData, library, class, executable, copied: None, import: BTreeSet::new() }
+        Writer {
+            query: &cx.p.query,
+            _p: std::marker::PhantomData,
+            library,
+            class,
+            executable,
+            copied: None,
+            import: BTreeSet::new(),
+        }
     }
 
     /// The writer over the completion query: the request's library, and the
@@ -67,7 +91,15 @@ impl<'a, 'p> Writer<'a, 'p> {
         class: Option<ClassId>,
         executable: Option<FunctionElementId>,
     ) -> Writer<'a, 'p> {
-        Writer { query, _p: std::marker::PhantomData, library, class, executable, copied: None, import: BTreeSet::new() }
+        Writer {
+            query,
+            _p: std::marker::PhantomData,
+            library,
+            class,
+            executable,
+            copied: None,
+            import: BTreeSet::new(),
+        }
     }
 
     fn table(&self) -> &dartforge_types::TypeTable {
@@ -82,12 +114,16 @@ impl<'a, 'p> Writer<'a, 'p> {
                 let c = prog.class(*class);
                 !(self.query.name(c.name).starts_with('_') && c.library != self.library)
             }
-            Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => match self.table().param(*param).owner {
-                TypeParamOwner::Class(c) => self.class == Some(c),
-                TypeParamOwner::Function(f) => self.executable == Some(f) || self.copied == Some(f),
-                TypeParamOwner::GenericFunctionType => true,
-                _ => false,
-            },
+            Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => {
+                match self.table().param(*param).owner {
+                    TypeParamOwner::Class(c) => self.class == Some(c),
+                    TypeParamOwner::Function(f) => {
+                        self.executable == Some(f) || self.copied == Some(f)
+                    }
+                    TypeParamOwner::GenericFunctionType => true,
+                    _ => false,
+                }
+            }
             _ => true,
         }
     }
@@ -112,10 +148,14 @@ impl<'a, 'p> Writer<'a, 'p> {
             return None;
         }
         let display = self.table().decoration(t).cloned();
-        if matches!(display, Some(DisplayDecoration::Invalid)) || matches!(self.table().get(t), Type::Dynamic) {
+        if matches!(display, Some(DisplayDecoration::Invalid))
+            || matches!(self.table().get(t), Type::Dynamic)
+        {
             return required.then(|| "dynamic".to_string());
         }
-        if matches!(self.table().get(t), Type::Never) && !matches!(display, Some(DisplayDecoration::NeverNullable)) {
+        if matches!(self.table().get(t), Type::Never)
+            && !matches!(display, Some(DisplayDecoration::NeverNullable))
+        {
             return Some("Never".to_string());
         }
         let nullable_ = self.table().get(t).is_declared_nullable();
@@ -129,7 +169,14 @@ impl<'a, 'p> Writer<'a, 'p> {
         }
         let p = self.query;
         match self.table().get(t).clone() {
-            Type::Function { type_params, ret, positional, optional, named, nullable } => {
+            Type::Function {
+                type_params,
+                ret,
+                positional,
+                optional,
+                named,
+                nullable,
+            } => {
                 let mut s = String::new();
                 if let Some(r) = self.write(ret, false) {
                     s.push_str(&r);
@@ -154,7 +201,10 @@ impl<'a, 'p> Writer<'a, 'p> {
                 }
                 // `writeParameters(includeDefaultValues: false, requiredTypes: true)`;
                 // unnamed positionals become `p1`…
-                let mut used: BTreeSet<String> = named.iter().map(|(n, _, _)| p.name(*n).to_string()).collect();
+                let mut used: BTreeSet<String> = named
+                    .iter()
+                    .map(|(n, _, _)| p.name(*n).to_string())
+                    .collect();
                 s.push('(');
                 let mut i = 0usize;
                 let mut opened_optional = false;
@@ -214,11 +264,18 @@ impl<'a, 'p> Writer<'a, 'p> {
                 }
                 Some(s)
             }
-            Type::Interface { class, args, .. } | Type::ExtensionType { decl: class, args, .. } => {
-                Some(format!("{}{suffix}", self.element_with_arguments(Element::Class(class), &args)))
-            }
+            Type::Interface { class, args, .. }
+            | Type::ExtensionType {
+                decl: class, args, ..
+            } => Some(format!(
+                "{}{suffix}",
+                self.element_with_arguments(Element::Class(class), &args)
+            )),
             Type::FutureOr { arg, .. } => match self.future_or_class() {
-                Some(c) => Some(format!("{}{suffix}", self.element_with_arguments(Element::Class(c), &[arg]))),
+                Some(c) => Some(format!(
+                    "{}{suffix}",
+                    self.element_with_arguments(Element::Class(c), &[arg])
+                )),
                 None => Some(format!("FutureOr{suffix}")),
             },
             Type::Null => match p.core.null_class {
@@ -226,11 +283,14 @@ impl<'a, 'p> Writer<'a, 'p> {
                 None => Some("Null".to_string()),
             },
             Type::Never => Some(format!("Never{suffix}")),
-            Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => {
-                Some(format!("{}{suffix}", p.name(self.table().param(param).name)))
-            }
+            Type::TypeParameter { param, .. } | Type::Intersection { param, .. } => Some(format!(
+                "{}{suffix}",
+                p.name(self.table().param(param).name)
+            )),
             Type::Void => Some("void".to_string()),
-            Type::Record { positional, named, .. } => {
+            Type::Record {
+                positional, named, ..
+            } => {
                 let mut s = String::from("(");
                 let mut first = true;
                 for &q in positional.iter() {
@@ -243,7 +303,10 @@ impl<'a, 'p> Writer<'a, 'p> {
                 if !named.is_empty() {
                     s.push_str(if first { "{" } else { ", {" });
                     let mut first_named = true;
-                    let mut named_: Vec<(String, TypeId)> = named.iter().map(|(n, q)| (p.name(*n).to_string(), *q)).collect();
+                    let mut named_: Vec<(String, TypeId)> = named
+                        .iter()
+                        .map(|(n, q)| (p.name(*n).to_string(), *q))
+                        .collect();
                     named_.sort_by(|a, b| a.0.cmp(&b.0));
                     for (n, q) in named_ {
                         if !first_named {
@@ -273,7 +336,8 @@ impl<'a, 'p> Writer<'a, 'p> {
         let dynamic = matches!(self.table().get(x), Type::Dynamic);
         if !dynamic && self.visible(x) {
             let mut internal = self.write(x, true).unwrap_or_default();
-            let already = self.table().get(x).is_declared_nullable() || matches!(self.table().get(x), Type::Void | Type::Null);
+            let already = self.table().get(x).is_declared_nullable()
+                || matches!(self.table().get(x), Type::Void | Type::Null);
             if nullable && !already {
                 internal.push('?');
             }
@@ -296,7 +360,9 @@ impl<'a, 'p> Writer<'a, 'p> {
             _ => "",
         });
         if !args.is_empty() {
-            let some = args.iter().any(|a| !matches!(self.table().get(*a), Type::Dynamic));
+            let some = args
+                .iter()
+                .any(|a| !matches!(self.table().get(*a), Type::Dynamic));
             let visible_all = args.iter().all(|a| self.visible(*a));
             if some && visible_all {
                 s.push('<');
@@ -332,20 +398,32 @@ impl<'a, 'p> Writer<'a, 'p> {
         }
         let current = prog.library(self.library);
         let defining = current.units.first().copied();
-        let node_namespace = |target: LibraryId, combinators: &[dartforge_frontend::ast::Combinator]| {
-            prog.library(target).exported.get(&name).and_then(|b| b.getter) == Some(el)
-                && combinators.iter().all(|c| match c {
-                    dartforge_frontend::ast::Combinator::Show(ns) => ns.iter().any(|n| n.sym == name),
-                    dartforge_frontend::ast::Combinator::Hide(ns) => !ns.iter().any(|n| n.sym == name),
-                })
-        };
+        let node_namespace =
+            |target: LibraryId, combinators: &[dartforge_frontend::ast::Combinator]| {
+                prog.library(target)
+                    .exported
+                    .get(&name)
+                    .and_then(|b| b.getter)
+                    == Some(el)
+                    && combinators.iter().all(|c| match c {
+                        dartforge_frontend::ast::Combinator::Show(ns) => {
+                            ns.iter().any(|n| n.sym == name)
+                        }
+                        dartforge_frontend::ast::Combinator::Hide(ns) => {
+                            !ns.iter().any(|n| n.sym == name)
+                        }
+                    })
+            };
         let mut explicit_core = false;
         for i in current.imports.iter().filter(|i| Some(i.unit) == defining) {
             if Some(i.library) == p.core.core_library {
                 explicit_core = true;
             }
             if node_namespace(i.library, &i.combinators) {
-                return i.prefix.map(|x| format!("{}.", p.name(x))).unwrap_or_default();
+                return i
+                    .prefix
+                    .map(|x| format!("{}.", p.name(x)))
+                    .unwrap_or_default();
             }
         }
         if !explicit_core
@@ -368,10 +446,14 @@ impl<'a, 'p> Writer<'a, 'p> {
         let p = self.query;
         let prog = &p.program;
         let lib = p.core.async_library?;
-        prog.library(lib).exported.iter().find(|(s, _)| p.name(**s) == "FutureOr").and_then(|(_, b)| match b.getter {
-            Some(Element::Class(c)) => Some(c),
-            _ => None,
-        })
+        prog.library(lib)
+            .exported
+            .iter()
+            .find(|(s, _)| p.name(**s) == "FutureOr")
+            .and_then(|(_, b)| match b.getter {
+                Some(Element::Class(c)) => Some(c),
+                _ => None,
+            })
     }
 }
 

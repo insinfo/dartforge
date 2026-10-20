@@ -38,7 +38,10 @@ fn utf16(a: &str, b: &str) -> Ordering {
 
 /// `compareDirectiveUri` (`directive_sort.dart:10-22`).
 fn compare_uri(a: &str, b: &str) -> Ordering {
-    if (!a.starts_with("package:") || !b.starts_with("package:")) && !a.starts_with('/') && !b.starts_with('/') {
+    if (!a.starts_with("package:") || !b.starts_with("package:"))
+        && !a.starts_with('/')
+        && !b.starts_with('/')
+    {
         return utf16(a, b);
     }
     match (a.find('/'), b.find('/')) {
@@ -55,17 +58,28 @@ fn next_line(code: &str, offset: usize) -> Option<usize> {
 
 /// `// @dart = 2.12`: the language version comment (`LanguageVersionToken`).
 fn language_version(comment: &str) -> bool {
-    let Some(rest) = comment.strip_prefix("//") else { return false };
-    let Some(rest) = rest.trim_start().strip_prefix("@dart") else { return false };
-    let Some(rest) = rest.trim_start().strip_prefix('=') else { return false };
+    let Some(rest) = comment.strip_prefix("//") else {
+        return false;
+    };
+    let Some(rest) = rest.trim_start().strip_prefix("@dart") else {
+        return false;
+    };
+    let Some(rest) = rest.trim_start().strip_prefix('=') else {
+        return false;
+    };
     let mut parts = rest.trim().splitn(2, '.');
-    let number = |p: Option<&str>| p.is_some_and(|x| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit()));
+    let number =
+        |p: Option<&str>| p.is_some_and(|x| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit()));
     number(parts.next()) && number(parts.next())
 }
 
 /// `IgnoreInfo.ignoreMatcher`: `^//+[ ]*ignore:`.
 fn is_ignore_comment(comment: &str) -> bool {
-    comment.starts_with("//") && comment.trim_start_matches('/').trim_start_matches(' ').starts_with("ignore:")
+    comment.starts_with("//")
+        && comment
+            .trim_start_matches('/')
+            .trim_start_matches(' ')
+            .starts_with("ignore:")
 }
 
 /// The documentation block of a gap: the last sequence of consecutive
@@ -83,7 +97,13 @@ fn documentation_block(cs: &[Comment]) -> Option<(usize, usize)> {
 /// goes with the directive. `cs`: the comments between the previous token
 /// and the directive; `previous_end`: the end of the previous token (`None`
 /// when the directive is the first token of the file).
-fn comment_above(code: &str, cs: &[Comment], pseudo: bool, previous_end: Option<usize>, directive: usize) -> Option<usize> {
+fn comment_above(
+    code: &str,
+    cs: &[Comment],
+    pseudo: bool,
+    previous_end: Option<usize>,
+    directive: usize,
+) -> Option<usize> {
     if cs.is_empty() {
         return None;
     }
@@ -110,7 +130,10 @@ fn comment_above(code: &str, cs: &[Comment], pseudo: bool, previous_end: Option<
     }
     // Those that start on the previous token's line are its end-of-line comment.
     let previous_line = line(previous_end.unwrap_or(0));
-    cs[k..].iter().find(|x| line(x.start) != previous_line).map(|x| x.start)
+    cs[k..]
+        .iter()
+        .find(|x| line(x.start) != previous_line)
+        .map(|x| x.start)
 }
 
 /// The end of the comment that starts at `pos` or after whitespace on the
@@ -122,7 +145,11 @@ fn line_end_comment(code: &str, pos: usize) -> Option<usize> {
     let b = code.as_bytes();
     if code[start..].starts_with("//") {
         let end = code[start..].find('\n').map_or(code.len(), |k| start + k);
-        return Some(if end > start && b[end - 1] == b'\r' { end - 1 } else { end });
+        return Some(if end > start && b[end - 1] == b'\r' {
+            end - 1
+        } else {
+            end
+        });
     }
     if code[start..].starts_with("/*") {
         let mut level = 1;
@@ -151,7 +178,13 @@ fn line_end_comment(code: &str, pos: usize) -> Option<usize> {
 /// `removable`: the offsets of the URI literals with an `unused_import`,
 /// `duplicate_import` or `unnecessary_import` error; `not_resolved`: there
 /// is an unresolved identifier error in the file; `remove`: `removeUnused`.
-pub(crate) fn organize(code: &str, unit: &CompilationUnit, removable: &[usize], not_resolved: bool, remove: bool) -> Option<String> {
+pub(crate) fn organize(
+    code: &str,
+    unit: &CompilationUnit,
+    removable: &[usize],
+    not_resolved: bool,
+    remove: bool,
+) -> Option<String> {
     let line_end = if code.contains("\r\n") { "\r\n" } else { "\n" };
     let mut has_library = false;
     let mut infos: Vec<Info> = Vec::new();
@@ -194,18 +227,31 @@ pub(crate) fn organize(code: &str, unit: &CompilationUnit, removable: &[usize], 
         if pseudo && let Some((_, end_doc)) = doc {
             let next = next_line(code, end_doc)?;
             let line_end_ = code[next..].find('\n').map_or(code.len(), |k| next + k);
-            library_end =
-                Some(if code[next..line_end_].trim().is_empty() { next_line(code, next)? } else { next });
+            library_end = Some(if code[next..line_end_].trim().is_empty() {
+                next_line(code, next)?
+            } else {
+                next
+            });
         }
         // With documentation, the directive's first token is the documentation
         // comment, which has no comments before it.
-        let from_above = if doc.is_some() { None } else { comment_above(code, &cs, pseudo, previous_end, d.span.start) };
+        let from_above = if doc.is_some() {
+            None
+        } else {
+            comment_above(code, &cs, pseudo, previous_end, d.span.start)
+        };
         let end = line_end_comment(code, d.span.end).unwrap_or(d.span.end);
         let start = library_end.or(from_above).unwrap_or(directive_offset);
         if start > end {
             return None;
         }
-        infos.push(Info { priority, uri: content, start, end, removable: removable.contains(&literal.span.start) });
+        infos.push(Info {
+            priority,
+            uri: content,
+            start,
+            end,
+            removable: removable.contains(&literal.span.start),
+        });
         previous_end = Some(d.span.end);
     }
     let (first, last) = (infos.first()?.start, infos.last()?.end);
@@ -237,7 +283,12 @@ pub(crate) fn organize(code: &str, unit: &CompilationUnit, removable: &[usize], 
         output.push_str(line_end);
         previous = text;
     }
-    Some(format!("{}{}{}", &code[..first], output.trim_end(), &code[last..]))
+    Some(format!(
+        "{}{}{}",
+        &code[..first],
+        output.trim_end(),
+        &code[last..]
+    ))
 }
 
 /// The `organize` edit (`:47-58`): from offset 0 to the end of the changed
@@ -247,7 +298,12 @@ pub(crate) fn edit(initial: &str, new: &str) -> Option<(usize, usize, String)> {
         return None;
     }
     let (a, n) = (initial.as_bytes(), new.as_bytes());
-    let mut suffix = a.iter().rev().zip(n.iter().rev()).take_while(|(x, y)| x == y).count();
+    let mut suffix = a
+        .iter()
+        .rev()
+        .zip(n.iter().rev())
+        .take_while(|(x, y)| x == y)
+        .count();
     while !initial.is_char_boundary(a.len() - suffix) || !new.is_char_boundary(n.len() - suffix) {
         suffix -= 1;
     }
@@ -262,7 +318,10 @@ mod tests {
         let mut names = dartforge_intern::Interner::new();
         let p = dartforge_frontend::parser::parse(source, &mut names);
         // Each removable one is given by the literal's text; the 1st occurrence counts.
-        let offsets: Vec<usize> = removable.iter().map(|r| source.find(r).expect("literal present")).collect();
+        let offsets: Vec<usize> = removable
+            .iter()
+            .map(|r| source.find(r).expect("literal present"))
+            .collect();
         organize(source, &p.unit, &offsets, false, true).unwrap_or_else(|| source.to_string())
     }
 
@@ -278,7 +337,10 @@ mod tests {
     fn edit_starts_at_offset_zero() {
         let before = "import 'b.dart';\nimport 'a.dart';\n\nvoid main() {}\n";
         let after = organized(before, &[]);
-        assert_eq!(after, "import 'a.dart';\nimport 'b.dart';\n\nvoid main() {}\n");
+        assert_eq!(
+            after,
+            "import 'a.dart';\nimport 'b.dart';\n\nvoid main() {}\n"
+        );
         let (offset, length, text) = edit(before, &after).expect("changed");
         assert_eq!(offset, 0);
         assert_eq!(format!("{}{}", text, &before[length..]), after);
@@ -286,7 +348,10 @@ mod tests {
 
     #[test]
     fn package_prefix_of_another_comes_first() {
-        assert_eq!(compare_uri("package:a/x.dart", "package:a.b/x.dart"), Ordering::Less);
+        assert_eq!(
+            compare_uri("package:a/x.dart", "package:a.b/x.dart"),
+            Ordering::Less
+        );
         assert_eq!(compare_uri("dart:io", "dart:async"), Ordering::Greater);
     }
 
