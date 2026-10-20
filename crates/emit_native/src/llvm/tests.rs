@@ -2404,3 +2404,136 @@ fn rti_getters_with_another_shape_keep_their_body() {
     let ir = LlvmEmitter::new(&m).with_static_objects(true).emit_all();
     assert!(!ir.contains("@df.rti_fill("), "{ir}");
 }
+
+/// `build(d)`: the leaf (`d == 0`) keeps nothing alive across a collection
+/// point; the other branch keeps its first call's result across the second.
+/// With `in_loop`, that branch is a loop body.
+fn frame_placement_fixture(in_loop: bool) -> Function {
+    let (d, zero, leaf, first, second, joined, again) = (
+        ValueId(0),
+        ValueId(1),
+        ValueId(2),
+        ValueId(3),
+        ValueId(4),
+        ValueId(5),
+        ValueId(6),
+    );
+    let call = |v: ValueId| {
+        (
+            v,
+            Instruction::CallStatic {
+                symbol: "build".to_string(),
+                args: vec![Operand::Val(d)],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        )
+    };
+    let mut body = vec![
+        call(first),
+        call(second),
+        (
+            joined,
+            Instruction::CallRuntime {
+                name: "dartforge_string_concat".to_string(),
+                args: vec![
+                    (Operand::Val(first), Type::Ref),
+                    (Operand::Val(second), Type::Ref),
+                ],
+                ret_ty: Type::Ref,
+            },
+            Type::Ref,
+        ),
+    ];
+    let body_end = if in_loop {
+        body.push((
+            again,
+            Instruction::ICmp(
+                ICmpOp::Eq,
+                Operand::Val(d),
+                Operand::Constant(Constant::Int(1)),
+            ),
+            Type::I1,
+        ));
+        Terminator::CondBranch {
+            cond: Operand::Val(again),
+            then_block: BlockId(2),
+            else_block: BlockId(3),
+        }
+    } else {
+        Terminator::Return(Some(Operand::Val(joined)))
+    };
+    function(
+        "build",
+        vec![(d, "d".to_string(), Type::I64)],
+        Type::Ref,
+        vec![
+            BasicBlock {
+                id: BlockId(0),
+                instructions: vec![(
+                    zero,
+                    Instruction::ICmp(
+                        ICmpOp::Eq,
+                        Operand::Val(d),
+                        Operand::Constant(Constant::Int(0)),
+                    ),
+                    Type::I1,
+                )],
+                terminator: Terminator::CondBranch {
+                    cond: Operand::Val(zero),
+                    then_block: BlockId(1),
+                    else_block: BlockId(2),
+                },
+            },
+            BasicBlock {
+                id: BlockId(1),
+                instructions: vec![call(leaf)],
+                terminator: Terminator::Return(Some(Operand::Val(leaf))),
+            },
+            BasicBlock {
+                id: BlockId(2),
+                instructions: body,
+                terminator: body_end,
+            },
+            BasicBlock {
+                id: BlockId(3),
+                instructions: vec![],
+                terminator: Terminator::Return(Some(Operand::Constant(Constant::Null))),
+            },
+        ],
+    )
+}
+
+#[test]
+fn roots_frame_opens_where_a_slot_is_first_needed() {
+    let mut m = Module::new();
+    m.functions.push(frame_placement_fixture(false));
+    let ir = LlvmEmitter::new(&m)
+        .with_body_without_outside(true)
+        .emit_all();
+    let body = body_of(&ir, "build");
+    let init = body.find("store { ptr, i64").expect("the frame opens");
+    let b2 = body.find("\nb2:").expect("block b2");
+    assert!(init > b2, "{body}");
+    assert_eq!(body.matches("store { ptr, i64").count(), 1, "{body}");
+    // Every return restores the top read at the entry.
+    assert!(!body.contains("%gcvolta"), "{body}");
+    assert_eq!(
+        body.matches("store ptr %gcant, ptr %ctxtopo").count(),
+        3,
+        "{body}"
+    );
+}
+
+#[test]
+fn roots_frame_in_a_loop_opens_at_the_entry() {
+    let mut m = Module::new();
+    m.functions.push(frame_placement_fixture(true));
+    let ir = LlvmEmitter::new(&m)
+        .with_body_without_outside(true)
+        .emit_all();
+    let body = body_of(&ir, "build");
+    let init = body.find("store { ptr, i64").expect("the frame opens");
+    let b1 = body.find("\nb1:").expect("block b1");
+    assert!(init < b1, "{body}");
+}

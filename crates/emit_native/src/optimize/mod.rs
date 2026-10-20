@@ -17,6 +17,7 @@
 
 pub mod arc;
 mod cfg;
+pub(crate) use cfg::Cfg;
 mod direct_locals;
 mod effects;
 mod escape;

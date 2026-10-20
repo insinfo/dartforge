@@ -14,6 +14,7 @@ pub mod verify_maps;
 pub mod verify_shadow;
 // The emissions that depend on the representation of the runtime values, one per
 // package of the unified space (docs/NATIVO-ESPACO-UNIFICADO.md §4.2, step 4).
+mod frame_placement;
 mod ir_boxes;
 mod ir_lists;
 mod ir_strings;
@@ -150,6 +151,9 @@ pub struct LlvmEmitter<'a> {
     /// `$ok` flag): Dart statics are per isolate, and each
     /// isolate is a thread with its own area (`dartforge_globals_area`).
     global_slots: std::collections::HashMap<String, usize>,
+    /// The roots frame of the current function opens where `frame_placement`
+    /// decides, not in the entry block: the returns restore `%gcant`.
+    frame_placed: bool,
     /// `@df.rti_fill` is already in the output (`rti_getters`).
     rti_fill_emitted: bool,
     /// The slots of the area that hold `Ref` globals, in the lean area of
@@ -373,6 +377,7 @@ impl<'a> LlvmEmitter<'a> {
             stack_trace_names: Vec::new(),
             global_slots: std::collections::HashMap::new(),
             rti_fill_emitted: false,
+            frame_placed: false,
             rooted_slots: std::collections::BTreeSet::new(),
             slot_hashes: Vec::new(),
             previous_area: None,
@@ -1349,10 +1354,29 @@ impl<'a> LlvmEmitter<'a> {
             }
         }
         self.has_ctx = self.has_frame || Self::requires_explicit_context(func, tab);
+        // Where the roots frame opens (`frame_placement`): only a frame of plain
+        // SSA roots, without parameters to store at the entry, landing pads that
+        // restore it or the checking slots.
+        self.frame_placed = self.has_frame
+            && !self.maps
+            && !has_landing_pad
+            && self.check.is_none()
+            && self.frame_allocas.is_empty()
+            && !func
+                .params
+                .iter()
+                .any(|(v, _, _)| self.slots.contains_key(v))
+            && frame_placement::enabled();
+        // The text that opens the frame and where it may go: after the prologue
+        // of the entry, or at the start of each block.
+        let mut frame_push = String::new();
+        let mut entry_push_at = 0;
+        let mut block_starts: Vec<usize> = Vec::with_capacity(func.blocks.len());
 
         for block in &func.blocks {
             writeln!(self.out, "b{}:", block.id.0).unwrap();
             let block_start = self.out.len();
+            block_starts.push(block_start);
             self.current_label = format!("b{}", block.id.0);
             // The landing pad of an `invoke`: whoever unwound up to here left the
             // exception pending and its roots frames (and those of the crossed
@@ -1522,18 +1546,24 @@ impl<'a> LlvmEmitter<'a> {
                 } else {
                     "zeroinitializer".to_string()
                 };
-                writeln!(
-                    self.out,
-                    "  store {t} {{ ptr null, i64 {header}, [{n} x i64] {slots} }}, ptr %gcq"
-                )
-                .unwrap();
+                let init = format!(
+                    "  store {t} {{ ptr null, i64 {header}, [{n} x i64] {slots} }}, ptr %gcq\n"
+                );
+                if !self.frame_placed {
+                    self.out.push_str(&init);
+                }
                 for slot in 0..n {
                     writeln!(self.out, "  %gcs{slot} = getelementptr inbounds {t}, ptr %gcq, i64 0, i32 2, i64 {slot}").unwrap();
                 }
                 // Chains the frame: `previous` = top; top = frame.
                 writeln!(self.out, "  %gcant = load ptr, ptr %ctxtopo, align 8").unwrap();
-                writeln!(self.out, "  store ptr %gcant, ptr %gcq, align 8").unwrap();
-                writeln!(self.out, "  store ptr %gcq, ptr %ctxtopo, align 8").unwrap();
+                let link = "  store ptr %gcant, ptr %gcq, align 8\n  store ptr %gcq, ptr %ctxtopo, align 8\n";
+                if self.frame_placed {
+                    frame_push = format!("{init}{link}");
+                    entry_push_at = self.out.len();
+                } else {
+                    self.out.push_str(link);
+                }
                 for (vid, _, _) in &func.params {
                     if let Some(&slot) = self.slots.get(vid) {
                         writeln!(self.out, "  store i64 %v{}, ptr %gcs{slot}", vid.0).unwrap();
@@ -2771,7 +2801,10 @@ impl<'a> LlvmEmitter<'a> {
             }
             // G3: the roots frame closes before EVERY `ret`, including that
             // of the exception exits (which return the default value).
-            if self.has_frame && matches!(block.terminator, Terminator::Return(_)) {
+            if self.frame_placed && matches!(block.terminator, Terminator::Return(_)) {
+                // The top of the entry: right whether or not the frame opened.
+                writeln!(self.out, "  store ptr %gcant, ptr %ctxtopo, align 8").unwrap();
+            } else if self.has_frame && matches!(block.terminator, Terminator::Return(_)) {
                 writeln!(
                     self.out,
                     "  %gcvolta{} = load ptr, ptr %gcq, align 8",
@@ -2874,6 +2907,30 @@ impl<'a> LlvmEmitter<'a> {
             }
         }
 
+        if self.frame_placed {
+            // The blocks that touch a slot (a root's store, a clearing); the
+            // entry only after its prologue (the slot addresses).
+            let end = self.out.len();
+            let needs: Vec<usize> = (0..block_starts.len())
+                .filter(|&k| {
+                    let from = if k == 0 {
+                        entry_push_at
+                    } else {
+                        block_starts[k]
+                    };
+                    let to = block_starts.get(k + 1).copied().unwrap_or(end);
+                    self.out[from..to].contains("ptr %gcs")
+                })
+                .collect();
+            if let Some(k) = frame_placement::frame_block(func, &needs) {
+                let at = if k == 0 {
+                    entry_push_at
+                } else {
+                    block_starts[k]
+                };
+                self.out.insert_str(at, &frame_push);
+            }
+        }
         writeln!(self.out, "}}\n").unwrap();
         // §13.14: the stack trace labels, before the DWARF (which consumes the
         // position markers).
