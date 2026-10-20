@@ -1351,3 +1351,6 @@ fn closure_call_reads_the_entry_inline() {
     assert!(body.contains("ce1.fim:\n  %cc1 = phi i64 [ %cer1, %ce1.rapido ], [ %cel1, %ce1.lento ]"), "{body}");
     assert!(body.contains("@df_clo_invalido") && body.contains("call i64 %cf1(i64 %v0, ptr %cargs1, ptr @"), "{body}");
 }
+
+#[path = "tests/static_image_registration.rs"]
+mod static_image_registration;

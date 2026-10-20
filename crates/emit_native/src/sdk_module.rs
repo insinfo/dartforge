@@ -293,6 +293,12 @@ pub fn emit_sdk_libraries(lib_dir: &Path, production: bool) -> Result<Vec<SdkLib
 /// comes out without asserts and with `dart.vm.product`, like the VM's
 /// product snapshot; the harness's keeps the oracle's.
 pub fn emit_sdk_libraries_with(lib_dir: &Path, production: bool, flags: crate::DartFlags) -> Result<Vec<SdkLibrary>, String> {
+    emit_sdk_modules(lib_dir, production, flags, false)
+}
+
+/// Only the compiler-owned complete bundle may delegate image registration.
+/// Public per-library emission keeps independently usable startup roots.
+fn emit_sdk_modules(lib_dir: &Path, production: bool, flags: crate::DartFlags, bundle: bool) -> Result<Vec<SdkLibrary>, String> {
     use dartforge_types::table::{CoreTypes, TypeTable};
     let (program, interner) = load_source_libraries(lib_dir)?;
     let mut table = TypeTable::new();
@@ -377,13 +383,17 @@ pub fn emit_sdk_libraries_with(lib_dir: &Path, production: bool, flags: crate::D
         crate::pruning::receiver_provenance::allocation_certificates::export(&modules.iter().map(|(_, module)| module).collect::<Vec<_>>(), &provenance)
     } else { Vec::new() };
     let mut exit = Vec::new();
-    for (uri, module) in &modules {
+    for (index, (uri, module)) in modules.iter().enumerate() {
         // The SDK DLL stays loaded for the whole process: the literals are
         // static objects in the JIT too (docs/NATIVO-ESPACO-UNIFICADO.md §2.11).
         let ir = crate::llvm::LlvmEmitter::new(module)
             .with_receiver_provenance(provenance.for_module(module))
             .with_lean_area(production)
             .with_static_objects(true)
+            // Every SOURCE_LIBRARIES module is linked into the same SDK image.
+            // sdk_records() calls these roots in the same validated order,
+            // before RTI/embedder code can use a literal from a later module.
+            .with_static_image_registration(!bundle || index == 0)
             // The production SDK only goes to AOT; the development one (the DLL)
             // also serves the JIT, which migrates objects on reload.
             .with_body_without_outside(production)
@@ -762,7 +772,7 @@ pub fn compiled_sdk_for(lib_dir: &Path, clang: &Path, profile: SdkProfile, flags
         .stack_size(256 << 20)
         .spawn({
             let lib_dir = lib_dir.to_path_buf();
-            move || emit_sdk_libraries_with(&lib_dir, profile == SdkProfile::Production, flags)
+            move || emit_sdk_modules(&lib_dir, profile == SdkProfile::Production, flags, true)
         })
         .map_err(|e| e.to_string())?
         .join()
@@ -1343,6 +1353,11 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+        let image_owners: Vec<_> = libs.iter().filter(|library|
+            library.ir.contains("  call void @dartforge_register_image("))
+            .map(|library| library.uri.as_str()).collect();
+        assert_eq!(image_owners, libs.iter().map(|library| library.uri.as_str()).collect::<Vec<_>>(), "public per-library emission retains standalone registration");
+        assert_eq!(libs.iter().map(|library| registration_symbol(&library.uri)).collect::<Vec<_>>(), sdk_records());
         println!("emission: {:?}", t.elapsed());
         let mut reasons: std::collections::BTreeMap<String, usize> = Default::default();
         let mut total = 0;

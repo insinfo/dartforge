@@ -1,0 +1,32 @@
+[
+  {
+    "path": "crates/emit_native/src/llvm/mod.rs",
+    "bytes": 285641,
+    "sha256": "d4ef01c4a9b9eaf4989bbe76196dcc8e8cd324fd81b26ad24aa0dfade2e6aed6"
+  },
+  {
+    "path": "crates/emit_native/src/llvm/selectors.rs",
+    "bytes": 24272,
+    "sha256": "ca8e24e8b138153f963286e573b21a17605a22a80a302319b6db2e7da717a91b"
+  },
+  {
+    "path": "crates/emit_native/src/llvm/tests.rs",
+    "bytes": 63222,
+    "sha256": "c593207d88fc0f29be52473882a756afe535e43c419a9099e3943c8893a2b5e7"
+  },
+  {
+    "path": "crates/emit_native/src/llvm/tests/static_image_registration.rs",
+    "bytes": 2966,
+    "sha256": "e15a370486fe8bae022caa5204abdfe55e30aac3f764a1e89c58e079da764fb4"
+  },
+  {
+    "path": "crates/emit_native/src/sdk_module.rs",
+    "bytes": 94839,
+    "sha256": "e0d8aeb0da377f779ff82ff9dbf0bde78f8b7dc77f65fb833d72bc0807a08b6c"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs",
+    "bytes": 35414,
+    "sha256": "c52ae03cfc29c9473f94acfa6d4a12e3b6311efbd2cb8a86b46964fff8805483"
+  }
+]

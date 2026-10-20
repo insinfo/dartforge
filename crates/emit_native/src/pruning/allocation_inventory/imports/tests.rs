@@ -586,10 +586,36 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
         &sdk.objects,
     );
     assert!(!startup.is_empty());
-    assert!(
-        startup.iter().all(|symbol| !inventory.entry(symbol)),
-        "actual SDK startups still require image/helper certificates"
-    );
+    let certified: Vec<_> = startup.iter().filter(|symbol| inventory.entry(symbol)).cloned().collect();
+    let expected: Vec<_> = ["collection", "math", "convert", "typed_data", "nativewrappers", "_http", "mirrors"]
+        .iter().map(|name| crate::sdk_module::registration_symbol(&format!("dart:{name}"))).collect();
+    assert_eq!(certified, expected, "only nominal/text-only startup bodies are certified");
+    assert!(!inventory.entry(&startup[0]), "the SDK image owner still needs coverage");
+    let selected = super::super::publication::read_verified(directory, &sdk.key, true, &names, &runtime).unwrap();
+    let functions = selected["inventory"]["functions"].as_array().unwrap();
+    // A generated frame name is not an audited nominal class declaration.
+    // Removing the image call must not certify this additional publication.
+    let developer = crate::sdk_module::registration_symbol("dart:developer");
+    assert!(!inventory.entry(&developer));
+    let developer_summary = summaries.iter().find(|summary| summary.module == "dart:developer").unwrap();
+    let developer_record = functions.iter().find(|record| record["symbol"] == developer).unwrap();
+    let unproved_name = developer_record["calls"].as_array().unwrap().iter().find(|call| {
+        call["symbol"] == "dartforge_register_class_name"
+            && call["arguments"][0].as_str().and_then(|arg| arg.strip_prefix("i64 "))
+                .and_then(|cid| cid.parse::<i64>().ok())
+                .is_some_and(|cid| !developer_summary.nominal_classes.contains(&cid))
+    }).expect("developer startup still publishes an unproved generated frame name");
+    let frame_global = unproved_name["arguments"][1].as_str().unwrap().strip_prefix("ptr @").unwrap();
+    assert!(selected["inventory"]["globals"].as_array().unwrap().iter().any(|global|
+        global["module"] == "dart:developer" && global["symbol"] == frame_global
+            && global["initializer"].as_str().is_some_and(|text| text.ends_with("c\"_AsyncFrame\""))));
+    for (index, symbol) in startup.iter().enumerate() {
+        let records: Vec<_> = functions.iter().filter(|record| record["symbol"] == *symbol).collect();
+        assert_eq!(records.len(), 1);
+        let calls = records[0]["calls"].as_array().unwrap().iter()
+            .filter(|call| call["symbol"] == "dartforge_register_image").count();
+        assert_eq!(calls, usize::from(index == 0), "image owner: {symbol}");
+    }
     assert!(
         startup
             .iter()
@@ -597,7 +623,7 @@ fn actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup() {
     );
     println!(
         "{}",
-        serde_json::json!({"key":sdk.key,"unique_definitions":unique,"allocation_closures":known,"reviewed_empty_closures":pure,"startup_complete":false,"table_declarations":declarations,"checked_static_strings":image_strings,"image_string_cids":image_cids,"clean_source_images":clean_source_images})
+        serde_json::json!({"key":sdk.key,"unique_definitions":unique,"allocation_closures":known,"reviewed_empty_closures":pure,"startup_complete":false,"metadata_startups":certified,"image_registrations":1,"table_declarations":declarations,"checked_static_strings":image_strings,"image_string_cids":image_cids,"clean_source_images":clean_source_images})
     );
 }
 

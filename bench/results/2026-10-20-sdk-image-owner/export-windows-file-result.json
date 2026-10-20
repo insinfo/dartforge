@@ -1,0 +1,21 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Windows11",
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-OutputFormat",
+    "Text",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\sdk-image-owner-validation\\export-windows.ps1"
+  ],
+  "exit": 1,
+  "seconds": 2.877223833,
+  "stdout": "",
+  "stderr": "cargo.exe :     Updating crates.io index\nAt \\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\sdk-image-owner-validation\\export-windows.ps1:16 char:1\n+ & cargo build --locked -p dartforge-emit-native --example export_curr ...\n+ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n    + CategoryInfo          : NotSpecified: (    Updating crates.io index:String) [], RemoteException\n    + FullyQualifiedErrorId : NativeCommandError\n \n"
+}

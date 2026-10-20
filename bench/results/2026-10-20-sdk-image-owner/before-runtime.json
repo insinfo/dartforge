@@ -1,0 +1,111 @@
+[
+  {
+    "label": "dart-vm",
+    "exit": 0,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": ""
+  },
+  {
+    "label": "production-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-summary-after",
+      "compile-native",
+      "/tmp/forge-sdk-image-owner-runtime/static-startup.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-image-owner-validation/before-production",
+      "--optimize"
+    ],
+    "exit": 0,
+    "seconds": 8.679350042,
+    "stdout": "",
+    "stderr": "  HIR pruning: 17 of 54 functions, 7 of 22 pairs, 0 FFI signatures, 1 reachability rounds (2.740829917s)\n  HIR:       baixar 2.831799375s, otimizar 9.068625ms\n  Pruning:   181 of 663 tables live, 3396 of 50111 pairs, 6038 of 46742 symbols; outside the IR: 38 functions, 14 globals, 0 MB (170.404625ms)\n--- Native Compilation Timings ---\n  Front-end: 1.192514166s\n  World:     32.313209ms (3 of 3 program functions live)\n  HIR:       2.84087525s\n  LLVM IR:   12.482583ms\n  IR:        171333 bytes, 0 from the SDK (0.0%)\n  Objeto:    180.290542ms\n  Link:      3.641203666s\n  Total:     8.649771042s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "64cf82938307dbf5854795011473cd4a22070c6df523967dc43bed5af5c20901"
+  },
+  {
+    "label": "production-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-image-owner-validation/before-production"
+    ],
+    "exit": 0,
+    "seconds": 0.20358295799999837,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "64cf82938307dbf5854795011473cd4a22070c6df523967dc43bed5af5c20901",
+    "executable_sha256": "bebf3ec6c3abf10205c259b0741d4c4512ffcc26e79cfb87f06c5fd5c2072e0b"
+  },
+  {
+    "label": "production-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-image-owner-validation/before-production"
+    ],
+    "exit": 0,
+    "seconds": 0.012182375000000079,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "64cf82938307dbf5854795011473cd4a22070c6df523967dc43bed5af5c20901",
+    "executable_sha256": "bebf3ec6c3abf10205c259b0741d4c4512ffcc26e79cfb87f06c5fd5c2072e0b"
+  },
+  {
+    "label": "development-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-summary-after",
+      "compile-native",
+      "/tmp/forge-sdk-image-owner-runtime/static-startup.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-image-owner-validation/before-development"
+    ],
+    "exit": 0,
+    "seconds": 43.240941291,
+    "stdout": "",
+    "stderr": "  HIR pruning: 17 of 54 functions, 7 of 22 pairs, 0 FFI signatures, 1 reachability rounds (41.210103583s)\n  HIR:       baixar 41.284346917s, otimizar 20.543041ms\n--- Native Compilation Timings ---\n  Front-end: 942.821541ms\n  World:     26.9595ms (3 of 3 program functions live)\n  HIR:       41.304914917s\n  LLVM IR:   13.81675ms\n  IR:        171595 bytes, 0 from the SDK (0.0%)\n  Objeto:    63.153208ms\n  Link:      39.187792ms\n  Total:     43.217624916s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "64cf82938307dbf5854795011473cd4a22070c6df523967dc43bed5af5c20901"
+  },
+  {
+    "label": "development-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-image-owner-validation/before-development"
+    ],
+    "exit": 0,
+    "seconds": 0.8566567089999992,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "64cf82938307dbf5854795011473cd4a22070c6df523967dc43bed5af5c20901",
+    "executable_sha256": "bb4805cba9cafcb938ea8f6052d10745f3449f9fe4edc9c509c69237da02d529"
+  },
+  {
+    "label": "development-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-image-owner-validation/before-development"
+    ],
+    "exit": 0,
+    "seconds": 0.053370749999999134,
+    "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "64cf82938307dbf5854795011473cd4a22070c6df523967dc43bed5af5c20901",
+    "executable_sha256": "bb4805cba9cafcb938ea8f6052d10745f3449f9fe4edc9c509c69237da02d529"
+  }
+]

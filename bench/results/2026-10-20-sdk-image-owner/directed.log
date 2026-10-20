@@ -1,0 +1,10 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.20s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 3 tests
+test llvm::tests::static_image_registration::program_keeps_its_own_image_and_calls_sdk_owner_before_later_startups ... ok
+test llvm::tests::static_image_registration::delegation_never_enables_static_storage_or_registration ... ok
+test llvm::tests::static_image_registration::standalone_defaults_and_delegation_change_only_the_registration_call ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 975 filtered out; finished in 0.01s

@@ -1,0 +1,54 @@
+[
+  {
+    "target": "linux-arm64",
+    "current": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64",
+    "retained_previous": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/retained-before-sdk-image-owner/linux-arm64",
+    "selected": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/sdk-image-owner/linux-arm64",
+    "previous_manifest": {
+      "runtime": {
+        "dll": "dartforge_rtdll_66845112832dbcb676c1b3745e2d382c.a",
+        "main": "dartforge_runtime_d587e4ef77bf2a04d7da4f5bb2e37911.a",
+        "production": "dartforge_rtprod_adde849096c9779fbf55a395674cd50d.a"
+      },
+      "runtime_sources": "31967049c68737701387395423e70356b0547ad355d8013826187d019ec18fd1",
+      "schema": 1,
+      "target": "aarch64-unknown-linux-gnu"
+    },
+    "manifest": {
+      "runtime": {
+        "dll": "dartforge_rtdll_c47bc7abc8ff710810e955665a9de1b0.a",
+        "main": "dartforge_runtime_32227c6b47962a9c2878cbefb93163bb.a",
+        "production": "dartforge_rtprod_b2c9399a7ac0f786f36889ab5cbbf223.a"
+      },
+      "runtime_sources": "23bc6f3ab5d29f8056681af73aa2c0bb668b968a0013f91a1d90d18743bb98ef",
+      "schema": 1,
+      "target": "aarch64-unknown-linux-gnu"
+    }
+  },
+  {
+    "target": "windows-x64",
+    "current": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+    "retained_previous": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/retained-before-sdk-image-owner/windows-x64",
+    "selected": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/sdk-image-owner/windows-x64",
+    "previous_manifest": {
+      "runtime": {
+        "dll": "dartforge_rtdll_96889c36901238d0675fa65e4630c4bd.lib",
+        "main": "dartforge_runtime_480c39007143749e72ada92d2b7b3e17.lib",
+        "production": "dartforge_rtprod_6cd8d838c9d9dea61eb73a8466e69801.lib"
+      },
+      "runtime_sources": "31967049c68737701387395423e70356b0547ad355d8013826187d019ec18fd1",
+      "schema": 1,
+      "target": "x86_64-pc-windows-msvc"
+    },
+    "manifest": {
+      "runtime": {
+        "dll": "dartforge_rtdll_0a9c89919f36bdafa00dbc75eee4b887.lib",
+        "main": "dartforge_runtime_ee74990402fec1de62fe475706824c5c.lib",
+        "production": "dartforge_rtprod_413ab152cc37d8b2efd566cbb8694cfd.lib"
+      },
+      "runtime_sources": "23bc6f3ab5d29f8056681af73aa2c0bb668b968a0013f91a1d90d18743bb98ef",
+      "schema": 1,
+      "target": "x86_64-pc-windows-msvc"
+    }
+  }
+]

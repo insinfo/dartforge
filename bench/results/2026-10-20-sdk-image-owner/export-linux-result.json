@@ -1,0 +1,5 @@
+{
+  "exit": 0,
+  "stdout": "{\n  \"runtime\": {\n    \"dll\": \"dartforge_rtdll_c47bc7abc8ff710810e955665a9de1b0.a\",\n    \"main\": \"dartforge_runtime_32227c6b47962a9c2878cbefb93163bb.a\",\n    \"production\": \"dartforge_rtprod_b2c9399a7ac0f786f36889ab5cbbf223.a\"\n  },\n  \"runtime_sources\": \"23bc6f3ab5d29f8056681af73aa2c0bb668b968a0013f91a1d90d18743bb98ef\",\n  \"schema\": 1,\n  \"target\": \"aarch64-unknown-linux-gnu\"\n}",
+  "stderr": ""
+}

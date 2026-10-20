@@ -1,0 +1,15 @@
+[
+  {
+    "target": "linux-arm64",
+    "bytes": 3910,
+    "sha256": "6cf8d471d18ed90c046c6d061be4a5b8cb6d3ef34a404aa9cd55ec16359604d4"
+  },
+  {
+    "target": "windows-x64",
+    "encoding": "utf-16",
+    "sha256": "6cd5c0bac9ea4237226888b098f4d9254ca3341732a7219c5220d042e15c8969",
+    "bytes": 8606,
+    "decoded_utf8_bytes": 4302,
+    "decoded_utf8_sha256": "92417d0892da1336e4e707ff3e03a2888e72976de9ac16afdaa936568880e14d"
+  }
+]

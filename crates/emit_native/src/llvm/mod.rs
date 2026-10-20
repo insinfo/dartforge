@@ -158,6 +158,9 @@ pub struct LlvmEmitter<'a> {
     /// true in AOT and in the SDK modules; false in the program modules in the
     /// JIT, whose memory is freed (J02).
     static_objects: bool,
+    /// A bundled SDK registers its shared image through its first startup root.
+    /// Standalone modules retain their own registration by default.
+    static_image_registration: bool,
     /// The address of the fields of an object through a call to `@df.body` instead
     /// of the 15 inline instructions (the development profile of the program,
     /// `-O0`): the IR of new_sali/backend had 465 thousand copies of the sequence,
@@ -350,6 +353,7 @@ impl<'a> LlvmEmitter<'a> {
                 m
             },
             static_objects: false,
+            static_image_registration: true,
             fields_per_call: false,
             production: false,
             ordered_frames: false,
@@ -491,6 +495,14 @@ impl<'a> LlvmEmitter<'a> {
 
     pub fn with_static_objects(mut self, yes: bool) -> Self {
         self.static_objects = yes;
+        self
+    }
+
+    /// Delegate only the registration call, retaining the exact marker protocol
+    /// and static object definitions. The caller must initialize another module
+    /// from the same linked image first. Used only by the complete SDK bundle.
+    pub(crate) fn with_static_image_registration(mut self, yes: bool) -> Self {
+        self.static_image_registration = yes;
         self
     }
 

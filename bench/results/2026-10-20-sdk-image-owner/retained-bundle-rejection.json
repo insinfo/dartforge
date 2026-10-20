@@ -1,0 +1,22 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-image-owner",
+    "compile-native",
+    "/tmp/forge-sdk-image-owner-runtime/static-startup.dart",
+    "--optimize",
+    "--target",
+    "linux-arm64",
+    "--target-bundle",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/retained-before-sdk-image-owner/linux-arm64",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--timings",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-image-owner-validation/cross-linux-arm64"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "error: target bundle runtime sources do not match this compiler; export it again from the same checkout\n",
+  "existing_output_sha256_before": "6302fbd2fce9140a7f29c02784d8ec1753f1d18001686a1af0c0e1de250800d0",
+  "existing_output_sha256_after": "6302fbd2fce9140a7f29c02784d8ec1753f1d18001686a1af0c0e1de250800d0"
+}

@@ -1,0 +1,22 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Windows11",
+    "--current-user",
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-OutputFormat",
+    "Text",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\sdk-image-owner-validation\\export-windows.ps1"
+  ],
+  "exit": 0,
+  "seconds": 147.655924458,
+  "stdout": "{\n  \"runtime\": {\n    \"dll\": \"dartforge_rtdll_0a9c89919f36bdafa00dbc75eee4b887.lib\",\n    \"main\": \"dartforge_runtime_ee74990402fec1de62fe475706824c5c.lib\",\n    \"production\": \"dartforge_rtprod_413ab152cc37d8b2efd566cbb8694cfd.lib\"\n  },\n  \"runtime_sources\": \"23bc6f3ab5d29f8056681af73aa2c0bb668b968a0013f91a1d90d18743bb98ef\",\n  \"schema\": 1,\n  \"target\": \"x86_64-pc-windows-msvc\"\n}\n",
+  "stderr": ""
+}

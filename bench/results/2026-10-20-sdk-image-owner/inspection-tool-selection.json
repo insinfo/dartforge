@@ -1,0 +1,5 @@
+{
+  "unavailable": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/llvm-readobj",
+  "reason": "FileNotFoundError before inspection",
+  "selected": "otool -rv"
+}

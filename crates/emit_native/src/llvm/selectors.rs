@@ -225,12 +225,16 @@ impl LlvmEmitter<'_> {
         }
         body.push_str(&self.emit_method_tables());
         // The section of the static objects of this image (docs/NATIVO-ESPACO-UNIFICADO.md
-        // §2.11): each module with statics registers that of the image it was
-        // linked into (the executable, the SDK DLL); the registration is idempotent.
+        // §2.11): one startup root of the complete SDK bundle registers its
+        // linked image. Standalone/program modules retain their own registration.
+        // Keep the marker protocol even for delegated modules: their strings
+        // still contribute to the same image section and source census.
         if self.static_objects {
             let (globals, start, end) = crate::target::image_markers();
             self.out.push_str(&globals);
-            writeln!(body, "  call void @dartforge_register_image(ptr {start}, ptr {end})").unwrap();
+            if self.static_image_registration {
+                writeln!(body, "  call void @dartforge_register_image(ptr {start}, ptr {end})").unwrap();
+            }
         }
         // Roots by maps: the stack maps of the image this module
         // was linked into (the registration is idempotent, per image), in its

@@ -924,3 +924,18 @@ Referências normativas: [gABI — estrutura dinâmica](https://gabi.xinuos.com/
 [gABI — REL/RELA/RELR](https://gabi.xinuos.com/elf/06-reloc.html),
 [AAELF64](https://github.com/ARM-software/abi-aa/blob/main/aaelf64/aaelf64.rst) e
 [AMD64 psABI](https://refspecs.linuxfoundation.org/elf/x86_64-abi-0.99.pdf).
+
+## Registro único da imagem do bundle SDK (20/10/2026)
+
+O caminho privado que monta o bundle completo do SDK delega o registro da imagem
+à primeira raiz de inicialização, mantendo a ordem fixa de `SOURCE_LIBRARIES`.
+As outras 14 raízes preservam todos os demais registros e os marcadores/objetos
+estáticos. A emissão pública por biblioteca continua independente, com registro
+próprio; o programa conserva seu registro porque pode carregar o SDK em outra
+imagem. Não há mudança da ABI do runtime nem nova autorização de poda.
+
+A remoção dessas chamadas efetivamente redundantes permite às regras anteriores
+certificarem sete entradas apenas nominais/textuais; a entrada inicial com imagem
+mais helpers continua aberta. Os testes exigem o conjunto exato de entradas e
+um único proprietário no inventário selecionado. Evidências e limites:
+[proprietário da imagem SDK](../bench/results/2026-10-20-sdk-image-owner/README.md).

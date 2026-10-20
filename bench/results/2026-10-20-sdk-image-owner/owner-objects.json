@@ -1,0 +1,468 @@
+[
+  {
+    "label": "before",
+    "sdk_directory": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726",
+    "image_call_relocations": 15,
+    "objects": [
+      {
+        "module": "_internal",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/_internal.o",
+        "sha256": "142078fe3251b3980b76273eee12a19b966610fbb072bc8e51b5fa2b2fb7f56e",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/_internal.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 3045342,
+        "relocation_output_sha256": "85ee90d9c9f608bbd6748aeb3cf28c87436105dffcb5264de7595661ef330fbb",
+        "image_call_relocations": [
+          "0020cacc True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "core",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/core.o",
+        "sha256": "adbd8a3b425643d82b376991258c6dcd60e42ca49e234469bd5cea1f44cf4ded",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/core.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 6067422,
+        "relocation_output_sha256": "3c76f3760915452f68fa574b46c16641cd9af178b8944a1e6b85a80126982df6",
+        "image_call_relocations": [
+          "0049d8d8 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "_compact_hash",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/_compact_hash.o",
+        "sha256": "e1dfa562c21692ca646501fb5467ce94444ed7fea489538a693baa2907b958c1",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/_compact_hash.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 1087265,
+        "relocation_output_sha256": "97c94e9c3f6a3b046b3051ff3ced70db9b79aa4986ae0f14d4c59a269e0eac18",
+        "image_call_relocations": [
+          "000d6150 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "collection",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/collection.o",
+        "sha256": "a4e75ff58d94ba2276d9105a8bd06cc0b0ea740c8946bbfc42ddf19de3023ec3",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/collection.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 3095759,
+        "relocation_output_sha256": "ac36041165d373905d53ee7ef416209c3ac31b50d7d5b85aa819e1edf4157562",
+        "image_call_relocations": [
+          "002377a4 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "math",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/math.o",
+        "sha256": "1715382f5a8b72a8b07c9b00999c1f4ff30449c53765bb8991426e8cad5b951f",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/math.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 352925,
+        "relocation_output_sha256": "55994dcc6232f255c0ce9c5a8312accade6af40a89182f6dc5a8df251f3f3ded",
+        "image_call_relocations": [
+          "00043968 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "convert",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/convert.o",
+        "sha256": "026b4b15ed61df182fcf513219f332fb1dcab6b520d6db1c20d399d1862bca65",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/convert.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 3275279,
+        "relocation_output_sha256": "a963f4360b5fd68ba4218ea09b162cb9b83fe49ddb907a526f030d9efc6bc179",
+        "image_call_relocations": [
+          "00261c3c True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "async",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/async.o",
+        "sha256": "39318846e39bcb0a9fac2a0e092d52d97bcb4e40204f6ef2f69be0057ac4bdd1",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/async.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 4347462,
+        "relocation_output_sha256": "3d6795a596fc82feb0d09de25fa408ef3cb2f76bf26b5c4098ae3a1aedd9faa6",
+        "image_call_relocations": [
+          "002ee658 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "typed_data",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/typed_data.o",
+        "sha256": "7f330687b3fdd532991cc9a1129a07554fbc9a1492ec3cd44c2172deadb19c0b",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/typed_data.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 7321365,
+        "relocation_output_sha256": "ba8e7e7dc438f5a9ed5ed24477897bc87e0d97f91b69eb59b15b6d4b98db0b5d",
+        "image_call_relocations": [
+          "0042295c True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "isolate",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/isolate.o",
+        "sha256": "a18a374f4bd5540d2f641dc7a9793ec0df94930770db326fefd3063400374745",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/isolate.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 454413,
+        "relocation_output_sha256": "69415426177b2cd1d991dfc91b76e5e0ce659533d2ceba48369631d9f6b92fb3",
+        "image_call_relocations": [
+          "0004d4c8 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "developer",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/developer.o",
+        "sha256": "6e55ba6ce8e03e97e935a7d3fd3184e0bcdc533b71ab40cf7e61e6824b5eceb2",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/developer.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 297862,
+        "relocation_output_sha256": "1b8706203d70f83b1f7d32aef2dd1854b1fa31da52fb46fc750ef721033d5e79",
+        "image_call_relocations": [
+          "0002d8e4 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "nativewrappers",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/nativewrappers.o",
+        "sha256": "0dfad5213a9f1c481b4b484df3af9286a99848724592a8a7437b1b3dad39477d",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/nativewrappers.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 13841,
+        "relocation_output_sha256": "42e25d7be2accc9e8a5f351f0e4524e4741d5a2d0d2e21fedb23bf4cbe59b467",
+        "image_call_relocations": [
+          "00000978 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "ffi",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/ffi.o",
+        "sha256": "c3591607dd0676533f67d26c2b5caa540779aad15c25e353e23be956721a55c1",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/ffi.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 993108,
+        "relocation_output_sha256": "abc50f1a827dbf0b7a219f9c556766bb5ff6feba9c95ea1721eb7b0b32ea75bb",
+        "image_call_relocations": [
+          "00090968 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "_http",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/_http.o",
+        "sha256": "08fc4c0bf15ecdf617759c003f6dfed8b06f9117b80c1c508fd693b4e10315f0",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/_http.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 5517031,
+        "relocation_output_sha256": "3acbf80c3ff504e3348f35753f1e2004bd823aab0e69f97a73fc12b2465b813b",
+        "image_call_relocations": [
+          "003dc400 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "io",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/io.o",
+        "sha256": "fb17ff426c879bef24e9a8d1be805636f1ecbc3f602944c410c6a924aabddcb1",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/io.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 8322417,
+        "relocation_output_sha256": "07e270c00044b50c89b01fe387acdfe97f3c6281db08d98839c04526c8112f0f",
+        "image_call_relocations": [
+          "005afe78 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "mirrors",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/mirrors.o",
+        "sha256": "0459da8b4007adf7fb2678e55ef93af9ce99e71c2e0664b91fd6c521e4ad9574",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/e3b5c48770134c9cbd5e310106ae5726/mirrors.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 228389,
+        "relocation_output_sha256": "1e9028394a1a243aa0fbd0fc99467892bb8065b03750d3d4ebf634c60b84a17f",
+        "image_call_relocations": [
+          "00020d34 True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      }
+    ]
+  },
+  {
+    "label": "after",
+    "sdk_directory": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68",
+    "image_call_relocations": 1,
+    "objects": [
+      {
+        "module": "_internal",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/_internal.o",
+        "sha256": "142078fe3251b3980b76273eee12a19b966610fbb072bc8e51b5fa2b2fb7f56e",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/_internal.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 3045342,
+        "relocation_output_sha256": "45da2d905515b0385cc4fed6cb9f68df876df8dfdcbcbbf7c4c0b1edf27bfbb0",
+        "image_call_relocations": [
+          "0020cacc True  long   True   BR26    False     _dartforge_register_image"
+        ]
+      },
+      {
+        "module": "core",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/core.o",
+        "sha256": "d48120c0c043db455dfe7bce6df485dc9508a65c8e32e7602af3b51241660239",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/core.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 6067025,
+        "relocation_output_sha256": "fe48dd4782c1638b3d3f17fa22d966a2fbdb7e2a2b066f79830d6e406b596afe",
+        "image_call_relocations": []
+      },
+      {
+        "module": "_compact_hash",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/_compact_hash.o",
+        "sha256": "7834efe45c40bdf817220353df538add2c5557eeb88359bd58914d652ac02644",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/_compact_hash.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 1086868,
+        "relocation_output_sha256": "d5f4530eca3ceeea1b9e654216c5cae976f0a441783f89fdc1a06ec5a32e92b8",
+        "image_call_relocations": []
+      },
+      {
+        "module": "collection",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/collection.o",
+        "sha256": "d2c1b877420fb38659a2ed43f39a56f33753d2d83e19d8ba9a471f72b961f43e",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/collection.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 3095362,
+        "relocation_output_sha256": "058b1adef1b420ad74a4bf1b3e42bef1b259ffbd428958f1c873f75de6cfa5c2",
+        "image_call_relocations": []
+      },
+      {
+        "module": "math",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/math.o",
+        "sha256": "6e918910185d97afeb94b7c5b1525c268b914304e576c337ffc081ed3a0e43fd",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/math.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 352528,
+        "relocation_output_sha256": "4ca1a7cb81163bba0c71db454e8ea0ea95e48019b2b9a066c2f6f98333c9f8f0",
+        "image_call_relocations": []
+      },
+      {
+        "module": "convert",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/convert.o",
+        "sha256": "04d41e89ea57ee652a9c3a113156839a759e7b6c5e34df6862044bf14468bece",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/convert.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 3274882,
+        "relocation_output_sha256": "6f64d5c62de538a620d164b866fbbfb86d273ea67c04afa63c22e337bb764640",
+        "image_call_relocations": []
+      },
+      {
+        "module": "async",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/async.o",
+        "sha256": "2a0c94336013e53eafe0c51d6bf050e51fe467d5de15ccb5c54efd7446551e0a",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/async.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 4347065,
+        "relocation_output_sha256": "4d1e53d28983fd94dea428791a0d23a83ea6722622a9ab46ecf1b14c679e08d7",
+        "image_call_relocations": []
+      },
+      {
+        "module": "typed_data",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/typed_data.o",
+        "sha256": "a4d4265051cc38962beb61104bdefbe9a812a4b79dbf2a274e660b75909166d8",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/typed_data.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 7320968,
+        "relocation_output_sha256": "ca79f099488ac80740fd07e6bbecff338a6775bb7e0d767d93530d540790e0bf",
+        "image_call_relocations": []
+      },
+      {
+        "module": "isolate",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/isolate.o",
+        "sha256": "e50287224495a2b119b962ad53fd25d3627b1967b17567028ee627dabfb467b2",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/isolate.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 454016,
+        "relocation_output_sha256": "6031103819d3af40d1568389b95a8473b1cbbe5607fe856c5037c65b6e4fa039",
+        "image_call_relocations": []
+      },
+      {
+        "module": "developer",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/developer.o",
+        "sha256": "05a1b4ef2733affee688ea22c788bb24791a4e9277b0b020d3ea22cce155d12f",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/developer.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 297465,
+        "relocation_output_sha256": "5f8f42427c8e400e5e45fe3f88eb15947d9c0b08a3b01be21319fc09354b87d8",
+        "image_call_relocations": []
+      },
+      {
+        "module": "nativewrappers",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/nativewrappers.o",
+        "sha256": "e5b3467eca88faa4f2f3f50fdf22533df9df804ebab197b4fa82a51b20df902f",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/nativewrappers.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 13444,
+        "relocation_output_sha256": "d29bb0ac240877e87512d0bb55e81aa6d5b783889212e6b00a64147cc6155306",
+        "image_call_relocations": []
+      },
+      {
+        "module": "ffi",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/ffi.o",
+        "sha256": "a9a22a327ff1640460070e34328be2834b753d621c755eab696ee0622c371b9a",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/ffi.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 992711,
+        "relocation_output_sha256": "f7fba719b6f1aa4fa432fa7dcfaf1783b42509c859a42e5a54b2d509393155a3",
+        "image_call_relocations": []
+      },
+      {
+        "module": "_http",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/_http.o",
+        "sha256": "44bc49a51f90e492f8873c94dfc971660b11b0d6108272339b7e6a69e394e7b3",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/_http.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 5516634,
+        "relocation_output_sha256": "7aa204a78339b6a2f565f6a9a7bcfa3a9c8c047a45e5fb4ba82fc9e0ce94f462",
+        "image_call_relocations": []
+      },
+      {
+        "module": "io",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/io.o",
+        "sha256": "4abacc0acb4f7781391ac81a01641d16f05068254d0e28883bb20357c2cdedf2",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/io.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 8322020,
+        "relocation_output_sha256": "e052ec3f6bf9048e0214b1f58ea594cb978f46b078fe0d18fcb9d2f12c65a2c1",
+        "image_call_relocations": []
+      },
+      {
+        "module": "mirrors",
+        "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/mirrors.o",
+        "sha256": "790cd924affe867430319ac759c31d235fb35dd81d295de83d446adcc719625b",
+        "command": [
+          "otool",
+          "-rv",
+          "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/5e5e118f3cb248a82f1ff8e9ca610b68/mirrors.o"
+        ],
+        "exit": 0,
+        "relocation_output_bytes": 227992,
+        "relocation_output_sha256": "f919dc79a3fe328bcd72c794a5ac5c13fe0960a380550be9dc6bd1e1a4ee3e90",
+        "image_call_relocations": []
+      }
+    ]
+  }
+]

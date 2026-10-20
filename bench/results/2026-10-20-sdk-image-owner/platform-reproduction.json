@@ -1,0 +1,52 @@
+[
+  {
+    "mode": "default",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-image-owner",
+      "compile-native",
+      "crates/emit_native/tests/fixtures/constant_args/main.dart",
+      "--optimize",
+      "--emit-ir",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-image-owner-validation/platform-default.ll"
+    ],
+    "exit": 0,
+    "foreign_backend_definitions": [
+      "define i64 @df.main$2edart.WindowsBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.WindowsBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define ptr @df.mt.main$2edart.WindowsBackend() nounwind {",
+      "define ptr @df.mt.main$2edart.LinuxBackend() nounwind {"
+    ],
+    "stdout": "",
+    "stderr": "",
+    "ir_sha256": "567750f78d076192e9b366708f5e9de2ce96760164cca5efd4cfd7dbc8d3b459",
+    "compiler_sha256": "76b235c37c0cfcab8ee80eff244d41fa8245f07b99705d903a34af227afad2cd"
+  },
+  {
+    "mode": "closed",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-sdk-image-owner",
+      "compile-native",
+      "crates/emit_native/tests/fixtures/constant_args/main.dart",
+      "--optimize",
+      "--emit-ir",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/sdk-image-owner-validation/platform-closed.ll"
+    ],
+    "exit": 0,
+    "foreign_backend_definitions": [
+      "define i64 @df.main$2edart.WindowsBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.WindowsBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define ptr @df.mt.main$2edart.WindowsBackend() nounwind {",
+      "define ptr @df.mt.main$2edart.LinuxBackend() nounwind {"
+    ],
+    "stdout": "",
+    "stderr": "  Closed class reachability: entry root df.register.dart$3a_internal has an unproved body or input ABI; retaining broad registration\n  Closed class reachability: entry root df.register.dart$3a_internal has an unproved body or input ABI; retaining broad registration\n",
+    "ir_sha256": "567750f78d076192e9b366708f5e9de2ce96760164cca5efd4cfd7dbc8d3b459",
+    "compiler_sha256": "76b235c37c0cfcab8ee80eff244d41fa8245f07b99705d903a34af227afad2cd"
+  }
+]

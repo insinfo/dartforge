@@ -1,0 +1,5 @@
+{
+  "pid": 77358,
+  "action": "SIGKILL",
+  "reason": "Original encoded-command controller remained live after SIGTERM; earlier guest process probes showed no export/build process. File transport returned an explicit PowerShell native-stderr error."
+}

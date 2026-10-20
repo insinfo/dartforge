@@ -1,0 +1,39 @@
+[
+  {
+    "name": "fmt",
+    "command": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exit": 1,
+    "output_bytes": 15788653,
+    "output_sha256": "667dda64c29f2e2e3a2f11e49da8f7de03da8724fc11c7416f364fa664ff96d0"
+  },
+  {
+    "name": "new-test-format",
+    "command": [
+      "rustfmt",
+      "--check",
+      "--edition",
+      "2024",
+      "crates/emit_native/src/llvm/tests/static_image_registration.rs"
+    ],
+    "exit": 0,
+    "output_bytes": 0,
+    "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "diff-check",
+    "command": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "exit": 0,
+    "output_bytes": 0,
+    "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

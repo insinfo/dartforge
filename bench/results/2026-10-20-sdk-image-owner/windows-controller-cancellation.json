@@ -1,0 +1,6 @@
+{
+  "pid": 77358,
+  "action": "SIGTERM",
+  "reason": "Windows CIM reports only the probe process, no export PowerShell/tar/Cargo/Rustc; no snapshot/build log was created. Change transport to a short script-file invocation.",
+  "time": 1792473923.251637
+}

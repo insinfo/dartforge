@@ -1,0 +1,14 @@
+{
+  "command": [
+    "file",
+    "target/sdk-image-owner-validation/before-production",
+    "target/sdk-image-owner-validation/before-development",
+    "target/sdk-image-owner-validation/after-production",
+    "target/sdk-image-owner-validation/after-development",
+    "target/sdk-image-owner-validation/cross-linux-arm64",
+    "target/sdk-image-owner-validation/cross-windows-x64.exe"
+  ],
+  "exit": 0,
+  "stdout": "target/sdk-image-owner-validation/before-production:     Mach-O 64-bit executable arm64\ntarget/sdk-image-owner-validation/before-development:    Mach-O 64-bit executable arm64\ntarget/sdk-image-owner-validation/after-production:      Mach-O 64-bit executable arm64\ntarget/sdk-image-owner-validation/after-development:     Mach-O 64-bit executable arm64\ntarget/sdk-image-owner-validation/cross-linux-arm64:     ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 3.7.0, stripped\ntarget/sdk-image-owner-validation/cross-windows-x64.exe: PE32+ executable (console) x86-64, for MS Windows\n",
+  "stderr": ""
+}

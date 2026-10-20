@@ -1,0 +1,297 @@
+[
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/runtime/dartforge_rtdll_c47bc7abc8ff710810e955665a9de1b0.a",
+    "bytes": 35979456,
+    "sha256": "e7bd0fc6a294a058ffdd95a164d8de8b72c1dd733cc9a8eb4ca02c01b04e3874"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/runtime/dartforge_rtprod_b2c9399a7ac0f786f36889ab5cbbf223.a",
+    "bytes": 34740116,
+    "sha256": "0a4166bdd1748eb942aa5fada2e55e49f84eb895a04bf68e5d412d8a218dc766"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/runtime/dartforge_runtime_32227c6b47962a9c2878cbefb93163bb.a",
+    "bytes": 34740572,
+    "sha256": "472e1553c96f1925e47e4b6d511e26872aac15527425e9799d945c287cf720c7"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/Scrt1.o",
+    "bytes": 1704,
+    "sha256": "d03fc7a1a0b7cdbc1fb0a5c25425d3e1d2971a193c52f0ccdc40049234b7daae"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/crtbeginS.o",
+    "bytes": 3656,
+    "sha256": "2d0881b2018ca7b1c7a7af19ef91b9f42739d8f51c214f0faf22a2dc49c4c002"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/crtendS.o",
+    "bytes": 1416,
+    "sha256": "3da9c42040eca63e3432014ee4b0a98a24ea1f7c4a33e1b40c2b02cc7a15c208"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/crti.o",
+    "bytes": 1328,
+    "sha256": "93bb05d2d87f3464fd89a70d26d8ed29f0797e4b97a60786a2724a7e3ffbeba5"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/crtn.o",
+    "bytes": 872,
+    "sha256": "1c741c1f9499461b6f1e531e21fc5f86a216cc5d0c49d18bdcf97d7d922342d5"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/ld-linux-aarch64.so.1",
+    "bytes": 203968,
+    "sha256": "390027e5f45f236bd1838bc54bf464c5ff01d260ab9f8b415ea8276641bce505"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/libc.so.6",
+    "bytes": 1722920,
+    "sha256": "0f1905dc27dbc6715875c70527bc8da846a10084c9c483e9d8ff76dce8d69d0e"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/libc_nonshared.a",
+    "bytes": 5426,
+    "sha256": "7a0595e07a7542493525a2fe4947272ab1840509d86d480ed6d239447c06d1ac"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/libdl.so.2",
+    "bytes": 67440,
+    "sha256": "1c16b2692a155191c97d7fdc5ce937d37c242435f05745046a794a9832b16af4"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/libgcc.a",
+    "bytes": 3099922,
+    "sha256": "4bc354241987926aa0489ba1d925e8b10356556323307944f08209f370a28ad6"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/libgcc_s.so.1",
+    "bytes": 133696,
+    "sha256": "f2d3ad2bf0b61f6bc944cc37d7b6ab7f88d2582b41ff989ca164803f56cc5f20"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/libm.so.6",
+    "bytes": 591800,
+    "sha256": "5e0391562de36de323fb9cb0f2c1b6bd6d034c840b1dac018499f5fe4ded1b4a"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/libpthread.so.0",
+    "bytes": 67440,
+    "sha256": "6f1ab9e7d7de142dc5e2feaf6d19faceff0a0f40d5e225c922899f5362b8c353"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/librt.so.1",
+    "bytes": 67512,
+    "sha256": "93d0d5ab643b50ac1a61c2c7baf670e8aa94973fa5a2584d13db05295d5b5a0e"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/sysroot/libutil.so.1",
+    "bytes": 67440,
+    "sha256": "c2c2f3733137b0acaee7b3abb9d6ee8ce05783013bce6e20da363cd7eb986703"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/linux-arm64/target.json",
+    "bytes": 372,
+    "sha256": "b6f47c86218ac1e9717dfa2a27fb1e51dcc617abe26efab54ac82a804070b064"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/runtime/dartforge_rtdll_0a9c89919f36bdafa00dbc75eee4b887.lib",
+    "bytes": 23140554,
+    "sha256": "2f57932f03b6808fd95000c7d7f807c61caedf9969807b940fd1253162a08f66"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/runtime/dartforge_rtprod_413ab152cc37d8b2efd566cbb8694cfd.lib",
+    "bytes": 20191426,
+    "sha256": "bf07d5f8c460e854f49b36282db24fa726c42d4046cb11afc0c2196966e9cb04"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/runtime/dartforge_runtime_ee74990402fec1de62fe475706824c5c.lib",
+    "bytes": 20191852,
+    "sha256": "480ea422ab8cd034db50b2634a10abf10303f5fe146d9d4ccb79c4124f7df79a"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/advapi32.lib",
+    "bytes": 1158,
+    "sha256": "5f90c1ab0f48da05e4321c33dbaf552aa672532dfe1abf89d85ffbb65d6c8070"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/bcrypt.lib",
+    "bytes": 226,
+    "sha256": "f6a700cbba53a99e2ad30c747c58f175aad6dee1e6aa90c75c1f720fd1eaf7a2"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/crypt32.lib",
+    "bytes": 1122,
+    "sha256": "b57d6344bdfae96a41c8c6c475709006d3f7a05a0a45fa4776b738788631752a"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/dfcrt_comum.obj",
+    "bytes": 3101,
+    "sha256": "fc0c09700374a035155890f6bf0c7aebc82326ca3548f80f10f6b4cb91aa763e"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/dfcrt_dll.obj",
+    "bytes": 1079,
+    "sha256": "1a0a4abe7ab6d8857af8142d0d574bfaf30480a1ce6ba3c09e6ce9b9b4f9771d"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/dfcrt_exe.obj",
+    "bytes": 952,
+    "sha256": "439d635c008e3b54a224023f477dbd82558c1bff3cb751fd3e0d6c1c6418d269"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/dfcrt_gui.obj",
+    "bytes": 952,
+    "sha256": "6f01d65248957bf764c9cdc249ee6c1d3b1c3f5b94873aa88322973c010c8805"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/iphlpapi.lib",
+    "bytes": 546,
+    "sha256": "f94fd159200f76524a88e8c8de8cd4d7c04d83e86b8481a648b8b13cc8ff9e85"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/kernel32.lib",
+    "bytes": 23746,
+    "sha256": "b652496b5125d618f41f29f9c5ec35f2619b86013191837d6372628ea494423b"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/ntdll.lib",
+    "bytes": 1146,
+    "sha256": "97f800c051fd437aae9b5ae90ae69d95932f8fb6bfb884157cc25264bdbb657f"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/ucrtbase.lib",
+    "bytes": 12668,
+    "sha256": "8b241b1e8dc22349c76f38727e7a95ef54e41a31c26d105db1b34d992d4eaa3d"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/userenv.lib",
+    "bytes": 254,
+    "sha256": "c2aee3c679ee0d764399ab6f8b711c8a11fcc23173fde9cf174b3cded56bdf1d"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/sysroot/ws2_32.lib",
+    "bytes": 5006,
+    "sha256": "c90b3433bc1ef1292860626d676e5ab328f49d594ea39ea75ef25e14fe230ccb"
+  },
+  {
+    "path": "target/cross-bundles/sdk-image-owner/windows-x64/target.json",
+    "bytes": 375,
+    "sha256": "b17c5a3ecfcd636d1f1eb9d1c44047a852f16bc107c923c16ecb458eea15a7a5"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/after-development",
+    "bytes": 78352,
+    "sha256": "7698613940a4eca60c06ed1d432698f09be0b8e1c16afabc23891a5469be2cbd"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/after-development.contracts.json",
+    "bytes": 724,
+    "sha256": "f14d808dccfe4813c66305aa834dfe62b8bc3256b4855eaec4d7cf707c1edb4a"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/after-production",
+    "bytes": 3425568,
+    "sha256": "a062731bf2da7147e5e8c52a1c6067420a41216878970edab0746f1e637c9295"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/after-production.contracts.json",
+    "bytes": 722,
+    "sha256": "c3e41fd1c91734f10be42a7e86b8cf042be7a4c5b235f3eaf6aef6834e69f940"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/before-development",
+    "bytes": 78352,
+    "sha256": "bb4805cba9cafcb938ea8f6052d10745f3449f9fe4edc9c509c69237da02d529"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/before-development.contracts.json",
+    "bytes": 725,
+    "sha256": "847fa0141e9cc956e7dc80b70a3204416482b62622606e488462d4db1d2e7eb8"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/before-production",
+    "bytes": 3425568,
+    "sha256": "bebf3ec6c3abf10205c259b0741d4c4512ffcc26e79cfb87f06c5fd5c2072e0b"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/before-production.contracts.json",
+    "bytes": 723,
+    "sha256": "c32e86a319857d2580bea6bf8f7ce78b7a03201436fe2ff09935ddd9a0a4bfbd"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/cross-linux-arm64",
+    "bytes": 3677064,
+    "sha256": "6302fbd2fce9140a7f29c02784d8ec1753f1d18001686a1af0c0e1de250800d0"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/cross-linux-arm64.contracts.json",
+    "bytes": 723,
+    "sha256": "08cfd3523c10347edbc712083cf844727b5ae8e499a84fc8d8c214aab4c8d0f6"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/cross-windows-x64.exe",
+    "bytes": 3606528,
+    "sha256": "4bdeeab273fa413824abf6235d88774b58b4cd1c51405ad227ba4ede8bbbddd6"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/cross-windows-x64.exe.contracts.json",
+    "bytes": 727,
+    "sha256": "dea327cd356bb69e9c3a9982e983c458b667f5a13533d33a62d8e708368d6da8"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/export-windows.ps1",
+    "bytes": 2129,
+    "sha256": "0b738d8d63998e0e3a077b734fd1d6cc5f9632f19790b650da78a1cadc6de064"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/libdfsdk_5e5e118f3cb248a8.dylib",
+    "bytes": 41883248,
+    "sha256": "e83515d65244898ac027c4303e01c1a3621b726ff8ff4d4f8deab54a909359fa"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/libdfsdk_e3b5c48770134c9c.dylib",
+    "bytes": 41883248,
+    "sha256": "0511e9aba7d55e64dea44e08d15ce9c32a729b662d7aeae2db3cdf41679dee39"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/platform-closed.ll",
+    "bytes": 167162,
+    "sha256": "567750f78d076192e9b366708f5e9de2ce96760164cca5efd4cfd7dbc8d3b459"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/platform-closed.ll.contracts.json",
+    "bytes": 609,
+    "sha256": "7a31214ce9eac9854e445f1c366fb870944c2edaf17f05387c03634afe00fb53"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/platform-default.ll",
+    "bytes": 167162,
+    "sha256": "567750f78d076192e9b366708f5e9de2ce96760164cca5efd4cfd7dbc8d3b459"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/platform-default.ll.contracts.json",
+    "bytes": 610,
+    "sha256": "bdf814bb4bccad2b7719ce8ea1d00457e93d23a745fe447d02538e008b9f51ae"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/source-snapshot.tar.gz",
+    "bytes": 12483708,
+    "sha256": "24462a4f2b73e87286d48795d124866650072fdc07eff96749b2b93d5fc3d83f"
+  },
+  {
+    "path": "target/sdk-image-owner-validation/windows-runtime.ps1",
+    "bytes": 1424,
+    "sha256": "acd5afb1fbceef462e834d731ff1cf25978cfa5103e53a24f25f7063ea971540"
+  },
+  {
+    "path": "target/test-tools/dartforge-sdk-image-owner",
+    "bytes": 197749680,
+    "sha256": "76b235c37c0cfcab8ee80eff244d41fa8245f07b99705d903a34af227afad2cd"
+  },
+  {
+    "path": "target/test-tools/dartforge-summary-after",
+    "bytes": 138528872,
+    "sha256": "64cf82938307dbf5854795011473cd4a22070c6df523967dc43bed5af5c20901"
+  }
+]

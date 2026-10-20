@@ -2,6 +2,28 @@
 
 ## Atualização de 20/10/2026
 
+- O bundle completo do SDK registra sua imagem apenas pela primeira raiz de
+  inicialização: as chamadas geradas caíram de 15 para uma, também confirmadas
+  nas relocações dos objetos de desenvolvimento. A emissão pública por biblioteca
+  conserva registro próprio, e o programa mantém seu registro para imagens
+  separadas. As demais operações, objetos estáticos e marcadores são preservados.
+  As regras anteriores agora certificam sete entradas apenas nominais/textuais;
+  `dart:developer` continua recusada por publicar um `_AsyncFrame` ainda sem
+  declaração nominal auditada. A expectativa inicial de oito foi corrigida
+  com essa recusa explícita, preservando os logs das falhas preliminares.
+  Passaram os 978 testes nativos com ignorados, Clippy estrito e docs sem avisos.
+  Strings Unicode, JSON/UTF-8, erro de índice e três isolados coincidiram com a
+  VM em AOT de produção/desenvolvimento e JIT macOS, normal e sob estresse de GC.
+  A mesma fixture AOT cruzada passou no Linux ARM64 e no Windows x64 sob as duas
+  condições. Os bundles foram reexportados nas VMs a partir de cópias temporárias
+  das fontes atuais, com hash de runtime igual; os caminhos `current` foram
+  atualizados e os anteriores preservados. Problemas de transporte/PowerShell
+  da validação Windows foram corrigidos sem reiniciar VMs. A reprodução ainda
+  emite seis definições estrangeiras nos dois modos; imagem/helpers, poda,
+  fmt global e aprovação integral continuam pendentes. Sem ganho geral de
+  desempenho/tamanho medido nem nova matriz de interface do explorador.
+  Evidências: `bench/results/2026-10-20-sdk-image-owner/README.md`.
+
 - A auditoria de imagens cobre agora as relocações de base PE32+ de Windows
   x64/ARM64: lê o diretório real, confere mapeamentos, blocos e spans completos
   HIGHLOW/DIR64, conta preenchimento ABSOLUTE e recusa formatos desconhecidos,

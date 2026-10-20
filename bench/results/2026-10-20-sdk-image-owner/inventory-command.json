@@ -1,0 +1,11 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041",
+    "--exact",
+    "pruning::allocation_inventory::imports::tests::actual_selected_sdk_inventory_loads_without_authorizing_opaque_startup",
+    "--include-ignored",
+    "--nocapture"
+  ],
+  "exit": 0,
+  "test_sha256": "26dcb9e9fef1cc7121a93278d015bc2103ab210728ee3f2344da12ae09478813"
+}
