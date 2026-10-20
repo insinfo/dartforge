@@ -7,6 +7,7 @@ use std::collections::{BTreeSet, HashMap};
 use serde_json::{Value, json};
 
 pub(in crate::pruning) mod table_getters;
+mod context_lookup;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Abi { result: String, parameters: Vec<String> }
@@ -18,6 +19,7 @@ struct Definition {
     abi: Option<Abi>, local: bool, unique_linkage: bool, complete: bool,
     direct: BTreeSet<u32>, calls: Vec<Call>, unknown: BTreeSet<String>,
     exposures: BTreeSet<String>,
+    native_tls_lookup: bool,
 }
 #[derive(Debug)]
 pub(crate) struct Bundle {
@@ -291,6 +293,7 @@ fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTree
 /// recorded obligation, never an implicit empty allocation set.
 pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
     let getters = table_getters::observe(modules);
+    let context_lookups = context_lookup::observe(modules);
     let mut definitions = Vec::new(); let mut globals = Vec::new();
     let mut module_counts = HashMap::new();
     for (module, _) in modules { *module_counts.entry(*module).or_insert(0usize) += 1; }
@@ -331,12 +334,16 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
             }
             let key = if local { format!("{module}#{symbol}") } else { symbol.clone() };
             let mut definition = Definition { module:module.into(), symbol, key, body_digest:blake3::hash(text.as_bytes()).to_hex().to_string(),
-                abi, local, unique_linkage, complete, direct:BTreeSet::new(), calls:Vec::new(), unknown:BTreeSet::new(), exposures:BTreeSet::new() };
+                abi, local, unique_linkage, complete, direct:BTreeSet::new(), calls:Vec::new(), unknown:BTreeSet::new(), exposures:BTreeSet::new(), native_tls_lookup:false };
             if module_counts[module] != 1 { definition.unknown.insert("duplicate_module_identity".into()); }
             if !complete { definition.unknown.insert("incomplete_definition".into()); }
             if definition.abi.is_none() { definition.unknown.insert("unsupported_definition_abi".into()); }
             if !unique_linkage { definition.unknown.insert("interposable_linkage".into()); }
-            analyze_body(&mut definition, &body, &byte_globals, &getters);
+            if definition.symbol == "df.context" && let Some(lookup) = context_lookups.get(&(module.to_string(), definition.symbol.clone())) {
+                context_lookup::analyze(&mut definition, lookup);
+            } else {
+                analyze_body(&mut definition, &body, &byte_globals, &getters);
+            }
             definitions.push(definition);
         }
     }
@@ -360,6 +367,9 @@ fn close(mut definitions: Vec<Definition>, globals: Vec<Value>, getters: &HashMa
                 if targets.len() == 1 && definitions[targets[0]].abi.as_ref() == Some(&call.abi) {
                     dependencies[index].push(targets[0]);
                 } else { definitions[index].unknown.insert(format!("unresolved_definition_or_abi:{}",call.symbol)); }
+                continue;
+            }
+            if definitions[index].native_tls_lookup && call.symbol == "llvm.threadlocal.address.p0" {
                 continue;
             }
             if let Some(cid) = table_getters::allocation(&call, getters)
@@ -432,3 +442,6 @@ mod tests;
 
 #[cfg(test)]
 mod table_allocation_tests;
+
+#[cfg(test)]
+mod context_lookup_tests;

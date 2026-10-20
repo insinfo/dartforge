@@ -1,0 +1,190 @@
+{
+  "before_compiler": "9dd2be017938f29a3191ce9b789a284516b1ce07c3e0ce380d0b68aafbc9123c",
+  "after_compiler": "4856f1f715a18a3197919b62e64f6cbc4302855eee25974c735b73bf70be14cc",
+  "after_source": "target/rpo-native-cache/sdk/6b667e7eeb434425ebbc475b4c09be9d/allocation-inventory.json",
+  "functions": 32708,
+  "before_known": 428,
+  "after_known": 443,
+  "changed": [
+    {
+      "key": "dart:_internal#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:core#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:_compact_hash#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:collection#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:math#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:convert#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:async#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:typed_data#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:isolate#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:developer#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:nativewrappers#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:ffi#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:_http#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:io#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    },
+    {
+      "key": "dart:mirrors#df.context",
+      "body_unchanged": true,
+      "before": null,
+      "after": [],
+      "exposure": [
+        "global_or_function_address",
+        "inline_assembly",
+        "raw_memory_or_pointer_operation",
+        "thread_context_pointer"
+      ]
+    }
+  ]
+}

@@ -1147,7 +1147,6 @@ pub enum ContextInTls {
 /// macOS arm64 is `dso_local` (no GOT); the development executable reads the
 /// slot of the SDK DLL's runtime through the GOT.
 pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str, single_image: bool) -> String {
-    const CALL: &str = "call ptr @dartforge_context()";
     let Some(mut s) = context_calls::rewrite(ir) else {
         return ir.to_string();
     };
@@ -1160,7 +1159,17 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str, single_
         s.push_str(&context_in_tsd(attribute, single_image));
         return s;
     }
-    s.push_str(&format!(
+    s.push_str(&context_in_native_tls(variable, attribute));
+    if !s.contains("declare ptr @llvm.threadlocal.address.p0(ptr") {
+        s.push_str("declare nonnull ptr @llvm.threadlocal.address.p0(ptr nonnull)\n");
+    }
+    s
+}
+
+/// Exact native TLS cache emitted for a module's thread context.
+pub(crate) fn context_in_native_tls(variable: &str, attribute: &str) -> String {
+    const CALL: &str = "call ptr @dartforge_context()";
+    format!(
         "\n@{variable} = internal thread_local global ptr null, align 8\n\
          define internal ptr @df.context() nounwind{attribute} {{\n\
          \x20 %p = call ptr @llvm.threadlocal.address.p0(ptr @{variable})\n\
@@ -1174,11 +1183,7 @@ pub fn with_context_in_tls(ir: &str, mode: ContextInTls, variable: &str, single_
          pronto:\n\
          \x20 ret ptr %c\n\
          }}\n"
-    ));
-    if !s.contains("declare ptr @llvm.threadlocal.address.p0(ptr") {
-        s.push_str("declare nonnull ptr @llvm.threadlocal.address.p0(ptr nonnull)\n");
-    }
-    s
+    )
 }
 
 /// Exact section-neutral ARM64 instruction used by the macOS TSD lookup.
@@ -1219,7 +1224,7 @@ pub(crate) const MACOS_ARM64_TSD_READ: &str =
 ///     assert!(ir.contains("@dartforge_context_slot = external dso_local global i64"));
 /// }
 /// ```
-fn context_in_tsd(attribute: &str, single_image: bool) -> String {
+pub(crate) fn context_in_tsd(attribute: &str, single_image: bool) -> String {
     let preemption = if single_image { "dso_local " } else { "" };
     format!(
         "\n@dartforge_context_slot = external {preemption}global i64, align 8\n\

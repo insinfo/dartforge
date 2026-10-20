@@ -1,0 +1,38 @@
+[
+  {
+    "command": [
+      "prlctl",
+      "start",
+      "Windows11"
+    ],
+    "exit": 0,
+    "stdout": "Starting the VM...\nThe VM has been successfully started.\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "prlctl",
+      "exec",
+      "Windows11",
+      "--current-user",
+      "powershell",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\context-allocation-validation\\windows-run.ps1"
+    ],
+    "exit": 0,
+    "stdout": "[{\"stdout\":\"parent=45\\nchild=45\\n\",\"stderr\":\"\",\"sha256\":\"00e29208f666df41d45ebdc81b93046b7e0e37559598f87125974e43fc3c637c\",\"stress\":false,\"exit\":0},{\"stdout\":\"parent=45\\nchild=45\\n\",\"stderr\":\"\",\"sha256\":\"00e29208f666df41d45ebdc81b93046b7e0e37559598f87125974e43fc3c637c\",\"stress\":true,\"exit\":0}]\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "prlctl",
+      "suspend",
+      "Windows11"
+    ],
+    "exit": 0,
+    "stdout": "Suspending the VM...\nThe VM has been successfully suspended.\n",
+    "stderr": ""
+  }
+]

@@ -1,0 +1,721 @@
+[
+  {
+    "target": "macos-arm64",
+    "compiler": "bca7f6a1fa2bbf87e90581a6f7f6555bfbee75cbdb849431ed81cce2133e1a54",
+    "source": "target/rpo-native-cache/sdk/de099cda04f2c4eb6e74387bf3e410f9/allocation-inventory.json",
+    "functions": 32708,
+    "before_known": 428,
+    "after_known": 443,
+    "changed": [
+      {
+        "key": "dart:_internal#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:core#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:_compact_hash#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:collection#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:math#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:convert#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:async#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:typed_data#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:isolate#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:developer#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:nativewrappers#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:ffi#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:_http#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:io#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      },
+      {
+        "key": "dart:mirrors#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "inline_assembly",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": []
+      }
+    ]
+  },
+  {
+    "target": "linux-arm64",
+    "compiler": "bca7f6a1fa2bbf87e90581a6f7f6555bfbee75cbdb849431ed81cce2133e1a54",
+    "source": "target/rpo-native-cache/aarch64-unknown-linux-gnu/sdk/7b410197baed8632f90773a9d9e99ced/allocation-inventory.json",
+    "functions": 32708,
+    "before_known": 429,
+    "after_known": 444,
+    "changed": [
+      {
+        "key": "dart:_internal#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:core#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:collection#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:math#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:convert#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:async#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:isolate#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:developer#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:ffi#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:_http#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:io#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.context",
+        "body_unchanged": true,
+        "before": null,
+        "after": [],
+        "exposure": [
+          "global_or_function_address",
+          "raw_memory_or_pointer_operation",
+          "thread_context_pointer"
+        ],
+        "calls": [
+          {
+            "abi": {
+              "parameters": [
+                "ptr"
+              ],
+              "result": "ptr"
+            },
+            "arguments": [
+              "ptr @df.ctx.tls"
+            ],
+            "symbol": "llvm.threadlocal.address.p0"
+          },
+          {
+            "abi": {
+              "parameters": [],
+              "result": "ptr"
+            },
+            "arguments": [],
+            "symbol": "dartforge_context"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "target": "windows-x64",
+    "compiler": "bca7f6a1fa2bbf87e90581a6f7f6555bfbee75cbdb849431ed81cce2133e1a54",
+    "source": "target/rpo-native-cache/x86_64-pc-windows-msvc/sdk/034a16b83df5c41e86c268f0d87a9227/allocation-inventory.json",
+    "functions": 32693,
+    "before_known": 428,
+    "after_known": 428,
+    "changed": []
+  }
+]

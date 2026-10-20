@@ -1,0 +1,59 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.05s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 6 tests
+test pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_exact_tsd_bodies_have_empty_footprints_but_keep_exposure ... FAILED
+test pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_exact_tls_bodies_preserve_native_calls ... FAILED
+test pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_modules_keep_distinct_local_contexts_and_the_host_emitter_matches ... FAILED
+test pruning::allocation_inventory::imports::tests::context_lookups::context_lookup_footprints_do_not_authorize_imports_or_runtime_entrypoints ... FAILED
+test pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_aliases_duplicate_owners_and_shadowed_boundaries_are_rejected ... ok
+test pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_changed_bodies_and_storage_remain_unknown ... FAILED
+
+failures:
+
+---- pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_exact_tsd_bodies_have_empty_footprints_but_keep_exposure stdout ----
+
+thread 'pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_exact_tsd_bodies_have_empty_footprints_but_keep_exposure' (3033119) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/context_lookup_tests.rs:30:13:
+assertion `left == right` failed
+  left: Null
+ right: Array []
+
+---- pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_exact_tls_bodies_preserve_native_calls stdout ----
+
+thread 'pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_exact_tls_bodies_preserve_native_calls' (3033118) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/context_lookup_tests.rs:43:13:
+assertion `left == right` failed
+  left: Null
+ right: Array []
+
+---- pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_modules_keep_distinct_local_contexts_and_the_host_emitter_matches stdout ----
+
+thread 'pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_modules_keep_distinct_local_contexts_and_the_host_emitter_matches' (3033120) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/context_lookup_tests.rs:158:5:
+assertion failed: data["functions"].as_array().unwrap().iter().all(|f|
+        f["transitive_classes"] == json!([]))
+
+---- pruning::allocation_inventory::imports::tests::context_lookups::context_lookup_footprints_do_not_authorize_imports_or_runtime_entrypoints stdout ----
+
+thread 'pruning::allocation_inventory::imports::tests::context_lookups::context_lookup_footprints_do_not_authorize_imports_or_runtime_entrypoints' (3033121) panicked at crates/emit_native/src/pruning/allocation_inventory/imports/tests/context_lookups.rs:17:9:
+assertion failed: raw["functions"].as_array().unwrap().iter().all(|f|
+        f["transitive_classes"] == serde_json::json!([]))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_changed_bodies_and_storage_remain_unknown stdout ----
+
+thread 'pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_changed_bodies_and_storage_remain_unknown' (3033117) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/context_lookup_tests.rs:110:5:
+assertion `left == right` failed
+  left: Null
+ right: Array []
+
+
+failures:
+    pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_changed_bodies_and_storage_remain_unknown
+    pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_exact_tls_bodies_preserve_native_calls
+    pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_exact_tsd_bodies_have_empty_footprints_but_keep_exposure
+    pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_modules_keep_distinct_local_contexts_and_the_host_emitter_matches
+    pruning::allocation_inventory::imports::tests::context_lookups::context_lookup_footprints_do_not_authorize_imports_or_runtime_entrypoints
+
+test result: FAILED. 1 passed; 5 failed; 0 ignored; 0 measured; 1015 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

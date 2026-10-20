@@ -1,0 +1,42 @@
+[
+  {
+    "name": "production",
+    "before_bytes": 710293,
+    "after_bytes": 710293,
+    "identical": true,
+    "before_sha256": "9b57ef82cfddc8d15e9f157b31c18d755e6c14b67dba1d2957a10fd846808f46",
+    "after_sha256": "9b57ef82cfddc8d15e9f157b31c18d755e6c14b67dba1d2957a10fd846808f46"
+  },
+  {
+    "name": "development",
+    "before_bytes": 198966,
+    "after_bytes": 198966,
+    "identical": true,
+    "before_sha256": "1c7bf73116a9bf5f4e82cc47234b971dfa43edadb648cc642095bc83d70e660d",
+    "after_sha256": "1c7bf73116a9bf5f4e82cc47234b971dfa43edadb648cc642095bc83d70e660d"
+  },
+  {
+    "name": "unpruned",
+    "before_bytes": 3528558,
+    "after_bytes": 3528558,
+    "identical": true,
+    "before_sha256": "80c320370cd3b909348611bf91229f5682baa00fa95fa5f357276f33063b932a",
+    "after_sha256": "80c320370cd3b909348611bf91229f5682baa00fa95fa5f357276f33063b932a"
+  },
+  {
+    "name": "linux-arm64-fixture",
+    "before_bytes": 711374,
+    "after_bytes": 711374,
+    "identical": true,
+    "before_sha256": "387a9dc00112898bd33a17cba03c1c63207f7cf2cc5678827452fdac48dc5ae6",
+    "after_sha256": "387a9dc00112898bd33a17cba03c1c63207f7cf2cc5678827452fdac48dc5ae6"
+  },
+  {
+    "name": "windows-x64-fixture",
+    "before_bytes": 710662,
+    "after_bytes": 710662,
+    "identical": true,
+    "before_sha256": "856274f747ae5ad284abfbc7eedf9b2997aecb78709798d0956c48a5973322bc",
+    "after_sha256": "856274f747ae5ad284abfbc7eedf9b2997aecb78709798d0956c48a5973322bc"
+  }
+]

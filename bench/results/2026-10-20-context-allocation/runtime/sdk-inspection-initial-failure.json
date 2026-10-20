@@ -1,0 +1,5 @@
+{
+  "exit": 1,
+  "reason": "Expected 15 context helpers on Windows; actual emitted Windows SDK has none. sdk_module.rs enables the helper only on Unix.",
+  "evidence": "Windows production inventories before/after contain zero df.context functions."
+}

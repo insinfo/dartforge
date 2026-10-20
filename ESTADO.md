@@ -2,6 +2,24 @@
 
 ## Atualização de 20/10/2026
 
+- O inventário reconhece agora footprint vazio de alocação Dart nos leitores
+  exatos de contexto TSD/TLS. Os padrões revisados são independentes do gerador;
+  alterações futuras no helper não ampliam a prova automaticamente. Identidade,
+  armazenamento, ABI, aliases e assembly opaco são conferidos; exposições de
+  ponteiro/memória permanecem, e o consumidor continua recusando cobertura de
+  nós, chamadas e entradas. No SDK real, os footprints conhecidos passaram de
+  428 para 443 no macOS e de 429 para 444 no Linux: somente os 15 leitores,
+  com corpos idênticos. Windows mantém 428 e não emite esse helper; a expectativa
+  inicial de 15 foi corrigida no harness, preservando a falha. Passaram seis
+  testes novos e 1.021 nativos com ignorados, Clippy estrito e docs sem avisos.
+  A fixture de dois isolados coincidiu com a VM em AOT/JIT macOS e AOT cruzado
+  Linux/Windows, normal/sob estresse. Os cinco IRs montados comparados ficaram
+  idênticos; VMs novamente suspensas. Sem mudança de runtime/bundles ou permissão
+  de poda, nova matriz GUI/JIT dos hóspedes ou ganho medido. O gate original de
+  ausência de backends foi repetido e falhou; continuam seis definições
+  estrangeiras, além de fmt global e aprovação integral pendentes. Evidências:
+  `bench/results/2026-10-20-context-allocation/README.md`.
+
 - A inserção de `nounwind`, `optsize` e `uwtable` agora reconhece tokens e o
   sufixo do cabeçalho LLVM: palavras dentro de nomes, parâmetros, atributos
   entre aspas, comentários e corpos inline não alteram o ponto de inserção.

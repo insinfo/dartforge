@@ -1,0 +1,730 @@
+[
+  {
+    "source": "/tmp/forge-context-allocation/baseline-checks/before-directed.log",
+    "stored": "baseline-checks/before-directed.log",
+    "original_bytes": 4576,
+    "original_sha256": "3f0afea6b5bf0563edd982e26a5689219ce7e6f43c5f24c422d1d1a78a7b0655",
+    "stored_bytes": 4576,
+    "stored_sha256": "3f0afea6b5bf0563edd982e26a5689219ce7e6f43c5f24c422d1d1a78a7b0655"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/before.py",
+    "stored": "before.py",
+    "original_bytes": 1517,
+    "original_sha256": "dde43527f3380a91f129d4ccc5c4844875a2494ff273a9380cf874d9e1a1080b",
+    "stored_bytes": 1517,
+    "stored_sha256": "dde43527f3380a91f129d4ccc5c4844875a2494ff273a9380cf874d9e1a1080b"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/check-gate.py",
+    "stored": "check-gate.py",
+    "original_bytes": 689,
+    "original_sha256": "3ac22937bfcefbb37b133d15cb1e073d7f0c95c19df5ae826b3202203542ff05",
+    "stored_bytes": 689,
+    "stored_sha256": "3ac22937bfcefbb37b133d15cb1e073d7f0c95c19df5ae826b3202203542ff05"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/check.py",
+    "stored": "check.py",
+    "original_bytes": 2186,
+    "original_sha256": "a1f53d62bdbbf5c65b31e10baff01a31b288758ec7397166a127185d9a5dbb86",
+    "stored_bytes": 2186,
+    "stored_sha256": "a1f53d62bdbbf5c65b31e10baff01a31b288758ec7397166a127185d9a5dbb86"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/checks.json",
+    "stored": "checks/checks.json",
+    "original_bytes": 1328,
+    "original_sha256": "8425daa49188af13c2d27740e01f667f93d8a973795adff4fc54f28606966c05",
+    "stored_bytes": 1328,
+    "stored_sha256": "8425daa49188af13c2d27740e01f667f93d8a973795adff4fc54f28606966c05"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/clippy.log",
+    "stored": "checks/clippy.log",
+    "original_bytes": 376,
+    "original_sha256": "9458590b7c37116bf14a976f72a713df9054ac9b006db566a4051dc2d48704a7",
+    "stored_bytes": 376,
+    "stored_sha256": "9458590b7c37116bf14a976f72a713df9054ac9b006db566a4051dc2d48704a7"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/compiler.log",
+    "stored": "checks/compiler.log",
+    "original_bytes": 6636,
+    "original_sha256": "1d882852517688c00e2ba4b90f45d3e6ec06099b97d1b0c8349e908e665c39b6",
+    "stored_bytes": 6636,
+    "stored_sha256": "1d882852517688c00e2ba4b90f45d3e6ec06099b97d1b0c8349e908e665c39b6"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/directed.log",
+    "stored": "checks/directed.log",
+    "original_bytes": 1274,
+    "original_sha256": "d9ea66a50e41e8a35051a59d541b68e21618a6aecc7e1be093989590cd2f4c9d",
+    "stored_bytes": 1273,
+    "stored_sha256": "c6a588d5c3ef505d27ab4c2511c8d1aabd186d79ae36d657b4afb2e19510af73"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/doc.log",
+    "stored": "checks/doc.log",
+    "original_bytes": 528,
+    "original_sha256": "da6f7453a742d3882eb03edfd9c10bda3d13b479ca9ee6b365ac83bb98a6ca7f",
+    "stored_bytes": 528,
+    "stored_sha256": "da6f7453a742d3882eb03edfd9c10bda3d13b479ca9ee6b365ac83bb98a6ca7f"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/feature-clippy.log",
+    "stored": "checks/feature-clippy.log",
+    "original_bytes": 178,
+    "original_sha256": "afa3cbe2407dc405e7f4eb4e433d661733a39c70a1ce4ac97dea0818872b9313",
+    "stored_bytes": 178,
+    "stored_sha256": "afa3cbe2407dc405e7f4eb4e433d661733a39c70a1ce4ac97dea0818872b9313"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/fmt-excerpt.txt",
+    "stored": "checks/fmt-excerpt.txt",
+    "original_bytes": 6000,
+    "original_sha256": "4bc41cec774fd5fb9d19ff488a3bd10b7c70757256219a336237cde93aab9f9f",
+    "stored_bytes": 5994,
+    "stored_sha256": "56570cc1edbe5a5577df7e88262d67fec492d25e3975a88fb2aa6fcee92352fc"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/fmt-result.json",
+    "stored": "checks/fmt-result.json",
+    "original_bytes": 117,
+    "original_sha256": "240c3345525f94447917184d9ac260e5b66db5f794ff93d77b26db75f32a0d56",
+    "stored_bytes": 117,
+    "stored_sha256": "240c3345525f94447917184d9ac260e5b66db5f794ff93d77b26db75f32a0d56"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/foreign-backend-gate.json",
+    "stored": "checks/foreign-backend-gate.json",
+    "original_bytes": 262,
+    "original_sha256": "c603f731d31d718128ce17d45f33e471b07f9b1a58e78a35ba6ab8da52821c39",
+    "stored_bytes": 262,
+    "stored_sha256": "c603f731d31d718128ce17d45f33e471b07f9b1a58e78a35ba6ab8da52821c39"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/foreign-backend-gate.log",
+    "stored": "checks/foreign-backend-gate.log",
+    "original_bytes": 888,
+    "original_sha256": "1d3af989cd1716eb5f84b94fc3562c6b1df55b994286be2bb7702cebd1e4affc",
+    "stored_bytes": 888,
+    "stored_sha256": "1d3af989cd1716eb5f84b94fc3562c6b1df55b994286be2bb7702cebd1e4affc"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/native-lib.log",
+    "stored": "checks/native-lib.log",
+    "original_bytes": 108802,
+    "original_sha256": "1b5f04057f4c39fdfbdbedfcd228e37b5f22c59080056594faa329316e4d12dd",
+    "stored_bytes": 108801,
+    "stored_sha256": "89adaf741d31661cdf58cf5acb4f6f07ce17d569b14bd64fabbc03ffa33804f4"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/checks/scoped-fmt.log",
+    "stored": "checks/scoped-fmt.log",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/collect-evidence.py",
+    "stored": "collect-evidence.py",
+    "original_bytes": 1745,
+    "original_sha256": "2e026778f016a3532e59e35122ba7d0d1b5ad2b42818d48269b16e0410c137b1",
+    "stored_bytes": 1745,
+    "stored_sha256": "2e026778f016a3532e59e35122ba7d0d1b5ad2b42818d48269b16e0410c137b1"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/initial-checks/checks.json",
+    "stored": "initial-checks/checks.json",
+    "original_bytes": 1328,
+    "original_sha256": "8425daa49188af13c2d27740e01f667f93d8a973795adff4fc54f28606966c05",
+    "stored_bytes": 1328,
+    "stored_sha256": "8425daa49188af13c2d27740e01f667f93d8a973795adff4fc54f28606966c05"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/initial-checks/clippy.log",
+    "stored": "initial-checks/clippy.log",
+    "original_bytes": 376,
+    "original_sha256": "b564cf804508064ee488dab8ef5fdd544bb6d230069fad8ea243f4d0e29a38d3",
+    "stored_bytes": 376,
+    "stored_sha256": "b564cf804508064ee488dab8ef5fdd544bb6d230069fad8ea243f4d0e29a38d3"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/initial-checks/compiler.log",
+    "stored": "initial-checks/compiler.log",
+    "original_bytes": 6636,
+    "original_sha256": "16caaa1feaa695487675a9fc30b7ca08a492c5ab770da7f70fb4489519611b4f",
+    "stored_bytes": 6636,
+    "stored_sha256": "16caaa1feaa695487675a9fc30b7ca08a492c5ab770da7f70fb4489519611b4f"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/initial-checks/directed.log",
+    "stored": "initial-checks/directed.log",
+    "original_bytes": 1275,
+    "original_sha256": "9d7e5df0e1dcf3506e335849246a0eba634fe89ef26b73d37ce7ae9ce3dba3a5",
+    "stored_bytes": 1274,
+    "stored_sha256": "69f6ed8a02b2889baa3ab69462bf4b37a52ede04954cc7f46bb1aba7ff6422cf"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/initial-checks/doc.log",
+    "stored": "initial-checks/doc.log",
+    "original_bytes": 528,
+    "original_sha256": "98eb4c9d3ac5560a0d37ffafcf36d1468439da91218fdcb7acc83c21eb4e8c08",
+    "stored_bytes": 528,
+    "stored_sha256": "98eb4c9d3ac5560a0d37ffafcf36d1468439da91218fdcb7acc83c21eb4e8c08"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/initial-checks/feature-clippy.log",
+    "stored": "initial-checks/feature-clippy.log",
+    "original_bytes": 178,
+    "original_sha256": "23752d3668d7d9dab97b85075e43dd495d1e0e26f569aa856fef784e2f681b0e",
+    "stored_bytes": 178,
+    "stored_sha256": "23752d3668d7d9dab97b85075e43dd495d1e0e26f569aa856fef784e2f681b0e"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/initial-checks/native-lib.log",
+    "stored": "initial-checks/native-lib.log",
+    "original_bytes": 108802,
+    "original_sha256": "9fa45fde208d36f75e83e2ae964c6314c98e242064a9064ed4c1d6dc63dab65d",
+    "stored_bytes": 108801,
+    "stored_sha256": "db68c8b03b74960a4ced513207bf1dac513a7bbda57d22476d34e0bfe8972ac3"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/checks.json",
+    "stored": "pre-independent-checks/checks.json",
+    "original_bytes": 1328,
+    "original_sha256": "8425daa49188af13c2d27740e01f667f93d8a973795adff4fc54f28606966c05",
+    "stored_bytes": 1328,
+    "stored_sha256": "8425daa49188af13c2d27740e01f667f93d8a973795adff4fc54f28606966c05"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/clippy.log",
+    "stored": "pre-independent-checks/clippy.log",
+    "original_bytes": 376,
+    "original_sha256": "eeb9db8b1101a9e1b41b21ea66915e9826ef8501edf9caa50ea2883db9d7010b",
+    "stored_bytes": 376,
+    "stored_sha256": "eeb9db8b1101a9e1b41b21ea66915e9826ef8501edf9caa50ea2883db9d7010b"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/compiler.log",
+    "stored": "pre-independent-checks/compiler.log",
+    "original_bytes": 6636,
+    "original_sha256": "27e09bb7a2b9630fba8d7c1a0895111417ca0df35ff05650dcf59621522d7429",
+    "stored_bytes": 6636,
+    "stored_sha256": "27e09bb7a2b9630fba8d7c1a0895111417ca0df35ff05650dcf59621522d7429"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/directed.log",
+    "stored": "pre-independent-checks/directed.log",
+    "original_bytes": 1275,
+    "original_sha256": "2c168683fa830193492f1634cf7a81563e3593358295b32c4e1164d7b7f43eb9",
+    "stored_bytes": 1274,
+    "stored_sha256": "ad1f6a6b43696b951e1a180fb55e672296492bb65429422ca459ab01d82e49db"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/doc.log",
+    "stored": "pre-independent-checks/doc.log",
+    "original_bytes": 528,
+    "original_sha256": "c955b9dab5b1eec3029eb6776c56ab9160b08127a4f9141c3502b91bf44a70aa",
+    "stored_bytes": 528,
+    "stored_sha256": "c955b9dab5b1eec3029eb6776c56ab9160b08127a4f9141c3502b91bf44a70aa"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/feature-clippy.log",
+    "stored": "pre-independent-checks/feature-clippy.log",
+    "original_bytes": 178,
+    "original_sha256": "1d943d0be1981791199ef385ad6b304ef557a3ec39e2fbeea75b3d8825af4f4b",
+    "stored_bytes": 178,
+    "stored_sha256": "1d943d0be1981791199ef385ad6b304ef557a3ec39e2fbeea75b3d8825af4f4b"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/fmt-excerpt.txt",
+    "stored": "pre-independent-checks/fmt-excerpt.txt",
+    "original_bytes": 6000,
+    "original_sha256": "4bc41cec774fd5fb9d19ff488a3bd10b7c70757256219a336237cde93aab9f9f",
+    "stored_bytes": 5994,
+    "stored_sha256": "56570cc1edbe5a5577df7e88262d67fec492d25e3975a88fb2aa6fcee92352fc"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/fmt-result.json",
+    "stored": "pre-independent-checks/fmt-result.json",
+    "original_bytes": 117,
+    "original_sha256": "240c3345525f94447917184d9ac260e5b66db5f794ff93d77b26db75f32a0d56",
+    "stored_bytes": 117,
+    "stored_sha256": "240c3345525f94447917184d9ac260e5b66db5f794ff93d77b26db75f32a0d56"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/foreign-backend-gate.json",
+    "stored": "pre-independent-checks/foreign-backend-gate.json",
+    "original_bytes": 262,
+    "original_sha256": "c603f731d31d718128ce17d45f33e471b07f9b1a58e78a35ba6ab8da52821c39",
+    "stored_bytes": 262,
+    "stored_sha256": "c603f731d31d718128ce17d45f33e471b07f9b1a58e78a35ba6ab8da52821c39"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/foreign-backend-gate.log",
+    "stored": "pre-independent-checks/foreign-backend-gate.log",
+    "original_bytes": 977,
+    "original_sha256": "86caa2fde99ae5e04947ad18b344c1efd5061fb88d08e8c0e169963f1a43af9b",
+    "stored_bytes": 977,
+    "stored_sha256": "86caa2fde99ae5e04947ad18b344c1efd5061fb88d08e8c0e169963f1a43af9b"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/native-lib.log",
+    "stored": "pre-independent-checks/native-lib.log",
+    "original_bytes": 108802,
+    "original_sha256": "22a3c392404cfe1304a5d5f00afdde436597c57bf1820ca5a26df17cd1257aa4",
+    "stored_bytes": 108801,
+    "stored_sha256": "0318869c9b386a56331391f9854cdfcbe470dbec0ef7d605e726210ad09acbbd"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-checks/scoped-fmt.log",
+    "stored": "pre-independent-checks/scoped-fmt.log",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/after-linux-arm64-builds.json",
+    "stored": "pre-independent-runtime/after-linux-arm64-builds.json",
+    "original_bytes": 1020,
+    "original_sha256": "9b4d0b5c39cd7335470d22cac49e2a6068a8b8fd14b18ba66088da4a89253c19",
+    "stored_bytes": 1020,
+    "stored_sha256": "9b4d0b5c39cd7335470d22cac49e2a6068a8b8fd14b18ba66088da4a89253c19"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/after-linux-arm64-fixture.stderr",
+    "stored": "pre-independent-runtime/after-linux-arm64-fixture.stderr",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/after-linux-arm64-fixture.stdout",
+    "stored": "pre-independent-runtime/after-linux-arm64-fixture.stdout",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/after-runtime.json",
+    "stored": "pre-independent-runtime/after-runtime.json",
+    "original_bytes": 9341,
+    "original_sha256": "53925ff411302794ce6ef620a1d3704230844b3747e787f00c19247274745b5d",
+    "stored_bytes": 9341,
+    "stored_sha256": "53925ff411302794ce6ef620a1d3704230844b3747e787f00c19247274745b5d"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/after-windows-x64-builds.json",
+    "stored": "pre-independent-runtime/after-windows-x64-builds.json",
+    "original_bytes": 1028,
+    "original_sha256": "8d24fbb0ba5f2a7e133bccba9742599e95c3af04c1e6ae17e7848a493018e012",
+    "stored_bytes": 1028,
+    "stored_sha256": "8d24fbb0ba5f2a7e133bccba9742599e95c3af04c1e6ae17e7848a493018e012"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/after-windows-x64-fixture.stderr",
+    "stored": "pre-independent-runtime/after-windows-x64-fixture.stderr",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/after-windows-x64-fixture.stdout",
+    "stored": "pre-independent-runtime/after-windows-x64-fixture.stdout",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/before-linux-arm64-builds.json",
+    "stored": "pre-independent-runtime/before-linux-arm64-builds.json",
+    "original_bytes": 1034,
+    "original_sha256": "dc68ed6b4683c41ff435c355553323766af8529f6e398d99f9e26f00f586d56a",
+    "stored_bytes": 1034,
+    "stored_sha256": "dc68ed6b4683c41ff435c355553323766af8529f6e398d99f9e26f00f586d56a"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/before-linux-arm64-fixture.stderr",
+    "stored": "pre-independent-runtime/before-linux-arm64-fixture.stderr",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/before-linux-arm64-fixture.stdout",
+    "stored": "pre-independent-runtime/before-linux-arm64-fixture.stdout",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/before-runtime.json",
+    "stored": "pre-independent-runtime/before-runtime.json",
+    "original_bytes": 7988,
+    "original_sha256": "5e38e2a30b0b8de906621c55e4e213303b24fc9bdec1173ca9e6a46e4ff36fb1",
+    "stored_bytes": 7988,
+    "stored_sha256": "5e38e2a30b0b8de906621c55e4e213303b24fc9bdec1173ca9e6a46e4ff36fb1"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/before-windows-x64-builds.json",
+    "stored": "pre-independent-runtime/before-windows-x64-builds.json",
+    "original_bytes": 1031,
+    "original_sha256": "caf450743a3a704206cecd27868ea8ac069fa2f399e024c3f9583012b2c85d20",
+    "stored_bytes": 1031,
+    "stored_sha256": "caf450743a3a704206cecd27868ea8ac069fa2f399e024c3f9583012b2c85d20"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/before-windows-x64-fixture.stderr",
+    "stored": "pre-independent-runtime/before-windows-x64-fixture.stderr",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/before-windows-x64-fixture.stdout",
+    "stored": "pre-independent-runtime/before-windows-x64-fixture.stdout",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/build-cross.py",
+    "stored": "pre-independent-runtime/build-cross.py",
+    "original_bytes": 2205,
+    "original_sha256": "686d9e0d586d9b0c62656821825913d9faece649f11d0757c7661fd6e5bc967a",
+    "stored_bytes": 2205,
+    "stored_sha256": "686d9e0d586d9b0c62656821825913d9faece649f11d0757c7661fd6e5bc967a"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/linux-run.py",
+    "stored": "pre-independent-runtime/linux-run.py",
+    "original_bytes": 1018,
+    "original_sha256": "e717c95c0cfa23fa10e66a66cdd732b0e81c407d7e8c86e10e83816720cedffe",
+    "stored_bytes": 1018,
+    "stored_sha256": "e717c95c0cfa23fa10e66a66cdd732b0e81c407d7e8c86e10e83816720cedffe"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/manage-guest.py",
+    "stored": "pre-independent-runtime/manage-guest.py",
+    "original_bytes": 920,
+    "original_sha256": "a1e7079f7e1517433656ad4d61898d9598f505e93093c641cbff6d6c57fff2e4",
+    "stored_bytes": 920,
+    "stored_sha256": "a1e7079f7e1517433656ad4d61898d9598f505e93093c641cbff6d6c57fff2e4"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/platform-reproduction.json",
+    "stored": "pre-independent-runtime/platform-reproduction.json",
+    "original_bytes": 3829,
+    "original_sha256": "b490da295607a44b6d51caa1e5c2edee10d81378328a38074589883bd8e26896",
+    "stored_bytes": 3829,
+    "stored_sha256": "b490da295607a44b6d51caa1e5c2edee10d81378328a38074589883bd8e26896"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/sdk-footprint-comparison.json",
+    "stored": "pre-independent-runtime/sdk-footprint-comparison.json",
+    "original_bytes": 4773,
+    "original_sha256": "bf356b916d5a208c3298a3b8070474dbb557e198b187a18e98a9914eab9c6f78",
+    "stored_bytes": 4773,
+    "stored_sha256": "bf356b916d5a208c3298a3b8070474dbb557e198b187a18e98a9914eab9c6f78"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/validate-platform.py",
+    "stored": "pre-independent-runtime/validate-platform.py",
+    "original_bytes": 1721,
+    "original_sha256": "80546e1e3f3cd464b2c2350b91a46f5d479b471b06b810695df6bbd4afa363a6",
+    "stored_bytes": 1721,
+    "stored_sha256": "80546e1e3f3cd464b2c2350b91a46f5d479b471b06b810695df6bbd4afa363a6"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/validate-runtime.py",
+    "stored": "pre-independent-runtime/validate-runtime.py",
+    "original_bytes": 3033,
+    "original_sha256": "65a486aef50aa7ce342f9c670eeedd9475979b5bf3cee65a89a24fc723915387",
+    "stored_bytes": 3033,
+    "stored_sha256": "65a486aef50aa7ce342f9c670eeedd9475979b5bf3cee65a89a24fc723915387"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/pre-independent-runtime/windows-run.ps1",
+    "stored": "pre-independent-runtime/windows-run.ps1",
+    "original_bytes": 1609,
+    "original_sha256": "a5e54d748c5ca3854de88be2d068cb790e366e7edac2bd957958bed871617e65",
+    "stored_bytes": 1609,
+    "stored_sha256": "a5e54d748c5ca3854de88be2d068cb790e366e7edac2bd957958bed871617e65"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/after-linux-arm64-builds.json",
+    "stored": "runtime/after-linux-arm64-builds.json",
+    "original_bytes": 1025,
+    "original_sha256": "dd781e6dff86e41610c7f8956b0922ac8f184e13acde4a47c6a19cb9fa372338",
+    "stored_bytes": 1025,
+    "stored_sha256": "dd781e6dff86e41610c7f8956b0922ac8f184e13acde4a47c6a19cb9fa372338"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/after-linux-arm64-fixture.stderr",
+    "stored": "runtime/after-linux-arm64-fixture.stderr",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/after-linux-arm64-fixture.stdout",
+    "stored": "runtime/after-linux-arm64-fixture.stdout",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/after-runtime.json",
+    "stored": "runtime/after-runtime.json",
+    "original_bytes": 9338,
+    "original_sha256": "c3829b27becc1107cc26719da00e3a2aad3450589272e89a404811d639d9be09",
+    "stored_bytes": 9338,
+    "stored_sha256": "c3829b27becc1107cc26719da00e3a2aad3450589272e89a404811d639d9be09"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/after-windows-x64-builds.json",
+    "stored": "runtime/after-windows-x64-builds.json",
+    "original_bytes": 1024,
+    "original_sha256": "ae98b050abea766e3047f3e2021e566ba08901ed105e5597a47852f3d7a657d3",
+    "stored_bytes": 1024,
+    "stored_sha256": "ae98b050abea766e3047f3e2021e566ba08901ed105e5597a47852f3d7a657d3"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/after-windows-x64-fixture.stderr",
+    "stored": "runtime/after-windows-x64-fixture.stderr",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/after-windows-x64-fixture.stdout",
+    "stored": "runtime/after-windows-x64-fixture.stdout",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/before-linux-arm64-builds.json",
+    "stored": "runtime/before-linux-arm64-builds.json",
+    "original_bytes": 1034,
+    "original_sha256": "dc68ed6b4683c41ff435c355553323766af8529f6e398d99f9e26f00f586d56a",
+    "stored_bytes": 1034,
+    "stored_sha256": "dc68ed6b4683c41ff435c355553323766af8529f6e398d99f9e26f00f586d56a"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/before-linux-arm64-fixture.stderr",
+    "stored": "runtime/before-linux-arm64-fixture.stderr",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/before-linux-arm64-fixture.stdout",
+    "stored": "runtime/before-linux-arm64-fixture.stdout",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/before-runtime.json",
+    "stored": "runtime/before-runtime.json",
+    "original_bytes": 7988,
+    "original_sha256": "5e38e2a30b0b8de906621c55e4e213303b24fc9bdec1173ca9e6a46e4ff36fb1",
+    "stored_bytes": 7988,
+    "stored_sha256": "5e38e2a30b0b8de906621c55e4e213303b24fc9bdec1173ca9e6a46e4ff36fb1"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/before-windows-x64-builds.json",
+    "stored": "runtime/before-windows-x64-builds.json",
+    "original_bytes": 1031,
+    "original_sha256": "caf450743a3a704206cecd27868ea8ac069fa2f399e024c3f9583012b2c85d20",
+    "stored_bytes": 1031,
+    "stored_sha256": "caf450743a3a704206cecd27868ea8ac069fa2f399e024c3f9583012b2c85d20"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/before-windows-x64-fixture.stderr",
+    "stored": "runtime/before-windows-x64-fixture.stderr",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/before-windows-x64-fixture.stdout",
+    "stored": "runtime/before-windows-x64-fixture.stdout",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stored_bytes": 0,
+    "stored_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/build-cross.py",
+    "stored": "runtime/build-cross.py",
+    "original_bytes": 2205,
+    "original_sha256": "686d9e0d586d9b0c62656821825913d9faece649f11d0757c7661fd6e5bc967a",
+    "stored_bytes": 2205,
+    "stored_sha256": "686d9e0d586d9b0c62656821825913d9faece649f11d0757c7661fd6e5bc967a"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/final-vm-state.json",
+    "stored": "runtime/final-vm-state.json",
+    "original_bytes": 297,
+    "original_sha256": "590d72a638046448fc697229684b5bb1f689cc303285a45ca9a55adc259cedcb",
+    "stored_bytes": 297,
+    "stored_sha256": "590d72a638046448fc697229684b5bb1f689cc303285a45ca9a55adc259cedcb"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/inspect-ir.py",
+    "stored": "runtime/inspect-ir.py",
+    "original_bytes": 697,
+    "original_sha256": "59030b1a94ad0375a140b426adffb829335a52bbae961e70d4659eda63829e29",
+    "stored_bytes": 697,
+    "stored_sha256": "59030b1a94ad0375a140b426adffb829335a52bbae961e70d4659eda63829e29"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/inspect-sdk-initial.py",
+    "stored": "runtime/inspect-sdk-initial.py",
+    "original_bytes": 2716,
+    "original_sha256": "f3682f72388dc72761f22308c9d4859ef9afe8d07fefc89cf66cb4ae8d1e0b18",
+    "stored_bytes": 2716,
+    "stored_sha256": "f3682f72388dc72761f22308c9d4859ef9afe8d07fefc89cf66cb4ae8d1e0b18"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/inspect-sdk.py",
+    "stored": "runtime/inspect-sdk.py",
+    "original_bytes": 2784,
+    "original_sha256": "8e23cef527040f640280a6bded05a00e53d22069e74a4513b541de55e8142380",
+    "stored_bytes": 2784,
+    "stored_sha256": "8e23cef527040f640280a6bded05a00e53d22069e74a4513b541de55e8142380"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/ir-comparison.json",
+    "stored": "runtime/ir-comparison.json",
+    "original_bytes": 1467,
+    "original_sha256": "8b8a492ea48fb439606506a650bd0d559cf8019820c6fa28e0ec00418235ad2a",
+    "stored_bytes": 1467,
+    "stored_sha256": "8b8a492ea48fb439606506a650bd0d559cf8019820c6fa28e0ec00418235ad2a"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/linux-launch.json",
+    "stored": "runtime/linux-launch.json",
+    "original_bytes": 1018,
+    "original_sha256": "6ed82f8af5b08c12d8d502f864995201abe76ad06578db5f104279ae2b7442d3",
+    "stored_bytes": 1018,
+    "stored_sha256": "6ed82f8af5b08c12d8d502f864995201abe76ad06578db5f104279ae2b7442d3"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/linux-result.json",
+    "stored": "runtime/linux-result.json",
+    "original_bytes": 368,
+    "original_sha256": "c943fe0bd20da7401091e1e61fe2a9631e87d505ce2954210db94c10a96104f8",
+    "stored_bytes": 368,
+    "stored_sha256": "c943fe0bd20da7401091e1e61fe2a9631e87d505ce2954210db94c10a96104f8"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/linux-run.py",
+    "stored": "runtime/linux-run.py",
+    "original_bytes": 1018,
+    "original_sha256": "e717c95c0cfa23fa10e66a66cdd732b0e81c407d7e8c86e10e83816720cedffe",
+    "stored_bytes": 1018,
+    "stored_sha256": "e717c95c0cfa23fa10e66a66cdd732b0e81c407d7e8c86e10e83816720cedffe"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/manage-guest.py",
+    "stored": "runtime/manage-guest.py",
+    "original_bytes": 920,
+    "original_sha256": "a1e7079f7e1517433656ad4d61898d9598f505e93093c641cbff6d6c57fff2e4",
+    "stored_bytes": 920,
+    "stored_sha256": "a1e7079f7e1517433656ad4d61898d9598f505e93093c641cbff6d6c57fff2e4"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/platform-reproduction.json",
+    "stored": "runtime/platform-reproduction.json",
+    "original_bytes": 3829,
+    "original_sha256": "38c600723b2222937e7a1c5df8c9ff7d1bf30da7fe909308c5cefac22560936d",
+    "stored_bytes": 3829,
+    "stored_sha256": "38c600723b2222937e7a1c5df8c9ff7d1bf30da7fe909308c5cefac22560936d"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/sdk-footprint-comparison.json",
+    "stored": "runtime/sdk-footprint-comparison.json",
+    "original_bytes": 18044,
+    "original_sha256": "421965dc6d7b61a19b6e91757cf9ee952e0ebeaf54df49b4116450f4d4897e39",
+    "stored_bytes": 18044,
+    "stored_sha256": "421965dc6d7b61a19b6e91757cf9ee952e0ebeaf54df49b4116450f4d4897e39"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/sdk-inspection-initial-failure.json",
+    "stored": "runtime/sdk-inspection-initial-failure.json",
+    "original_bytes": 251,
+    "original_sha256": "94144e5dfd4b6e160d8e7ec4f820e1869bc9ef486c57bf081b1c927c3ca12f0c",
+    "stored_bytes": 251,
+    "stored_sha256": "94144e5dfd4b6e160d8e7ec4f820e1869bc9ef486c57bf081b1c927c3ca12f0c"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/validate-platform.py",
+    "stored": "runtime/validate-platform.py",
+    "original_bytes": 1721,
+    "original_sha256": "80546e1e3f3cd464b2c2350b91a46f5d479b471b06b810695df6bbd4afa363a6",
+    "stored_bytes": 1721,
+    "stored_sha256": "80546e1e3f3cd464b2c2350b91a46f5d479b471b06b810695df6bbd4afa363a6"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/validate-runtime.py",
+    "stored": "runtime/validate-runtime.py",
+    "original_bytes": 3033,
+    "original_sha256": "65a486aef50aa7ce342f9c670eeedd9475979b5bf3cee65a89a24fc723915387",
+    "stored_bytes": 3033,
+    "stored_sha256": "65a486aef50aa7ce342f9c670eeedd9475979b5bf3cee65a89a24fc723915387"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/windows-launch.json",
+    "stored": "runtime/windows-launch.json",
+    "original_bytes": 1065,
+    "original_sha256": "61a466771d707f4460e93b4a0f50452a73916d10e5b5583ee18906485c8f97aa",
+    "stored_bytes": 1065,
+    "stored_sha256": "61a466771d707f4460e93b4a0f50452a73916d10e5b5583ee18906485c8f97aa"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/windows-result.json",
+    "stored": "runtime/windows-result.json",
+    "original_bytes": 445,
+    "original_sha256": "f2d8e485ab60ed4178b4f1c13e7c64bdec52c1f7d0edc67bc0c25660f3d97756",
+    "stored_bytes": 426,
+    "stored_sha256": "f6ed11ca2b2bb838484a6bbab5735de2608b31f27e940d4849b410f10f34f0fa"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/runtime/windows-run.ps1",
+    "stored": "runtime/windows-run.ps1",
+    "original_bytes": 1609,
+    "original_sha256": "a5e54d748c5ca3854de88be2d068cb790e366e7edac2bd957958bed871617e65",
+    "stored_bytes": 1609,
+    "stored_sha256": "a5e54d748c5ca3854de88be2d068cb790e366e7edac2bd957958bed871617e65"
+  },
+  {
+    "source": "/tmp/forge-context-allocation/source-bindings.json",
+    "stored": "source-bindings.json",
+    "original_bytes": 1166,
+    "original_sha256": "928adcbef4bbb7bc5a107c5e685b8830ca54763afe2842eceddb838eaa3d8de5",
+    "stored_bytes": 1166,
+    "stored_sha256": "928adcbef4bbb7bc5a107c5e685b8830ca54763afe2842eceddb838eaa3d8de5"
+  }
+]

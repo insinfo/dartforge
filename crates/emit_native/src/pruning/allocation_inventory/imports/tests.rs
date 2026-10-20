@@ -819,3 +819,6 @@ mod startup_diagnostics;
 mod proof_views;
 
 mod table_allocations;
+
+#[path = "tests/context_lookups.rs"]
+mod context_lookups;

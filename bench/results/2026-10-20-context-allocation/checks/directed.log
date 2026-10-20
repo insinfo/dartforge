@@ -1,0 +1,13 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.68s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 6 tests
+test pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_modules_keep_distinct_local_contexts_and_the_host_emitter_matches ... ok
+test pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_exact_tsd_bodies_have_empty_footprints_but_keep_exposure ... ok
+test pruning::allocation_inventory::imports::tests::context_lookups::context_lookup_footprints_do_not_authorize_imports_or_runtime_entrypoints ... ok
+test pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_aliases_duplicate_owners_and_shadowed_boundaries_are_rejected ... ok
+test pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_changed_bodies_and_storage_remain_unknown ... ok
+test pruning::allocation_inventory::closure::context_lookup_tests::context_lookup_exact_tls_bodies_preserve_native_calls ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1015 filtered out; finished in 0.03s

@@ -1,0 +1,257 @@
+[
+  {
+    "path": "target/context-allocation-validation/.df_tmp/after-development.ll",
+    "bytes": 198966,
+    "sha256": "1c7bf73116a9bf5f4e82cc47234b971dfa43edadb648cc642095bc83d70e660d"
+  },
+  {
+    "path": "target/context-allocation-validation/.df_tmp/after-linux-arm64-fixture.ll",
+    "bytes": 711374,
+    "sha256": "387a9dc00112898bd33a17cba03c1c63207f7cf2cc5678827452fdac48dc5ae6"
+  },
+  {
+    "path": "target/context-allocation-validation/.df_tmp/after-production.ll",
+    "bytes": 710293,
+    "sha256": "9b57ef82cfddc8d15e9f157b31c18d755e6c14b67dba1d2957a10fd846808f46"
+  },
+  {
+    "path": "target/context-allocation-validation/.df_tmp/after-unpruned.ll",
+    "bytes": 3528558,
+    "sha256": "80c320370cd3b909348611bf91229f5682baa00fa95fa5f357276f33063b932a"
+  },
+  {
+    "path": "target/context-allocation-validation/.df_tmp/after-windows-x64-fixture.ll",
+    "bytes": 710662,
+    "sha256": "856274f747ae5ad284abfbc7eedf9b2997aecb78709798d0956c48a5973322bc"
+  },
+  {
+    "path": "target/context-allocation-validation/.df_tmp/before-development.ll",
+    "bytes": 198966,
+    "sha256": "1c7bf73116a9bf5f4e82cc47234b971dfa43edadb648cc642095bc83d70e660d"
+  },
+  {
+    "path": "target/context-allocation-validation/.df_tmp/before-linux-arm64-fixture.ll",
+    "bytes": 711374,
+    "sha256": "387a9dc00112898bd33a17cba03c1c63207f7cf2cc5678827452fdac48dc5ae6"
+  },
+  {
+    "path": "target/context-allocation-validation/.df_tmp/before-production.ll",
+    "bytes": 710293,
+    "sha256": "9b57ef82cfddc8d15e9f157b31c18d755e6c14b67dba1d2957a10fd846808f46"
+  },
+  {
+    "path": "target/context-allocation-validation/.df_tmp/before-unpruned.ll",
+    "bytes": 3528558,
+    "sha256": "80c320370cd3b909348611bf91229f5682baa00fa95fa5f357276f33063b932a"
+  },
+  {
+    "path": "target/context-allocation-validation/.df_tmp/before-windows-x64-fixture.ll",
+    "bytes": 710662,
+    "sha256": "856274f747ae5ad284abfbc7eedf9b2997aecb78709798d0956c48a5973322bc"
+  },
+  {
+    "path": "target/context-allocation-validation/after-development",
+    "bytes": 79760,
+    "sha256": "daea326e95c672562a7ab9eff2ded40c3e2fec48c853264d4300c0dfe270ef7f"
+  },
+  {
+    "path": "target/context-allocation-validation/after-development.contracts.json",
+    "bytes": 763,
+    "sha256": "b82e8509e0b5af21920e438909b25093ec108879c40fe34c584968857016d2e5"
+  },
+  {
+    "path": "target/context-allocation-validation/after-linux-arm64-fixture",
+    "bytes": 3693648,
+    "sha256": "894e408eb61c734a5f5cb80fdf6dfeccb29f7d645a5dda94b6074528a7bbc668"
+  },
+  {
+    "path": "target/context-allocation-validation/after-linux-arm64-fixture.contracts.json",
+    "bytes": 770,
+    "sha256": "b3cafa477e6eaaf67e3fa803435e7f95e30f557e30b5ad04b34a78a888486da9"
+  },
+  {
+    "path": "target/context-allocation-validation/after-production",
+    "bytes": 3425568,
+    "sha256": "b43e0f9da70e6332572f4097993cbea619b4a90b5250da0dd47ec6480ca88c0b"
+  },
+  {
+    "path": "target/context-allocation-validation/after-production.contracts.json",
+    "bytes": 761,
+    "sha256": "0713790a3d3bf62e685639abeea269803e1bf035261180708ef35151b25bb80d"
+  },
+  {
+    "path": "target/context-allocation-validation/after-unpruned",
+    "bytes": 10411856,
+    "sha256": "16c324e42db5e6f5011590b2368b08b679cba0075a65a7d12b47ff32a059f6a9"
+  },
+  {
+    "path": "target/context-allocation-validation/after-unpruned.contracts.json",
+    "bytes": 759,
+    "sha256": "23bf580b911d08742ea7671e76a9e390803e266e49d935810a4b80a5fcbae81c"
+  },
+  {
+    "path": "target/context-allocation-validation/after-windows-x64-fixture.exe",
+    "bytes": 3606528,
+    "sha256": "00e29208f666df41d45ebdc81b93046b7e0e37559598f87125974e43fc3c637c"
+  },
+  {
+    "path": "target/context-allocation-validation/after-windows-x64-fixture.exe.contracts.json",
+    "bytes": 774,
+    "sha256": "a4a72e3d2f1f3db9a13f008d37393611608fa865b6b481c6e5cd3b55bba4e8e6"
+  },
+  {
+    "path": "target/context-allocation-validation/before-development",
+    "bytes": 79760,
+    "sha256": "270a0c3a91b4930baf3d492564a60f0b617cc3a9a930e3557734409ada83304c"
+  },
+  {
+    "path": "target/context-allocation-validation/before-development.contracts.json",
+    "bytes": 764,
+    "sha256": "b36c096640c6139292e85ce4a0bc220a516dc169020604b58cef859ec71a9fc8"
+  },
+  {
+    "path": "target/context-allocation-validation/before-linux-arm64-fixture",
+    "bytes": 3693648,
+    "sha256": "894e408eb61c734a5f5cb80fdf6dfeccb29f7d645a5dda94b6074528a7bbc668"
+  },
+  {
+    "path": "target/context-allocation-validation/before-linux-arm64-fixture.contracts.json",
+    "bytes": 771,
+    "sha256": "c7be06b10500128ce026ca30ab25f90d9ae1e5c7c001f2f4213656423733bab9"
+  },
+  {
+    "path": "target/context-allocation-validation/before-production",
+    "bytes": 3425568,
+    "sha256": "46d48dffd6f6dcaa223a60bc990c823b479cd37bd7fc87c52660a1fb68a873bf"
+  },
+  {
+    "path": "target/context-allocation-validation/before-production.contracts.json",
+    "bytes": 762,
+    "sha256": "56a58d36b343455003d89e95437b69e15c6ac5636d06377068c3e720fa0ad934"
+  },
+  {
+    "path": "target/context-allocation-validation/before-unpruned",
+    "bytes": 10411856,
+    "sha256": "6dd7d754e6503fa10dd98edd43422655021777214a70ee6e5404fa58cafc66b7"
+  },
+  {
+    "path": "target/context-allocation-validation/before-unpruned.contracts.json",
+    "bytes": 760,
+    "sha256": "26bd0e93cd841ef059d70169b88651447c99216ce3cf130ef974e532b20d9a41"
+  },
+  {
+    "path": "target/context-allocation-validation/before-windows-x64-fixture.exe",
+    "bytes": 3606528,
+    "sha256": "8339707e3db9d097d2a08f28b3e16587dc51a38004f37677f9ed443aac9e6d36"
+  },
+  {
+    "path": "target/context-allocation-validation/before-windows-x64-fixture.exe.contracts.json",
+    "bytes": 775,
+    "sha256": "17e5bf3d559a1f08c8214ea159f32f325199cb87d3af07a7f45d637808725dd7"
+  },
+  {
+    "path": "target/context-allocation-validation/libdfsdk_597984a9c48c0390.dylib",
+    "bytes": 41883440,
+    "sha256": "2352f5faf21a876ef7c13c1587474edaae155654995b640a45facfe1b556e373"
+  },
+  {
+    "path": "target/context-allocation-validation/libdfsdk_67fe53ddf112e878.dylib",
+    "bytes": 41883440,
+    "sha256": "395c9fa721a2b4bf6582c48e01b3187c961f354a6b9bdc0c54df5bfa3136d2f8"
+  },
+  {
+    "path": "target/context-allocation-validation/libdfsdk_c8c142ca971fece4.dylib",
+    "bytes": 41883440,
+    "sha256": "9903a73d4f667a2955a3a6e17acdbf634981d8ce3aae7e0944d22e2b74a4bab9"
+  },
+  {
+    "path": "target/context-allocation-validation/linux-result.json",
+    "bytes": 368,
+    "sha256": "c943fe0bd20da7401091e1e61fe2a9631e87d505ce2954210db94c10a96104f8"
+  },
+  {
+    "path": "target/context-allocation-validation/linux-run.py",
+    "bytes": 1018,
+    "sha256": "e717c95c0cfa23fa10e66a66cdd732b0e81c407d7e8c86e10e83816720cedffe"
+  },
+  {
+    "path": "target/context-allocation-validation/platform-closed.ll",
+    "bytes": 167212,
+    "sha256": "3cc7ee79bf99ac7b0be9c85e9391ec7f469cef3371ba57e1e47c9e0dd69e1a9d"
+  },
+  {
+    "path": "target/context-allocation-validation/platform-closed.ll.contracts.json",
+    "bytes": 612,
+    "sha256": "69c81b20bfb5fa29382ef322794e963bfe573cce03201ba951ca1f4ff3ed5f1c"
+  },
+  {
+    "path": "target/context-allocation-validation/platform-default.ll",
+    "bytes": 167212,
+    "sha256": "3cc7ee79bf99ac7b0be9c85e9391ec7f469cef3371ba57e1e47c9e0dd69e1a9d"
+  },
+  {
+    "path": "target/context-allocation-validation/platform-default.ll.contracts.json",
+    "bytes": 613,
+    "sha256": "e5c25bfed91fcc8fdc1f40ea96841a617e086f2d08941c435140129a415e0956"
+  },
+  {
+    "path": "target/context-allocation-validation/sdk-after-inventory.json",
+    "bytes": 69917703,
+    "sha256": "5ae4db96d517ad4dc82eb1170dfc055edd7e814fbc5eda4183b379ba32adfaa7"
+  },
+  {
+    "path": "target/context-allocation-validation/sdk-before-inventory.json",
+    "bytes": 69918993,
+    "sha256": "7a1c696237b5a9cfb9085496058114ebc53b0aa645e1492ce19ca41bec81a3d9"
+  },
+  {
+    "path": "target/context-allocation-validation/sdk-linux-arm64-after-inventory.json",
+    "bytes": 69817308,
+    "sha256": "b2f4f8a9e757d67297a74c73c72bf03353d8a19d4d89319534405bef41be86ad"
+  },
+  {
+    "path": "target/context-allocation-validation/sdk-macos-arm64-after-inventory.json",
+    "bytes": 69917703,
+    "sha256": "bb061750c892dd3a6a1b80978a0b044c94853abc04cb46f95517bf288dc4c85c"
+  },
+  {
+    "path": "target/context-allocation-validation/sdk-pre-independent-inventory.json",
+    "bytes": 69917703,
+    "sha256": "5ae4db96d517ad4dc82eb1170dfc055edd7e814fbc5eda4183b379ba32adfaa7"
+  },
+  {
+    "path": "target/context-allocation-validation/sdk-windows-x64-after-inventory.json",
+    "bytes": 69316298,
+    "sha256": "c2e57f11474ab2d59b9da5adddfe72113f78cb087561c04c3efef1781a96d790"
+  },
+  {
+    "path": "target/context-allocation-validation/windows-result.json",
+    "bytes": 445,
+    "sha256": "f2d8e485ab60ed4178b4f1c13e7c64bdec52c1f7d0edc67bc0c25660f3d97756"
+  },
+  {
+    "path": "target/context-allocation-validation/windows-run.ps1",
+    "bytes": 1609,
+    "sha256": "a5e54d748c5ca3854de88be2d068cb790e366e7edac2bd957958bed871617e65"
+  },
+  {
+    "path": "target/test-tools/dartforge-before-context-allocation",
+    "bytes": 197948640,
+    "sha256": "d536231b673558fc76710496fc9c7071332bb3b0d0313cef37eb7dc94a96dc08"
+  },
+  {
+    "path": "target/test-tools/dartforge-context-allocation",
+    "bytes": 198027248,
+    "sha256": "6f80bd6250293b71cbe26301d27f97e35f2be72a316a7913b8aaef3a6065a115"
+  },
+  {
+    "path": "target/test-tools/dartforge-context-allocation-initial",
+    "bytes": 198028288,
+    "sha256": "a66acbc3aec4f0d3e9d4b8dfdcb80950e1c06584995c67fbfc94455395882cb6"
+  },
+  {
+    "path": "target/test-tools/dartforge-context-allocation-pre-independent",
+    "bytes": 198030464,
+    "sha256": "6d6afd4bfb7e6105b1ec81bb9de56b9b6e47aa4a6b3fd0a5e4c4145d88f23ad2"
+  }
+]
