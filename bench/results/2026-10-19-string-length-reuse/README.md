@@ -59,11 +59,15 @@ profile tests passed. `workspace-continuation.log` retains the complete result.
 That binary predates this pass; no assertion was weakened. This is not a global
 workspace approval, and packages after that failure remain unvalidated by it.
 
-Directly feeding the pruned AOT development IR to `dartforge-run-ir` also
-segfaults. The previous retained compiler reproduces the same failed scenario
+During this measurement, directly feeding the pruned AOT development IR to
+`dartforge-run-ir` also segfaulted. The previous retained compiler reproduces the same failed scenario
 with its own matching SDK DLL, while its AOT binary matches the VM.
 `old-pruned-jit.json` and `jit-execution.json` retain both observations; the
-cause is unresolved. The regular JIT API path above passes. Initial verifier
+cause was unresolved at that point. The subsequent SDK-owned runtime-data fix
+(`a5e0962f`, [verification](../2026-10-19-jit-sdk-context-data/README.md)) runs
+these unchanged IR/SDK pairs successfully. A current-head recheck on 2026-10-20
+also passes normal/stressed execution. The original crash logs remain historical
+failure evidence. The regular JIT API path above passes. Initial verifier
 setup failures (Mach-O RPATH resolution and an AOT-copied DLL without its JIT
 export manifest) are retained too; the final JIT API check uses the matching SDK
 cache library and hashes its manifest. A debugger attempt was stopped and is

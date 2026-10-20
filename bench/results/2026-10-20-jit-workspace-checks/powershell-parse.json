@@ -1,0 +1,11 @@
+{
+  "command": [
+    "pwsh",
+    "-NoProfile",
+    "-Command",
+    "$tokens = $null; $parseErrors = $null; [System.Management.Automation.Language.Parser]::ParseFile((Join-Path (Get-Location) \"scripts/check.ps1\"), [ref]$tokens, [ref]$parseErrors) > $null; if ($parseErrors.Count) { $parseErrors | ForEach-Object { $_.ToString() }; exit 1 }; \"PowerShell parse: PASS\""
+  ],
+  "exit": 0,
+  "stdout": "PowerShell parse: PASS\n",
+  "stderr": ""
+}

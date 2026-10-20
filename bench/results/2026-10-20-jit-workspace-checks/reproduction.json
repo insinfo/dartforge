@@ -1,0 +1,50 @@
+[
+  {
+    "name": "preserved-runner",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/dartforge-run-ir",
+      "/tmp/forge-string-length-reuse/development.ll"
+    ],
+    "exit": 0,
+    "stdout": "35294\n",
+    "stderr": "",
+    "seconds": 0.11380841700000001,
+    "stress": false,
+    "runner_sha256": "e9b09a968bc736908243ca96729ef173946e69504f4ab59f26ec4e57024c5e74",
+    "sdk": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "sdk_sha256": "1f95431dfc3ed00cfebb41dd0afafabee19fc6d2d654492805ad8ea7ab015f0e",
+    "ir_sha256": "5c8f6faeb90a3c59e2640fcf4651bf954aa4f48699090415966ac5bd34bc7d30"
+  },
+  {
+    "name": "current-runner",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-pruned-check",
+      "/tmp/forge-string-length-reuse/development.ll"
+    ],
+    "exit": 0,
+    "stdout": "35294\n",
+    "stderr": "",
+    "seconds": 0.736605833,
+    "stress": false,
+    "runner_sha256": "d6d81956cb0d153f44132570ffff3a31af6373a2c1045f3c56a3945338c9b878",
+    "sdk": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "sdk_sha256": "1f95431dfc3ed00cfebb41dd0afafabee19fc6d2d654492805ad8ea7ab015f0e",
+    "ir_sha256": "5c8f6faeb90a3c59e2640fcf4651bf954aa4f48699090415966ac5bd34bc7d30"
+  },
+  {
+    "name": "current-runner-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-run-ir-pruned-check",
+      "/tmp/forge-string-length-reuse/development.ll"
+    ],
+    "exit": 0,
+    "stdout": "35294\n",
+    "stderr": "",
+    "seconds": 0.08730149999999992,
+    "stress": true,
+    "runner_sha256": "d6d81956cb0d153f44132570ffff3a31af6373a2c1045f3c56a3945338c9b878",
+    "sdk": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "sdk_sha256": "1f95431dfc3ed00cfebb41dd0afafabee19fc6d2d654492805ad8ea7ab015f0e",
+    "ir_sha256": "5c8f6faeb90a3c59e2640fcf4651bf954aa4f48699090415966ac5bd34bc7d30"
+  }
+]

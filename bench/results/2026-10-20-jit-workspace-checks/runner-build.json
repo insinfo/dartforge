@@ -1,0 +1,12 @@
+{
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-p",
+    "dartforge-jit",
+    "--bin",
+    "dartforge-run-ir"
+  ],
+  "exit": 0
+}

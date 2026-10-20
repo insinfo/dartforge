@@ -1,0 +1,9 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--help"
+  ],
+  "exit": 0,
+  "no_fail_fast_help": "      --no-fail-fast             Run all tests regardless of failure"
+}

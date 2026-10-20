@@ -1,0 +1,25 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+    "/tmp/forge-string-length-reuse/lengths.dart"
+  ],
+  "exit": 0,
+  "stdout": "35294\n",
+  "stderr": "",
+  "source_sha256": "6601f93e81f2a873b4d3cde7c1222b05429cd31c88b4beca3fc063689384c46e",
+  "observations_sha256": "be44da46da335b1e5007f14c02c0de57682003d109e15448071f513d74de8d15",
+  "checks": [
+    {
+      "name": "preserved-runner",
+      "matches_reference": true
+    },
+    {
+      "name": "current-runner",
+      "matches_reference": true
+    },
+    {
+      "name": "current-runner-stress",
+      "matches_reference": true
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "path": "target/debug/dartforge-run-ir",
+    "bytes": 68457248,
+    "sha256": "e9b09a968bc736908243ca96729ef173946e69504f4ab59f26ec4e57024c5e74"
+  },
+  {
+    "path": "target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "bytes": 41883248,
+    "sha256": "1f95431dfc3ed00cfebb41dd0afafabee19fc6d2d654492805ad8ea7ab015f0e"
+  },
+  {
+    "path": "/tmp/forge-string-length-reuse/development.ll",
+    "bytes": 130825,
+    "sha256": "5c8f6faeb90a3c59e2640fcf4651bf954aa4f48699090415966ac5bd34bc7d30"
+  }
+]

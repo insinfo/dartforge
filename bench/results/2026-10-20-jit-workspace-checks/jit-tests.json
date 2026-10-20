@@ -1,0 +1,12 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-jit",
+    "--",
+    "--include-ignored"
+  ],
+  "exit": 0
+}

@@ -1,0 +1,37 @@
+[
+  {
+    "path": "target/test-tools/dartforge-run-ir-pruned-check",
+    "bytes": 68449200,
+    "sha256": "d6d81956cb0d153f44132570ffff3a31af6373a2c1045f3c56a3945338c9b878"
+  },
+  {
+    "path": "target/test-tools/dartforge-stack-storage",
+    "bytes": 198376576,
+    "sha256": "f6dc13cb8be99e4b344a7e2d725acd6f9b44b0abf1d59f4525e29d2640848465"
+  },
+  {
+    "path": "target/debug/dartforge-run-ir",
+    "bytes": 68457248,
+    "sha256": "e9b09a968bc736908243ca96729ef173946e69504f4ab59f26ec4e57024c5e74"
+  },
+  {
+    "path": "/tmp/forge-string-length-reuse/development.ll",
+    "bytes": 130825,
+    "sha256": "5c8f6faeb90a3c59e2640fcf4651bf954aa4f48699090415966ac5bd34bc7d30"
+  },
+  {
+    "path": "/tmp/forge-string-length-reuse/lengths.dart",
+    "bytes": 1004,
+    "sha256": "6601f93e81f2a873b4d3cde7c1222b05429cd31c88b4beca3fc063689384c46e"
+  },
+  {
+    "path": "target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/libdfsdk_6b6831042293752b.dylib",
+    "bytes": 41883248,
+    "sha256": "1f95431dfc3ed00cfebb41dd0afafabee19fc6d2d654492805ad8ea7ab015f0e"
+  },
+  {
+    "path": "target/string-length-native-cache/sdk/6b6831042293752baa4cd97534016ec3/exportados.def",
+    "bytes": 1370393,
+    "sha256": "f671ebc610ff04f87794bb548ca105d61c0a6f45a9086789bdf800aea498428c"
+  }
+]

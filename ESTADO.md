@@ -2,6 +2,21 @@
 
 ## Atualização de 20/10/2026
 
+- Revalidado o JIT completo atual: 92 testes regulares e seis doctests passaram,
+  incluindo todos os ignorados. O IR AOT podado antigo e seu SDK original também
+  passam no executor atual normal/sob estresse, com a saída 35294 da VM Dart.
+  A falha já estava corrigida por `a5e0962f`; o relatório histórico foi atualizado
+  para apontar essa correção, preservando as falhas originais. O executor
+  preservado disponível já tem hash diferente do binário que falhou inicialmente;
+  não foi apresentado como controle negativo. O script local e CONTRIBUTING
+  agora usam `--no-fail-fast`, como o CI, para executar os demais alvos após uma
+  falha sem esconder o código de erro final. Sintaxe PowerShell validada. Iniciada
+  uma passada integral do workspace com ignorados, sem exclusões/filtros e com
+  dois jobs/threads; logs em `/tmp/forge-workspace-complete`, ainda em andamento.
+  Isso não é aprovação integral: o gate de backends e fmt global seguem abertos.
+  Sem alteração de fontes Rust/runtime/bundles ou nova matriz de hóspedes.
+  Evidências: `bench/results/2026-10-20-jit-workspace-checks/README.md`.
+
 - O auditor reconhece agora escritas em subobjetos tipados e delimitados de
   `alloca`: escalares, arrays, estruturas, GEPs encadeados e decaimento exato de
   array. Sem calcular offsets/padding; tipos e índices constantes devem caber.

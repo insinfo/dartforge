@@ -24,7 +24,7 @@ semantics that tests can demonstrate, including side effects, evaluation order a
 
     cargo fmt --all -- --check
     cargo clippy --locked --workspace --all-targets -- -D warnings
-    cargo test --locked --workspace -- --include-ignored
+    cargo test --locked --workspace --no-fail-fast -- --include-ignored
     cargo doc --locked --workspace --no-deps --document-private-items
 
 On macOS, the repository Cargo linker selects matching LLVM LLD for archives
@@ -35,6 +35,8 @@ its stubs. See `docs/JIT.md` for toolchain selection and explicit linker overrid
 
 Ignored tests have additional prerequisites: Node, the Dart source SDK, resolved
 corpus dependencies, and a current native compiler for builder integrations.
+The test command continues through all test executables after a failure and
+still returns a failing exit status; keep the complete log when reporting it.
 `DARTFORGE_COMPILER` selects that compiler; its default is
 `target/release/dartforge`. For a debug compiler, build
 `cargo build --locked -p dartforge-cli --features jit` and copy the executable

@@ -1,0 +1,14 @@
+[
+  {
+    "path": "scripts/check.ps1",
+    "sha256": "8aa7dd15f6ebcb9d0dc90f726de592e5e89fdf536a9db74a53b0bede8810c3ce"
+  },
+  {
+    "path": "CONTRIBUTING.md",
+    "sha256": "ba85f7f19c4a04a3314849796b498de090d64c45d41b7da329a33829443718c2"
+  },
+  {
+    "path": "bench/results/2026-10-19-string-length-reuse/README.md",
+    "sha256": "6415673739a29b720efcaafeae387620fc2f980bcb630973239b87a05926379b"
+  }
+]

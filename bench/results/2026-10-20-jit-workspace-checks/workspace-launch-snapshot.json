@@ -1,0 +1,33 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--workspace",
+    "--no-fail-fast",
+    "--",
+    "--include-ignored"
+  ],
+  "base_commit": "dac116ab70fd796876904586c848f9c61b036e20",
+  "wrapper_pid": 19635,
+  "started_unix": 1792502365.636428,
+  "environment": {
+    "DARTFORGE_LLVM_DIR": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "LLVM_SYS_221_PREFIX": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64",
+    "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "MACOSX_DEPLOYMENT_TARGET": "15.0",
+    "DARTFORGE_NATIVE_CACHE": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_TEST_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_COMPILER": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-stack-storage",
+    "DARTFORGE_NATIVE_COMPILER": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-stack-storage",
+    "DARTFORGE_CLANG": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "TMPDIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/tmp-workspace-complete-zi2auch4",
+    "RUST_TEST_THREADS": "2",
+    "CARGO_BUILD_JOBS": "2",
+    "CARGO_TARGET_DIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation",
+    "PATH": "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin:/Volumes/ssd_dock/tools/rea/node-v24.21.0-darwin-arm64/bin:/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin:/Users/isaque/.antigravity-ide/antigravity-ide/bin:/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin:/Volumes/ssd_dock/tools/rust/cargo/bin:/Volumes/ssd_dock/tools/dart/pub-cache/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/System/Cryptexes/App/usr/bin:/usr/bin:/bin:/usr/sbin:/sbin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/local/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/bin:/var/run/com.apple.security.cryptexd/codex.system/bootstrap/usr/appleinternal/bin:/pkg/env/global/bin:/Library/Apple/usr/bin:/Users/isaque/.codex/tmp/arg0/codex-arg0sdMFjv:/Users/isaque/.vscode/extensions/openai.chatgpt-26.1007.21434-darwin-arm64/bin/macos-aarch64"
+  },
+  "pid": 19640,
+  "status": "running"
+}

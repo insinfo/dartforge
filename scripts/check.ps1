@@ -12,7 +12,7 @@ try {
  if ($LASTEXITCODE) { throw 'Formatting failed' }
  cargo clippy --locked --workspace --all-targets -- -D warnings
  if ($LASTEXITCODE) { throw 'Clippy failed' }
- cargo test --locked --workspace -- --include-ignored
+ cargo test --locked --workspace --no-fail-fast -- --include-ignored
  if ($LASTEXITCODE) { throw 'Tests failed' }
  $env:RUSTDOCFLAGS = '-D warnings'
  cargo doc --locked --workspace --no-deps --document-private-items
