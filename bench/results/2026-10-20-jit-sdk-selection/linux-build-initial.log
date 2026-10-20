@@ -1,0 +1,33 @@
+   Compiling dartforge-diagnostics v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/diagnostics)
+   Compiling dartforge-intern v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/intern)
+   Compiling dartforge-frontend v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/frontend)
+   Compiling dartforge-elements v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/elements)
+   Compiling dartforge-types v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/types)
+   Compiling dartforge-dfexec v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/dfexec)
+   Compiling dartforge-runtime v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/runtime)
+   Compiling dartforge-llvm v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/llvm)
+   Compiling dartforge-sass v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/sass)
+   Compiling dartforge-ng-generator v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/ng_generator)
+   Compiling dartforge-emit-native v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/emit_native)
+   Compiling dartforge-macros-host v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/macros_host)
+   Compiling dartforge-abi v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/abi)
+   Compiling dartforge-build v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/build)
+error: couldn't read `crates/build/src/../../../packages/build_executor/lib/executor.dart`: No such file or directory (os error 2)
+  --> crates/build/src/vm.rs:40:9
+   |
+40 |         include_str!("../../../packages/build_executor/lib/executor.dart"),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: couldn't read `crates/build/src/../../../packages/build_executor/lib/src/channel.dart`: No such file or directory (os error 2)
+  --> crates/build/src/vm.rs:44:9
+   |
+44 |         include_str!("../../../packages/build_executor/lib/src/channel.dart"),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: couldn't read `crates/build/src/../../../packages/build_executor/lib/src/service.dart`: No such file or directory (os error 2)
+  --> crates/build/src/vm.rs:48:9
+   |
+48 |         include_str!("../../../packages/build_executor/lib/src/service.dart"),
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: could not compile `dartforge-build` (lib) due to 3 previous errors

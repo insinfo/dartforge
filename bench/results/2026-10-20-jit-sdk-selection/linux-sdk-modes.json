@@ -1,0 +1,59 @@
+[
+  {
+    "mode": "run",
+    "command": [
+      "/home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop-fixed",
+      "run",
+      "--sdk",
+      "/opt/dart/3.6.2/dart-sdk/lib",
+      "/tmp/dartforge-current-desktop-source.J31ojX/crates/cli/tests/fixtures/jit_main_arguments.dart",
+      "--",
+      "--sdk",
+      "application-owned",
+      "--"
+    ],
+    "compiler_sha256": "22e000a82834b8d6cf37adf745ef42fa1de348640ddfe1f6882f962dd6b4fe03",
+    "exit": 0,
+    "stdout": "[\"--sdk\",\"application-owned\",\"--\"]\n",
+    "stderr": ""
+  },
+  {
+    "mode": "reload",
+    "command": [
+      "/home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop-fixed",
+      "reload",
+      "--sdk",
+      "/opt/dart/3.6.2/dart-sdk/lib",
+      "/tmp/dartforge-current-desktop-source.J31ojX/crates/cli/tests/fixtures/jit_main_arguments.dart",
+      "--once",
+      "--",
+      "--sdk",
+      "application-owned",
+      "--"
+    ],
+    "compiler_sha256": "22e000a82834b8d6cf37adf745ef42fa1de348640ddfe1f6882f962dd6b4fe03",
+    "exit": 0,
+    "stdout": "[\"--sdk\",\"application-owned\",\"--\"]\n",
+    "stderr": "[reload] generation 1: state preserved in the same session\n"
+  },
+  {
+    "mode": "restart",
+    "command": [
+      "/home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop-fixed",
+      "reload",
+      "--sdk",
+      "/opt/dart/3.6.2/dart-sdk/lib",
+      "/tmp/dartforge-current-desktop-source.J31ojX/crates/cli/tests/fixtures/jit_main_arguments.dart",
+      "--once",
+      "--restart",
+      "--",
+      "--sdk",
+      "application-owned",
+      "--"
+    ],
+    "compiler_sha256": "22e000a82834b8d6cf37adf745ef42fa1de348640ddfe1f6882f962dd6b4fe03",
+    "exit": 0,
+    "stdout": "[\"--sdk\",\"application-owned\",\"--\"]\n",
+    "stderr": "[reload] generation 1: hot restart \u2014 state is NOT preserved (the program starts over from main; stateful hot reload does not exist yet)\n[reload] generation 1 ended with code 0\n"
+  }
+]

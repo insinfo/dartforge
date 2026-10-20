@@ -30,8 +30,7 @@ def main():
     example = ui / 'examples/file_explorer'
     out = options.out.resolve()
     out.mkdir(parents=True, exist_ok=True)
-    environment = dict(os.environ, DARTFORGE_SDK_LIB=str(options.sdk.resolve()),
-                       DART_UI_FONTS=str(ui / 'assets/fonts'))
+    environment = dict(os.environ, DART_UI_FONTS=str(ui / 'assets/fonts'))
     records = []
     report = {'platform': platform.platform(),
               'compiler': str(compiler),
@@ -80,7 +79,8 @@ def main():
             run(name + '-aot-run', [executable, *args], marker)
             report[name + '_aot_sha256'] = hashlib.sha256(executable.read_bytes()).hexdigest()
         if options.mode in ['all', 'jit']:
-            run(name + '-jit-run', [compiler, 'run', entry, *common, '--', *args], marker)
+            # Options after the entry point belong to the Dart application's main.
+            run(name + '-jit-run', [compiler, 'run', *common, entry, '--', *args], marker)
     (out / ('results-' + options.mode + '.json')).write_text(json.dumps(report, indent=2) + '\n')
 
 

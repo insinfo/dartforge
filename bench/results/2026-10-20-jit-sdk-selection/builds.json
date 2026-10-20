@@ -1,0 +1,118 @@
+[
+  {
+    "name": "macos-ui",
+    "command": [
+      "python3",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/validate-native-desktop.py",
+      "--compiler",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-bit-iteration",
+      "--ui-root",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--out",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/macos-ui",
+      "--mode",
+      "all"
+    ],
+    "exit": 0,
+    "seconds": 504.45969675,
+    "compiler_sha256": "235aac9a64695690924c87606a126fbd251468e95c8d58318ccd88c3b9a063a9"
+  },
+  {
+    "name": "linux-arm64-explorer",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-bit-iteration",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--target",
+      "linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/linux-arm64-explorer"
+    ],
+    "exit": 0,
+    "seconds": 228.50227041700003,
+    "compiler_sha256": "235aac9a64695690924c87606a126fbd251468e95c8d58318ccd88c3b9a063a9",
+    "executable_sha256": "900d39ca48a3751bf62e26de6f0e17362a06cbd4c7c74498a05e5c6f253cbe37",
+    "bytes": 37619528
+  },
+  {
+    "name": "linux-arm64-context",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-bit-iteration",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--target",
+      "linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/linux-arm64-context"
+    ],
+    "exit": 0,
+    "seconds": 118.16236008299995,
+    "compiler_sha256": "235aac9a64695690924c87606a126fbd251468e95c8d58318ccd88c3b9a063a9",
+    "executable_sha256": "8de460064f638aae64333400ef53dccc6fa573bcbcb1d20c42c819d5c33b64be",
+    "bytes": 36640592
+  },
+  {
+    "name": "windows-x64-explorer",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-bit-iteration",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/windows-x64-explorer.exe"
+    ],
+    "exit": 0,
+    "seconds": 288.0041074999999,
+    "compiler_sha256": "235aac9a64695690924c87606a126fbd251468e95c8d58318ccd88c3b9a063a9",
+    "executable_sha256": "37b939a59b2f45eb129f2bf1aec0ff731d02fcd4fac6f271f29f86c5e6d5260f",
+    "bytes": 37224960
+  },
+  {
+    "name": "windows-x64-context",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-bit-iteration",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/windows-x64-context.exe"
+    ],
+    "exit": 0,
+    "seconds": 157.76890750000007,
+    "compiler_sha256": "235aac9a64695690924c87606a126fbd251468e95c8d58318ccd88c3b9a063a9",
+    "executable_sha256": "bad9b2eccc482479ace84f534cc49bb3742cba5f76d3f24b919e69064ddc44a7",
+    "bytes": 36343296
+  }
+]

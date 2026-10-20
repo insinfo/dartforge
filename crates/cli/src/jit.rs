@@ -151,16 +151,23 @@ fn emit_generation(
 
 /// The shared library of the source-built SDK that the IR imports:
 /// `DARTFORGE_SDK_DLL` if set, otherwise the cached one (compiled now if
-/// missing); `None` when the IR does not use the source-built SDK.
+/// missing) for the same SDK selected for emission. `None` when the IR
+/// does not use the source-built SDK.
 #[cfg(feature = "jit")]
-fn sdk_library(ir: &str) -> Result<Option<PathBuf>, String> {
+fn sdk_library(ir: &str, sdk: Option<&Path>) -> Result<Option<PathBuf>, String> {
     if !dartforge_jit::ir_uses_source_sdk(ir) {
         return Ok(None);
     }
     if let Some(d) = std::env::var_os("DARTFORGE_SDK_DLL") {
         return Ok(Some(PathBuf::from(d)));
     }
-    dartforge_emit_native::sdk_module::source_sdk_dll().map(Some)
+    match sdk {
+        Some(dir) => {
+            let clang = dartforge_emit_native::driver::NativeDriverOptions::default().clang;
+            dartforge_emit_native::sdk_module::compiled_sdk(dir, &clang).map(|sdk| Some(sdk.dll))
+        }
+        None => dartforge_emit_native::sdk_module::source_sdk_dll().map(Some),
+    }
 }
 
 /// `dartforge run [--sdk <lib>] [--packages <cfg>] [--timings] <input.dart>
@@ -238,7 +245,7 @@ pub fn run(args: &[std::ffi::OsString]) -> Outcome {
         ),
         _ => return Err(usage.into()),
     };
-    let sdk_dll = sdk_library(&ir)?;
+    let sdk_dll = sdk_library(&ir, sdk.as_deref())?;
     let report = dartforge_jit::run_ir_with(&ir, sdk_dll.as_deref())?;
     use std::io::Write;
     let _ = std::io::stdout().flush();
@@ -503,14 +510,14 @@ pub fn reload(args: &[std::ffi::OsString]) -> Outcome {
                     }
                     // The child also starts from tracing; it carries over the
                     // explicit selection to keep the same SDK variant in the cache.
-                    command
-                        .arg("run")
-                        .arg(format!(
-                            "--memory={}",
-                            std::env::var("DARTFORGE_MEMORY").unwrap_or_else(|_| "tracing".into())
-                        ))
-                        .arg("--ir")
-                        .arg(&file);
+                    command.arg("run").arg(format!(
+                        "--memory={}",
+                        std::env::var("DARTFORGE_MEMORY").unwrap_or_else(|_| "tracing".into())
+                    ));
+                    if let Some(sdk) = &sdk {
+                        command.arg("--sdk").arg(sdk);
+                    }
+                    command.arg("--ir").arg(&file);
                     if timings {
                         command.arg("--timings");
                     }
@@ -647,7 +654,7 @@ fn live_reload(
             last = Some(now);
             match emit(input, sdk, packages) {
                 Ok(ir) => {
-                    let sdk_dll = sdk_library(&ir.text)?;
+                    let sdk_dll = sdk_library(&ir.text, sdk)?;
                     let session =
                         dartforge_jit::JitSession::new_for_ir_with(&ir.text, sdk_dll.as_deref())?;
                     break (session, ir);

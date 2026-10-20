@@ -1,0 +1,17 @@
+[
+  {
+    "path": "crates/cli/src/jit.rs",
+    "before_sha256": "029ca7664a15ac297310dd1854ade501e21b2c41422f1a161b41fdc0c1d09133",
+    "after_sha256": "d42e67e85f9f1b4f7da039d2e8880f7ec04a6dba98f8d4bd42b667394ec98168"
+  },
+  {
+    "path": "crates/cli/tests/jit_program.rs",
+    "before_sha256": "aed9ef75f87abf7983873c54b8e1bc60c7de7b366ded2e94f08c176a39374017",
+    "after_sha256": "904889f655a41085254c4ad8c02f1e80be909ec5087c1502d1444661a21927b2"
+  },
+  {
+    "path": "scripts/validate-native-desktop.py",
+    "before_sha256": "a4873267b35aa7ec6f29a143b043a6662377725bddb370104d71ce98be6f8fbd",
+    "after_sha256": "b63b03db42ccb6f47681c608c1183ddec64f6ee2664e80efbee1560cff0b269d"
+  }
+]

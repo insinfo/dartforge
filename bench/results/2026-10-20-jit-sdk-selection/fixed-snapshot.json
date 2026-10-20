@@ -1,0 +1,12 @@
+{
+  "base_commit": "6ab2194ee6343d5c712a429f8b246be5790ffb11",
+  "files": 1851,
+  "path": "target/current-desktop-validation/source-fixed-snapshot.tar.gz",
+  "bytes": 6501733,
+  "sha256": "c33aa08c8f0654ae8c562c3fb3662389fd22a7640841db88f581fea3cac10e8b",
+  "modified_files": [
+    "crates/cli/src/jit.rs",
+    "crates/cli/tests/jit_program.rs",
+    "scripts/validate-native-desktop.py"
+  ]
+}

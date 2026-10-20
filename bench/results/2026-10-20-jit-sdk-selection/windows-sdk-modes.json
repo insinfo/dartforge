@@ -1,0 +1,59 @@
+[
+    {
+        "compiler":  "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\dartforge-current-desktop.exe",
+        "compiler_sha256":  "779b98f8be496488fe5e63fdcdf944ff8d0de40827d8deeb710399e706274371",
+        "stderr":  "",
+        "arguments":  [
+                          "run",
+                          "--sdk",
+                          "C:\\tools\\dart\\3.6.2\\dart-sdk\\lib",
+                          "C:\\tools\\dfcd-eac79fc6\\crates\\cli\\tests\\fixtures\\jit_main_arguments.dart",
+                          "--",
+                          "--sdk",
+                          "application-owned",
+                          "--"
+                      ],
+        "exit":  0,
+        "mode":  "run",
+        "stdout":  "[\"--sdk\",\"application-owned\",\"--\"]\n"
+    },
+    {
+        "compiler":  "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\dartforge-current-desktop.exe",
+        "compiler_sha256":  "779b98f8be496488fe5e63fdcdf944ff8d0de40827d8deeb710399e706274371",
+        "stderr":  "[reload] generation 1: state preserved in the same session\n",
+        "arguments":  [
+                          "reload",
+                          "--sdk",
+                          "C:\\tools\\dart\\3.6.2\\dart-sdk\\lib",
+                          "C:\\tools\\dfcd-eac79fc6\\crates\\cli\\tests\\fixtures\\jit_main_arguments.dart",
+                          "--once",
+                          "--",
+                          "--sdk",
+                          "application-owned",
+                          "--"
+                      ],
+        "exit":  0,
+        "mode":  "reload",
+        "stdout":  "[\"--sdk\",\"application-owned\",\"--\"]\n"
+    },
+    {
+        "compiler":  "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\dartforge-current-desktop.exe",
+        "compiler_sha256":  "779b98f8be496488fe5e63fdcdf944ff8d0de40827d8deeb710399e706274371",
+        "stderr":  "[reload] generation 1: hot restart — state is NOT preserved (the program starts over from main; stateful hot reload does not exist yet)\n[reload] generation 1 ended with code 0\n",
+        "arguments":  [
+                          "reload",
+                          "--sdk",
+                          "C:\\tools\\dart\\3.6.2\\dart-sdk\\lib",
+                          "C:\\tools\\dfcd-eac79fc6\\crates\\cli\\tests\\fixtures\\jit_main_arguments.dart",
+                          "--once",
+                          "--restart",
+                          "--",
+                          "--sdk",
+                          "application-owned",
+                          "--"
+                      ],
+        "exit":  0,
+        "mode":  "restart",
+        "stdout":  "[\"--sdk\",\"application-owned\",\"--\"]\n"
+    }
+]

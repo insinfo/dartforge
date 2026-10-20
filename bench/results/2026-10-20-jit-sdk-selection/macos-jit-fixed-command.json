@@ -1,0 +1,18 @@
+{
+  "command": [
+    "python3",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/scripts/validate-native-desktop.py",
+    "--compiler",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-explicit-sdk",
+    "--ui-root",
+    "/Volumes/ssd_dock/MyProjectsDart/dart_ui",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "--out",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/macos-jit-fixed",
+    "--mode",
+    "jit"
+  ],
+  "ambient_sdk": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/invalid-sdk",
+  "explicit_sdk": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+}

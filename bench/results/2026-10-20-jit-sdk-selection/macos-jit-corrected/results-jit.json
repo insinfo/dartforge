@@ -1,0 +1,45 @@
+{
+  "platform": "macOS-27.2-arm64-arm-64bit",
+  "compiler": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-bit-iteration",
+  "compiler_sha256": "235aac9a64695690924c87606a126fbd251468e95c8d58318ccd88c3b9a063a9",
+  "mode": "jit",
+  "runs": [
+    {
+      "name": "explorer-jit-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-bit-iteration",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--cpu"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 141.785
+    },
+    {
+      "name": "context-smoke-jit-run",
+      "command": [
+        "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-bit-iteration",
+        "run",
+        "--sdk",
+        "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+        "--",
+        "--cpu"
+      ],
+      "exit": 0,
+      "passed": true,
+      "seconds": 231.236
+    }
+  ]
+}

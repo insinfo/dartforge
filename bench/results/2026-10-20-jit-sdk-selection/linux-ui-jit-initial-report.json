@@ -1,0 +1,34 @@
+{
+  "compiler": "/home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop",
+  "compiler_sha256": "cba7d19b59ea61a08f3d6a6b47737be3a1a36c402517c52abf89b8a1f2a511e9",
+  "runs": [
+    {
+      "name": "explorer-native-jit",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop",
+        "run",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "--",
+        "/home/isaque/projects/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 1,
+      "seconds": 0.033617499997490086,
+      "stdout": "",
+      "stderr": "error: Dart SDK not found: the dartforge distribution carries it in lib/dart-sdk; in a development tree, set DARTFORGE_SDK_LIB (the lib/ of the SDK) or DART_SDK\n"
+    }
+  ],
+  "transfers": [],
+  "state": {
+    "status": "running",
+    "name": "explorer-native-jit",
+    "pid": 32652
+  }
+}

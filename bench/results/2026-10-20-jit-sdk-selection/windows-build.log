@@ -1,0 +1,35 @@
+cargo.exe :    Compiling dartforge-intern v0.1.0 (C:\tools\dfcd-eac79fc6\crates\intern)
+At \\Mac\ssd_dock\MyRustProjects\dartforge\target\current-desktop-validation\windows-build.ps1:7 char:1
++ & cargo build --release --locked -p dartforge-cli --features jit --ta ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling da...\crates\intern):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+   Compiling dartforge-diagnostics v0.1.0 (C:\tools\dfcd-eac79fc6\crates\diagnostics)
+   Compiling dartforge-frontend v0.1.0 (C:\tools\dfcd-eac79fc6\crates\frontend)
+   Compiling dartforge-elements v0.1.0 (C:\tools\dfcd-eac79fc6\crates\elements)
+   Compiling dartforge-types v0.1.0 (C:\tools\dfcd-eac79fc6\crates\types)
+   Compiling dartforge-dfexec v0.1.0 (C:\tools\dfcd-eac79fc6\crates\dfexec)
+   Compiling dartforge-runtime v0.1.0 (C:\tools\dfcd-eac79fc6\crates\runtime)
+   Compiling dartforge-llvm v0.1.0 (C:\tools\dfcd-eac79fc6\crates\llvm)
+   Compiling dartforge-sass v0.1.0 (C:\tools\dfcd-eac79fc6\crates\sass)
+   Compiling dartforge-emit-native v0.1.0 (C:\tools\dfcd-eac79fc6\crates\emit_native)
+   Compiling dartforge-ng-generator v0.1.0 (C:\tools\dfcd-eac79fc6\crates\ng_generator)
+   Compiling dartforge-macros-host v0.1.0 (C:\tools\dfcd-eac79fc6\crates\macros_host)
+   Compiling dartforge-abi v0.1.0 (C:\tools\dfcd-eac79fc6\crates\abi)
+   Compiling dartforge-build v0.1.0 (C:\tools\dfcd-eac79fc6\crates\build)
+   Compiling dartforge-emit-js v0.1.0 (C:\tools\dfcd-eac79fc6\crates\emit_js)
+   Compiling object v0.39.1
+   Compiling dartforge-analysis v0.1.0 (C:\tools\dfcd-eac79fc6\crates\analysis)
+   Compiling dartforge-world v0.1.0 (C:\tools\dfcd-eac79fc6\crates\world)
+   Compiling filetime v0.2.29
+   Compiling utf8-zero v0.8.1
+   Compiling ureq v3.4.2
+   Compiling tar v0.4.46
+   Compiling dartforge-parity v0.1.0 (C:\tools\dfcd-eac79fc6\crates\parity)
+   Compiling dartforge-dev v0.1.0 (C:\tools\dfcd-eac79fc6\crates\dev)
+   Compiling dartforge-jit v0.1.0 (C:\tools\dfcd-eac79fc6\crates\jit)
+   Compiling dartforge-formatter v0.1.0 (C:\tools\dfcd-eac79fc6\crates\formatter)
+   Compiling semver v1.0.28
+   Compiling dartforge-cli v0.1.0 (C:\tools\dfcd-eac79fc6\crates\cli)
+    Finished `release` profile [optimized] target(s) in 8m 37s

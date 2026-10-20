@@ -978,7 +978,11 @@ A biblioteca do SDK da fonte (`libdfsdk_<chave>.so`/`.dylib`) é
 carregada com `dlopen(RTLD_NOW | RTLD_LOCAL)` e os nomes vêm de
 `exportados.def`, como no Windows. `dartforge run`/`reload` acham a biblioteca
 sozinhos (o cache, compilada na primeira vez) quando `DARTFORGE_SDK_DLL` não
-está definida.
+está definida. O `--sdk <lib>` seleciona tanto as fontes usadas na emissão
+quanto a biblioteca carregada pelo JIT, inclusive na recarga e no processo
+filho do reinício. A variável `DARTFORGE_SDK_DLL` continua sendo uma seleção
+explícita da biblioteca. Em `run`, coloque `--sdk` e `--packages` antes do
+arquivo Dart; os argumentos depois dele pertencem ao aplicativo.
 
 Um `@Native` que nomeia uma função do catálogo reservado DartForge resolve
 o endereço no próprio runtime que atende o programa. Isso mantém a mesma

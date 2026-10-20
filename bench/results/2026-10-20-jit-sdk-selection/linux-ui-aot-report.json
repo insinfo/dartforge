@@ -1,0 +1,48 @@
+{
+  "compiler": "/home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop",
+  "compiler_sha256": "cba7d19b59ea61a08f3d6a6b47737be3a1a36c402517c52abf89b8a1f2a511e9",
+  "runs": [
+    {
+      "name": "explorer-cross-aot",
+      "command": [
+        "/home/isaque/.cache/dartforge/current-desktop-ui/explorer",
+        "/home/isaque/projects/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "seconds": 0.4737210419989424,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "name": "context-cross-aot",
+      "command": [
+        "/home/isaque/.cache/dartforge/current-desktop-ui/context",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "seconds": 1.5412758759994176,
+      "stdout": "CONTEXT_RETARGET=PASS backend=wayland\n",
+      "stderr": ""
+    }
+  ],
+  "transfers": [
+    {
+      "source": "/media/psf/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/linux-arm64-explorer",
+      "destination": "/home/isaque/.cache/dartforge/current-desktop-ui/explorer",
+      "sha256": "900d39ca48a3751bf62e26de6f0e17362a06cbd4c7c74498a05e5c6f253cbe37"
+    },
+    {
+      "source": "/media/psf/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/linux-arm64-context",
+      "destination": "/home/isaque/.cache/dartforge/current-desktop-ui/context",
+      "sha256": "8de460064f638aae64333400ef53dccc6fa573bcbcb1d20c42c819d5c33b64be"
+    }
+  ],
+  "state": {
+    "status": "finished"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "dart": {
+    "files": 1151,
+    "normalized_sha256": "35728722d8233a0b651ad1303a7ae3ac00b86cc63a7ff28e3ddb62143f9a1ae8"
+  },
+  "locks": {
+    "pubspec.yaml": "cbed708adc05bb83b91fae5f0c395c0157039283592ad7a32c3c7cbdaaeadbbf",
+    "pubspec.lock": "353f7328b84dacb8e81c8746f41d328989cbd151f42bb1a03687634c900e67ff",
+    "examples/file_explorer/pubspec.yaml": "ef44dea286ac9831533d6a5d623505c2d1d3f96131104805d3e36b12ae80311e",
+    "examples/file_explorer/pubspec.lock": "eb928a4698a23bf33fd9bb87731d2ba62cfc898222374e1dde8a9193f2261058"
+  },
+  "sdk": {
+    "files": 427,
+    "normalized_sha256": "e53abc10817b1d1e737a44c400f9b7148e7848a9291030c91601b0bd71aaa730"
+  },
+  "sdk_version": "3.6.2"
+}

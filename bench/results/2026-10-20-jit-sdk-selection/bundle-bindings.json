@@ -1,0 +1,30 @@
+[
+  {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64/target.json",
+    "sha256": "ba479640b848aef46c30ef13b2e7b9782bf18364a2a2951607eba6a88dcc4a94",
+    "manifest": {
+      "runtime": {
+        "dll": "dartforge_rtdll_e70ea4eaf8e3bd94ff40bc200184a36e.a",
+        "main": "dartforge_runtime_ccbdde19ebb7c3ec3af319d549f79bb0.a",
+        "production": "dartforge_rtprod_7fe68979d92910d1c420c53089493691.a"
+      },
+      "runtime_sources": "e0a3c8b04d39eeb559a7e217fe3b4df86978b29ee7bf93f8ac9abf2a17e6f9be",
+      "schema": 1,
+      "target": "aarch64-unknown-linux-gnu"
+    }
+  },
+  {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64/target.json",
+    "sha256": "2f45da234206b7aea23be6dee34793e90fac003eca1afb5ad38fa68593903b02",
+    "manifest": {
+      "runtime": {
+        "dll": "dartforge_rtdll_50a125fc5299f0b08e513a0911946cfa.lib",
+        "main": "dartforge_runtime_03f2bb146f02d17cd991d88fdf4f456b.lib",
+        "production": "dartforge_rtprod_c747068b72dac92406e03ffca9966894.lib"
+      },
+      "runtime_sources": "e0a3c8b04d39eeb559a7e217fe3b4df86978b29ee7bf93f8ac9abf2a17e6f9be",
+      "schema": 1,
+      "target": "x86_64-pc-windows-msvc"
+    }
+  }
+]

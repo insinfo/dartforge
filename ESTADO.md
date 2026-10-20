@@ -2,6 +2,25 @@
 
 ## Atualização de 20/10/2026
 
+- Corrigida a seleção do SDK na biblioteca carregada por `run` e pela recarga:
+  `--sdk` já valia na emissão, mas a carga redescobria o SDK do ambiente. O
+  reinício agora encaminha a seleção ao filho que executa o IR. A regressão
+  falhou antes com um SDK ambiente inválido e passou nos três modos após a
+  correção, preservando argumentos do aplicativo. O validador desktop também
+  corrigiu a ordem de `--sdk`/`--packages`: depois da entrada eram argumentos
+  do aplicativo, e o SDK ambiente podia esconder isso. Passaram 83 testes CLI
+  native/JIT em 14 executáveis, todos os ignorados incluídos, Clippy estrito,
+  docs e fmt. Explorador real e menus passaram em AOT/JIT nos três sistemas;
+  os AOT foram compilados no macOS com o backend `6ab2194e`, que não mudou.
+  Os JIT finais usam a correção e SDK ambiente inválido, com a seleção explícita
+  correta; run/recarga/reinício também passaram nas duas VMs. Fontes Dart,
+  manifests/locks e os 427 arquivos verificados do SDK coincidem nos três.
+  São verificações curtas de frames/popups, sem auditoria visual ou de todas
+  as interações físicas. Falhas iniciais de empacotamento e de permissão do
+  helper ficaram registradas. Sem mudança de runtime/bundles; VMs suspensas.
+  A poda dos backends e a aprovação integral continuam pendentes. Evidências:
+  `bench/results/2026-10-20-jit-sdk-selection/README.md`.
+
 - O iterador privado dos conjuntos de raízes do GC percorre agora só os bits
   ligados, mantendo ordem crescente e o mesmo resultado de liveness/slots.
   Após profiling do explorador real, duas rodadas ABBA com cache aquecido,

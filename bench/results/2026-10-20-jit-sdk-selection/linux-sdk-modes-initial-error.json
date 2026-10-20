@@ -1,0 +1,6 @@
+{
+  "exit": 1,
+  "phase": "validation helper before compiler startup",
+  "error": "PermissionError reading root-owned /tmp/forge-current-desktop-linux-snapshot as the graphical user",
+  "resolution": "Pass the snapshot path from the privileged wrapper as an argument"
+}

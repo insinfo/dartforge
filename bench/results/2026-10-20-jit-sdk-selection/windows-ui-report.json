@@ -1,0 +1,90 @@
+{
+    "state":  {
+                  "status":  "finished"
+              },
+    "transfers":  [
+                      {
+                          "destination":  "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeCurrentDesktop\\windows-x64-explorer.exe",
+                          "sha256":  "37b939a59b2f45eb129f2bf1aec0ff731d02fcd4fac6f271f29f86c5e6d5260f",
+                          "source":  "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\current-desktop-validation\\windows-x64-explorer.exe"
+                      },
+                      {
+                          "destination":  "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeCurrentDesktop\\windows-x64-context.exe",
+                          "sha256":  "bad9b2eccc482479ace84f534cc49bb3742cba5f76d3f24b919e69064ddc44a7",
+                          "source":  "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\current-desktop-validation\\windows-x64-context.exe"
+                      }
+                  ],
+    "compiler_sha256":  "779b98f8be496488fe5e63fdcdf944ff8d0de40827d8deeb710399e706274371",
+    "ambient_sdk":  "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeCurrentDesktop\\invalid-sdk",
+    "runs":  [
+                 {
+                     "name":  "explorer-cross-aot",
+                     "exit":  0,
+                     "exe":  "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeCurrentDesktop\\windows-x64-explorer.exe",
+                     "stderr":  "",
+                     "args":  [
+                                  "C:\\tools\\ui\\examples\\file_explorer",
+                                  "--lang=pt",
+                                  "--frames=2",
+                                  "--backend=win32",
+                                  "--presentation=direct3d11"
+                              ],
+                     "stdout":  "",
+                     "seconds":  2.5705492
+                 },
+                 {
+                     "name":  "context-cross-aot",
+                     "exit":  0,
+                     "exe":  "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeCurrentDesktop\\windows-x64-context.exe",
+                     "stderr":  "",
+                     "args":  [
+                                  "--backend=win32",
+                                  "--presentation=direct3d11"
+                              ],
+                     "stdout":  "CONTEXT_RETARGET=PASS backend=win32\n",
+                     "seconds":  2.4392421
+                 },
+                 {
+                     "name":  "explorer-native-jit",
+                     "exit":  0,
+                     "exe":  "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\dartforge-current-desktop.exe",
+                     "stderr":  "",
+                     "args":  [
+                                  "run",
+                                  "--sdk",
+                                  "C:\\tools\\dart\\3.6.2\\dart-sdk\\lib",
+                                  "--packages",
+                                  "C:\\tools\\ui\\examples\\file_explorer\\.dart_tool\\package_config.json",
+                                  "C:\\tools\\ui\\examples\\file_explorer\\bin\\file_explorer.dart",
+                                  "--",
+                                  "C:\\tools\\ui\\examples\\file_explorer",
+                                  "--lang=pt",
+                                  "--frames=2",
+                                  "--backend=win32",
+                                  "--presentation=direct3d11"
+                              ],
+                     "stdout":  "",
+                     "seconds":  155.9368544
+                 },
+                 {
+                     "name":  "context-native-jit",
+                     "exit":  0,
+                     "exe":  "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\dartforge-current-desktop.exe",
+                     "stderr":  "",
+                     "args":  [
+                                  "run",
+                                  "--sdk",
+                                  "C:\\tools\\dart\\3.6.2\\dart-sdk\\lib",
+                                  "--packages",
+                                  "C:\\tools\\ui\\examples\\file_explorer\\.dart_tool\\package_config.json",
+                                  "C:\\tools\\ui\\examples\\file_explorer\\tool\\context_menu_retarget_smoke.dart",
+                                  "--",
+                                  "--backend=win32",
+                                  "--presentation=direct3d11"
+                              ],
+                     "stdout":  "CONTEXT_RETARGET=PASS backend=win32\n",
+                     "seconds":  121.55821619999999
+                 }
+             ],
+    "compiler":  "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\dartforge-current-desktop.exe"
+}

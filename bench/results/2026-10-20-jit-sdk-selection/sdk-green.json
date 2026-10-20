@@ -1,0 +1,17 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-cli",
+    "--features",
+    "native,jit",
+    "--test",
+    "jit_program",
+    "explicit_sdk_selects_the_jit_library_in_run_reload_and_restart",
+    "--",
+    "--include-ignored"
+  ],
+  "exit": 0
+}

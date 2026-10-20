@@ -1,0 +1,52 @@
+{
+  "compiler": "/home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop-fixed",
+  "compiler_sha256": "22e000a82834b8d6cf37adf745ef42fa1de348640ddfe1f6882f962dd6b4fe03",
+  "runs": [
+    {
+      "name": "explorer-native-jit",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop-fixed",
+        "run",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+        "--",
+        "/home/isaque/projects/dart_ui/examples/file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "seconds": 110.1867675530084,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "name": "context-native-jit",
+      "command": [
+        "/home/isaque/projects/dartforge/target/native-validation/release/dartforge-current-desktop-fixed",
+        "run",
+        "--sdk",
+        "/opt/dart/3.6.2/dart-sdk/lib",
+        "--packages",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+        "/home/isaque/projects/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart",
+        "--",
+        "--backend=wayland",
+        "--presentation=wayland-opengl"
+      ],
+      "exit": 0,
+      "seconds": 84.9147652489919,
+      "stdout": "CONTEXT_RETARGET=PASS backend=wayland\n",
+      "stderr": ""
+    }
+  ],
+  "transfers": [],
+  "ambient_sdk": "/media/psf/ssd_dock/MyRustProjects/dartforge/target/current-desktop-validation/invalid-sdk",
+  "state": {
+    "status": "finished"
+  }
+}

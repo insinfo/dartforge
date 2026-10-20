@@ -6,6 +6,61 @@
 use std::process::Command;
 
 #[test]
+#[ignore = "requires the full LLVM distribution and source-built SDK DLL"]
+fn explicit_sdk_selects_the_jit_library_in_run_reload_and_restart() {
+    struct Scratch(std::path::PathBuf);
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let selected = dartforge_emit_native::dart_sdk().expect("source SDK");
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let scratch =
+        Scratch(std::env::temp_dir().join(format!("dartforge-explicit-jit-sdk-{unique}")));
+    std::fs::create_dir_all(&scratch.0).unwrap();
+    // Discovery accepts this directory, but it cannot compile an SDK library.
+    // Successful execution must use the explicit selection instead.
+    std::fs::write(scratch.0.join("libraries.json"), "not a library manifest").unwrap();
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/jit_main_arguments.dart");
+    for mode in ["run", "reload", "restart"] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_dartforge"));
+        command
+            .arg(if mode == "run" { "run" } else { "reload" })
+            .arg("--sdk")
+            .arg(&selected)
+            .arg(&fixture);
+        if mode != "run" {
+            command.arg("--once");
+        }
+        if mode == "restart" {
+            command.arg("--restart");
+        }
+        let output = command
+            .args(["--", "--sdk", "application-owned", "--"])
+            .env("DARTFORGE_SDK_LIB", &scratch.0)
+            .env_remove("DART_SDK")
+            .env_remove("DARTFORGE_SDK_DLL")
+            .output()
+            .expect("CLI");
+        assert!(
+            output.status.success(),
+            "{mode}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout).replace("\r\n", "\n"),
+            "[\"--sdk\",\"application-owned\",\"--\"]\n",
+            "{mode}"
+        );
+    }
+}
+
+#[test]
 #[ignore = "compiles the source-built SDK DLL; run in the sdk-fonte job of the Pesado workflow"]
 fn script_and_spawn_uri_in_the_jit() {
     let fixture =

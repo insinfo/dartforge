@@ -1,0 +1,11 @@
+   Compiling dartforge-build v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/build)
+   Compiling dartforge-emit-js v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/emit_js)
+   Compiling dartforge-emit-native v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/emit_native)
+   Compiling dartforge-analysis v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/analysis)
+   Compiling dartforge-world v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/world)
+   Compiling dartforge-parity v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/parity)
+   Compiling dartforge-dev v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/dev)
+   Compiling dartforge-jit v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/jit)
+   Compiling dartforge-formatter v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/formatter)
+   Compiling dartforge-cli v0.1.0 (/tmp/dartforge-current-desktop-source.J31ojX/crates/cli)
+    Finished `release` profile [optimized] target(s) in 2m 47s
