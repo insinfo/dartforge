@@ -1,0 +1,30 @@
+[
+  {
+    "label": "before",
+    "source": "/tmp/forge-workspace-format/runtime/after-runtime.json",
+    "counts": {
+      "live_tables": 190,
+      "tables": 672,
+      "live_pairs": 3471,
+      "pairs": 50183,
+      "live_symbols": 6081,
+      "symbols": 46798,
+      "pruned_functions": 56,
+      "pruned_globals": 10
+    }
+  },
+  {
+    "label": "after",
+    "source": "/tmp/forge-byte-literal-pruning/runtime/after-runtime.json",
+    "counts": {
+      "live_tables": 190,
+      "tables": 672,
+      "live_pairs": 3471,
+      "pairs": 50183,
+      "live_symbols": 6078,
+      "symbols": 46794,
+      "pruned_functions": 56,
+      "pruned_globals": 10
+    }
+  }
+]

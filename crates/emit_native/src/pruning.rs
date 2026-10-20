@@ -117,19 +117,41 @@ fn llvm_name(name: &str) -> String {
 }
 
 /// The cited symbols (`@x` and `@"x"`) in `text`, without the `@` and without the quotes.
-/// An `@` inside a string constant gives a name that nothing defines — it is
-/// conservative, it never removes anything.
+/// Byte strings contain data, not relocatable addresses. Other quoted text
+/// retains its conservative treatment, including opaque assembler strings.
 fn cited(text: &str) -> impl Iterator<Item = &str> {
     let b = text.as_bytes();
     let mut i = 0;
+    let mut quoted_literal_end = 0;
     std::iter::from_fn(move || {
         while i < b.len() {
+            if i >= quoted_literal_end {
+                quoted_literal_end = 0;
+            }
+            if quoted_literal_end == 0 {
+                if b[i] == b'c'
+                    && b.get(i + 1) == Some(&b'"')
+                    && (i == 0 || !name_char(b[i - 1]))
+                    && let Some(end) = text[i + 2..].find('"')
+                {
+                    // LLVM encodes embedded quotes as \22, so the next raw
+                    // quote terminates this byte string. An incomplete literal
+                    // keeps the old conservative scan instead.
+                    i += end + 3;
+                    continue;
+                }
+                if b[i] == b'"' {
+                    quoted_literal_end = text[i + 1..].find('"').map_or(b.len(), |end| i + end + 2);
+                    i += 1;
+                    continue;
+                }
+            }
             if b[i] != b'@' {
                 i += 1;
                 continue;
             }
             i += 1;
-            if i < b.len() && b[i] == b'"' {
+            if quoted_literal_end == 0 && i < b.len() && b[i] == b'"' {
                 let ini = i + 1;
                 let end = text[ini..].find('"').map_or(b.len(), |k| ini + k);
                 i = end + 1;
@@ -2447,6 +2469,49 @@ mod tests {
         assert_eq!(v, vec!["f", "df.s.1", "g.h$c"]);
         assert_eq!(llvm_name("df.dart$3acore.x"), "@df.dart$3acore.x");
         assert_eq!(llvm_name("a b"), "@\"a b\"");
+    }
+
+    #[test]
+    fn cited_byte_strings_are_data_but_adjacent_addresses_stay() {
+        assert_eq!(
+            cited(r#"{ [5 x i8] c"@dead", ptr @live, [9 x i8] c"\22@hidden\22" }"#)
+                .collect::<Vec<_>>(),
+            ["live"]
+        );
+        assert_eq!(
+            cited(r#"call void asm sideeffect "c", ""(ptr @live)"#).collect::<Vec<_>>(),
+            ["live"]
+        );
+        // Opaque assembler text keeps its conservative reference treatment.
+        assert_eq!(
+            cited(r#"call void asm sideeffect "call @opaque", ""(ptr @live)"#).collect::<Vec<_>>(),
+            ["opaque", "live"]
+        );
+        assert_eq!(
+            cited(r#"ptr @"quoted c\22@name", [3 x i8] c"@no""#).collect::<Vec<_>>(),
+            [r#"quoted c\22@name"#]
+        );
+        assert_eq!(cited("c\"@unclosed").collect::<Vec<_>>(), ["unclosed"]);
+    }
+
+    #[test]
+    fn byte_literal_does_not_root_code_named_by_its_contents() {
+        let ir = r#"@payload = private constant { [5 x i8], ptr } { [5 x i8] c"@dead", ptr @live }
+define internal void @dead() {
+  ret void
+}
+define internal void @live() {
+  ret void
+}
+define i32 @main() {
+  %p = ptrtoint ptr @payload to i64
+  ret i32 0
+}
+"#;
+        let assembled = assemble(ir, &[], true).unwrap();
+        assert!(!assembled.ir.contains("define internal void @dead("));
+        assert!(assembled.ir.contains("define internal void @live("));
+        assert!(assembled.ir.contains(r#"c"@dead", ptr @live"#));
     }
 
     #[test]

@@ -1,0 +1,6 @@
+{
+  "baseline_commit": "ef8170f3e986718e6acef50d1fdc3caa3fc0561c",
+  "before_pruning_sha256": "174ca76988ab00b5ffb8b0d3340d6dbad428c8464767b9b7a4554f9ee3fc7566",
+  "after_pruning_sha256": "e240c7f08368cc4986b7b94c7a2ab9ced869d4f7ae59975a595efd383ba81093",
+  "harness_sha256": "18d4f0a3b736992d94675e1cccdda68b8265ca133459535c6657fb50c27946a8"
+}

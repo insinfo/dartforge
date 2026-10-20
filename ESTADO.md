@@ -2,6 +2,26 @@
 
 ## Atualização de 20/10/2026
 
+- Corrigidas referências falsas do leitor LLVM de poda: `c"@nome"` contém
+  bytes, não um endereço. Referências reais no mesmo agregado, identificadores
+  entre aspas e o tratamento conservador de assembly/literais incompletos ficam
+  preservados. As duas regressões novas falharam antes e passaram depois;
+  a visão de provas não precisa mais limpar essas arestas após a leitura.
+  A observação do SDK remove 171 ocorrências falsas em 15 módulos; não são
+  171 funções removidas. No par de caches com IR idêntico, todos os 32.713
+  registros de funções permanecem iguais e a cobertura de alocação não muda.
+  O grafo real da fixture perde quatro símbolos inexistentes; tabelas, pares
+  e os três IRs montados permanecem iguais. Passaram 1.045 testes nativos com
+  ignorados, Clippy estrito, docs, runtime e fmt. A primeira rodada teve uma
+  falha de teste que exigia o comportamento antigo; log preservado e teste
+  ajustado para exigir ausência da aresta já no resumo original, mantendo
+  imutabilidade. Fixture aprovada em AOT/JIT macOS e AOT cruzado Windows/Linux,
+  normal/sob estresse; cópias conferidas por hash e VMs novamente suspensas.
+  Sem alteração do runtime/bundles ou ganho de tamanho/desempenho alegado.
+  O gate original continua falhando e os dois modos retêm seis definições
+  estrangeiras. Evidências:
+  `bench/results/2026-10-20-byte-literal-pruning/README.md`.
+
 - Corrigida a formatação global no commit isolado `1013f38d`: 700 arquivos Rust
   processados pelo formatter fixado no projeto, sem exclusões nem configuração
   nova. `cargo fmt --all -- --check` agora passa. Passaram Clippy estrito do

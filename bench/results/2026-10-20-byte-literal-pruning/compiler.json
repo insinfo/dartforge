@@ -1,0 +1,14 @@
+{
+  "command": [
+    "cargo",
+    "build",
+    "--locked",
+    "-p",
+    "dartforge-cli",
+    "--features",
+    "jit"
+  ],
+  "exit": 0,
+  "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-byte-literal-pruning",
+  "sha256": "1ef4bcc23ed2fd95d4acb3a5ecd705cf57327bbc72c2045e30aea3d32c36147a"
+}

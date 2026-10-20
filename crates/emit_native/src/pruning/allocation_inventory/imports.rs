@@ -589,18 +589,14 @@ impl Inventory {
                 let mut proof = std::borrow::Cow::Borrowed(summary);
                 for (index, definition) in summary.definitions.iter().enumerate() {
                     let symbol = summary.names.get(definition.name as usize);
-                    let bytes = symbol.is_some_and(|symbol| self.bytes.contains(symbol));
                     let metadata =
                         symbol.is_some_and(|symbol| self.metadata_startups.contains(symbol));
                     let keep = |node: &u32| {
-                        // Checked byte contents contain no address edges, even when
-                        // this snapshot has no certified metadata startup at all.
-                        !bytes
-                            && (!metadata
-                                || !summary
-                                    .names
-                                    .get(*node as usize)
-                                    .is_some_and(|name| registry::metadata_api(name)))
+                        !metadata
+                            || !summary
+                                .names
+                                .get(*node as usize)
+                                .is_some_and(|name| registry::metadata_api(name))
                     };
                     if definition.refs.iter().any(|node| !keep(node)) {
                         // Clone this summary only on its first actual edge change.

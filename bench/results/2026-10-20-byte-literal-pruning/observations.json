@@ -1,0 +1,122 @@
+[
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/_compact_hash.ll",
+    "bytes": 3276672,
+    "sha256": "79b2eb4c239bd086c33d6c5df427dd5eb437f230873864a6bcc01e63718b1153",
+    "old_references": 10733,
+    "new_references": 10714,
+    "changed_lines": 19
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/_http.ll",
+    "bytes": 17686424,
+    "sha256": "145a7d38e5385727d19e5766e47f63385d4f1867bdc98d5a946221a4a77d49e2",
+    "old_references": 58508,
+    "new_references": 58503,
+    "changed_lines": 5
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/_internal.ll",
+    "bytes": 8352725,
+    "sha256": "916ad1634729ae7dae1f6127e626289ad20ef5b01bb57fbbbefa7a89e5b7db68",
+    "old_references": 28431,
+    "new_references": 28422,
+    "changed_lines": 9
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/async.ll",
+    "bytes": 15644127,
+    "sha256": "d9456d3102d6b4fc7f63a46b71a149a0b6d3d2190f3e7a976524c87f2f314d25",
+    "old_references": 45176,
+    "new_references": 45127,
+    "changed_lines": 49
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/collection.ll",
+    "bytes": 10292708,
+    "sha256": "426cddfd514689582de5ec051aba0def3b4cd413ff47a83fa6197938b430d9ac",
+    "old_references": 31547,
+    "new_references": 31531,
+    "changed_lines": 16
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/convert.ll",
+    "bytes": 10378510,
+    "sha256": "cc63c9bf9f37d033d93ab679daef00140c237c87dbaee315a5a30d44e3e7ff39",
+    "old_references": 33345,
+    "new_references": 33342,
+    "changed_lines": 3
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/core.ll",
+    "bytes": 19236211,
+    "sha256": "9598f242e38cf581bdc1929502949b15e879b978d740c0f55a990ac3278ef641",
+    "old_references": 66373,
+    "new_references": 66341,
+    "changed_lines": 32
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/developer.ll",
+    "bytes": 892018,
+    "sha256": "00d083bf0285ff996a06c56b7f59f57a77012f99f234bc1930d585a2bdd734cc",
+    "old_references": 3514,
+    "new_references": 3514,
+    "changed_lines": 0
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/ffi.ll",
+    "bytes": 2675232,
+    "sha256": "60bc444a308ec7fb5d0f4d9871b3c1ef4e3af3df9fbe67516b7928b63beb7545",
+    "old_references": 10567,
+    "new_references": 10549,
+    "changed_lines": 18
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/io.ll",
+    "bytes": 26487742,
+    "sha256": "7edb699923114cf95c5251c67199506291a37a6a7f36d6b3c015da93d695ab7b",
+    "old_references": 87190,
+    "new_references": 87175,
+    "changed_lines": 15
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/isolate.ll",
+    "bytes": 1410718,
+    "sha256": "978e5326321ec5730efad3c2a068ae2d324cbfa7069cfb2ac5df3bc65fb1ded2",
+    "old_references": 5152,
+    "new_references": 5152,
+    "changed_lines": 0
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/math.ll",
+    "bytes": 1036155,
+    "sha256": "053675f30170ec1e8c300bcf0f8c2a9eaabba0adba5b98098c9b023d9bad44a7",
+    "old_references": 3903,
+    "new_references": 3903,
+    "changed_lines": 0
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/mirrors.ll",
+    "bytes": 643964,
+    "sha256": "eb56bd77a51694172ae4646bd784a0120a0ad50e945b1cf61b78104728378b71",
+    "old_references": 2684,
+    "new_references": 2684,
+    "changed_lines": 0
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/nativewrappers.ll",
+    "bytes": 49743,
+    "sha256": "0186ddcb97d8ac9ef05cf9c74d62dd0df51890df72ef1d8297ad84c22e765c50",
+    "old_references": 437,
+    "new_references": 437,
+    "changed_lines": 0
+  },
+  {
+    "file": "target/rpo-native-cache/sdk/44b878a4ca28d9a09e8e2f6aeb4f9605/typed_data.ll",
+    "bytes": 18800082,
+    "sha256": "8f212d0b8e427e321d5b8d723e16c4d10399c1b49f73ca5fb6d3f47324a9cd6d",
+    "old_references": 63092,
+    "new_references": 63087,
+    "changed_lines": 5
+  }
+]

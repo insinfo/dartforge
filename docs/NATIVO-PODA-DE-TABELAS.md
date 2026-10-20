@@ -1059,3 +1059,19 @@ continua expondo métodos; isto não fornece prova de invocação, imagem ou uni
 fechado de classes. A reprodução ainda mantém seis definições estrangeiras e o
 teste de ausência falha. Evidências:
 [SDK no link](../bench/results/2026-10-20-sdk-table-batches/README.md).
+
+### Literais de bytes no grafo LLVM — 20/10/2026
+
+O leitor de referências ignora o conteúdo de `c"..."`: os bytes de um literal
+não são endereços relocáveis, mesmo quando contêm `@` seguido do nome de uma
+função existente. As referências reais fora do literal continuam no grafo,
+inclusive ponteiros no mesmo inicializador agregado e identificadores LLVM
+entre aspas. Texto de assembly opaco mantém o tratamento conservador anterior;
+um literal incompleto também conserva a varredura conservadora.
+
+Assim, o resumo original já não cria essas arestas falsas. A visão de prova de
+classes só remove as arestas de APIs de metadados pertencentes a startups
+certificados; não precisa mais corrigir referências inventadas em dados. Isso
+não torna dados públicos cobertos, não certifica retornos Ref/ptr e não autoriza
+helpers, imagens ou chamadas nativas. A inicialização que impede a poda dos
+backends continua exigindo suas provas independentes.

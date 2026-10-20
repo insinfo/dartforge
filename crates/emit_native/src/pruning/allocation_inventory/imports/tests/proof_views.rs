@@ -15,16 +15,17 @@ fn references(summary: &Summary, symbol: &str) -> Vec<String> {
 }
 
 #[test]
-fn byte_literal_edges_are_removed_without_any_metadata_startup() {
+fn byte_literals_have_no_edges_before_metadata_proof_projection() {
     let ir = "@bytes = private constant [7 x i8] c\"@opaque\"\n@address = private constant ptr @opaque\ndefine i64 @df.dart$3atest..leaf() {\n ret i64 7\n}\n";
     let (directory, names, runtime) = fixtures(ir);
     let inventory = Inventory::load(directory.path(), "test-key", true, &names, &runtime).unwrap();
     assert!(inventory.metadata_startups.is_empty());
-    assert!(!references(&inventory.summaries[0], "dart:test#bytes").is_empty());
+    assert!(references(&inventory.summaries[0], "dart:test#bytes").is_empty());
     let proof = inventory.class_proof_summaries();
     assert!(references(&proof[0], "dart:test#bytes").is_empty());
     assert_eq!(references(&proof[0], "dart:test#address"), vec!["opaque"]);
-    assert!(!references(&inventory.summaries[0], "dart:test#bytes").is_empty());
+    assert!(matches!(&proof[0], std::borrow::Cow::Borrowed(_)));
+    assert!(references(&inventory.summaries[0], "dart:test#bytes").is_empty());
     assert!(!inventory.known_node("opaque"));
     assert!(!inventory.call("opaque", &[], Type::I64));
 }
@@ -39,7 +40,8 @@ fn unchanged_summaries_borrow_the_original_verified_storage() {
         assert!(matches!(&proof[0], std::borrow::Cow::Borrowed(_)));
         assert!(std::ptr::eq(proof[0].as_ref(), &inventory.summaries[0]));
         assert_eq!(proof[0].as_ref(), &inventory.summaries[0]);
-        assert_eq!(references(&proof[0], "public"), vec!["opaque"]);
+        assert!(references(&proof[0], "public").is_empty());
+        assert!(!inventory.known_node("public"));
     }
 }
 
@@ -107,7 +109,10 @@ fn rebuilding_the_inventory_observes_changed_byte_and_pointer_initializers() {
             Inventory::load(directory.path(), "test-key", true, &names, &runtime).unwrap();
         let proof = inventory.class_proof_summaries();
         assert_eq!(references(&proof[0], "dart:test#data").is_empty(), cleared);
-        assert_eq!(matches!(&proof[0], std::borrow::Cow::Owned(_)), cleared);
-        assert!(!references(&inventory.summaries[0], "dart:test#data").is_empty());
+        assert!(matches!(&proof[0], std::borrow::Cow::Borrowed(_)));
+        assert_eq!(
+            references(&inventory.summaries[0], "dart:test#data").is_empty(),
+            cleared
+        );
     }
 }

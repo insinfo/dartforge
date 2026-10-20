@@ -1,0 +1,48 @@
+[
+  {
+    "target": "windows-x64",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-byte-literal-pruning",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+      "--optimize",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/byte-literal-pruning-validation/cross-windows-x64.exe"
+    ],
+    "exit": 0,
+    "seconds": 89.25457899999999,
+    "stdout": "",
+    "stderr": "",
+    "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/byte-literal-pruning-validation/cross-windows-x64.exe",
+    "sha256": "582a005e11f221717ea5aafd69190d6af7f7904a0b46d02f622f10d03b75c00d"
+  },
+  {
+    "target": "linux-arm64",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-byte-literal-pruning",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/linux-arm64",
+      "--optimize",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/byte-literal-pruning-validation/cross-linux-arm64"
+    ],
+    "exit": 0,
+    "seconds": 114.46029345800001,
+    "stdout": "",
+    "stderr": "",
+    "binary": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/byte-literal-pruning-validation/cross-linux-arm64",
+    "sha256": "5f5119a2b4f95b662768e55ad4e9de2fcfc3beced6f8fdda75c19de7a84e998c"
+  }
+]

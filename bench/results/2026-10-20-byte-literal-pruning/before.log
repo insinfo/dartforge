@@ -1,0 +1,38 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.76s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 9 tests
+test optimize::arc::contracts::tests::abi_byte_is_not_i1_boolean ... ok
+test optimize::arc::contracts::tests::interrupt_and_byte_without_owners_but_inexact_abi_is_rejected ... ok
+test optimize::arc::locals::tests::byte_literal_has_explicit_range_in_slot ... ok
+test pruning::allocation_inventory::closure::tests::native_byte_arrays_preserve_exact_escaped_contents_and_lengths ... ok
+test pruning::allocation_inventory::closure::tests::malformed_or_nonliteral_byte_initializers_remain_unclassified ... ok
+test pruning::allocation_inventory::imports::tests::proof_views::byte_literal_edges_are_removed_without_any_metadata_startup ... ok
+test pruning::tests::byte_literal_does_not_root_code_named_by_its_contents ... FAILED
+test pruning::tests::cited_byte_strings_are_data_but_adjacent_addresses_stay ... FAILED
+test pruning::allocation_inventory::imports::tests::proof_views::rebuilding_the_inventory_observes_changed_byte_and_pointer_initializers ... ok
+
+failures:
+
+---- pruning::tests::byte_literal_does_not_root_code_named_by_its_contents stdout ----
+
+thread 'pruning::tests::byte_literal_does_not_root_code_named_by_its_contents' (3428390) panicked at crates/emit_native/src/pruning.rs:2491:9:
+assertion failed: !assembled.ir.contains("define internal void @dead(")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- pruning::tests::cited_byte_strings_are_data_but_adjacent_addresses_stay stdout ----
+
+thread 'pruning::tests::cited_byte_strings_are_data_but_adjacent_addresses_stay' (3428393) panicked at crates/emit_native/src/pruning.rs:2454:9:
+assertion `left == right` failed
+  left: ["dead", "live", "hidden"]
+ right: ["live"]
+
+
+failures:
+    pruning::tests::byte_literal_does_not_root_code_named_by_its_contents
+    pruning::tests::cited_byte_strings_are_data_but_adjacent_addresses_stay
+
+test result: FAILED. 7 passed; 2 failed; 0 ignored; 0 measured; 1036 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

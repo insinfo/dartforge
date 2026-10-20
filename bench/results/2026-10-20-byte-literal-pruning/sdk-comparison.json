@@ -1,0 +1,1567 @@
+{
+  "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c",
+  "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4",
+  "before_inventory_sha256": "55614bdef00a36e15f61e5cd751bdce442cb09c318cdd59e45368e38c1cb10d6",
+  "after_inventory_sha256": "dde82e5bdcaf9c485069b4798752c456f055509fa0cd590437ae2a336af0326b",
+  "module_ir_identical": true,
+  "all_function_records_identical": true,
+  "functions": 32713,
+  "known_allocation_closures": 635,
+  "changed_globals": [
+    {
+      "module": "dart:_internal",
+      "symbol": "df.s.0fa41bffe22c2e70a9b13db767c95a1f",
+      "before": [
+        "Native"
+      ],
+      "after": []
+    },
+    {
+      "module": "dart:_internal",
+      "symbol": "df.s.6a81ebd8aa432e70969891a8cdff4f5d",
+      "before": [
+        "Native"
+      ],
+      "after": []
+    },
+    {
+      "module": "dart:_internal",
+      "symbol": "df.s.f1dcf7bb43564adb79d007b2748da823",
+      "before": [
+        "Native"
+      ],
+      "after": []
+    },
+    {
+      "module": "dart:core",
+      "symbol": "df.s.3875cd660a12e502f0ef70d2fccdb78c",
+      "before": [
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+      ],
+      "after": []
+    },
+    {
+      "module": "dart:core",
+      "symbol": "df.s.b8f03f393a1370834a575cf7a173d5bc",
+      "before": [
+        "abcdefghijklmnopqrstuvwxyz"
+      ],
+      "after": []
+    }
+  ],
+  "changed_summary_definitions": [
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.2",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.5",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.6",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.7",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.8",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.9",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.10",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.11",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.12",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.13",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.14",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.18",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.19",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.23",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.24",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.25",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.26",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.35",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_compact_hash",
+      "definition": "dart:_compact_hash#df.seln.36",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_http",
+      "definition": "dart:_http#df.seln.22",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_http",
+      "definition": "dart:_http#df.seln.68",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_http",
+      "definition": "dart:_http#df.seln.69",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_http",
+      "definition": "dart:_http#df.seln.118",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_http",
+      "definition": "dart:_http#df.seln.128",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_internal",
+      "definition": "dart:_internal#df.seln.1",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_internal",
+      "definition": "dart:_internal#df.seln.2",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_internal",
+      "definition": "dart:_internal#df.seln.3",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_internal",
+      "definition": "dart:_internal#df.seln.4",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_internal",
+      "definition": "dart:_internal#df.seln.35",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_internal",
+      "definition": "dart:_internal#df.seln.87",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_internal",
+      "definition": "df.s.0fa41bffe22c2e70a9b13db767c95a1f",
+      "removed": [
+        "Native"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_internal",
+      "definition": "df.s.6a81ebd8aa432e70969891a8cdff4f5d",
+      "removed": [
+        "Native"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "_internal",
+      "definition": "df.s.f1dcf7bb43564adb79d007b2748da823",
+      "removed": [
+        "Native"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.2",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.3",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.4",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.5",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.6",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.7",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.8",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.9",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.10",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.31",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.44",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.66",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.87",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.89",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.90",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.91",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.93",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.94",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.95",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.96",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.97",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.101",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.102",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.105",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.106",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.107",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.122",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.123",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.124",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.125",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.126",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.127",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.128",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.129",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.130",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.131",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.132",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.133",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.134",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.136",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.141",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.145",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.148",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.180",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.181",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.182",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.183",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.184",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "async",
+      "definition": "dart:async#df.seln.185",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.47",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.48",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.52",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.53",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.55",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.56",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.57",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.58",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.60",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.62",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.63",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.64",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.130",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.131",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.132",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "collection",
+      "definition": "dart:collection#df.seln.133",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "convert",
+      "definition": "dart:convert#df.seln.18",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "convert",
+      "definition": "dart:convert#df.seln.39",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "convert",
+      "definition": "dart:convert#df.seln.57",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.24",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.25",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.31",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.32",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.108",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.111",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.112",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.113",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.114",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.118",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.119",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.120",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.121",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.122",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.140",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.141",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.142",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.149",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.152",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.153",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.154",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.155",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.156",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.157",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.158",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.159",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.168",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.171",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.172",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "dart:core#df.seln.218",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "df.s.3875cd660a12e502f0ef70d2fccdb78c",
+      "removed": [
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "core",
+      "definition": "df.s.b8f03f393a1370834a575cf7a173d5bc",
+      "removed": [
+        "abcdefghijklmnopqrstuvwxyz"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.10",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.12",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.14",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.16",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.17",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.19",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.20",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.22",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.23",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.25",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.26",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.27",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.28",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.29",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.30",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.31",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.32",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "ffi",
+      "definition": "dart:ffi#df.seln.34",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.80",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.81",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.82",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.95",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.101",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.102",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.142",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.153",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.170",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.171",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.172",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.173",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.208",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.221",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "io",
+      "definition": "dart:io#df.seln.222",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "typed_data",
+      "definition": "dart:typed_data#df.seln.5",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "typed_data",
+      "definition": "dart:typed_data#df.seln.22",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "typed_data",
+      "definition": "dart:typed_data#df.seln.23",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "typed_data",
+      "definition": "dart:typed_data#df.seln.31",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    },
+    {
+      "module": "typed_data",
+      "definition": "dart:typed_data#df.seln.36",
+      "removed": [
+        "dart"
+      ],
+      "remaining": []
+    }
+  ],
+  "summaries": [
+    {
+      "module": "_compact_hash",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/_compact_hash.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/_compact_hash.poda",
+      "before_sha256": "7f7162afbd087ce81a5efea2871898d8608481122ce50d830ce3ab997a4d2077",
+      "after_sha256": "d3d32d04b56c3bfbf73b7599a6d49c3882c99cd4ca138d23f39286171d5e5f2b",
+      "removed_names": [
+        "dart"
+      ]
+    },
+    {
+      "module": "_http",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/_http.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/_http.poda",
+      "before_sha256": "682db5868f4849ecde1c680dfb4e17d81468ba1c8d97a5528bb09190049ff8ea",
+      "after_sha256": "a0d66b6583df1095ba941f58f669175b558414a18cffd70fdfb5839869107a92",
+      "removed_names": [
+        "dart"
+      ]
+    },
+    {
+      "module": "_internal",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/_internal.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/_internal.poda",
+      "before_sha256": "ba20ea2aa59b29c0f25d1fd618e988ebdbb6b2d2fcca6224fad52c342afb69f5",
+      "after_sha256": "1a6022a8ac29747bfa6a049610dead142a5bdb7a6939ccad0da62976e70396a5",
+      "removed_names": [
+        "Native",
+        "dart"
+      ]
+    },
+    {
+      "module": "async",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/async.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/async.poda",
+      "before_sha256": "39d111c730bac31483c67ced4429810cd477a29f98bd617331cd70e0ed097fcf",
+      "after_sha256": "c5e70d154a0aae62f6ada1ee8ca22e04389f572b9368f2155e80f09516400688",
+      "removed_names": [
+        "dart"
+      ]
+    },
+    {
+      "module": "collection",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/collection.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/collection.poda",
+      "before_sha256": "7f150aae8630f53fa25319caf6876975bbd9ab62b94c90349eeaa14b2c0da3f1",
+      "after_sha256": "3290481c151ccf225e4e75b91f6351ed132818c024453549e909fffe8c7a0e82",
+      "removed_names": [
+        "dart"
+      ]
+    },
+    {
+      "module": "convert",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/convert.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/convert.poda",
+      "before_sha256": "66b44af4a511426e60f561f754960674301df4d265ed87b81403ac75f9da6233",
+      "after_sha256": "28f09a963cdc9070f638e99e08e4373698ca0c13a127e1142207037471668a53",
+      "removed_names": [
+        "dart"
+      ]
+    },
+    {
+      "module": "core",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/core.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/core.poda",
+      "before_sha256": "d27f6a37f4a85aefb511914f99edf9f0f809132640942c25a50da0771984fd26",
+      "after_sha256": "6d74a0309747451c2bcbc068224bfb9027bc51d691390cf5c1febde1d8e25aff",
+      "removed_names": [
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+        "abcdefghijklmnopqrstuvwxyz",
+        "dart"
+      ]
+    },
+    {
+      "module": "developer",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/developer.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/developer.poda",
+      "before_sha256": "909b875605cd4bfd6be90ebe4c98d50879bcfff880286acaeb91cdcd6ad883ee",
+      "after_sha256": "909b875605cd4bfd6be90ebe4c98d50879bcfff880286acaeb91cdcd6ad883ee",
+      "removed_names": []
+    },
+    {
+      "module": "ffi",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/ffi.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/ffi.poda",
+      "before_sha256": "a2ab02ad44323a98aa24b9f52cf0c2d75809b18127ff61664752c2b260d4ddc7",
+      "after_sha256": "644df5fdee93b5e7125ba35003182e1018a90cd783c4e112e2bd95006b8b3752",
+      "removed_names": [
+        "dart"
+      ]
+    },
+    {
+      "module": "io",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/io.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/io.poda",
+      "before_sha256": "3bc968f0b97ce404ab1da1779d4f73e45b6bfa2649c3834287c58232be52bff0",
+      "after_sha256": "db764aba36731cb1cdacbfcefc2ecee70a5ce6fa6e2795aa4db06c232c258a1f",
+      "removed_names": [
+        "dart"
+      ]
+    },
+    {
+      "module": "isolate",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/isolate.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/isolate.poda",
+      "before_sha256": "290e1caa035d195b0263bce770d1e6ffe726be015093da32324ae696ff5919cc",
+      "after_sha256": "290e1caa035d195b0263bce770d1e6ffe726be015093da32324ae696ff5919cc",
+      "removed_names": []
+    },
+    {
+      "module": "math",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/math.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/math.poda",
+      "before_sha256": "dcdec37e13e64a52d32cce4dbb598d2141039a583b113914db283dda257dbfd9",
+      "after_sha256": "dcdec37e13e64a52d32cce4dbb598d2141039a583b113914db283dda257dbfd9",
+      "removed_names": []
+    },
+    {
+      "module": "mirrors",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/mirrors.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/mirrors.poda",
+      "before_sha256": "0784430889b46f13f5f5395bbcd200c8f53f6616283eb76c1ecf13f9413a260a",
+      "after_sha256": "0784430889b46f13f5f5395bbcd200c8f53f6616283eb76c1ecf13f9413a260a",
+      "removed_names": []
+    },
+    {
+      "module": "nativewrappers",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/nativewrappers.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/nativewrappers.poda",
+      "before_sha256": "57dd8c1d95b709f3276ced8dc9a81a5bf865876d47452202068a7fe74bc81ed7",
+      "after_sha256": "57dd8c1d95b709f3276ced8dc9a81a5bf865876d47452202068a7fe74bc81ed7",
+      "removed_names": []
+    },
+    {
+      "module": "typed_data",
+      "before": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/44653ec348452876e237aace2cdee85c/typed_data.poda",
+      "after": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/cf7a041bb12bd7bf7705d1114ede19c4/typed_data.poda",
+      "before_sha256": "5ea4a4686c67f93ed55e7e886e1d1f9e46bd28efc76e111c6498bfa024526334",
+      "after_sha256": "0d35e290778b57f88084ed25bec4ab5d2e2c68590dc0a422cbfc0f429db8c45c",
+      "removed_names": [
+        "dart"
+      ]
+    }
+  ]
+}

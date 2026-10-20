@@ -147,6 +147,7 @@ fn literal_at_signs_do_not_publish_address_edges_from_name_bytes() {
     let (dir, names, runtime) = fixtures(&ir);
     let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
     assert!(inventory.entry("df.register.dart$3atest"));
+    let original = inventory.summaries.clone();
     let refs = |summary: &Summary| {
         summary
             .definitions
@@ -157,12 +158,12 @@ fn literal_at_signs_do_not_publish_address_edges_from_name_bytes() {
             .clone()
     };
     assert!(
-        !refs(&inventory.summaries[0]).is_empty(),
-        "legacy summary observes a literal @"
+        refs(&inventory.summaries[0]).is_empty(),
+        "literal @ is data in the original summary too"
     );
     assert!(refs(&inventory.class_proof_summaries()[0]).is_empty());
-    assert!(
-        !refs(&inventory.summaries[0]).is_empty(),
+    assert_eq!(
+        inventory.summaries, original,
         "original snapshot stays intact"
     );
 }
