@@ -1,0 +1,14 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Ubuntu24.04_arm64",
+    "/bin/bash",
+    "-lc",
+    "'bash /media/psf/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/export-linux-final.sh'"
+  ],
+  "exit": 0,
+  "seconds": 160.146753583,
+  "stdout": "{\n  \"runtime\": {\n    \"dll\": \"dartforge_rtdll_2f5f91abeecc1e0f7c6b4db9776b4013.a\",\n    \"main\": \"dartforge_runtime_a4bb72e17f2c8f359d628dadba2b649b.a\",\n    \"production\": \"dartforge_rtprod_aa8e784bb6a0f3baf52c8c31fb774873.a\"\n  },\n  \"runtime_sources\": \"a37848c6491b54570a07e4ca916ece5310d20e4c435fc32258dd2045db587ee5\",\n  \"schema\": 1,\n  \"target\": \"aarch64-unknown-linux-gnu\"\n}",
+  "stderr": ""
+}

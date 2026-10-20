@@ -1,0 +1,5 @@
+{
+  "exit": 1,
+  "stdout": "   Compiling dartforge-analysis v0.1.0 (/tmp/dartforge-batch-tables-source.YzFsdv/crates/analysis)\n   Compiling dartforge-world v0.1.0 (/tmp/dartforge-batch-tables-source.YzFsdv/crates/world)\n   Compiling filetime v0.2.29\n   Compiling utf8-zero v0.8.1\n   Compiling ureq v3.4.2\n   Compiling tar v0.4.46\n   Compiling dartforge-parity v0.1.0 (/tmp/dartforge-batch-tables-source.YzFsdv/crates/parity)\n   Compiling dartforge-dev v0.1.0 (/tmp/dartforge-batch-tables-source.YzFsdv/crates/dev)\n   Compiling dartforge-formatter v0.1.0 (/tmp/dartforge-batch-tables-source.YzFsdv/crates/formatter)\n   Compiling semver v1.0.28\n   Compiling dartforge-cli v0.1.0 (/tmp/dartforge-batch-tables-source.YzFsdv/crates/cli)\n    Finished `release` profile [optimized] target(s) in 4m 23s\n",
+  "stderr": "  File \"<string>\", line 1\n    import sys; print(.join(line for line in sys.stdin if rustc\n                      ^\nSyntaxError: invalid syntax\n"
+}

@@ -1,0 +1,10 @@
+{
+  "before": {
+    "bytes": 25273712,
+    "sha256": "93a7abe58acccbdcf961adedefb7e42548d111eb33539e58f53cd9e6574cbbc2"
+  },
+  "after": {
+    "bytes": 25240688,
+    "sha256": "3dddab08c3fd3a84ab97308907910ae067c91615d9afc7d059f6c41c23f8e9e1"
+  }
+}

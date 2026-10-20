@@ -1,0 +1,14 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Ubuntu24.04_arm64",
+    "/bin/bash",
+    "-lc",
+    "'bash /media/psf/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/build-linux-cli.sh'"
+  ],
+  "exit": 0,
+  "seconds": 176.26409725,
+  "stdout": "96fa439db240f4aaddc86b172537d063c9358ca43edb3d3b48a7f156e67f8c4a  /home/isaque/projects/dartforge/target/native-validation/debug/dartforge-batch-tables\n",
+  "stderr": ""
+}

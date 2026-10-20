@@ -1,0 +1,100 @@
+[
+  {
+    "name": "linux-arm64-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-batch-tables",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--optimize",
+      "--target",
+      "linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/batch-tables/linux-arm64",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/cross-linux-arm64"
+    ],
+    "exit": 0,
+    "seconds": 85.18561266600001,
+    "stdout": "",
+    "stderr": "  HIR pruning: 43 of 88 functions, 79 of 238 pairs, 0 FFI signatures, 1 reachability rounds (79.509846208s)\n  HIR:       baixar 79.587940542s, otimizar 13.242083ms\n  Pruning:   190 of 672 tables live, 3471 of 50183 pairs, 6097 of 46812 symbols; outside the IR: 56 functions, 10 globals, 0 MB (171.118ms)\n--- Native Compilation Timings ---\n  Front-end: 1.34930325s\n  World:     27.131709ms (21 of 22 program functions live)\n  HIR:       79.601192125s\n  LLVM IR:   8.024334ms\n  IR:        195252 bytes, 0 from the SDK (0.0%)\n  Objeto:    308.979667ms\n  Link:      2.953660291s\n  Total:     85.16202375s\n  Pico Mem:  0 KB\n"
+  },
+  {
+    "name": "linux-arm64-run",
+    "command": [
+      "prlctl",
+      "exec",
+      "Ubuntu24.04_arm64",
+      "/bin/bash",
+      "-lc",
+      "'runuser -u isaque -- /usr/bin/python3 - <<'\"'\"'PYCODE'\"'\"'\nimport os,pathlib,hashlib,shutil,subprocess,json\nsource=pathlib.Path('\"'\"'/media/psf/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/cross-linux-arm64'\"'\"');dest=pathlib.Path.home()/'\"'\"'.cache/dartforge/sdk-image-owner'\"'\"'/'\"'\"'007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543'\"'\"'\nassert hashlib.sha256(source.read_bytes()).hexdigest()=='\"'\"'007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543'\"'\"'\ndest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,dest);dest.chmod(0o755)\nrows=[]\nfor stress in [False,True]:\n env=os.environ.copy();env.pop('\"'\"'DARTFORGE_GC_STRESS'\"'\"',None)\n if stress:env['\"'\"'DARTFORGE_GC_STRESS'\"'\"']='\"'\"'1'\"'\"'\n result=subprocess.run([str(dest)],env=env,capture_output=True,text=True)\n rows.append(dict(stress=stress,exit=result.returncode,stdout=result.stdout,stderr=result.stderr,sha256=hashlib.sha256(dest.read_bytes()).hexdigest()))\nprint(json.dumps(rows,ensure_ascii=False))\nPYCODE\n'"
+    ],
+    "exit": 0,
+    "seconds": 0.2332255830000065,
+    "stdout": "[{\"stress\": false, \"exit\": 0, \"stdout\": \"parent=45\\nchild=45\\n\", \"stderr\": \"\", \"sha256\": \"007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543\"}, {\"stress\": true, \"exit\": 0, \"stdout\": \"parent=45\\nchild=45\\n\", \"stderr\": \"\", \"sha256\": \"007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543\"}]\n",
+    "stderr": "",
+    "parsed": [
+      {
+        "stress": false,
+        "exit": 0,
+        "stdout": "parent=45\nchild=45\n",
+        "stderr": "",
+        "sha256": "007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543"
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "stdout": "parent=45\nchild=45\n",
+        "stderr": "",
+        "sha256": "007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543"
+      }
+    ]
+  },
+  {
+    "name": "windows-x64-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-batch-tables",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--optimize",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/batch-tables/windows-x64",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/cross-windows-x64.exe"
+    ],
+    "exit": 0,
+    "seconds": 87.865862458,
+    "stdout": "",
+    "stderr": "  HIR pruning: 43 of 88 functions, 79 of 238 pairs, 0 FFI signatures, 1 reachability rounds (81.498842292s)\n  HIR:       baixar 81.581341417s, otimizar 13.928458ms\n  Pruning:   190 of 672 tables live, 3471 of 50183 pairs, 6071 of 46777 symbols; outside the IR: 56 functions, 9 globals, 0 MB (177.754625ms)\n--- Native Compilation Timings ---\n  Front-end: 1.775733625s\n  World:     32.970125ms (21 of 22 program functions live)\n  HIR:       81.59528275s\n  LLVM IR:   7.72325ms\n  IR:        194007 bytes, 0 from the SDK (0.0%)\n  Objeto:    375.571625ms\n  Link:      3.086700416s\n  Total:     87.826345458s\n  Pico Mem:  0 KB\n"
+  },
+  {
+    "name": "windows-x64-run",
+    "command": [
+      "prlctl",
+      "exec",
+      "Windows11",
+      "--current-user",
+      "powershell.exe",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-OutputFormat",
+      "Text",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\sdk-image-owner-validation\\windows-runtime.ps1"
+    ],
+    "exit": 0,
+    "seconds": 1.1370242919999924,
+    "stdout": "[{\"stdout\":\"{\\\"message\\\":\\\"SDK literals: \u03a9 \ud83d\ude00\\\",\\\"count\\\":3}\\n{\\\"message\\\":\\\"SDK literals: \u03a9 \ud83d\ude00\\\",\\\"rangeError\\\":true}\\n{\\\"message\\\":\\\"SDK literals: \u03a9 \ud83d\ude00\\\",\\\"rangeError\\\":true}\\n{\\\"message\\\":\\\"SDK literals: \u03a9 \ud83d\ude00\\\",\\\"rangeError\\\":true}\\ncmVnaXN0ZXJlZA==\\n\",\"stderr\":\"\",\"sha256\":\"4bdeeab273fa413824abf6235d88774b58b4cd1c51405ad227ba4ede8bbbddd6\",\"stress\":false,\"exit\":0},{\"stdout\":\"{\\\"message\\\":\\\"SDK literals: \u03a9 \ud83d\ude00\\\",\\\"count\\\":3}\\n{\\\"message\\\":\\\"SDK literals: \u03a9 \ud83d\ude00\\\",\\\"rangeError\\\":true}\\n{\\\"message\\\":\\\"SDK literals: \u03a9 \ud83d\ude00\\\",\\\"rangeError\\\":true}\\n{\\\"message\\\":\\\"SDK literals: \u03a9 \ud83d\ude00\\\",\\\"rangeError\\\":true}\\ncmVnaXN0ZXJlZA==\\n\",\"stderr\":\"\",\"sha256\":\"4bdeeab273fa413824abf6235d88774b58b4cd1c51405ad227ba4ede8bbbddd6\",\"stress\":true,\"exit\":0}]\n",
+    "stderr": ""
+  }
+]

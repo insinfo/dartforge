@@ -1,0 +1,36 @@
+{
+  "compiled_sha256": "7ef23a0194c96b1126cf00c0f56b2a8f74a94c430ac5f79e8e1827bb55ae4b77",
+  "run_command": [
+    "prlctl",
+    "exec",
+    "Windows11",
+    "--current-user",
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-OutputFormat",
+    "Text",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\sdk-image-owner-validation\\windows-runtime.ps1"
+  ],
+  "observed_rows": [
+    {
+      "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+      "stderr": "",
+      "sha256": "4bdeeab273fa413824abf6235d88774b58b4cd1c51405ad227ba4ede8bbbddd6",
+      "stress": false,
+      "exit": 0
+    },
+    {
+      "stdout": "{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"count\":3}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\n{\"message\":\"SDK literals: \u03a9 \ud83d\ude00\",\"rangeError\":true}\ncmVnaXN0ZXJlZA==\n",
+      "stderr": "",
+      "sha256": "4bdeeab273fa413824abf6235d88774b58b4cd1c51405ad227ba4ede8bbbddd6",
+      "stress": true,
+      "exit": 0
+    }
+  ],
+  "reason": "The Windows command referenced the prior SDK-image-owner PowerShell script instead of the newly written batch-tables script."
+}

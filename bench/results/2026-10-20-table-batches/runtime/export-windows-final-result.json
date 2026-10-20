@@ -1,0 +1,22 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Windows11",
+    "--current-user",
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-OutputFormat",
+    "Text",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\batch-tables-validation\\export-windows-final.ps1"
+  ],
+  "exit": 0,
+  "seconds": 232.013620334,
+  "stdout": "{\n  \"runtime\": {\n    \"dll\": \"dartforge_rtdll_9ae91ede83d389564f615c5044e36603.lib\",\n    \"main\": \"dartforge_runtime_1b000933635a6140fe718ed53798dc5e.lib\",\n    \"production\": \"dartforge_rtprod_9dc7ae3f4df5e1c03dbfdee73eca54ff.lib\"\n  },\n  \"runtime_sources\": \"a37848c6491b54570a07e4ca916ece5310d20e4c435fc32258dd2045db587ee5\",\n  \"schema\": 1,\n  \"target\": \"x86_64-pc-windows-msvc\"\n}\n",
+  "stderr": ""
+}

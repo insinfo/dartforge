@@ -1,0 +1,147 @@
+[
+  {
+    "label": "dart-vm",
+    "exit": 0,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": ""
+  },
+  {
+    "label": "production-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-batch-tables",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/after-production",
+      "--optimize"
+    ],
+    "exit": 0,
+    "seconds": 149.943186458,
+    "stdout": "",
+    "stderr": "  HIR pruning: 43 of 88 functions, 79 of 238 pairs, 0 FFI signatures, 1 reachability rounds (137.262470875s)\n  HIR:       baixar 137.408890208s, otimizar 20.613375ms\n  Pruning:   190 of 672 tables live, 3471 of 50183 pairs, 6081 of 46798 symbols; outside the IR: 56 functions, 10 globals, 0 MB (256.550125ms)\n--- Native Compilation Timings ---\n  Front-end: 4.452072834s\n  World:     149.398125ms (21 of 22 program functions live)\n  HIR:       137.42951425s\n  LLVM IR:   12.696541ms\n  IR:        194178 bytes, 0 from the SDK (0.0%)\n  Objeto:    522.870166ms\n  Link:      4.209483125s\n  Total:     147.675130958s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "d89a1feb803944b5afe7e53fc01e4a9ea3bfe6bb93a61d9d143b889e14ebe802"
+  },
+  {
+    "label": "production-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/after-production"
+    ],
+    "exit": 0,
+    "seconds": 0.1965962920000095,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "d89a1feb803944b5afe7e53fc01e4a9ea3bfe6bb93a61d9d143b889e14ebe802",
+    "executable_sha256": "985199fff606d1cfad21ec72d72b42a170af50c39cfe271e5ec3f15c53e7c6b3"
+  },
+  {
+    "label": "production-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/after-production"
+    ],
+    "exit": 0,
+    "seconds": 0.009014207999996415,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "d89a1feb803944b5afe7e53fc01e4a9ea3bfe6bb93a61d9d143b889e14ebe802",
+    "executable_sha256": "985199fff606d1cfad21ec72d72b42a170af50c39cfe271e5ec3f15c53e7c6b3"
+  },
+  {
+    "label": "development-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-batch-tables",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 41.924344792,
+    "stdout": "",
+    "stderr": "  HIR pruning: 43 of 88 functions, 79 of 238 pairs, 0 FFI signatures, 1 reachability rounds (39.8530975s)\n  HIR:       baixar 39.943104958s, otimizar 13.025208ms\n--- Native Compilation Timings ---\n  Front-end: 1.194842416s\n  World:     38.0515ms (21 of 22 program functions live)\n  HIR:       39.956135583s\n  LLVM IR:   7.830541ms\n  IR:        198966 bytes, 0 from the SDK (0.0%)\n  Objeto:    49.733ms\n  Link:      18.813833ms\n  Total:     41.908726042s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "d89a1feb803944b5afe7e53fc01e4a9ea3bfe6bb93a61d9d143b889e14ebe802"
+  },
+  {
+    "label": "development-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 0.8392519580000055,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "d89a1feb803944b5afe7e53fc01e4a9ea3bfe6bb93a61d9d143b889e14ebe802",
+    "executable_sha256": "50000ecb5828c154a6098744b3cb5a9b6afcdc4361294f67872bdba18f61f24a"
+  },
+  {
+    "label": "development-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 0.032322666999988314,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "d89a1feb803944b5afe7e53fc01e4a9ea3bfe6bb93a61d9d143b889e14ebe802",
+    "executable_sha256": "50000ecb5828c154a6098744b3cb5a9b6afcdc4361294f67872bdba18f61f24a"
+  },
+  {
+    "label": "jit-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-batch-tables",
+      "run",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart"
+    ],
+    "exit": 0,
+    "seconds": 1.7364330000000052,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "d89a1feb803944b5afe7e53fc01e4a9ea3bfe6bb93a61d9d143b889e14ebe802"
+  },
+  {
+    "label": "jit-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-batch-tables",
+      "run",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart"
+    ],
+    "exit": 0,
+    "seconds": 1.710902042000015,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "d89a1feb803944b5afe7e53fc01e4a9ea3bfe6bb93a61d9d143b889e14ebe802"
+  }
+]

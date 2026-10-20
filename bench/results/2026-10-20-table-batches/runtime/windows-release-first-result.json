@@ -1,0 +1,22 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Windows11",
+    "--current-user",
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-OutputFormat",
+    "Text",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\batch-tables-validation\\build-windows-release-cli.ps1"
+  ],
+  "exit": 101,
+  "seconds": 2.7620783330000003,
+  "stdout": "get\\\\native-x64\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\dartforge-emit-native-9d13f511ece2b106\\\\out\\\\cargo-r\nuntime-abort\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\ring-e1fd25fc40128a7b\\\\out\\\\e46c95d99eadae07-gfp_p256.o\n\" \"C:\\\\tools\\\\dartforge\\\\target\\\\native-x64\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\dartforge-emit-native-9d\n13f511ece2b106\\\\out\\\\cargo-runtime-abort\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\ring-e1fd25fc40128a7b\\\\out\\\n\\e46c95d99eadae07-gfp_p384.o\" \"C:\\\\tools\\\\dartforge\\\\target\\\\native-x64\\\\x86_64-pc-windows-msvc\\\\release\\\\bui\nld\\\\dartforge-emit-native-9d13f511ece2b106\\\\out\\\\cargo-runtime-abort\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\n\\ring-e1fd25fc40128a7b\\\\out\\\\e46c95d99eadae07-p256.o\" \"C:\\\\tools\\\\dartforge\\\\target\\\\native-x64\\\\x86_64-pc-wi\nndows-msvc\\\\release\\\\build\\\\dartforge-emit-native-9d13f511ece2b106\\\\out\\\\cargo-runtime-abort\\\\x86_64-pc-windo\nws-msvc\\\\release\\\\build\\\\ring-e1fd25fc40128a7b\\\\out\\\\f8e4f2976ecfe535-limbs.o\" \"C:\\\\tools\\\\dartforge\\\\target\\\n\\native-x64\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\dartforge-emit-native-9d13f511ece2b106\\\\out\\\\cargo-runti\nme-abort\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\ring-e1fd25fc40128a7b\\\\out\\\\f86aece002c00db7-mem.o\" \"C:\\\\to\nols\\\\dartforge\\\\target\\\\native-x64\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\dartforge-emit-native-9d13f511ece\n2b106\\\\out\\\\cargo-runtime-abort\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\ring-e1fd25fc40128a7b\\\\out\\\\79abf3e0\n7b579fd2-poly1305.o\" \"C:\\\\tools\\\\dartforge\\\\target\\\\native-x64\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\dartf\norge-emit-native-9d13f511ece2b106\\\\out\\\\cargo-runtime-abort\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\ring-e1f\nd25fc40128a7b\\\\out\\\\f86aece002c00db7-crypto.o\" \"C:\\\\tools\\\\dartforge\\\\target\\\\native-x64\\\\x86_64-pc-windows-m\nsvc\\\\release\\\\build\\\\dartforge-emit-native-9d13f511ece2b106\\\\out\\\\cargo-runtime-abort\\\\x86_64-pc-windows-msvc\n\\\\release\\\\build\\\\ring-e1fd25fc40128a7b\\\\out\\\\f86aece002c00db7-cpu_intel.o\" \"C:\\\\tools\\\\dartforge\\\\target\\\\na\ntive-x64\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\dartforge-emit-native-9d13f511ece2b106\\\\out\\\\cargo-runtime-\nabort\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\ring-e1fd25fc40128a7b\\\\out\\\\73090ba2100ad232-curve25519_64_adx\n.o\" \"C:\\\\tools\\\\dartforge\\\\target\\\\native-x64\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\dartforge-emit-native-\n9d13f511ece2b106\\\\out\\\\cargo-runtime-abort\\\\x86_64-pc-windows-msvc\\\\release\\\\build\\\\ring-e1fd25fc40128a7b\\\\ou\nt\\\\e46c95d99eadae07-p256-nistz.o\" \"C:\\\\tools\\\\rust\\\\cargo\\\\registry\\\\src\\\\index.crates.io-1949cf8c6b5b557f\\\\r\ning-0.17.14\\\\pregenerated\\\\chacha-x86_64-nasm.o\" \"C:\\\\tools\\\\rust\\\\cargo\\\\registry\\\\src\\\\index.crates.io-1949\ncf8c6b5b557f\\\\ring-0.17.14\\\\pregenerated\\\\aes-gcm-avx2-x86_64-nasm.o\" \"C:\\\\tools\\\\rust\\\\cargo\\\\registry\\\\src\\\n\\index.crates.io-1949cf8c6b5b557f\\\\ring-0.17.14\\\\pregenerated\\\\aesni-gcm-x86_64-nasm.o\" \"C:\\\\tools\\\\rust\\\\car\ngo\\\\registry\\\\src\\\\index.crates.io-1949cf8c6b5b557f\\\\ring-0.17.14\\\\pregenerated\\\\aesni-x86_64-nasm.o\" \"C:\\\\to\nols\\\\rust\\\\cargo\\\\registry\\\\src\\\\index.crates.io-1949cf8c6b5b557f\\\\ring-0.17.14\\\\pregenerated\\\\ghash-x86_64-n\nasm.o\"\n\n\n\n  thread 'main' (6896) panicked at crates\\emit_native\\build.rs:216:9:\n  the runtime compilation (aot) for x86_64-pc-windows-msvc failed\n  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n",
+  "stderr": ""
+}

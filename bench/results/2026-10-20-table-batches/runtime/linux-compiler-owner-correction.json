@@ -1,0 +1,5 @@
+{
+  "exit": 0,
+  "stdout": "-rwx------ 1 root root 174688512 Oct 20 04:06 /home/isaque/projects/dartforge/target/native-validation/debug/dartforge-batch-tables\n-bash: line 1: /home/isaque/projects/dartforge/target/native-validation/debug/dartforge-batch-tables: Permission denied\n",
+  "stderr": ""
+}

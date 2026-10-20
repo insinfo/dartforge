@@ -1,0 +1,14 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Ubuntu24.04_arm64",
+    "/bin/bash",
+    "-lc",
+    "'runuser -l isaque -c \"python3 /media/psf/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/linux-ui.py\"'"
+  ],
+  "exit": 1,
+  "seconds": 0.773444209,
+  "stdout": "explorer-before-aot 255\n",
+  "stderr": "Traceback (most recent call last):\n  File \"/media/psf/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/linux-ui.py\", line 15, in <module>\n    assert p.returncode==0 and (marker is None or marker in p.stdout),r\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'name': 'explorer-before-aot', 'command': ['/home/isaque/.cache/dartforge/table-batches-ui/explorer-before', '/home/isaque/projects/dart_ui/examples/file_explorer', '--lang=pt', '--frames=2', '--backend=wayland', '--presentation=opengl'], 'exit': 255, 'seconds': 0.28129695899406215, 'stdout': '', 'stderr': \"Invalid MIT-MAGIC-COOKIE-1 key\\nUnhandled exception:\\nBackendSelectionError: no usable backend (requested: opengl)\\nbackend: opengl\\nsupported: true\\ncapabilities: gpuPresentation, vsync\\ndiagnostics:\\n  - note: EGL/GBM with linux-dmabuf: virgl (Apple M4 (Compat))\\n\\nbackend: opengl\\nsupported: false\\ncapabilities: \\ndiagnostics:\\n  - rejectedByPolicy: opengl cannot attach to the selected wayland windowing backend (compatible windowing backends: x11)\\n\\nbackend: wayland-shm\\nsupported: true\\ncapabilities: cpuPresentation, partialPresent\\ndiagnostics:\\n  - note: retained CPU presentation through the window's own surface (wl_shm ARGB8888 shared memory, BGRA8888)\\n\\nbackend: x11-putimage\\nsupported: false\\ncapabilities: \\ndiagnostics:\\n  - rejectedByPolicy: x11-putimage cannot attach to the selected wayland windowing backend (compatible windowing backends: x11)\\n\\nbackend: cpu\\nsupported: true\\ncapabilities: cpuPresentation, partialPresent\\ndiagnostics:\\n  - note: pure Dart scanline path with antialiasing; text renders through the same filler, cached as alpha8 glyph masks\\n\\n\\n\"}\n"
+}

@@ -1,0 +1,5 @@
+{
+  "exit": 0,
+  "stdout": "   Compiling dartforge-runtime v0.1.0 (/tmp/dartforge-batch-tables-source.9L2b0v/crates/runtime)\n   Compiling dartforge-emit-native v0.1.0 (/tmp/dartforge-batch-tables-source.9L2b0v/crates/emit_native)\n    Finished `dev` profile [unoptimized] target(s) in 26.28s\n/home/isaque/projects/dartforge/target/native-validation/debug/examples/export_current_runtime\n-rwx------ 2 isaque isaque 1690064 Oct 20 03:49 /home/isaque/projects/dartforge/target/native-validation/debug/examples/export_current_runtime\n   Compiling dartforge-runtime v0.1.0 (/tmp/dartforge-batch-tables-source.9L2b0v/crates/runtime)\n   Compiling dartforge-emit-native v0.1.0 (/tmp/dartforge-batch-tables-source.9L2b0v/crates/emit_native)\n    Finished `dev` profile [unoptimized] target(s) in 26.28s\n",
+  "stderr": "/bin/bash: line 1: rg: command not found\n"
+}

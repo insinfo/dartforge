@@ -154,6 +154,96 @@ pub extern "C" fn dartforge_register_table(cid: i64, f: extern "C" fn() -> *cons
     mark_registered(cid);
 }
 
+/// Registers an ordered array of generated, side-effect-free table getters.
+/// Nonpositive counts do nothing and permit a null pointer.
+///
+/// # Safety
+/// For a positive `count`, `getters` points to that many aligned, initialized
+/// `extern "C" fn() -> *const i64` pointers. Each getter has no side effects and
+/// returns a readable immutable table `[cid, length, hash, entry, ...]` with
+/// `length` pairs. The array and tables remain valid throughout this call.
+///
+/// ```
+/// unsafe { dartforge_runtime::abi::dartforge_register_tables(std::ptr::null(), 0); }
+/// ```
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn dartforge_register_tables(getters: *const u8, count: i64) {
+    if count <= 0 { return; }
+    type Getter = extern "C" fn() -> *const i64;
+    // SAFETY: the caller supplies an immutable array of valid getter pointers.
+    let getters = unsafe { std::slice::from_raw_parts(getters.cast::<Getter>(), count as usize) };
+    for getter in getters {
+        let table = getter();
+        // SAFETY: a generated getter returns the complete immutable table.
+        let cid = unsafe { *table };
+        if already_registered(cid) && !REPUBLISHING.with(|r| r.get()) { continue; }
+        // SAFETY: the count and complete pair array are part of the table contract.
+        let pairs = unsafe { copy_table(table.add(2), *table.add(1) as usize) };
+        METHODS.with(|methods| methods.borrow_mut().insert(cid, pairs));
+        mark_registered(cid);
+    }
+}
+
+#[cfg(test)]
+mod tests_batch_tables {
+    use super::*;
+    type Getter = extern "C" fn() -> *const i64;
+    static FIRST: [i64; 4] = [62000, 1, 11, 101];
+    static REPLACEMENT: [i64; 4] = [62000, 1, 22, 202];
+    static SECOND: [i64; 4] = [62001, 1, 33, 303];
+    extern "C" fn first() -> *const i64 { FIRST.as_ptr() }
+    extern "C" fn replacement() -> *const i64 { REPLACEMENT.as_ptr() }
+    extern "C" fn second() -> *const i64 { SECOND.as_ptr() }
+    fn snapshot() -> Vec<(i64, Vec<[i64; 2]>)> {
+        let mut result: Vec<_> = METHODS.with(|methods| methods.borrow().iter()
+            .map(|(cid, table)| (*cid, table.to_vec())).collect());
+        result.sort();
+        result
+    }
+    #[test]
+    fn batch_matches_sequential_first_registration_and_publishes_context() {
+        std::thread::spawn(|| {
+            let getters: [Getter; 3] = [first, replacement, second];
+            unsafe { dartforge_register_tables(getters.as_ptr().cast(), getters.len() as i64); }
+            let batch = snapshot();
+            assert_eq!(batch, vec![(62000, vec![[11, 101]]), (62001, vec![[33, 303]])]);
+            assert!(already_registered(62000) && already_registered(62001));
+            crate::heap::CONTEXT.with(|context| {
+                assert!(context.n_registered.get() > 62001);
+                unsafe { assert_eq!(*context.registered.get().add(62001), 1); }
+            });
+            METHODS.with(|methods| methods.borrow_mut().clear());
+            REGISTERED.with(|registered| registered.borrow_mut().fill(false));
+            dartforge_register_table(62000, first);
+            dartforge_register_table(62000, replacement);
+            dartforge_register_table(62001, second);
+            assert_eq!(snapshot(), batch);
+        }).join().unwrap();
+    }
+    #[test]
+    fn batch_republishes_existing_tables_in_order() {
+        std::thread::spawn(|| {
+            dartforge_register_table(62000, first);
+            REPUBLISHING.with(|flag| flag.set(true));
+            let getters: [Getter; 2] = [first, replacement];
+            unsafe { dartforge_register_tables(getters.as_ptr().cast(), 2); }
+            REPUBLISHING.with(|flag| flag.set(false));
+            assert_eq!(snapshot(), vec![(62000, vec![[22, 202]])]);
+            dartforge_register_table(62000, first);
+            assert_eq!(snapshot(), vec![(62000, vec![[22, 202]])]);
+        }).join().unwrap();
+    }
+    #[test]
+    fn empty_batch_does_not_read_a_pointer() {
+        std::thread::spawn(|| {
+            for count in [0, -1] {
+                unsafe { dartforge_register_tables(std::ptr::null(), count); }
+            }
+            assert!(snapshot().is_empty());
+        }).join().unwrap();
+    }
+}
+
 /// Up to which class id the [`REGISTERED`] vector applies: the program and SDK ids
 /// are dense and small; the runtime's internal ones (the `Type` class,
 /// 0x3FFF_FF01…) stay with the map.

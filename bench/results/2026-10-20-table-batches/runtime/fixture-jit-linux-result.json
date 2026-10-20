@@ -1,0 +1,14 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Ubuntu24.04_arm64",
+    "/bin/bash",
+    "-lc",
+    "'bash /media/psf/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/fixture-jit-linux.sh'"
+  ],
+  "exit": 0,
+  "seconds": 43.984449417,
+  "stdout": "[{\"mode\": \"normal\", \"exit\": 0, \"stdout\": \"parent=45\\nchild=45\\n\", \"stderr\": \"\"}, {\"mode\": \"stress\", \"exit\": 0, \"stdout\": \"parent=45\\nchild=45\\n\", \"stderr\": \"\"}]\n",
+  "stderr": ""
+}

@@ -20,6 +20,10 @@ use super::LlvmEmitter;
 use crate::hir::*;
 use std::fmt::Write;
 
+#[cfg(test)]
+#[path = "table_batch_tests.rs"]
+mod table_batch_tests;
+
 /// The hash of a selector (the same as `lower::sdk_source::selector_hash`).
 pub fn selector_hash(text: &str) -> i64 {
     crate::lower::closures::hash_name(text)
@@ -251,15 +255,27 @@ impl LlvmEmitter<'_> {
         // at startup. The SDK's `_StackTrace` needs it too: the runtime creates the
         // first trace directly, without going through `object_new_t`, which is the
         // lazy registration point of the other SDK classes.
-        for (cid, symbol, _) in &module.method_tables {
+        let tables: Vec<_> = module.method_tables.iter().filter(|(cid, _, _)| {
             let runtime_trace = module.sdk_library && module.classes.iter()
                 .any(|cls| cls.id == *cid && cls.name == "_StackTrace");
-            let class_active = module.closed_class_tables.as_ref().is_none_or(|classes| classes.contains(cid));
-            if (!module.sdk_library || runtime_trace) && class_active {
+            let active = module.closed_class_tables.as_ref().is_none_or(|classes| classes.contains(cid));
+            (!module.sdk_library || runtime_trace) && active
+        }).collect();
+        // Amortize the array and loop overhead for larger program startups.
+        // Generated table getters are pure and return their own embedded CID.
+        if !module.sdk_library && tables.len() >= 8 {
+            let array = format!("df.table_batch.{record}");
+            let pointers = tables.iter().map(|(_, symbol, _)| format!("ptr @{symbol}")).collect::<Vec<_>>().join(", ");
+            writeln!(self.out, "@{array} = private unnamed_addr constant [{} x ptr] [{pointers}], align 8", tables.len()).unwrap();
+            writeln!(body, "  call void @dartforge_register_tables(ptr @{array}, i64 {})", tables.len()).unwrap();
+        } else {
+            for (cid, symbol, _) in &tables {
                 writeln!(body, "  call void @dartforge_register_table(i64 {cid}, ptr @{symbol})").unwrap();
-                if self.tables_at_link {
-                    self.annotate_external(symbol, Type::Ptr, &[]);
-                }
+            }
+        }
+        if self.tables_at_link {
+            for (_, symbol, _) in tables {
+                self.annotate_external(symbol, Type::Ptr, &[]);
             }
         }
         for (k, (name, symbol)) in module.helpers.iter().enumerate() {

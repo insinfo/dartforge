@@ -1,0 +1,89 @@
+{
+  "runs": [
+    {
+      "name": "explorer-before-aot",
+      "exit": 0,
+      "exe": "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeTableBatchesUI\\windows-x64-before-explorer.exe",
+      "stderr": "",
+      "args": [
+        "C:\\tools\\ui\\examples\\file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=win32",
+        "--presentation=direct3d11"
+      ],
+      "stdout": "",
+      "seconds": 1.6103482
+    },
+    {
+      "name": "explorer-after-aot",
+      "exit": 0,
+      "exe": "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeTableBatchesUI\\windows-x64-after-explorer.exe",
+      "stderr": "",
+      "args": [
+        "C:\\tools\\ui\\examples\\file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=win32",
+        "--presentation=direct3d11"
+      ],
+      "stdout": "",
+      "seconds": 1.038116
+    },
+    {
+      "name": "context-after-aot",
+      "exit": 0,
+      "exe": "C:\\Users\\isaque.neves\\AppData\\Local\\DartForgeTableBatchesUI\\windows-x64-after-context.exe",
+      "stderr": "",
+      "args": [
+        "--backend=win32",
+        "--presentation=direct3d11"
+      ],
+      "stdout": "CONTEXT_RETARGET=PASS backend=win32\n",
+      "seconds": 1.8834217999999998
+    },
+    {
+      "name": "explorer-after-jit",
+      "exit": 0,
+      "exe": "C:\\dbt-327347\\x86_64-pc-windows-msvc\\release\\dartforge-batch-tables.exe",
+      "stderr": "",
+      "args": [
+        "run",
+        "C:\\tools\\ui\\examples\\file_explorer\\bin\\file_explorer.dart",
+        "--sdk",
+        "C:\\tools\\dart\\3.6.2\\dart-sdk\\lib",
+        "--packages",
+        "C:\\tools\\ui\\examples\\file_explorer\\.dart_tool\\package_config.json",
+        "--",
+        "C:\\tools\\ui\\examples\\file_explorer",
+        "--lang=pt",
+        "--frames=2",
+        "--backend=win32",
+        "--presentation=direct3d11"
+      ],
+      "stdout": "",
+      "seconds": 124.2267236
+    },
+    {
+      "name": "context-after-jit",
+      "exit": 0,
+      "exe": "C:\\dbt-327347\\x86_64-pc-windows-msvc\\release\\dartforge-batch-tables.exe",
+      "stderr": "",
+      "args": [
+        "run",
+        "C:\\tools\\ui\\examples\\file_explorer\\tool\\context_menu_retarget_smoke.dart",
+        "--sdk",
+        "C:\\tools\\dart\\3.6.2\\dart-sdk\\lib",
+        "--packages",
+        "C:\\tools\\ui\\examples\\file_explorer\\.dart_tool\\package_config.json",
+        "--",
+        "--backend=win32",
+        "--presentation=direct3d11"
+      ],
+      "stdout": "CONTEXT_RETARGET=PASS backend=win32\n",
+      "seconds": 126.53386649999999
+    }
+  ],
+  "compiler_sha256": "bd5055680b050a9193af8b352d3b09784fe086bb070a8abbc455a368ad1754fe",
+  "compiler": "C:\\dbt-327347\\x86_64-pc-windows-msvc\\release\\dartforge-batch-tables.exe"
+}

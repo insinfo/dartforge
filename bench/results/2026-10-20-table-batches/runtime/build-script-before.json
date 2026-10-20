@@ -1,0 +1,48 @@
+{
+  "build_script": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/emitter-build-script-before",
+  "build_script_sha256": "24585a917c134704d27e7f30fa3fdd781fccf5c5bac56ad1dd2ca15c649bab09",
+  "records": [
+    {
+      "label": "first",
+      "exit": 0,
+      "facts": {
+        "DARTFORGE_EMITTER_HASH": "074ae644cc9a9a8e2eb54b43faddd40f76a620d10fc1e0ab7eba9530ec6a8756",
+        "DARTFORGE_RUNTIME_SOURCE_HASH": "a37848c6491b54570a07e4ca916ece5310d20e4c435fc32258dd2045db587ee5",
+        "DARTFORGE_RUNTIME_MAIN": "dartforge_runtime_6558a4389ab6b79170229ed1af751897.a",
+        "DARTFORGE_RUNTIME_DLL": "dartforge_rtdll_1e966100a4cb5a5263b83a167ab4375c.a",
+        "DARTFORGE_RUNTIME_PRODUCTION": "dartforge_rtprod_cbf829e4fb5308577d96e7e845a6664f.a",
+        "DARTFORGE_RUNTIME_BUILD_DIR": "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-relocated-build-0wo4awce/first/output"
+      },
+      "stdout": "cargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../abi/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../types/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../elements/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../frontend/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/effects.tsv\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/ownership.tsv\ncargo::rustc-env=DARTFORGE_EMITTER_HASH=074ae644cc9a9a8e2eb54b43faddd40f76a620d10fc1e0ab7eba9530ec6a8756\ncargo::rerun-if-env-changed=DARTFORGE_RUNTIME_NO_PRECOMPILE\ncargo::rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/build.rs\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/Cargo.toml\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/effects.tsv\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/ownership.tsv\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime_static/Cargo.toml\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../Cargo.lock\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime_static/src\ncargo::rustc-env=DARTFORGE_RUNTIME_SOURCE_HASH=a37848c6491b54570a07e4ca916ece5310d20e4c435fc32258dd2045db587ee5\ncargo::rustc-env=DARTFORGE_RUNTIME_MAIN=dartforge_runtime_6558a4389ab6b79170229ed1af751897.a\ncargo::rustc-env=DARTFORGE_RUNTIME_DLL=dartforge_rtdll_1e966100a4cb5a5263b83a167ab4375c.a\ncargo::rustc-env=DARTFORGE_RUNTIME_PRODUCTION=dartforge_rtprod_cbf829e4fb5308577d96e7e845a6664f.a\ncargo::rustc-env=DARTFORGE_RUNTIME_BUILD_DIR=/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-relocated-build-0wo4awce/first/output\n",
+      "stderr": ""
+    },
+    {
+      "label": "changed",
+      "exit": 0,
+      "facts": {
+        "DARTFORGE_EMITTER_HASH": "074ae644cc9a9a8e2eb54b43faddd40f76a620d10fc1e0ab7eba9530ec6a8756",
+        "DARTFORGE_RUNTIME_SOURCE_HASH": "a37848c6491b54570a07e4ca916ece5310d20e4c435fc32258dd2045db587ee5",
+        "DARTFORGE_RUNTIME_MAIN": "dartforge_runtime_6558a4389ab6b79170229ed1af751897.a",
+        "DARTFORGE_RUNTIME_DLL": "dartforge_rtdll_1e966100a4cb5a5263b83a167ab4375c.a",
+        "DARTFORGE_RUNTIME_PRODUCTION": "dartforge_rtprod_cbf829e4fb5308577d96e7e845a6664f.a",
+        "DARTFORGE_RUNTIME_BUILD_DIR": "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-relocated-build-0wo4awce/changed/output"
+      },
+      "stdout": "cargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../abi/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../types/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../elements/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../frontend/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/effects.tsv\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/ownership.tsv\ncargo::rustc-env=DARTFORGE_EMITTER_HASH=074ae644cc9a9a8e2eb54b43faddd40f76a620d10fc1e0ab7eba9530ec6a8756\ncargo::rerun-if-env-changed=DARTFORGE_RUNTIME_NO_PRECOMPILE\ncargo::rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/build.rs\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/Cargo.toml\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/effects.tsv\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/ownership.tsv\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime_static/Cargo.toml\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../Cargo.lock\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime_static/src\ncargo::rustc-env=DARTFORGE_RUNTIME_SOURCE_HASH=a37848c6491b54570a07e4ca916ece5310d20e4c435fc32258dd2045db587ee5\ncargo::rustc-env=DARTFORGE_RUNTIME_MAIN=dartforge_runtime_6558a4389ab6b79170229ed1af751897.a\ncargo::rustc-env=DARTFORGE_RUNTIME_DLL=dartforge_rtdll_1e966100a4cb5a5263b83a167ab4375c.a\ncargo::rustc-env=DARTFORGE_RUNTIME_PRODUCTION=dartforge_rtprod_cbf829e4fb5308577d96e7e845a6664f.a\ncargo::rustc-env=DARTFORGE_RUNTIME_BUILD_DIR=/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-relocated-build-0wo4awce/changed/output\n",
+      "stderr": ""
+    },
+    {
+      "label": "relocated",
+      "exit": 0,
+      "facts": {
+        "DARTFORGE_EMITTER_HASH": "074ae644cc9a9a8e2eb54b43faddd40f76a620d10fc1e0ab7eba9530ec6a8756",
+        "DARTFORGE_RUNTIME_SOURCE_HASH": "a37848c6491b54570a07e4ca916ece5310d20e4c435fc32258dd2045db587ee5",
+        "DARTFORGE_RUNTIME_MAIN": "dartforge_runtime_6558a4389ab6b79170229ed1af751897.a",
+        "DARTFORGE_RUNTIME_DLL": "dartforge_rtdll_1e966100a4cb5a5263b83a167ab4375c.a",
+        "DARTFORGE_RUNTIME_PRODUCTION": "dartforge_rtprod_cbf829e4fb5308577d96e7e845a6664f.a",
+        "DARTFORGE_RUNTIME_BUILD_DIR": "/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-relocated-build-0wo4awce/relocated/output"
+      },
+      "stdout": "cargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../abi/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../types/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../elements/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../frontend/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/src\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/effects.tsv\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/ownership.tsv\ncargo::rustc-env=DARTFORGE_EMITTER_HASH=074ae644cc9a9a8e2eb54b43faddd40f76a620d10fc1e0ab7eba9530ec6a8756\ncargo::rerun-if-env-changed=DARTFORGE_RUNTIME_NO_PRECOMPILE\ncargo::rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/build.rs\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/Cargo.toml\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/effects.tsv\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime/ownership.tsv\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime_static/Cargo.toml\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../../Cargo.lock\ncargo::rerun-if-changed=/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/../runtime_static/src\ncargo::rustc-env=DARTFORGE_RUNTIME_SOURCE_HASH=a37848c6491b54570a07e4ca916ece5310d20e4c435fc32258dd2045db587ee5\ncargo::rustc-env=DARTFORGE_RUNTIME_MAIN=dartforge_runtime_6558a4389ab6b79170229ed1af751897.a\ncargo::rustc-env=DARTFORGE_RUNTIME_DLL=dartforge_rtdll_1e966100a4cb5a5263b83a167ab4375c.a\ncargo::rustc-env=DARTFORGE_RUNTIME_PRODUCTION=dartforge_rtprod_cbf829e4fb5308577d96e7e845a6664f.a\ncargo::rustc-env=DARTFORGE_RUNTIME_BUILD_DIR=/var/folders/gc/ky0q75f55vd5fhhwqbmly9d40000gn/T/dartforge-relocated-build-0wo4awce/relocated/output\n",
+      "stderr": ""
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+[
+  {
+    "name": "linux-arm64-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-batch-tables",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--optimize",
+      "--target",
+      "linux-arm64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/batch-tables/linux-arm64",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/cross-linux-arm64"
+    ],
+    "exit": 0,
+    "seconds": 5.985224625,
+    "stdout": "",
+    "stderr": "  HIR pruning: 43 of 88 functions, 79 of 238 pairs, 0 FFI signatures, 1 reachability rounds (2.977499583s)\n  HIR:       baixar 3.087799208s, otimizar 14.187834ms\n  Pruning:   190 of 672 tables live, 3471 of 50183 pairs, 6097 of 46812 symbols; outside the IR: 56 functions, 10 globals, 0 MB (213.218958ms)\n--- Native Compilation Timings ---\n  Front-end: 1.282176583s\n  World:     32.831791ms (21 of 22 program functions live)\n  HIR:       3.101998625s\n  LLVM IR:   13.096333ms\n  IR:        195252 bytes, 0 from the SDK (0.0%)\n  Objeto:    9.913917ms (cache)\n  Link:      526.647833ms\n  Total:     5.85347075s\n  Pico Mem:  0 KB\n"
+  },
+  {
+    "name": "linux-arm64-run",
+    "command": [
+      "prlctl",
+      "exec",
+      "Ubuntu24.04_arm64",
+      "/bin/bash",
+      "-lc",
+      "'runuser -u isaque -- /usr/bin/python3 - <<'\"'\"'PYCODE'\"'\"'\nimport os,pathlib,hashlib,shutil,subprocess,json\nsource=pathlib.Path('\"'\"'/media/psf/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/cross-linux-arm64'\"'\"');dest=pathlib.Path.home()/'\"'\"'.cache/dartforge/sdk-image-owner'\"'\"'/'\"'\"'007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543'\"'\"'\nassert hashlib.sha256(source.read_bytes()).hexdigest()=='\"'\"'007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543'\"'\"'\ndest.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(source,dest);dest.chmod(0o755)\nrows=[]\nfor stress in [False,True]:\n env=os.environ.copy();env.pop('\"'\"'DARTFORGE_GC_STRESS'\"'\"',None)\n if stress:env['\"'\"'DARTFORGE_GC_STRESS'\"'\"']='\"'\"'1'\"'\"'\n result=subprocess.run([str(dest)],env=env,capture_output=True,text=True)\n rows.append(dict(stress=stress,exit=result.returncode,stdout=result.stdout,stderr=result.stderr,sha256=hashlib.sha256(dest.read_bytes()).hexdigest()))\nprint(json.dumps(rows,ensure_ascii=False))\nPYCODE\n'"
+    ],
+    "exit": 0,
+    "seconds": 0.26428575,
+    "stdout": "[{\"stress\": false, \"exit\": 0, \"stdout\": \"parent=45\\nchild=45\\n\", \"stderr\": \"\", \"sha256\": \"007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543\"}, {\"stress\": true, \"exit\": 0, \"stdout\": \"parent=45\\nchild=45\\n\", \"stderr\": \"\", \"sha256\": \"007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543\"}]\n",
+    "stderr": "",
+    "parsed": [
+      {
+        "stress": false,
+        "exit": 0,
+        "stdout": "parent=45\nchild=45\n",
+        "stderr": "",
+        "sha256": "007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543"
+      },
+      {
+        "stress": true,
+        "exit": 0,
+        "stdout": "parent=45\nchild=45\n",
+        "stderr": "",
+        "sha256": "007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543"
+      }
+    ]
+  }
+]

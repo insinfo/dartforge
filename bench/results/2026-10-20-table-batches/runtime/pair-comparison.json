@@ -1,0 +1,54 @@
+[
+  {
+    "label": "before",
+    "name": "explorer-before",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-proof-views",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--emit-ir",
+      "--digest",
+      "--timings",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/before.ll"
+    ],
+    "exit": 0,
+    "seconds": 104.517807958,
+    "compiler_sha256": "ab28b87ed13f502164940e9533972725ace212c4ecb725189edb057602752513",
+    "ir_sha256": "0e9cff28f0f9e9a04f86aecdccdf66d4fb9c123617e02014e2bd4d5c124e212d",
+    "ir_bytes": 293593137,
+    "reachability_rounds": 2,
+    "stderr": "  HIR pruning: 38484 of 146307 functions, 39874 of 176819 pairs, 318 FFI signatures, 2 reachability rounds (19.977997s)\n  HIR:       baixar 39.509543958s, otimizar 22.18886825s\n--- Native Emission Timings ---\n  Front-end: 9.54475s\n  World:     601.709416ms (30876 of 64332 program functions live)\n  HIR:       61.698477875s\n  LLVM IR:   25.122445958s\n  IR:        293593137 bytes, 20206 from the SDK (0.0%)\n"
+  },
+  {
+    "label": "after",
+    "name": "explorer-after",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-batch-tables",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--emit-ir",
+      "--digest",
+      "--timings",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/after.ll"
+    ],
+    "exit": 0,
+    "seconds": 104.07629079199998,
+    "compiler_sha256": "d89a1feb803944b5afe7e53fc01e4a9ea3bfe6bb93a61d9d143b889e14ebe802",
+    "ir_sha256": "f655bd72fb69227c5d6e153c7ef0ea2c3d309dc07d6b77881ed54f7d1f132b36",
+    "ir_bytes": 293412654,
+    "reachability_rounds": 2,
+    "stderr": "  HIR pruning: 38484 of 146307 functions, 39874 of 176819 pairs, 318 FFI signatures, 2 reachability rounds (18.847320458s)\n  HIR:       baixar 37.300559292s, otimizar 20.74715375s\n--- Native Emission Timings ---\n  Front-end: 9.104943958s\n  World:     556.819375ms (30876 of 64332 program functions live)\n  HIR:       58.047797375s\n  LLVM IR:   27.94605825s\n  IR:        293412654 bytes, 20206 from the SDK (0.0%)\n"
+  }
+]

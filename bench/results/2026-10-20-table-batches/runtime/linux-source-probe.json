@@ -1,0 +1,5 @@
+{
+  "exit": 0,
+  "stdout": "/tmp/dartforge-batch-tables-source.9L2b0v/crates/runtime/src/selectors.rs\nhas_batch True\nsha ad278d65da43d5f6c6ebb6584ad6018b18ab0186ddc3aff2e0cdf0b6f4fac1a5\n/home/isaque/projects/dartforge/target/native-validation/debug/build/dartforge-emit-native-934baaafb15a31bc/output\ncargo::rustc-env=DARTFORGE_RUNTIME_SOURCE_HASH=23bc6f3ab5d29f8056681af73aa2c0bb668b968a0013f91a1d90d18743bb98ef\n",
+  "stderr": ""
+}

@@ -1,0 +1,312 @@
+cargo.exe :    Compiling cfg-if v1.0.5
+At \\Mac\ssd_dock\MyRustProjects\dartforge\target\batch-tables-validation\build-windows-release-cli.ps1:7
+char:1
++ & cargo build --release --locked -p dartforge-cli --features jit --ta ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling cfg-if v1.0.5:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+   Compiling zerofrom v0.1.8
+   Compiling stable_deref_trait v1.2.1
+   Compiling yoke v0.8.3
+   Compiling zerovec v0.11.8
+   Compiling serde_core v1.0.229
+   Compiling tinystr v0.8.4
+   Compiling writeable v0.6.4
+   Compiling typenum v1.20.1
+   Compiling litemap v0.8.3
+   Compiling icu_locale_core v2.3.0
+   Compiling generic-array v0.14.7
+   Compiling zerotrie v0.2.5
+   Compiling potential_utf v0.1.6
+   Compiling utf8_iter v1.0.4
+   Compiling icu_collections v2.3.0
+   Compiling serde v1.0.229
+   Compiling icu_provider v2.3.1
+   Compiling itoa v1.0.18
+   Compiling icu_normalizer_data v2.3.0
+   Compiling icu_properties_data v2.3.0
+   Compiling smallvec v1.16.1
+   Compiling icu_normalizer v2.3.0
+   Compiling icu_properties v2.3.0
+   Compiling getrandom v0.2.17
+   Compiling percent-encoding v2.3.2
+   Compiling memchr v2.8.3
+   Compiling thiserror v2.0.20
+   Compiling idna_adapter v1.2.2
+   Compiling zmij v1.0.23
+   Compiling dartforge-intern v0.1.0 (C:\tools\df-image-8317845d\crates\intern)
+   Compiling dartforge-diagnostics v0.1.0 (C:\tools\df-image-8317845d\crates\diagnostics)
+   Compiling crypto-common v0.1.7
+   Compiling dartforge-frontend v0.1.0 (C:\tools\df-image-8317845d\crates\frontend)
+   Compiling serde_json v1.0.151
+   Compiling idna v1.1.0
+   Compiling cobs v0.3.0
+   Compiling form_urlencoded v1.2.2
+   Compiling url v2.5.8
+   Compiling postcard v1.1.3
+   Compiling dartforge-elements v0.1.0 (C:\tools\df-image-8317845d\crates\elements)
+   Compiling once_cell v1.21.4
+   Compiling ring v0.17.14
+   Compiling block-padding v0.3.3
+   Compiling zeroize v1.9.0
+   Compiling rustls-pki-types v1.15.1
+   Compiling inout v0.1.4
+   Compiling block-buffer v0.10.4
+   Compiling llvm-sys v221.1.0
+   Compiling digest v0.10.7
+   Compiling cipher v0.4.4
+   Compiling libc v0.2.189
+   Compiling zerocopy v0.8.59
+   Compiling windows-link v0.2.1
+   Compiling foldhash v0.1.5
+   Compiling untrusted v0.9.0
+   Compiling rustc-hash v2.1.3
+   Compiling cpufeatures v0.2.17
+   Compiling dartforge-types v0.1.0 (C:\tools\df-image-8317845d\crates\types)
+   Compiling hashbrown v0.15.5
+   Compiling windows-sys v0.61.2
+   Compiling multiversion v0.9.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling libz-sys v1.1.29
+   Compiling rand_core v0.6.4
+   Compiling siphasher v1.0.4
+   Compiling simdutf8 v0.1.5
+   Compiling log v0.4.34
+   Compiling core_detect v1.0.0
+   Compiling arrayvec v0.7.8
+   Compiling scopeguard v1.2.0
+   Compiling constant_time_eq v0.4.2
+   Compiling cpufeatures v0.3.1
+   Compiling rustls v0.23.45
+   Compiling blake3 v1.8.7
+   Compiling encoding_rs v0.8.41
+   Compiling phf_shared v0.11.3
+   Compiling rand_chacha v0.3.1
+   Compiling hashlink v0.10.0
+   Compiling rustls-webpki v0.103.15
+   Compiling hashbrown v0.17.1
+   Compiling subtle v2.6.1
+   Compiling arraydeque v0.5.1
+   Compiling simd-adler32 v0.3.10
+   Compiling adler2 v2.0.1
+   Compiling equivalent v1.0.2
+   Compiling indexmap v2.14.2
+   Compiling miniz_oxide v0.9.1
+   Compiling yaml-rust2 v0.10.4
+   Compiling rand v0.8.8
+   Compiling phf v0.11.3
+   Compiling crc32fast v1.5.2
+   Compiling schannel v0.1.29
+   Compiling webpki-roots v1.0.9
+   Compiling dartforge-dfexec v0.1.0 (C:\tools\df-image-8317845d\crates\dfexec)
+   Compiling dartforge-runtime v0.1.0 (C:\tools\df-image-8317845d\crates\runtime)
+   Compiling codemap v0.1.3
+   Compiling dartforge-llvm v0.1.0 (C:\tools\df-image-8317845d\crates\llvm)
+   Compiling dartforge-sass v0.1.0 (C:\tools\df-image-8317845d\crates\sass)
+   Compiling rustls-native-certs v0.8.4
+   Compiling flate2 v1.1.10
+   Compiling aes v0.8.4
+   Compiling rc2 v0.8.1
+   Compiling des v0.8.1
+   Compiling cbc v0.1.2
+   Compiling md-5 v0.10.6
+   Compiling object v0.39.1
+   Compiling bytes v1.12.1
+   Compiling http v1.5.0
+   Compiling httparse v1.10.1
+   Compiling dartforge-ng-generator v0.1.0 (C:\tools\df-image-8317845d\crates\ng_generator)
+   Compiling getrandom v0.4.3
+   Compiling dartforge-emit-native v0.1.0 (C:\tools\df-image-8317845d\crates\emit_native)
+   Compiling dartforge-macros-host v0.1.0 (C:\tools\df-image-8317845d\crates\macros_host)
+   Compiling sha2 v0.10.9
+   Compiling dartforge-abi v0.1.0 (C:\tools\df-image-8317845d\crates\abi)
+   Compiling dartforge-instrument v0.1.0 (C:\tools\df-image-8317845d\crates\instrument)
+   Compiling fastrand v2.5.0
+   Compiling base64 v0.23.1
+   Compiling base64 v0.22.1
+   Compiling dartforge-build v0.1.0 (C:\tools\df-image-8317845d\crates\build)
+   Compiling dartforge-jit v0.1.0 (C:\tools\df-image-8317845d\crates\jit)
+   Compiling ureq-proto v0.6.4
+   Compiling tempfile v3.27.0
+   Compiling dartforge-emit-js v0.1.0 (C:\tools\df-image-8317845d\crates\emit_js)
+error: failed to run custom build command for `dartforge-emit-native v0.1.0
+(C:\tools\df-image-8317845d\crates\emit_native)`
+
+Caused by:
+  process didn't exit successfully: `C:\tools\dartforge\target\native-x64\release\build\dartforge-emit-native
+-e0459f87d534e628\build-script-build` (exit code: 101)
+  --- stdout
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\src
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../abi/src
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../types/src
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../elements/src
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../frontend/src
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../runtime/src
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../runtime/effects.tsv
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../runtime/ownership.tsv
+  cargo::rustc-env=DARTFORGE_EMITTER_HASH=074ae644cc9a9a8e2eb54b43faddd40f76a620d10fc1e0ab7eba9530ec6a8756
+  cargo::rerun-if-env-changed=DARTFORGE_RUNTIME_NO_PRECOMPILE
+  cargo::rerun-if-env-changed=MACOSX_DEPLOYMENT_TARGET
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../runtime/build.rs
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../runtime/Cargo.toml
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../runtime/effects.tsv
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../runtime/ownership.tsv
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../runtime_static/Cargo.toml
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../../Cargo.lock
+  cargo::rerun-if-changed=C:\tools\df-image-8317845d\crates\emit_native\../runtime_static/src
+  cargo::rustc-env=DARTFORGE_RUNTIME_SOURCE_HASH=a37848c6491b54570a07e4ca916ece5310d20e4c435fc32258dd2045db58
+7ee5
+  cargo::rustc-env=DARTFORGE_RUNTIME_MAIN=dartforge_runtime_1b000933635a6140fe718ed53798dc5e.lib
+
+  --- stderr
+     Compiling generic-array v0.14.7
+     Compiling typenum v1.20.1
+     Compiling cfg-if v1.0.5
+     Compiling crypto-common v0.1.7
+     Compiling block-padding v0.3.3
+     Compiling inout v0.1.4
+     Compiling ring v0.17.14
+  error: failed to run custom build command for `ring v0.17.14`
+
+  Caused by:
+    process didn't exit successfully: `C:\tools\dartforge\target\native-x64\x86_64-pc-windows-msvc\release\bu
+ild\dartforge-emit-native-9d13f511ece2b106\out\cargo-runtime-abort\release\build\ring-c26f44e121545fd7\build-
+script-build` (exit code: 1)
+    --- stdout
+    cargo:rerun-if-env-changed=CARGO_MANIFEST_DIR
+    cargo:rerun-if-env-changed=CARGO_PKG_NAME
+    cargo:rerun-if-env-changed=CARGO_PKG_VERSION_MAJOR
+    cargo:rerun-if-env-changed=CARGO_PKG_VERSION_MINOR
+    cargo:rerun-if-env-changed=CARGO_PKG_VERSION_PATCH
+    cargo:rerun-if-env-changed=CARGO_PKG_VERSION_PRE
+    cargo:rerun-if-env-changed=CARGO_MANIFEST_LINKS
+    cargo:rerun-if-env-changed=RING_PREGENERATE_ASM
+    cargo:rerun-if-env-changed=OUT_DIR
+    cargo:rerun-if-env-changed=CARGO_CFG_TARGET_ARCH
+    cargo:rerun-if-env-changed=CARGO_CFG_TARGET_OS
+    cargo:rerun-if-env-changed=CARGO_CFG_TARGET_ENV
+    cargo:rerun-if-env-changed=CARGO_CFG_TARGET_ENDIAN
+    cargo:rerun-if-env-changed=VCINSTALLDIR
+    VCINSTALLDIR = None
+    cargo:rerun-if-env-changed=VSTEL_MSBuildProjectFullPath
+    VSTEL_MSBuildProjectFullPath = None
+    cargo:rerun-if-env-changed=VCToolsVersion
+    VCToolsVersion = None
+    cargo:rerun-if-env-changed=VSCMD_ARG_VCVARS_SPECTRE
+    VSCMD_ARG_VCVARS_SPECTRE = None
+    cargo:rerun-if-env-changed=WindowsSdkDir
+    WindowsSdkDir = None
+    cargo:rerun-if-env-changed=WindowsSDKVersion
+    WindowsSDKVersion = None
+    cargo:rerun-if-env-changed=LIB
+    LIB = None
+    PATH = Some(C:\tools\dartforge\target\native-x64\x86_64-pc-windows-msvc\release\build\dartforge-emit-nati
+ve-9d13f511ece2b106\out\cargo-runtime-abort\release;C:\tools\dartforge\target\native-x64\x86_64-pc-windows-ms
+vc\release\build\dartforge-emit-native-9d13f511ece2b106\out\cargo-runtime-abort\release\deps;C:\tools\rust\ru
+stup\toolchains\1.98.1-aarch64-pc-windows-msvc\lib\rustlib\aarch64-pc-windows-msvc\lib;C:\tools\dartforge\tar
+get\native-x64\release;C:\tools\dartforge\target\native-x64\release\deps;C:\tools\rust\rustup\toolchains\1.98
+.1-aarch64-pc-windows-msvc\lib\rustlib\aarch64-pc-windows-msvc\lib;C:\tools\llvm-22.1.8\bin;C:\tools\rust\car
+go\bin;C:\tools\rust\cargo\bin;C:\tools\dart\3.6.2\dart-sdk\bin;C:\Program Files\Parallels\Parallels Tools\Ap
+plications;C:\Windows\system32;C:\Windows;C:\Windows\System32\Wbem;C:\Windows\System32\WindowsPowerShell\v1.0
+\;C:\Windows\System32\OpenSSH\;C:\Users\isaque.neves\AppData\Local\Microsoft\WindowsApps;C:\tools\rust\rustup
+\toolchains\1.98.1-aarch64-pc-windows-msvc\bin;C:\tools\dartforge\target\native-x64\release\build\blake3-036a
+6afaf6192fed\out)
+    cargo:rerun-if-env-changed=INCLUDE
+    INCLUDE = None
+    cargo:rerun-if-env-changed=CC_x86_64-pc-windows-msvc
+    CC_x86_64-pc-windows-msvc = None
+    cargo:rerun-if-env-changed=CC_x86_64_pc_windows_msvc
+    CC_x86_64_pc_windows_msvc = None
+    cargo:rerun-if-env-changed=TARGET_CC
+    TARGET_CC = None
+    cargo:rerun-if-env-changed=CC
+    CC = None
+    cargo:rerun-if-env-changed=CRATE_CC_NO_DEFAULTS
+    CRATE_CC_NO_DEFAULTS = None
+    cargo:rerun-if-env-changed=CFLAGS
+    CFLAGS = None
+    cargo:rerun-if-env-changed=TARGET_CFLAGS
+    TARGET_CFLAGS = None
+    cargo:rerun-if-env-changed=CFLAGS_x86_64_pc_windows_msvc
+    CFLAGS_x86_64_pc_windows_msvc = None
+    cargo:rerun-if-env-changed=CFLAGS_x86_64-pc-windows-msvc
+    CFLAGS_x86_64-pc-windows-msvc = None
+    curve25519.c
+    aes_nohw.c
+    montgomery.c
+    montgomery_inv.c
+    ecp_nistz.c
+    gfp_p256.c
+    gfp_p384.c
+    p256.c
+    limbs.c
+    mem.c
+    poly1305.c
+    crypto.c
+    cpu_intel.c
+    curve25519_64_adx.c
+    p256-nistz.c
+    Microsoft (R) Library Manager Version 14.44.35229.0
+    Copyright (C) Microsoft Corporation.  All rights reserved.
+
+    LINK : fatal error LNK1104: cannot open file 'C:\tools\dartforge\target\native-x64\x86_64-pc-windows-msvc
+\release\build\dartforge-emit-native-9d13f511ece2b106\out\cargo-runtime-abort\x86_64-pc-windows-msvc\release\
+build\ring-e1fd25fc40128a7b\out\libring_core_0_17_14_.a'
+
+    --- stderr
+
+
+    error occurred in cc-rs: command did not execute successfully (status code exit code: 1104):
+"C:\\tools\\vs-buildtools\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostARM64\\x64\\lib.exe" "-out:C:\\tools\\dartf
+orge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\build\\dartforge-emit-native-9d13f511ece2b106\\out
+\\cargo-runtime-abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd25fc40128a7b\\out\\libring_core_0_17_
+14_.a" "-nologo" "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\build\\dartforge
+-emit-native-9d13f511ece2b106\\out\\cargo-runtime-abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd25f
+c40128a7b\\out\\libring_core_0_17_14_.a" "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\r
+elease\\build\\dartforge-emit-native-9d13f511ece2b106\\out\\cargo-runtime-abort\\x86_64-pc-windows-msvc\\rele
+ase\\build\\ring-e1fd25fc40128a7b\\out\\73090ba2100ad232-curve25519.o" "C:\\tools\\dartforge\\target\\native-
+x64\\x86_64-pc-windows-msvc\\release\\build\\dartforge-emit-native-9d13f511ece2b106\\out\\cargo-runtime-abort
+\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd25fc40128a7b\\out\\3c60697ff6d5dd9e-aes_nohw.o" "C:\\tools
+\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\build\\dartforge-emit-native-9d13f511ece2b1
+06\\out\\cargo-runtime-abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd25fc40128a7b\\out\\1859b2c20cf
+03fad-montgomery.o" "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\build\\dartfo
+rge-emit-native-9d13f511ece2b106\\out\\cargo-runtime-abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd
+25fc40128a7b\\out\\1859b2c20cf03fad-montgomery_inv.o" "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-wi
+ndows-msvc\\release\\build\\dartforge-emit-native-9d13f511ece2b106\\out\\cargo-runtime-abort\\x86_64-pc-windo
+ws-msvc\\release\\build\\ring-e1fd25fc40128a7b\\out\\e46c95d99eadae07-ecp_nistz.o" "C:\\tools\\dartforge\\tar
+get\\native-x64\\x86_64-pc-windows-msvc\\release\\build\\dartforge-emit-native-9d13f511ece2b106\\out\\cargo-r
+untime-abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd25fc40128a7b\\out\\e46c95d99eadae07-gfp_p256.o
+" "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\build\\dartforge-emit-native-9d
+13f511ece2b106\\out\\cargo-runtime-abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd25fc40128a7b\\out\
+\e46c95d99eadae07-gfp_p384.o" "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\bui
+ld\\dartforge-emit-native-9d13f511ece2b106\\out\\cargo-runtime-abort\\x86_64-pc-windows-msvc\\release\\build\
+\ring-e1fd25fc40128a7b\\out\\e46c95d99eadae07-p256.o" "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-wi
+ndows-msvc\\release\\build\\dartforge-emit-native-9d13f511ece2b106\\out\\cargo-runtime-abort\\x86_64-pc-windo
+ws-msvc\\release\\build\\ring-e1fd25fc40128a7b\\out\\f8e4f2976ecfe535-limbs.o" "C:\\tools\\dartforge\\target\
+\native-x64\\x86_64-pc-windows-msvc\\release\\build\\dartforge-emit-native-9d13f511ece2b106\\out\\cargo-runti
+me-abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd25fc40128a7b\\out\\f86aece002c00db7-mem.o" "C:\\to
+ols\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\build\\dartforge-emit-native-9d13f511ece
+2b106\\out\\cargo-runtime-abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd25fc40128a7b\\out\\79abf3e0
+7b579fd2-poly1305.o" "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\build\\dartf
+orge-emit-native-9d13f511ece2b106\\out\\cargo-runtime-abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1f
+d25fc40128a7b\\out\\f86aece002c00db7-crypto.o" "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-m
+svc\\release\\build\\dartforge-emit-native-9d13f511ece2b106\\out\\cargo-runtime-abort\\x86_64-pc-windows-msvc
+\\release\\build\\ring-e1fd25fc40128a7b\\out\\f86aece002c00db7-cpu_intel.o" "C:\\tools\\dartforge\\target\\na
+tive-x64\\x86_64-pc-windows-msvc\\release\\build\\dartforge-emit-native-9d13f511ece2b106\\out\\cargo-runtime-
+abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd25fc40128a7b\\out\\73090ba2100ad232-curve25519_64_adx
+.o" "C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\\release\\build\\dartforge-emit-native-
+9d13f511ece2b106\\out\\cargo-runtime-abort\\x86_64-pc-windows-msvc\\release\\build\\ring-e1fd25fc40128a7b\\ou
+t\\e46c95d99eadae07-p256-nistz.o" "C:\\tools\\rust\\cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\r
+ing-0.17.14\\pregenerated\\chacha-x86_64-nasm.o" "C:\\tools\\rust\\cargo\\registry\\src\\index.crates.io-1949
+cf8c6b5b557f\\ring-0.17.14\\pregenerated\\aes-gcm-avx2-x86_64-nasm.o" "C:\\tools\\rust\\cargo\\registry\\src\
+\index.crates.io-1949cf8c6b5b557f\\ring-0.17.14\\pregenerated\\aesni-gcm-x86_64-nasm.o" "C:\\tools\\rust\\car
+go\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\ring-0.17.14\\pregenerated\\aesni-x86_64-nasm.o" "C:\\to
+ols\\rust\\cargo\\registry\\src\\index.crates.io-1949cf8c6b5b557f\\ring-0.17.14\\pregenerated\\ghash-x86_64-n
+asm.o"
+
+
+
+  thread 'main' (5440) panicked at crates\emit_native\build.rs:216:9:
+  the runtime compilation (aot) for x86_64-pc-windows-msvc failed
+  note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace

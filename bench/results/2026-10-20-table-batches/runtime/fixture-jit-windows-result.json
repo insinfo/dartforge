@@ -1,0 +1,22 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Windows11",
+    "--current-user",
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-OutputFormat",
+    "Text",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\batch-tables-validation\\fixture-jit-windows.ps1"
+  ],
+  "exit": 0,
+  "seconds": 66.08483870799999,
+  "stdout": "[{\"stdout\":\"parent=45\\nchild=45\\n\",\"stderr\":\"\",\"stress\":false,\"exit\":0},{\"stdout\":\"parent=45\\nchild=45\\n\",\"stderr\":\"\",\"stress\":true,\"exit\":0}]\n",
+  "stderr": ""
+}

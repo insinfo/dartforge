@@ -1,0 +1,9 @@
+cargo.exe :    Compiling dartforge-runtime v0.1.0 (C:\tools\df-image-8317845d\crates\runtime)
+At \\Mac\ssd_dock\MyRustProjects\dartforge\target\batch-tables-validation\export-windows-final.ps1:17 char:1
++ & cargo build --locked -p dartforge-emit-native --example export_curr ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling da...crates\runtime):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+   Compiling dartforge-emit-native v0.1.0 (C:\tools\df-image-8317845d\crates\emit_native)
+    Finished `dev` profile [unoptimized] target(s) in 3m 38s

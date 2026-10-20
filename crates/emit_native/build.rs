@@ -27,7 +27,10 @@ fn join(dir: &Path, exit: &mut Vec<PathBuf>) {
 }
 
 fn main() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    // Cargo may reuse the compiled build script after a checkout moves. Read
+    // the execution-time directory instead of retaining the previous checkout.
+    let manifest = std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let root = Path::new(&manifest);
     let mut files = Vec::new();
     for d in ["src", "../abi/src", "../types/src", "../elements/src", "../frontend/src", "../runtime/src"] {
         let dir = root.join(d);
@@ -88,7 +91,8 @@ const ABORT: &[&str] = &["--config", "profile.release.panic=\"abort\""];
 /// compilation (for `cargo check`/`clippy`, which do not produce executables).
 fn precompile_runtime() {
     println!("cargo::rerun-if-env-changed=DARTFORGE_RUNTIME_NO_PRECOMPILE");
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let manifest = std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR");
+    let root = Path::new(&manifest);
     let workspace = root.join("../..");
     let exit = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR"));
     let target = std::env::var("TARGET").expect("TARGET");

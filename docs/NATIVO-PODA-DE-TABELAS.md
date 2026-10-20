@@ -998,3 +998,23 @@ as regras de autorização. A produção atual ainda para no primeiro startup do
 SDK antes dessa etapa: não há ganho geral de desempenho demonstrado nem solução
 da poda estrangeira. Evidências:
 [visões de resumos](../bench/results/2026-10-20-proof-summary-views/README.md).
+
+
+## Registro ordenado em lote (20/10/2026)
+
+Programas com pelo menos oito tabelas ativas publicam agora um vetor ordenado de
+getters gerados por uma chamada de runtime. O filtro de classes fechadas ocorre
+antes da formação desse vetor; bibliotecas do SDK preservam seu registro próprio
+de `_StackTrace`. O runtime lê o CID já existente no cabeçalho e conserva a ordem,
+a regra de primeira publicação e a republicação do hot reload. O contrato da API
+unsafe exige getters puros e tabelas imutáveis válidas. Não há nova permissão de
+poda, invocação de helpers ou mudança do protocolo do inventário.
+
+No explorador real, as 3.758 chamadas escalares viraram uma. Todos os getters são
+retornos constantes e seus CIDs coincidem com os argumentos anteriores. Expandir
+a chamada de lote de volta às escalares e remover o vetor/declarador novos torna
+o IR completo idêntico. O IR caiu 180.483 bytes; executáveis macOS/Windows ficaram
+33.024/25.600 bytes menores e o Linux cresceu 944 bytes. Não há ganho universal de
+tamanho nem aceleração de startup demonstrada. A reprodução de plataforma ainda
+mantém seis definições estrangeiras nos dois modos. Evidências e limites:
+[registro em lote](../bench/results/2026-10-20-table-batches/README.md).

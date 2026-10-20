@@ -1,0 +1,15 @@
+{
+  "before_bytes": 293593137,
+  "after_bytes": 293412654,
+  "ir_bytes_saved": 180483,
+  "ordered_getters": 3758,
+  "pure_constant_getters": 3758,
+  "matching_embedded_cids": 3758,
+  "changes": {
+    "batch_arrays": 1,
+    "batch_calls": 1,
+    "batch_declarations": 1
+  },
+  "normalized_identical": true,
+  "mismatches": []
+}

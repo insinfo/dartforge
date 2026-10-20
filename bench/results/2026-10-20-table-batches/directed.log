@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.46s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 3 tests
+test llvm::selectors::table_batch_tests::sdk_startup_keeps_its_independent_trace_registration ... ok
+test llvm::selectors::table_batch_tests::batch_threshold_and_getter_order_are_explicit ... ok
+test llvm::selectors::table_batch_tests::closed_class_selection_precedes_batching ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 993 filtered out; finished in 0.00s

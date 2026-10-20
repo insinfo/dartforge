@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_runtime-439dcf0178efcb43)
+
+running 3 tests
+test abi::tests_batch_tables::batch_matches_sequential_first_registration_and_publishes_context ... ok
+test abi::tests_batch_tables::empty_batch_does_not_read_a_pointer ... ok
+test abi::tests_batch_tables::batch_republishes_existing_tables_in_order ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 321 filtered out; finished in 0.00s

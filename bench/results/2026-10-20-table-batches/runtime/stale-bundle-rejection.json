@@ -1,0 +1,21 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-batch-tables",
+    "compile-native",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+    "--optimize",
+    "--target",
+    "linux-arm64",
+    "--target-bundle",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/batch-tables-stale-snapshot/linux-arm64",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/cross-linux-arm64"
+  ],
+  "exit": 1,
+  "stdout": "",
+  "stderr": "error: target bundle runtime sources do not match this compiler; export it again from the same checkout\n",
+  "before_sha256": "007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543",
+  "after_sha256": "007f40f76c73809b91edbd838c19eccad165bed38597e3b85006af46a9aeb543"
+}

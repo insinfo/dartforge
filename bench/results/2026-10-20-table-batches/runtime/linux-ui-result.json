@@ -1,0 +1,14 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Ubuntu24.04_arm64",
+    "/bin/bash",
+    "-lc",
+    "'runuser -l isaque -c \"python3 /media/psf/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/linux-ui.py\"'"
+  ],
+  "exit": 0,
+  "seconds": 199.14063629199998,
+  "stdout": "explorer-before-aot 0\nexplorer-after-aot 0\ncontext-after-aot 0\nexplorer-after-jit 0\ncontext-after-jit 0\n{\"compiler\": \"/home/isaque/projects/dartforge/target/native-validation/release/dartforge-batch-tables\", \"compiler_sha256\": \"e31127bbd98bfab072d12bb6d6158ca9cc4f4bfd59effb4c553b079d1988bcdb\", \"runs\": [{\"name\": \"explorer-before-aot\", \"command\": [\"/home/isaque/.cache/dartforge/table-batches-ui/explorer-before\", \"/home/isaque/projects/dart_ui/examples/file_explorer\", \"--lang=pt\", \"--frames=2\", \"--backend=wayland\", \"--presentation=wayland-opengl\"], \"exit\": 0, \"seconds\": 0.09437020900077187, \"stdout\": \"\", \"stderr\": \"\"}, {\"name\": \"explorer-after-aot\", \"command\": [\"/home/isaque/.cache/dartforge/table-batches-ui/explorer-after\", \"/home/isaque/projects/dart_ui/examples/file_explorer\", \"--lang=pt\", \"--frames=2\", \"--backend=wayland\", \"--presentation=wayland-opengl\"], \"exit\": 0, \"seconds\": 0.0893261250021169, \"stdout\": \"\", \"stderr\": \"\"}, {\"name\": \"context-after-aot\", \"command\": [\"/home/isaque/.cache/dartforge/table-batches-ui/context-after\", \"--backend=wayland\", \"--presentation=wayland-opengl\"], \"exit\": 0, \"seconds\": 1.3840141670007142, \"stdout\": \"CONTEXT_RETARGET=PASS backend=wayland\\n\", \"stderr\": \"\"}, {\"name\": \"explorer-after-jit\", \"command\": [\"/home/isaque/projects/dartforge/target/native-validation/release/dartforge-batch-tables\", \"run\", \"/home/isaque/projects/dart_ui/examples/file_explorer/bin/file_explorer.dart\", \"--sdk\", \"/opt/dart/3.6.2/dart-sdk/lib\", \"--packages\", \"/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json\", \"--\", \"/home/isaque/projects/dart_ui/examples/file_explorer\", \"--lang=pt\", \"--frames=2\", \"--backend=wayland\", \"--presentation=wayland-opengl\"], \"exit\": 0, \"seconds\": 91.87961916899803, \"stdout\": \"\", \"stderr\": \"\"}, {\"name\": \"context-after-jit\", \"command\": [\"/home/isaque/projects/dartforge/target/native-validation/release/dartforge-batch-tables\", \"run\", \"/home/isaque/projects/dart_ui/examples/file_explorer/tool/context_menu_retarget_smoke.dart\", \"--sdk\", \"/opt/dart/3.6.2/dart-sdk/lib\", \"--packages\", \"/home/isaque/projects/dart_ui/examples/file_explorer/.dart_tool/package_config.json\", \"--\", \"--backend=wayland\", \"--presentation=wayland-opengl\"], \"exit\": 0, \"seconds\": 105.03689504999784, \"stdout\": \"CONTEXT_RETARGET=PASS backend=wayland\\n\", \"stderr\": \"\"}]}\n",
+  "stderr": ""
+}

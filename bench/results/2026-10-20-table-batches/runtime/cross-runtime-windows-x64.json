@@ -1,0 +1,63 @@
+[
+  {
+    "name": "windows-x64-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-batch-tables",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--optimize",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/batch-tables/windows-x64",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/batch-tables-validation/cross-windows-x64.exe"
+    ],
+    "exit": 0,
+    "seconds": 5.183569541,
+    "stdout": "",
+    "stderr": "  HIR pruning: 43 of 88 functions, 79 of 238 pairs, 0 FFI signatures, 1 reachability rounds (2.704064292s)\n  HIR:       baixar 2.829721583s, otimizar 17.292042ms\n  Pruning:   190 of 672 tables live, 3471 of 50183 pairs, 6071 of 46777 symbols; outside the IR: 56 functions, 9 globals, 0 MB (232.098041ms)\n--- Native Compilation Timings ---\n  Front-end: 1.032650834s\n  World:     28.516792ms (21 of 22 program functions live)\n  HIR:       2.847031875s\n  LLVM IR:   8.487417ms\n  IR:        194007 bytes, 0 from the SDK (0.0%)\n  Objeto:    10.495041ms (cache)\n  Link:      303.61675ms\n  Total:     5.172719292s\n  Pico Mem:  0 KB\n"
+  },
+  {
+    "name": "windows-x64-run",
+    "command": [
+      "prlctl",
+      "exec",
+      "Windows11",
+      "--current-user",
+      "powershell.exe",
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-OutputFormat",
+      "Text",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\batch-tables-validation\\windows-runtime.ps1"
+    ],
+    "exit": 0,
+    "seconds": 1.64714225,
+    "stdout": "[{\"stdout\":\"parent=45\\nchild=45\\n\",\"stderr\":\"\",\"sha256\":\"68aa90115a142360151f32a41b2c3658da31e020668211d1ca3ca0a3c0bfa35b\",\"stress\":false,\"exit\":0},{\"stdout\":\"parent=45\\nchild=45\\n\",\"stderr\":\"\",\"sha256\":\"68aa90115a142360151f32a41b2c3658da31e020668211d1ca3ca0a3c0bfa35b\",\"stress\":true,\"exit\":0}]\n",
+    "stderr": "",
+    "parsed": [
+      {
+        "stdout": "parent=45\nchild=45\n",
+        "stderr": "",
+        "sha256": "68aa90115a142360151f32a41b2c3658da31e020668211d1ca3ca0a3c0bfa35b",
+        "stress": false,
+        "exit": 0
+      },
+      {
+        "stdout": "parent=45\nchild=45\n",
+        "stderr": "",
+        "sha256": "68aa90115a142360151f32a41b2c3658da31e020668211d1ca3ca0a3c0bfa35b",
+        "stress": true,
+        "exit": 0
+      }
+    ]
+  }
+]

@@ -1,0 +1,22 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Windows11",
+    "--current-user",
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-OutputFormat",
+    "Text",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\batch-tables-validation\\build-windows-cli.ps1"
+  ],
+  "exit": 0,
+  "seconds": 281.82546225,
+  "stdout": "{\"Algorithm\":\"SHA256\",\"Hash\":\"842D4F4D7AA8FC859FC2F2514DDD71D07C035B01532570BF08CBD6554AA1F029\",\"Path\":\"C:\\\\tools\\\\dartforge\\\\target\\\\native-x64\\\\x86_64-pc-windows-msvc\\\\debug\\\\dartforge-batch-tables.exe\"}\n",
+  "stderr": ""
+}

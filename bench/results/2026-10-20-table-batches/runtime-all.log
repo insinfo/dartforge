@@ -1,0 +1,488 @@
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.52s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_runtime-439dcf0178efcb43)
+
+running 324 tests
+test abi::adaptive_accumulator_tests::latin1_storage_promotes_once_and_preserves_utf16_code_units ... ok
+test abi::adaptive_accumulator_tests::capacity_growth_exhausts_deferral_without_collecting_borrowed_inputs ... ok
+test abi::adaptive_accumulator_tests::isolate_copy_preserves_units_and_has_independent_native_storage ... ok
+test abi::adaptive_accumulator_tests::native_growth_and_promotion_update_capacity_accounting_without_collection ... ok
+test abi::adaptive_accumulator_tests::rooted_stress_snapshots_are_independent_of_further_writes_and_clear ... ok
+test abi::arc_port_tests::typed_target_checks_abi_map_and_version_without_mistaking_word_record ... ok
+test abi::arc_port_tests::all_ports_transfer_one_token_without_retaining_twice ... ok
+test abi::arc_port_tests::checked_typed_port_returns_independent_owner_in_both_modes ... ok
+test abi::arc_port_tests::image_registration_is_global_but_owners_and_scopes_are_per_thread ... ok
+test abi::arc_port_tests::owned_datagram_escapes_scope_and_pending_creates_no_owner ... ok
+test abi::callback_code_owner_tests::generations_cannot_redirect_old_adapters_and_cancel_preserves_order ... ok
+test abi::arc_port_tests::owned_no_such_method_survives_legacy_frame_pop_without_leaking ... ok
+test abi::arc_port_tests::owned_return_ignored_by_void_port_is_released_immediately ... ok
+test abi::callback_code_owner_tests::metadata_can_retire_but_published_adapter_cannot ... ok
+test abi::arc_port_tests::pending_exit_neither_publishes_result_nor_clears_exception ... ok
+test abi::callback_code_owner_tests::publication_leases_closure_producing_owners_as_well_as_adapter_owner ... ok
+test abi::arc_port_tests::records_and_scopes_reject_stale_version_wrong_abi_and_active_mutation ... ok
+test abi::callback_code_owner_tests::retirement_restores_an_unowned_adapter_without_reusing_owner_ids ... ok
+test abi::double_modulo_tests::follows_vm_signs_and_zero ... ok
+test abi::arc_port_tests::reentrant_scopes_and_observational_frames_stay_distinct ... ok
+test abi::field_ref_tests::layouts_in_order_for_binary_search ... ok
+test abi::arc_port_tests::uniform_adapts_native_fallback_to_single_owned ... ok
+test abi::field_ref_tests::positional_record_reads_scalar_count_and_ref_fields ... ok
+test abi::field_ref_tests::checked_write_initializes_ref_and_rejects_layout_without_changing_edge ... ok
+test abi::arc_port_tests::uniform_closes_callbacks_without_consuming_return_token ... ok
+test abi::field_ref_tests::read_borrows_edge_and_owned_copy_survives_replacement ... ok
+test abi::arc_port_tests::uniform_does_not_infer_generic_callback_contract_and_rejects_upgrade ... ok
+test abi::function_apply_tests::function_apply_forwards_named_descriptor_to_uniform_entry ... ok
+test abi::isolate_registration_tests::delayed_worker_keeps_validated_registration_after_replacement_and_disable ... ok
+test abi::finalizer_callback_tests::finalizer_rejects_sync_trampolines_before_creating_attachment ... ok
+test abi::arc_port_tests::uniform_pending_closes_internal_owners_and_preserves_exception ... ok
+test abi::late_callback_tests::close_inside_active_callback_releases_root_without_freeing_context ... ok
+test abi::late_callback_tests::isolate_retirement_tombstones_persistent_callbacks_and_releases_roots ... ok
+test abi::late_callback_tests::closed_local_returns_retained_bits_on_foreign_threads ... ok
+test abi::late_callback_tests::listener_close_between_enter_and_post_drops_without_decoding_arguments ... ok
+test abi::late_callback_tests::owner_callback_depth_refuses_turns_and_balances_exceptional_and_normal_exit ... ok
+test abi::latin1_core_list_tests::native_empty_slice_keeps_existing_acceptance ... ok
+test abi::sync_callback_tests::claimed_work_survives_close_and_expired_deadline_until_completion ... ok
+test abi::latin1_core_list_tests::native_refuses_wide_negative_null_mint_and_typed_inputs_without_allocating ... ok
+test abi::sync_callback_tests::close_cancels_pending_and_owner_shutdown_also_cancels_running ... ok
+test abi::literal_owned_tests::empty_and_compact_literal_preserves_bits_until_owner_release ... ok
+test abi::sync_callback_tests::logical_deadline_cancels_only_pending_and_prevents_late_claim ... ok
+test abi::sync_callback_tests::completion_wakes_foreign_waiter_and_only_first_result_wins ... ok
+test abi::literal_owned_tests::json_close_list_copies_nested_ranges_and_keeps_references_alive ... ok
+test abi::sync_callback_tests::foreign_compound_encoding_uses_owner_metadata_not_foreign_rti_or_heap ... ok
+test abi::literal_owned_tests::mixed_literal_roots_refs_counts_edges_and_preserves_boxes ... ok
+test abi::sync_callback_tests::owner_native_identity_enters_directly_foreign_identity_marshals_without_heap ... ok
+test abi::sync_callback_tests::scalar_reply_conversions_require_actual_types_and_preserve_float_bits ... ok
+test abi::tests_arc_abi_frames::abi_global_receives_mortal_object_and_releases_last_owner ... ok
+test abi::tests_arc_abi_frames::abi_loads_independent_owner_and_receives_token_in_slot ... ok
+test abi::sync_callback_tests::protocol_wait_edges_reject_cycles_and_drop_cleans_registration ... ok
+test abi::tests_arc_abi_frames::copy_move_and_closure_preserve_occurrences_until_last_owner ... ok
+test abi::tests_arc_abi_frames::minimal_abi_checks_mode_and_keeps_tokens_until_release ... ok
+test abi::tests_arc_abi_frames::exception_ref_preserves_mint_after_release_and_clear_removes_root ... ok
+test abi::tests_arc_abi_frames::native_observation_creates_no_owner_and_rejects_addresses_outside_heap ... ok
+test abi::tests_arc_abi_frames::owned_capture_preserves_identity_and_survives_clear_in_both_modes ... ok
+test abi::tests_arc_abi_frames::owned_factory_hands_out_token_and_mint_dies_after_last_release ... ok
+test abi::tests_arc_abi_frames::owned_trace_preserves_identity_and_dies_after_last_release ... ok
+test abi::tests_arc_abi_frames::owned_capture_boxes_scalar_without_consuming_pending ... ok
+test abi::tests_batch_tables::batch_matches_sequential_first_registration_and_publishes_context ... ok
+test abi::tests_batch_tables::batch_republishes_existing_tables_in_order ... ok
+test abi::tests_closure_context::context_checks_class_and_map_without_mistaking_bits_for_ref ... ok
+test abi::tests_batch_tables::empty_batch_does_not_read_a_pointer ... ok
+test abi::tests_closure_context::env_checks_class_bounds_and_extended_map_without_collecting ... ok
+test abi::tests_arc_borrowed_evaluation::evaluating_types_preserves_fields_owners_heap_and_pending ... ok
+test abi::tests_control_owner::entry_with_exception_releases_argument_and_keeps_pending_owner ... ok
+test abi::tests_control_owner::error_and_trace_survive_clear_until_report_ends ... ok
+test abi::tests_control_owner::isolate_entry_preserves_values_and_releases_owners_on_return ... ok
+test abi::callback_code_owner_tests::publication_and_retirement_race_has_only_two_safe_outcomes ... ok
+test abi::tests_control_owner::portable_copy_survives_in_queue_and_active_owner_ends_at_return ... ok
+test abi::tests_effects_restore::unwind_preserves_outer_level_and_releases_abandoned_bans ... ok
+test abi::tests_decimal_text::to_string_i64_writes_the_decimal_text_of_every_magnitude ... ok
+test abi::tests_event_deadline_snapshot::fractional_microsecond_future_is_positive_and_large_deadlines_saturate ... ok
+test abi::tests_event_deadline_snapshot::only_dispatchable_native_work_is_ready_and_paused_owner_promises_nothing ... ok
+test abi::tests_event_deadline_snapshot::queued_work_overrides_future_timers_without_consuming_it ... ok
+test abi::tests_event_deadline_snapshot::active_deadlines_use_submillisecond_relative_clock_and_clean_cancellations ... ok
+test abi::tests_event_owners::callback_with_exception_releases_active_owner_and_keeps_pending ... ok
+test abi::tests_event_owners::periodic_timer_cancelled_in_callback_keeps_active_owner ... ok
+test abi::tests_event_loop_reentry::rejected_entry_preserves_queues_current_message_and_existing_exception ... ok
+test abi::tests_exceptions_tables::action_chain_separates_index_selector_and_cleanup ... ok
+test abi::tests_event_owners::single_event_transfers_queue_owner_and_releases_after_callback ... ok
+test abi::tests_event_loop_reentry::outer_turns_continue_after_caught_refusal_in_tracing_and_arc ... ok
+test abi::tests_exceptions_tables::catch_all_installs_only_in_frame_chosen_for_dart_exception ... ok
+test abi::tests_exceptions_tables::cleanup_does_not_stop_search_and_installs_in_unwind_phase ... ok
+test abi::tests_exceptions_tables::landing_by_call_site_range ... ok
+test abi::tests_event_deadline_snapshot::actual_sdk_microtask_drain_reports_ready_and_restores_on_return_and_unwind ... ok
+test abi::tests_exceptions_tables::legacy_protocol_preserves_statepoint_landings ... ok
+test abi::tests_exceptions_tables::missing_lsda_has_no_landing_pad ... ok
+test abi::tests_exceptions_tables::mixed_landing_cleans_foreign_without_catching_and_selects_dart_catch ... ok
+test abi::tests_exceptions_tables::range_at_address_limit_does_not_add_length ... ok
+test abi::tests_exceptions_tables::sleb128_preserves_sign_and_extremes ... ok
+test abi::tests_exceptions_tables::uleb128_action_is_independent_of_address_encoding ... ok
+test abi::tests_exceptions_tables::without_registered_port_call_is_direct ... ok
+test abi::tests_arc_abi_frames::abi_rejects_observational_frame_before_changing_slots - should panic ... ok
+test abi::tests_exceptions_tables::without_type_table_and_with_two_byte_uleb128 ... ok
+test abi::latin1_core_list_tests::native_copies_latin1_slices_across_collection_and_releases_source_edges ... ok
+test abi::tests_field_write::invalid_receiver_and_index_neither_write_nor_collect ... ok
+test abi::tests_finalization_owner::internal_finalization_frames_keep_nested_actions_alive ... ok
+test abi::tests_finalization_owner::active_finalization_survives_reentrant_shutdown ... ok
+test abi::tests_field_write::write_tells_bits_from_edges_and_replaces_without_consuming_tokens ... ok
+test abi::tests_isolate_os_identity::macos_identity_matches_the_actual_pthread ... ok
+test abi::tests_finalization_owner::reentrant_finalizations_consume_each_entry_once ... ok
+test abi::tests_io_list_owners::io_result_with_copies_survives_collection_and_releases_chain ... ok
+test abi::tests_gc_roots::lean_descriptor_gives_n_zeroed_slots_and_same_area ... ok
+test abi::tests_metadata_registration::names_preserve_utf8_and_do_not_allocate_dart_objects ... ok
+test abi::tests_mod::base64_with_and_without_padding ... ok
+test abi::tests_late_ref_read::late_ref_tells_empty_zero_written_null_and_scalar_bits ... ok
+test abi::tests_list_tuple_types::collisions_and_disabled_memo_preserve_concrete_types_and_arguments ... ok
+test abi::tests_mod::rc4_known_vector ... ok
+test abi::tests_list_tuple_types::canonical_list_metadata_survives_collection_and_rule_refresh ... ok
+test abi::tests_isolate_os_identity::thread_identity_is_stable_and_differs_for_a_live_worker ... ok
+test abi::tests_native_dispatcher_roots::disable_clears_registration_after_active_callback ... ok
+test abi::tests_native_dispatcher_roots::exception_survives_registration_cleanup ... ok
+test abi::tests_native_dispatcher_roots::self_clear_preserves_active_root_in_tracing_and_arc ... ok
+test abi::tests_native_numbers::double_to_string_is_the_vms ... ok
+test abi::tests_native_dispatcher_roots::foreign_owner_cannot_register_or_clear ... ok
+test abi::tests_native_dispatcher_roots::self_replace_preserves_both_lifetimes ... ok
+test abi::tests_native_numbers::integers_with_vm_rule ... ok
+test abi::tests_native_pump_lifecycle::notifications_are_latched_and_coalesced ... ok
+test abi::tests_native_pump_lifecycle::active_owner_defers_release_until_wait_returns ... ok
+test abi::tests_native_pump_lifecycle::unsupported_owner_cannot_install_or_detach ... ok
+test abi::tests_owned_callback::callback_closure_gains_an_owner_and_releases_on_release ... ok
+test abi::tests_owned_argument::ref_arguments_check_bounds_and_survive_caller_owner ... ok
+test abi::tests_owned_double_box::owned_double_preserves_bits_and_dies_after_last_token ... ok
+test abi::tests_owned_instance::parameters_must_fit_in_header_without_truncation ... ok
+test abi::tests_native_pump_lifecycle::removal_serializes_with_sender_and_destroys_on_owner ... ok
+test abi::tests_owned_instance::owned_instance_registers_methods_before_allocating_and_preserves_token ... ok
+test abi::tests_mod::ber_indefinite_and_segmented_octets ... ok
+test abi::tests_owned_instance::zeroed_instance_and_token_survive_stress_until_a_release ... ok
+test abi::tests_owned_join::owned_join_roots_parts_copies_units_and_releases_on_release ... ok
+test abi::tests_owned_ref_list::compact_storage_preserves_bits_and_shrink_sequence ... ok
+test abi::tests_owned_ref_list::length_rejects_invalid_map_class_and_bounds ... ok
+test abi::tests_owned_ref_list::read_rejects_fake_compacts_indices_and_layouts ... ok
+test abi::tests_owned_ref_list::ref_storage_copies_edges_and_preserves_element_owner ... ok
+test abi::tests_owned_ref_list::writes_reject_invalid_shape_index_and_len_and_keep_shape ... ok
+test abi::tests_owned_ref_list::owned_element_survives_cleared_slot_and_released_list ... ok
+test abi::tests_owners_materialization::closed_queue_discards_graph_without_querying_dead_handle ... ok
+test abi::tests_owners_materialization::cyclic_graph_with_aliases_preserves_nodes_until_edges_are_linked ... ok
+test abi::tests_owners_materialization::isolate_shutdown_releases_pending_message_owners ... ok
+test abi::tests_owners_materialization::shared_aliases_pass_from_queue_to_dispatch_without_residual_owner ... ok
+test abi::tests_owners_materialization::shared_text_in_queue_survives_without_sender_owner ... ok
+test abi::tests_owned_simd_boxes::hints_keep_bits_and_owner_protects_until_release_in_both_modes ... ok
+test abi::tests_owners_materialization::sender_with_old_clone_does_not_publish_after_shutdown ... ok
+test abi::tests_owners_record_and_concat::abi_record_preserves_aliases_and_boxes_until_publish ... ok
+test abi::tests_owned_ref_list::general_and_compact_length_does_not_allocate_collect_or_retain ... ok
+test abi::tests_owners_record_and_concat::concatenating_distinct_forms_preserves_boxes_and_releases_inputs ... ok
+test abi::tests_periodic_timer_deadlines::callback_delay_is_accounted_at_the_next_firing ... ok
+test abi::tests_mod::pkcs12_kdf_from_rfc ... ok
+test abi::tests_periodic_timer_deadlines::deadline_arithmetic_does_not_overflow ... ok
+test abi::tests_periodic_timer_deadlines::missed_periods_match_the_sdk_strict_boundary ... ok
+test abi::tests_periodic_timer_deadlines::tick_lookup_observes_firing_and_cancellation ... ok
+test abi::tests_owners_record_and_concat::record_getter_borrows_field_without_creating_independent_owner ... ok
+test abi::tests_resolve_native::reserved_abi_does_not_query_same_named_process_runtime ... ok
+test abi::tests_trace::matches_trace_stack_by_frame_top ... ok
+test abi::tests_trace::symbolizes_in_vm_format ... ok
+test abi::tests_scalar_field::read_checks_map_without_mistaking_bits_for_handle_or_collecting ... ok
+test abi::tests_trace::writes_waiter_chain ... ok
+test abi::to_string_as_tests::exponential_without_precision_uses_vm_short_decimal ... ok
+test abi::tests_owned_ref_list::append_borrows_receiver_and_preserves_roots_across_growth_and_decompaction ... ok
+test abi::tests_resolve_native::foreign_symbol_keeps_lookup_and_invalid_name_does_not_call_it ... ok
+test arc::candidates::building_and_conditional_protection_keep_existing_lifetime_rules ... ok
+test abi::tests_runtime_type::native_returns_canonical_value_type ... ok
+test abi::tests_socket_write_slices::writes_internal_external_and_unmodifiable_view_slices ... ok
+test abi::tests_socket_write_slices::reads_full_and_short_buffers_without_retaining_spare_capacity_under_stress ... ok
+test arc::candidates::dead_candidates_swap_remove_and_repair_moved_identity ... ok
+test arc::candidates::negative_trial_still_precedes_rc_or_graph_commit ... ok
+test arc::candidates::paged_and_loose_backlinks_survive_reclaimed_page_geometry_changes ... ok
+test arc::candidates::randomized_invalid_multiplicities_abort_before_commit ... ok
+test arc::candidates::snapshot_detaches_backlinks_before_protected_requeue_and_death ... ok
+test arc::candidates::stale_generation_and_wrong_backlink_cannot_remove_current_identity ... ok
+test arc::candidates::unqueued_deaths_leave_live_candidate_backlinks_untouched ... ok
+test arc::tests_mod::acyclic_chain_dies_in_cascade_when_root_is_released ... ok
+test arc::tests_mod::audit_finds_wrong_rc ... ok
+test arc::tests_mod::bounded_cascade_preserves_root_multiplicity_and_generation_in_reformatted_page ... ok
+test arc::tests_mod::cycle_holding_an_acyclic_releases_both ... ok
+test arc::tests_mod::cycle_with_external_reference_survives_and_collection_keeps_rc ... ok
+test arc::tests_mod::dense_negative_trial_identifies_handle_and_aborts_before_discard ... ok
+test arc::tests_mod::dense_survival_preserves_converging_paths_and_repeated_edges ... ok
+test arc::tests_mod::dense_trial_preserves_multiplicity_and_external_entry_in_sparse_handles ... ok
+test arc::tests_mod::immortal_does_not_reuse_generation_after_exhaustion ... ok
+test abi::to_string_as_tests::the_three_forms_are_the_vms ... ok
+test arc::tests_mod::index_by_inverse_checks_large_sizes_and_u64_bounds ... ok
+test arc::tests_mod::isolated_cycle_dies_only_by_cycle_collection ... ok
+test arc::tests_mod::null_and_smi_are_not_counted ... ok
+test arc::tests_mod::observational_root_holds_zero_and_cycle ... ok
+test arc::tests_mod::occurrence_multiplicity ... ok
+test arc::tests_mod::protected_root_does_not_expand_trial_and_keeps_candidate ... ok
+test arc::tests_mod::reformatted_page_updates_inverse_and_preserves_metadata ... ok
+test arc::tests_mod::release_with_zero_rc_is_an_error_and_overflow_too ... ok
+test arc::tests_mod::retain_if_registered_tells_absence_without_hiding_errors ... ok
+test arc::tests_mod::side_edge_prevents_refless_body_filter ... ok
+test arc::tests_mod::stale_queue_entry_is_ignored_by_generation ... ok
+test arc::tests_mod::successive_cycles_inherit_neither_survivors_nor_reclaimed_generations ... ok
+test arc::tests_mod::transferred_dead_preserve_cascade_and_rounds_without_copying_first_buffer ... ok
+test arc::tests_mod::under_construction_and_protected_do_not_die ... ok
+test boxes::tests_boxes::bool_boxes_are_the_static_ones ... ok
+test heap::arc_no_heap::arc_activation_counts_already_open_owning_frames ... ok
+test heap::arc_no_heap::arc_activation_counts_globals_and_runtime_slots_open_under_tracing ... ok
+test heap::arc_no_heap::arc_activation_recounts_tokens_and_last_release_allows_collecting_cycle ... ok
+test heap::arc_no_heap::arc_cycle_dies_in_full_and_root_holds_it ... ok
+test heap::arc_no_heap::arc_promotes_counts_and_releases_by_rc ... ok
+test arc::candidates::candidate_indices_do_not_truncate_large_live_queues ... ok
+test arc::candidates::randomized_duplicate_edge_graphs_match_retained_candidate_reference ... ok
+test heap::arc_no_heap::arc_raw_write_into_old_reconciles_by_snapshot ... ok
+test heap::arc_no_heap::arc_roots_register_young_without_retaining_garbage_or_recounting_old ... ok
+test heap::arc_no_heap::attachment_index_preserves_aliases_after_removing_middle_position ... ok
+test heap::arc_no_heap::closure_construction_transfers_protection_to_strong_edge ... ok
+test heap::arc_no_heap::code_tokens_count_aliases_without_duplicating_observational_roots ... ok
+test heap::arc_no_heap::dart_attachment_does_not_root_cycle_between_owner_and_action ... ok
+test heap::arc_no_heap::dead_attachment_publishes_action_owner_in_queue ... ok
+test heap::arc_no_heap::canonical_tables_count_slots_without_duplicate_registration ... ok
+test heap::arc_no_heap::finalization_queue_counts_aliases_and_consumption ... ok
+test heap::arc_no_heap::finalizer_external_size_leaves_once_per_transition ... ok
+test heap::arc_no_heap::message_owners_count_in_tracing_walk ... ok
+test heap::arc_no_heap::code_release_does_not_consume_frame_owner - should panic ... ok
+test heap::arc_no_heap::move_rejects_observational_root_before_consuming_owner ... ok
+test heap::arc_no_heap::global_receives_token_without_retaining_and_keeps_owner_apart_from_scalar ... ok
+test heap::arc_no_heap::native_attachment_rejects_owner_reused_after_wrapper_death ... ok
+test arc::tests_mod::index_by_inverse_checks_every_class_byte ... ok
+test heap::arc_no_heap::old_owner_attachment_keeps_young_action_and_detach_releases_chain ... ok
+test heap::arc_no_heap::owners_and_strong_edges_count_distinct_occurrences ... ok
+test heap::arc_no_heap::owning_frames_count_copies_swaps_and_promotion ... ok
+test heap::arc_no_heap::owning_move_consuming_alias_and_return_preserves_rc ... ok
+test heap::arc_no_heap::persistent_owners_count_aliases_move_and_promotion ... ok
+test heap::arc_no_heap::slots_and_tokens_transfer_without_retain_on_move_and_with_alias_at_destination ... ok
+test heap::arc_no_heap::temporary_list_owners_survive_growth_and_decompaction ... ok
+test heap::arc_no_heap::transfer_rejects_invalid_destination_or_token_before_mutating ... ok
+test heap::arc_no_heap::typed_view_keeps_base_after_consuming_temporary_owners ... ok
+test heap::fixed_root_tests::byte_trigger_collects_large_payloads ... ok
+test heap::gc_policy_tests::budget_precheck_and_gross_growth_force_debt_without_refunds ... ok
+test heap::fixed_root_tests::fixed_slots_preserve_copies_and_nested_returns ... ok
+test heap::gc_policy_tests::bounded_pre_debt_reservation_is_prepaid_and_cannot_reenter_accounting ... ok
+test heap::gc_policy_tests::idle_collection_keeps_ready_finalizers_and_arc_roots_alive ... ok
+test heap::gc_policy_tests::idle_collection_requires_request_and_waits_for_cancel_or_expiry ... ok
+test heap::gc_policy_tests::logical_deadline_and_repeated_requests_cannot_extend_or_restart_allowance ... ok
+test heap::gc_policy_tests::runtime_allocation_external_growth_and_explicit_collection_preserve_roots ... ok
+test heap::gc_policy_tests::stress_schedule_and_hard_ceiling_bypass_the_deferral_gate ... ok
+test heap::gc_policy_tests::suppressed_ordinary_debt_drains_every_size_class ... ok
+test heap::gc_policy_tests::tlab_reservations_are_drained_and_disabled_until_debt_is_serviced ... ok
+test heap::gc_policy_tests::unused_cancel_or_expiry_does_not_manufacture_collection_debt ... ok
+test heap::gc_policy_tests::unused_expiry_or_cancel_preserves_prepaid_blocks_but_external_pressure_drains_them ... ok
+test heap::handle_failures::collected_handle - should panic ... ok
+test heap::gc_policy_tests::external_attachment_growth_invalidates_budget_and_quotas_without_collecting_unrooted_headers ... ok
+test heap::gc_policy_tests::zero_external_growth_at_quota_equality_preserves_reservations_without_debt ... ok
+test heap::handle_failures::handle_beyond_table - should panic ... ok
+test heap::handle_failures::negative_handle - should panic ... ok
+test heap::handle_failures::null_dereferenced - should panic ... ok
+test heap::object_space::growing_object_followed_through_field_pointer ... ok
+test heap::object_space::identity_hash_is_stable_and_distinct ... ok
+test heap::object_space::a_published_heap_never_hands_out_another_heap_ranges ... ok
+test heap::object_space::large_object_has_own_page ... ok
+test heap::object_space::collection_returns_blocks_and_keeps_reachable ... ok
+test heap::object_space::minor_collection_follows_remembered_and_releases_dead_young ... ok
+test heap::object_space::object_handles_and_scalars_are_distinct ... ok
+test heap::object_space::out_of_line_body_followed_by_collection_and_barrier ... ok
+test heap::object_space::reference_map_beyond_32_fields ... ok
+test heap::object_space::runtime_allocations_bump_the_tlab_ranges ... ok
+test heap::object_space::strings_built_through_the_tlab_keep_text_and_form ... ok
+test heap::object_space::tlab_ranges_survive_and_return_to_list ... ok
+test heap::object_space::verification_accepts_side_attachment_barrier ... ok
+test heap::arc_no_heap::arc_random_graphs_model_holds_under_tracing ... ok
+test heap::object_space::sweep_without_touching_dead_hands_out_zeroed_blocks ... ok
+test heap::review_tests::large_cycle_is_iterative ... ok
+test heap::review_tests::returned_handles_and_identity ... ok
+test heap::review_tests::unicode_nul_nullable_and_concat ... ok
+test heap::object_space::verification_finds_missing_barrier - should panic ... ok
+test heap::object_space::verification_finds_missing_barrier_in_side_attachment - should panic ... ok
+test heap::runtime_roots::minor_collection_purges_only_dead_young_marks ... ok
+test heap::runtime_roots::pending_exception_survives_collection_without_frame ... ok
+test heap::runtime_roots::side_table_purged_when_block_is_reused ... ok
+test heap::tests::cycles_and_slot_reuse ... ok
+test heap::tests::enum_singletons_survive_collection_and_keep_nominal_identity ... ok
+test heap::runtime_roots::collection_without_open_frame ... ok
+test heap::tests::scalar_bits_do_not_trace ... ok
+test heap::tests::tagged_edges_keep_unrooted_children_alive ... ok
+test heap::tests_observation_without_reset::diagnostic_tells_free_block_with_stale_header ... ok
+test heap::unified_space::aging_off_promotes_on_the_first_minor_collection ... ok
+test heap::tests::nested_frames_stress ... ok
+test heap::unified_space::aging_promotes_on_the_second_minor_collection ... ok
+test heap::unified_space::attachment_released_when_owner_dies ... ok
+test heap::unified_space::cards_keep_young_written_into_large_old_list ... ok
+test heap::unified_space::discount_external_after_saturation_preserves_other_bytes ... ok
+test heap::unified_space::external_bytes_fire_the_trigger ... ok
+test heap::unified_space::extreme_external_byte_debt_keeps_the_trigger ... ok
+test heap::fixed_root_tests::fixed_slot_microbenchmark ... ok
+test heap::unified_space::instance_follows_only_reference_fields ... ok
+test heap::unified_space::large_region_returned ... ok
+test heap::unified_space::medium_and_exact_classes_coexist ... ok
+test heap::unified_space::old_object_pointing_to_survivor_stays_remembered ... ok
+test heap::unified_space::permanents_and_constants_purged ... ok
+test heap::unified_space::promoted_object_with_young_child_stays_remembered ... ok
+test heap::unified_space::raw_keeps_bits_and_follows_nothing ... ok
+test heap::unified_space::refs_follows_elements_and_barrier_remembers ... ok
+test heap::unified_space::set_flags_changes_only_the_shape ... ok
+test heap::unified_space::static_is_not_written - should panic ... ok
+test heap::unified_space::static_never_marked_nor_swept ... ok
+test layout::layout_tests::layout_body_sizes ... ok
+test layout::layout_tests::layout_header_word_and_handles ... ok
+test layout::layout_tests::layout_medium_classes_fill_the_page ... ok
+test layout::layout_tests::layout_sdk_cids_in_order_and_predicates ... ok
+test layout::layout_tests::layout_size_class_is_monotonic_and_covers ... ok
+test layout::layout_tests::layout_string_hash_equals_vm ... ok
+test lists::tests_lists::lists_bits_of_each_shape ... ok
+test lists::tests_lists::lists_flags_and_codes_round_trip ... ok
+test heap::review_tests::gc_microbenchmark ... ok
+test lists::tests_lists::reserve_preserves_compact_bits_zero_tail_and_noop_storage ... ok
+test space::tests_ranges::blocks_separated_by_live_do_not_merge ... ok
+test space::tests_ranges::contiguous_dead_refill_a_range_without_touching_live ... ok
+test space::tests_ranges::merge_free_ranges_joins_neighbours_in_address_order ... ok
+test space::tests_ranges::quarantine_hands_out_only_blocks_that_left_the_ring ... ok
+test text::tests_strings::strings_canonical_form_and_slice ... ok
+test lists::tests_lists::reserve_preserves_shared_reference_edges_and_old_storage ... ok
+test text::tests_strings::strings_double_ended_iterator ... ok
+test text::tests_strings::strings_equality_across_forms ... ok
+test text::tests_strings::strings_hash_matches_layout ... ok
+test text::tests_strings::strings_points_and_encoding ... ok
+test text::tests_strings::strings_search ... ok
+test typed_lists::tests_typed::typed_type_of_cid_covers_ranges ... ok
+test lists::tests_lists::reserve_empty_storage_preserves_shape_and_rejects_invalid_length ... ok
+test abi::tests_event_deadline_snapshot::idle_collection_expiry_wakes_before_timer_and_runs_generated_finalizer_first ... ok
+test heap::arc_no_heap::arc_random_graphs_against_model ... ok
+test heap::arc_no_heap::arc_random_graphs_with_cycles_always ... ok
+test abi::tests_native_numbers::double_to_string_without_allocating_matches_previous ... ok
+test heap::object_space::linked_list_in_heap ... ok
+
+test result: ok. 324 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+
+     Running tests/allocator.rs (target/string-length-validation/debug/deps/allocator-f669d1b2f01546f4)
+
+running 4 tests
+test block_freed_on_other_thread ... ok
+test free_block_returns_through_class_list ... ok
+test full_list_and_large_alignment_go_to_system ... ok
+test realloc_preserves_content_across_classes_and_outside ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/arc_uniform_closure.rs (target/string-length-validation/debug/deps/arc_uniform_closure-a8f65cec015630c5)
+
+running 2 tests
+test closure_preserves_one_owned_and_restores_scopes_even_when_pending ... ok
+test invalid_lookup_holds_owned_helper_until_exception_is_published ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dart_ports.rs (target/string-length-validation/debug/deps/dart_ports-89a7d1dcac2d8c93)
+
+running 2 tests
+test the_list_has_no_dead_entry ... ok
+test every_fn_transmute_outside_ports_is_listed ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ownership.rs (target/string-length-validation/debug/deps/ownership-342a9bfb0f51f008)
+
+running 7 tests
+test callback_code_owners_use_native_metadata_without_managed_ownership ... ok
+test arc_contracts_cover_exports_without_inventing_contracts_for_other_externs ... ok
+test borrowed_context_needs_owner_after_closure_release ... ok
+test copied_borrowed_capture_survives_env_and_preserves_pending ... ok
+test nsm_publishes_error_until_clear_without_owner_in_caller ... ok
+test owned_closure_keeps_context_cell_and_repeated_edges_until_drop ... ok
+test generator::ownership_tests::table_rejects_incomplete_duplicate_and_invalid_contracts ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/single_source.rs (target/string-length-validation/debug/deps/single_source-867ec3d96c098408)
+
+running 4 tests
+test overflow_wraps_as_in_aot ... ok
+test native_resolver_and_its_cache_keep_this_runtimes_addresses ... ok
+test aot_compiles_the_same_files ... ok
+test the_table_covers_runtime_symbols ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/types_and_events.rs (target/string-length-validation/debug/deps/types_and_events-b3d692aa0eee872f)
+
+running 6 tests
+test late_field_tells_zero_value_from_missing_write ... ok
+test list_allocators_preserve_type_argument ... ok
+test set_rti_preserves_owner_pending_and_elements_on_decompact ... ok
+test subtyping_and_evaluation ... ok
+test internal_recipe_ids_without_collecting_retaining_string_or_changing_pending ... ok
+test event_loop_in_vm_order ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests dartforge_runtime
+
+running 88 tests
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_env_ref_v1 (line 884) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_closure_context_v1 (line 861) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_closure_owned_v1 (line 833) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_box_int_owned_v1 (line 1506) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_argument_owned_v1 (line 730) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_box_simd_owned_v1 (line 1556) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_frame_close_v1 (line 1834) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_collect (line 1680) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_exception_owned_v1 (line 1425) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_box_double_owned_v1 (line 1530) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_frame_copy_v1 (line 1727) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_len_v1 (line 60) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_capacity_v1 (line 130) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_frame_move_v1 (line 1811) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_frame_receive_v1 (line 1773) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_frame_load_v1 (line 1751) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_global_receive_v1 (line 1795) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_frame_open_v1 (line 1708) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_ref_owned_v1 (line 339) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_write_ref_v1 (line 234) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_write_bits_v1 (line 210) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_read_bits_v1 (line 295) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_ref_v1 (line 366) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_write_data_v1 (line 262) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_storage_ref_v1 (line 86) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_shape_v1 (line 107) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_list_write_len_v1 (line 165) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_object_owned_t_v1 (line 1013) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_object_owned_v1 (line 799) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_observe_heap_v1 (line 1623) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_read_field_ref_v1 (line 1317) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_retain (line 1644) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_read_field_late_ref_v1 (line 1365) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_read_field_scalar_v1 (line 1277) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_read_field_scalar_checked_v1 (line 1227) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_release (line 1662) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_throw_ref_v1 (line 1401) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_throw_with_stack_trace_ref_v1 (line 1479) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_write_field_ref_v1 (line 1071) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_stack_trace_owned_v1 (line 1456) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_write_field_scalar_v1 (line 1046) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_scalar_env_v1 (line 907) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_write_field_scalar_checked_v1 (line 1183) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_write_field_ref_checked_v1 (line 1107) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_native_ports.rs - abi::dartforge_arc_invoke_uniform_closure_v1 (line 466) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_native_ports.rs - abi::dartforge_arc_invoke_uniform_v1 (line 413) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_native_ports.rs - abi::dartforge_arc_register_return_owned_v1 (line 177) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_abi.rs - abi::dartforge_arc_verify_abi (line 1694) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_native_ports.rs - abi::dartforge_arc_native_scope_close_v1 (line 551) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_native_ports.rs - abi::dartforge_arc_native_scope_open_v1 (line 522) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_native_ports.rs - abi::dartforge_arc_register_uniform_owned_v1 (line 218) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_native_ports.rs - abi::dartforge_arc_register_typed_v1 (line 250) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_native_ports.rs - abi::dartforge_arc_take_return_owned_v1 (line 495) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/closures.rs - abi::dartforge_arc_tearoff_owned_v1 (line 43) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_native_ports.rs - abi::dartforge_arc_take_typed_v1 (line 275) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/arc_native_ports.rs - abi::dartforge_arc_typed_target_v1 (line 300) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/effects_check.rs - abi::dartforge_effects_level (line 58) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/effects_check.rs - abi::dartforge_effects_restore (line 77) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/core.rs - abi::dartforge_arc_record_from_refs_owned_v1 (line 929) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/io_sockets.rs - abi::dartforge_arc_socket_recvfrom_owned_v1 (line 609) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/events.rs - abi::dartforge_native_DartForge_event_next_deadline_micros (line 174) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/exceptions_tables.rs - abi::dartforge_personality_cleanup_itanium (line 700) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/isolate_identity.rs - abi::dartforge_native_DartForge_isolate_thread_id (line 93) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/natives_lists.rs - abi::dartforge_list_append (line 728) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/natives_strings.rs - abi::dartforge_arc_string_allocate_owned_v1 (line 838) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/types.rs - abi::dartforge_rti_eval (line 1241) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/strings.rs - abi::dartforge_arc_string_join_owned_v1 (line 209) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/natives_lists.rs - abi::dartforge_arc_list_new_owned_v1 (line 637) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/types.rs - abi::dartforge_arc_rti_string_owned_v1 (line 1598) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/types.rs - abi::dartforge_arc_rti_object_type_owned_v1 (line 1569) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime/src/selectors.rs - abi::dartforge_register_tables (line 166) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/build/dartforge-runtime-34657860d4673432/out/ownership.rs - ownership::ParamMode (line 4) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/build/dartforge-runtime-34657860d4673432/out/ownership.rs - ownership::Contract (line 20) ... ok
+test crates/runtime/src/heap.rs - heap::Heap::enum_value (line 2005) ... ok
+test crates/runtime/src/heap.rs - heap::Heap::move_global_to_slot (line 2305) ... ok
+test crates/runtime/src/arc.rs - arc::ArcHeapState::register_immortal (line 435) ... ok
+test /Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/build/dartforge-runtime-34657860d4673432/out/ownership.rs - ownership::ResultMode (line 12) ... ok
+test crates/runtime/src/arc.rs - arc::ArcHeapState::register_live_at (line 458) ... ok
+test crates/runtime/src/heap.rs - heap::Heap::push_owning_frame (line 2073) ... ok
+test crates/runtime/src/heap.rs - heap::Heap::register_tearoff (line 2035) ... ok
+test crates/runtime/src/heap.rs - heap::Heap::move_root (line 2275) ... ok
+test crates/runtime/src/heap.rs - heap::Heap::move_global_root (line 1894) ... ok
+test crates/runtime/src/lib.rs - ownership::contract (line 71) ... ok
+test crates/runtime/src/heap.rs - heap::Heap::store_literal (line 1835) ... ok
+test crates/runtime/src/heap.rs - heap::Heap::release_global_root (line 1910) ... ok
+test crates/runtime/src/heap.rs - heap::Heap::set_runtime_root (line 1812) ... ok
+test crates/runtime/src/rti_table.rs - rti_table::compress (line 17) ... ok
+test crates/runtime/src/heap.rs - heap::Heap::set_global_root (line 1851) ... ok
+
+test result: ok. 88 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+all doctests ran in 0.55s; merged doctests compilation took 0.31s

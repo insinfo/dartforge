@@ -1,0 +1,21 @@
+{
+  "command": [
+    "prlctl",
+    "exec",
+    "Windows11",
+    "--current-user",
+    "powershell.exe",
+    "-NoLogo",
+    "-NoProfile",
+    "-NonInteractive",
+    "-OutputFormat",
+    "Text",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-File",
+    "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\batch-tables-validation\\probe-windows-build.ps1"
+  ],
+  "exit": 0,
+  "stdout": "{\"Used\":51039776768,\"Free\":34158067712}\nerror: failed to run custom build command for `dartforge-emit-native v0.1.0 \n    LINK : fatal error LNK1104: cannot open file 'C:\\tools\\dartforge\\target\\native-x64\\x86_64-pc-windows-msvc\n",
+  "stderr": ""
+}

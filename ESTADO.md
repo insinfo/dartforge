@@ -2,6 +2,27 @@
 
 ## Atualização de 20/10/2026
 
+- O startup de programas com pelo menos oito tabelas ativas agora usa um vetor
+  ordenado de getters puros. No explorador real, 3.758 chamadas viraram uma;
+  CIDs e ordem conferidos, e o IR é idêntico ao anterior após expandir o lote.
+  O IR caiu 180.483 bytes; executáveis macOS/Windows diminuíram 33.024/25.600
+  bytes e Linux cresceu 944 bytes, sem ganho universal ou de startup medido.
+  Corrigido também o build script que podia ler o checkout antigo quando Cargo
+  reutilizava seu binário: a regressão falha antes e passa depois. Bundles
+  Windows/Linux reexportados das fontes finais, com hashes iguais e caminhos
+  `current` atualizados; os anteriores foram preservados. Passaram 996 testes
+  nativos com ignorados, 324 unitários/25 integrações/88 doctests do runtime,
+  Clippy estrito e docs sem avisos. A fixture com dois isolados passou
+  em AOT/JIT nos três sistemas, normal/sob estresse de GC; o explorador e o
+  smoke de menus também passaram em AOT/JIT nos três, em execuções curtas.
+  Duas montagens release Windows falharam ao abrir arquivo do `ring`; uma
+  montagem em diretório isolado curto passou, sem causa definitiva atribuída.
+  Falhas preliminares e correções de transporte/permissão/presentation foram
+  preservadas. As VMs voltaram ao estado suspenso; nenhum agente periódico
+  foi instalado. Sem nova permissão de poda: seis definições estrangeiras,
+  fmt global e aprovação integral ainda pendentes. Evidências:
+  `bench/results/2026-10-20-table-batches/README.md`.
+
 - A visão de prova de classes limpa agora referências lexicais falsas dentro
   de bytes privados verificados mesmo sem startup de metadados certificado.
   A regressão com o texto `@opaque` falhou antes da correção. Ponteiros reais,

@@ -820,6 +820,10 @@ pub const EXTERNS: &[Extern] = &[
         decl: "declare void @dartforge_register_table(i64, ptr)",
         effects: CONSERVATIVE,
     },
+    Extern {
+        decl: "declare void @dartforge_register_tables(ptr, i64)",
+        effects: CONSERVATIVE,
+    },
     // --- P6: event loop and the overlay natives (`events.rs`) ---
     Extern {
         // The only point where the runtime calls Dart code (G8).

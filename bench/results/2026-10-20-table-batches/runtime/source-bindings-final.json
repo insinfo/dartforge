@@ -1,0 +1,34 @@
+[
+  {
+    "path": "crates/emit_native/build.rs",
+    "sha256": "4b7d428a4420f24f72ba9b9a97d073b17445218f867ecc499ecf80558dd304e9"
+  },
+  {
+    "path": "crates/emit_native/src/llvm/externs.rs",
+    "sha256": "6fc04534674e226e3f9dc55db7b551a4caededca38b410ab7040042065916363"
+  },
+  {
+    "path": "crates/emit_native/src/llvm/selectors.rs",
+    "sha256": "f3324dd6914161e2e75e2316489959dbf5337bcdff2c9c24a8d895afd58b1778"
+  },
+  {
+    "path": "crates/emit_native/src/llvm/table_batch_tests.rs",
+    "sha256": "9437a0ca479bd004259f066c97aacedee530ab4abbfdde569f9ebb1a971c8b57"
+  },
+  {
+    "path": "crates/emit_native/tests/fixtures/table_batch/main.dart",
+    "sha256": "1adf8daa03ddabc725c0f4f3977591955f94b7d61d435ad669bdae87f13433b7"
+  },
+  {
+    "path": "crates/runtime/effects.tsv",
+    "sha256": "1cebffcfdf5ceb92318198af87624de94c5fc7bd36c96c1eb6ea50a4b6eaa44d"
+  },
+  {
+    "path": "crates/runtime/src/selectors.rs",
+    "sha256": "ad278d65da43d5f6c6ebb6584ad6018b18ab0186ddc3aff2e0cdf0b6f4fac1a5"
+  },
+  {
+    "path": "scripts/test-build-script-relocation.py",
+    "sha256": "8e46e34dd0cc7f72dc12ad9bf33255fe7bf7141552aba2ac64998f2354169268"
+  }
+]

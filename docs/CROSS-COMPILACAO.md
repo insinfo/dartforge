@@ -139,3 +139,17 @@ constantes de plataforma, ABI C, exceções/TLS, registradores, seções, cabeç
 LLVM, bibliotecas e caches. O cache de um alvo estrangeiro fica separado do
 cache nativo. A presença de um destino na tabela não equivale à validação de
 todo programa Dart nesse destino; conferir o relatório da rodada real.
+
+
+## Reutilização do build script entre checkouts (20/10/2026)
+
+O build script do emissor resolve `CARGO_MANIFEST_DIR` no momento da execução.
+Capturar essa variável com `env!` guardava o caminho do checkout que compilou o
+script; Cargo podia reutilizar o binário em outra cópia e exportar um runtime das
+fontes anteriores. A regressão `scripts/test-build-script-relocation.py` executa
+um único binário contra três árvores temporárias e exige hashes/nomes diferentes
+para conteúdo diferente, mas iguais para conteúdo idêntico em outro caminho.
+Os bundles continuam exigindo a revisão de fontes esperada pelo compilador;
+não se deve editar o manifesto para contornar uma rejeição. A tentativa antiga,
+a regressão e os novos exports nativos estão preservados nas
+[evidências](../bench/results/2026-10-20-table-batches/README.md).

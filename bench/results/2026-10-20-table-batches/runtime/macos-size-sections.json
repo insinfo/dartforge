@@ -1,0 +1,10 @@
+{
+  "command": [
+    "size",
+    "target/batch-tables-validation/explorer-before",
+    "target/batch-tables-validation/macos-ui/explorer"
+  ],
+  "exit": 0,
+  "stdout": "__TEXT\t__DATA\t__OBJC\tothers\tdec\thex\n23281664\t49152\t0\t4296926576\t4320257392\t10181e570\ttarget/batch-tables-validation/explorer-before\n23216128\t49152\t0\t4296959088\t4320224368\t101816470\ttarget/batch-tables-validation/macos-ui/explorer\n",
+  "stderr": ""
+}
