@@ -1,0 +1,7 @@
+Exception: /Volumes/ssd_dock/MyRustProjects/dartforge/scripts/check-test-prerequisites.ps1:19
+Line |
+  19 |              throw "$variable is missing '$relative': $sdkRoot. Select …
+     |              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | DARTFORGE_DART_SDK_3_13 is missing 'bin/dart':
+     | /Volumes/ssd_dock/DartSDKs/3.13.4/dart-sdk. Select a complete SDK for
+     | this host; see CONTRIBUTING.md.

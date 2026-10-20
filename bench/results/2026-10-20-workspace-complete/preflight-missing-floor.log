@@ -1,0 +1,6 @@
+Exception: /Volumes/ssd_dock/MyRustProjects/dartforge/scripts/check-test-prerequisites.ps1:14
+Line |
+  14 |          throw "Set $variable to a host-compatible oracle SDK root (co …
+     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Set DARTFORGE_DART_SDK to a host-compatible oracle SDK root (containing
+     | bin and lib). See CONTRIBUTING.md.

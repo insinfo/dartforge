@@ -1,0 +1,6 @@
+Exception: /Volumes/ssd_dock/MyRustProjects/dartforge/scripts/check-test-prerequisites.ps1:27
+Line |
+  27 |          throw "$variable has unsupported oracle version '$sdkVersion' …
+     |          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | DARTFORGE_DART_SDK has unsupported oracle version '3.13.5'. Use 3.6.2
+     | for the floor and a compatible 3.13+ SDK for modern cases.

@@ -1,0 +1,6 @@
+
+running 2 tests
+test corpus_has_valid_oracles ... ok
+test ddc_matches_dart_run ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 50.84s
