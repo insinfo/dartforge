@@ -117,7 +117,12 @@ pub fn class_closed_by_modifier(ctx: &Context, cid: ClassId) -> bool {
 /// no instances, so they do not count.
 pub fn fixed_subtype_cids(ctx: &Context, cid: ClassId) -> (Vec<i64>, bool) {
     let mut fixed = Vec::new();
-    let mut all = true;
+    // A record with a named field has the class of its shape (`records.rs`,
+    // `SHAPE_BASE_ID + k`), created while the program is lowered and absent from
+    // the class hierarchy: `_Record` alone is not every `Record`.
+    let class = &ctx.program.classes[cid.0 as usize];
+    let mut all = !(ctx.symbol_name(class.name) == "Record"
+        && ctx.program.library(class.library).uri == "dart:core");
     for &k in ctx.subtypes(cid).iter() {
         let class = &ctx.program.classes[k.0 as usize];
         if !ctx.compiled_library(class.library)
