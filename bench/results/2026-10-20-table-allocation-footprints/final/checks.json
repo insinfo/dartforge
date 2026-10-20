@@ -1,0 +1,88 @@
+[
+  {
+    "name": "directed",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "--lib",
+      "table_alloc",
+      "--",
+      "--include-ignored",
+      "--nocapture"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "feature-clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "--features",
+      "embedded-llvm",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "doc",
+    "command": [
+      "cargo",
+      "doc",
+      "--locked",
+      "--workspace",
+      "--no-deps",
+      "--document-private-items"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "compiler",
+    "command": [
+      "cargo",
+      "build",
+      "--locked",
+      "-p",
+      "dartforge-cli",
+      "--features",
+      "jit"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "native-lib",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "--lib",
+      "--",
+      "--include-ignored"
+    ],
+    "exit": 0
+  }
+]

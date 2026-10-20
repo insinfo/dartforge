@@ -1,0 +1,25 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.80s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 5 tests
+
+thread 'pruning::allocation_inventory::closure::table_allocation_tests::actual_emitter_table_bodies_supply_the_same_bounded_storage_witness' (2901058) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/table_allocation_tests.rs:125:5:
+assertion `left == right` failed
+  left: None
+ right: Some(900)
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::allocation_inventory::closure::table_allocation_tests::actual_emitter_table_bodies_supply_the_same_bounded_storage_witness ... FAILED
+test pruning::allocation_inventory::closure::table_allocation_tests::table_entries_are_complete_ordered_pairs_and_empty_tables_are_valid ... ok
+test pruning::allocation_inventory::closure::table_allocation_tests::constant_table_callbacks_have_finite_allocation_but_preserve_exposure ... ok
+test pruning::allocation_inventory::closure::table_allocation_tests::unknown_callbacks_and_invalid_allocation_operands_remain_open ... ok
+test pruning::allocation_inventory::closure::table_allocation_tests::changed_callback_bodies_storage_and_symbol_ownership_are_not_certified ... ok
+
+failures:
+
+failures:
+    pruning::allocation_inventory::closure::table_allocation_tests::actual_emitter_table_bodies_supply_the_same_bounded_storage_witness
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 996 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

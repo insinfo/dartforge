@@ -1,0 +1,27 @@
+   Compiling ring v0.17.14
+   Compiling libz-sys v1.1.29
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling rustls v0.23.45
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling flate2 v1.1.10
+   Compiling rustls-webpki v0.103.15
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 20s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 1 test
+
+thread 'pruning::allocation_inventory::closure::table_allocation_tests::constant_table_callbacks_have_finite_allocation_but_preserve_exposure' (2899830) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/table_allocation_tests.rs:28:9:
+assertion `left == right` failed
+  left: Null
+ right: Array [Number(900)]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test pruning::allocation_inventory::closure::table_allocation_tests::constant_table_callbacks_have_finite_allocation_but_preserve_exposure ... FAILED
+
+failures:
+
+failures:
+    pruning::allocation_inventory::closure::table_allocation_tests::constant_table_callbacks_have_finite_allocation_but_preserve_exposure
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 999 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

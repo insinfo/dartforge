@@ -1018,3 +1018,23 @@ o IR completo idêntico. O IR caiu 180.483 bytes; executáveis macOS/Windows fic
 tamanho nem aceleração de startup demonstrada. A reprodução de plataforma ainda
 mantém seis definições estrangeiras nos dois modos. Evidências e limites:
 [registro em lote](../bench/results/2026-10-20-table-batches/README.md).
+
+
+## Footprint de alocação com getter constante (20/10/2026)
+
+O inventário de alocações reconhece `dartforge_object_new_t` e `_mt` quando o
+getter inteiro e seu armazenamento constante estão presentes no mesmo conjunto
+de módulos observado. A função deve retornar sua própria tabela privada, sem
+outras instruções; o número de pares, os tipos, a ordem dos hashes, o CID literal
+coincidente e a ABI do alocador são conferidos. `_mt` exige mapa literal de 32 bits.
+Nomes LLVM entre aspas/escapes também contam na recusa de símbolos duplicados.
+O getter tem footprint vazio e o alocador/encaminhadores conservam seu CID finito.
+
+Isso não torna a função pura. Endereços de métodos e publicação no registro
+continuam exposições; o consumidor recusa cobertura de nós, raízes e chamadas
+escalares/Ref/ptr sem as provas próprias. Não certifica invocação dos ponteiros
+armazenados. No SDK de produção real há 32.708 funções e nenhum getter de tabela:
+esses corpos só serão gerados em `assemble`. A identidade de uma declaração não
+substitui o corpo ausente. Startup/imagens/helpers, poda estrangeira e aprovação
+integral continuam pendentes; não há ganho de desempenho/tamanho demonstrado.
+Evidências: [footprints de tabelas](../bench/results/2026-10-20-table-allocation-footprints/README.md).

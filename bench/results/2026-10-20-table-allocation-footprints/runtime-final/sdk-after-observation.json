@@ -1,0 +1,27 @@
+{
+  "path": "target/rpo-native-cache/sdk/d408af23392aac25a2e7ccb3b9357e65/allocation-inventory.json",
+  "bytes": 69918993,
+  "sha256": "3e6478254121b2535ff59a39349f69f281aaf4413b8759b11848e862a9cb499a",
+  "schema": 5,
+  "compiler": "b98c6c279c4ce59f41dd948aca6e268e05e8b7cad3c754f9ae255dc7506d2ca1",
+  "production": true,
+  "function_count": 32708,
+  "defined_method_getters": 0,
+  "observed_helper_facts_identical_to_before": true,
+  "helper_targets": [
+    {
+      "symbol": "df.dart$3a_internal.._dartforgeIndexError",
+      "allocations": null,
+      "unknown": [
+        "global_image_or_function_address:df.s.92a43bf7d6c723e94d77aa16abe4a92a",
+        "global_or_function_address_argument:df.mt.dart$3acore.IndexError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    }
+  ],
+  "before_inventory_still_exists": false,
+  "retained_inventory_path": "target/table-footprints-validation/sdk-after-inventory.json"
+}

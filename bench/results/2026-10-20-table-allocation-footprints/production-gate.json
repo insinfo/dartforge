@@ -1,0 +1,16 @@
+{
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "-p",
+    "dartforge-emit-native",
+    "--test",
+    "production_profile",
+    "platform_constant_prunes_the_other_backends",
+    "--",
+    "--include-ignored",
+    "--nocapture"
+  ],
+  "exit": 101
+}

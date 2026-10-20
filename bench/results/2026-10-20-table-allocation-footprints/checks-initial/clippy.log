@@ -1,0 +1,59 @@
+    Checking ring v0.17.14
+   Compiling rustls v0.23.45
+    Checking libz-sys v1.1.29
+   Compiling dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Checking flate2 v1.1.10
+    Checking rustls-webpki v0.103.15
+    Checking ureq v3.4.2
+    Checking dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+    Checking dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+    Checking dartforge-runtime-static v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime_static)
+error: using `chunks_exact` with a constant chunk size
+  --> crates/emit_native/src/pruning/allocation_inventory/closure/table_getters.rs:26:39
+   |
+26 |     for (types, values) in types[2..].chunks_exact(2).zip(values[2..].chunks_exact(2)) {
+   |                                       ^^^^^^^^^^^^^^^ help: consider using `as_chunks` instead: `as_chunks::<2>().0.iter()`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+   = note: `-D clippy::chunks-exact-to-as-chunks` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::chunks_exact_to_as_chunks)]`
+
+error: using `chunks_exact` with a constant chunk size
+  --> crates/emit_native/src/pruning/allocation_inventory/closure/table_getters.rs:26:71
+   |
+26 |     for (types, values) in types[2..].chunks_exact(2).zip(values[2..].chunks_exact(2)) {
+   |                                                                       ^^^^^^^^^^^^^^^
+   |
+help: consider using `as_chunks::<2>()` instead
+  --> crates/emit_native/src/pruning/allocation_inventory/closure/table_getters.rs:26:71
+   |
+26 |     for (types, values) in types[2..].chunks_exact(2).zip(values[2..].chunks_exact(2)) {
+   |                                                                       ^^^^^^^^^^^^^^^
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#chunks_exact_to_as_chunks
+
+error: this `if` statement can be collapsed
+  --> crates/emit_native/src/pruning/allocation_inventory/closure/table_getters.rs:58:20
+   |
+58 |               } else if line.starts_with('@') {
+   |  ____________________^
+59 | |                 if let Some(name) = super::global_references(line).first() {
+60 | |                     globals.insert(name.clone());
+61 | |                 }
+62 | |             }
+   | |_____________^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#collapsible_if
+   = note: `-D clippy::collapsible-if` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+   |
+58 ~             } else if line.starts_with('@')
+59 ~                 && let Some(name) = super::global_references(line).first() {
+60 |                     globals.insert(name.clone());
+61 ~                 }
+   |
+
+error: could not compile `dartforge-emit-native` (lib) due to 3 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `dartforge-emit-native` (lib test) due to 3 previous errors

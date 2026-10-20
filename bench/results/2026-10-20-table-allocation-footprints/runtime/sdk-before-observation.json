@@ -1,0 +1,24 @@
+{
+  "path": "target/rpo-native-cache/sdk/cdeb1ff1938d8fb2a597bec9a5717c68/allocation-inventory.json",
+  "bytes": 69918993,
+  "sha256": "64567f6cdaef529ed91de9b693884bde2be0c0906880893ffa1e770ecbba8188",
+  "schema": 5,
+  "compiler": "074ae644cc9a9a8e2eb54b43faddd40f76a620d10fc1e0ab7eba9530ec6a8756",
+  "production": true,
+  "function_count": 32708,
+  "defined_method_getters": 0,
+  "helper_targets": [
+    {
+      "symbol": "df.dart$3a_internal.._dartforgeIndexError",
+      "allocations": null,
+      "unknown": [
+        "global_image_or_function_address:df.s.92a43bf7d6c723e94d77aa16abe4a92a",
+        "global_or_function_address_argument:df.mt.dart$3acore.IndexError",
+        "indirect_or_unsupported_call_abi",
+        "runtime_native_selector_or_helper_obligation:dartforge_object_new_t",
+        "runtime_native_selector_or_helper_obligation:dartforge_stack_overflow",
+        "unresolved_raw_memory_allocation"
+      ]
+    }
+  ]
+}

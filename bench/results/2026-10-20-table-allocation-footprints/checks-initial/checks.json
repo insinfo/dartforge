@@ -1,0 +1,32 @@
+[
+  {
+    "name": "directed",
+    "command": [
+      "cargo",
+      "test",
+      "--locked",
+      "-p",
+      "dartforge-emit-native",
+      "--lib",
+      "table_alloc",
+      "--",
+      "--include-ignored",
+      "--nocapture"
+    ],
+    "exit": 0
+  },
+  {
+    "name": "clippy",
+    "command": [
+      "cargo",
+      "clippy",
+      "--locked",
+      "--workspace",
+      "--all-targets",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exit": 101
+  }
+]

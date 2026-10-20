@@ -1,0 +1,72 @@
+[
+  {
+    "path": "target/test-tools/dartforge-before-table-footprints",
+    "bytes": 197846160,
+    "sha256": "d89a1feb803944b5afe7e53fc01e4a9ea3bfe6bb93a61d9d143b889e14ebe802"
+  },
+  {
+    "path": "target/test-tools/dartforge-table-footprints-preliminary",
+    "bytes": 197888096,
+    "sha256": "17a32423254fb443cfccfb209b7064d250c5b2acf255b0a478bfba4d16c857dd"
+  },
+  {
+    "path": "target/test-tools/dartforge-table-footprints",
+    "bytes": 197912384,
+    "sha256": "e08d9ec1d06da804400f1fdbb7d5fbb7d0d16e52728580aa8ce9e09266937496"
+  },
+  {
+    "path": "target/table-footprints-validation/platform-closed.ll.contracts.json",
+    "bytes": 610,
+    "sha256": "8fb36a2135d0522ec04424b8572f70816420c9f0490397d4409bd5b520cb2702"
+  },
+  {
+    "path": "target/table-footprints-validation/sdk-after-inventory.json",
+    "bytes": 69918993,
+    "sha256": "3e6478254121b2535ff59a39349f69f281aaf4413b8759b11848e862a9cb499a"
+  },
+  {
+    "path": "target/table-footprints-validation/libdfsdk_89927e9d05248a8e.dylib",
+    "bytes": 41883440,
+    "sha256": "de538edc3acc08a0473f4ac8daf2ee7815a98e96bda011711e10082afa6536e0"
+  },
+  {
+    "path": "target/table-footprints-validation/platform-default.ll.contracts.json",
+    "bytes": 611,
+    "sha256": "6b9fbd91879f3b9bb762c55e4e2aa3bbf070d46ffac7f9c0c87fa030497eff3c"
+  },
+  {
+    "path": "target/table-footprints-validation/platform-default.ll",
+    "bytes": 167212,
+    "sha256": "3cc7ee79bf99ac7b0be9c85e9391ec7f469cef3371ba57e1e47c9e0dd69e1a9d"
+  },
+  {
+    "path": "target/table-footprints-validation/after-production.contracts.json",
+    "bytes": 759,
+    "sha256": "900214ea264db41e83daed91aa6b96a3ed2d2329a0ba7a1c7db04e57fc009c8e"
+  },
+  {
+    "path": "target/table-footprints-validation/after-production",
+    "bytes": 3425568,
+    "sha256": "985199fff606d1cfad21ec72d72b42a170af50c39cfe271e5ec3f15c53e7c6b3"
+  },
+  {
+    "path": "target/table-footprints-validation/libdfsdk_da49470854d17beb.dylib",
+    "bytes": 41883440,
+    "sha256": "1938dc7f99b837d8c12c225cc1954af95f11f53a1722542cc3ec35dc442909fa"
+  },
+  {
+    "path": "target/table-footprints-validation/after-development",
+    "bytes": 79760,
+    "sha256": "30d2617ad07169086652bbdf2f59febab01a54c9f729c7df33b76b682ae22244"
+  },
+  {
+    "path": "target/table-footprints-validation/platform-closed.ll",
+    "bytes": 167212,
+    "sha256": "3cc7ee79bf99ac7b0be9c85e9391ec7f469cef3371ba57e1e47c9e0dd69e1a9d"
+  },
+  {
+    "path": "target/table-footprints-validation/after-development.contracts.json",
+    "bytes": 761,
+    "sha256": "eeaf39a1d937a08300b1d90fe3531e3df362bb0aa1f40b3a58568f6964dc69de"
+  }
+]

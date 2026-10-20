@@ -817,3 +817,5 @@ mod startup_diagnostics;
 
 #[path = "tests/proof_views.rs"]
 mod proof_views;
+
+mod table_allocations;

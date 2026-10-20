@@ -1,0 +1,147 @@
+[
+  {
+    "label": "dart-vm",
+    "exit": 0,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": ""
+  },
+  {
+    "label": "production-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-table-footprints",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/table-footprints-validation/after-production",
+      "--optimize"
+    ],
+    "exit": 0,
+    "seconds": 4.4799891249999995,
+    "stdout": "",
+    "stderr": "  HIR pruning: 43 of 88 functions, 79 of 238 pairs, 0 FFI signatures, 1 reachability rounds (2.476588958s)\n  HIR:       baixar 2.550596834s, otimizar 13.37475ms\n  Pruning:   190 of 672 tables live, 3471 of 50183 pairs, 6081 of 46798 symbols; outside the IR: 56 functions, 10 globals, 0 MB (170.429083ms)\n--- Native Compilation Timings ---\n  Front-end: 951.644ms\n  World:     27.023875ms (21 of 22 program functions live)\n  HIR:       2.563981334s\n  LLVM IR:   8.155166ms\n  IR:        194178 bytes, 0 from the SDK (0.0%)\n  Objeto:    17.007083ms (cache)\n  Link:      147.933375ms\n  Total:     4.470353042s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "17a32423254fb443cfccfb209b7064d250c5b2acf255b0a478bfba4d16c857dd"
+  },
+  {
+    "label": "production-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/table-footprints-validation/after-production"
+    ],
+    "exit": 0,
+    "seconds": 0.23404433299999994,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "17a32423254fb443cfccfb209b7064d250c5b2acf255b0a478bfba4d16c857dd",
+    "executable_sha256": "985199fff606d1cfad21ec72d72b42a170af50c39cfe271e5ec3f15c53e7c6b3"
+  },
+  {
+    "label": "production-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/table-footprints-validation/after-production"
+    ],
+    "exit": 0,
+    "seconds": 0.00843641699999953,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "17a32423254fb443cfccfb209b7064d250c5b2acf255b0a478bfba4d16c857dd",
+    "executable_sha256": "985199fff606d1cfad21ec72d72b42a170af50c39cfe271e5ec3f15c53e7c6b3"
+  },
+  {
+    "label": "development-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-table-footprints",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--timings",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/table-footprints-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 40.588660083,
+    "stdout": "",
+    "stderr": "  HIR pruning: 43 of 88 functions, 79 of 238 pairs, 0 FFI signatures, 1 reachability rounds (38.937972709s)\n  HIR:       baixar 39.014689208s, otimizar 13.292542ms\n--- Native Compilation Timings ---\n  Front-end: 948.042708ms\n  World:     27.290208ms (21 of 22 program functions live)\n  HIR:       39.027991625s\n  LLVM IR:   8.065416ms\n  IR:        198966 bytes, 0 from the SDK (0.0%)\n  Objeto:    3.201ms (cache)\n  Link:      19.154125ms\n  Total:     40.573507708s\n  Pico Mem:  0 KB\n",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "17a32423254fb443cfccfb209b7064d250c5b2acf255b0a478bfba4d16c857dd"
+  },
+  {
+    "label": "development-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/table-footprints-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 0.7723612910000028,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "17a32423254fb443cfccfb209b7064d250c5b2acf255b0a478bfba4d16c857dd",
+    "executable_sha256": "3ba3a71a00a3b7ac8d67ac88364bc1e9d9b8bb02891be28ca43bec262f9b6796"
+  },
+  {
+    "label": "development-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/table-footprints-validation/after-development"
+    ],
+    "exit": 0,
+    "seconds": 0.03197262500000164,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "17a32423254fb443cfccfb209b7064d250c5b2acf255b0a478bfba4d16c857dd",
+    "executable_sha256": "3ba3a71a00a3b7ac8d67ac88364bc1e9d9b8bb02891be28ca43bec262f9b6796"
+  },
+  {
+    "label": "jit-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-table-footprints",
+      "run",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart"
+    ],
+    "exit": 0,
+    "seconds": 1.758668292000003,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "compiler_sha256": "17a32423254fb443cfccfb209b7064d250c5b2acf255b0a478bfba4d16c857dd"
+  },
+  {
+    "label": "jit-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-table-footprints",
+      "run",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart"
+    ],
+    "exit": 0,
+    "seconds": 1.7153691669999986,
+    "stdout": "parent=45\nchild=45\n",
+    "stderr": "",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "compiler_sha256": "17a32423254fb443cfccfb209b7064d250c5b2acf255b0a478bfba4d16c857dd"
+  }
+]

@@ -6,6 +6,8 @@
 use std::collections::{BTreeSet, HashMap};
 use serde_json::{Value, json};
 
+mod table_getters;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Abi { result: String, parameters: Vec<String> }
 #[derive(Clone, Debug)]
@@ -221,7 +223,13 @@ fn native_bytes(line: &str) -> bool {
     native_byte_content(line).is_some()
 }
 
-fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTreeSet<String>) {
+fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTreeSet<String>, getters: &HashMap<String, u32>) {
+    if getters.contains_key(&definition.symbol) {
+        // Exact constant-return bodies were checked against complete immutable
+        // table storage. The returned addresses remain exposure obligations.
+        definition.exposures.insert("method_table_address".into());
+        return;
+    }
     for raw in body {
         let Some(line) = uncomment(raw) else {
             definition.unknown.insert("malformed_quoted_operand".into());
@@ -237,15 +245,20 @@ fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTree
         }
         if opcode == "call" {
             if let Some((symbol, abi, arguments)) = signature(operation) {
-                for argument in &arguments {
+                let call = Call {symbol, abi, arguments};
+                let table_allocation = table_getters::allocation(&call, getters).is_some();
+                for (index, argument) in call.arguments.iter().enumerate() {
                     for name in global_references(argument) {
-                        if !byte_globals.contains(&name) {
+                        if !byte_globals.contains(&name) && !(table_allocation && index + 1 == call.arguments.len()) {
                             definition.unknown.insert(format!("global_or_function_address_argument:{name}"));
                             definition.exposures.insert("global_or_function_address".into());
                         }
                     }
                 }
-                definition.calls.push(Call {symbol, abi, arguments});
+                if table_allocation {
+                    definition.exposures.insert("method_table_registration".into());
+                }
+                definition.calls.push(call);
             } else {
                 definition.unknown.insert("indirect_or_unsupported_call_abi".into());
             }
@@ -277,6 +290,7 @@ fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTree
 /// Exhaustively scans each definition's emitted body. Unknown syntax is a
 /// recorded obligation, never an implicit empty allocation set.
 pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
+    let getters = table_getters::observe(modules);
     let mut definitions = Vec::new(); let mut globals = Vec::new();
     let mut module_counts = HashMap::new();
     for (module, _) in modules { *module_counts.entry(*module).or_insert(0usize) += 1; }
@@ -322,16 +336,16 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
             if !complete { definition.unknown.insert("incomplete_definition".into()); }
             if definition.abi.is_none() { definition.unknown.insert("unsupported_definition_abi".into()); }
             if !unique_linkage { definition.unknown.insert("interposable_linkage".into()); }
-            analyze_body(&mut definition, &body, &byte_globals);
+            analyze_body(&mut definition, &body, &byte_globals, &getters);
             definitions.push(definition);
         }
     }
-    let mut bundle = close(definitions, globals);
+    let mut bundle = close(definitions, globals, &getters);
     bundle.modules = modules.iter().map(|(module, ir)| json!({"module":module,"final_ir_digest":blake3::hash(ir.as_bytes()).to_hex().to_string(),"image_census":super::images::source_census(ir)})).collect();
     bundle
 }
 
-fn close(mut definitions: Vec<Definition>, globals: Vec<Value>) -> Bundle {
+fn close(mut definitions: Vec<Definition>, globals: Vec<Value>, getters: &HashMap<String, u32>) -> Bundle {
     let mut names: HashMap<String, Vec<usize>> = HashMap::new();
     for (index, definition) in definitions.iter().enumerate() { names.entry(definition.key.clone()).or_default().push(index); }
     let canonical: HashMap<_, _> = crate::llvm::externs::EXTERNS.iter().filter_map(|external| signature(external.decl).map(|(symbol, abi, _)| (symbol, abi))).collect();
@@ -346,6 +360,12 @@ fn close(mut definitions: Vec<Definition>, globals: Vec<Value>) -> Bundle {
                 if targets.len() == 1 && definitions[targets[0]].abi.as_ref() == Some(&call.abi) {
                     dependencies[index].push(targets[0]);
                 } else { definitions[index].unknown.insert(format!("unresolved_definition_or_abi:{}",call.symbol)); }
+                continue;
+            }
+            if let Some(cid) = table_getters::allocation(&call, getters)
+                && canonical.get(&call.symbol) == Some(&call.abi)
+            {
+                definitions[index].direct.insert(cid);
                 continue;
             }
             // GC allocation-neutral does not mean registry/image-neutral. These
@@ -409,3 +429,6 @@ impl Bundle {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod table_allocation_tests;

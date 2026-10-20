@@ -2,6 +2,24 @@
 
 ## Atualização de 20/10/2026
 
+- O inventário agora observa um footprint finito para `dartforge_object_new_t`
+  e `_mt` quando o getter completo e sua tabela constante estão presentes e
+  conferidos: corpo sem efeitos, símbolos únicos (inclusive aspas/escapes LLVM),
+  armazenamento delimitado, CID literal coincidente, ABI e mapa de referências.
+  As exposições de ponteiros/registro continuam explícitas; o consumidor recusa
+  cobertura de nós, raízes e chamadas escalares/Ref/ptr sem provas próprias.
+  A regressão positiva falhou antes e passou depois. Passaram seis testes novos,
+  1.002 testes nativos com ignorados, Clippy estrito e docs sem avisos; a fixture
+  de dois isolados coincidiu com a VM em AOT produção/desenvolvimento e JIT macOS,
+  normal/sob estresse de GC. O SDK real tem 32.708 funções e nenhum corpo desses
+  getters, que só será gerado em `assemble`; essa ausência não foi preenchida
+  por uma declaração presumida. O IR de plataforma permaneceu idêntico, com
+  seis definições estrangeiras, e o teste de ausência foi repetido e falhou.
+  Sem nova autorização de poda, ganho medido, mudança de runtime/schema ou
+  nova matriz Windows/Linux; fmt global e aprovação integral seguem pendentes.
+  Falhas preliminares preservadas. Evidências:
+  `bench/results/2026-10-20-table-allocation-footprints/README.md`.
+
 - O startup de programas com pelo menos oito tabelas ativas agora usa um vetor
   ordenado de getters puros. No explorador real, 3.758 chamadas viraram uma;
   CIDs e ordem conferidos, e o IR é idêntico ao anterior após expandir o lote.
