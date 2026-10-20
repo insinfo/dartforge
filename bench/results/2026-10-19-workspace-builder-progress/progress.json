@@ -1,0 +1,94 @@
+{
+  "observed_at": "2026-10-20T01:13:44.361188+00:00",
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--workspace",
+    "--",
+    "--include-ignored"
+  ],
+  "native_corpus_passed": true,
+  "native_corpus_seconds": 2428.12,
+  "compiler_snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge",
+  "compiler_sha256": "0945d0980bc86c875156713f4b00c28f1063d40d2442a602730a05c76ffcfbcd",
+  "parent_environment": {
+    "DARTFORGE_CASES": null,
+    "DARTFORGE_CORPUS_BUILDERS": null,
+    "DARTFORGE_COMPILER": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib"
+  },
+  "planned_cases_observed": [
+    {
+      "case": "built_value",
+      "plan_sha256": "4f57fc3fea0dc2a547d30fe2a9b00d3f4ef37cedfb6236c4c6a075533172bc64",
+      "manifest_sha256": "bdf7b8d9c1872f3e76db44217cace588a054c3d51cebff7b1926f0f5d3b0923c",
+      "package_config_sha256": "e410f108382c461a6e9adf33b36ce6ba4b38797325283a4a46992cc10a8bee72"
+    },
+    {
+      "case": "cadeia_configuracao",
+      "plan_sha256": "1bbee96e0a8bb3023abfcdff894c2794455df30c5bf44751517b44a5cb1ad677",
+      "manifest_sha256": "131d21392eb93fd88aaf7253fc11860bd83ce671130d75ae780c83ed2405d7cc",
+      "package_config_sha256": "d14bebd25599e48bce870774384bc2dd8615371ed8d930f21deba749c809024a"
+    },
+    {
+      "case": "drift",
+      "plan_sha256": "c4bd047bda5544ac320a7b3762179f286065e8971a8529e6116ce41ab9a70ce3",
+      "manifest_sha256": "65548b20cb7d1bb107cc44e2a671bbeb41632a731627debec71a6a9ee3ab8fc5",
+      "package_config_sha256": "d12bf8cb787ff3cd562172b863094af59d4ce4c7a8d499ca3d8eaddc4657139c"
+    },
+    {
+      "case": "freezed",
+      "plan_sha256": "39093608ef9e44ae83a6fd0658666fd4affddcbb932325bcf250f847fef2decc",
+      "manifest_sha256": "e56470ec6afea98677241d07ad098e0861efbb2377d93d753d02eedaa8bcb2c9",
+      "package_config_sha256": "1f7e21680c708caf19d8b933162c7dc31e57e9ae4b353140aeb261274ae21ff3"
+    },
+    {
+      "case": "i18n",
+      "plan_sha256": "251e720d476c314090f10500f41914291b846702c5b040704b760548672c55eb",
+      "manifest_sha256": "0c0ea5dcc118d48508cd7bb9709e43cbd7b4befbbf98861a5dd9c5dc94fdef61",
+      "package_config_sha256": "4cdec8a40b6106301daf1f2f4af44fe24e797bf09495e4cfee5bf7c19697fe88"
+    },
+    {
+      "case": "json_serializable",
+      "plan_sha256": "27e122fd0db267123b538ff87e6024a721484661fe4f49d78f68d7448eb8f661",
+      "manifest_sha256": "69d51d17e96786d64040d74076b9c5ef734f1773fb070aa57573083636542558",
+      "package_config_sha256": "deaf116cd03c2e6784c9dc2256714541e9a0c00cebc22d34734ae3e6495de5b7"
+    },
+    {
+      "case": "mockito",
+      "plan_sha256": "4a2c58eaf2fbea97f3e156801a602b772ace7be24ed2607fdff770dbb75da475",
+      "manifest_sha256": "1a6f66932354e6e1bc3e187dbc1653e5c3365edd8a7b0be2d83c372ff0c22ec5",
+      "package_config_sha256": "ce323c32f5b5b92a1d4846d9590b3a7002a8f157f49e781433f05ae18ca33375"
+    },
+    {
+      "case": "riverpod_generator",
+      "plan_sha256": "480602e1ae421094436c70301b94ad3e94977a47e8530efad61174abc769a8b8",
+      "manifest_sha256": "e433ec2b36bc6038619bcc3a170b73f3123b3d451e51dbd4903d309491b0ea3f",
+      "package_config_sha256": "176ce7f4670bdcc529510e57a471053d2b2d112b7d39c96f114bde71086989e9"
+    },
+    {
+      "case": "sass_builder",
+      "plan_sha256": "cb0385f1f45897f9b7011502aeae10e6db3b11b493cc975ebe5e9dadbcb3b317",
+      "manifest_sha256": "2979ca728f0a84b6c2942dea46894b3a7cae818c2ba1cf4b487d8e931b1c7042",
+      "package_config_sha256": "157d88af2c220bf834dbc1f138586e3cf04cd52521d70b86f08ef21832ab4f95"
+    },
+    {
+      "case": "sass_builder_compressed",
+      "plan_sha256": "cb0385f1f45897f9b7011502aeae10e6db3b11b493cc975ebe5e9dadbcb3b317",
+      "manifest_sha256": "6bbf6eb55c54ebe8a1bfab114c7252924d00417eb050b4ce98d3740e2b254ffc",
+      "package_config_sha256": "1f5024975a19cec39bffaeb6a85bf597ac8d983af2e13f53c9b1ace5fa968c66"
+    }
+  ],
+  "case_inventory_captured_after_test": true,
+  "native_test_binary_sha256": "c28cac78dee77730e18aa518592d7ba465406e35b06b89398d30f0d927b80b15",
+  "native_test_source_sha256": "697cf778f65a04bc0efa2a5b71d73bbd5f480951f6a5db8004f1bdfd944c1c04",
+  "selection_helper_sha256": "fb2da7882a2138d5603ddf7e2c5210472cff57359f1596a9f837ffb69b1df08f",
+  "current_phase": "ng_transparency",
+  "angular_tests_passed_so_far": [
+    "ng_through_the_engine_equals_direct_generator_and_oracle",
+    "ng_dependency_through_the_engine_equals_oracle",
+    "ng_incremental_equals_from_scratch"
+  ],
+  "workspace_success_claimed": false
+}

@@ -2,6 +2,14 @@
 
 ## Atualização de 19/10/2026
 
+- A rodada ampla original avançou: o corpus de builders pelo executor nativo
+  passou em 2.428,12 s, com o compilador de referência preservado por SHA-256.
+  A seleção estava sem filtro; o inventário observado contém dez casos planejados.
+  A suíte entrou em `ng_transparency`: três testes passaram e a edição Dart por
+  arquivo segue em execução. É resultado parcial com o compilador anterior,
+  sem aprovação do workspace atualizado. Evidências:
+  `bench/results/2026-10-19-workspace-builder-progress/README.md`.
+
 - A chave do SDK compilado agora inclui a política efetiva de raízes pelo
   chamado. O teste reproduziu chaves iguais com LLVM diferente antes da correção;
   a decisão é compartilhada com o emissor, preservando a inatividade em ARC/mapas
