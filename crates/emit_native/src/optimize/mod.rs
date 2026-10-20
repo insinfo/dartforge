@@ -103,6 +103,12 @@ pub(crate) fn prepare_for_emission(module: &mut Module, arc_memory: bool, by_tab
 }
 
 /// Are the passes turned off by the environment?
+/// Removes the blocks no path from the entry reaches (and their `phi` entries):
+/// for passes outside `optimize` that cut CFG edges (`pruning`).
+pub(crate) fn remove_unreachable_blocks(function: &mut Function) -> bool {
+    simplify::remove_unreachable(function)
+}
+
 pub(crate) fn disabled() -> bool {
     std::env::var("DARTFORGE_OPTIMIZE_HIR").is_ok_and(|v| v == "0")
 }

@@ -9,18 +9,199 @@ mod storage;
 
 pub(super) fn narrow(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
     module.closed_class_tables = None;
-    if std::env::var("DARTFORGE_CLOSED_CLASS_REACHABILITY").as_deref() != Ok("1") {
-        return None;
-    }
-    match audit(module, sdk) {
-        Ok(reach) => Some(reach),
-        Err(reason) => {
-            if std::env::var("DARTFORGE_TRACE_CLASS_REACHABILITY").as_deref() == Ok("1") {
-                eprintln!("  Closed class reachability: {reason}; retaining broad registration");
+    let trace = std::env::var("DARTFORGE_TRACE_CLASS_REACHABILITY").as_deref() == Ok("1");
+    if std::env::var("DARTFORGE_CLOSED_CLASS_REACHABILITY").as_deref() == Ok("1") {
+        match audit(module, sdk) {
+            Ok(reach) => return Some(reach),
+            Err(reason) if trace => {
+                eprintln!("  Closed class reachability: {reason}; trying program classes only");
             }
-            None
+            Err(_) => {}
         }
     }
+    let narrowed = program_classes(module, sdk);
+    if trace && narrowed.is_none() {
+        eprintln!("  Program class reachability: not applicable; retaining broad registration");
+    }
+    narrowed
+}
+
+/// The tables of the program's own classes stay only when an allocation of
+/// the class is reachable; every other table (SDK, runtime, records, async
+/// frames, FFI structs) keeps the broad registration at startup.
+///
+/// A class declared in a program library can only get instances from code
+/// that names it: an allocation instruction of the program module
+/// (`AllocObject`, `dartforge_object_new*` with the constant class id), which
+/// cites the method table (`hir_summary` adds that edge once
+/// `closed_class_tables` is set). The SDK is compiled without the program and
+/// cannot name its classes; the runtime only copies existing instances
+/// (isolate messages: the sender allocated them) or creates FFI structs (kept
+/// eager). So a program class without a reachable allocation has no instance,
+/// and its table, `toString` and vtable entries are dead — the backends that
+/// a folded platform constant leaves unconstructed (`optimize/constant_args.rs`).
+///
+/// Not under ARC, nor with an allocation whose class id is not a constant
+/// (that would hide which table it needs). `DARTFORGE_NO_PROGRAM_CLASS_PRUNING=1`
+/// turns it off.
+fn program_classes(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
+    if std::env::var("DARTFORGE_NO_PROGRAM_CLASS_PRUNING").as_deref() == Ok("1")
+        || !module.arc_fixed_ancestry
+        || module.arc_memory
+        || module.arc_prepared
+        || module.arc_aot_ports.is_some()
+        || module.sdk_library
+    {
+        return None;
+    }
+    // Every allocation by class id must name a constant class.
+    let opaque_allocation = module
+        .functions
+        .iter()
+        .flat_map(|f| &f.blocks)
+        .flat_map(|b| &b.instructions)
+        .any(|(_, inst, _)| match inst {
+            Instruction::CallRuntime { name, args, .. }
+            | Instruction::DeclaredFieldCall { name, args, .. }
+                if name.starts_with("dartforge_object_new") =>
+            {
+                !matches!(args.first(), Some((Operand::Constant(Constant::Int(_)), _)))
+            }
+            _ => false,
+        });
+    if opaque_allocation {
+        return None;
+    }
+    let program: HashSet<u32> = module.program_ids.iter().map(|(cid, _, _)| *cid).collect();
+    let runtime: HashSet<i64> = module.runtime_cids.iter().copied().collect();
+    let ffi: HashSet<i64> = module.ffi_composites.iter().map(|c| c.class).collect();
+    let candidate = |cid: u32| {
+        program.contains(&cid)
+            && module.pruning_class_ids.contains(&cid)
+            && !module.pruning_ambiguous_class_ids.contains(&cid)
+            && !runtime.contains(&i64::from(cid))
+            && !ffi.contains(&i64::from(cid))
+            && module.table_functions.contains_key(&cid)
+    };
+    let eager: HashSet<u32> = module
+        .method_tables
+        .iter()
+        .map(|(cid, _, _)| *cid)
+        .filter(|cid| !candidate(*cid))
+        .collect();
+    if eager.len() == module.method_tables.len() {
+        return None;
+    }
+    // A dead class can still be named by the arms of a devirtualizing class
+    // switch (`lower/members.rs`); cutting those arms can leave further
+    // allocations dead. A few rounds reach the fixpoint in practice; the last
+    // reachability always describes the rewritten bodies.
+    let mut dead: HashSet<u32> = HashSet::new();
+    for _ in 0..4 {
+        module.closed_class_tables = Some(eager.clone());
+        let summary = super::hir_summary(module);
+        let mut all: Vec<&Summary> = sdk.to_vec();
+        all.push(&summary);
+        let reach = super::reach(&all, true);
+        let index: HashMap<&str, u32> = reach
+            .names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.as_str(), i as u32))
+            .collect();
+        let live = |n: &str| index.get(n).is_some_and(|&i| reach.live(i));
+        let mut active = eager.clone();
+        for (cid, symbol, _) in &module.method_tables {
+            if live(symbol) || live(&format!("{symbol}$d")) {
+                active.insert(*cid);
+            }
+        }
+        let now_dead: HashSet<u32> = module
+            .method_tables
+            .iter()
+            .map(|(cid, _, _)| *cid)
+            .filter(|cid| !active.contains(cid))
+            .collect();
+        let grew = now_dead.len() > dead.len();
+        dead = now_dead;
+        module.closed_class_tables = Some(active);
+        if !grew || !cut_dead_class_arms(module, &dead) {
+            return Some(reach);
+        }
+    }
+    // The bodies changed after the last reachability: compute it once more
+    // with the final active set fixed.
+    let summary = super::hir_summary(module);
+    let mut all: Vec<&Summary> = sdk.to_vec();
+    all.push(&summary);
+    Some(super::reach(&all, true))
+}
+
+/// Removes, from every switch over the class of a value
+/// (`dartforge_value_class`), the cases of classes that have no instance
+/// (`dead`): no object can carry those class ids, so the arms are
+/// unreachable. When the default target served only dead classes it is
+/// redirected to a remaining case — the default receives no class at all in
+/// a closed world (`lower/members.rs` builds the cases from every concrete
+/// implementation) — and the unreachable blocks leave. Returns whether some
+/// function changed.
+fn cut_dead_class_arms(module: &mut Module, dead: &HashSet<u32>) -> bool {
+    if dead.is_empty() {
+        return false;
+    }
+    let mut changed_any = false;
+    for function in &mut module.functions {
+        let classes: HashSet<ValueId> = function
+            .blocks
+            .iter()
+            .flat_map(|b| &b.instructions)
+            .filter_map(|(v, inst, _)| match inst {
+                Instruction::CallRuntime { name, .. } if name == "dartforge_value_class" => {
+                    Some(*v)
+                }
+                _ => None,
+            })
+            .collect();
+        if classes.is_empty() {
+            continue;
+        }
+        let mut changed = false;
+        for block in &mut function.blocks {
+            let Terminator::Switch {
+                val: Operand::Val(v),
+                default,
+                cases,
+            } = &mut block.terminator
+            else {
+                continue;
+            };
+            if !classes.contains(v) {
+                continue;
+            }
+            let is_dead = |cid: i64| u32::try_from(cid).is_ok_and(|c| dead.contains(&c));
+            if !cases.iter().any(|(cid, _)| is_dead(*cid)) {
+                continue;
+            }
+            let removed: Vec<BlockId> = cases
+                .iter()
+                .filter(|(cid, _)| is_dead(*cid))
+                .map(|(_, b)| *b)
+                .collect();
+            cases.retain(|(cid, _)| !is_dead(*cid));
+            if let Some((_, first)) = cases.first()
+                && removed.contains(default)
+                && !cases.iter().any(|(_, b)| b == default)
+            {
+                *default = *first;
+            }
+            changed = true;
+        }
+        if changed {
+            crate::optimize::remove_unreachable_blocks(function);
+            changed_any = true;
+        }
+    }
+    changed_any
 }
 
 #[cfg(test)]
