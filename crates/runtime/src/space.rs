@@ -155,6 +155,34 @@ pub(crate) fn mark_bit(b: *const Header) -> (*mut u64, u64) {
     )
 }
 
+/// How many blocks of `size` bytes, from `p` (a block start) up to `end` or the
+/// end of the bitmap word of `p` (512 bytes of the page), start with their mark
+/// bit clear — all of them or none: 0 when any bit of that stretch is set, the
+/// caller then looks at `p` alone. Only block starts carry mark bits, so a clear
+/// stretch is a run of dead blocks.
+///
+/// # Safety
+/// The blocks from `p` to `end` are blocks of one page of the space.
+#[inline]
+pub(crate) unsafe fn unmarked_blocks(p: *mut u8, end: *mut u8, size: usize) -> usize {
+    let a = p as usize;
+    let span_end = (a | 511) + 1;
+    let limit = span_end.min(end as usize);
+    let bits = (limit - a) >> 3;
+    let (w, m) = mark_bit(p.cast());
+    let shift = m.trailing_zeros();
+    let mask = if bits >= 64 {
+        u64::MAX
+    } else {
+        (1u64 << bits) - 1
+    };
+    // SAFETY: the function contract: the bitmap word of a block of a live page.
+    if (unsafe { *w } >> shift) & mask != 0 {
+        return 0;
+    }
+    (limit - a).div_ceil(size)
+}
+
 /// Was block `b` marked (by the full collection in progress, or by the minor one that
 /// promoted it)?
 ///
@@ -1575,6 +1603,16 @@ impl ObjectSpace {
             let mut dead_in_run = 0;
             let mut p = start;
             while p < end {
+                // SAFETY: survivor blocks of one run, in a live page.
+                let dead_run = unsafe { unmarked_blocks(p, end, size) };
+                if dead_run > 0 {
+                    dead_in_run += dead_run;
+                    if chunk.is_null() {
+                        chunk = p;
+                    }
+                    p = p.wrapping_add(dead_run * size);
+                    continue;
+                }
                 // SAFETY: a survivor block, in a live page.
                 if unsafe { marked(p.cast()) } {
                     if !chunk.is_null() {
@@ -1638,6 +1676,22 @@ impl ObjectSpace {
             let mut dead_in_range = 0;
             let mut p = start;
             while p < end {
+                // A run of unmarked bitmap bits from `p` to the end of its word
+                // (or of the range): every block that starts there is dead.
+                // SAFETY: blocks of the range, in a live page.
+                let dead_run = unsafe { unmarked_blocks(p, end, size) };
+                if dead_run > 0 {
+                    if !kept.is_null() {
+                        survivors.push((kept, p, class));
+                        kept = std::ptr::null_mut();
+                    }
+                    dead_in_range += dead_run;
+                    if chunk.is_null() {
+                        chunk = p;
+                    }
+                    p = p.wrapping_add(dead_run * size);
+                    continue;
+                }
                 // SAFETY: block of the range, in a live page.
                 if unsafe { marked(p.cast()) } {
                     if aging {
@@ -2403,6 +2457,33 @@ impl Drop for ObjectSpace {
 #[cfg(test)]
 mod tests_ranges {
     use super::*;
+
+    #[test]
+    fn unmarked_blocks_counts_a_clear_stretch_and_refuses_any_mark() {
+        let layout = std::alloc::Layout::from_size_align(PAGE, PAGE).unwrap();
+        // SAFETY: a zeroed page-aligned buffer, freed at the end.
+        let page = unsafe { std::alloc::alloc_zeroed(layout) };
+        assert!(!page.is_null());
+        let size = 32;
+        // The blocks start after the bitmap word region, at 1024.
+        let at = |k: usize| page.wrapping_add(1024 + k * size);
+        // SAFETY: blocks of the fake page; its bitmap is the zeroed start.
+        unsafe {
+            // The word of 1024..1536 holds 16 blocks: all clear.
+            assert_eq!(unmarked_blocks(at(0), at(40), size), 16);
+            // From the middle of the word, up to its end.
+            assert_eq!(unmarked_blocks(at(10), at(40), size), 6);
+            // A range that ends inside the word.
+            assert_eq!(unmarked_blocks(at(2), at(5), size), 3);
+            mark_block(at(12).cast());
+            assert_eq!(unmarked_blocks(at(0), at(40), size), 0);
+            assert_eq!(unmarked_blocks(at(0), at(12), size), 12);
+            assert_eq!(unmarked_blocks(at(13), at(40), size), 3);
+            // A mark beyond the range does not count.
+            assert_eq!(unmarked_blocks(at(2), at(5), size), 3);
+            std::alloc::dealloc(page, layout);
+        }
+    }
 
     #[test]
     fn contiguous_dead_refill_a_range_without_touching_live() {
