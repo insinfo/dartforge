@@ -38,6 +38,6 @@ Actual PowerShell executions accepted the native SDK pair and rejected an
 unset floor, a Windows modern SDK on macOS, and a wrong floor version. Missing
 Node on PATH was also observed and correctly rejected before SDK checks.
 
-Log endings alone are normalized; manifest.json preserves original and saved
+Trailing spaces and final blank lines in logs are normalized; manifest.json preserves original and saved
 hashes. Overall workspace approval, foreign-backend pruning and global
 formatting remain open. No runtime, target bundle or VM state changed here.

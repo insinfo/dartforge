@@ -16,6 +16,11 @@
   `bench/results/2026-10-20-workspace-complete/README.md`. Fmt global, poda dos
   backends e aprovação integral continuam pendentes.
 
+  Iniciada a validação adicional `cargo test --locked -p dartforge-cli
+  --features native,jit --no-fail-fast -- --include-ignored`, com os dois SDKs
+  de referência configurados e compiladores externos preservados. Logs em
+  `/tmp/forge-cli-feature-validation`; ainda sem resultado final.
+
 - Revalidado o JIT completo atual: 92 testes regulares e seis doctests passaram,
   incluindo todos os ignorados. O IR AOT podado antigo e seu SDK original também
   passam no executor atual normal/sob estresse, com a saída 35294 da VM Dart.
