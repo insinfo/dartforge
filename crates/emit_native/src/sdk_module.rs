@@ -732,7 +732,7 @@ fn sdk_key_with_overlay(
         .filter(|(k, _)| k.starts_with("DARTFORGE_NO_"))
         .chain(std::iter::once((
             "DARTFORGE_PRIMITIVE_MULTIPLY".into(),
-            std::env::var("DARTFORGE_PRIMITIVE_MULTIPLY").unwrap_or_else(|_| "0".into()),
+            std::env::var("DARTFORGE_PRIMITIVE_MULTIPLY").unwrap_or_else(|_| "1".into()),
         )))
         .chain(std::iter::once((
             "DARTFORGE_CONSTANT_SPECIALIZATION".into(),

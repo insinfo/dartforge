@@ -394,10 +394,12 @@ impl<'a> Context<'a> {
             subtypes_memo: Default::default(),
             implementations_by_class_memo: Default::default(),
             primitive_multiply_certificate: Default::default(),
+            // Certified against the reviewed SDK sources (`lower/primitive_multiply.rs`,
+            // `lower/primitive_clamp.rs`): on by default, `=0` turns each off.
             primitive_multiply_enabled: std::env::var("DARTFORGE_PRIMITIVE_MULTIPLY").as_deref()
-                == Ok("1"),
+                != Ok("0"),
             primitive_clamp_enabled: std::env::var("DARTFORGE_PRIMITIVE_CLAMP").as_deref()
-                == Ok("1"),
+                != Ok("0"),
             te: crate::erasure::ExtensionTypes::default(),
             previous_ids: None,
             debug_info: None,
