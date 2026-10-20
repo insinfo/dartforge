@@ -1,0 +1,17 @@
+{
+  "before_compiler_sha256": "59e574950dec1c6b9bb603ee1e21c66bc270922f3fd1c0781025d044b94121dd",
+  "after_compiler_sha256": "e70c4ed827ec5a7ab57b8b2e33d5ecdc7c08e2296cc1fd8413bc6eaea93e3cf3",
+  "explorer_entry": "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+  "entry_sha256": "3164f826a3e5e87b5692d2ec359af0b7fb9c8e12a924173121ddd250f97f7765",
+  "packages_sha256": "c5c1c22ad085905aa6341ddf11b3999b001cb6ac128a61f117a1fb8d532ec934",
+  "dart_ui_revision": "15aff7042318d2fa56661ffed4360c81a41a86b8",
+  "dart_ui_status": "",
+  "explorer_ir_sha256": "0e9cff28f0f9e9a04f86aecdccdf66d4fb9c123617e02014e2bd4d5c124e212d",
+  "explorer_ir_equal": true,
+  "branch_source_sha256": "6b51511c736d4a3ccfb5c3f01551a14ae794431e45dce83841a568beb4c0fc7f",
+  "reference_stdout": "-86488\n",
+  "all_executions_match_vm": true,
+  "explorer_before_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/explorer-before.ll",
+  "explorer_after_path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/explorer-after.ll",
+  "explorer_ir_bytes": 293593137
+}

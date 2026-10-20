@@ -5,6 +5,21 @@ métodos montadas na ligação") e dos itens 1 e 4 de §4 (teste de ausência de
 "por que isto ficou"). Escrita em 2026-09-30 sobre `0ae614d8`. `EN/` é
 `crates/emit_native/src/`, `RT/` é `crates/runtime/src/`, `VM/` é `E:\references\dart-sdk\`.
 
+## Atualização de 20/10/2026: ordem de visita da dominância
+
+A validação estrutural reutiliza uma travessia iterativa em ordem reversa de
+pós-visita do fluxo, em vez de ordenar as interseções pela posição física dos
+blocos. A equação do ponto fixo, os limites de 512 blocos/8.192 instruções e as
+recusas conservadoras permanecem iguais. A travessia evita recursão e conserva
+apenas uma aresta ativa por quadro, mesmo com destinos repetidos de switch.
+
+No teste controlado de 512 blocos em ordem física inversa, as varreduras caíram
+de 511 para duas, preservando todos os conjuntos. O oráculo independente por
+remoção de blocos e novos grafos cíclicos com rótulos embaralhados conferem a
+correção. O IR completo do explorador ficou idêntico entre os compiladores;
+isso não demonstra ganho geral de compilação nem completa a poda de backends.
+[Evidências](../bench/results/2026-10-20-dominator-traversal/README.md).
+
 ## Atualização de 19/10/2026: custo da validação estrutural
 
 A prova estrutural de SSA usada pela proveniência física calcula dominância

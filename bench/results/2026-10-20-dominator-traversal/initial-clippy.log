@@ -1,0 +1,14 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Checking dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)
+    Checking dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+error: manual implementation of `.is_multiple_of()`
+   --> crates/emit_native/src/pruning/receiver_provenance/dominators/tests.rs:204:20
+    |
+204 |                 if random % 11 == 0 {
+    |                    ^^^^^^^^^^^^^^^^ help: replace with: `random.is_multiple_of(11)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.98.0/index.html#manual_is_multiple_of
+    = note: `-D clippy::manual-is-multiple-of` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::manual_is_multiple_of)]`
+
+error: could not compile `dartforge-emit-native` (lib test) due to 1 previous error

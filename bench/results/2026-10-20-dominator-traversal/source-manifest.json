@@ -1,0 +1,22 @@
+[
+  {
+    "path": "crates/emit_native/src/pruning/receiver_provenance.rs",
+    "sha256": "866f277374c8a498bcfe8be05355a075b989978649d54ba0838300cd75b4b375"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/receiver_provenance/dominators.rs",
+    "sha256": "84451178580de75d831057a4ce53124135034952b0ed66e95c25db4ae6d0b2f9"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/receiver_provenance/dominators/tests.rs",
+    "sha256": "48a14bce60f78485907893f89d4959187abc4cc27f9d654c955169d20e7719ac"
+  },
+  {
+    "path": "ESTADO.md",
+    "sha256": "f79933585ce41e605129a81d56c15c9f941603b6daf2ba9e9f23cfc6555480be"
+  },
+  {
+    "path": "docs/NATIVO-PODA-DE-TABELAS.md",
+    "sha256": "b32961f15f0a524251f52c48336a8971785e78dafe2409869edd57134cabe7b0"
+  }
+]

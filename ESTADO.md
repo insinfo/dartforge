@@ -2,6 +2,21 @@
 
 ## Atualização de 20/10/2026
 
+- A prova estrutural calcula dominância em ordem reversa de pós-visita do fluxo,
+  reaproveitando a travessia que identifica os blocos alcançáveis. O percurso é
+  iterativo, sem cópia do grafo ou recursão; entradas duplicadas de switch não
+  ampliam a pilha pendente. No caso controlado de 512 blocos, o mesmo ponto fixo
+  passou de 511 para duas varreduras, com conjuntos idênticos. Três testes novos
+  complementam o oráculo independente por remoção de blocos. Passaram os 962 testes
+  nativos com ignorados, Clippy estrito e docs sem avisos. O IR completo do explorador
+  real (293.593.137 bytes) ficou idêntico antes/depois, em rodadas fria e aquecida.
+  Executáveis com muitas ramificações coincidiram com a VM normal e sob estresse
+  de GC. O amostrador opcional não produziu relatório e foi encerrado; os
+  compiladores terminaram normalmente. Sem ganho geral de compilação demonstrado,
+  nova matriz desktop/JIT ou aprovação integral; poda de backends e fmt global
+  continuam pendentes. Evidências:
+  `bench/results/2026-10-20-dominator-traversal/README.md`.
+
 - A auditoria Mach-O agora cobre chained fixups de 64 bits e ARM64E, com limites
   de segmentos/páginas, múltiplos inícios, imports e nomes, bits reservados e spans
   completos. Corrigida também uma falha anterior: o leitor aceitava flags de

@@ -1,0 +1,60 @@
+[
+  {
+    "label": "cold-before",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-rpo-before",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--emit-ir",
+      "--digest",
+      "--timings",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/tmp/forge-rpo-validation/explorer-before.ll"
+    ],
+    "pid": 66738,
+    "exit": 0,
+    "seconds": 224.350565,
+    "sampling": {
+      "live_before_sample": true,
+      "exit": -15,
+      "stdout": "",
+      "stderr": ""
+    },
+    "compiler_sha256": "59e574950dec1c6b9bb603ee1e21c66bc270922f3fd1c0781025d044b94121dd",
+    "ir_sha256": "0e9cff28f0f9e9a04f86aecdccdf66d4fb9c123617e02014e2bd4d5c124e212d"
+  },
+  {
+    "label": "warm-before",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-rpo-before",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--emit-ir",
+      "--digest",
+      "--timings",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/tmp/forge-rpo-validation/explorer-before.ll"
+    ],
+    "pid": 66891,
+    "exit": 0,
+    "seconds": 111.91524554200001,
+    "sampling": {
+      "live_before_sample": true,
+      "exit": -15,
+      "stdout": "",
+      "stderr": ""
+    },
+    "compiler_sha256": "59e574950dec1c6b9bb603ee1e21c66bc270922f3fd1c0781025d044b94121dd",
+    "ir_sha256": "0e9cff28f0f9e9a04f86aecdccdf66d4fb9c123617e02014e2bd4d5c124e212d"
+  }
+]

@@ -389,12 +389,8 @@ impl Shape {
                 predecessors[to].push(b);
             }
         }
-        let mut pending = vec![0];
-        while let Some(b) = pending.pop() {
-            if shape.reachable.insert(b) {
-                pending.extend(&successors[b]);
-            }
-        }
+        let order = dominators::reverse_postorder(&successors);
+        shape.reachable.extend(order.iter().copied());
         // Entry phis/edges need a more complete entry-loop model; stay unknown.
         if !predecessors[0].is_empty() {
             return Err("unsupported entry predecessor".into());
@@ -415,7 +411,7 @@ impl Shape {
                 }
             }
         }
-        let dominators = dominators::Dominators::new(&predecessors, &shape.reachable);
+        let dominators = dominators::Dominators::new(&predecessors, &order);
         let available = |op: &Operand, b: usize, position: usize| match op {
             Operand::Val(v) => match shape.definitions.get(v) {
                 Some((_, None)) => true,

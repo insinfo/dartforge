@@ -1,0 +1,18 @@
+{
+  "command": [
+    "cargo",
+    "fmt",
+    "--all",
+    "--",
+    "--check"
+  ],
+  "exit": 1,
+  "full_log": "/tmp/forge-rpo-checks/fmt.log",
+  "bytes": 15781279,
+  "sha256": "f621a1008f7fd51bdb04bc5e1acb4be099847abcda8c22ea3f109af0d9ab375f",
+  "excerpt_lines": 120,
+  "excerpt_stored_sha256": "b72814a0f65e5a5539705b89cf410a7e053928a67c578bf29f4102975febdb76",
+  "excerpt_normalization": "Per-line trailing whitespace removed.",
+  "scoped_rustfmt_exit": 0,
+  "git_diff_check_exit": 0
+}

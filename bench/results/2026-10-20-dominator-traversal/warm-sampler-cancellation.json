@@ -1,0 +1,7 @@
+{
+  "pid": 66897,
+  "command": "sample 66891 2 -file /tmp/forge-rpo-validation/warm-before.sample.txt",
+  "action": "SIGTERM",
+  "reason": "Same optional sampler spawned by the original two-run script; preceding sampler supplied no report. Compiler remains running.",
+  "compiler_pid": 66891
+}

@@ -1,0 +1,37 @@
+[
+  {
+    "path": "target/test-tools/dartforge-rpo-before",
+    "bytes": 138524472,
+    "sha256": "59e574950dec1c6b9bb603ee1e21c66bc270922f3fd1c0781025d044b94121dd"
+  },
+  {
+    "path": "target/test-tools/dartforge-rpo-after",
+    "bytes": 138523848,
+    "sha256": "e70c4ed827ec5a7ab57b8b2e33d5ecdc7c08e2296cc1fd8413bc6eaea93e3cf3"
+  },
+  {
+    "path": "target/rpo-validation/explorer-before.ll",
+    "bytes": 293593137,
+    "sha256": "0e9cff28f0f9e9a04f86aecdccdf66d4fb9c123617e02014e2bd4d5c124e212d"
+  },
+  {
+    "path": "target/rpo-validation/explorer-after.ll",
+    "bytes": 293593137,
+    "sha256": "0e9cff28f0f9e9a04f86aecdccdf66d4fb9c123617e02014e2bd4d5c124e212d"
+  },
+  {
+    "path": "target/rpo-validation/branches-before",
+    "bytes": 3012544,
+    "sha256": "96ba4f9fe4c3bc33d64663f964f3c4a11e85cdfa835e5702b2dbc87272819a5e"
+  },
+  {
+    "path": "target/rpo-validation/branches-after",
+    "bytes": 3012544,
+    "sha256": "80a00e8674b2f06d39e3ffe58c729bf88cabec242781fe5db2bf3472b8d8cc9b"
+  },
+  {
+    "path": "bench/results/2026-10-19-dense-dominators/branches.dart",
+    "bytes": 51791,
+    "sha256": "6b51511c736d4a3ccfb5c3f01551a14ae794431e45dce83841a568beb4c0fc7f"
+  }
+]

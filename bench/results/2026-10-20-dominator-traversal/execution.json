@@ -1,0 +1,131 @@
+[
+  {
+    "label": "explorer-after-cold",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-rpo-after",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--emit-ir",
+      "--digest",
+      "--timings",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/explorer-after.ll"
+    ],
+    "exit": 0,
+    "seconds": 192.644777375,
+    "stdout": "2a77c17b2810b9a143462c59a597ad06  293593137\n",
+    "stderr": "  HIR pruning: 38484 of 146307 functions, 39874 of 176819 pairs, 318 FFI signatures (102.199021291s)\n  HIR:       baixar 126.032440541s, otimizar 23.950798084s\n--- Native Emission Timings ---\n  Front-end: 9.46368175s\n  World:     560.251834ms (30876 of 64332 program functions live)\n  HIR:       149.9832505s\n  LLVM IR:   24.457377584s\n  IR:        293593137 bytes, 20206 from the SDK (0.0%)\n"
+  },
+  {
+    "label": "explorer-after-warm",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-rpo-after",
+      "compile-native",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/bin/file_explorer.dart",
+      "--optimize",
+      "--emit-ir",
+      "--digest",
+      "--timings",
+      "--packages",
+      "/Volumes/ssd_dock/MyProjectsDart/dart_ui/examples/file_explorer/.dart_tool/package_config.json",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/explorer-after.ll"
+    ],
+    "exit": 0,
+    "seconds": 109.86697395799999,
+    "stdout": "2a77c17b2810b9a143462c59a597ad06  293593137\n",
+    "stderr": "  HIR pruning: 38484 of 146307 functions, 39874 of 176819 pairs, 318 FFI signatures (26.374982334s)\n  HIR:       baixar 47.883763667s, otimizar 20.687049292s\n--- Native Emission Timings ---\n  Front-end: 9.176321625s\n  World:     557.855666ms (30876 of 64332 program functions live)\n  HIR:       68.570824709s\n  LLVM IR:   24.447565709s\n  IR:        293593137 bytes, 20206 from the SDK (0.0%)\n"
+  },
+  {
+    "label": "dart-vm",
+    "command": [
+      "dart",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart"
+    ],
+    "exit": 0,
+    "seconds": 0.24467945800000734,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "before-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-rpo-before",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/branches-before"
+    ],
+    "exit": 0,
+    "seconds": 8.246515250000016,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "label": "before-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/branches-before"
+    ],
+    "exit": 0,
+    "seconds": 0.2760611669999662,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "before-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/branches-before"
+    ],
+    "exit": 0,
+    "seconds": 0.01299808299995675,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "after-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-rpo-after",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/branches-after"
+    ],
+    "exit": 0,
+    "seconds": 5.126448625000023,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "label": "after-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/branches-after"
+    ],
+    "exit": 0,
+    "seconds": 0.2116751249999993,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "after-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/branches-after"
+    ],
+    "exit": 0,
+    "seconds": 0.009610375000022486,
+    "stdout": "-86488\n",
+    "stderr": ""
+  }
+]

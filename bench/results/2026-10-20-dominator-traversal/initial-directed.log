@@ -1,0 +1,16 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.76s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 7 tests
+test pruning::receiver_provenance::dominators::tests::structural_witness_keeps_the_existing_block_budget ... ok
+test pruning::receiver_provenance::dominators::tests::reverse_postorder_visits_reachable_blocks_once_without_recursive_frames ... ok
+test pruning::receiver_provenance::dominators::tests::all_four_block_graphs_match_independent_path_removal ... ok
+{"blocks":512,"compiler_speedup_measured":false,"flow_ns":115542,"flow_sweeps":2,"numeric_ns":39567959,"numeric_sweeps":511,"order_construction_timed":false,"same_sets":true}
+test pruning::receiver_provenance::dominators::tests::flow_order_reaches_the_same_fixed_point_with_fewer_sweeps ... ok
+test pruning::receiver_provenance::dominators::tests::shuffled_cyclic_graphs_preserve_the_independent_path_removal_oracle ... ok
+test pruning::receiver_provenance::dominators::tests::word_boundaries_duplicate_edges_and_unreachable_parents_match_paths ... ok
+{"blocks":256,"dense_ns":78708,"end_to_end_speedup_measured":false,"every_dominance_pair_equal":true,"previous_ns":4792882875}
+test pruning::receiver_provenance::dominators::tests::dominance_representation_measurement ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 955 filtered out; finished in 4.81s

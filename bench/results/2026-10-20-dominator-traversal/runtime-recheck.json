@@ -1,0 +1,58 @@
+[
+  {
+    "label": "before",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/branches-before"
+    ],
+    "executable_sha256": "96ba4f9fe4c3bc33d64663f964f3c4a11e85cdfa835e5702b2dbc87272819a5e",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": "",
+    "matches_vm": true
+  },
+  {
+    "label": "before",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/branches-before"
+    ],
+    "executable_sha256": "96ba4f9fe4c3bc33d64663f964f3c4a11e85cdfa835e5702b2dbc87272819a5e",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": "",
+    "matches_vm": true
+  },
+  {
+    "label": "after",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/branches-after"
+    ],
+    "executable_sha256": "80a00e8674b2f06d39e3ffe58c729bf88cabec242781fe5db2bf3472b8d8cc9b",
+    "environment": {
+      "DARTFORGE_GC_STRESS": null
+    },
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": "",
+    "matches_vm": true
+  },
+  {
+    "label": "after",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-validation/branches-after"
+    ],
+    "executable_sha256": "80a00e8674b2f06d39e3ffe58c729bf88cabec242781fe5db2bf3472b8d8cc9b",
+    "environment": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": "",
+    "matches_vm": true
+  }
+]

@@ -1,0 +1,8 @@
+{
+  "pid": 66739,
+  "command": "sample 66738 2 -file /tmp/forge-rpo-validation/cold-before.sample.txt",
+  "action": "SIGTERM",
+  "reason": "Optional sampler remained live for several minutes without a report; compiler is left running and its exit is awaited.",
+  "compiler_pid": 66738,
+  "report_present": false
+}
