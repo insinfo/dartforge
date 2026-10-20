@@ -641,6 +641,9 @@ fn compiled_sdk_key_with_overlay(
     if crate::optimize::disabled() {
         args.push("hir_optimization=disabled_v1");
     }
+    if crate::llvm::roots_in_callee(crate::target::roots_by_maps()?, crate::target::arc_memory()?) {
+        args.push("callee_argument_roots=enabled_v1");
+    }
     if profile == SdkProfile::Development && packed {
         args.push("sdk_dll_relr=glibc_v1");
     }
@@ -1573,6 +1576,127 @@ mod selected_source_cache_tests {
         })
     }
 
+    #[test]
+    fn sdk_keys_follow_rooting_policy_but_ignore_program_only_controls() {
+        const OUTPUT: &str = "DARTFORGE_TEST_ROOT_POLICY_OUTPUT";
+        const ROOT: &str = "DARTFORGE_TEST_ROOT_POLICY_ROOT";
+        const TARGET: &str = "DARTFORGE_TEST_ROOT_POLICY_TARGET";
+        if let Some(output) = std::env::var_os(OUTPUT) {
+            use crate::hir::{
+                BasicBlock, BlockId, Function, Instruction, Module, Operand, Terminator, Type,
+                ValueId,
+            };
+            let target =
+                crate::target::NativeTarget::parse(&std::env::var(TARGET).unwrap()).unwrap();
+            crate::target::select(target).unwrap();
+            let directory = PathBuf::from(std::env::var_os(ROOT).unwrap());
+            let mut keys = policy_keys(&directory);
+            let mut module = Module::new();
+            module.sdk_library = true;
+            module.arc_memory = crate::target::arc_memory().unwrap();
+            module.functions.push(Function {
+                symbol: "sdk_policy_probe".into(),
+                name: "probe".into(),
+                params: vec![(ValueId(0), "argument".into(), Type::Ref)],
+                return_ty: Type::Void,
+                blocks: vec![BasicBlock {
+                    id: BlockId(0),
+                    instructions: vec![(
+                        ValueId(1),
+                        Instruction::CallStatic {
+                            symbol: "df.dart$3acore.consume".into(),
+                            args: vec![Operand::Val(ValueId(0))],
+                            ret_ty: Type::Void,
+                        },
+                        Type::Void,
+                    )],
+                    terminator: Terminator::Return(None),
+                }],
+                debug_info: None,
+            });
+            let ir = crate::llvm::LlvmEmitter::new(&module)
+                .with_outlined_helpers(crate::llvm::out_of_line_helpers(true, true))
+                .emit_all();
+            let body = ir
+                .split("define void @sdk_policy_probe(")
+                .nth(1)
+                .expect("probe body")
+                .split("\n}\n")
+                .next()
+                .unwrap();
+            keys["probe_body"] = body.into();
+            assert!(!crate::llvm::roots_in_callee(true, false));
+            assert!(!crate::llvm::roots_in_callee(false, true));
+            std::fs::write(output, serde_json::to_vec(&keys).unwrap()).unwrap();
+            return;
+        }
+        let directory = tempfile::tempdir().unwrap();
+        let controls = [
+            "DARTFORGE_ROOTS_IN_CALLEE",
+            "DARTFORGE_OUTLINED_HELPERS",
+            "DARTFORGE_FIELDS_BY_CALL",
+            "DARTFORGE_PRIMITIVE_CLAMP",
+        ];
+        for target in ["linux-arm64", "macos-arm64", "windows-x64"] {
+            for arc in [false, true] {
+                for control in controls {
+                    let mut keys = Vec::new();
+                    for (index, mode) in [None, Some("0"), Some("1")].into_iter().enumerate() {
+                        let output = directory
+                            .path()
+                            .join(format!("{target}-{arc}-{control}-{index}"));
+                        let mut command =
+                            std::process::Command::new(std::env::current_exe().unwrap());
+                        command.args(["--exact", "sdk_module::selected_source_cache_tests::sdk_keys_follow_rooting_policy_but_ignore_program_only_controls", "--nocapture"])
+                        .env(OUTPUT, &output).env(ROOT, directory.path()).env(TARGET, target)
+                        .env_remove("DARTFORGE_OPTIMIZE_HIR").env_remove("DARTFORGE_PACK_RELR").env_remove("DARTFORGE_MEMORY");
+                        if arc {
+                            command.env("DARTFORGE_MEMORY", "arc");
+                        }
+                        for name in controls {
+                            command.env_remove(name);
+                        }
+                        if let Some(mode) = mode {
+                            command.env(control, mode);
+                        }
+                        let result = command.output().unwrap();
+                        assert!(
+                            result.status.success(),
+                            "{}{}",
+                            String::from_utf8_lossy(&result.stdout),
+                            String::from_utf8_lossy(&result.stderr)
+                        );
+                        keys.push(
+                            serde_json::from_slice::<serde_json::Value>(
+                                &std::fs::read(output).unwrap(),
+                            )
+                            .unwrap(),
+                        );
+                    }
+                    println!(
+                        "{}",
+                        serde_json::json!({"target":target,"arc_memory":arc,"control":control,"keys":keys})
+                    );
+                    assert_eq!(keys[0], keys[1]);
+                    assert_eq!(keys[0]["source"], keys[2]["source"]);
+                    if control == "DARTFORGE_ROOTS_IN_CALLEE" && !arc {
+                        assert_ne!(keys[0]["probe_body"], keys[2]["probe_body"]);
+                        for profile in ["production", "development"] {
+                            assert_ne!(
+                                keys[0][profile], keys[2][profile],
+                                "{target}, {control}, {profile}"
+                            );
+                        }
+                    } else {
+                        assert_eq!(
+                            keys[0], keys[2],
+                            "{target}, {control}: SDK emission ignores program-only controls"
+                        );
+                    }
+                }
+            }
+        }
+    }
     #[test]
     fn hir_policy_separates_both_sdk_profiles_without_changing_source_keys() {
         const OUTPUT: &str = "DARTFORGE_TEST_HIR_POLICY_OUTPUT";

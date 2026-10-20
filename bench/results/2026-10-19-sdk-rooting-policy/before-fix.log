@@ -1,0 +1,22 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.14s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 1 test
+{"control":"DARTFORGE_ROOTS_IN_CALLEE","keys":[{"development":"fa124df946176c5b6c46307321ae81ac","probe_body":"i64 %v0) \"disable-tail-calls\"=\"true\" {\nb0:\n  %gcq = alloca { ptr, i64, [1 x i64] }, align 8\n  %ctx = call ptr @dartforge_context()\n  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8\n  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 376\n  %pilhal = load i64, ptr %pilhalp, align 8\n  %pilhasp = call i64 @llvm.read_register.i64(metadata !{!\"sp\"})\n  %pilhab = icmp ult i64 %pilhasp, %pilhal\n  %pilhax = call i1 @llvm.expect.i1(i1 %pilhab, i1 false)\n  br i1 %pilhax, label %pilha.estouro, label %pilha.ok\npilha.estouro:\n  call void @dartforge_stack_overflow()\n  ret void\npilha.ok:\n  store { ptr, i64, [1 x i64] } { ptr null, i64 1, [1 x i64] zeroinitializer }, ptr %gcq\n  %gcs0 = getelementptr inbounds { ptr, i64, [1 x i64] }, ptr %gcq, i64 0, i32 2, i64 0\n  %gcant = load ptr, ptr %ctxtopo, align 8\n  store ptr %gcant, ptr %gcq, align 8\n  store ptr %gcq, ptr %ctxtopo, align 8\n  store i64 %v0, ptr %gcs0\n  call void @df.dart$3acore.consume(i64 %v0)\n  %gcvolta0 = load ptr, ptr %gcq, align 8\n  store ptr %gcvolta0, ptr %ctxtopo, align 8\n  ret void","production":"7f74dd69837f4117010ad0a09c928076","source":"4886bcac3e149b11f8f8f37837ad0aa9"},{"development":"fa124df946176c5b6c46307321ae81ac","probe_body":"i64 %v0) \"disable-tail-calls\"=\"true\" {\nb0:\n  %gcq = alloca { ptr, i64, [1 x i64] }, align 8\n  %ctx = call ptr @dartforge_context()\n  %ctxtopo = getelementptr inbounds i8, ptr %ctx, i64 8\n  %pilhalp = getelementptr inbounds i8, ptr %ctx, i64 376\n  %pilhal = load i64, ptr %pilhalp, align 8\n  %pilhasp = call i64 @llvm.read_register.i64(metadata !{!\"sp\"})\n  %pilhab = icmp ult i64 %pilhasp, %pilhal\n  %pilhax = call i1 @llvm.expect.i1(i1 %pilhab, i1 false)\n  br i1 %pilhax, label %pilha.estouro, label %pilha.ok\npilha.estouro:\n  call void @dartforge_stack_overflow()\n  ret void\npilha.ok:\n  store { ptr, i64, [1 x i64] } { ptr null, i64 1, [1 x i64] zeroinitializer }, ptr %gcq\n  %gcs0 = getelementptr inbounds { ptr, i64, [1 x i64] }, ptr %gcq, i64 0, i32 2, i64 0\n  %gcant = load ptr, ptr %ctxtopo, align 8\n  store ptr %gcant, ptr %gcq, align 8\n  store ptr %gcq, ptr %ctxtopo, align 8\n  store i64 %v0, ptr %gcs0\n  call void @df.dart$3acore.consume(i64 %v0)\n  %gcvolta0 = load ptr, ptr %gcq, align 8\n  store ptr %gcvolta0, ptr %ctxtopo, align 8\n  ret void","production":"7f74dd69837f4117010ad0a09c928076","source":"4886bcac3e149b11f8f8f37837ad0aa9"},{"development":"fa124df946176c5b6c46307321ae81ac","probe_body":"i64 %v0) \"disable-tail-calls\"=\"true\" {\nb0:\n  call void @df.dart$3acore.consume(i64 %v0)\n  ret void","production":"7f74dd69837f4117010ad0a09c928076","source":"4886bcac3e149b11f8f8f37837ad0aa9"}],"target":"linux-arm64"}
+
+thread 'sdk_module::selected_source_cache_tests::sdk_keys_follow_rooting_policy_but_ignore_program_only_controls' (2402778) panicked at crates/emit_native/src/sdk_module.rs:1627:25:
+assertion `left != right` failed: linux-arm64, DARTFORGE_ROOTS_IN_CALLEE, production
+  left: String("7f74dd69837f4117010ad0a09c928076")
+ right: String("7f74dd69837f4117010ad0a09c928076")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test sdk_module::selected_source_cache_tests::sdk_keys_follow_rooting_policy_but_ignore_program_only_controls ... FAILED
+
+failures:
+
+failures:
+    sdk_module::selected_source_cache_tests::sdk_keys_follow_rooting_policy_but_ignore_program_only_controls
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 921 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

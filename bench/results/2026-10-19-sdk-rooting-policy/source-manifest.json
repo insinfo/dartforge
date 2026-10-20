@@ -1,0 +1,18 @@
+[
+  {
+    "path": "crates/emit_native/src/llvm/mod.rs",
+    "sha256": "59ca6db683d9fe7498b2abf0ae546133933b8808eb9e3e2cf19bb70c021ab37d"
+  },
+  {
+    "path": "crates/emit_native/src/sdk_module.rs",
+    "sha256": "ee8804cb9465699f55d962f053d0503a9a0a466b4d1ab6f1cc86f51689c6f2f8"
+  },
+  {
+    "path": "docs/NATIVO-PLANO.md",
+    "sha256": "498b40ef84a0895af1b770a5a3b524438365536886cb829b2cec196f70b464b7"
+  },
+  {
+    "path": "ESTADO.md",
+    "sha256": "3731a5c60710471791fb989badef9e16e2b3805a7216f3a46fe4a3c66536823c"
+  }
+]

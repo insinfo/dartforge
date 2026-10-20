@@ -4403,7 +4403,7 @@ impl<'a> LlvmEmitter<'a> {
     /// by maps and ARC follow the usual rule. Only with
     /// `DARTFORGE_ROOTS_IN_CALLEE=1` ([`roots_in_callee`]).
     fn callee_roots_the_arguments(&self, inst: &Instruction) -> bool {
-        if self.maps || self.module.arc_memory || !roots_in_callee() {
+        if !roots_in_callee(self.maps, self.module.arc_memory) {
             return false;
         }
         let Instruction::CallStatic { symbol, args, .. } = inst else { return false };
@@ -4601,7 +4601,10 @@ const MAP_LEAVES: &[&str] = &[
 /// ended with 1.05 million live objects instead of 650 thousand (peak of
 /// 121 against 95 MB). Since then the slot of a dead value is zeroed before the next
 /// collection point (`roots::dead_slots`), which this measurement did not have yet.
-fn roots_in_callee() -> bool {
+pub(crate) fn roots_in_callee(maps: bool, arc_memory: bool) -> bool {
+    if maps || arc_memory {
+        return false;
+    }
     static ENABLED_IN_CALLEE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED_IN_CALLEE.get_or_init(|| std::env::var("DARTFORGE_ROOTS_IN_CALLEE").is_ok_and(|v| v == "1"))
 }

@@ -1226,6 +1226,15 @@ Não é necessário editar manifestos nem apagar o cache de outro compilador em
 execução. Reprodução da colisão antiga e validação da separação:
 [evidências](../bench/results/2026-10-19-hir-sdk-cache-policy/README.md).
 
+`DARTFORGE_ROOTS_IN_CALLEE=1` também entra na chave dos dois perfis quando
+efetivamente ativo: tracing com pilha-sombra. A chave e o emissor usam a mesma
+decisão por processo. Em ARC ou com mapas, a regra fica inativa e não cria uma
+variante adicional do SDK; o catálogo de classes continua independente da opção.
+Controles exclusivos do programa (`DARTFORGE_OUTLINED_HELPERS`,
+`DARTFORGE_FIELDS_BY_CALL`, `DARTFORGE_PRIMITIVE_CLAMP`) não recebem esse tratamento,
+pois a emissão do SDK os exclui. Auditoria e testes:
+[política de raízes](../bench/results/2026-10-19-sdk-rooting-policy/README.md).
+
 **Dois perfis** (exigência do proprietário, 2026-09-23):
 
 * **desenvolvimento, teste, CI e JIT** — o SDK e o runtime numa **DLL em

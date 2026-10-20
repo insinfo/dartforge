@@ -1,0 +1,128 @@
+[
+  {
+    "source": "/tmp/forge-root-policy-before.log",
+    "stored": "before-fix.log",
+    "original_sha256": "c3d544bb630d57138c2cb2d510d42f6c6fcb7b994d7a8b6b74d133841addd24a",
+    "stored_sha256": "c3d544bb630d57138c2cb2d510d42f6c6fcb7b994d7a8b6b74d133841addd24a"
+  },
+  {
+    "source": "/tmp/forge-root-policy-after.log",
+    "stored": "after-fix.log",
+    "original_sha256": "d2c2f6f33363500653539acb66399ab77c997f1c8ea86fb9bb9c0b3deb844208",
+    "stored_sha256": "cc723c35ad110539a9362b46d56d37ecddc94b50b28eb8bf8efbc49224a1b834"
+  },
+  {
+    "source": "/tmp/forge-root-policy-observations.json",
+    "stored": "control-observations.json",
+    "original_sha256": "6cf13fa0e75b231b30fcb717a252400f6a671e47094d2e4bed7ab8116f901a0f",
+    "stored_sha256": "6cf13fa0e75b231b30fcb717a252400f6a671e47094d2e4bed7ab8116f901a0f"
+  },
+  {
+    "source": "/tmp/forge-root-policy-checks.py",
+    "stored": "run-checks.py",
+    "original_sha256": "8873197c3a5e5521ce6a52a9cc7066851c91c69c12b4ac12b044896cdf7aa69b",
+    "stored_sha256": "8873197c3a5e5521ce6a52a9cc7066851c91c69c12b4ac12b044896cdf7aa69b"
+  },
+  {
+    "source": "/tmp/forge-root-policy-integration.py",
+    "stored": "validate-cache.py",
+    "original_sha256": "52b41c1acd6738129fc13eea57a7aa7e2b573ce0f4995ffee6a52efeb0139263",
+    "stored_sha256": "52b41c1acd6738129fc13eea57a7aa7e2b573ce0f4995ffee6a52efeb0139263"
+  },
+  {
+    "source": "/tmp/forge-root-policy-execute.py",
+    "stored": "validate-execution.py",
+    "original_sha256": "1715035b2935489269eae525c4eeabcc821a8c82e336247cd9588d04c7dce2be",
+    "stored_sha256": "1715035b2935489269eae525c4eeabcc821a8c82e336247cd9588d04c7dce2be"
+  },
+  {
+    "source": "/tmp/forge-root-policy-checks/compiler.log",
+    "stored": "compiler.log",
+    "original_sha256": "5e1e18c2213941ba0b2cebaea6f96690251b693204b18af34e5838980a37939d",
+    "stored_sha256": "5e1e18c2213941ba0b2cebaea6f96690251b693204b18af34e5838980a37939d"
+  },
+  {
+    "source": "/tmp/forge-root-policy-checks/native-lib.log",
+    "stored": "native-lib.log",
+    "original_sha256": "ebd6b70b8e5de701f7f186f9cfd75cbd8fd6f7b7d856cf4fcf02f335cd5265a7",
+    "stored_sha256": "dc5eba735140537207dc36075205cd90f01cead9d42ba9718c45eb5210a7b5f7"
+  },
+  {
+    "source": "/tmp/forge-root-policy-checks/clippy.log",
+    "stored": "clippy.log",
+    "original_sha256": "7812d1831bbbe904d12ade356639ea6c74e6c58f5046608f51cede81951883da",
+    "stored_sha256": "7812d1831bbbe904d12ade356639ea6c74e6c58f5046608f51cede81951883da"
+  },
+  {
+    "source": "/tmp/forge-root-policy-checks/feature-clippy.log",
+    "stored": "feature-clippy.log",
+    "original_sha256": "9b6d5d1ebd5cd1a11d502fb441990956b1b838a51f7fedd998384c2eaa4a067d",
+    "stored_sha256": "9b6d5d1ebd5cd1a11d502fb441990956b1b838a51f7fedd998384c2eaa4a067d"
+  },
+  {
+    "source": "/tmp/forge-root-policy-checks/doc.log",
+    "stored": "doc.log",
+    "original_sha256": "67d286209ff0fb23b7d2eb3dc50bcbeb738a78e05b63b345a020e40bd08ccb5c",
+    "stored_sha256": "67d286209ff0fb23b7d2eb3dc50bcbeb738a78e05b63b345a020e40bd08ccb5c"
+  },
+  {
+    "source": "/tmp/forge-root-policy-checks/results.json",
+    "stored": "results.json",
+    "original_sha256": "95b4f361145b69232c85ed990fc23fa362e1e313efff9ed4b2d08dc5db46b01f",
+    "stored_sha256": "95b4f361145b69232c85ed990fc23fa362e1e313efff9ed4b2d08dc5db46b01f"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/runs.json",
+    "stored": "runs.json",
+    "original_sha256": "cc59c7c0c1d9a029277080d34f1998675092a252148a34a075047408e1ee2123",
+    "stored_sha256": "cc59c7c0c1d9a029277080d34f1998675092a252148a34a075047408e1ee2123"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/verification.json",
+    "stored": "verification.json",
+    "original_sha256": "ae4f52d5f2f7dc4e617ab363203b97cd2f907cad6677df5ad04d92cfde3711a4",
+    "stored_sha256": "ae4f52d5f2f7dc4e617ab363203b97cd2f907cad6677df5ad04d92cfde3711a4"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/default.stdout",
+    "stored": "default.stdout",
+    "original_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e",
+    "stored_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/default.stderr",
+    "stored": "default.stderr",
+    "original_sha256": "0607b27645051ef534db0c9150a9ea0b1325a601bb7ee5fa5d1729198c73e68e",
+    "stored_sha256": "0607b27645051ef534db0c9150a9ea0b1325a601bb7ee5fa5d1729198c73e68e"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/enabled.stdout",
+    "stored": "enabled.stdout",
+    "original_sha256": "d305f1c103ebcc1a4b2cafde6ae8c7856416399ae32fa297497ce01e4bb51b5d",
+    "stored_sha256": "d305f1c103ebcc1a4b2cafde6ae8c7856416399ae32fa297497ce01e4bb51b5d"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/enabled.stderr",
+    "stored": "enabled.stderr",
+    "original_sha256": "0c58ff3caa8fa228cfed623c2f7a9e91d8949ef7bbbe02e758aea2bccc3a4c9f",
+    "stored_sha256": "0c58ff3caa8fa228cfed623c2f7a9e91d8949ef7bbbe02e758aea2bccc3a4c9f"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/disabled.stdout",
+    "stored": "disabled.stdout",
+    "original_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e",
+    "stored_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/disabled.stderr",
+    "stored": "disabled.stderr",
+    "original_sha256": "01c204460baa50bc70a2d78e127542d9c8ecfa899fdf0827ca687138fecf5f5f",
+    "stored_sha256": "01c204460baa50bc70a2d78e127542d9c8ecfa899fdf0827ca687138fecf5f5f"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/execution.json",
+    "stored": "execution.json",
+    "original_sha256": "fc37242b12e03273c90dfbd450aae98e946d808bf57c8b2d94352bcbe11520fb",
+    "stored_sha256": "fc37242b12e03273c90dfbd450aae98e946d808bf57c8b2d94352bcbe11520fb"
+  }
+]

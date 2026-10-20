@@ -1,0 +1,9 @@
+{
+  "default_matches_reconstructed_reference": true,
+  "reference_evidence": "../2026-10-19-dense-dominators/before-fresh-cache.json",
+  "default_ir_sha256": "10c77f9a1e938e5be15521bf4550dfdb8d8ecf274270a09dda9ec159d2635399",
+  "enabled_ir_sha256": "6e1a2ee42b2418f9739ccd5c8c0b1b3ea23259db3a490b3712d4ffa1d0dce7a9",
+  "compiler_snapshot_hash_verified": true,
+  "control_memory_target_combinations": 24,
+  "subprocess_states": 72
+}

@@ -1,0 +1,3 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.61s

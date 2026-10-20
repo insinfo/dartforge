@@ -1,0 +1,26 @@
+[
+  {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/caller.exe",
+    "sha256": "28bb6338c1394d2c9d4f0d135b8cc73998445baf62a1d841814748cd135a6a24",
+    "sdk_key": "397fd30f2d6130097a559a4fc95d3a5c",
+    "expected_sdk_library": "libdfsdk_397fd30f2d613009.dylib",
+    "dependency_command": [
+      "otool",
+      "-L",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/caller.exe"
+    ],
+    "dependencies": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/caller.exe:\n\t@rpath/libdfsdk_397fd30f2d613009.dylib (compatibility version 0.0.0, current version 0.0.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)\n\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 1.0.0, current version 1.0.0)\n\t/System/Library/Frameworks/Security.framework/Versions/A/Security (compatibility version 1.0.0, current version 1.0.0)\n"
+  },
+  {
+    "path": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/callee.exe",
+    "sha256": "5f3059327a7905fc3c66be0eda645d9a7cd0044195d14195d0a396107e054a2c",
+    "sdk_key": "fd5c8eb46c78cc62d390d20cdb502a1e",
+    "expected_sdk_library": "libdfsdk_fd5c8eb46c78cc62.dylib",
+    "dependency_command": [
+      "otool",
+      "-L",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/callee.exe"
+    ],
+    "dependencies": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/callee.exe:\n\t@rpath/libdfsdk_fd5c8eb46c78cc62.dylib (compatibility version 0.0.0, current version 0.0.0)\n\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1.0.0)\n\t/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation (compatibility version 1.0.0, current version 1.0.0)\n\t/System/Library/Frameworks/Security.framework/Versions/A/Security (compatibility version 1.0.0, current version 1.0.0)\n"
+  }
+]

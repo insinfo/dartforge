@@ -1,0 +1,94 @@
+[
+  {
+    "label": "vm",
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "run",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart"
+    ],
+    "environment_override": {},
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "caller-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-policy-fixed",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/caller.exe"
+    ],
+    "environment_override": {
+      "DARTFORGE_ROOTS_IN_CALLEE": "0"
+    },
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "label": "caller-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/caller.exe"
+    ],
+    "environment_override": {},
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "caller-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/caller.exe"
+    ],
+    "environment_override": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "callee-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-root-policy-fixed",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/callee.exe"
+    ],
+    "environment_override": {
+      "DARTFORGE_ROOTS_IN_CALLEE": "1"
+    },
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "label": "callee-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/callee.exe"
+    ],
+    "environment_override": {},
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "callee-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/root-policy-validation/callee.exe"
+    ],
+    "environment_override": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": ""
+  }
+]

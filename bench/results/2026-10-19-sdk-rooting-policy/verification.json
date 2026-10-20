@@ -1,0 +1,13 @@
+{
+  "default_and_enabled_sdk_directories_distinct": true,
+  "disabled_reuses_default_artifacts_unchanged": true,
+  "enabled_does_not_replace_default_artifacts": true,
+  "source_class_catalog_unchanged": true,
+  "default_equals_disabled_ir": true,
+  "enabled_ir_differs": true,
+  "sdk_artifact_counts": [
+    1,
+    2,
+    2
+  ]
+}

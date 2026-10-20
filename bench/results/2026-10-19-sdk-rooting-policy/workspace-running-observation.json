@@ -1,0 +1,10 @@
+{
+  "observed_at": "2026-10-20T01:10:02.449256+00:00",
+  "status_at_observation": "running",
+  "processes": [
+    "34294  1957       44:01 /Volumes/ssd_dock/tools/rust/rustup/toolchains/1.98.1-aarch64-apple-darwin/bin/cargo test --locked --workspace -- --include-ignored"
+  ],
+  "log": "/tmp/forge-workspace-20261019-configured.log",
+  "old_compiler_hash_unchanged": true,
+  "workspace_approval_claimed": false
+}

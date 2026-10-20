@@ -1,0 +1,506 @@
+[
+  {
+    "target": "linux-arm64",
+    "arc_memory": false,
+    "control": "DARTFORGE_ROOTS_IN_CALLEE",
+    "source_stable": true,
+    "production_keys": [
+      "04869d2d847f7fd0752289b3b3155e5d",
+      "04869d2d847f7fd0752289b3b3155e5d",
+      "f5b046a0d5d4c1a06e63f7e4fdb548b0"
+    ],
+    "development_keys": [
+      "6c59909431463d97656b17f18cf382a7",
+      "6c59909431463d97656b17f18cf382a7",
+      "6b31c8aa1db2c5eb973d4fd73ea47c52"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      0
+    ]
+  },
+  {
+    "target": "linux-arm64",
+    "arc_memory": false,
+    "control": "DARTFORGE_OUTLINED_HELPERS",
+    "source_stable": true,
+    "production_keys": [
+      "04869d2d847f7fd0752289b3b3155e5d",
+      "04869d2d847f7fd0752289b3b3155e5d",
+      "04869d2d847f7fd0752289b3b3155e5d"
+    ],
+    "development_keys": [
+      "6c59909431463d97656b17f18cf382a7",
+      "6c59909431463d97656b17f18cf382a7",
+      "6c59909431463d97656b17f18cf382a7"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "linux-arm64",
+    "arc_memory": false,
+    "control": "DARTFORGE_FIELDS_BY_CALL",
+    "source_stable": true,
+    "production_keys": [
+      "04869d2d847f7fd0752289b3b3155e5d",
+      "04869d2d847f7fd0752289b3b3155e5d",
+      "04869d2d847f7fd0752289b3b3155e5d"
+    ],
+    "development_keys": [
+      "6c59909431463d97656b17f18cf382a7",
+      "6c59909431463d97656b17f18cf382a7",
+      "6c59909431463d97656b17f18cf382a7"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "linux-arm64",
+    "arc_memory": false,
+    "control": "DARTFORGE_PRIMITIVE_CLAMP",
+    "source_stable": true,
+    "production_keys": [
+      "04869d2d847f7fd0752289b3b3155e5d",
+      "04869d2d847f7fd0752289b3b3155e5d",
+      "04869d2d847f7fd0752289b3b3155e5d"
+    ],
+    "development_keys": [
+      "6c59909431463d97656b17f18cf382a7",
+      "6c59909431463d97656b17f18cf382a7",
+      "6c59909431463d97656b17f18cf382a7"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "linux-arm64",
+    "arc_memory": true,
+    "control": "DARTFORGE_ROOTS_IN_CALLEE",
+    "source_stable": true,
+    "production_keys": [
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246",
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246",
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246"
+    ],
+    "development_keys": [
+      "f81be69f671d466afadb21dee930e5ec",
+      "f81be69f671d466afadb21dee930e5ec",
+      "f81be69f671d466afadb21dee930e5ec"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "linux-arm64",
+    "arc_memory": true,
+    "control": "DARTFORGE_OUTLINED_HELPERS",
+    "source_stable": true,
+    "production_keys": [
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246",
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246",
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246"
+    ],
+    "development_keys": [
+      "f81be69f671d466afadb21dee930e5ec",
+      "f81be69f671d466afadb21dee930e5ec",
+      "f81be69f671d466afadb21dee930e5ec"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "linux-arm64",
+    "arc_memory": true,
+    "control": "DARTFORGE_FIELDS_BY_CALL",
+    "source_stable": true,
+    "production_keys": [
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246",
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246",
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246"
+    ],
+    "development_keys": [
+      "f81be69f671d466afadb21dee930e5ec",
+      "f81be69f671d466afadb21dee930e5ec",
+      "f81be69f671d466afadb21dee930e5ec"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "linux-arm64",
+    "arc_memory": true,
+    "control": "DARTFORGE_PRIMITIVE_CLAMP",
+    "source_stable": true,
+    "production_keys": [
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246",
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246",
+      "7f4bcfa1f6f93ddbc8828bb6d63d9246"
+    ],
+    "development_keys": [
+      "f81be69f671d466afadb21dee930e5ec",
+      "f81be69f671d466afadb21dee930e5ec",
+      "f81be69f671d466afadb21dee930e5ec"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "macos-arm64",
+    "arc_memory": false,
+    "control": "DARTFORGE_ROOTS_IN_CALLEE",
+    "source_stable": true,
+    "production_keys": [
+      "28a7da0ccc406a7768ec31303ce2f0c7",
+      "28a7da0ccc406a7768ec31303ce2f0c7",
+      "0b2fd32199f8c4026f8e9b9a65253553"
+    ],
+    "development_keys": [
+      "70f6f62262bbd82ca639c9a06eee33ca",
+      "70f6f62262bbd82ca639c9a06eee33ca",
+      "660e9aa9285a978370e1288a50ed0359"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      0
+    ]
+  },
+  {
+    "target": "macos-arm64",
+    "arc_memory": false,
+    "control": "DARTFORGE_OUTLINED_HELPERS",
+    "source_stable": true,
+    "production_keys": [
+      "28a7da0ccc406a7768ec31303ce2f0c7",
+      "28a7da0ccc406a7768ec31303ce2f0c7",
+      "28a7da0ccc406a7768ec31303ce2f0c7"
+    ],
+    "development_keys": [
+      "70f6f62262bbd82ca639c9a06eee33ca",
+      "70f6f62262bbd82ca639c9a06eee33ca",
+      "70f6f62262bbd82ca639c9a06eee33ca"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "macos-arm64",
+    "arc_memory": false,
+    "control": "DARTFORGE_FIELDS_BY_CALL",
+    "source_stable": true,
+    "production_keys": [
+      "28a7da0ccc406a7768ec31303ce2f0c7",
+      "28a7da0ccc406a7768ec31303ce2f0c7",
+      "28a7da0ccc406a7768ec31303ce2f0c7"
+    ],
+    "development_keys": [
+      "70f6f62262bbd82ca639c9a06eee33ca",
+      "70f6f62262bbd82ca639c9a06eee33ca",
+      "70f6f62262bbd82ca639c9a06eee33ca"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "macos-arm64",
+    "arc_memory": false,
+    "control": "DARTFORGE_PRIMITIVE_CLAMP",
+    "source_stable": true,
+    "production_keys": [
+      "28a7da0ccc406a7768ec31303ce2f0c7",
+      "28a7da0ccc406a7768ec31303ce2f0c7",
+      "28a7da0ccc406a7768ec31303ce2f0c7"
+    ],
+    "development_keys": [
+      "70f6f62262bbd82ca639c9a06eee33ca",
+      "70f6f62262bbd82ca639c9a06eee33ca",
+      "70f6f62262bbd82ca639c9a06eee33ca"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "macos-arm64",
+    "arc_memory": true,
+    "control": "DARTFORGE_ROOTS_IN_CALLEE",
+    "source_stable": true,
+    "production_keys": [
+      "c0b44329303a974bafc140f7488e75e8",
+      "c0b44329303a974bafc140f7488e75e8",
+      "c0b44329303a974bafc140f7488e75e8"
+    ],
+    "development_keys": [
+      "f0be97773ce0ec0c22f701a5296ba473",
+      "f0be97773ce0ec0c22f701a5296ba473",
+      "f0be97773ce0ec0c22f701a5296ba473"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "macos-arm64",
+    "arc_memory": true,
+    "control": "DARTFORGE_OUTLINED_HELPERS",
+    "source_stable": true,
+    "production_keys": [
+      "c0b44329303a974bafc140f7488e75e8",
+      "c0b44329303a974bafc140f7488e75e8",
+      "c0b44329303a974bafc140f7488e75e8"
+    ],
+    "development_keys": [
+      "f0be97773ce0ec0c22f701a5296ba473",
+      "f0be97773ce0ec0c22f701a5296ba473",
+      "f0be97773ce0ec0c22f701a5296ba473"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "macos-arm64",
+    "arc_memory": true,
+    "control": "DARTFORGE_FIELDS_BY_CALL",
+    "source_stable": true,
+    "production_keys": [
+      "c0b44329303a974bafc140f7488e75e8",
+      "c0b44329303a974bafc140f7488e75e8",
+      "c0b44329303a974bafc140f7488e75e8"
+    ],
+    "development_keys": [
+      "f0be97773ce0ec0c22f701a5296ba473",
+      "f0be97773ce0ec0c22f701a5296ba473",
+      "f0be97773ce0ec0c22f701a5296ba473"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "macos-arm64",
+    "arc_memory": true,
+    "control": "DARTFORGE_PRIMITIVE_CLAMP",
+    "source_stable": true,
+    "production_keys": [
+      "c0b44329303a974bafc140f7488e75e8",
+      "c0b44329303a974bafc140f7488e75e8",
+      "c0b44329303a974bafc140f7488e75e8"
+    ],
+    "development_keys": [
+      "f0be97773ce0ec0c22f701a5296ba473",
+      "f0be97773ce0ec0c22f701a5296ba473",
+      "f0be97773ce0ec0c22f701a5296ba473"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "windows-x64",
+    "arc_memory": false,
+    "control": "DARTFORGE_ROOTS_IN_CALLEE",
+    "source_stable": true,
+    "production_keys": [
+      "30eed3310121a6bafc685455fadf1d90",
+      "30eed3310121a6bafc685455fadf1d90",
+      "899905fae7a4928392d7586b7c3a2af1"
+    ],
+    "development_keys": [
+      "f17f5a2579c74bead5cc3a2c76c4338e",
+      "f17f5a2579c74bead5cc3a2c76c4338e",
+      "0b9d684e8c190476331059bad078f320"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      0
+    ]
+  },
+  {
+    "target": "windows-x64",
+    "arc_memory": false,
+    "control": "DARTFORGE_OUTLINED_HELPERS",
+    "source_stable": true,
+    "production_keys": [
+      "30eed3310121a6bafc685455fadf1d90",
+      "30eed3310121a6bafc685455fadf1d90",
+      "30eed3310121a6bafc685455fadf1d90"
+    ],
+    "development_keys": [
+      "f17f5a2579c74bead5cc3a2c76c4338e",
+      "f17f5a2579c74bead5cc3a2c76c4338e",
+      "f17f5a2579c74bead5cc3a2c76c4338e"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "windows-x64",
+    "arc_memory": false,
+    "control": "DARTFORGE_FIELDS_BY_CALL",
+    "source_stable": true,
+    "production_keys": [
+      "30eed3310121a6bafc685455fadf1d90",
+      "30eed3310121a6bafc685455fadf1d90",
+      "30eed3310121a6bafc685455fadf1d90"
+    ],
+    "development_keys": [
+      "f17f5a2579c74bead5cc3a2c76c4338e",
+      "f17f5a2579c74bead5cc3a2c76c4338e",
+      "f17f5a2579c74bead5cc3a2c76c4338e"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "windows-x64",
+    "arc_memory": false,
+    "control": "DARTFORGE_PRIMITIVE_CLAMP",
+    "source_stable": true,
+    "production_keys": [
+      "30eed3310121a6bafc685455fadf1d90",
+      "30eed3310121a6bafc685455fadf1d90",
+      "30eed3310121a6bafc685455fadf1d90"
+    ],
+    "development_keys": [
+      "f17f5a2579c74bead5cc3a2c76c4338e",
+      "f17f5a2579c74bead5cc3a2c76c4338e",
+      "f17f5a2579c74bead5cc3a2c76c4338e"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "windows-x64",
+    "arc_memory": true,
+    "control": "DARTFORGE_ROOTS_IN_CALLEE",
+    "source_stable": true,
+    "production_keys": [
+      "6c8460f9ec511911b3f2f460ce45907c",
+      "6c8460f9ec511911b3f2f460ce45907c",
+      "6c8460f9ec511911b3f2f460ce45907c"
+    ],
+    "development_keys": [
+      "c97d270ec1b0b75bdd93f73523b09aa5",
+      "c97d270ec1b0b75bdd93f73523b09aa5",
+      "c97d270ec1b0b75bdd93f73523b09aa5"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "windows-x64",
+    "arc_memory": true,
+    "control": "DARTFORGE_OUTLINED_HELPERS",
+    "source_stable": true,
+    "production_keys": [
+      "6c8460f9ec511911b3f2f460ce45907c",
+      "6c8460f9ec511911b3f2f460ce45907c",
+      "6c8460f9ec511911b3f2f460ce45907c"
+    ],
+    "development_keys": [
+      "c97d270ec1b0b75bdd93f73523b09aa5",
+      "c97d270ec1b0b75bdd93f73523b09aa5",
+      "c97d270ec1b0b75bdd93f73523b09aa5"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "windows-x64",
+    "arc_memory": true,
+    "control": "DARTFORGE_FIELDS_BY_CALL",
+    "source_stable": true,
+    "production_keys": [
+      "6c8460f9ec511911b3f2f460ce45907c",
+      "6c8460f9ec511911b3f2f460ce45907c",
+      "6c8460f9ec511911b3f2f460ce45907c"
+    ],
+    "development_keys": [
+      "c97d270ec1b0b75bdd93f73523b09aa5",
+      "c97d270ec1b0b75bdd93f73523b09aa5",
+      "c97d270ec1b0b75bdd93f73523b09aa5"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  },
+  {
+    "target": "windows-x64",
+    "arc_memory": true,
+    "control": "DARTFORGE_PRIMITIVE_CLAMP",
+    "source_stable": true,
+    "production_keys": [
+      "6c8460f9ec511911b3f2f460ce45907c",
+      "6c8460f9ec511911b3f2f460ce45907c",
+      "6c8460f9ec511911b3f2f460ce45907c"
+    ],
+    "development_keys": [
+      "c97d270ec1b0b75bdd93f73523b09aa5",
+      "c97d270ec1b0b75bdd93f73523b09aa5",
+      "c97d270ec1b0b75bdd93f73523b09aa5"
+    ],
+    "probe_root_stores": [
+      1,
+      1,
+      1
+    ]
+  }
+]

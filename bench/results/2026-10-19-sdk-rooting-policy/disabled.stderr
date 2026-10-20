@@ -1,0 +1,8 @@
+  HIR pruning: 13 of 49 functions, 7 of 22 pairs, 0 FFI signatures (1.594317375s)
+  HIR:       baixar 1.816161041s, otimizar 280.356375ms
+--- Native Emission Timings ---
+  Front-end: 1.4497085s
+  World:     32.3725ms (9 of 9 program functions live)
+  HIR:       2.096531833s
+  LLVM IR:   190.205583ms
+  IR:        2349567 bytes, 0 from the SDK (0.0%)

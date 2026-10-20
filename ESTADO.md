@@ -2,6 +2,18 @@
 
 ## Atualização de 19/10/2026
 
+- A chave do SDK compilado agora inclui a política efetiva de raízes pelo
+  chamado. O teste reproduziu chaves iguais com LLVM diferente antes da correção;
+  a decisão é compartilhada com o emissor, preservando a inatividade em ARC/mapas
+  e a estabilidade do catálogo de classes. A auditoria excluiu três controles
+  exclusivos do programa da chave do SDK. Passaram 922 testes nativos e oito
+  dirigidos de cache; a matriz dirigida cobriu 72 subprocessos entre destinos,
+  controles e modos de memória. O SDK real criou/reutilizou duas entradas ao
+  alternar a regra, e os executáveis dos dois modos coincidiram com a VM normal
+  e sob estresse de GC. Clippy estrito e docs sem avisos passaram; suíte ampla
+  original continua nos builders, sem aprovação global ou correção do fmt.
+  Evidências: `bench/results/2026-10-19-sdk-rooting-policy/README.md`.
+
 - Corrigida a causa da divergência do cache: `DARTFORGE_OPTIMIZE_HIR=0` alterava
   o SDK emitido sem alterar sua chave compilada. O compilador anterior reproduziu
   byte a byte os 15 resumos problemáticos com esse modo. O teste novo falhou antes
