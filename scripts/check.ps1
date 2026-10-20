@@ -3,11 +3,7 @@ $ErrorActionPreference = 'Stop'
 $previousRustdocFlags = $env:RUSTDOCFLAGS
 Push-Location (Split-Path $PSScriptRoot)
 try {
- foreach ($tool in @('cargo', 'dart', 'node')) {
-  if (!(Get-Command $tool -CommandType Application -ErrorAction SilentlyContinue)) {
-   throw "Required test tool '$tool' was not found on PATH. Configure the prerequisites in CONTRIBUTING.md before running checks."
-  }
- }
+ & "$PSScriptRoot/check-test-prerequisites.ps1"
  cargo fmt --all -- --check
  if ($LASTEXITCODE) { throw 'Formatting failed' }
  cargo clippy --locked --workspace --all-targets -- -D warnings

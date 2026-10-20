@@ -1,0 +1,22 @@
+[
+  {
+    "case": "valid",
+    "exit": 0,
+    "expected": 0
+  },
+  {
+    "case": "missing-floor",
+    "exit": 1,
+    "expected": 1
+  },
+  {
+    "case": "wrong-host",
+    "exit": 1,
+    "expected": 1
+  },
+  {
+    "case": "wrong-floor-version",
+    "exit": 1,
+    "expected": 1
+  }
+]

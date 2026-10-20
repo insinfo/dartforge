@@ -2,6 +2,20 @@
 
 ## Atualização de 20/10/2026
 
+- Terminou a passada integral do workspace com ignorados e sem filtros:
+  2.978,67 s, saída 101, exatamente dois alvos falhos. O corpus diferencial
+  estava sem os SDKs de referência configurados; o mesmo binário passou os dois
+  testes com SDKs macOS 3.6.2/3.13.5 em diretório separado. O gate de ausência
+  dos backends continua falhando, sem alterar a expectativa. Passaram os 1.043
+  testes nativos, corpus de builders, quatro testes Angular e executor nativo
+  de macros JSON. O comando básico não habilita os testes CLI native/JIT.
+  O checker agora verifica os SDKs de referência antes do build: aceita o par
+  válido e recusa SDK ausente, de outro sistema ou versão de piso incorreta.
+  CONTRIBUTING documenta as variáveis separadas do SDK de fontes e PATH.
+  Logs completos e falhas originais preservados em
+  `bench/results/2026-10-20-workspace-complete/README.md`. Fmt global, poda dos
+  backends e aprovação integral continuam pendentes.
+
 - Revalidado o JIT completo atual: 92 testes regulares e seis doctests passaram,
   incluindo todos os ignorados. O IR AOT podado antigo e seu SDK original também
   passam no executor atual normal/sob estresse, com a saída 35294 da VM Dart.

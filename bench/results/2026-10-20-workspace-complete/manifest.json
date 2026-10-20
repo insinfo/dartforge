@@ -1,0 +1,68 @@
+[
+  {
+    "file": "workspace.log",
+    "original_bytes": 696937,
+    "original_sha256": "e57ac7b20dacd862dddeb0640afb27bd424adb44073e556527fa965e785ce025",
+    "saved_sha256": "e57ac7b20dacd862dddeb0640afb27bd424adb44073e556527fa965e785ce025"
+  },
+  {
+    "file": "workspace.json",
+    "original_bytes": 2346,
+    "original_sha256": "ceafc4e569d6de9b3a8874014e3d38099621a8791e8b8e97d8b027eb15e4b525",
+    "saved_sha256": "ceafc4e569d6de9b3a8874014e3d38099621a8791e8b8e97d8b027eb15e4b525"
+  },
+  {
+    "file": "run.py",
+    "original_bytes": 1431,
+    "original_sha256": "c7089c00102bf0b7490d99d04dce71bef7ab8ca04cceda511f7752db5d05569d",
+    "saved_sha256": "c7089c00102bf0b7490d99d04dce71bef7ab8ca04cceda511f7752db5d05569d"
+  },
+  {
+    "file": "environment-audit.json",
+    "original_bytes": 1440,
+    "original_sha256": "0fc9a453a3d60184853358a5b681e3464138126745ac24dc04888397d742b794",
+    "saved_sha256": "0fc9a453a3d60184853358a5b681e3464138126745ac24dc04888397d742b794"
+  },
+  {
+    "file": "oracle-rerun.log",
+    "original_bytes": 184,
+    "original_sha256": "58a8ad11d143af73825267880d2d0b49cb0ffea6b4cc78c1b1df0ab866acc246",
+    "saved_sha256": "f02b8451994cd327828c71bc21be0e0e66db415e5b26d4c1be5e6c7f6bad51e5"
+  },
+  {
+    "file": "oracle-rerun.json",
+    "original_bytes": 852,
+    "original_sha256": "763bc7da3a6071e35783c14216aa624f8ef4bc0b4b7e8aafc338f10f5d491d90",
+    "saved_sha256": "763bc7da3a6071e35783c14216aa624f8ef4bc0b4b7e8aafc338f10f5d491d90"
+  },
+  {
+    "file": "preflight-checks.json",
+    "original_bytes": 282,
+    "original_sha256": "f463fc64361dfc27c61407744d5625c12bca6ade0db2249af0441b6d777ace73",
+    "saved_sha256": "f463fc64361dfc27c61407744d5625c12bca6ade0db2249af0441b6d777ace73"
+  },
+  {
+    "file": "preflight-valid.log",
+    "original_bytes": 0,
+    "original_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "saved_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+  },
+  {
+    "file": "preflight-wrong-host.log",
+    "original_bytes": 431,
+    "original_sha256": "2770e19415799bfdca62904b148ec3a4394c336f35d3136ca4bcfad0385ed03c",
+    "saved_sha256": "2770e19415799bfdca62904b148ec3a4394c336f35d3136ca4bcfad0385ed03c"
+  },
+  {
+    "file": "preflight-wrong-floor-version.log",
+    "original_bytes": 404,
+    "original_sha256": "ed8648ea4d3e48daef24a70c8aff9180b78215331d8362166acbd22b9858286f",
+    "saved_sha256": "ed8648ea4d3e48daef24a70c8aff9180b78215331d8362166acbd22b9858286f"
+  },
+  {
+    "file": "preflight-missing-floor.log",
+    "original_bytes": 382,
+    "original_sha256": "5faadd9d9a626a1c0f91f8802a8c1f005e31b9ead023b676de2d4fccd1b51a6d",
+    "saved_sha256": "5faadd9d9a626a1c0f91f8802a8c1f005e31b9ead023b676de2d4fccd1b51a6d"
+  }
+]

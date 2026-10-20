@@ -35,6 +35,15 @@ its stubs. See `docs/JIT.md` for toolchain selection and explicit linker overrid
 
 Ignored tests have additional prerequisites: Node, the Dart source SDK, resolved
 corpus dependencies, and a current native compiler for builder integrations.
+The differential oracle SDK roots must be configured separately:
+`DARTFORGE_DART_SDK` points to the complete host-compatible Dart 3.6.2 SDK,
+and `DARTFORGE_DART_SDK_3_13` points to a compatible Dart 3.13+ SDK for modern
+cases. Each root contains `version`, `bin/dart` (`dart.exe` on Windows),
+`bin/snapshots/dartdevc.dart.snapshot` and `lib/libraries.json`. A Windows SDK
+copied onto macOS or Linux cannot serve as the host oracle. Neither Dart on
+PATH nor `DARTFORGE_SDK_LIB` configures these two oracle roots. Run
+`pwsh -File scripts/check-test-prerequisites.ps1` to check the tools and SDKs
+without starting a build; `scripts/check.ps1` runs it before its checks.
 The test command continues through all test executables after a failure and
 still returns a failing exit status; keep the complete log when reporting it.
 `DARTFORGE_COMPILER` selects that compiler; its default is
@@ -61,7 +70,7 @@ call runs is a toolchain prerequisite failure, not ABI conformance evidence.
 
 On PowerShell, `scripts/check.ps1` runs these checks, including ignored tests,
 together and requires documentation to build without warnings. It checks that
-Cargo, Dart and Node are on PATH before starting; configure the native compiler
+Cargo, Dart and Node are on PATH and both oracle SDKs execute before starting; configure the native compiler
 and other ignored-test prerequisites above before invoking it. CI checks behavior only: it
 does not run `cargo fmt` or `cargo doc` (the project owner's decision; see the header of
 `.github/workflows/ci.yml`).

@@ -1,0 +1,7 @@
+from pathlib import Path
+import subprocess,json,os,tempfile,time
+s=Path('/tmp/forge-pruned-jit/test-jit.py').read_text();exec(s[:s.index("command=['cargo'")]);out=Path('/tmp/forge-workspace-complete');scratch=Path(tempfile.mkdtemp(prefix='tmp-workspace-complete-',dir=root/'target'));env.update(TMPDIR=str(scratch),CARGO_BUILD_JOBS='2');command=['cargo','test','--locked','--workspace','--no-fail-fast','--','--include-ignored']
+started=time.time();metadata=dict(command=command,base_commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),wrapper_pid=os.getpid(),started_unix=started,environment={k:env[k] for k in ['DARTFORGE_LLVM_DIR','LLVM_SYS_221_PREFIX','SDKROOT','MACOSX_DEPLOYMENT_TARGET','DARTFORGE_NATIVE_CACHE','DARTFORGE_SDK_LIB','DARTFORGE_TEST_SDK_LIB','DARTFORGE_COMPILER','DARTFORGE_NATIVE_COMPILER','DARTFORGE_CLANG','TMPDIR','RUST_TEST_THREADS','CARGO_BUILD_JOBS','CARGO_TARGET_DIR','PATH']})
+with (out/'workspace.log').open('w') as log:
+ p=subprocess.Popen(command,cwd=root,env=env,stdout=log,stderr=subprocess.STDOUT);metadata.update(pid=p.pid,status='running');(out/'workspace.json').write_text(json.dumps(metadata,indent=2)+'\n');print('Workspace Cargo PID',p.pid,flush=True);result=p.wait()
+metadata.update(status='finished',exit=result,seconds=time.time()-started);(out/'workspace.json').write_text(json.dumps(metadata,indent=2)+'\n');print('Workspace exit',result,flush=True)

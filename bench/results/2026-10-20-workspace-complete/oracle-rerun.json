@@ -1,0 +1,19 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/deps/corpus-4b609fe79537728d",
+    "--include-ignored",
+    "--test-threads=1"
+  ],
+  "started_unix": 1792505023.145634,
+  "binary_sha256": "436c33de1f54d300adda5d697c7d3309aea40c3e8b2d35f67f906c4727abd8d6",
+  "environment": {
+    "DARTFORGE_DART_SDK": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk",
+    "DARTFORGE_DART_SDK_3_13": "/Volumes/ssd_dock/DartSDKs/3.13.5-macos/dart-sdk",
+    "DARTFORGE_SDK_LIB": "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "DARTFORGE_BIN": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-stack-storage",
+    "CARGO_TARGET_DIR": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/workspace-oracle-rerun",
+    "RUST_TEST_THREADS": "1"
+  },
+  "exit": 0,
+  "seconds": 50.947941064834595
+}
