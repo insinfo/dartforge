@@ -1,0 +1,38 @@
+[
+  {
+    "command": [
+      "prlctl",
+      "start",
+      "Windows11"
+    ],
+    "exit": 0,
+    "stdout": "Starting the VM...\nThe VM has been successfully started.\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "prlctl",
+      "exec",
+      "Windows11",
+      "--current-user",
+      "powershell",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      "\\\\Mac\\ssd_dock\\MyRustProjects\\dartforge\\target\\inventory-io-validation\\windows-run.ps1"
+    ],
+    "exit": 0,
+    "stdout": "[{\"stdout\":\"parent=45\\nchild=45\\n\",\"stderr\":\"\",\"sha256\":\"3d404691f0374e19f28f1c96316a9cb22e4908c1fd3962b675fe99c753caa558\",\"stress\":false,\"exit\":0},{\"stdout\":\"parent=45\\nchild=45\\n\",\"stderr\":\"\",\"sha256\":\"3d404691f0374e19f28f1c96316a9cb22e4908c1fd3962b675fe99c753caa558\",\"stress\":true,\"exit\":0}]\n",
+    "stderr": ""
+  },
+  {
+    "command": [
+      "prlctl",
+      "suspend",
+      "Windows11"
+    ],
+    "exit": 0,
+    "stdout": "Suspending the VM...\nThe VM has been successfully suspended.\n",
+    "stderr": ""
+  }
+]

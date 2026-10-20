@@ -1,0 +1,26 @@
+[
+  {
+    "target": "macos-arm64",
+    "compiler": "e48219adf153723fee3b43654575108d7b7f21e2bf74cd9ccd262fb8e7bcca53",
+    "source": "target/rpo-native-cache/sdk/014b79c8b9e6be8c5a38085645226906/allocation-inventory.json",
+    "inventory_payload_identical": true,
+    "functions": 32708,
+    "known": 649
+  },
+  {
+    "target": "linux-arm64",
+    "compiler": "e48219adf153723fee3b43654575108d7b7f21e2bf74cd9ccd262fb8e7bcca53",
+    "source": "target/rpo-native-cache/aarch64-unknown-linux-gnu/sdk/8c21ca7c07815f39ca1de27cf7fbfb78/allocation-inventory.json",
+    "inventory_payload_identical": true,
+    "functions": 32708,
+    "known": 650
+  },
+  {
+    "target": "windows-x64",
+    "compiler": "e48219adf153723fee3b43654575108d7b7f21e2bf74cd9ccd262fb8e7bcca53",
+    "source": "target/rpo-native-cache/x86_64-pc-windows-msvc/sdk/93ef07d8442de7bb049612abec8aa555/allocation-inventory.json",
+    "inventory_payload_identical": true,
+    "functions": 32693,
+    "known": 634
+  }
+]

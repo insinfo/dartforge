@@ -2,6 +2,22 @@
 
 ## Atualização de 20/10/2026
 
+- A integridade do cache usa agora buffers de 64 KiB para serializar/comparar
+  JSON e calcular hashes de arquivos, evitando cópias integrais de saída.
+  O formato canônico, LF único, vínculos de artefatos/runtime/compilador e recusa
+  de duplicatas permanecem; o marcador só é publicado após sucesso do payload.
+  Passaram quatro testes novos e 1.030 nativos com ignorados, Clippy estrito e
+  docs sem avisos. No ensaio isolado com inventário real, seis amostras por
+  variante/etapa após aquecimento e ordem ABBA mostraram reduções medianas de
+  pico RSS de 136,31 MiB na comparação e 136,28 MiB na escrita/hash. Isso não é
+  medição de memória do compilador inteiro; tempos próximos não demonstram ganho
+  geral de velocidade. Payloads dos três SDKs e cinco IRs montados idênticos;
+  fixture aprovada em AOT/JIT macOS e AOT Linux/Windows, normal/sob estresse.
+  VMs novamente suspensas. Sem mudança de runtime/bundles/schema ou permissões
+  de poda. O gate original ainda falha com seis definições estrangeiras; fmt
+  global e aprovação integral continuam pendentes. Evidências:
+  `bench/results/2026-10-20-inventory-io/README.md`.
+
 - O auditor separa leituras/cálculos de endereço de escritas que podem implementar
   alocação. Formas escalares completas ganham footprint vazio, mantendo exposição
   de ponteiro; stores, chamadas opacas e formas não suportadas continuam abertas.

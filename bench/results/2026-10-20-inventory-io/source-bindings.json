@@ -1,0 +1,17 @@
+[
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory.rs",
+    "bytes": 9342,
+    "sha256": "7484e13bdcd45ba88eefbcb3f840e9a0a2b29696f2536a67df09925b6c4688ee"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/publication.rs",
+    "bytes": 7164,
+    "sha256": "a47bef553cce8844d4fe5be340a55b52f57851c37f42c22c5cb67b48bfda202d"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/integrity_io.rs",
+    "bytes": 5905,
+    "sha256": "ba4c925eb029fdd3ff17cf8fad4ce7dff277dff4e751c8c77e010929578f7857"
+  }
+]

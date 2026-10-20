@@ -1,0 +1,28 @@
+[
+  {
+    "name": "before-windows-x64-fixture",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-before-inventory-io",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/inventory-io-validation/before-windows-x64-fixture.exe"
+    ],
+    "exit": 0,
+    "seconds": 6.338481834,
+    "compiler_sha256": "7d59d44da98153c62ae21255a3c3d673bb994af673632c46484267621b64a9d9",
+    "bytes": 3606528,
+    "sha256": "b463dfabfc4d9168922bf1a0b967f45824d3a2b034b53d3b802fe9aef00e07a9",
+    "environment": {
+      "DARTFORGE_KEEP_IR": "1",
+      "DARTFORGE_PARALLEL_PARTS": "1"
+    }
+  }
+]

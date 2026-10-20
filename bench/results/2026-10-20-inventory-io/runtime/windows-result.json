@@ -1,0 +1,16 @@
+[
+    {
+        "stdout":  "parent=45\nchild=45\n",
+        "stderr":  "",
+        "sha256":  "3d404691f0374e19f28f1c96316a9cb22e4908c1fd3962b675fe99c753caa558",
+        "stress":  false,
+        "exit":  0
+    },
+    {
+        "stdout":  "parent=45\nchild=45\n",
+        "stderr":  "",
+        "sha256":  "3d404691f0374e19f28f1c96316a9cb22e4908c1fd3962b675fe99c753caa558",
+        "stress":  true,
+        "exit":  0
+    }
+]

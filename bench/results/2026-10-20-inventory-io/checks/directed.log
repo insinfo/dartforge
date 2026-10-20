@@ -1,0 +1,11 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.81s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 4 tests
+test pruning::allocation_inventory::integrity_io::tests::inventory_io_rejects_noncanonical_and_duplicate_input ... ok
+test pruning::allocation_inventory::integrity_io::tests::inventory_io_hashes_empty_large_and_missing_files ... ok
+test pruning::allocation_inventory::integrity_io::tests::inventory_io_short_writes_and_errors_do_not_produce_incomplete_digests ... ok
+test pruning::allocation_inventory::integrity_io::tests::inventory_io_canonical_bytes_and_hashes_match_existing_format ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 1026 filtered out; finished in 0.07s

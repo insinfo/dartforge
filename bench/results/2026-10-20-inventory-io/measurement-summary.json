@@ -1,0 +1,30 @@
+{
+  "compare": {
+    "old": {
+      "samples": 6,
+      "median_rss_bytes": 902955008.0,
+      "median_stage_seconds": 0.063550792
+    },
+    "new": {
+      "samples": 6,
+      "median_rss_bytes": 760020992.0,
+      "median_stage_seconds": 0.0623326875
+    },
+    "rss_saved_bytes": 142934016.0,
+    "rss_saved_mib": 136.3125
+  },
+  "write": {
+    "old": {
+      "samples": 6,
+      "median_rss_bytes": 903118848.0,
+      "median_stage_seconds": 1.6933932915
+    },
+    "new": {
+      "samples": 6,
+      "median_rss_bytes": 760217600.0,
+      "median_stage_seconds": 1.6844341875
+    },
+    "rss_saved_bytes": 142901248.0,
+    "rss_saved_mib": 136.28125
+  }
+}

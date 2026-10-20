@@ -10,11 +10,7 @@ pub(super) const SCHEMA: u64 = 5;
 const FILE: &str = "allocation-inventory.json";
 const READY: &str = "allocation-inventory.ready";
 fn digest(path: &Path) -> Option<String> {
-    Some(
-        blake3::hash(&std::fs::read(path).ok()?)
-            .to_hex()
-            .to_string(),
-    )
+    super::integrity_io::digest_file(path)
 }
 fn runtime_digest(runtime: &Path) -> Option<Value> {
     Some(json!({"artifact_digest":digest(runtime)?,
@@ -51,12 +47,9 @@ pub(crate) fn publish(
         .ok_or_else(|| "cannot bind allocation inventory runtime artifact".to_string())?;
     let value = json!({"schema":SCHEMA,"cache_key":key,"production":production,
         "compiler":env!("DARTFORGE_EMITTER_HASH"),"runtime":runtime,"artifacts":artifacts,"inventory":bundle.to_json()});
-    let text = format!(
-        "{}\n",
-        serde_json::to_string(&value).map_err(|error| error.to_string())?
-    );
-    std::fs::write(directory.join(FILE), &text).map_err(|error| error.to_string())?;
-    let ready = json!({"schema":SCHEMA,"cache_key":key,"inventory_digest":blake3::hash(text.as_bytes()).to_hex().to_string()});
+    let file = std::fs::File::create(directory.join(FILE)).map_err(|error| error.to_string())?;
+    let digest = super::integrity_io::write_json(file, &value).map_err(|error| error.to_string())?;
+    let ready = json!({"schema":SCHEMA,"cache_key":key,"inventory_digest":digest.to_hex().to_string()});
     std::fs::write(directory.join(READY), format!("{}\n", ready)).map_err(|error| error.to_string())
 }
 
@@ -88,7 +81,7 @@ pub(super) fn read_verified(
         let value: Value = serde_json::from_str(&text).ok()?;
         if ready
             != json!({"schema":SCHEMA,"cache_key":key,"inventory_digest":blake3::hash(text.as_bytes()).to_hex().to_string()})
-            || text != format!("{}\n", serde_json::to_string(&value).ok()?)
+            || !super::integrity_io::canonical_matches(text.as_bytes(), &value)
             || value.as_object()?.len() != 7
             || value["schema"] != SCHEMA
             || value["cache_key"] != key

@@ -7,6 +7,7 @@ pub(crate) mod closure;
 pub(crate) mod publication;
 pub(crate) mod imports;
 pub(crate) mod images;
+mod integrity_io;
 
 use super::{AllocationRecord, AllocationState, Summary};
 use std::collections::HashMap;

@@ -1,0 +1,5 @@
+{
+  "exit": 0,
+  "stdout": "UUID                                    NAME                             STATUS\n{0109fd70-b8a8-4732-8c8e-86d28b61b7eb}  Windows11                        suspended\n{32815510-bd5d-46ca-b91c-93b25a24e5bc}  Ubuntu24.04_arm64                suspended\n",
+  "stderr": ""
+}
