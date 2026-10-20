@@ -1,0 +1,15 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin/clang",
+    "-x",
+    "ir",
+    "-c",
+    "/tmp/forge-stack-storage/typed-stack.ll",
+    "-o",
+    "/tmp/forge-stack-storage/typed-stack.o"
+  ],
+  "exit": 0,
+  "stdout": "",
+  "stderr": "warning: overriding the module target triple with arm64-apple-macosx27.0.0 [-Woverride-module]\n1 warning generated.\n",
+  "cases": 6
+}

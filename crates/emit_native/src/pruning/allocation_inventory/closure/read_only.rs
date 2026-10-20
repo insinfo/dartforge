@@ -12,7 +12,7 @@ fn decimal_end(bytes: &[u8], mut index: usize) -> usize {
     index
 }
 
-fn tokens(text: &str) -> Option<Vec<&str>> {
+pub(super) fn tokens(text: &str) -> Option<Vec<&str>> {
     let bytes = text.as_bytes();
     let mut index = 0;
     let mut result = Vec::new();
@@ -141,7 +141,7 @@ fn integer(ty: &str) -> bool {
     matches!(ty, "i1" | "i8" | "i16" | "i32" | "i64")
 }
 
-fn operand(value: &str, ty: &str) -> bool {
+pub(super) fn operand(value: &str, ty: &str) -> bool {
     if value.starts_with('%') || value.starts_with('@') || matches!(value, "undef" | "poison") {
         return true;
     }

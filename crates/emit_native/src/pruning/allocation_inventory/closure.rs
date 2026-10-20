@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 pub(in crate::pruning) mod table_getters;
 mod context_lookup;
 mod read_only;
+mod stack_storage;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Abi { result: String, parameters: Vec<String> }
@@ -226,14 +227,15 @@ fn native_bytes(line: &str) -> bool {
     native_byte_content(line).is_some()
 }
 
-fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTreeSet<String>, getters: &HashMap<String, u32>) {
+fn analyze_body(definition: &mut Definition, header: &str, body: &[&str], byte_globals: &BTreeSet<String>, getters: &HashMap<String, u32>) {
     if getters.contains_key(&definition.symbol) {
         // Exact constant-return bodies were checked against complete immutable
         // table storage. The returned addresses remain exposure obligations.
         definition.exposures.insert("method_table_address".into());
         return;
     }
-    for raw in body {
+    let stack_operations = signature(header).map(|(_, _, parameters)| stack_storage::observe(body, &parameters)).unwrap_or_default();
+    for (line_index, raw) in body.iter().enumerate() {
         let Some(line) = uncomment(raw) else {
             definition.unknown.insert("malformed_quoted_operand".into());
             continue;
@@ -285,11 +287,11 @@ fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTree
             | "fpext" | "fptrunc" | "alloca" | "load" | "store" | "getelementptr" | "bitcast" | "ptrtoint" | "inttoptr" | "freeze") {
             definition.unknown.insert(format!("unsupported_opcode:{opcode}"));
         }
-        if matches!(opcode, "load" | "store" | "getelementptr" | "ptrtoint" | "inttoptr" | "bitcast") {
+        if matches!(opcode, "alloca" | "load" | "store" | "getelementptr" | "ptrtoint" | "inttoptr" | "bitcast") {
             // A complete scalar read/address instruction cannot create a Dart
-            // object. Raw writes can implement allocation without an allocator
-            // call, and still need a memory-region proof. Exposure is separate.
-            if !read_only::allocation_neutral(operation) {
+            // object. A bounded typed stack subobject also cannot be heap
+            // allocation state. Other writes still need a memory-region proof.
+            if opcode != "alloca" && !read_only::allocation_neutral(operation) && !stack_operations.contains(&line_index) {
                 definition.unknown.insert("unresolved_raw_memory_allocation".into());
             }
             definition.exposures.insert("raw_memory_or_pointer_operation".into());
@@ -356,7 +358,7 @@ pub(crate) fn audit(modules: &[(&str, &str)]) -> Bundle {
             if definition.symbol == "df.context" && let Some(lookup) = context_lookups.get(&(module.to_string(), definition.symbol.clone())) {
                 context_lookup::analyze(&mut definition, lookup);
             } else {
-                analyze_body(&mut definition, &body, &byte_globals, &getters);
+                analyze_body(&mut definition, header, &body, &byte_globals, &getters);
             }
             definitions.push(definition);
         }
@@ -468,3 +470,6 @@ mod read_only_tests;
 
 #[cfg(test)]
 mod stack_read_tests;
+
+#[cfg(test)]
+mod stack_storage_tests;

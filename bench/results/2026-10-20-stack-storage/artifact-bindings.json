@@ -1,0 +1,112 @@
+[
+  {
+    "path": "target/stack-storage-validation/.df_tmp/after-development.ll",
+    "bytes": 198966,
+    "sha256": "1c7bf73116a9bf5f4e82cc47234b971dfa43edadb648cc642095bc83d70e660d"
+  },
+  {
+    "path": "target/stack-storage-validation/.df_tmp/after-production.ll",
+    "bytes": 710293,
+    "sha256": "9b57ef82cfddc8d15e9f157b31c18d755e6c14b67dba1d2957a10fd846808f46"
+  },
+  {
+    "path": "target/stack-storage-validation/.df_tmp/after-unpruned.ll",
+    "bytes": 3528558,
+    "sha256": "80c320370cd3b909348611bf91229f5682baa00fa95fa5f357276f33063b932a"
+  },
+  {
+    "path": "target/stack-storage-validation/.df_tmp/before-development.ll",
+    "bytes": 198966,
+    "sha256": "1c7bf73116a9bf5f4e82cc47234b971dfa43edadb648cc642095bc83d70e660d"
+  },
+  {
+    "path": "target/stack-storage-validation/.df_tmp/before-production.ll",
+    "bytes": 710293,
+    "sha256": "9b57ef82cfddc8d15e9f157b31c18d755e6c14b67dba1d2957a10fd846808f46"
+  },
+  {
+    "path": "target/stack-storage-validation/.df_tmp/before-unpruned.ll",
+    "bytes": 3528558,
+    "sha256": "80c320370cd3b909348611bf91229f5682baa00fa95fa5f357276f33063b932a"
+  },
+  {
+    "path": "target/stack-storage-validation/after-development",
+    "bytes": 79760,
+    "sha256": "2584e02717bf61645eda3647b45227f31f84193277ba52b94081bdcb936a9c75"
+  },
+  {
+    "path": "target/stack-storage-validation/after-development.contracts.json",
+    "bytes": 758,
+    "sha256": "f69566abbde5228d863cf25a5a9a2c6bdfee3c4ec660a3b5515fc09a852e93ef"
+  },
+  {
+    "path": "target/stack-storage-validation/after-production",
+    "bytes": 3425568,
+    "sha256": "b43e0f9da70e6332572f4097993cbea619b4a90b5250da0dd47ec6480ca88c0b"
+  },
+  {
+    "path": "target/stack-storage-validation/after-production.contracts.json",
+    "bytes": 756,
+    "sha256": "ec3ae0434909f191eef3392dde33f64b443ef220f5987a154950ba9ecd855ecf"
+  },
+  {
+    "path": "target/stack-storage-validation/after-unpruned",
+    "bytes": 10411856,
+    "sha256": "16c324e42db5e6f5011590b2368b08b679cba0075a65a7d12b47ff32a059f6a9"
+  },
+  {
+    "path": "target/stack-storage-validation/after-unpruned.contracts.json",
+    "bytes": 754,
+    "sha256": "71add0af87ab67178bac16524c24a38616267f9dcb387a29b1388caeec041194"
+  },
+  {
+    "path": "target/stack-storage-validation/libdfsdk_5dc60fa9793ec72f.dylib",
+    "bytes": 41883440,
+    "sha256": "aeda2176e776634cb23b3b517aed4ff75cdc49c83503d867614f0abd770197cb"
+  },
+  {
+    "path": "target/stack-storage-validation/platform-closed.ll",
+    "bytes": 167212,
+    "sha256": "3cc7ee79bf99ac7b0be9c85e9391ec7f469cef3371ba57e1e47c9e0dd69e1a9d"
+  },
+  {
+    "path": "target/stack-storage-validation/platform-closed.ll.contracts.json",
+    "bytes": 607,
+    "sha256": "5805a8c8cb8c56955cf2a12cb81953585e4da87fa842f4ba9b5c4af419378f13"
+  },
+  {
+    "path": "target/stack-storage-validation/platform-default.ll",
+    "bytes": 167212,
+    "sha256": "3cc7ee79bf99ac7b0be9c85e9391ec7f469cef3371ba57e1e47c9e0dd69e1a9d"
+  },
+  {
+    "path": "target/stack-storage-validation/platform-default.ll.contracts.json",
+    "bytes": 608,
+    "sha256": "310ae4d252d77558d8b36200f827291eac20eac69c198fa5237aeb40f11afc9a"
+  },
+  {
+    "path": "target/stack-storage-validation/sdk-macos-arm64-after-inventory.json",
+    "bytes": 73833368,
+    "sha256": "c4bf9af9ce2781aeba921de5a9f5664bb1b2bd1cdb76f132cabc2c081f09bcea"
+  },
+  {
+    "path": "target/test-tools/dartforge-before-stack-storage",
+    "bytes": 198306624,
+    "sha256": "ce89d6c870e35a437de32d1de7990eb1a3a1c10f1506845cb70570e98dad495d"
+  },
+  {
+    "path": "target/test-tools/dartforge-stack-storage",
+    "bytes": 198376576,
+    "sha256": "f6dc13cb8be99e4b344a7e2d725acd6f9b44b0abf1d59f4525e29d2640848465"
+  },
+  {
+    "path": "/tmp/forge-stack-storage/inspect-instructions",
+    "bytes": 539096,
+    "sha256": "ef934b22a1af4b0aefc38b4fba8fab1708a8abf3604657bf5b32e839ac0d224f"
+  },
+  {
+    "path": "/tmp/forge-stack-storage/typed-stack.o",
+    "bytes": 944,
+    "sha256": "37204e5d6fcb1a2248870286237b0ec1850f3083fcffbe458a741fcbe0775c8c"
+  }
+]

@@ -65,3 +65,21 @@ fn stack_read_metadata_is_not_a_general_published_abi_type() {
         assert!(Inventory::load(dir.path(), "test-key", true, &names, &runtime).is_none());
     }
 }
+
+#[test]
+fn stack_storage_does_not_authorize_stack_addresses_or_invocations() {
+    for body in [
+        "%p = alloca i64\n ret ptr %p",
+        "%p = alloca i64\n store i64 0, ptr %p\n ret ptr %p",
+        "%p = alloca { ptr, i64, [3 x i64] }\n %q = getelementptr { ptr, i64, [3 x i64] }, ptr %p, i64 0, i32 2, i64 1\n store i64 0, ptr %q\n ret ptr %q",
+    ] {
+        let ir = format!("define ptr @{LEAF}() {{\n{body}\n}}\n");
+        let (dir, names, runtime) = fixtures(&ir);
+        let inventory = Inventory::load(dir.path(), "test-key", true, &names, &runtime).unwrap();
+        assert!(!inventory.known_node(LEAF));
+        assert!(!inventory.entry(LEAF));
+        for result in [Type::I64, Type::Ref, Type::Ptr] {
+            assert!(!inventory.call(LEAF, &[], result));
+        }
+    }
+}

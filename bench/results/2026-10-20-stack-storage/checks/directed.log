@@ -1,0 +1,13 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.48s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 6 tests
+test pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_alloca_itself_retains_pointer_exposure ... ok
+test pruning::class_reachability::tests::stack_storage_is_bounded_and_foreign_or_retyped_slots_remain_unknown ... ok
+test pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_observes_typed_local_writes_and_preserves_exposure ... ok
+test pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_finite_callees_and_budgets_remain_conservative ... ok
+test pruning::allocation_inventory::imports::tests::read_only::stack_storage_does_not_authorize_stack_addresses_or_invocations ... ok
+test pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_rejects_unbounded_or_mismatched_regions_and_hidden_effects ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 1037 filtered out; finished in 0.03s

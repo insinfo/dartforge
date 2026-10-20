@@ -1,0 +1,36 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.37s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 4 tests
+test pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_observes_typed_local_writes_and_preserves_exposure ... FAILED
+test pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_alloca_itself_retains_pointer_exposure ... FAILED
+test pruning::class_reachability::tests::stack_storage_is_bounded_and_foreign_or_retyped_slots_remain_unknown ... ok
+test pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_rejects_unbounded_or_mismatched_regions_and_hidden_effects ... ok
+
+failures:
+
+---- pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_observes_typed_local_writes_and_preserves_exposure stdout ----
+
+thread 'pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_observes_typed_local_writes_and_preserves_exposure' (3196921) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/stack_storage_tests.rs:18:9:
+assertion `left == right` failed: %p = alloca i64
+ store i64 %value, ptr %p
+  left: Null
+ right: Array []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_alloca_itself_retains_pointer_exposure stdout ----
+
+thread 'pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_alloca_itself_retains_pointer_exposure' (3196920) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/stack_storage_tests.rs:45:5:
+assertion `left == right` failed
+  left: Array []
+ right: Array [String("raw_memory_or_pointer_operation")]
+
+
+failures:
+    pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_alloca_itself_retains_pointer_exposure
+    pruning::allocation_inventory::closure::stack_storage_tests::stack_storage_observes_typed_local_writes_and_preserves_exposure
+
+test result: FAILED. 2 passed; 2 failed; 0 ignored; 0 measured; 1037 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

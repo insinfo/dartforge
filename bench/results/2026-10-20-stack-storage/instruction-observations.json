@@ -1,0 +1,150 @@
+{
+  "command": [
+    "/tmp/forge-stack-storage/inspect-instructions",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/_compact_hash.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/_http.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/_internal.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/async.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/collection.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/convert.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/core.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/developer.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/ffi.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/io.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/isolate.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/math.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/mirrors.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/nativewrappers.ll",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/typed_data.ll"
+  ],
+  "exit": 0,
+  "stderr": "",
+  "modules": [
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/_compact_hash.ll",
+      "sha256": "79b2eb4c239bd086c33d6c5df427dd5eb437f230873864a6bcc01e63718b1153",
+      "functions": 741,
+      "functions_with_alloca": 556,
+      "local_stores": 4742,
+      "local_geps": 1908
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/_http.ll",
+      "sha256": "145a7d38e5385727d19e5766e47f63385d4f1867bdc98d5a946221a4a77d49e2",
+      "functions": 4311,
+      "functions_with_alloca": 3046,
+      "local_stores": 28228,
+      "local_geps": 13242
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/_internal.ll",
+      "sha256": "916ad1634729ae7dae1f6127e626289ad20ef5b01bb57fbbbefa7a89e5b7db68",
+      "functions": 2277,
+      "functions_with_alloca": 1627,
+      "local_stores": 11726,
+      "local_geps": 5479
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/async.ll",
+      "sha256": "d9456d3102d6b4fc7f63a46b71a149a0b6d3d2190f3e7a976524c87f2f314d25",
+      "functions": 3362,
+      "functions_with_alloca": 2388,
+      "local_stores": 18701,
+      "local_geps": 8196
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/collection.ll",
+      "sha256": "426cddfd514689582de5ec051aba0def3b4cd413ff47a83fa6197938b430d9ac",
+      "functions": 2329,
+      "functions_with_alloca": 1853,
+      "local_stores": 12963,
+      "local_geps": 6074
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/convert.ll",
+      "sha256": "cc63c9bf9f37d033d93ab679daef00140c237c87dbaee315a5a30d44e3e7ff39",
+      "functions": 2386,
+      "functions_with_alloca": 1741,
+      "local_stores": 14935,
+      "local_geps": 6490
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/core.ll",
+      "sha256": "9598f242e38cf581bdc1929502949b15e879b978d740c0f55a990ac3278ef641",
+      "functions": 4230,
+      "functions_with_alloca": 3271,
+      "local_stores": 32033,
+      "local_geps": 13467
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/developer.ll",
+      "sha256": "00d083bf0285ff996a06c56b7f59f57a77012f99f234bc1930d585a2bdd734cc",
+      "functions": 286,
+      "functions_with_alloca": 152,
+      "local_stores": 1425,
+      "local_geps": 677
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/ffi.ll",
+      "sha256": "60bc444a308ec7fb5d0f4d9871b3c1ef4e3af3df9fbe67516b7928b63beb7545",
+      "functions": 795,
+      "functions_with_alloca": 547,
+      "local_stores": 3579,
+      "local_geps": 1566
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/io.ll",
+      "sha256": "7edb699923114cf95c5251c67199506291a37a6a7f36d6b3c015da93d695ab7b",
+      "functions": 6128,
+      "functions_with_alloca": 4628,
+      "local_stores": 42069,
+      "local_geps": 18109
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/isolate.ll",
+      "sha256": "978e5326321ec5730efad3c2a068ae2d324cbfa7069cfb2ac5df3bc65fb1ded2",
+      "functions": 394,
+      "functions_with_alloca": 225,
+      "local_stores": 2225,
+      "local_geps": 1020
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/math.ll",
+      "sha256": "053675f30170ec1e8c300bcf0f8c2a9eaabba0adba5b98098c9b023d9bad44a7",
+      "functions": 294,
+      "functions_with_alloca": 169,
+      "local_stores": 1460,
+      "local_geps": 705
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/mirrors.ll",
+      "sha256": "eb56bd77a51694172ae4646bd784a0120a0ad50e945b1cf61b78104728378b71",
+      "functions": 225,
+      "functions_with_alloca": 140,
+      "local_stores": 1222,
+      "local_geps": 749
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/nativewrappers.ll",
+      "sha256": "0186ddcb97d8ac9ef05cf9c74d62dd0df51890df72ef1d8297ad84c22e765c50",
+      "functions": 60,
+      "functions_with_alloca": 6,
+      "local_stores": 4,
+      "local_geps": 3
+    },
+    {
+      "path": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/typed_data.ll",
+      "sha256": "8f212d0b8e427e321d5b8d723e16c4d10399c1b49f73ca5fb6d3f47324a9cd6d",
+      "functions": 4875,
+      "functions_with_alloca": 3698,
+      "local_stores": 25232,
+      "local_geps": 10625
+    }
+  ],
+  "total": {
+    "functions": 32693,
+    "functions_with_alloca": 24047,
+    "local_stores": 200544,
+    "local_geps": 88310
+  }
+}

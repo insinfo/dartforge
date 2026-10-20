@@ -1,0 +1,13 @@
+{
+  "baseline": "target/stack-read-validation/sdk-macos-arm64-after-inventory.json",
+  "source": "target/rpo-native-cache/sdk/d7cdf2ca22c649e575e8808cc765d753/allocation-inventory.json",
+  "compiler": "58738abb34f517a5229962e84d82943d9e2092373137db8393347328d09d550c",
+  "functions": 32708,
+  "changed_functions": 0,
+  "resolved_raw_memory_obligations": 0,
+  "new_stack_exposures": 0,
+  "newly_known_allocations": 0,
+  "known_before": 649,
+  "known_after": 649,
+  "modules_and_globals_identical": true
+}

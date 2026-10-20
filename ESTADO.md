@@ -2,6 +2,23 @@
 
 ## Atualização de 20/10/2026
 
+- O auditor reconhece agora escritas em subobjetos tipados e delimitados de
+  `alloca`: escalares, arrays, estruturas, GEPs encadeados e decaimento exato de
+  array. Sem calcular offsets/padding; tipos e índices constantes devem caber.
+  Destinos desconhecidos, reinterpretações, limites, SSA duplicado e estouro dos
+  orçamentos continuam sem prova. `alloca` isolado agora também mantém exposição
+  de ponteiro, corrigindo essa omissão; consumidor recusa endereços da pilha como
+  entradas/imports/nós. Duas regressões falharam antes; passaram cinco testes
+  novos e 1.043 nativos com ignorados, Clippy estrito e docs sem avisos. Clang
+  aceitou os seis casos positivos. Na observação por instrução do SDK real,
+  200.544 stores e 88.310 GEPs foram reconhecidos; nenhum registro final de função
+  mudou, porque restam outras escritas desconhecidas no mesmo corpo. Permanecem
+  649 closures conhecidas, sem ganho de poda/tamanho/desempenho alegado. AOT/JIT
+  macOS passou normal/sob estresse e três IRs montados ficaram idênticos. VMs
+  mantidas suspensas. Gate original repetido e ainda falha; ambos os modos retêm
+  seis definições estrangeiras. Fmt global e aprovação integral seguem pendentes.
+  Evidências: `bench/results/2026-10-20-stack-storage/README.md`.
+
 - O inventário representa agora explicitamente a leitura LLVM do ponteiro de
   pilha (`sp`/`rsp`, i64 e um metadado inline exato), com footprint vazio da
   operação e exposição de registrador. Metadados gerais, outras formas e

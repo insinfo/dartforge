@@ -1,0 +1,14 @@
+{
+  "command": [
+    "rustc",
+    "--edition",
+    "2024",
+    "-O",
+    "/tmp/forge-stack-storage/inspect-instructions.rs",
+    "-o",
+    "/tmp/forge-stack-storage/inspect-instructions"
+  ],
+  "exit": 0,
+  "stdout": "",
+  "stderr": ""
+}

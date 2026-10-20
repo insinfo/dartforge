@@ -1,0 +1,22 @@
+[
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure.rs",
+    "sha256": "83e085c72469224c039ee9e4adbaf9683de66703711fd2031618552123e8ffcb"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure/read_only.rs",
+    "sha256": "c1e92a16897f73d9a3027ea2c42993c0b5b1a6fb63a9f85bcc4f46134509cde2"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests/read_only.rs",
+    "sha256": "f4163768c9786fe26d1e0dcdd03f18955a46a7e48fc9c9551c0fac55fde8c4dd"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure/stack_storage.rs",
+    "sha256": "3f0209c8889d10629d009b9b7576d73bda74a3ec759c365add889e0fe5ab34f4"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure/stack_storage_tests.rs",
+    "sha256": "8b5312db160e06949cd3110d59670cad74a07bbc231f4af0b325cf2de383f3c9"
+  }
+]
