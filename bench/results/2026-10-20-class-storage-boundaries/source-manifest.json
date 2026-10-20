@@ -1,0 +1,26 @@
+[
+  {
+    "file": "crates/emit_native/src/pruning/class_reachability.rs",
+    "sha256": "20479d327f9647a988e37893165329d5c92488bb0a4f0eb2dd0f51c2e5824e93"
+  },
+  {
+    "file": "crates/emit_native/src/pruning/class_reachability/closures.rs",
+    "sha256": "bc8ae6eeadb00f9412af19d6ae6989fa6c6e3f01dd1ba44abf95cfb33334618f"
+  },
+  {
+    "file": "crates/emit_native/src/pruning/class_reachability/storage.rs",
+    "sha256": "314fd1c169836cc46418ffd140bf2cb456c9b5ea2176c23902075efc43662b0e"
+  },
+  {
+    "file": "crates/emit_native/src/pruning/class_reachability/tests.rs",
+    "sha256": "138e4afdf8b4b1d284f7849a36f41c8c810bf7c128180188e00db00a16762026"
+  },
+  {
+    "file": "crates/emit_native/src/pruning/class_reachability/tests/storage_tests.rs",
+    "sha256": "3a2c3d4db6886553cd71bbd60d8f569b0ca08967a9f29ead444a04ecb7a3b895"
+  },
+  {
+    "file": "ESTADO.md",
+    "sha256": "77502195ee65f3212eec7f9811ab2b349149d2154c6ddb8717200a409c99517f"
+  }
+]

@@ -1,0 +1,22 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 7.64s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 1 test
+test pruning::class_reachability::tests::scalar_field_bits_cannot_create_managed_reference_capabilities ... FAILED
+
+failures:
+
+---- pruning::class_reachability::tests::scalar_field_bits_cannot_create_managed_reference_capabilities stdout ----
+
+thread 'pruning::class_reachability::tests::scalar_field_bits_cannot_create_managed_reference_capabilities' (2573630) panicked at crates/emit_native/src/pruning/class_reachability/tests.rs:846:5:
+scalar storage must not become a Ref source
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    pruning::class_reachability::tests::scalar_field_bits_cannot_create_managed_reference_capabilities
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 930 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

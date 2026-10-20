@@ -1,0 +1,27 @@
+[
+  {
+    "file": "scalar-field-before.log",
+    "original_sha256": "8ee7f82c04c2ae5507e9225966e9bf9d55ca012bcee99c89713005aacde0100f",
+    "stored_sha256": "8ee7f82c04c2ae5507e9225966e9bf9d55ca012bcee99c89713005aacde0100f"
+  },
+  {
+    "file": "storage-directed-initial.log",
+    "original_sha256": "d1c7f97c82a67646f17f70bb6a297b0919db2116ee081613f9d0b5dcd532a508",
+    "stored_sha256": "d1c7f97c82a67646f17f70bb6a297b0919db2116ee081613f9d0b5dcd532a508"
+  },
+  {
+    "file": "storage-directed.log",
+    "original_sha256": "12ccccc93c99fa4c3242d2636d87e5fb51282202af4fd21d45ef647dc1803cc0",
+    "stored_sha256": "957381eb9ab0b1238fc63591f59aca5d26a26a400dfe526906a37caaf5aae825"
+  },
+  {
+    "file": "storage-expanded.log",
+    "original_sha256": "882972548c517c8c94317cc5a38a96507ea324444590abed532d5be1157e016c",
+    "stored_sha256": "65fa58b76fde186ea04681f50ab662f3b4327a72ce459903a85ceeb5969e9bb0"
+  },
+  {
+    "file": "storage-test-compile-initial.log",
+    "original_sha256": "f3d335012c999b10a6d60e7e2f4acb67fe0a373570be947f5610663e1b1b7a13",
+    "stored_sha256": "f3d335012c999b10a6d60e7e2f4acb67fe0a373570be947f5610663e1b1b7a13"
+  }
+]

@@ -21,6 +21,8 @@ const ABI_FIELD: usize = (dartforge_runtime::layout::offsets::CLOSURE_ABI
 pub(super) struct Proof {
     pub handles: HashSet<ValueId>,
     pub calls: HashSet<ValueId>,
+    /// Exact immutable closure-field reads checked by this witness.
+    pub reads: HashSet<ValueId>,
 }
 
 fn typed_abi(body: &Function) -> Option<i64> {
@@ -51,6 +53,7 @@ fn field_read(instruction: &Instruction, result: Type) -> Option<(&Operand, usiz
     match instruction {
         Instruction::GetField { object, index } => Some((object, *index)),
         Instruction::CallRuntime { name, args, ret_ty }
+        | Instruction::DeclaredFieldCall { name, args, ret_ty, .. }
             if name == "dartforge_object_get" && *ret_ty == result =>
         {
             let [
@@ -155,6 +158,7 @@ pub(super) fn prove(
         if handles.contains(id) || code.contains_key(id) || Some(*id) == implicit_receiver)
     };
     let mut calls = HashSet::new();
+    let mut reads = HashSet::new();
     for block in &function.blocks {
         for (value, instruction, result) in &block.instructions {
             let mut escaped = false;
@@ -163,9 +167,9 @@ pub(super) fn prove(
                 && matches!(object, Operand::Val(id) if handles.contains(id) || Some(*id) == implicit_receiver)
             {
                 match index {
-                    CONTEXT_FIELD if *result == Type::Ref => continue,
-                    ABI_FIELD if *result == Type::I64 => continue,
-                    TYPED_FIELD if code.contains_key(value) => continue,
+                    CONTEXT_FIELD if *result == Type::Ref => { reads.insert(*value); continue; }
+                    ABI_FIELD if *result == Type::I64 => { reads.insert(*value); continue; }
+                    TYPED_FIELD if code.contains_key(value) => { reads.insert(*value); continue; }
                     _ => return None,
                 }
             }
@@ -240,5 +244,5 @@ pub(super) fn prove(
             return None;
         }
     }
-    Some(Proof { handles, calls })
+    Some(Proof { handles, calls, reads })
 }

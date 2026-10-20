@@ -828,6 +828,26 @@ fn malformed_bodies_and_uniform_entry_signatures_cannot_publish_a_certificate() 
 }
 
 #[test]
+fn scalar_field_bits_cannot_create_managed_reference_capabilities() {
+    let mut module = fixture();
+    module.classes.iter_mut().find(|class| class.id == 300).unwrap().field_count = 1;
+    let main = &mut module.functions[0];
+    main.params.push((ValueId(10), "scalar input".into(), Type::I64));
+    main.blocks[0].instructions[0].1 = Instruction::AllocObject {
+        class_id: 300, fields: vec![Operand::Val(ValueId(10))],
+    };
+    main.blocks[0].instructions.extend([
+        (ValueId(1), Instruction::GetField { object: Operand::Val(ValueId(0)), index: 0 }, Type::Ref),
+        (ValueId(2), Instruction::CallSelector {
+            selector: "c:used".into(), recv: Operand::Val(ValueId(1)), args: vec![],
+            names: vec![], tuple_types: Operand::Constant(Constant::Null),
+        }, Type::Ref),
+    ]);
+    assert!(audit(&mut module, &[]).is_err(), "scalar storage must not become a Ref source");
+    assert!(module.closed_class_tables.is_none());
+}
+
+#[test]
 fn local_calls_retain_their_transitive_allocations_and_runtime_abi_is_checked() {
     let mut module = fixture();
     let mut factory = function(
@@ -2358,3 +2378,5 @@ fn erased_import_abis_do_not_certify_managed_values_or_argument_packets() {
         assert!(module.closed_class_tables.is_none());
     }
 }
+
+mod storage_tests;

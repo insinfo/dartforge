@@ -1,0 +1,46 @@
+[
+  {
+    "name": "default",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/dartforge",
+      "compile-native",
+      "crates/emit_native/tests/fixtures/constant_args/main.dart",
+      "--optimize",
+      "--emit-ir",
+      "-o",
+      "/tmp/forge-class-storage-platform/default.ll"
+    ],
+    "exit": 0,
+    "foreign_backend_definitions": [
+      "define i64 @df.main$2edart.WindowsBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.WindowsBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define ptr @df.mt.main$2edart.WindowsBackend() nounwind {",
+      "define ptr @df.mt.main$2edart.LinuxBackend() nounwind {"
+    ],
+    "compiler_sha256": "2acd096ad5fc5a49a5e16849f2c7625f2d3b21f0d0558d12e1c5abcbd413780a"
+  },
+  {
+    "name": "closed",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/string-length-validation/debug/dartforge",
+      "compile-native",
+      "crates/emit_native/tests/fixtures/constant_args/main.dart",
+      "--optimize",
+      "--emit-ir",
+      "-o",
+      "/tmp/forge-class-storage-platform/closed.ll"
+    ],
+    "exit": 0,
+    "foreign_backend_definitions": [
+      "define i64 @df.main$2edart.WindowsBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.WindowsBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define ptr @df.mt.main$2edart.WindowsBackend() nounwind {",
+      "define ptr @df.mt.main$2edart.LinuxBackend() nounwind {"
+    ],
+    "compiler_sha256": "2acd096ad5fc5a49a5e16849f2c7625f2d3b21f0d0558d12e1c5abcbd413780a"
+  }
+]

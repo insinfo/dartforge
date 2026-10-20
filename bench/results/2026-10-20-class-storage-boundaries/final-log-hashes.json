@@ -1,0 +1,37 @@
+[
+  {
+    "file": "compiler.log",
+    "original_sha256": "ac8257086cac70861e668f32a721b545acdba3a79798a4fd2164bcdd6e53667d",
+    "stored_sha256": "ac8257086cac70861e668f32a721b545acdba3a79798a4fd2164bcdd6e53667d"
+  },
+  {
+    "file": "native-lib.log",
+    "original_sha256": "723258a0fb6c1e4b60b53d6767055f1c13394044b0cbd20300dfbf2135e00592",
+    "stored_sha256": "d1224df60b2511da69afda22da9e8baa8c310f779802882921c8103a2442d191"
+  },
+  {
+    "file": "clippy.log",
+    "original_sha256": "d32bb46f76fb912bc913b2b471dca44938105c9d94b08394707c19c54ce42a0b",
+    "stored_sha256": "d32bb46f76fb912bc913b2b471dca44938105c9d94b08394707c19c54ce42a0b"
+  },
+  {
+    "file": "feature-clippy.log",
+    "original_sha256": "28eb15ab374f4341e0dc860c26a708ae8eb3b0f3f608aaf575c6dcd4b0318302",
+    "stored_sha256": "28eb15ab374f4341e0dc860c26a708ae8eb3b0f3f608aaf575c6dcd4b0318302"
+  },
+  {
+    "file": "doc.log",
+    "original_sha256": "8940864c146596a20854850603b063c48aeed05439263806004ca351d6e03a25",
+    "stored_sha256": "8940864c146596a20854850603b063c48aeed05439263806004ca351d6e03a25"
+  },
+  {
+    "file": "initial-native-lib.log",
+    "original_sha256": "5c0137b9dee1b24baa594e63320823953b83506ed57c149019457f88d6e6ab2a",
+    "stored_sha256": "4fa700ab6f9c24f6be5671650c69872ea2e017755a0217c1454568f923c49fb3"
+  },
+  {
+    "file": "initial-clippy.log",
+    "original_sha256": "886ef462e40bc0b728787e32ffe7205f6c4007d94e5e46e0dc7ce19cf28eb4fb",
+    "stored_sha256": "886ef462e40bc0b728787e32ffe7205f6c4007d94e5e46e0dc7ce19cf28eb4fb"
+  }
+]

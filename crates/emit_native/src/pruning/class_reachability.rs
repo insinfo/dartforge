@@ -5,6 +5,7 @@ use crate::hir::*;
 use std::collections::{HashMap, HashSet};
 
 mod closures;
+mod storage;
 
 pub(super) fn narrow(module: &mut Module, sdk: &[&Summary]) -> Option<Reach> {
     module.closed_class_tables = None;
@@ -297,6 +298,16 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
         })
         .collect();
     let closure_targets = closures::targets(module);
+    // An implicit closure receiver is a layout witness only when that body
+    // cannot also be entered as an ordinary object's protocol method.
+    if module.method_tables.iter().flat_map(|(_, _, methods)| methods.iter())
+        .any(|(_, target)| closure_targets.contains(target.as_str()))
+        || module.classes.iter().any(|class|
+            class.vtable.iter().any(|(_, target)| closure_targets.contains(target.as_str()))
+            || class.to_string_symbol.as_ref().is_some_and(|target| closure_targets.contains(target.as_str())))
+    {
+        return Err("closure entry overlaps an object protocol target".into());
+    }
     for function in &module.functions {
         if !live(&function.symbol) {
             continue;
@@ -310,6 +321,9 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                     function.symbol
                 )
             })?;
+        let storage = storage::Proof::new(function).ok_or_else(|| {
+            format!("function {} has unproved field storage or representation", function.symbol)
+        })?;
         let stack_slots: HashMap<_, _> = function
             .blocks
             .iter()
@@ -346,15 +360,29 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                         if *ret_ty==Type::Ref && u32::try_from(*cid).ok().zip(usize::try_from(*count).ok()).is_some_and(|(cid,count)|valid_allocation(cid,count)))
                     }
                     Instruction::CallRuntime { name, args, ret_ty }
-                    | Instruction::DeclaredFieldCall {
-                        name, args, ret_ty, ..
-                    } => runtime_call(name, args, *ret_ty, *result, &shape),
+                    | Instruction::DeclaredFieldCall { name, args, ret_ty, .. } => {
+                        let declared_field = matches!(instruction, Instruction::DeclaredFieldCall { .. });
+                        (!declared_field || matches!(name.as_str(), "dartforge_object_get" | "dartforge_object_set"))
+                            && runtime_call(name, args, *ret_ty, *result, &shape)
+                            && match name.as_str() {
+                                "dartforge_object_get" => closure_proof.reads.contains(value)
+                                    || matches!(args.as_slice(), [(object, Type::Ref), (index, Type::I64)]
+                                        if storage::index(function, index).is_some_and(|index| storage.read(object, index, *result))),
+                                "dartforge_object_set" => matches!(args.as_slice(), [(object, Type::Ref), (index, Type::I64), _, _]
+                                    if storage::index(function, index).is_some_and(|index| storage.write(object, index, *result))),
+                                "dartforge_value_class" => *result == Type::I64 && matches!(args.as_slice(), [(_, Type::Ref)]),
+                                "dartforge_mark_constant" => matches!(args.as_slice(), [(_, Type::Ref), (getter, Type::I64)]
+                                    if storage::index(function, getter) == Some(0)),
+                                _ => true,
+                            }
+                    }
                     Instruction::CallStatic {
                         symbol,
                         args,
                         ret_ty,
                     } => {
-                        *ret_ty == *result
+                        !closure_targets.contains(symbol.as_str())
+                            && *ret_ty == *result
                             && match functions.get(symbol.as_str()) {
                                 Some(callee) => {
                                     callee.return_ty == *ret_ty
@@ -470,8 +498,20 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                     | Instruction::ArcLoadStrong { .. }
                     | Instruction::ArcStoreStrong { .. } => false,
                     Instruction::LoadIndexed { .. } => false,
-                    Instruction::Const(_)
-                    | Instruction::Add(..)
+                    Instruction::GetField { object, index }
+                    | Instruction::EnvGet { env: object, index } =>
+                        closure_proof.reads.contains(value) || storage.read(object, *index, *result),
+                    Instruction::CellGet { cell } => storage.read(cell, 0, *result),
+                    Instruction::SetField { object, index, .. } => storage.write(object, *index, *result),
+                    Instruction::CellSet { cell, .. } => storage.write(cell, 0, *result),
+                    Instruction::GetListElement { .. } | Instruction::SetListElement { .. } => false,
+                    Instruction::CheckNotNull(operand) => *result == Type::Ref && shape.operand_type(operand) == Some(Type::Ref),
+                    Instruction::IsClass { object, .. } => *result == Type::I1 && shape.operand_type(object) == Some(Type::Ref),
+                    Instruction::ConcatStrings { parts } => *result == Type::Ref
+                        && parts.iter().all(|part| shape.operand_type(part) == Some(Type::Ref)),
+                    Instruction::Box { .. } | Instruction::Phi { .. } | Instruction::Const(_)
+                    | Instruction::ConstArray(..) => true,
+                    Instruction::Add(..)
                     | Instruction::Sub(..)
                     | Instruction::Mul(..)
                     | Instruction::SDiv(..)
@@ -497,20 +537,7 @@ fn audit(module: &mut Module, sdk: &[&Summary]) -> Result<Reach, String> {
                     | Instruction::ZExt { .. }
                     | Instruction::Trunc { .. }
                     | Instruction::Bitcast { .. }
-                    | Instruction::Box { .. }
-                    | Instruction::GetField { .. }
-                    | Instruction::SetField { .. }
-                    | Instruction::GetListElement { .. }
-                    | Instruction::SetListElement { .. }
-                    | Instruction::CellGet { .. }
-                    | Instruction::CellSet { .. }
-                    | Instruction::EnvGet { .. }
-                    | Instruction::CheckNotNull(..)
-                    | Instruction::IsClass { .. }
-                    | Instruction::Simd { .. }
-                    | Instruction::Phi { .. }
-                    | Instruction::ConstArray(..)
-                    | Instruction::ConcatStrings { .. } => true,
+                    | Instruction::Simd { .. } => !matches!(result, Type::Ref | Type::Ptr),
                 };
             if !valid {
                 return Err(format!(

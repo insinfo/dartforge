@@ -1,4 +1,23 @@
-# Estado do DartForge — 2026-10-19
+# Estado do DartForge — 2026-10-20
+
+## Atualização de 20/10/2026
+
+- Corrigida uma falha na prova experimental de poda de classes: um campo com
+  bits escalares podia ser lido como referência gerenciada e aceito como receptor
+  de seletor. O teste novo falhou antes da correção. A prova agora acompanha
+  identidade e limites das alocações locais, representações reais e todas as
+  escritas, inclusive por aliases; confere os indicadores de referência na ABI
+  apagada e separa leituras imutáveis de closures de protocolos de objetos comuns.
+  Passaram nove regressões novas, incluindo oito execuções nativas com poda
+  ligada/desligada e GC normal/sob estresse, e os 939 testes da biblioteca nativa
+  com ignorados. Clippy estrito do workspace/backend LLVM e docs sem avisos
+  passaram. Uma falha intermediária do Clippy foi corrigida e a validação repetida.
+  A reprodução de produção ainda contém seis definições de backends estrangeiros
+  nos dois modos: a inicialização interna do SDK continua sem prova completa.
+  Nenhuma expectativa do teste de poda foi relaxada; fmt global, aprovação
+  integral e remoção desses backends permanecem pendentes. Sem nova matriz
+  desktop nem ganho de desempenho medido. Evidências:
+  `bench/results/2026-10-20-class-storage-boundaries/README.md`.
 
 ## Atualização de 19/10/2026
 
