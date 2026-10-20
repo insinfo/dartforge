@@ -1,0 +1,887 @@
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libblake3-95b90383f2838080.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: linker stderr: ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(error_private.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(entropy_common.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(fse_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(hist.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(xxhash.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_literals.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_sequences.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_compress_superblock.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_double_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_fast.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_lazy.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ldm.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_opt.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_preSplit.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstdmt_compress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(pool.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(huf_decompress.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_ddict.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_decompress_block.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v05.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v06.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libdartforge_llvm-3ce5c062bc2fbdcd.rlib(zstd_v07.c.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+         ld64.lld: /Volumes/ssd_dock/MyRustProjects/dartforge/target/debug/deps/libblake3-95b90383f2838080.rlib(a1edd97dd51cd48d-blake3_neon.o) has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-jit` (test "hot_reload") generated 1 warning
+warning: `dartforge-jit` (bin "dartforge-run-ir") generated 1 warning
+warning: `dartforge-jit` (test "execution") generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (test "plain_sdk_residency") generated 1 warning
+warning: `dartforge-jit` (test "callback_retention") generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (test "async_frame_reload") generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (test "persistent_session") generated 1 warning (1 duplicate)
+warning: `dartforge-jit` (lib test) generated 1 warning (1 duplicate)
+warning: `dartforge-llvm` (test "image_sections") generated 1 warning (1 duplicate)
+warning: `dartforge-llvm` (test "cross_objects") generated 1 warning (1 duplicate)
+warning: linker stderr: ld64.lld: /opt/homebrew/lib/libzstd.dylib has version 27.0.0, which is newer than target minimum of 15.0.0
+  |
+  = note: `#[warn(linker_messages)]` on by default
+
+warning: `dartforge-llvm` (lib test) generated 1 warning
+   Compiling dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.37s
+     Running unittests src/lib.rs (target/debug/deps/dartforge_abi-74ccb0e4b0fd9aa9)
+
+running 2 tests
+test tests::target_layouts_do_not_confuse_handles_and_pointers ... ok
+test tests::scalar_contracts_and_target_rejections ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_call.rs (target/debug/deps/native_call-607ce2ddd4edfc3e)
+
+running 1 test
+test llvm_scalar_declaration_links_and_calls_c ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.54s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_analysis-f43b2d165de1fbe6)
+
+running 153 tests
+test a_context::tests::super_in_instance_method_is_valid ... ok
+test a_context::tests::super_in_static_context ... ok
+test a_context::tests::await_in_late_local ... ok
+test a_context::tests::await_for_outside_async ... ok
+test a_context::tests::super_in_extension_and_extension_type ... ok
+test a_context::tests::literal_type_arguments ... ok
+test a_doc::tests::inside_fenced_block_does_not_count ... ok
+test a_context::tests::super_in_non_late_field_and_in_initializer ... ok
+test a_doc::tests::new_in_a_block_comment_reference ... ok
+test c2_syntactic::tests::pattern_shapes ... ok
+test c2_syntactic::tests::rethrow_outside_and_inside_catch ... ok
+test c2_syntactic::tests::return_with_value_in_generator ... ok
+test c2_syntactic::tests::main_that_is_not_a_function ... ok
+test c2_syntactic::tests::labels ... ok
+test c2_syntactic::tests::jumps_outside_loop ... ok
+test c2_syntactic::tests::unused_label_and_member_label ... ok
+test c2_syntactic::tests::unnecessary_final_and_late_final ... ok
+test a_doc::tests::missing_and_format ... ok
+test analyzer_tree::tests::annotation_name_and_annotation ... ok
+test a_doc::tests::oracle_example ... ok
+test analyzer_tree::tests::param_list_with_parens ... ok
+test analyzer_tree::tests::expression_body_with_semicolon ... ok
+test analyzer_tree::tests::field_variable_list ... ok
+test clauses::tests::enum_as_superinterface ... ok
+test clauses::tests::nullable_type_in_clause ... ok
+test clauses::tests::mixin_that_inherits_and_factory_only_superclass ... ok
+test clauses::tests::mixin_class_with_constructor_or_supertype ... ok
+test clauses::tests::imported_legacy_class_may_be_used_as_mixin_in_current_code ... ok
+test clauses::tests::class_alias_as_mixin ... ok
+test clauses::tests::forbidden_type_with_alias_and_bounds ... ok
+test clauses::tests::clause_that_does_not_name_a_class ... ok
+test duplicates::tests::getter_and_setter_do_not_collide ... ok
+test clauses::tests::mixin_without_the_on_constraint ... ok
+test duplicates::tests::same_named_declarations_merge_members ... ok
+test duplicates::tests::top_level_members_and_locals ... ok
+test enums::tests::constant_in_augmentation_completes_base_enum ... ok
+test enums::tests::empty_enum_matches_the_3_6_oracle ... ok
+test externals::tests::abstract_field_without_initializer_reports_nothing ... ok
+test externals::tests::external_without_initializer_and_static_field_report_nothing ... ok
+test duplicates::tests::unary_and_binary_minus_coexist ... ok
+test externals::tests::three_shapes_match_recorded_oracle ... ok
+test externals::tests::abstract_field_initializers_match_oracle ... ok
+test initialization::tests::constructors_initialize_fields_by_parameter_or_list ... ok
+test initialization::tests::constructor_with_three_fields_uses_3_plus_variant ... ok
+test initialization::tests::constructors_with_non_final_non_nullable_fields_from_oracle ... ok
+test initialization::tests::partial_list_and_nullable_follow_same_rule ... ok
+test initialization::tests::enum_index_uses_own_diagnostic ... ok
+test clauses::tests::on_constraint_of_applied_mixin ... ok
+test initialization::tests::static_with_generative_constructor_not_reported ... ok
+test initialization::tests::primary_constructor_reports_on_class_name_like_3_13_oracle ... ok
+test initialization::tests::secondary_constructors_match_3_6_oracle ... ok
+test initialization::tests::three_sources_from_official_corpus ... ok
+test initialization::tests::non_final_non_nullable_instance_fields_from_oracle ... ok
+test clauses::tests::repeated_and_superclass ... ok
+test lints::regexp_vm::tests::vm_errors_and_valid_patterns ... ok
+test language_version::tests::formats ... ok
+test initialization::tests::top_level_static_instance_and_exceptions_from_oracle ... ok
+test clauses::tests::supertype_of_itself ... ok
+test lints::pubspec::dependency_cache_tests::warm_dependency_lookups_preserve_mode_and_owned_results ... ok
+test lints::rules10::tests::classes ... ok
+test lints::rules10::tests::cascades_on_lists ... ok
+test lints::rules11::tests::flutter_style_todo ... ok
+test lints::rules10::tests::for_each_final ... ok
+test lints::rules2::tests::declarations ... ok
+test lints::rules2::tests::prefixes ... ok
+test lints::rules3::tests::library_names ... ok
+test lints::rules3::tests::declarations ... ok
+test lints::rules3::tests::expressions ... ok
+test lints::rules4::tests::names_and_parameters ... ok
+test lints::rules5::tests::constructor_order ... ok
+test lints::rules4::tests::functions_in_variables ... ok
+test lints::rules2::tests::expressions_and_statements ... ok
+test lints::rules4::tests::expressions ... ok
+test lints::rules5::tests::parameters_and_declarations ... ok
+test lints::rules5::tests::raw_strings_and_end_of_file ... ok
+test lints::rules6::tests::null_for_void ... ok
+test lints::rules6::tests::flow_in_finally ... ok
+test lints::rules7::tests::escapes ... ok
+test lints::rules7::tests::quotes ... ok
+test lints::rules7::tests::lines ... ok
+test lints::rules8::tests::assignments ... ok
+test lints::rules8::tests::constructors ... ok
+test lints::rules8::tests::directive_order ... ok
+test lints::rules6::tests::statements_and_expressions ... ok
+test lints::rules6::tests::declarations ... ok
+test lints::rules8::tests::body_on_same_line ... ok
+test lints::rules8::tests::null_initializers ... ok
+test lints::rules9::tests::equality_and_hash ... ok
+test lints::rules8::tests::literals_in_conditions ... ok
+test lints::rules8::tests::unnecessary_const ... ok
+test lints::rules9::tests::unnecessary_final ... ok
+test lints::rules::tests::name_shapes ... ok
+test lints::rules::tests::directives_and_typedefs ... ok
+test lints::rules9::tests::initializing_formals ... ok
+test lints::rules::tests::names ... ok
+test lints::strings::tests::comments_outside_strings ... ok
+test lints::strings::tests::adjacent_literals_and_interpolation ... ok
+test lints::rules::tests::flow_statements ... ok
+test lints::rules9::tests::getters_and_setters ... ok
+test lints::walk::tests::ancestor_stack ... ok
+test locals::tests::catch_variables ... ok
+test locals::tests::duplicate_pattern_and_parameter_annotation ... ok
+test locals::tests::redeclaration_in_same_scope ... ok
+test locals::tests::skipped_fragment_citing_the_name_does_not_report ... ok
+test locals::tests::shadow_and_closure ... ok
+test locals::tests::reads_and_writes ... ok
+test locals::tests::refutable_case_reference_anchor_and_hoisting ... ok
+test locals::tests::shared_patterns_and_for_update ... ok
+test members::tests::recovery_constructor_does_not_report ... ok
+test members::tests::built_in_identifier_as_name ... ok
+test members::tests::conflicting_type_parameters ... ok
+test members::tests::field_formals_outside_constructor ... ok
+test members::tests::fields ... ok
+test meta::tests::members_of_decl_without_members ... ok
+test members::tests::initializer_list ... ok
+test natives::tests::clause_and_body_like_the_oracle ... ok
+test non_dart::manifest::tests::broken_xml_does_not_report ... ok
+test members::tests::factory_with_another_name ... ok
+test members::tests::return_in_generative_constructor ... ok
+test non_dart::manifest::tests::features_permissions_and_activities ... ok
+test non_dart::manifest::tests::no_touchscreen ... ok
+test members::tests::this_without_access ... ok
+test non_dart::options::tests::analyzer_section ... ok
+test members::tests::object_members_and_abstract_in_extensions ... ok
+test non_dart::options::tests::include_and_syntax ... ok
+test members::tests::setters ... ok
+test non_dart::options::tests::lint_rules_section ... ok
+test non_dart::options::tests::quoted_list_formats ... ok
+test non_dart::pubspec::tests::dependencies ... ok
+test members::tests::typedef_referencing_itself ... ok
+test modifiers::tests::modifiers_from_another_library ... ok
+test non_dart::yaml::tests::syntax_error ... ok
+test non_dart::yaml::tests::flow_and_types ... ok
+test non_dart::yaml::tests::key_and_value_positions ... ok
+test non_dart::pubspec::tests::name_and_fields ... ok
+test non_dart::pubspec::tests::platforms_and_workspace ... ok
+test non_dart::tests::message_with_arguments ... ok
+test operators::tests::minus_accepts_zero_or_one_parameter ... ok
+test operators::tests::optional_and_index_return ... ok
+test phases::tests::identical_consecutive_pair_is_duplicate ... ok
+test phases::tests::built_in_word_as_type ... ok
+test phases::tests::colon_as_default_separator ... ok
+test phases::tests::direction_in_literal_and_in_comment ... ok
+test private_decls::tests::pragma_makes_used ... ok
+test operators::tests::real_operators_from_the_corpus ... ok
+test private_decls::tests::values_public_typedef_and_single_constructor ... ok
+test todos::tests::unfolds_the_block ... ok
+test todos::tests::what_does_not_match ... ok
+test private_decls::tests::matches_oracle_except_operator ... ok
+test todos::tests::oracle_table ... ok
+test publication::tests::verified_assignment_is_published_without_publishing_unverified_errors ... ok
+test lints::pubspec::dependency_cache_tests::misses_and_eviction_preserve_uncached_results ... ok
+test clauses::tests::class_as_mixin_follows_the_oracle ... ok
+
+test result: ok. 153 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_build-fba8aeba45bb3a1d)
+
+running 54 tests
+test command_line::tests::filter_with_escape_and_glob ... ok
+test config::tests::key_normalization ... ok
+test command_line::tests::define_normalizes_and_keeps_the_rest ... ok
+test command_line::tests::json_like_dart ... ok
+test client::tests::incomplete_build_result_is_not_success ... ok
+test client::tests::handshake_rejects_executors_without_build_service ... ok
+test client::tests::builder_extensions_and_new_round ... ok
+test client::tests::post_processor_inputs_and_deletions ... ok
+test client::tests::handshake_load_and_build_queries_on_the_same_channel ... ok
+test client::tests::invalid_query_gets_error_without_ending_action ... ok
+test executor::service_tests::buildstep_glob_revalidates_generated_output_in_memory ... ok
+test config::tests::unknown_key_is_an_error ... ok
+test config::tests::sass_builder_build_yaml ... ok
+test config::tests::keys_by_profile ... ok
+test config::tests::unreadable_build_yaml_is_an_error ... ok
+test extensions::tests::exact ... ok
+test extensions::tests::capture ... ok
+test executor_deps::tests::diagnoses_what_the_cache_lacks ... ok
+test extensions::tests::suffix ... ok
+test glob::tests::any_ranges_options ... ok
+test glob::tests::case_on_windows ... ok
+test extensions::tests::validations ... ok
+test glob::tests::syntax_errors ... ok
+test glob::tests::directory_pruning ... ok
+test glob::tests::literals_and_stars ... ok
+test native_executor::tests::depfile_round_trip_with_spaces ... ok
+test native_executor::tests::sdk_libraries_referenced_in_the_executable ... ok
+test executor::service_tests::post_processor_anchor_writes_only_new_assets ... ok
+test natives::i18n::tests::long_getter_breaks_after_the_arrow ... ok
+test natives::i18n::tests::names_like_i18n ... ok
+test oracle::tests::reads_the_build_dart ... ok
+test executor::service_tests::phase_visibility_and_the_actions_own_output ... ok
+test native_executor::tests::missing_executor_dependencies ... ok
+test packages::tests::scc_cycle ... ok
+test equivalent::tests::ngcomponents_scss_builder ... ok
+test packages::tests::scc_dependencies_first ... ok
+test executor::service_tests::unlisted_dependency_is_readable_through_the_package_filter ... ok
+test equivalent::tests::shapes_that_are_not_recognized ... ok
+test packages::tests::scc_several_starts_in_dart_order ... ok
+test plan::tests::relative_script_import ... ok
+test triggers::tests::directives ... ok
+test triggers::tests::name_validation ... ok
+test value::tests::override_by_key_in_order ... ok
+test value::tests::real_like_dart ... ok
+test triggers::tests::firing ... ok
+test vm::tests::dart_literal_escapes_interpolation ... ok
+test triggers::tests::top_level_metadata ... ok
+test vm::tests::depfile_with_escaped_spaces ... ok
+test vm::tests::absolute_package_config_with_the_executor ... ok
+test executor_deps::tests::completes_from_cache_with_transitive_dependencies ... ok
+test persistence::tests::state_round_trip_and_checked_blob ... ok
+test packages::tests::scc_matches_graphs_2_3_2_component_and_visit_order ... ok
+test packages::tests::scc_deep_chain_uses_an_explicit_stack ... ok
+test client::tests::hung_action_exhausts_the_deadline ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+     Running tests/corpus.rs (target/debug/deps/corpus-1c761dceaec0647b)
+
+running 6 tests
+test sass_release_css_on_demand_without_support ... ok
+test injected_dart_executor_runs_and_reuses_actions ... ok
+test corpus_builders_plan_and_scoreboard ... ok
+test state_saved_across_processes ... ok
+test corpus_builders_incremental_equals_from_scratch ... ok
+test corpus_builders_determinism ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.87s
+
+     Running tests/corpus_selection.rs (target/debug/deps/corpus_selection-418ae4427a39d0f1)
+
+running 6 tests
+test execution_requires_no_pending_or_different_outputs ... ok
+test missing_or_empty_corpus_fails ... ok
+test unknown_or_partially_unknown_filters_fail ... ok
+test empty_filters_fail ... ok
+test missing_configuration_fails_instead_of_skipping_a_case ... ok
+test selects_sorted_planned_cases_and_excludes_the_no_builder_control ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/detection.rs (target/debug/deps/detection-421a1c2ab6c3166d)
+
+running 5 tests
+test resolved_build_runner_preserves_the_explicit_engine_trigger ... ok
+test only_absence_is_ignored_while_unreadable_configuration_requires_validation ... ok
+test malformed_yaml_and_invalid_definition_shapes_require_validation ... ok
+test empty_sections_nested_options_and_other_documents_do_not_create_an_engine ... ok
+test builder_definitions_in_resolved_dependencies_accept_equivalent_yaml_forms ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/native_executor.rs (target/debug/deps/native_executor-e9768ede547ae306)
+
+running 1 test
+test corpus_builders_through_the_native_executor has been running for over 60 seconds
+test corpus_builders_through_the_native_executor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2428.12s
+
+     Running tests/ng_transparency.rs (target/debug/deps/ng_transparency-013563303ba5d8ee)
+
+running 4 tests
+test ng_through_the_engine_equals_direct_generator_and_oracle ... ok
+test ng_dependency_through_the_engine_equals_oracle ... ok
+test ng_incremental_equals_from_scratch ... ok
+test ng_dart_edit_in_each_file_equals_from_scratch has been running for over 60 seconds
+test ng_dart_edit_in_each_file_equals_from_scratch ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 557.38s
+
+     Running tests/observed_config.rs (target/debug/deps/observed_config-06f9cf5e3b67e18a)
+
+running 1 test
+test watches_dependency_build_yaml_and_overrides ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/profiles.rs (target/debug/deps/profiles-6b71c065fcec33f7)
+
+running 3 tests
+test profile_2_16_incremental_triggers ... ok
+test profile_2_16_equals_build_runner_2_16_1 ... ok
+test profile_2_4_equals_build_runner_2_4_15 ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.79s
+
+     Running tests/vm_executor.rs (target/debug/deps/vm_executor-ca4a27ee87e24d51)
+
+running 4 tests
+test post_processor_through_the_vm ... ok
+test state_saved_through_the_vm ... ok
+test json_serializable_through_the_vm_equals_build_runner_and_is_incremental ... ok
+test corpus_builders_through_the_vm ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 42.48s
+
+     Running unittests src/main.rs (target/debug/deps/dartforge-fc274cd964efd956)
+
+running 33 tests
+test analyze::tests::relative_only_when_not_longer ... ok
+test analyze::tests::machine_format_escape ... ok
+test jit::argument_tests::explicit_program_options_empty_arguments_and_separator_are_not_cli_options ... ok
+test pub_get::tests::explicit_lower_prerelease_allows_same_release_below_stable_upper ... ok
+test pub_get::tests::dart_intervals_and_sdk_compatibility ... ok
+test jit::argument_tests::runtime_package_selection_matches_explicit_and_nearest_loader_config ... ok
+test jit::argument_tests::runtime_package_config_preserves_symlink_selected_relative_uri_base ... ok
+test pub_get::tests::archive_files_allowed_links_refused ... ok
+test jit::argument_tests::reload_watches_nearest_package_siblings_instead_of_entry_bin_only ... ok
+test pub_get::tests::cached_pubspec_must_match_the_resolved_registry_graph ... ok
+test pub_get::tests::pub_build_suffixes_are_ordered_and_exact_constraints_remain_exact ... ok
+test pub_get::tests::irrelevant_unavailable_sdk_historical_versions_do_not_poison_supported_release ... ok
+test pub_get::tests::hosted_backtracks_transitive_constraints_and_prefers_existing_lock ... ok
+test pub_get::tests::hosted_integrity_missing_metadata_and_source_conflict_fail ... ok
+test pub_get::tests::invalid_first_registry_response_is_not_cached ... ok
+test pub_get::tests::native_http_checksum_failure_does_not_publish_archive ... ok
+test pub_get::tests::sdk_source_identity_conflicts_are_errors ... ok
+test pub_get::tests::overrides_keep_package_identity_and_root_sdk_checks ... ok
+test pub_get::tests::offline_path_transitive_cycles_and_root_dev ... ok
+test pub_get::tests::sdk_lookup_requires_selected_version_and_declared_unique_matching_package ... ok
+test pub_get::tests::declared_sdk_packages_resolve_transitively_offline_and_write_sdk_lock_identity ... ok
+test pub_get::tests::root_overrides_replace_transitive_sources_and_include_unused_packages ... ok
+test test_runner::tests::ordinary_test_filters_and_unsupported_flags_are_explicit ... ok
+test pub_get::tests::sdk_vendor_package_symlink_cannot_resolve_outside_the_selected_sdk ... ok
+test pub_get::tests::sidecar_replaces_override_map_and_dependencies_ignore_their_sidecars ... ok
+test pub_get::tests::sdk_package_versions_are_constraints_not_hosted_fallbacks_and_selected_mapping_changes ... ok
+test test_runner::tests::relative_import_and_dart_escaping_preserve_literal_path ... ok
+test test_runner::tests::discovery_keeps_sorted_unique_suites_and_skips_helper_files ... ok
+test pub_get::tests::sdk_vendor_packages_refuse_non_sdk_regular_sources_and_source_identity_conflicts ... ok
+test test_runner::metadata_tests::library_annotations_and_project_configuration_are_refused_without_text_guessing ... ok
+test pub_get::tests::overrides_relax_the_overridden_sdk_and_root_back_reference ... ok
+test pub_get::tests::validated_registry_updates_replace_offline_metadata ... ok
+test pub_get::tests::rejected_registry_updates_preserve_offline_metadata ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/analyze_publication.rs (target/debug/deps/analyze_publication-36d3c4da86c0a1db)
+
+running 4 tests
+test default_reports_invalid_assignment_with_same_exit_and_json_as_all ... ok
+test valid_assignments_are_not_published_as_errors ... ok
+test cannot_ignore_keeps_the_published_assignment_error ... ok
+test newly_published_assignment_respects_comment_and_option_ignores ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s
+
+     Running tests/analyze_sdk_path.rs (target/debug/deps/analyze_sdk_path-f82723671cd9250a)
+
+running 2 tests
+test invalid_explicit_sdk_does_not_fall_back ... ok
+test explicit_root_and_lib_override_environment ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/contracts_cli.rs (target/debug/deps/contracts_cli-2dfd2dfb07680373)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cross_cli.rs (target/debug/deps/cross_cli-58097051c062e6db)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debugging.rs (target/debug/deps/debugging-ea405404e0aaf0b4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/directed_maps.rs (target/debug/deps/directed_maps-020166429dad86f2)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/generated_ir.rs (target/debug/deps/generated_ir-6381fd78188b8561)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/io_regression.rs (target/debug/deps/io_regression-6d174aa95141737f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/jit_program.rs (target/debug/deps/jit_program-63412b56bf9975fb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/memory_cli.rs (target/debug/deps/memory_cli-56ae5398d9d0d606)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/native_generated.rs (target/debug/deps/native_generated-c3eaad712192eb1a)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/reload_state.rs (target/debug/deps/reload_state-2b1ce9075d89b1d9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/subsystem_cli.rs (target/debug/deps/subsystem_cli-b3c9a2fc64a3417d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_dev-f612a6c888b7b48e)
+
+running 6 tests
+test ws::tests::base64_known ... ok
+test ws::tests::rfc_accept_key ... ok
+test ws::tests::sha1_known ... ok
+test server::tests::no_output_no_index ... ok
+test ws::tests::handshake_and_frames_preserve_wire_bytes_and_utf8 ... ok
+test server::tests::index_replaces_bootstrap_and_injects_reload ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/clean_recompilation.rs (target/debug/deps/clean_recompilation-1050b01fb56f9a49)
+
+running 4 tests
+test ordinary_type_warnings_remain_nonfatal_in_development ... ok
+test failed_output_write_is_retried_without_another_edit ... ok
+test rejected_revisions_preserve_output_and_fail_again_until_fixed ... ok
+test incremental_recompilation_equals_clean_compilation ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/hashes.rs (target/debug/deps/hashes-b6d9f9951755e16a)
+
+running 1 test
+test private_body_does_not_change_the_api_and_signature_does ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/plateau.rs (target/debug/deps/plateau-901723094f8f242b)
+
+running 1 test
+test successive_edits_settle_on_a_plateau ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/zero_cost.rs (target/debug/deps/zero_cost-8778111d5803112e)
+
+running 1 test
+test project_without_builders_costs_zero ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests examples/measure_generation.rs (target/debug/examples/measure_generation-21ac4285e8f254fa)
+
+running 3 tests
+test tests::explicit_restoration_does_not_overwrite_a_later_change ... ok
+test tests::failed_measurement_restores_original_bytes ... ok
+test tests::compilation_failure_restores_source_and_session_recovers ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_dfexec-a1327ae4562c4f7a)
+
+running 2 tests
+test tests_mod::frame_round_trip ... ok
+test tests_mod::expired_deadline_ends_the_process ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_diagnostics-8121252692f152ac)
+
+running 6 tests
+test tests::variants_3_13_sorted_and_consistent ... ok
+test tests::formats_like_format_list ... ok
+test tests::by_name_prefers_own_name ... ok
+test tests::code_serde_by_unique_name ... ok
+test tests::for_reference_switches_name_text_and_arguments ... ok
+test tests::table_has_the_counts_of_analyzer_6_11_and_the_supplement ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_differential-9a96fd66ea67b82b)
+
+running 26 tests
+test corpus::tests::themes ... ok
+test corpus::tests::diverge_header ... ok
+test corpus::tests::version_negative_and_experiment_headers ... ok
+test contract::tests::strips ... ok
+test matrix::tests::the_four_states ... ok
+test oracle_validation::tests::oracle_only_report_does_not_hide_a_failed_ddc_behind_a_declared_divergence ... ok
+test oracle_validation::tests::declared_platform_rejection_requires_a_successful_web_oracle ... ok
+test corpus::tests::shard_argument ... ok
+test oracle_validation::tests::declaration_does_not_authorize_other_vm_failures ... ok
+test corpus::tests::shards_partition_the_corpus ... ok
+test oracle_validation::tests::shared_failures_are_not_valid_oracles ... ok
+test oracle_validation::tests::successful_oracles_and_normalized_negative_cases_remain_valid ... ok
+test oracle_validation::tests::undeclared_and_native_platform_rejections_stay_invalid ... ok
+test oracles::tests::error_lines ... ok
+test oracles::tests::exported ... ok
+test oracles::tests::url ... ok
+test report::tests::compares ... ok
+test report::tests::constructs_described_in_order_with_count ... ok
+test report::tests::constructs_section_counts_all_and_those_blocked_by_one ... ok
+test report::tests::ir_differences_lists_all ... ok
+test report::tests::ir_report_format ... ok
+test report::tests::late_names_are_omitted_only_in_late_messages ... ok
+test report::tests::native_report_lists_the_failure_constructs ... ok
+test report::tests::report_groups ... ok
+test tests::limiter_respects_the_maximum ... ok
+test tests::in_parallel_preserves_order ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running unittests src/main.rs (target/debug/deps/dartforge_differential-195ea82d1b49bc00)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/corpus.rs (target/debug/deps/corpus-4b609fe79537728d)
+
+running 2 tests
+test ddc_matches_dart_run ... ok
+test corpus_has_valid_oracles ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.82s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_elements-1171b27578e4f1d4)
+
+running 8 tests
+test generated::tests::error_aborts_generation ... ok
+test generated::tests::key_is_lexical ... ok
+test load::conditional_import_context_tests::compiler_profile_support_remains_unchanged ... ok
+test load::conditional_import_context_tests::absent_analyzer_variables_never_equal_false ... ok
+test sdk::tests::vm_section_follows_include ... ok
+test sdk::tests::reads_dartdevc_section_of_local_sdk ... ok
+test load::conditional_import_context_tests::sdk_cache_keys_separate_context_and_ignore_map_insertion_order ... ok
+test sdk::tests::native_overlay_swaps_patches_and_loads ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/sdk.rs (target/debug/deps/sdk-261b1d1114f98d6d)
+
+running 4 tests
+test sdk_supertypes_resolve ... ok
+test sdk_namespaces_without_ambiguity_in_use ... ok
+test test_sdk_core_load_and_patch ... ok
+test every_dart_x_loads ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+     Running tests/sdk_cache.rs (target/debug/deps/sdk_cache-87b6e51880e097a0)
+
+running 2 tests
+test invalid_cache_is_ignored ... ok
+test sdk_cache_reproduces_the_program_and_is_faster ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.38s
+
+     Running tests/unit_tests.rs (target/debug/deps/unit_tests-9260d0db73a6570a)
+
+running 12 tests
+test part_of_itself_does_not_reload ... ok
+test test_part_and_part_of ... ok
+test test_prefixes ... ok
+test test_cyclic_reexports ... ok
+test test_ambiguous_imports ... ok
+test test_local_shadowing ... ok
+test test_inheritance_cycle_detection ... ok
+test test_show_hide_sequence ... ok
+test test_supertype_resolution ... ok
+test part_by_package_uri ... ok
+test build_runner_output_outside_lib ... ok
+test import_scope_per_unit ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/versions.rs (target/debug/deps/versions-5bfd2405617dbe91)
+
+running 5 tests
+test part_with_different_version_is_error ... ok
+test no_marker_and_no_package_uses_current ... ok
+test feature_disabled_by_version_is_parser_diagnostic ... ok
+test marker_out_of_range_is_error ... ok
+test marker_wins_over_package ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/lib.rs (target/debug/deps/dartforge_emit_js-ff482f54f502b111)
+
+running 4 tests
+test sdk_patches::tests::every_patch_changes_its_text ... ok
+test module::const_record_cache_tests::derived_and_reused_fragments_preserve_per_library_const_record_uses ... ok
+test module::typed_read_guard_cache_tests::captured_guard_uses_survive_fragment_merge_and_reuse ... ok
+test sdk_patches::tests::inverse_requires_complete_exact_roundtrip ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/basic.rs (target/debug/deps/basic-2faabe9e6463d67a)
+
+running 15 tests
+test p2_functions ... FAILED
+test p10_reified_types ... FAILED
+test p6_async ... FAILED
+test p1_basic ... FAILED
+test indexed_assignment_order ... FAILED
+test p5_exceptions ... FAILED
+test p4_collections ... FAILED
+test p3_generics ... FAILED
+test p3_classes ... FAILED
+test p7_dynamic ... FAILED
+test p8_nosuchmethod_order ... FAILED
+test p9_lexical_scope ... FAILED
+test p7_patterns ... FAILED
+test property_assignment_order ... FAILED
+test p7_libraries ... FAILED
+
+failures:
+
+---- p2_functions stdout ----
+
+thread 'p2_functions' (2470110) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p10_reified_types stdout ----
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 978..990
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1408..1425
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1582..1609
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1659..1678
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1723..1767
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1891..1909
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1992..2011
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2176..2196
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2647..2668
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2679..2730
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2741..2787
+(11 type warning(s); DARTFORGE_WARNINGS=N shows more)
+
+thread 'p10_reified_types' (2470108) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- p6_async stdout ----
+
+thread 'p6_async' (2470115) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p1_basic stdout ----
+
+thread 'p1_basic' (2470109) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- indexed_assignment_order stdout ----
+
+thread 'indexed_assignment_order' (2470107) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p5_exceptions stdout ----
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 450..466
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 1370..1402
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+
+thread 'p5_exceptions' (2470114) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p4_collections stdout ----
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2107..2122
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2133..2154
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2165..2200
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2211..2228
+(4 type warning(s); DARTFORGE_WARNINGS=N shows more)
+
+thread 'p4_collections' (2470113) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p3_generics stdout ----
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 742..755
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 766..779
+(2 type warning(s); DARTFORGE_WARNINGS=N shows more)
+
+thread 'p3_generics' (2470112) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p3_classes stdout ----
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 2300..2313
+(1 type warning(s); DARTFORGE_WARNINGS=N shows more)
+
+thread 'p3_classes' (2470111) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p7_dynamic stdout ----
+warning: unnecessary_non_null_assertion: The '!' will have no effect because the receiver can't be null. at bytes 820..821
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '?..' is unnecessary. at bytes 830..833
+warning: unnecessary_null_comparison: The operand can't be 'null', so the condition is always 'true'. at bytes 1924..1931
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '?.' is unnecessary. at bytes 1958..1960
+(4 type warning(s); DARTFORGE_WARNINGS=N shows more)
+
+thread 'p7_dynamic' (2470116) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p8_nosuchmethod_order stdout ----
+
+thread 'p8_nosuchmethod_order' (2470484) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p9_lexical_scope stdout ----
+
+thread 'p9_lexical_scope' (2470505) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p7_patterns stdout ----
+
+thread 'p7_patterns' (2470470) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- property_assignment_order stdout ----
+
+thread 'property_assignment_order' (2470595) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+---- p7_libraries stdout ----
+warning: unnecessary_non_null_assertion: The '!' will have no effect because the receiver can't be null. at bytes 1819..1820
+warning: invalid_null_aware_operator: The receiver can't be null, so the null-aware operator '?..' is unnecessary. at bytes 1829..1832
+warning: unnecessary_type_check: Unnecessary type check; the result is always 'true'. at bytes 3866..3880
+(3 type warning(s); DARTFORGE_WARNINGS=N shows more)
+
+thread 'p7_libraries' (2470469) panicked at crates/emit_js/tests/basic.rs:23:75:
+node on PATH: Os { code: 2, kind: NotFound, message: "No such file or directory" }
+
+
+failures:
+    indexed_assignment_order
+    p10_reified_types
+    p1_basic
+    p2_functions
+    p3_classes
+    p3_generics
+    p4_collections
+    p5_exceptions
+    p6_async
+    p7_dynamic
+    p7_libraries
+    p7_patterns
+    p8_nosuchmethod_order
+    p9_lexical_scope
+    property_assignment_order
+
+test result: FAILED. 0 passed; 15 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.38s
+
+error: test failed, to rerun pass `-p dartforge-emit-js --test basic`

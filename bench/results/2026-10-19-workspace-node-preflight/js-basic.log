@@ -1,0 +1,20 @@
+
+running 15 tests
+test p5_exceptions ... ok
+test p4_collections ... ok
+test p3_classes ... ok
+test p7_dynamic ... ok
+test p2_functions ... ok
+test p3_generics ... ok
+test p10_reified_types ... ok
+test p1_basic ... ok
+test p6_async ... ok
+test indexed_assignment_order ... ok
+test p8_nosuchmethod_order ... ok
+test p7_patterns ... ok
+test p9_lexical_scope ... ok
+test property_assignment_order ... ok
+test p7_libraries ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.32s
+

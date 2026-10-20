@@ -1,0 +1,6 @@
+Exception: /Volumes/ssd_dock/MyRustProjects/dartforge/scripts/check.ps1:8
+Line |
+   8 |     throw "Required test tool '$tool' was not found on PATH. Configure …
+     |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Required test tool 'node' was not found on PATH. Configure the
+     | prerequisites in CONTRIBUTING.md before running checks.
