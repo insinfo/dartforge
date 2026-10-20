@@ -1,0 +1,20 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.26s
+     Running tests/production_profile.rs (target/string-length-validation/debug/deps/production_profile-78c317e20bb3d8f3)
+
+running 1 test
+test platform_constant_prunes_the_other_backends has been running for over 60 seconds
+
+thread 'platform_constant_prunes_the_other_backends' (3094022) panicked at crates/emit_native/tests/production_profile.rs:108:9:
+WindowsBackend bodies should have left the IR
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test platform_constant_prunes_the_other_backends ... FAILED
+
+failures:
+
+failures:
+    platform_constant_prunes_the_other_backends
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2 filtered out; finished in 112.06s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --test production_profile`

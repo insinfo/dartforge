@@ -1,0 +1,37 @@
+[
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure.rs",
+    "bytes": 23065,
+    "sha256": "99974fb3ced4299f3c264e8910cbef7bf3e9d69a9c9de5f7d9be39c667df215d"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure/tests.rs",
+    "bytes": 14681,
+    "sha256": "b376eb2171059d6410b9126377dd2ad6b2fafc5952bd8a489b00ce55291ec196"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure/context_lookup_tests.rs",
+    "bytes": 6414,
+    "sha256": "b7beabbf6558715e05fce0196b549788a219ce5a9e7ad91fc7d8403bbf9e376f"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure/read_only.rs",
+    "bytes": 7084,
+    "sha256": "911918e067e9349d136e0dd3497b2748ff2d057f88920e9c4f08b527a42ce161"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/closure/read_only_tests.rs",
+    "bytes": 4303,
+    "sha256": "20b86fb7257d488f1fd957d88a4f116a1e91df572bcda4c1c4927f56cd14d4d2"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests.rs",
+    "bytes": 35765,
+    "sha256": "f84c5804b0c70d5423a91c16d01430cc8093ca629d78d06911efa835fd8025c9"
+  },
+  {
+    "path": "crates/emit_native/src/pruning/allocation_inventory/imports/tests/read_only.rs",
+    "bytes": 934,
+    "sha256": "19d25488602f25f22926ad43b772cb58082de1eec6355c3cdee94012411656b5"
+  }
+]

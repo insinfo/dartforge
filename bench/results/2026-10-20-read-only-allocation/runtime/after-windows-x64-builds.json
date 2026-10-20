@@ -1,0 +1,28 @@
+[
+  {
+    "name": "after-windows-x64-fixture",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-read-only-allocation",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native/tests/fixtures/table_batch/main.dart",
+      "--optimize",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "--target",
+      "windows-x64",
+      "--target-bundle",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/cross-bundles/current/windows-x64",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/read-only-allocation-validation/after-windows-x64-fixture.exe"
+    ],
+    "exit": 0,
+    "seconds": 114.881294708,
+    "compiler_sha256": "7d59d44da98153c62ae21255a3c3d673bb994af673632c46484267621b64a9d9",
+    "bytes": 3606528,
+    "sha256": "b59fb09890ff99abb6cbc018b7a9b297c416adbe88bb1b9ecf66513d6b047fab",
+    "environment": {
+      "DARTFORGE_KEEP_IR": "1",
+      "DARTFORGE_PARALLEL_PARTS": "1"
+    }
+  }
+]

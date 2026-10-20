@@ -1,0 +1,4343 @@
+[
+  {
+    "target": "macos-arm64",
+    "compiler": "c6c295f4479b2e35473d8a7145d1b3a8e12ef87df42933369ea17852a11313d3",
+    "source": "target/rpo-native-cache/sdk/1a597d3cde387d5f1810ba3a93cdccee/allocation-inventory.json",
+    "functions": 32708,
+    "before_known": 443,
+    "after_known": 649,
+    "gained": [
+      {
+        "key": "dart:_internal#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3acore._GrowableList.isEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "df.dart$3acore._GrowableList.isNotEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "df.dart$3acore._StringBase.isEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "df.dart$3acore._StringBase.isNotEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "dart:_compact_hash#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3aasync._StreamImpl._onListen$tc",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3aasync._DoneStreamSubscription.onError$tc",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3aasync._RootZone.errorCallback$tc",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http.HttpDate._parseCookieDate$isEnd$dcac5afc0",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http._HttpHeaders._parseCookies$parseCookieString$da7f96525$done$d199d7e8f",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http._HeaderValue._parse$done$d199d7e8f",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http._Cookie._parseSetCookieValue$done$d199d7e8f",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      }
+    ],
+    "lost": [],
+    "all_bodies_unchanged": true,
+    "all_gained_have_transitive_exposure": true
+  },
+  {
+    "target": "linux-arm64",
+    "compiler": "c6c295f4479b2e35473d8a7145d1b3a8e12ef87df42933369ea17852a11313d3",
+    "source": "target/rpo-native-cache/aarch64-unknown-linux-gnu/sdk/f77cf2e061f6de7cacc3163df7bb8bbb/allocation-inventory.json",
+    "functions": 32708,
+    "before_known": 444,
+    "after_known": 650,
+    "gained": [
+      {
+        "key": "dart:_internal#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3acore._GrowableList.isEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "df.dart$3acore._GrowableList.isNotEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "df.dart$3acore._StringBase.isEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "df.dart$3acore._StringBase.isNotEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "dart:_compact_hash#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3aasync._StreamImpl._onListen$tc",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3aasync._DoneStreamSubscription.onError$tc",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3aasync._RootZone.errorCallback$tc",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http.HttpDate._parseCookieDate$isEnd$dcac5afc0",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http._HttpHeaders._parseCookies$parseCookieString$da7f96525$done$d199d7e8f",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http._HeaderValue._parse$done$d199d7e8f",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http._Cookie._parseSetCookieValue$done$d199d7e8f",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      }
+    ],
+    "lost": [],
+    "all_bodies_unchanged": true,
+    "all_gained_have_transitive_exposure": true
+  },
+  {
+    "target": "windows-x64",
+    "compiler": "c6c295f4479b2e35473d8a7145d1b3a8e12ef87df42933369ea17852a11313d3",
+    "source": "target/rpo-native-cache/x86_64-pc-windows-msvc/sdk/aaf66055cb7b85afe23ce51f98e51ca0/allocation-inventory.json",
+    "functions": 32693,
+    "before_known": 428,
+    "after_known": 634,
+    "gained": [
+      {
+        "key": "dart:_internal#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_internal#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:core#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3acore._GrowableList.isEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "df.dart$3acore._GrowableList.isNotEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "df.dart$3acore._StringBase.isEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "df.dart$3acore._StringBase.isNotEmpty",
+        "classes": [],
+        "own_exposure": []
+      },
+      {
+        "key": "dart:_compact_hash#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_compact_hash#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:collection#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:math#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:convert#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:async#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3aasync._StreamImpl._onListen$tc",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3aasync._DoneStreamSubscription.onError$tc",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3aasync._RootZone.errorCallback$tc",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:typed_data#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:isolate#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:developer#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:nativewrappers#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:ffi#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:_http#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http.HttpDate._parseCookieDate$isEnd$dcac5afc0",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http._HttpHeaders._parseCookies$parseCookieString$da7f96525$done$d199d7e8f",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http._HeaderValue._parse$done$d199d7e8f",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "df.dart$3a_http._Cookie._parseSetCookieValue$done$d199d7e8f",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:io#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.string_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.string_hash",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.string_equals",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_len",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_element",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.list_read",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.core_shape",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.word_ref",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.subclass",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.young_child",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.barrier",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      },
+      {
+        "key": "dart:mirrors#df.body",
+        "classes": [],
+        "own_exposure": [
+          "raw_memory_or_pointer_operation"
+        ]
+      }
+    ],
+    "lost": [],
+    "all_bodies_unchanged": true,
+    "all_gained_have_transitive_exposure": true
+  }
+]

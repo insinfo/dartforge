@@ -2,6 +2,24 @@
 
 ## Atualização de 20/10/2026
 
+- O auditor separa leituras/cálculos de endereço de escritas que podem implementar
+  alocação. Formas escalares completas ganham footprint vazio, mantendo exposição
+  de ponteiro; stores, chamadas opacas e formas não suportadas continuam abertas.
+  Corrigida também uma falha que ignorava stores na mesma linha após aritmética
+  ou leitura, inclusive sem espaço após números/SSA entre aspas. O Clang confirma
+  a validade das regressões, e o consumidor continua recusando cobertura/calls de
+  ponteiros e Ref. Os footprints conhecidos cresceram em 206 por SDK: 443→649
+  macOS, 444→650 Linux e 428→634 Windows, sem perdas e com exposição transitiva
+  preservada em todos os ganhos. Corpos idênticos, conferidos como multiconjunto
+  por módulo/símbolo/digest; a primeira junção por chave ambígua foi corrigida no
+  harness, preservando a falha. Passaram cinco testes novos e 1.026 nativos com
+  ignorados, Clippy estrito e docs sem avisos. A fixture de dois isolados passou
+  em AOT/JIT macOS e AOT Linux/Windows, normal/sob estresse; cinco IRs montados
+  idênticos e VMs novamente suspensas. Sem mudança de runtime/bundles/schema ou
+  ganho medido. O gate de ausência de backends foi repetido e falhou; seis
+  definições estrangeiras, fmt global e aprovação integral continuam pendentes.
+  Evidências: `bench/results/2026-10-20-read-only-allocation/README.md`.
+
 - O inventário reconhece agora footprint vazio de alocação Dart nos leitores
   exatos de contexto TSD/TLS. Os padrões revisados são independentes do gerador;
   alterações futuras no helper não ampliam a prova automaticamente. Identidade,

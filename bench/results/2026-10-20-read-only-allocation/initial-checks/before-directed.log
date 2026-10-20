@@ -1,0 +1,33 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.50s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 3 tests
+
+thread 'pruning::allocation_inventory::closure::read_only_tests::read_only_memory_callees_still_contribute_finite_or_unknown_allocations' (3070617) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/read_only_tests.rs:51:5:
+assertion `left == right` failed
+  left: Null
+ right: Array []
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+thread 'pruning::allocation_inventory::closure::read_only_tests::read_only_memory_observes_empty_allocations_and_preserves_pointer_exposure' (3070619) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/read_only_tests.rs:21:9:
+assertion `left == right` failed:  %x = load i64, ptr %p, align 8
+  left: Null
+ right: Array []
+test pruning::allocation_inventory::closure::read_only_tests::read_only_memory_observes_empty_allocations_and_preserves_pointer_exposure ... FAILED
+test pruning::allocation_inventory::closure::read_only_tests::read_only_memory_callees_still_contribute_finite_or_unknown_allocations ... FAILED
+
+thread 'pruning::allocation_inventory::closure::read_only_tests::read_only_memory_does_not_hide_writes_allocations_or_unknown_boundaries' (3070618) panicked at crates/emit_native/src/pruning/allocation_inventory/closure/read_only_tests.rs:43:9:
+ %x = add i64 0, 0 store i64 900, ptr %p
+test pruning::allocation_inventory::closure::read_only_tests::read_only_memory_does_not_hide_writes_allocations_or_unknown_boundaries ... FAILED
+
+failures:
+
+failures:
+    pruning::allocation_inventory::closure::read_only_tests::read_only_memory_callees_still_contribute_finite_or_unknown_allocations
+    pruning::allocation_inventory::closure::read_only_tests::read_only_memory_does_not_hide_writes_allocations_or_unknown_boundaries
+    pruning::allocation_inventory::closure::read_only_tests::read_only_memory_observes_empty_allocations_and_preserves_pointer_exposure
+
+test result: FAILED. 0 passed; 3 failed; 0 ignored; 0 measured; 1021 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `-p dartforge-emit-native --lib`

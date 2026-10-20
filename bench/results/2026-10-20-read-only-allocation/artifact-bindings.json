@@ -1,0 +1,242 @@
+[
+  {
+    "path": "target/read-only-allocation-validation/.df_tmp/after-development.ll",
+    "bytes": 198966,
+    "sha256": "1c7bf73116a9bf5f4e82cc47234b971dfa43edadb648cc642095bc83d70e660d"
+  },
+  {
+    "path": "target/read-only-allocation-validation/.df_tmp/after-linux-arm64-fixture.ll",
+    "bytes": 711374,
+    "sha256": "387a9dc00112898bd33a17cba03c1c63207f7cf2cc5678827452fdac48dc5ae6"
+  },
+  {
+    "path": "target/read-only-allocation-validation/.df_tmp/after-production.ll",
+    "bytes": 710293,
+    "sha256": "9b57ef82cfddc8d15e9f157b31c18d755e6c14b67dba1d2957a10fd846808f46"
+  },
+  {
+    "path": "target/read-only-allocation-validation/.df_tmp/after-unpruned.ll",
+    "bytes": 3528558,
+    "sha256": "80c320370cd3b909348611bf91229f5682baa00fa95fa5f357276f33063b932a"
+  },
+  {
+    "path": "target/read-only-allocation-validation/.df_tmp/after-windows-x64-fixture.ll",
+    "bytes": 710662,
+    "sha256": "856274f747ae5ad284abfbc7eedf9b2997aecb78709798d0956c48a5973322bc"
+  },
+  {
+    "path": "target/read-only-allocation-validation/.df_tmp/before-development.ll",
+    "bytes": 198966,
+    "sha256": "1c7bf73116a9bf5f4e82cc47234b971dfa43edadb648cc642095bc83d70e660d"
+  },
+  {
+    "path": "target/read-only-allocation-validation/.df_tmp/before-linux-arm64-fixture.ll",
+    "bytes": 711374,
+    "sha256": "387a9dc00112898bd33a17cba03c1c63207f7cf2cc5678827452fdac48dc5ae6"
+  },
+  {
+    "path": "target/read-only-allocation-validation/.df_tmp/before-production.ll",
+    "bytes": 710293,
+    "sha256": "9b57ef82cfddc8d15e9f157b31c18d755e6c14b67dba1d2957a10fd846808f46"
+  },
+  {
+    "path": "target/read-only-allocation-validation/.df_tmp/before-unpruned.ll",
+    "bytes": 3528558,
+    "sha256": "80c320370cd3b909348611bf91229f5682baa00fa95fa5f357276f33063b932a"
+  },
+  {
+    "path": "target/read-only-allocation-validation/.df_tmp/before-windows-x64-fixture.ll",
+    "bytes": 710662,
+    "sha256": "856274f747ae5ad284abfbc7eedf9b2997aecb78709798d0956c48a5973322bc"
+  },
+  {
+    "path": "target/read-only-allocation-validation/after-development",
+    "bytes": 79760,
+    "sha256": "41bbd15a70bf21802fa3aaf3282bc588d61fe9ef30229676b985b26a4783f1db"
+  },
+  {
+    "path": "target/read-only-allocation-validation/after-development.contracts.json",
+    "bytes": 765,
+    "sha256": "e01d91ac0b322103bf190de42260860cc13548c78b314f162b252554c55b3897"
+  },
+  {
+    "path": "target/read-only-allocation-validation/after-linux-arm64-fixture",
+    "bytes": 3693648,
+    "sha256": "894e408eb61c734a5f5cb80fdf6dfeccb29f7d645a5dda94b6074528a7bbc668"
+  },
+  {
+    "path": "target/read-only-allocation-validation/after-linux-arm64-fixture.contracts.json",
+    "bytes": 772,
+    "sha256": "4cc0d9470b69808d8b795e46e64eb60d3612dd0b1f1c2a98a5484810ef573943"
+  },
+  {
+    "path": "target/read-only-allocation-validation/after-production",
+    "bytes": 3425568,
+    "sha256": "b43e0f9da70e6332572f4097993cbea619b4a90b5250da0dd47ec6480ca88c0b"
+  },
+  {
+    "path": "target/read-only-allocation-validation/after-production.contracts.json",
+    "bytes": 763,
+    "sha256": "ef7069df82b38d98c28245b7b22c475d22a4356ef8d4635745a058b1e87ea3bb"
+  },
+  {
+    "path": "target/read-only-allocation-validation/after-unpruned",
+    "bytes": 10411856,
+    "sha256": "16c324e42db5e6f5011590b2368b08b679cba0075a65a7d12b47ff32a059f6a9"
+  },
+  {
+    "path": "target/read-only-allocation-validation/after-unpruned.contracts.json",
+    "bytes": 761,
+    "sha256": "2eddb9807366956fe1a12f6ab1c5c8f97c9d0c25e0f6bffeaec643b3633f2418"
+  },
+  {
+    "path": "target/read-only-allocation-validation/after-windows-x64-fixture.exe",
+    "bytes": 3606528,
+    "sha256": "b59fb09890ff99abb6cbc018b7a9b297c416adbe88bb1b9ecf66513d6b047fab"
+  },
+  {
+    "path": "target/read-only-allocation-validation/after-windows-x64-fixture.exe.contracts.json",
+    "bytes": 776,
+    "sha256": "16a3d79875b3cd91a92c4fe34d32e29602b642af22a26155bee3971df19ec9d1"
+  },
+  {
+    "path": "target/read-only-allocation-validation/before-development",
+    "bytes": 79760,
+    "sha256": "942a8819c73b6bb5833729cae81220d8a4aa4ab75a48b2ecb660a3810a054ae9"
+  },
+  {
+    "path": "target/read-only-allocation-validation/before-development.contracts.json",
+    "bytes": 766,
+    "sha256": "49d331de9108310752d3ae5cd3829a729585bddc56ca3a23253222e76c68ed1a"
+  },
+  {
+    "path": "target/read-only-allocation-validation/before-linux-arm64-fixture",
+    "bytes": 3693648,
+    "sha256": "894e408eb61c734a5f5cb80fdf6dfeccb29f7d645a5dda94b6074528a7bbc668"
+  },
+  {
+    "path": "target/read-only-allocation-validation/before-linux-arm64-fixture.contracts.json",
+    "bytes": 773,
+    "sha256": "226bdbc2aeb503baa1cb207eb06139f05597f8f9fb5ee9a57be1d4f7ef8e4924"
+  },
+  {
+    "path": "target/read-only-allocation-validation/before-production",
+    "bytes": 3425568,
+    "sha256": "46d48dffd6f6dcaa223a60bc990c823b479cd37bd7fc87c52660a1fb68a873bf"
+  },
+  {
+    "path": "target/read-only-allocation-validation/before-production.contracts.json",
+    "bytes": 764,
+    "sha256": "6bca98cb2d4d7270ed08e8be096c32334e2b6af02b0257f0b184b7c0a9cca6e2"
+  },
+  {
+    "path": "target/read-only-allocation-validation/before-unpruned",
+    "bytes": 10411856,
+    "sha256": "6dd7d754e6503fa10dd98edd43422655021777214a70ee6e5404fa58cafc66b7"
+  },
+  {
+    "path": "target/read-only-allocation-validation/before-unpruned.contracts.json",
+    "bytes": 762,
+    "sha256": "77e203a7c1cbc5ae18be159e12ca5dee0dc15921f2e6551e32619ca326c14930"
+  },
+  {
+    "path": "target/read-only-allocation-validation/before-windows-x64-fixture.exe",
+    "bytes": 3606528,
+    "sha256": "2952b71699c8a4bad7fa14b7d5fb1f1a42eee029297c600b59ad387c71239133"
+  },
+  {
+    "path": "target/read-only-allocation-validation/before-windows-x64-fixture.exe.contracts.json",
+    "bytes": 777,
+    "sha256": "a96de48051c9c31b05b5f1f1824088fb50ac24794c2d04d9df9146051f4f83b1"
+  },
+  {
+    "path": "target/read-only-allocation-validation/libdfsdk_67fe53ddf112e878.dylib",
+    "bytes": 41883440,
+    "sha256": "395c9fa721a2b4bf6582c48e01b3187c961f354a6b9bdc0c54df5bfa3136d2f8"
+  },
+  {
+    "path": "target/read-only-allocation-validation/libdfsdk_9c78e6b781f2ed6d.dylib",
+    "bytes": 41883440,
+    "sha256": "6c077f9b930a15806b332d03514ba00823c522a3627eb70ebc67e3db61c81a43"
+  },
+  {
+    "path": "target/read-only-allocation-validation/linux-result.json",
+    "bytes": 368,
+    "sha256": "c943fe0bd20da7401091e1e61fe2a9631e87d505ce2954210db94c10a96104f8"
+  },
+  {
+    "path": "target/read-only-allocation-validation/linux-run.py",
+    "bytes": 1022,
+    "sha256": "6c72261a4ab732e24a284a9d83602d7d021528c6024160c92151cda19b1e950c"
+  },
+  {
+    "path": "target/read-only-allocation-validation/platform-closed.ll",
+    "bytes": 167212,
+    "sha256": "3cc7ee79bf99ac7b0be9c85e9391ec7f469cef3371ba57e1e47c9e0dd69e1a9d"
+  },
+  {
+    "path": "target/read-only-allocation-validation/platform-closed.ll.contracts.json",
+    "bytes": 614,
+    "sha256": "134952a9430c3331136dfe0e810e1f5b7cb1cd87e71de21ba9bb57966e992af8"
+  },
+  {
+    "path": "target/read-only-allocation-validation/platform-default.ll",
+    "bytes": 167212,
+    "sha256": "3cc7ee79bf99ac7b0be9c85e9391ec7f469cef3371ba57e1e47c9e0dd69e1a9d"
+  },
+  {
+    "path": "target/read-only-allocation-validation/platform-default.ll.contracts.json",
+    "bytes": 615,
+    "sha256": "c8ba688c8ddba68f1f485c835ab807d9c69aa88f0e90e53f35897b944e5d0c98"
+  },
+  {
+    "path": "target/read-only-allocation-validation/sdk-linux-arm64-after-inventory.json",
+    "bytes": 70435738,
+    "sha256": "0218668262bc8739f78190708d8467e30b55d31d02aa43479d85a235163af0bb"
+  },
+  {
+    "path": "target/read-only-allocation-validation/sdk-linux-arm64-before-inventory.json",
+    "bytes": 69817308,
+    "sha256": "b2f4f8a9e757d67297a74c73c72bf03353d8a19d4d89319534405bef41be86ad"
+  },
+  {
+    "path": "target/read-only-allocation-validation/sdk-macos-arm64-after-inventory.json",
+    "bytes": 70536168,
+    "sha256": "5072c7adc09a23a048694be0eed4297e1e34af63d2b56e6bd43f06c7bf86aa43"
+  },
+  {
+    "path": "target/read-only-allocation-validation/sdk-macos-arm64-before-inventory.json",
+    "bytes": 69917703,
+    "sha256": "bb061750c892dd3a6a1b80978a0b044c94853abc04cb46f95517bf288dc4c85c"
+  },
+  {
+    "path": "target/read-only-allocation-validation/sdk-windows-x64-after-inventory.json",
+    "bytes": 69934626,
+    "sha256": "1aaf0b58248cbded80d6b17796f19ebf1d6e8f17a8f1970818e365e39ee4c50f"
+  },
+  {
+    "path": "target/read-only-allocation-validation/sdk-windows-x64-before-inventory.json",
+    "bytes": 69316298,
+    "sha256": "c2e57f11474ab2d59b9da5adddfe72113f78cb087561c04c3efef1781a96d790"
+  },
+  {
+    "path": "target/read-only-allocation-validation/windows-result.json",
+    "bytes": 445,
+    "sha256": "a033ded9c75997e175fa94ba1d358be48996da2fb6020662a332eb554bdd0560"
+  },
+  {
+    "path": "target/read-only-allocation-validation/windows-run.ps1",
+    "bytes": 1612,
+    "sha256": "9b4935e1bd1895d29ebabfa85019cd13f736e3444a8ed8f2dd5ce087d5833b95"
+  },
+  {
+    "path": "target/test-tools/dartforge-before-read-only-allocation",
+    "bytes": 198027248,
+    "sha256": "6f80bd6250293b71cbe26301d27f97e35f2be72a316a7913b8aaef3a6065a115"
+  },
+  {
+    "path": "target/test-tools/dartforge-read-only-allocation",
+    "bytes": 198046176,
+    "sha256": "7d59d44da98153c62ae21255a3c3d673bb994af673632c46484267621b64a9d9"
+  }
+]

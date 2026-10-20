@@ -97,14 +97,14 @@ fn context_lookup_changed_bodies_and_storage_remain_unknown() {
     }
     let ir = format!("{a}define i64 @raw(ptr %p) {{\n %x = load i64, ptr %p\n ret i64 %x\n}}\n");
     let data = audit(&[("dart:test", &ir)]).to_json();
-    assert!(
+    assert_eq!(
         data["functions"]
             .as_array()
             .unwrap()
             .iter()
             .find(|f| f["symbol"] == "raw")
-            .unwrap()["transitive_classes"]
-            .is_null()
+            .unwrap()["transitive_classes"],
+        json!([])
     );
     let ir = format!("{a}@text = private constant [4 x i8] c\"asm\\00\"\n");
     assert_eq!(context(&ir)["transitive_classes"], json!([]));

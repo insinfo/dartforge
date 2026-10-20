@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 pub(in crate::pruning) mod table_getters;
 mod context_lookup;
+mod read_only;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Abi { result: String, parameters: Vec<String> }
@@ -239,11 +240,14 @@ fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTree
         };
         let line = line.trim();
         if line.is_empty() || line.ends_with(':') { continue }
+        if let Some((left, _)) = line.split_once(" = ") && !read_only::assignment(left) {
+            definition.unknown.insert("unsupported_assignment_prefix".into());
+        }
         let operation = line.split_once(" = ").map_or(line, |(_, value)| value.trim());
         let operation = operation.strip_prefix("tail ").or_else(|| operation.strip_prefix("musttail ")).or_else(|| operation.strip_prefix("notail ")).unwrap_or(operation);
         let opcode = operation.split_whitespace().next().unwrap_or_default();
-        if operation.split_whitespace().skip(1).any(|token| matches!(token,"call"|"invoke"|"callbr")) {
-            definition.unknown.insert("multiple_instructions_or_embedded_call".into());
+        if read_only::embedded_effect(operation) {
+            definition.unknown.insert("multiple_instructions_or_embedded_effect".into());
         }
         if opcode == "call" {
             if let Some((symbol, abi, arguments)) = signature(operation) {
@@ -274,10 +278,12 @@ fn analyze_body(definition: &mut Definition, body: &[&str], byte_globals: &BTree
             definition.unknown.insert(format!("unsupported_opcode:{opcode}"));
         }
         if matches!(opcode, "load" | "store" | "getelementptr" | "ptrtoint" | "inttoptr" | "bitcast") {
-            // Generated allocation fast paths update the heap through raw
-            // pointers without calling an allocator. Until these operations
-            // have a complete memory-region proof, they can create objects.
-            definition.unknown.insert("unresolved_raw_memory_allocation".into());
+            // A complete scalar read/address instruction cannot create a Dart
+            // object. Raw writes can implement allocation without an allocator
+            // call, and still need a memory-region proof. Exposure is separate.
+            if !read_only::allocation_neutral(operation) {
+                definition.unknown.insert("unresolved_raw_memory_allocation".into());
+            }
             definition.exposures.insert("raw_memory_or_pointer_operation".into());
         }
         for symbol in global_references(line) {
@@ -445,3 +451,6 @@ mod table_allocation_tests;
 
 #[cfg(test)]
 mod context_lookup_tests;
+
+#[cfg(test)]
+mod read_only_tests;

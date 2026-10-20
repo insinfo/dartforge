@@ -822,3 +822,6 @@ mod table_allocations;
 
 #[path = "tests/context_lookups.rs"]
 mod context_lookups;
+
+#[path = "tests/read_only.rs"]
+mod read_only;

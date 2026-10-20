@@ -1,0 +1,5 @@
+{
+  "exit": 1,
+  "reason": "The body comparison joined by global key, which is not unique for ambiguous/interposable SDK definitions. Compare the complete (module, symbol, body_digest) multiset instead.",
+  "observed_key_join_mismatches": 18
+}

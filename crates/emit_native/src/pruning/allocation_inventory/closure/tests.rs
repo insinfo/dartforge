@@ -140,15 +140,15 @@ fn unsupported_body_syntax_nonconstant_cid_and_weak_definitions_are_unknown() {
     assert_eq!(state(&audit(&[("sdk","define weak void @body() {\n ret void\n}\n")]),"body"),None);
 }
 #[test]
-fn actual_emitter_helpers_keep_unresolved_memory_allocations_unknown() {
+fn actual_emitter_readers_preserve_exposure_without_allocations() {
     let mut module = crate::hir::Module::new();
     module.sdk_mode = true;
     let ir = crate::llvm::LlvmEmitter::new(&module).emit_all();
     let bundle = audit(&[("sdk", &ir)]);
-    assert_eq!(state(&bundle, "sdk#df.list_len"), None);
+    assert_eq!(state(&bundle, "sdk#df.list_len"), Some(vec![]));
     let definition = bundle.definitions.iter().find(|d|d.key == "sdk#df.list_len").unwrap();
     assert!(definition.exposures.contains("raw_memory_or_pointer_operation"));
-    assert!(definition.unknown.contains("unresolved_raw_memory_allocation"));
+    assert!(!definition.unknown.contains("unresolved_raw_memory_allocation"));
     assert!(bundle.definitions.iter().all(|d| !d.body_digest.is_empty()));
     assert!(bundle.globals.iter().all(|g|g["kind"] != "function"));
 }

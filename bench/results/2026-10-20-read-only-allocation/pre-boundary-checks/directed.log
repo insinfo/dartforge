@@ -1,0 +1,12 @@
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.23s
+     Running unittests src/lib.rs (target/string-length-validation/debug/deps/dartforge_emit_native-c194a8fdc17e2041)
+
+running 5 tests
+test pruning::allocation_inventory::closure::read_only_tests::read_only_memory_callees_still_contribute_finite_or_unknown_allocations ... ok
+test pruning::allocation_inventory::imports::tests::read_only::read_only_memory_footprints_do_not_authorize_pointer_or_reference_imports ... ok
+test pruning::allocation_inventory::closure::read_only_tests::read_only_memory_observes_empty_allocations_and_preserves_pointer_exposure ... ok
+test pruning::allocation_inventory::closure::read_only_tests::read_only_memory_does_not_hide_writes_allocations_or_unknown_boundaries ... ok
+test pruning::allocation_inventory::closure::read_only_tests::read_only_memory_hidden_writes_are_valid_llvm_but_not_empty_footprints ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 1021 filtered out; finished in 0.19s

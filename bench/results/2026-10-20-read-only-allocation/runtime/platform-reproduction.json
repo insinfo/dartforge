@@ -1,0 +1,52 @@
+[
+  {
+    "mode": "default",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-read-only-allocation",
+      "compile-native",
+      "crates/emit_native/tests/fixtures/constant_args/main.dart",
+      "--optimize",
+      "--emit-ir",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/read-only-allocation-validation/platform-default.ll"
+    ],
+    "exit": 0,
+    "foreign_backend_definitions": [
+      "define i64 @df.main$2edart.WindowsBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.WindowsBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define ptr @df.mt.main$2edart.WindowsBackend() nounwind {",
+      "define ptr @df.mt.main$2edart.LinuxBackend() nounwind {"
+    ],
+    "stdout": "",
+    "stderr": "",
+    "ir_sha256": "3cc7ee79bf99ac7b0be9c85e9391ec7f469cef3371ba57e1e47c9e0dd69e1a9d",
+    "compiler_sha256": "7d59d44da98153c62ae21255a3c3d673bb994af673632c46484267621b64a9d9"
+  },
+  {
+    "mode": "closed",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-read-only-allocation",
+      "compile-native",
+      "crates/emit_native/tests/fixtures/constant_args/main.dart",
+      "--optimize",
+      "--emit-ir",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/read-only-allocation-validation/platform-closed.ll"
+    ],
+    "exit": 0,
+    "foreign_backend_definitions": [
+      "define i64 @df.main$2edart.WindowsBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name(i64 %v0) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.WindowsBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define i64 @df.main$2edart.LinuxBackend.name$g(i64 %v0, ptr %v1, ptr %v2) \"disable-tail-calls\"=\"true\" nounwind {",
+      "define ptr @df.mt.main$2edart.WindowsBackend() nounwind {",
+      "define ptr @df.mt.main$2edart.LinuxBackend() nounwind {"
+    ],
+    "stdout": "",
+    "stderr": "  Closed class reachability: entry root df.register.dart$3a_internal has an unproved body or input ABI: obligations: global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg, global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg, global_or_function_address_argument:df.dart$3a_internal.._dartforgeIndexError, ... (10 total); helper targets: \"df.dart$3a_internal.._dartforgeIndexError\": allocation closure unknown, \"df.dart$3a_internal.._dartforgeLateError\": allocation closure unknown, \"df.dart$3a_internal.._dartforgeStackOverflowError\": allocation closure unknown; retaining broad registration\n  Closed class reachability: entry root df.register.dart$3a_internal has an unproved body or input ABI: obligations: global_or_function_address_argument:\\01section$end$__DATA_CONST$__dfimg, global_or_function_address_argument:\\01section$start$__DATA_CONST$__dfimg, global_or_function_address_argument:df.dart$3a_internal.._dartforgeIndexError, ... (10 total); helper targets: \"df.dart$3a_internal.._dartforgeIndexError\": allocation closure unknown, \"df.dart$3a_internal.._dartforgeLateError\": allocation closure unknown, \"df.dart$3a_internal.._dartforgeStackOverflowError\": allocation closure unknown; retaining broad registration\n",
+    "ir_sha256": "3cc7ee79bf99ac7b0be9c85e9391ec7f469cef3371ba57e1e47c9e0dd69e1a9d",
+    "compiler_sha256": "7d59d44da98153c62ae21255a3c3d673bb994af673632c46484267621b64a9d9"
+  }
+]
