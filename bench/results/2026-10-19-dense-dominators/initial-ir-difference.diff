@@ -1,0 +1,19 @@
+--- before-cached.ll
++++ after-fresh.ll
+@@ -66285,7 +66285,7 @@
+   ret i64 %r
+ }
+
+-@df.mt.$type$d = private unnamed_addr constant { i64, i64, i64, ptr, i64, ptr, i64, ptr, i64, ptr, i64, ptr, i64, ptr, i64, ptr, i64, ptr } { i64 1073741569, i64 8, i64 -9163797671095228218, ptr @df.$type.$3d$3d$c, i64 -3445551396850951156, ptr @df.$type.toString$c, i64 -1301464018035317077, ptr @df.dart$3acore.Object.noSuchMethod$tc, i64 2960095418482094780, ptr @df.dart$3acore.Object.$3d$3d$tc, i64 3599887816169301665, ptr @df.dart$3acore.Object.noSuchMethod$c, i64 4031450617872922849, ptr @df.dart$3acore.Object.hashCode$g, i64 5306504273795186908, ptr @df.dart$3acore.Object._identityHashCode$g, i64 7093520068988870176, ptr @df.dart$3acore.Object.runtimeType$g }
++@df.mt.$type$d = private unnamed_addr constant { i64, i64, i64, ptr, i64, ptr, i64, ptr, i64, ptr, i64, ptr, i64, ptr, i64, ptr } { i64 1073741569, i64 7, i64 -9163797671095228218, ptr @df.$type.$3d$3d$c, i64 -3445551396850951156, ptr @df.$type.toString$c, i64 -1301464018035317077, ptr @df.dart$3acore.Object.noSuchMethod$tc, i64 3599887816169301665, ptr @df.dart$3acore.Object.noSuchMethod$c, i64 4031450617872922849, ptr @df.dart$3acore.Object.hashCode$g, i64 5306504273795186908, ptr @df.dart$3acore.Object._identityHashCode$g, i64 7093520068988870176, ptr @df.dart$3acore.Object.runtimeType$g }
+ define ptr @df.mt.$type() nounwind {
+ b0:
+   ret ptr @df.mt.$type$d
+@@ -66430,7 +66430,6 @@
+ ; Defined in another module (source SDK) or in the runtime
+ declare void @df.dart$3acore..print(i64)
+ declare void @df.dart$3acore.IntegerDivisionByZeroException.new(i64)
+-declare i64 @df.dart$3acore.Object.$3d$3d$tc(i64, ptr, ptr)
+ declare i64 @df.dart$3acore.Object._identityHashCode$g(i64, ptr, ptr)
+ declare i64 @df.dart$3acore.Object.hashCode$g(i64, ptr, ptr)
+ declare i64 @df.dart$3acore.Object.noSuchMethod$c(i64, ptr, ptr)

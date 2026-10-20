@@ -1,0 +1,224 @@
+[
+  {
+    "source": "/tmp/forge-builder-compiler.sample.txt",
+    "stored": "builder-before.sample.txt",
+    "original_sha256": "7be554c14dd949861378960f0968b41cf1924aea228bb1d4d7d561b51b8ba651",
+    "stored_sha256": "7be554c14dd949861378960f0968b41cf1924aea228bb1d4d7d561b51b8ba651"
+  },
+  {
+    "source": "/tmp/forge-builder-sample.log",
+    "stored": "builder-sample-command.log",
+    "original_sha256": "f322d851b937e454caf68ccdf5d5a4f8a657533f4f69d957add6d9ad5333444a",
+    "stored_sha256": "f322d851b937e454caf68ccdf5d5a4f8a657533f4f69d957add6d9ad5333444a"
+  },
+  {
+    "source": "/tmp/forge-dense-after.sample.txt",
+    "stored": "sdk-reconstruction.sample.txt",
+    "original_sha256": "f74cc5625656963c2eb3b4e2b0efa6cb97fe1684758e8b70378c7796d4afb9b6",
+    "stored_sha256": "f74cc5625656963c2eb3b4e2b0efa6cb97fe1684758e8b70378c7796d4afb9b6"
+  },
+  {
+    "source": "/tmp/forge-dense-dominators-tests.log",
+    "stored": "initial-directed-tests.log",
+    "original_sha256": "69d9939d8733319819d8e2c04af7f5da8c22df931560c61e8f36cbb8a589a41e",
+    "stored_sha256": "cd5da151786ee542a2f1a6923d85a2e0b6ff048af301f0e2dbdaf0cb2a7a2f97"
+  },
+  {
+    "source": "/tmp/forge-dense-final-tests.log",
+    "stored": "final-directed-tests.log",
+    "original_sha256": "65a3d936d775c2f538974e5e83525225fa77a1bee7299526c3b508e0f3e35f8d",
+    "stored_sha256": "11599bc4e2ed4f1ac638d3805c278949f65c1d68ec67b6d6915a37c2b47eeb97"
+  },
+  {
+    "source": "/tmp/forge-dense-checks.py",
+    "stored": "run-checks.py",
+    "original_sha256": "2bd4f7c85f5205d343fe9b1095e021050c3ce989be4a2c2f7123d432d9bbefb9",
+    "stored_sha256": "2bd4f7c85f5205d343fe9b1095e021050c3ce989be4a2c2f7123d432d9bbefb9"
+  },
+  {
+    "source": "/tmp/forge-dense-emission.py",
+    "stored": "validate-emission.py",
+    "original_sha256": "d60906a1ddc7ad1ec0a7c69731ebdb23459158d955bcccf052807c5a70497fa1",
+    "stored_sha256": "d60906a1ddc7ad1ec0a7c69731ebdb23459158d955bcccf052807c5a70497fa1"
+  },
+  {
+    "source": "/tmp/forge-dense-compiler-build.log",
+    "stored": "compiler-build.log",
+    "original_sha256": "04cb7d5fbe851dacc9360f883933993f8ead15cd31ff8be84b5082470de33d79",
+    "stored_sha256": "04cb7d5fbe851dacc9360f883933993f8ead15cd31ff8be84b5082470de33d79"
+  },
+  {
+    "source": "/tmp/forge-dense-checks/native-lib.log",
+    "stored": "native-lib.log",
+    "original_sha256": "66aadbde0e081c5ceb1921a565adf9b60ba134e06de044ba1ba45f6969ebaf17",
+    "stored_sha256": "80f50e87606f7ddb0fc932c195bc80c7912037a69d430f3b5efd15ebb8ca54ae"
+  },
+  {
+    "source": "/tmp/forge-dense-checks/clippy.log",
+    "stored": "clippy.log",
+    "original_sha256": "267c659a296f28ac92deb76125842bacb4ea46ea1b10bc6262da3fa8fa136ead",
+    "stored_sha256": "267c659a296f28ac92deb76125842bacb4ea46ea1b10bc6262da3fa8fa136ead"
+  },
+  {
+    "source": "/tmp/forge-dense-checks/feature-clippy.log",
+    "stored": "feature-clippy.log",
+    "original_sha256": "7dbfa67224cd3dc3ebbbe4df5952d67d328c729e4025b09b703ed61f6c4b7a87",
+    "stored_sha256": "7dbfa67224cd3dc3ebbbe4df5952d67d328c729e4025b09b703ed61f6c4b7a87"
+  },
+  {
+    "source": "/tmp/forge-dense-checks/doc.log",
+    "stored": "doc.log",
+    "original_sha256": "b0299274ac1e3894d17facb296a4070c7b5a0790988d0c8ef5698865d884c426",
+    "stored_sha256": "b0299274ac1e3894d17facb296a4070c7b5a0790988d0c8ef5698865d884c426"
+  },
+  {
+    "source": "/tmp/forge-dense-checks/compiler.log",
+    "stored": "compiler.log",
+    "original_sha256": "c2ccae29be8ebbd8973f3201e5f6646ec32bdad22fe9c3866ff8d1618ed74896",
+    "stored_sha256": "c2ccae29be8ebbd8973f3201e5f6646ec32bdad22fe9c3866ff8d1618ed74896"
+  },
+  {
+    "source": "/tmp/forge-dense-checks/results.json",
+    "stored": "results.json",
+    "original_sha256": "86f6a80d811569bf1fd6d173d90cdfef7bb84130f28b97f98b0555e118b6c7bc",
+    "stored_sha256": "86f6a80d811569bf1fd6d173d90cdfef7bb84130f28b97f98b0555e118b6c7bc"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart",
+    "stored": "branches.dart",
+    "original_sha256": "6b51511c736d4a3ccfb5c3f01551a14ae794431e45dce83841a568beb4c0fc7f",
+    "stored_sha256": "6b51511c736d4a3ccfb5c3f01551a14ae794431e45dce83841a568beb4c0fc7f"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/before.json",
+    "stored": "before.json",
+    "original_sha256": "35c98f479b4a7bec8992ad38208771cf67d32511f1889926c2460a0d41d4eabd",
+    "stored_sha256": "35c98f479b4a7bec8992ad38208771cf67d32511f1889926c2460a0d41d4eabd"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/after.json",
+    "stored": "after.json",
+    "original_sha256": "2d51bcfe4b69079d2c402d4eb7634b5b4a4b1147e805f6255d5991651b207a6c",
+    "stored_sha256": "2d51bcfe4b69079d2c402d4eb7634b5b4a4b1147e805f6255d5991651b207a6c"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/before-repeat.json",
+    "stored": "before-repeat.json",
+    "original_sha256": "d26661e46d9ecd74c866200d7b83ba748cfca66f90eaedfacc93b31a73584737",
+    "stored_sha256": "d26661e46d9ecd74c866200d7b83ba748cfca66f90eaedfacc93b31a73584737"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/after-repeat.json",
+    "stored": "after-repeat.json",
+    "original_sha256": "b3e3062d221377d7d3381babf3d59870a649d63df6289accc6267a1517f41cc4",
+    "stored_sha256": "b3e3062d221377d7d3381babf3d59870a649d63df6289accc6267a1517f41cc4"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/before-fresh-cache.json",
+    "stored": "before-fresh-cache.json",
+    "original_sha256": "c58661e3453e907ea42bd0f45301731e51e74abc7c2f6b63c38b9e23a03f61d3",
+    "stored_sha256": "c58661e3453e907ea42bd0f45301731e51e74abc7c2f6b63c38b9e23a03f61d3"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/before.stdout",
+    "stored": "before.stdout",
+    "original_sha256": "31fc6039d82d42c89b0a3b497ff066b3fe76b503ba0ca13de3f5756ad10ff7db",
+    "stored_sha256": "31fc6039d82d42c89b0a3b497ff066b3fe76b503ba0ca13de3f5756ad10ff7db"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/before.stderr",
+    "stored": "before.stderr",
+    "original_sha256": "33dc26839ca71013a5adcc756872aa4f7e85b4fe38ae6ae1e2c08261888bc160",
+    "stored_sha256": "33dc26839ca71013a5adcc756872aa4f7e85b4fe38ae6ae1e2c08261888bc160"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/after.stdout",
+    "stored": "after.stdout",
+    "original_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e",
+    "stored_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/after.stderr",
+    "stored": "after.stderr",
+    "original_sha256": "c70f299532c510ebc250484ad3bc776e11bdee4505b1e55b479c47e41daa91af",
+    "stored_sha256": "c70f299532c510ebc250484ad3bc776e11bdee4505b1e55b479c47e41daa91af"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/before-repeat.stdout",
+    "stored": "before-repeat.stdout",
+    "original_sha256": "31fc6039d82d42c89b0a3b497ff066b3fe76b503ba0ca13de3f5756ad10ff7db",
+    "stored_sha256": "31fc6039d82d42c89b0a3b497ff066b3fe76b503ba0ca13de3f5756ad10ff7db"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/before-repeat.stderr",
+    "stored": "before-repeat.stderr",
+    "original_sha256": "53e1144615d70e5d54bf054a28560d6185999856857581ea9b42ea71cd4f7666",
+    "stored_sha256": "53e1144615d70e5d54bf054a28560d6185999856857581ea9b42ea71cd4f7666"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/after-repeat.stdout",
+    "stored": "after-repeat.stdout",
+    "original_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e",
+    "stored_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/after-repeat.stderr",
+    "stored": "after-repeat.stderr",
+    "original_sha256": "faba6017c0805f3c214a233914c69095e3c7fa7f02c37eeb5550feea37d1be12",
+    "stored_sha256": "faba6017c0805f3c214a233914c69095e3c7fa7f02c37eeb5550feea37d1be12"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/before-fresh-cache.stdout",
+    "stored": "before-fresh-cache.stdout",
+    "original_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e",
+    "stored_sha256": "5bc2ccc0b37790315815351611797b07fdbace2244a87df7595253f81ba6b32e"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/before-fresh-cache.stderr",
+    "stored": "before-fresh-cache.stderr",
+    "original_sha256": "a4bc351f5e52fc1534304282c2ea6db3cc9938b6869de7b434c595dfb9e7b55f",
+    "stored_sha256": "a4bc351f5e52fc1534304282c2ea6db3cc9938b6869de7b434c595dfb9e7b55f"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/comparison.json",
+    "stored": "comparison.json",
+    "original_sha256": "49a49696907a95296e37e516c9b1463f76d8a502fdd68d73b1be7bd5eacbefd7",
+    "stored_sha256": "49a49696907a95296e37e516c9b1463f76d8a502fdd68d73b1be7bd5eacbefd7"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/repeat-comparison.json",
+    "stored": "repeat-comparison.json",
+    "original_sha256": "00f166ac2d3ae26157ee11f8c976d68d04a3207af4d9bc3296ea991ba16025f2",
+    "stored_sha256": "00f166ac2d3ae26157ee11f8c976d68d04a3207af4d9bc3296ea991ba16025f2"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/fresh-comparison.json",
+    "stored": "fresh-comparison.json",
+    "original_sha256": "4c6acb87ac48c834029c5c5eab94079c4488d602edbc460a20d212d7216ac2d9",
+    "stored_sha256": "4c6acb87ac48c834029c5c5eab94079c4488d602edbc460a20d212d7216ac2d9"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/initial-ir-difference.diff",
+    "stored": "initial-ir-difference.diff",
+    "original_sha256": "2d66f31655e2e98174a9e75f8d56605d3c8036eb1989942e152abfdc310c9ff5",
+    "stored_sha256": "ee74063334e45695b1d7aafb7ea1e8dcb6aff6953da8cdb24528d0c4594c9dfc"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots.json",
+    "stored": "cache-snapshots.json",
+    "original_sha256": "d666a5e4a45fb4c1bbc908486df03c2a718ca0bc45a38b4fb3d901ad66b6a1d0",
+    "stored_sha256": "d666a5e4a45fb4c1bbc908486df03c2a718ca0bc45a38b4fb3d901ad66b6a1d0"
+  },
+  {
+    "source": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/execution.json",
+    "stored": "execution.json",
+    "original_sha256": "691924fc6c04c0d4ecdb602537128a6a906f195cc7fca5a3160f591696b32acf",
+    "stored_sha256": "691924fc6c04c0d4ecdb602537128a6a906f195cc7fca5a3160f591696b32acf"
+  },
+  {
+    "source": "/tmp/forge-dense-execute.py",
+    "stored": "validate-execution.py",
+    "original_sha256": "97be6f072a65db3055867cd45ba6f3ae79a7a7a8cbe963eb2ff71ab9a334fc0c",
+    "stored_sha256": "97be6f072a65db3055867cd45ba6f3ae79a7a7a8cbe963eb2ff71ab9a334fc0c"
+  }
+]

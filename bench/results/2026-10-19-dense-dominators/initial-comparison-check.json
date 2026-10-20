@@ -1,0 +1,8 @@
+{
+  "check": "initial emitted IR bytes are equal",
+  "passed": false,
+  "exit": 1,
+  "difference": "extra method table entry and declaration in cached reference",
+  "fresh_reference_check": "fresh-comparison.json",
+  "root_cause_of_old_cache_difference": "unresolved"
+}

@@ -2,6 +2,21 @@
 
 ## Atualização de 19/10/2026
 
+- A análise de proveniência física usa bitmaps na dominância, mantendo o ponto
+  fixo e o orçamento de 512 blocos. Uma amostragem do builder real mostrou o
+  custo anterior nas cópias/interseções de árvores. Passaram 920 testes de
+  biblioteca nativa e a rodada dirigida, com quatro regressões novas, incluindo
+  oráculo independente por remoção de blocos. Na medição isolada de 256 blocos,
+  a representação anterior levou cerca de 7 s e a nova 23 ms; sem ganho geral
+  de compilação demonstrado. Clippy estrito do workspace/backend LLVM e docs
+  sem avisos passaram. O IR com SDK reconstruído ficou idêntico entre os
+  compiladores; os executáveis coincidiram com a VM em execução normal e sob
+  estresse de GC. O mesmo compilador anterior divergiu entre cache antigo e
+  reconstrução limpa. Essa reprodutibilidade do cache segue em investigação.
+  A suíte ampla de builders continua com o compilador anterior preservado;
+  fmt global e aprovação integral permanecem pendentes. Evidências:
+  `bench/results/2026-10-19-dense-dominators/README.md`.
+
 - O exemplo Angular usa o alvo Cargo `ng_oracle`, eliminando a colisão de
   executável/dSYM com o `oracle` do formatador. Metadados conferidos: 48 exemplos
   sem nomes duplicados; ambos compilaram juntos e executaram independentemente.

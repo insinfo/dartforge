@@ -5,6 +5,22 @@ métodos montadas na ligação") e dos itens 1 e 4 de §4 (teste de ausência de
 "por que isto ficou"). Escrita em 2026-09-30 sobre `0ae614d8`. `EN/` é
 `crates/emit_native/src/`, `RT/` é `crates/runtime/src/`, `VM/` é `E:\references\dart-sdk\`.
 
+## Atualização de 19/10/2026: custo da validação estrutural
+
+A prova estrutural de SSA usada pela proveniência física calcula dominância
+com bitmaps de até 512 blocos. O ponto fixo, os predecessores alcançáveis e
+as recusas de HIR inválido permanecem iguais; corpos acima desse orçamento
+continuam sem prova. A representação evita alocar árvores em cada interseção.
+
+A validação inclui todos os grafos dirigidos de até quatro blocos sem aresta
+de entrada, comparados com um oráculo independente que remove blocos e verifica
+caminhos. Há casos com 512 blocos, ciclos, predecessores inalcançáveis, arestas
+duplicadas e o limite do orçamento. A medição isolada de 256 blocos compara as
+duas representações e confere todos os pares de dominância; não demonstra ganho
+de tempo da compilação inteira. Evidências e observação de diferença entre cache
+antigo e SDK reconstruído:
+[registros](../bench/results/2026-10-19-dense-dominators/README.md).
+
 ## 0. Resumo
 
 Hoje, no `aot --optimize`, toda classe instanciada mantém vivo **todo** membro que ela tem ou

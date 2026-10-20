@@ -1,0 +1,12 @@
+{
+  "ir_bytes_identical": false,
+  "bytes": {
+    "before": 2349700,
+    "after": 2349567
+  },
+  "hashes": {
+    "before": "2a077e443514e66b7b0863214d8d05d29ceb192820feb6854a5e34d5a44d95dd",
+    "after": "10c77f9a1e938e5be15521bf4550dfdb8d8ecf274270a09dda9ec159d2635399"
+  },
+  "general_compiler_speedup_claimed": false
+}

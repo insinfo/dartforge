@@ -1,0 +1,90 @@
+[
+  {
+    "label": "vm",
+    "command": [
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin/dart",
+      "run",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart"
+    ],
+    "environment_override": {},
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "old-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/old.exe"
+    ],
+    "environment_override": {},
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "label": "old-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/old.exe"
+    ],
+    "environment_override": {},
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "old-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/old.exe"
+    ],
+    "environment_override": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "dense-compile",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge-dense-dominators",
+      "compile-native",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart",
+      "--sdk",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+      "-o",
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/dense.exe"
+    ],
+    "environment_override": {},
+    "exit": 0,
+    "stdout": "",
+    "stderr": ""
+  },
+  {
+    "label": "dense-normal",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/dense.exe"
+    ],
+    "environment_override": {},
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": ""
+  },
+  {
+    "label": "dense-stress",
+    "command": [
+      "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/dense.exe"
+    ],
+    "environment_override": {
+      "DARTFORGE_GC_STRESS": "1"
+    },
+    "exit": 0,
+    "stdout": "-86488\n",
+    "stderr": ""
+  }
+]

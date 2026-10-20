@@ -1,0 +1,8 @@
+{
+  "old_compiler_fresh_cache_ir_equals_new_compiler_fresh_cache_ir": true,
+  "ir_bytes": 2349567,
+  "ir_sha256": "10c77f9a1e938e5be15521bf4550dfdb8d8ecf274270a09dda9ec159d2635399",
+  "initial_cached_reference_differs": true,
+  "general_speedup_claimed": false,
+  "cache_reproducibility_root_cause": "unresolved"
+}

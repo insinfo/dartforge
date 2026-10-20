@@ -1,0 +1,362 @@
+[
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "_compact_hash.poda",
+    "bytes": 167330,
+    "sha256": "e6bf7e2df9592e50c52207732e2d17f4082f6eabf1d4fd5701b9ca7385a050c9",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/_compact_hash.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "_http.poda",
+    "bytes": 840937,
+    "sha256": "d1816de31b7a873fdf9e93d387f822507c815313e378916e472b131693018477",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/_http.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "_internal.poda",
+    "bytes": 470742,
+    "sha256": "cd73b57b5e443eb3fbb1ac5234259b31df341a0f2c58e3843f388e0b615ec3f3",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/_internal.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "async.poda",
+    "bytes": 629137,
+    "sha256": "48a2505659b6455fa19d67e962958a05f8a2fe304e4d3c4fc6e418b072e69300",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/async.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "collection.poda",
+    "bytes": 440425,
+    "sha256": "113fa91672fc9b5c67c1e6b4c80bc69a8273e918627086ad78849ffc45137079",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/collection.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "convert.poda",
+    "bytes": 439334,
+    "sha256": "35a0a3267e3ef6ef81cbf119411830b1571043635072968dca5a5ef105ac1a54",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/convert.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "core.poda",
+    "bytes": 859332,
+    "sha256": "a2ca14a2d779c94d1fc7fb1746c123004c75d33cbdc206c61141920c0c930d5f",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/core.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "developer.poda",
+    "bytes": 56191,
+    "sha256": "0ad4e955755daae66d8eefb60927fadcdddbd45b7189bb8ebc5dcb023bf4e76c",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/developer.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "ffi.poda",
+    "bytes": 151808,
+    "sha256": "d1815a555e95fa3d6876d1c27d0e2eb6d25490011914af906bff28cd18fa6b6a",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/ffi.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "io.poda",
+    "bytes": 1137838,
+    "sha256": "c8775ed5442f93ce4e1d9813e081ff9f9d9485c09dc88ae8c2144e4ebf2ce3a1",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/io.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "isolate.poda",
+    "bytes": 81168,
+    "sha256": "bfe7825722ecf17a2c724dd08f14bd2e1d318a8828e47f50c693b5d19a11f48f",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/isolate.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "math.poda",
+    "bytes": 54680,
+    "sha256": "4d926483a03d475d106d7de9c9fb04844f40f1f1fe47f683fb0cd62e7c1043e3",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/math.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "mirrors.poda",
+    "bytes": 36969,
+    "sha256": "c44bb879bdb6df9fd2ef2ad33908c253d3e0a41e00b34777689dc0f3ec9dea84",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/mirrors.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "nativewrappers.poda",
+    "bytes": 9032,
+    "sha256": "da785f2954e57e9c7ea0c6f494e17913bd2c4f26dacf7a56905b65b327bdb74e",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/nativewrappers.poda"
+  },
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "typed_data.poda",
+    "bytes": 1034243,
+    "sha256": "dc9daa5d654437b4ff59651f32e4a122b9f8b3ff2729b62585b88c6b22613e68",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/typed_data.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "_compact_hash.poda",
+    "bytes": 174655,
+    "sha256": "b92f0b0c54e0af0b3a279f19d8345a5621960b19b8cbd54da32d9a774b50ae62",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/_compact_hash.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "_http.poda",
+    "bytes": 897956,
+    "sha256": "de20eb94e246b58eded3de3efc9b843f2c0f9fc6ff494cd6fb6e3aac81571344",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/_http.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "_internal.poda",
+    "bytes": 493258,
+    "sha256": "ca07f055e23edceefd6d3e4fca11724ec972cc792c5602ed94147b0a9f65f9b6",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/_internal.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "async.poda",
+    "bytes": 660903,
+    "sha256": "b8429ae1d213e27349d1b9984e77049b0ea58fea19cb910c26b39c59e0f24082",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/async.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "collection.poda",
+    "bytes": 461878,
+    "sha256": "a3d9c254f2935d1e74534b479824fba01a80236d44538c965d37a950f7d1f4f0",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/collection.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "convert.poda",
+    "bytes": 480258,
+    "sha256": "9e2741feed28c051f532dd6ff8d60b759cdf4be5c1294c2115a9f19505e8a6e1",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/convert.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "core.poda",
+    "bytes": 895579,
+    "sha256": "ee23dc2c5ae5c307dc1ac9c34d3b0dee718ca03101dfb08cfe082461eecb0748",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/core.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "developer.poda",
+    "bytes": 57272,
+    "sha256": "f29b6842a88765cc66e559453ff426ca14f663d8a3f90b5688beb110855f0bb4",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/developer.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "ffi.poda",
+    "bytes": 159724,
+    "sha256": "844319655fbda9d3074e681aa7f03e4478750e7049f6f2dc399bf06a5aa84e73",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/ffi.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "io.poda",
+    "bytes": 1233107,
+    "sha256": "70ca3d59e6230435fa01bc4099e831f3049ac680c05947986db6902807e74b4c",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/io.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "isolate.poda",
+    "bytes": 88156,
+    "sha256": "52c7baaa45b0b8af294fef15f43026ca564f65f24d3cfc9b716a98deabc03cd4",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/isolate.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "math.poda",
+    "bytes": 54967,
+    "sha256": "cb72f6e18081c241697a9789bc168bb62034590d686b4f3e88bfb56fb5570244",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/math.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "mirrors.poda",
+    "bytes": 40018,
+    "sha256": "bf034d86f75044380331e5bb9d51cfdb61022591f30dd993873f55b4c878366c",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/mirrors.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "nativewrappers.poda",
+    "bytes": 9023,
+    "sha256": "e53a77e1490eace107fea2af0e1e6fd448a87d2ae7aa36f6b00262f6b4690210",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/nativewrappers.poda"
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "typed_data.poda",
+    "bytes": 1094046,
+    "sha256": "ed02574df72d00f231471982bdf0bb467eda32285a7be7fdff510818b27139cd",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/typed_data.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "_compact_hash.poda",
+    "bytes": 174655,
+    "sha256": "b92f0b0c54e0af0b3a279f19d8345a5621960b19b8cbd54da32d9a774b50ae62",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/_compact_hash.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "_http.poda",
+    "bytes": 897956,
+    "sha256": "de20eb94e246b58eded3de3efc9b843f2c0f9fc6ff494cd6fb6e3aac81571344",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/_http.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "_internal.poda",
+    "bytes": 493258,
+    "sha256": "ca07f055e23edceefd6d3e4fca11724ec972cc792c5602ed94147b0a9f65f9b6",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/_internal.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "async.poda",
+    "bytes": 660903,
+    "sha256": "b8429ae1d213e27349d1b9984e77049b0ea58fea19cb910c26b39c59e0f24082",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/async.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "collection.poda",
+    "bytes": 461878,
+    "sha256": "a3d9c254f2935d1e74534b479824fba01a80236d44538c965d37a950f7d1f4f0",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/collection.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "convert.poda",
+    "bytes": 480258,
+    "sha256": "9e2741feed28c051f532dd6ff8d60b759cdf4be5c1294c2115a9f19505e8a6e1",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/convert.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "core.poda",
+    "bytes": 895579,
+    "sha256": "ee23dc2c5ae5c307dc1ac9c34d3b0dee718ca03101dfb08cfe082461eecb0748",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/core.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "developer.poda",
+    "bytes": 57272,
+    "sha256": "f29b6842a88765cc66e559453ff426ca14f663d8a3f90b5688beb110855f0bb4",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/developer.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "ffi.poda",
+    "bytes": 159724,
+    "sha256": "844319655fbda9d3074e681aa7f03e4478750e7049f6f2dc399bf06a5aa84e73",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/ffi.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "io.poda",
+    "bytes": 1233107,
+    "sha256": "70ca3d59e6230435fa01bc4099e831f3049ac680c05947986db6902807e74b4c",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/io.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "isolate.poda",
+    "bytes": 88156,
+    "sha256": "52c7baaa45b0b8af294fef15f43026ca564f65f24d3cfc9b716a98deabc03cd4",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/isolate.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "math.poda",
+    "bytes": 54967,
+    "sha256": "cb72f6e18081c241697a9789bc168bb62034590d686b4f3e88bfb56fb5570244",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/math.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "mirrors.poda",
+    "bytes": 40018,
+    "sha256": "bf034d86f75044380331e5bb9d51cfdb61022591f30dd993873f55b4c878366c",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/mirrors.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "nativewrappers.poda",
+    "bytes": 9023,
+    "sha256": "e53a77e1490eace107fea2af0e1e6fd448a87d2ae7aa36f6b00262f6b4690210",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/nativewrappers.poda"
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "typed_data.poda",
+    "bytes": 1094046,
+    "sha256": "ed02574df72d00f231471982bdf0bb467eda32285a7be7fdff510818b27139cd",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/typed_data.poda"
+  }
+]

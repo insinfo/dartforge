@@ -4,6 +4,7 @@
 //! dynamic calls, and recursive return summaries. They are not ownership/effect proofs.
 
 mod canonical_cache;
+mod dominators;
 pub(crate) mod allocation_only_exports;
 pub(crate) mod allocation_certificates;
 mod selector_returns;
@@ -344,7 +345,7 @@ impl Shape {
     pub(super) fn new(f: &Function) -> Result<Self, String> {
         // A bounded proof budget is a conservative fallback, never a type guess.
         if f.blocks.is_empty()
-            || f.blocks.len() > 512
+            || f.blocks.len() > dominators::MAX_BLOCKS
             || f.blocks.iter().map(|b| b.instructions.len()).sum::<usize>() > 8192
         {
             return Err("empty body or structural proof budget exceeded".into());
@@ -409,29 +410,7 @@ impl Shape {
                 }
             }
         }
-        let mut dominators: Vec<_> = (0..f.blocks.len())
-            .map(|_| shape.reachable.clone())
-            .collect();
-        dominators[0] = BTreeSet::from([0]);
-        loop {
-            let mut changed = false;
-            for &b in shape.reachable.iter().filter(|&&b| b != 0) {
-                let mut d = shape.reachable.clone();
-                for &p in &predecessors[b] {
-                    if shape.reachable.contains(&p) {
-                        d = d.intersection(&dominators[p]).copied().collect();
-                    }
-                }
-                d.insert(b);
-                if d != dominators[b] {
-                    dominators[b] = d;
-                    changed = true;
-                }
-            }
-            if !changed {
-                break;
-            }
-        }
+        let dominators = dominators::Dominators::new(&predecessors, &shape.reachable);
         let available = |op: &Operand, b: usize, position: usize| match op {
             Operand::Val(v) => match shape.definitions.get(v) {
                 Some((_, None)) => true,
@@ -439,7 +418,7 @@ impl Shape {
                     if *def_b == b {
                         *def_position < position
                     } else {
-                        dominators[b].contains(def_b)
+                        dominators.dominates(*def_b, b)
                     }
                 }
                 None => false,

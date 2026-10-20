@@ -1,0 +1,19 @@
+{
+  "command": [
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/test-tools/dartforge",
+    "compile-native",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/branches.dart",
+    "--emit-ir",
+    "--digest",
+    "--timings",
+    "--sdk",
+    "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/lib",
+    "-o",
+    "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/before-repeat.ll"
+  ],
+  "exit": 0,
+  "seconds": 3.266528625,
+  "compiler_sha256": "0945d0980bc86c875156713f4b00c28f1063d40d2442a602730a05c76ffcfbcd",
+  "source_sha256": "6b51511c736d4a3ccfb5c3f01551a14ae794431e45dce83841a568beb4c0fc7f",
+  "ir_sha256": "2a077e443514e66b7b0863214d8d05d29ceb192820feb6854a5e34d5a44d95dd"
+}

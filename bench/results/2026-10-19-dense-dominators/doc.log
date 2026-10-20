@@ -1,0 +1,14 @@
+    Checking dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+   Compiling dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+   Compiling dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+   Compiling dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+ Documenting dartforge-cli v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/cli)
+ Documenting dartforge-ng-generator v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/ng_generator)
+ Documenting dartforge-runtime v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime)
+ Documenting dartforge-llvm v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/llvm)
+ Documenting dartforge-jit v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/jit)
+ Documenting dartforge-runtime-static v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/runtime_static)
+ Documenting dartforge-emit-native v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/emit_native)
+ Documenting dartforge-differential v0.1.0 (/Volumes/ssd_dock/MyRustProjects/dartforge/crates/differential)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 56s
+   Generated /Volumes/ssd_dock/MyRustProjects/dartforge/target/doc/dartforge_abi/index.html and 29 other files

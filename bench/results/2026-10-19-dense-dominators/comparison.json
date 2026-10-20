@@ -1,0 +1,11 @@
+{
+  "ir_bytes_identical": false,
+  "ir_bytes": 2349700,
+  "before_sha256": "2a077e443514e66b7b0863214d8d05d29ceb192820feb6854a5e34d5a44d95dd",
+  "after_sha256": "10c77f9a1e938e5be15521bf4550dfdb8d8ecf274270a09dda9ec159d2635399",
+  "single_pair_seconds": {
+    "before": 3.111059041,
+    "after": 47.132043458
+  },
+  "general_compiler_speedup_claimed": false
+}

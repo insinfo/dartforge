@@ -1,0 +1,19 @@
+{
+  "common": {
+    "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk",
+    "MACOSX_DEPLOYMENT_TARGET": "15.0",
+    "PATH_prefix": [
+      "/Volumes/ssd_dock/llvm/LLVM-22.1.8-macOS-ARM64/bin",
+      "/Volumes/ssd_dock/tools/dart/3.6.2/dart-sdk/bin"
+    ]
+  },
+  "DARTFORGE_NATIVE_CACHE": {
+    "before": null,
+    "after": null,
+    "before-repeat": null,
+    "after-repeat": null,
+    "before-fresh-cache": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/old-fresh-cache"
+  },
+  "IR_inputs_frozen_by_source_sha256": true,
+  "general_end_to_end_speedup_claimed": false
+}

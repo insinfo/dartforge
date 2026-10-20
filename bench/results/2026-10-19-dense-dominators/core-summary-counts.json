@@ -1,0 +1,65 @@
+[
+  {
+    "label": "old-cached",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "core.poda",
+    "bytes": 859332,
+    "sha256": "a2ca14a2d779c94d1fc7fb1746c123004c75d33cbdc206c61141920c0c930d5f",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-cached/core.poda",
+    "record_counts": {
+      "N": 7075,
+      "D": 6481,
+      "I": 6481,
+      "T": 77,
+      "S": 272,
+      "R": 277,
+      "C": 286,
+      "E": 27,
+      "U": 1,
+      "K": 113,
+      "P": 278
+    }
+  },
+  {
+    "label": "old-fresh",
+    "cache_key": "5de6da02057aa61971140a41b1bc5bba",
+    "name": "core.poda",
+    "bytes": 895579,
+    "sha256": "ee23dc2c5ae5c307dc1ac9c34d3b0dee718ca03101dfb08cfe082461eecb0748",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/old-fresh/core.poda",
+    "record_counts": {
+      "N": 7000,
+      "D": 6407,
+      "I": 6407,
+      "T": 77,
+      "S": 270,
+      "R": 277,
+      "C": 457,
+      "E": 814,
+      "U": 1,
+      "K": 113,
+      "P": 278
+    }
+  },
+  {
+    "label": "new-fresh",
+    "cache_key": "427c196232f7312f6046016b1e684ce7",
+    "name": "core.poda",
+    "bytes": 895579,
+    "sha256": "ee23dc2c5ae5c307dc1ac9c34d3b0dee718ca03101dfb08cfe082461eecb0748",
+    "snapshot": "/Volumes/ssd_dock/MyRustProjects/dartforge/target/dense-dominator-validation/cache-snapshots/new-fresh/core.poda",
+    "record_counts": {
+      "N": 7000,
+      "D": 6407,
+      "I": 6407,
+      "T": 77,
+      "S": 270,
+      "R": 277,
+      "C": 457,
+      "E": 814,
+      "U": 1,
+      "K": 113,
+      "P": 278
+    }
+  }
+]
