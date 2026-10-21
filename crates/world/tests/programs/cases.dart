@@ -86,6 +86,22 @@ extension EPedra on Pedra {
   int rola() => 5;
 }
 
+// A compound write on an extension accessor runs the getter and the setter,
+// though the target resolves to only one of them (and another extension has a
+// getter of the same name).
+class Saco {
+  int n = 0;
+}
+
+extension ESaco on Saco {
+  int get cheio => n;
+  set cheio(int v) => n = v;
+}
+
+extension on int {
+  int get cheio => this;
+}
+
 class Fab {
   Fab._();
   factory Fab() = Fab._;
@@ -158,6 +174,10 @@ void main() {
   dynamic rio = Rio();
   print(rio.some());
   print(Pedra().rola());
+  final saco = Saco();
+  print(3.cheio);
+  saco.cheio += 2;
+  saco.cheio++;
   Fab();
   var t = Tear.new;
   t();

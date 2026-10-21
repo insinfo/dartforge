@@ -863,6 +863,33 @@ fn name_target(m: &Engine<'_>, ctx: &Context, id: ExprId) -> NameTarget {
 fn write_to_target(m: &mut Engine<'_>, ctx: &Context, lhs: ExprId) {
     let e = m.e;
     let ast = &e.program.unit(ctx.unit).ast;
+    // An extension accessor (`c.x += v` with `x` of an extension): the target
+    // resolves to one of the pair, and both run — the getter and the setter
+    // of that name, which are functions, not selectors.
+    if let Some(Resolved::ExtensionMember { extension, member }) = e
+        .bodies
+        .units
+        .get(ctx.unit.0 as usize)
+        .and_then(|u| u.get_resolved(lhs))
+    {
+        let base = |f: FunctionElementId| {
+            let name = e.interner.resolve(e.program.function(f).name);
+            name.trim_end_matches('=').trim_end_matches('_').to_string()
+        };
+        let name = base(*member);
+        let pair: Vec<FunctionElementId> = e
+            .program
+            .extension(*extension)
+            .instance_members
+            .values()
+            .chain(e.program.extension(*extension).static_members.values())
+            .copied()
+            .filter(|&f| base(f) == name)
+            .collect();
+        for f in pair {
+            m.use_function(f);
+        }
+    }
     match &ast.expr(lhs).kind {
         ExprKind::Property { name, .. } => {
             let text = e.interner.resolve(name.sym);

@@ -186,6 +186,26 @@ fn closed_world_cases() {
             !c.live("ext:corre") && !c.live("ext:some"),
             "extension members dead under a call on another class or a dynamic call",
         );
+        {
+            use dartforge_elements::model::FunctionKind;
+            let accessors: Vec<(FunctionKind, bool)> = (0..a.program.functions.len())
+                .map(|i| FunctionElementId(i as u32))
+                .filter(|f| {
+                    let func = a.program.function(*f);
+                    func.extension.is_some_and(|e| {
+                        a.program
+                            .extension(e)
+                            .name
+                            .is_some_and(|n| a.interner.resolve(n) == "ESaco")
+                    }) && a.interner.resolve(func.name).trim_end_matches('=') == "cheio"
+                })
+                .map(|f| (a.program.function(f).kind, m.is_live_function(f)))
+                .collect();
+            check(
+                accessors.len() == 2 && accessors.iter().all(|(_, live)| *live),
+                "getter and setter of an extension accessor live under `+=` and `++`",
+            );
+        }
         // constructors
         check(
             c.level("Fab") == ClassLevel::Instantiated && c.live("Fab._"),
