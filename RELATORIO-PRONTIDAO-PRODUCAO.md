@@ -8,7 +8,7 @@ de 25,22 MB, árvores 1,75× mais lentas) são do commit `eb6d25ab` e já não v
 
 | uso | situação | recomendação |
 |---|---|---|
-| Servidor HTTP e CLI nativos (AOT) | correto no corpus, heap estável sob carga, menos memória que o Dart, vazão 80–95% do Dart | pode ir para produção com implantação gradual e o Dart como plano B |
+| Servidor HTTP e CLI nativos (AOT) | correto no corpus, memória estável em 10 milhões de pedidos e menor que a do Dart, vazão 80–95% do Dart | pode ir para produção com implantação gradual e o Dart como plano B |
 | Desktop nativo (dart_ui, File Explorer) | smoke AOT passa; executável 1,59× o do Dart | pode ir para produção onde o tamanho do instalador não é crítico |
 | Web (JS de produção) | correto no corpus e num projeto real, saída idêntica à VM; arquivo ~2× o do dart2js | serve para sistemas internos; para sites públicos o tamanho ainda pesa |
 | Modo A1 (`--exceptions tables`) | correto no corpus; desenrolar um `StackOverflowError` profundo é lento | usar o modo padrão (A0) em produção |
@@ -32,13 +32,13 @@ de 25,22 MB, árvores 1,75× mais lentas) são do commit `eb6d25ab` e já não v
 | pedidos por segundo | 26–29 mil | 27–35 mil |
 | RSS no início | 15,2 MB | 23,3 MB |
 | RSS depois de 1,2 milhão de pedidos | 17,6 MB | 52,7 MB |
-| RSS depois de 3,2 milhões de pedidos | 19,0 MB | não medido |
+| RSS depois de 2, 5, 8 e 10 milhões de pedidos | 19,0 / 19,1 / 19,1 / 18,7 MB | não medido |
 
-O heap Dart do DartForge não vaza: depois de cada coleta completa ficam cerca de 50 KiB
-ocupados e 2,3 a 3,2 MB de páginas, estáveis ao longo de 600 mil pedidos
-(`DARTFORGE_GC_MEMORY=1`). O RSS ainda cresce cerca de 1 byte por pedido, só com conexões
-simultâneas, fora do heap Dart. Sem concorrência, ou com uma conexão nova por pedido, o RSS
-fica parado. É o próximo ponto a investigar antes de um servidor ficar semanas no ar.
+Não há vazamento. Depois de cada coleta completa ficam cerca de 50 KiB ocupados e 2,3 a
+3,2 MB de páginas (`DARTFORGE_GC_MEMORY=1`), e o `malloc` não cresce entre os instantâneos
+do `heap`. O RSS sobe nos primeiros 2 milhões de pedidos com 32 conexões simultâneas, por
+buffers médios do runtime que crescem até o pico e por mais blocos de páginas do heap
+(`vmmap`), e depois fica estável até 10 milhões. Sem concorrência ele nem sobe.
 
 **Desempenho nativo** (melhor de várias rodadas):
 
@@ -79,16 +79,14 @@ O DartForge compila o JS de produção cerca de duas vezes mais rápido que o da
    piso vem dos membros de `Object` tratados como universais no mundo fechado
    (`crates/world`, `universal_names`): `toString` puxa o RTI inteiro. Fechar a diferença
    exige gerar o modelo de objetos no estilo do dart2js, não ajustes pontuais.
-2. **RSS fora do heap sob concorrência.** Cerca de 1 byte por pedido com 32 conexões
-   simultâneas; medir por mais tempo e com o alocador do sistema instrumentado.
-3. **`async` 1,3× o Dart.** O que sobra é a própria máquina de estados no estilo do
+2. **`async` 1,3× o Dart.** O que sobra é a própria máquina de estados no estilo do
    dart2js (`_propagateToListeners`, closures por `await`). A saída é o modelo da VM.
-4. **Enums e constantes como objetos da imagem.** Hoje cada `T.a` lê uma flag de
+3. **Enums e constantes como objetos da imagem.** Hoje cada `T.a` lê uma flag de
    inicialização e pode chamar o getter; com objetos estáticos a comparação vira um
    endereço constante e o tamanho cai.
-5. **Contexto da thread em registrador.** Cada função lê o contexto por TLS (cinco
+4. **Contexto da thread em registrador.** Cada função lê o contexto por TLS (cinco
    instruções na entrada); é a maior parte do que falta nas árvores.
-6. **Desenrolamento em A1** a ~1,5 µs por quadro no macOS (o dyld relê o Mach-O a cada
+5. **Desenrolamento em A1** a ~1,5 µs por quadro no macOS (o dyld relê o Mach-O a cada
    quadro). Só pesa em exceções que atravessam muitos quadros.
 
 ## Como reproduzir
