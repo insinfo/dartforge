@@ -126,6 +126,10 @@ não o `Platform.environment` do Dart: copia até `out_capacity` bytes do valor 
 devolve o comprimento completo, ou `-1` quando a opção não existe. O executor
 repassa só as variáveis `DARTFORGE_*` do próprio processo; o adaptador JS, o
 objeto `options` de `runModule` (o runner do Node passa as `DARTFORGE_*`).
+`DARTFORGE_URI_BASE` é o `Uri.base` do programa, lido a cada chamada: sem ele no
+`options`, o adaptador responde `globalThis.location.href` quando existe (a
+página; no Node, nada), como o dart2wasm; sem a opção, `Uri.base` lança
+`UnsupportedError`.
 
 ## Interop JS (`dartforge_js`)
 

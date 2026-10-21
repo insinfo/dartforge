@@ -396,6 +396,7 @@ dartforge_native_DartForge_typed_setUint16	1	1	1
 dartforge_native_DartForge_typed_setUint32	1	1	1
 dartforge_native_DartForge_typed_setUint64	1	1	1
 dartforge_native_DartForge_typed_setUint8	1	1	1
+dartforge_native_DartForge_uri_base	1	0	0
 dartforge_native_DartNativeApiFunctionPointer	1	1	1
 dartforge_native_DateTime_currentTimeMicros	1	1	0
 dartforge_native_DateTime_timeZoneName	1	1	0

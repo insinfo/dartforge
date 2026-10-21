@@ -80,3 +80,11 @@ pub extern "C" fn dartforge_engine_stack(bytes: i32) {
         std::sync::atomic::Ordering::Relaxed,
     );
 }
+
+/// `DartForge_uri_base()` (`native_sdk/wasm/uri_patch.dart`): the `Uri.base`
+/// the host gives on this call (the runtime option `DARTFORGE_URI_BASE`; a
+/// page's `location.href`), or `null` when it has none.
+#[unsafe(no_mangle)]
+pub extern "C" fn dartforge_native_DartForge_uri_base() -> i64 {
+    crate::host::option("DARTFORGE_URI_BASE").map_or(0, |base| allocate_str(&base))
+}

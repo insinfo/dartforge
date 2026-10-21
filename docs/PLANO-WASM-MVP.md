@@ -453,7 +453,15 @@ Abertos para o W4:
    a memória linear.
 3. Inteiros, shifts, divisão/resto, overflow, NaN/−0 e double→int; onde a VM e o dart2wasm divergem, seguir o dart2wasm e
    registrar o caso no corpus.
-4. Testes web do `new_sali/core` iguais ao `dart run`.
+4. Testes web do `new_sali/core` iguais ao `dart run`. **Feito (21/10):** os 7
+   testes que rodam na web (`arvore_processo_item`, `atributo_protocolo`,
+   `documento_despacho_model`, `documento_validacao`, `permissao_constants`,
+   `processo_tramite_resumo`, `table_aware_delta_parser`) saem iguais ao `dart
+   run --enable-asserts` no Node (módulos de ~7 MB). Faltava o `Uri.base` (o
+   `package:path` do `package:test` o lê): como no dart2wasm, é o
+   `location.href` da página, que o adaptador JS responde a cada chamada pela
+   opção `DARTFORGE_URI_BASE` (`native_sdk/wasm/uri_patch.dart`); no Node, o
+   teste passa o diretório como faria a VM.
 
 **Aceite:** zero divergências no corpus, com GC forçado; diferenças em relação à
 VM só onde o dart2wasm também difere, cada uma com teste.

@@ -349,6 +349,16 @@ export class Interop {
   }
 }
 
+/**
+ * The options the host itself answers when the caller does not pass them:
+ * `DARTFORGE_URI_BASE`, the `Uri.base` of the module — the page's URL on each
+ * call, as dart2wasm reads it (`globalThis.location.href`; none in Node).
+ */
+function hostOption(key) {
+  if (key === "DARTFORGE_URI_BASE" && globalThis.location != null) return globalThis.location.href;
+  return undefined;
+}
+
 /** The SHA-256 of `bytes` in lowercase hex. */
 export async function sha256Hex(bytes) {
   const digest = await crypto.subtle.digest("SHA-256", bytes);
@@ -434,8 +444,9 @@ export async function runModule(bytes, sinks, options = {}, companion = null) {
         const out = range(memory, outOffset, outCapacity);
         if (name === null || out === null) return WRITE_OUT_OF_RANGE;
         const key = new TextDecoder().decode(new Uint8Array(memory.buffer, name[0], name[1] - name[0]));
-        if (!Object.hasOwn(options, key)) return -1;
-        const bytes = new TextEncoder().encode(String(options[key]));
+        const value = Object.hasOwn(options, key) ? options[key] : hostOption(key);
+        if (value === undefined || value === null) return -1;
+        const bytes = new TextEncoder().encode(String(value));
         new Uint8Array(memory.buffer, out[0], out[1] - out[0]).set(bytes.subarray(0, out[1] - out[0]));
         return bytes.length;
       },

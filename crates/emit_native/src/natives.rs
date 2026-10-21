@@ -351,6 +351,7 @@ pub const NATIVES: &[NativeEntry] = &[
     runtime("DartForge_tls_x509_sha1"),
     runtime("DartForge_tls_x509_start"),
     runtime("DartForge_tls_x509_subject"),
+    runtime("DartForge_uri_base"),
     runtime("DartNativeApiFunctionPointer"),
     runtime("DateTime_currentTimeMicros"),
     runtime("DateTime_timeZoneName"),
